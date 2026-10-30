@@ -1,0 +1,53 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One shortcut: its name (from the language files by id — `ScName`), its
+// chords (`ScKeys`), and the rebinding control — drawn, disabled: rebinding is
+// a later phase, and a control that does nothing must not look like one that
+// does. A shortcut nothing acts on yet (`active` false) is dimmed and says so.
+
+Component ScRow {
+    props: {
+        id: Str,
+        keys: Str,
+        alt: Str,
+        active: Bool,
+    }
+    if $props.active {
+        Stack {
+            Stack {
+                ScName { id: $props.id }
+            }
+            .grow(1)
+            ScKeys { keys: $props.keys, alt: $props.alt }
+            Button { label: @t("sc.change") }
+                .bg(surfaceVariant)
+                .disabled(true)
+        }
+        .direction(row)
+        .align(center)
+        .gap(3)
+        .paddingX(4)
+        .paddingY(2)
+        .minHeight(48)
+    } else {
+        Stack {
+            Stack {
+                ScName { id: $props.id }
+                Text(@t("sc.inactive")).textSize(xs).fg(onGlassMuted)
+            }
+            .gap(0)
+            .grow(1)
+            ScKeys { keys: $props.keys, alt: $props.alt }
+            Button { label: @t("sc.change") }
+                .bg(surfaceVariant)
+        }
+        .direction(row)
+        .align(center)
+        .gap(3)
+        .paddingX(4)
+        .paddingY(2)
+        .minHeight(48)
+        .disabled(true)
+    }
+}

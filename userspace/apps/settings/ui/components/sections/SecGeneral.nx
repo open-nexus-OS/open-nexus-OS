@@ -7,7 +7,8 @@
 // `time.format` · `ime.personalization`.
 //
 // The handoff buries these Selects one level deeper, inside the "Systemsprache"
-// and "Tastatur & Eingabe" sub-pages. They sit on the section root here
+// and "Tastatur & Eingabe" sub-pages. "Tastaturkurzbefehle" opens its own
+// window over the settings window (TASK-0346, `ShortcutsWindow`). They sit on the section root here
 // because the sub-pages are Phase 2 and these are the controls that actually
 // do something — hiding working settings behind an unbuilt screen would be
 // the wrong half to defer.
@@ -92,6 +93,15 @@ Component SecGeneral {
                     }
                 }
                 on Tap -> dispatch(OpenPicker("layout"))
+                SetHairline { }
+                // TASK-0346 P3: every shortcut, listed from the registry inputd matches from — in
+                // its own window (`ShortcutsWindow`).
+                Stack {
+                    SetRow { title: @t("sc.title"), subtitle: @t("gen.shortcutsSub"), icon: "keyboard", showChevron: true } {
+                        trailing { }
+                    }
+                }
+                on Tap -> dispatch(ScOpen)
                 SetHairline { }
                 SetRow { title: @t("gen.autocorrect"), subtitle: "", icon: "textformat", showChevron: false } {
                     trailing { Toggle { checked: $state.tgAutocorrect, label: @t("gen.autocorrect") } }

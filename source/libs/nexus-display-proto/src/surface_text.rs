@@ -12,10 +12,12 @@
 
 use crate::client_surface::{has_op, header, HEADER_LEN};
 
-/// windowd → app: composed text delivery to the FOCUSED surface (RFC-0075).
-/// imed pushes commits/preedit to windowd; windowd routes them here — apps
-/// must accept text only on this established push channel, never from peers.
-/// Payload: `kind:u8, aux:u8, len:u8, text[..64]` (UTF-8, bounded).
+/// windowd → app: text delivery to the FOCUSED surface (RFC-0075, RFC-0113). A layout source's
+/// text comes from inputd through windowd, a composition source's through imed and windowd —
+/// apps accept text only on this established push channel, never from peers. Payload:
+/// `kind:u8, aux:u8, len:u8, seq:u32, t_ns:u64, text[..64]` (UTF-8, bounded); `seq`/`t_ns` are
+/// the source key's (RFC-0113 §1) — the field measures key → present from them — and zero for
+/// text no key produced (an on-screen-keyboard card).
 pub const OP_SURFACE_TEXT: u8 = 21;
 /// app → windowd: widget text-focus announcement (RFC-0075). The app owns
 /// widget focus and CLAIMS ITS OWN surface id (windowd's server endpoint
@@ -50,7 +52,23 @@ pub const SURFACE_TEXT_ACTION: u8 = 2;
 
 /// Maximum UTF-8 payload bytes per `OP_SURFACE_TEXT` frame (RFC-0075 bound).
 pub const SURFACE_TEXT_MAX_BYTES: usize = 64;
-pub const SURFACE_TEXT_FRAME_MAX: usize = HEADER_LEN + 3 + SURFACE_TEXT_MAX_BYTES;
+/// `kind, aux, len` and the source key's stamp (`seq:u32, t_ns:u64`).
+const SURFACE_TEXT_HEAD_LEN: usize = 3 + 4 + 8;
+pub const SURFACE_TEXT_FRAME_MAX: usize =
+    HEADER_LEN + SURFACE_TEXT_HEAD_LEN + SURFACE_TEXT_MAX_BYTES;
+
+/// The source key of a text push (RFC-0113 §1): its stream sequence and when the system first
+/// saw it; [`TextStamp::NONE`] for text no key produced.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct TextStamp {
+    pub seq: u32,
+    pub t_ns: u64,
+}
+
+impl TextStamp {
+    /// Text no key produced (an on-screen-keyboard card, an insert).
+    pub const NONE: Self = Self { seq: 0, t_ns: 0 };
+}
 
 /// Encodes a text push; `None` when `text` exceeds the bound.
 #[must_use]
@@ -58,6 +76,7 @@ pub fn encode_surface_text(
     kind: u8,
     aux: u8,
     text: &str,
+    stamp: TextStamp,
 ) -> Option<([u8; SURFACE_TEXT_FRAME_MAX], usize)> {
     let bytes = text.as_bytes();
     if bytes.len() > SURFACE_TEXT_MAX_BYTES {
@@ -68,22 +87,30 @@ pub fn encode_surface_text(
     f[4] = kind;
     f[5] = aux;
     f[6] = bytes.len() as u8;
-    f[7..7 + bytes.len()].copy_from_slice(bytes);
-    Some((f, HEADER_LEN + 3 + bytes.len()))
+    f[7..11].copy_from_slice(&stamp.seq.to_le_bytes());
+    f[11..19].copy_from_slice(&stamp.t_ns.to_le_bytes());
+    let start = HEADER_LEN + SURFACE_TEXT_HEAD_LEN;
+    f[start..start + bytes.len()].copy_from_slice(bytes);
+    Some((f, start + bytes.len()))
 }
 
-/// `(kind, aux, text)` — fail-closed on truncation, oversize or invalid UTF-8.
+/// `(kind, aux, text, stamp)` — fail-closed on truncation, oversize or invalid UTF-8.
 #[must_use]
-pub fn decode_surface_text(frame: &[u8]) -> Option<(u8, u8, &str)> {
-    if !has_op(frame, OP_SURFACE_TEXT) || frame.len() < HEADER_LEN + 3 {
+pub fn decode_surface_text(frame: &[u8]) -> Option<(u8, u8, &str, TextStamp)> {
+    let start = HEADER_LEN + SURFACE_TEXT_HEAD_LEN;
+    if !has_op(frame, OP_SURFACE_TEXT) || frame.len() < start {
         return None;
     }
     let len = usize::from(frame[6]);
-    if len > SURFACE_TEXT_MAX_BYTES || frame.len() != HEADER_LEN + 3 + len {
+    if len > SURFACE_TEXT_MAX_BYTES || frame.len() != start + len {
         return None;
     }
-    let text = core::str::from_utf8(&frame[7..7 + len]).ok()?;
-    Some((frame[4], frame[5], text))
+    let seq = u32::from_le_bytes([frame[7], frame[8], frame[9], frame[10]]);
+    let t_ns = u64::from_le_bytes([
+        frame[11], frame[12], frame[13], frame[14], frame[15], frame[16], frame[17], frame[18],
+    ]);
+    let text = core::str::from_utf8(&frame[start..start + len]).ok()?;
+    Some((frame[4], frame[5], text, TextStamp { seq, t_ns }))
 }
 
 /// `OP_SURFACE_TEXT_FOCUS` field kinds (mirror imed wire semantics: password
@@ -150,6 +177,12 @@ pub const IME_CANDIDATE_MAX_BYTES: usize = 32;
 /// header + kind + page + count + 8 × (len + 32).
 pub const SURFACE_IME_STATE_FRAME_MAX: usize =
     HEADER_LEN + 3 + IME_CANDIDATES_MAX * (1 + IME_CANDIDATE_MAX_BYTES);
+
+/// The largest frame windowd sends a client on its event channel — windowd's outbox stores it
+/// and every client's receive buffer holds it (RFC-0113: an app-host buffer of 64 bytes cut
+/// every text over 57 bytes and every candidate page).
+pub const CLIENT_EVENT_FRAME_MAX: usize = SURFACE_IME_STATE_FRAME_MAX;
+const _: () = assert!(SURFACE_TEXT_FRAME_MAX <= CLIENT_EVENT_FRAME_MAX);
 
 /// Preedit push: `[hdr, kind=PREEDIT, len:u8, text…]`.
 #[must_use]
@@ -311,27 +344,36 @@ mod tests {
 
     #[test]
     fn surface_text_round_trip_and_bounds() {
-        let (f, n) = encode_surface_text(SURFACE_TEXT_COMMIT, 0, "éâ").unwrap();
+        let stamp = TextStamp { seq: 41, t_ns: 9_000_000 };
+        let (f, n) = encode_surface_text(SURFACE_TEXT_COMMIT, 0, "éâ", stamp).unwrap();
         assert_eq!(&f[..HEADER_LEN], &header(OP_SURFACE_TEXT));
-        assert_eq!(decode_surface_text(&f[..n]), Some((SURFACE_TEXT_COMMIT, 0, "éâ")));
+        assert_eq!(decode_surface_text(&f[..n]), Some((SURFACE_TEXT_COMMIT, 0, "éâ", stamp)));
         // Empty payload is valid (preedit clear); oversize rejects on encode.
-        let (f, n) = encode_surface_text(SURFACE_TEXT_PREEDIT, 2, "").unwrap();
-        assert_eq!(decode_surface_text(&f[..n]), Some((SURFACE_TEXT_PREEDIT, 2, "")));
+        let (f, n) = encode_surface_text(SURFACE_TEXT_PREEDIT, 2, "", TextStamp::NONE).unwrap();
+        assert_eq!(
+            decode_surface_text(&f[..n]),
+            Some((SURFACE_TEXT_PREEDIT, 2, "", TextStamp::NONE))
+        );
         let long = [b'x'; SURFACE_TEXT_MAX_BYTES + 1];
         let long = core::str::from_utf8(&long).unwrap();
-        assert!(encode_surface_text(SURFACE_TEXT_COMMIT, 0, long).is_none());
+        assert!(encode_surface_text(SURFACE_TEXT_COMMIT, 0, long, stamp).is_none());
+        // The largest frame fits every receiver sized by SURFACE_TEXT_FRAME_MAX (app-host).
+        let full = [b'y'; SURFACE_TEXT_MAX_BYTES];
+        let full = core::str::from_utf8(&full).unwrap();
+        let (_, n) = encode_surface_text(SURFACE_TEXT_COMMIT, 0, full, stamp).unwrap();
+        assert_eq!(n, SURFACE_TEXT_FRAME_MAX);
     }
 
     #[test]
     fn test_reject_surface_text_malformed() {
-        let (f, n) = encode_surface_text(SURFACE_TEXT_COMMIT, 0, "abc").unwrap();
+        let (f, n) = encode_surface_text(SURFACE_TEXT_COMMIT, 0, "abc", TextStamp::NONE).unwrap();
         // Truncation, length-field lies, invalid UTF-8 all fail closed.
         assert_eq!(decode_surface_text(&f[..n - 1]), None);
         let mut lying = f;
         lying[6] = 60;
         assert_eq!(decode_surface_text(&lying[..n]), None);
         let mut bad_utf8 = f;
-        bad_utf8[7] = 0xFF;
+        bad_utf8[HEADER_LEN + SURFACE_TEXT_HEAD_LEN] = 0xFF;
         assert_eq!(decode_surface_text(&bad_utf8[..n]), None);
         let mut wrong_op = f;
         wrong_op[3] = OP_SURFACE_INPUT;

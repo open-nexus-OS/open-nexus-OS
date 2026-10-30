@@ -5,8 +5,9 @@
 # USB alone, as data: log in; the shell's modal twice (TASK-0074); a window tiled and returned
 # (TASK-0066); hidden, frozen, squeezed and swapped out, shown again (TASK-0333 6d/6f); closed and
 # restored (6e-1); hidden once more and killed by the drill (6e-2), the kill journaled (6f-3); the
-# clipboard round (TASK-0067B); a screenshot (TASK-0068). Every step waits for what it caused —
-# no pause stands in for an event; the declared `settle_s` pauses are the frames that have none.
+# clipboard round (TASK-0067B); a word typed fast, every key counted (TASK-0346); a screenshot
+# (TASK-0068). Every step waits for what it caused — no pause stands in for an event; the declared
+# `settle_s` pauses are the frames that have none.
 # OWNERS: @runtime @ui
 # STATUS: Functional
 # API_STABILITY: Unstable
@@ -223,6 +224,32 @@ timeout_s = 45
 name = "close the search"
 do = { key = "esc" }
 expect = ["apphost: modal dismiss (reason=escape)"]
+timeout_s = 30
+
+# -- typing (TASK-0346 / RFC-0113): a word typed fast, every key counted ----------------------------
+# The search's field once more: 28 letters at 30 ms a key (held 30, released 30 — faster than
+# anyone types), then the Escape. The field's session says what it applied when the focus leaves:
+# the counts read whole — none lost, every key timed from the system's first sight of it.
+[[step]]
+name = "open the search to type"
+settle_s = 1.5
+do = { click = "search_pill" }
+expect = ["apphost: modal open (depth=1)", "apphost: text focus set"]
+timeout_s = 40
+
+# Typing writes no line (the keystroke privacy rule): the session's aggregate acknowledges it.
+[[step]]
+name = "type fast"
+do = { type = "fast_word", pace_ms = 30 }
+acked_by = "every key arrived"
+
+[[step]]
+name = "every key arrived"
+do = { key = "esc" }
+expect = [
+    "apphost: modal dismiss (reason=escape)",
+    "apphost: input session (chars=28 actions=1 timed=29)",
+]
 timeout_s = 30
 
 # -- capture (TASK-0068 / RFC-0095) -------------------------------------------------------------------

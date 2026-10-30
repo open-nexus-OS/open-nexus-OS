@@ -1,0 +1,16 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "shortcuts"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "The shortcut registry (RFC-0113 §7): every key chord the system acts on, matched and listed from one table"
+
+[lib]
+name = "shortcuts"
+path = "src/lib.rs"
+
+[dependencies]
+hid = { path = "../hid" }

@@ -194,7 +194,23 @@ pointer, stem)` saves the screen or the focused window without a UI. The stem is
 words only — the host appends the local time. A refusal (the greeter, a capture already
 running) is `ERR_SVC_DENIED`.
 
+## The shortcut registry (`svc.shortcuts`, RFC-0113 §7)
+
+`list(category, locale)` → `List<ShortcutRow>` (`id: Str`, `keys: Str`, `alt: Str`,
+`active: Bool`): the category's entries of the shortcut registry (`userspace/shortcuts`) in
+table order — `keys` names the primary chord, `alt` the alternates (` · ` between them, `""`
+for none), both for `locale` (German key caps for `de*`, the Latin names otherwise); `active`
+false = matched but nothing acts on it yet. Categories: `windows`, `screenshots`, `text`,
+`input`; an unknown one is an empty list. An in-process app-host verb with no permission and no
+service round trip: the registry is compiled into every component that needs it — inputd
+matches the window and capture chords from it, the keymap the field commands. A page names a
+row from its language files by `id` (`sc.<id>`; `@t` takes literal keys, so one arm per id —
+the settings app's `ScName`). Rebinding is a later phase.
+
 ## Changelog
+
+- **2026-10-30 (TASK-0346 P3)** — `svc.shortcuts.list(category, locale)`: the shortcut
+  registry's rows for the settings page's Keyboard shortcuts.
 
 - **2026-10-09 (TASK-0068)** — `svc.screencap.{begin,shoot,cancel,shot}`; the host triggers
   `CaptureOpen`/`CaptureScreen`/`CaptureWindow`; the drag gesture.

@@ -120,6 +120,19 @@ fn the_counters_say_how_full_a_drain_was_and_when_a_pipe_ran_dry() {
     assert_eq!(rig.xhci.take_stats(), xhcid::Stats::default(), "taken means reset");
 }
 
+/// A keyboard's report reaches the sink but counts in no window: its reports per second are what
+/// was typed, as rhythm and length (RFC-0113 §6).
+#[test]
+fn test_reject_a_keyboard_report_in_the_rate_window() {
+    let (_m, mut rig) = board_rig();
+    let _ = rig.xhci.take_stats();
+    rig.report(1, 0x2, 0x81, &[0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00]);
+    let stats = rig.xhci.take_stats();
+    assert_eq!(stats.reports, 0, "no keyboard report in the window");
+    assert!(stats.interrupts >= 1, "the interrupt was handled");
+    assert_eq!(rig.sink.reports().len(), 1, "and the report delivered");
+}
+
 #[test]
 fn a_thousand_reports_wrap_every_ring() {
     // The event ring (256), the interrupt ring (16) and the report buffers (4) all wrap many

@@ -606,6 +606,42 @@ proves = "a 32-frame window on the board's GPU judged: frames past the panel's 1
 phase = "end"
 proves = "a 16-input window judged: how long the first staged input waited for the frame that carried it to gpud (50 ms warn, 100 ms FAIL)"
 
+# RFC-0113 (TASK-0346): instant input, every key counted. A focused field's session says ONE
+# aggregate when the focus leaves it — never a line per key, never one for a secure field: the
+# counts first (a lane reads them whole: none lost), then the key → present latencies and the
+# p99's verdict. A key lost on the way is a FAIL of the lane (`qemu-test.sh`, `board-test.sh`).
+[marker."apphost: input session ("]
+phase = "end"
+proves = "a focused field's session ended: the characters and editing actions it applied, how many were timed from the system's first sight of the key to the present that showed it, their p50/p99/max and the p99's verdict against the input budget (`ok|warn|FAIL`, `untimed` without a stamp) — counts only, no text"
+
+[marker."inputd: key channel to windowd open"]
+phase = "end"
+proves = "inputd translated a key (the layout source's text or action, or a composition source's key for the input method) and windowd's queue took its first key-input frame — sent blocking, never dropped for a full queue"
+
+[marker."inputd: FAIL input gap ("]
+phase = "end"
+proves = "a HID batch did not continue its device's stream: events hidrawd numbered never reached inputd (counts only)"
+
+[marker."inputd: FAIL key send ("]
+phase = "end"
+proves = "a key-input frame could not be handed to windowd (a dead route): the keys in it are counted lost"
+
+[marker."WINDOWD: FAIL key input ("]
+phase = "end"
+proves = "windowd refused a key frame from a sender that is not inputd, or could not hand a key to a living receiver (counted lost)"
+
+[marker."apphost: shortcuts listed ("]
+phase = "end"
+proves = "the settings page asked the shortcut registry for a category's rows (`svc.shortcuts.list`, in process — the table inputd and the keymap match keys against) and got them; said once per boot — the board's `shortcuts` act line"
+
+[marker."windowd: caret layer on"]
+phase = "end"
+proves = "windowd drew a focused field's caret as its own layer for the first time (the app declared it with `OP_SURFACE_CARET`; windowd blinks it on its one-shot timer — no app wake, no raster)"
+
+[marker."windowd: key input without a receiver (first)"]
+phase = "end"
+proves = "a key reached windowd while nobody could take it (no window yet, a window without its channel): counted, said once — not a loss of the channel"
+
 # RFC-0108 §hops (TASK-0342): where a chain's time goes — one line per window and service, each
 # hop `<from>><to>=<avg_us>/<max_us>/<count>`. Measurements, never judged (the chain's ends are).
 [marker."windowd: hops frame ("]

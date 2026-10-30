@@ -63,7 +63,8 @@ pub struct Stats {
     pub events: u32,
     /// The most events one drain dispatched.
     pub events_per_interrupt_max: u32,
-    /// Boot reports delivered to the sink.
+    /// Pointer boot reports delivered to the sink (a keyboard's are counted in no window: what
+    /// was typed, as rhythm and length — RFC-0113 §6).
     pub reports: u32,
     /// Drains in which an interrupt pipe's every queued TRB had completed: the ring had run
     /// dry and the device went unpolled until the requeue (reports lost at the device).

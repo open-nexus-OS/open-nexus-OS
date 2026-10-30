@@ -52,6 +52,10 @@ pub const MAX_SETTLE_S: f64 = 10.0;
 pub const MAX_RETRY: u8 = 3;
 /// A step's wait when it declares none.
 pub const DEFAULT_TIMEOUT_S: f64 = 30.0;
+/// The fastest declared typing pace (a key's hold, and the gap after it).
+pub const MIN_PACE_MS: u32 = 10;
+/// The slowest declared typing pace.
+pub const MAX_PACE_MS: u32 = 1_000;
 
 /// A display-space point (the desktop session shell's pixels).
 pub type Point = (i32, i32);
@@ -138,6 +142,9 @@ pub enum Action {
         word: String,
         /// Its letters.
         text: String,
+        /// How long each key is held, and the gap after it (RFC-0113's fast typing); `None` =
+        /// the injector's own pace.
+        pace_ms: Option<u32>,
     },
     /// Press at `from`, travel with the button held, release at `to`; the drag's trace
     /// acknowledges it.
@@ -269,6 +276,8 @@ struct RawAction {
     key: Option<String>,
     #[serde(rename = "type")]
     type_word: Option<String>,
+    /// A typing pace: only with `type`.
+    pace_ms: Option<u32>,
     drag: Option<[String; 2]>,
     wait: Option<bool>,
 }
@@ -437,6 +446,12 @@ fn action(step: &str, raw: RawAction, targets: &Targets) -> Result<Action, Scena
     if count != 1 {
         return Err(ScenarioError::NotOneAction(step.to_string()));
     }
+    if raw.pace_ms.is_some() && raw.type_word.is_none() {
+        return Err(out_of_range(step, "a pace is for typing"));
+    }
+    if raw.pace_ms.is_some_and(|ms| !(MIN_PACE_MS..=MAX_PACE_MS).contains(&ms)) {
+        return Err(out_of_range(step, "a typing pace is 10..=1000 ms"));
+    }
     if let Some(on) = raw.login {
         return if on { Ok(Action::Login) } else { Err(ScenarioError::NotOneAction(step.into())) };
     }
@@ -471,7 +486,7 @@ fn action(step: &str, raw: RawAction, targets: &Targets) -> Result<Action, Scena
         if text.is_empty() || !text.chars().all(|c| c.is_ascii_lowercase()) {
             return Err(out_of_range(step, "a typed word is lowercase letters"));
         }
-        return Ok(Action::Type { word, text });
+        return Ok(Action::Type { word, text, pace_ms: raw.pace_ms });
     }
     if let Some([from, to]) = raw.drag {
         let from_at = point(step, &from, targets)?;

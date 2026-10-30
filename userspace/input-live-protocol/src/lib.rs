@@ -18,18 +18,32 @@ use alloc::vec::Vec;
 
 /// inputd's display space, asked of windowd once (RFC-0098 C7).
 pub mod display_space;
+/// inputd → windowd: the reliable key channel (RFC-0113 §3).
+pub mod key_input;
 pub use display_space::{
     decode_display_space, encode_display_space, encode_get_display_space, DISPLAY_SPACE_FRAME_LEN,
     OP_GET_DISPLAY_SPACE,
 };
+pub use key_input::{
+    decode_push_key_input, encode_push_key_input, KeyInput, KEY_FLAG_REPEAT, KEY_INPUT_ACTION,
+    KEY_INPUT_COMPOSE, KEY_INPUT_FRAME_MAX, KEY_INPUT_TEXT, MAX_KEY_INPUTS, OP_PUSH_KEY_INPUT,
+};
+/// The device streams' sequence numbers: stamped once, checked by every hop (RFC-0113 §1).
+pub mod motion_push;
+pub mod seq_stream;
+pub use seq_stream::{SeqCheck, SeqStreams, STREAMS_MAX};
 
 pub const MAGIC0: u8 = b'I';
 pub const MAGIC1: u8 = b'N';
 /// v2 (2026-10-08): the visible state no longer carries typed text. v1 copied every typed
 /// character from inputd into this frame for a filter-panel proof that no longer exists —
 /// keystrokes crossed into windowd (and its observer state) for nothing. Text reaches apps
-/// only through imed (RFC-0075).
-pub const VERSION: u8 = 2;
+/// only through imed (RFC-0075). v3 (2026-10-30, RFC-0113 §1): a HID batch carries the
+/// sequence of its first event (`seq_first`) — every hop after hidrawd counts its gaps — and the
+/// key channel (`OP_PUSH_KEY_INPUT`) carries text from inputd to windowd for a layout source.
+/// v4 (2026-10-30, RFC-0113 §2): the update push carries the pointer's motion since the last
+/// push behind the state (`motion_push`).
+pub const VERSION: u8 = 4;
 
 pub const OP_PUSH_HID_BATCH: u8 = 1;
 pub const OP_GET_VISIBLE_STATE: u8 = 2;
@@ -54,12 +68,15 @@ pub const EVENT_KIND_ABS: u8 = 3;
 pub const EVENT_KIND_BTN: u8 = 4;
 
 const HEADER_LEN: usize = 8;
+/// The batch's own head: device kind, id, pointer source, axes, counts, `seq_first`.
+const BATCH_HEAD_LEN: usize = 20;
 const EVENT_LEN: usize = 15;
 pub const MAX_HID_BATCH_FRAME_LEN: usize = 256;
 /// Max wire events per frame — burst producers MUST chunk here: the encoder
 /// returns `None` oversize, and dropping a burst was the input-storm collapse.
-pub const MAX_HID_BATCH_EVENTS: usize = (MAX_HID_BATCH_FRAME_LEN - HEADER_LEN - 16) / EVENT_LEN;
-const STATE_LEN: usize = 39;
+pub const MAX_HID_BATCH_EVENTS: usize =
+    (MAX_HID_BATCH_FRAME_LEN - HEADER_LEN - BATCH_HEAD_LEN) / EVENT_LEN;
+const STATE_LEN: usize = 40;
 pub const VISIBLE_STATE_FRAME_LEN: usize = HEADER_LEN + STATE_LEN;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,6 +96,10 @@ pub struct WireHidBatch {
     pub abs_max_y: i32,
     pub raw_event_count: u16,
     pub normalized_event_count: u16,
+    /// The sequence of `events[0]` in its device's stream (RFC-0113 §1): events are numbered
+    /// consecutively per device, so a receiver that sees `seq_first` other than the last
+    /// batch's `seq_first + len` counts the gap.
+    pub seq_first: u32,
     pub events: Vec<WireHidEvent>,
 }
 
@@ -125,6 +146,9 @@ pub struct VisibleState {
     /// 3 Alt+Print = the focused window; 0 = none) — one-shot like `wm_chord`: windowd hands it
     /// to the desktop surface (the shell), apps never see the key. Appended (RFC-0053 amendment).
     pub capture: u8,
+    /// TASK-0346 P2: the modifiers held at this push (`nexus_display_proto::surface_input::MOD_*`
+    /// bits) — a click's Shift extends a selection. State, not a fact: every push carries it.
+    pub modifiers: u8,
 }
 
 /// Allocating convenience wrapper over [`encode_push_hid_batch_into`] (tests /
@@ -139,12 +163,22 @@ pub fn encode_push_hid_batch(batch: &WireHidBatch) -> Vec<u8> {
     }
 }
 
+/// A HID batch frame's device kind (`HID_KIND_*`) without decoding it — `None` for anything else
+/// (a rate line that must not count keyboard traffic tells the two apart before the decode).
+#[must_use]
+pub fn hid_batch_device_kind(frame: &[u8]) -> Option<u8> {
+    if !frame_has_op(frame, OP_PUSH_HID_BATCH) {
+        return None;
+    }
+    frame.get(HEADER_LEN).copied()
+}
+
 /// Encode a HID batch into a pre-allocated stack buffer. Returns bytes written.
 pub fn encode_push_hid_batch_into(
     batch: &WireHidBatch,
     buf: &mut [u8; MAX_HID_BATCH_FRAME_LEN],
 ) -> Option<usize> {
-    let needed = HEADER_LEN + 16 + batch.events.len() * EVENT_LEN;
+    let needed = HEADER_LEN + BATCH_HEAD_LEN + batch.events.len() * EVENT_LEN;
     if needed > MAX_HID_BATCH_FRAME_LEN {
         return None;
     }
@@ -167,6 +201,8 @@ pub fn encode_push_hid_batch_into(
     pos += 2;
     buf[pos..pos + 2].copy_from_slice(&batch.normalized_event_count.to_le_bytes());
     pos += 2;
+    buf[pos..pos + 4].copy_from_slice(&batch.seq_first.to_le_bytes());
+    pos += 4;
     for event in &batch.events {
         buf[pos] = event.kind;
         pos += 1;
@@ -200,7 +236,7 @@ pub fn decode_push_hid_batch_reusing(
         return Err(events);
     }
     let event_count = u32::from_le_bytes([frame[4], frame[5], frame[6], frame[7]]) as usize;
-    if frame.len() != HEADER_LEN + 16 + event_count * EVENT_LEN {
+    if frame.len() != HEADER_LEN + BATCH_HEAD_LEN + event_count * EVENT_LEN {
         return Err(events);
     }
     let device_kind = frame[8];
@@ -210,9 +246,10 @@ pub fn decode_push_hid_batch_reusing(
     let abs_max_y = i32::from_le_bytes([frame[16], frame[17], frame[18], frame[19]]);
     let raw_event_count = u16::from_le_bytes([frame[20], frame[21]]);
     let normalized_event_count = u16::from_le_bytes([frame[22], frame[23]]);
+    let seq_first = u32::from_le_bytes([frame[24], frame[25], frame[26], frame[27]]);
     events.clear();
     events.reserve(event_count);
-    let mut offset = 24;
+    let mut offset = HEADER_LEN + BATCH_HEAD_LEN;
     for _ in 0..event_count {
         let kind = frame[offset];
         let code = u16::from_le_bytes([frame[offset + 1], frame[offset + 2]]);
@@ -243,6 +280,7 @@ pub fn decode_push_hid_batch_reusing(
         abs_max_y,
         raw_event_count,
         normalized_event_count,
+        seq_first,
         events,
     })
 }
@@ -311,6 +349,7 @@ fn encode_state_frame(op: u8, state: VisibleState) -> [u8; VISIBLE_STATE_FRAME_L
     out[41..45].copy_from_slice(&state.wheel_delta_y.to_le_bytes());
     out[45] = state.wm_chord;
     out[46] = state.capture;
+    out[47] = state.modifiers;
     out
 }
 
@@ -370,6 +409,7 @@ fn decode_state_payload(frame: &[u8]) -> Option<VisibleState> {
         wheel_delta_y: i32::from_le_bytes([frame[41], frame[42], frame[43], frame[44]]),
         wm_chord: frame[45],
         capture: frame[46],
+        modifiers: frame[47],
     })
 }
 
@@ -387,6 +427,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_batch_names_its_device_kind_before_the_decode() {
+        let batch = WireHidBatch {
+            device_kind: HID_KIND_MOUSE,
+            device_id: 2,
+            pointer_source: POINTER_SOURCE_MOUSE_RELATIVE,
+            abs_max_x: 0,
+            abs_max_y: 0,
+            raw_event_count: 0,
+            normalized_event_count: 0,
+            seq_first: 0,
+            events: Vec::new(),
+        };
+        let mut buf = [0u8; MAX_HID_BATCH_FRAME_LEN];
+        let n = encode_push_hid_batch_into(&batch, &mut buf).expect("encodes");
+        assert_eq!(hid_batch_device_kind(&buf[..n]), Some(HID_KIND_MOUSE));
+        assert_eq!(hid_batch_device_kind(&encode_status(OP_PUSH_HID_BATCH, 0)), None);
+    }
+
+    #[test]
     fn push_hid_batch_round_trips() {
         let encoded = encode_push_hid_batch(&WireHidBatch {
             device_kind: HID_KIND_MOUSE,
@@ -396,6 +455,7 @@ mod tests {
             abs_max_y: 0,
             raw_event_count: 3,
             normalized_event_count: 2,
+            seq_first: 41,
             events: vec![WireHidEvent {
                 kind: EVENT_KIND_REL,
                 code: 1,
@@ -414,6 +474,7 @@ mod tests {
                 abs_max_y: 0,
                 raw_event_count: 3,
                 normalized_event_count: 2,
+                seq_first: 41,
                 events: vec![WireHidEvent {
                     kind: EVENT_KIND_REL,
                     code: 1,
@@ -457,6 +518,7 @@ mod tests {
             wheel_delta_y: -7,
             wm_chord: 3,
             capture: 2,
+            modifiers: 0b0_0011,
         };
         assert_eq!(decode_visible_state(&encode_visible_state(state)), Some(state));
         assert_eq!(decode_update_visible_state(&encode_update_visible_state(state)), Some(state));
@@ -469,8 +531,8 @@ mod tests {
     fn test_reject_v1_frames_and_text_in_the_visible_state() {
         assert_eq!(
             VISIBLE_STATE_FRAME_LEN,
-            HEADER_LEN + 39,
-            "flags, cursor, wheel, chord, capture key only"
+            HEADER_LEN + 40,
+            "flags, cursor, wheel, chord, capture key, the modifiers held — no text"
         );
         let mut v1 = encode_visible_state(VisibleState::default());
         v1[2] = 1;
@@ -507,6 +569,7 @@ mod reuse_tests {
             abs_max_y: 0,
             raw_event_count: 2,
             normalized_event_count: 2,
+            seq_first: 0,
             events: alloc::vec![
                 WireHidEvent { kind: EVENT_KIND_REL, code: 0, value: 3, timestamp_ns: 1 },
                 WireHidEvent { kind: EVENT_KIND_REL, code: 1, value: -2, timestamp_ns: 2 },

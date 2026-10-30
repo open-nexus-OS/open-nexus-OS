@@ -5,9 +5,11 @@
 //! frame coalesces to the newest position, wheel notches sum, one-shot facts survive — and a
 //! button edge is never coalesced: a press and its release drained in one busy pass are both
 //! applied, each at its own position (the click the usb-visible lane lost on its first try).
+//! The pointer's samples (RFC-0113 §2) stage with the motion: none lost, an edge keeps its own.
 //! OWNERS: @ui
 
 use input_live_protocol::VisibleState;
+use nexus_display_proto::surface_motion::{MotionBatch, MotionSample};
 use windowd::input_stage::InputStage;
 
 /// A sample at `(x, y)` with the primary button `held`.
@@ -20,9 +22,9 @@ fn at(x: i32, y: i32, held: bool) -> VisibleState {
 fn drain(stage: &mut InputStage, batch: &[VisibleState]) -> Vec<VisibleState> {
     let mut applied = Vec::new();
     for state in batch {
-        applied.extend(stage.stage(*state));
+        applied.extend(stage.stage(*state, &MotionBatch::new()).map(|(s, _)| s));
     }
-    applied.extend(stage.take());
+    applied.extend(stage.take().map(|(s, _)| s));
     applied
 }
 
@@ -100,7 +102,7 @@ fn wheel_notches_sum_and_one_shot_facts_survive_coalescing() {
     assert_eq!(applied.len(), 1);
     assert_eq!(applied[0].wheel_delta_y, 1);
     assert_eq!((applied[0].wm_chord, applied[0].capture), (3, 1));
-    assert_eq!(stage.take(), None, "a frame's sample is applied once");
+    assert!(stage.take().is_none(), "a frame's sample is applied once");
 }
 
 /// Wheel notches on a press stay with the press; the release's own notches are not doubled.
@@ -114,4 +116,32 @@ fn an_edge_keeps_its_own_wheel_notches() {
     let applied = drain(&mut stage, &[press, release]);
     let wheel: Vec<i32> = applied.iter().map(|s| s.wheel_delta_y).collect();
     assert_eq!(wheel, vec![1, 2]);
+}
+
+/// One sample per pointer position, at `t` ms.
+fn moved(points: &[(i32, u64)]) -> MotionBatch {
+    let mut batch = MotionBatch::new();
+    for &(x, t) in points {
+        batch.push(MotionSample { x, y: 10, t_ns: t * 1_000_000, seq: t as u32 });
+    }
+    batch
+}
+
+/// RFC-0113 §2: the pushes of one frame coalesce to the newest position, their samples don't —
+/// the frame's sample carries every one; a press leaves with the samples up to it.
+#[test]
+fn the_staged_sample_carries_every_pointer_sample() {
+    let mut stage = InputStage::new();
+    assert!(stage.stage(at(12, 10, false), &moved(&[(11, 1), (12, 2)])).is_none());
+    assert!(stage.stage(at(15, 10, false), &moved(&[(14, 3), (15, 4)])).is_none());
+    let (state, motion) = stage.take().expect("the frame's sample");
+    assert_eq!(state.cursor_x, 15);
+    assert_eq!(motion, moved(&[(11, 1), (12, 2), (14, 3), (15, 4)]));
+    assert!(stage.stage(at(16, 10, true), &moved(&[(16, 5)])).is_none());
+    let (press, before) =
+        stage.stage(at(18, 10, true), &moved(&[(18, 6)])).map(|(s, m)| (s, m)).expect("an edge");
+    assert!(press.launcher_click_visible && press.cursor_x == 16);
+    assert_eq!(before, moved(&[(16, 5)]), "the press keeps its own samples");
+    let (_, after) = stage.take().expect("the drag's sample");
+    assert_eq!(after, moved(&[(18, 6)]));
 }

@@ -1,0 +1,45 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One category in the shortcuts page's left column — the sidebar item's look
+// (`WinSideItem`), its own event: a tap lists the category (`ScPick`), it never
+// moves the settings navigation.
+
+Component ScCategory {
+    props: {
+        id: Str,
+        label: Str,
+        icon: Str,
+        active: Bool,
+    }
+    if $props.active {
+        Stack {
+            Icon { symbol: $props.icon, size: 15 }
+                .fg(onAccent)
+            Text($props.label).textSize(sm).fg(onAccent)
+        }
+        .direction(row)
+        .align(center)
+        .gap(2)
+        .paddingX(2)
+        .height(32)
+        .hitSlop(3)
+        .rounded(lg)
+        .bg(accent)
+        on Tap -> dispatch(ScPick($props.id))
+    } else {
+        Stack {
+            Icon { symbol: $props.icon, size: 15 }
+                .fg(onGlassMuted)
+            Text($props.label).textSize(sm).fg(onGlass)
+        }
+        .direction(row)
+        .align(center)
+        .gap(2)
+        .paddingX(2)
+        .height(32)
+        .hitSlop(3)
+        .rounded(lg)
+        on Tap -> dispatch(ScPick($props.id))
+    }
+}

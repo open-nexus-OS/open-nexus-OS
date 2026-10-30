@@ -34,3 +34,6 @@ desktop_center = [640, 400]
 # TASK-0067B: no prefill item contains it, so no card exists until the copy re-reads the history;
 # letters on the same keys in every lane layout (shell_search_clipboard.rs).
 copy_word = "kiwi"
+# RFC-0113 (TASK-0346): typed fast into the search's field — 28 letters, none of them on a key the
+# lane layouts swap (no y, no z); the field's session must count every one.
+fast_word = "fastlettersarrivewithoutloss"

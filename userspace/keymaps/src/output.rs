@@ -14,30 +14,18 @@ pub enum KeyAction {
     Escape,
     Backspace,
     Tab,
+    /// Shift+Tab (TASK-0346 P2): the focus goes to the field before.
+    BackTab,
     ImeSwitch,
-    /// A text-field editing command (TASK-0067B): the navigation keys (Shift selects) and
-    /// the Ctrl shortcuts by the layout's letter. Composition never consumes it — imed
-    /// passes it to the focused field.
+    /// A text-field editing command (TASK-0067B): a field chord of the shortcut registry — the
+    /// navigation keys (Shift selects), by words with Ctrl, the Ctrl letters by the layout's
+    /// letter. Composition never consumes it — imed passes it to the focused field.
     Edit(EditKey),
 }
 
-/// The editing commands a keyboard sends a focused text field.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EditKey {
-    Left,
-    Right,
-    Home,
-    End,
-    SelectLeft,
-    SelectRight,
-    SelectHome,
-    SelectEnd,
-    Delete,
-    SelectAll,
-    Copy,
-    Cut,
-    Paste,
-}
+/// The editing commands a keyboard sends a focused text field — the shortcut registry's
+/// vocabulary (RFC-0113 §7), re-exported where the keymap's outputs live.
+pub use shortcuts::EditKey;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyOutput {

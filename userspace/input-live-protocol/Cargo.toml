@@ -7,3 +7,7 @@ license = "Apache-2.0"
 [lib]
 name = "input_live_protocol"
 path = "src/lib.rs"
+
+[dependencies]
+# RFC-0113 §2: the pointer's motion history rides the visible state's push (one type, both hops).
+nexus-display-proto = { path = "../../source/libs/nexus-display-proto" }

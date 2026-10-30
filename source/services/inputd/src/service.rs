@@ -11,7 +11,7 @@
 extern crate alloc;
 
 use crate::config::InputdConfig;
-use crate::key_facts::{capture_key_for, is_modifier, wm_chord_for, ModifierState};
+use crate::key_facts::{is_modifier, ModifierState};
 use crate::route::RouteTarget;
 use crate::{ImeHook, InputDispatch, InputdError};
 use alloc::vec::Vec;
@@ -19,6 +19,7 @@ use hid::{AbsoluteAxis, HidEvent, HidEventKind, KeyboardUsage, RelativeAxis};
 use hidrawd::{HidBatch, HidDeviceKind, PointerSource};
 use key_repeat::{MonotonicNs, RepeatEngine, RepeatKey};
 use keymaps::{KeyAction, KeyOutput, Keymap, LayoutId};
+use nexus_display_proto::surface_motion::MotionBatch;
 use pointer_accel::PointerAccel;
 use pointer_state::{PointerPosition, PointerSpace, PointerState, PointerTransform};
 use touch::{TouchEvent, TouchPhase};
@@ -37,6 +38,8 @@ pub struct InputdService<R> {
     /// The relative pointer travel since last taken (|dx|, |dy| summed, batches with motion):
     /// the board's rate line prints it — aggregates only, never a position.
     travel: (u64, u64, u32),
+    /// The pointer's samples since the last take (RFC-0113 §2): they ride the next push.
+    motion: MotionBatch,
     primary_pointer_held: bool,
     held_non_modifier_keys: [bool; 256],
     held_non_modifier_key_count: usize,
@@ -48,6 +51,11 @@ pub struct InputdService<R> {
     modifiers: ModifierState,
     text_focus: bool,
     ime_visible: bool,
+    /// The held key's stream sequence — its repeats carry it (RFC-0113 §1).
+    repeat_seq: u32,
+    /// The repeat engine's clock (its last tick): a press stamped earlier is armed at it, never
+    /// refused as time going backwards (the event waited in a queue while a repeat fired).
+    repeat_clock_ns: u64,
 }
 
 impl<R: RouteTarget> InputdService<R> {
@@ -80,6 +88,7 @@ impl<R: RouteTarget> InputdService<R> {
             pointer_transform,
             active_pointer_source: None,
             travel: (0, 0, 0),
+            motion: MotionBatch::new(),
             primary_pointer_held: false,
             held_non_modifier_keys: [false; 256],
             held_non_modifier_key_count: 0,
@@ -88,6 +97,8 @@ impl<R: RouteTarget> InputdService<R> {
             modifiers: ModifierState::default(),
             text_focus: false,
             ime_visible: false,
+            repeat_seq: 0,
+            repeat_clock_ns: 0,
         })
     }
 
@@ -117,6 +128,17 @@ impl<R: RouteTarget> InputdService<R> {
     /// The relative pointer travel since last taken: (Σ|dx|, Σ|dy|, batches with motion).
     pub fn take_travel(&mut self) -> (u64, u64, u32) {
         core::mem::take(&mut self.travel)
+    }
+
+    /// The pointer's samples since the last push, oldest first (RFC-0113 §2: the next push's).
+    #[must_use]
+    pub fn motion(&self) -> &MotionBatch {
+        &self.motion
+    }
+
+    /// The samples went out with a push (or their route is gone).
+    pub fn clear_motion(&mut self) {
+        self.motion.clear();
     }
 
     pub fn display_pointer_position(&self) -> PointerPosition {
@@ -151,6 +173,12 @@ impl<R: RouteTarget> InputdService<R> {
     #[must_use]
     pub const fn held_non_modifier_key_count(&self) -> usize {
         self.held_non_modifier_key_count
+    }
+
+    /// The modifiers held now (`nexus_display_proto::surface_input::MOD_*` bits).
+    #[must_use]
+    pub fn modifier_bits(&self) -> u8 {
+        self.modifiers.bits()
     }
 
     /// The tiling chord recognized since the last call (one-shot), 0 = none.
@@ -248,8 +276,10 @@ impl<R: RouteTarget> InputdService<R> {
     pub fn apply_hid_batch_in_place(&mut self, batch: &HidBatch) -> Result<(), InputdError> {
         self.dispatch_log.clear();
         match batch.kind() {
-            HidDeviceKind::Keyboard => self.apply_keyboard(batch.events()),
-            HidDeviceKind::Mouse => self.apply_mouse(batch.pointer_source(), batch.events()),
+            HidDeviceKind::Keyboard => self.apply_keyboard(batch.events(), batch.seq_first()),
+            HidDeviceKind::Mouse => {
+                self.apply_mouse(batch.pointer_source(), batch.events(), batch.seq_first())
+            }
         }
     }
 
@@ -272,30 +302,48 @@ impl<R: RouteTarget> InputdService<R> {
         Ok(dispatch)
     }
 
-    pub fn tick_repeat(&mut self, now_ns: u64) -> Result<Vec<InputDispatch>, InputdError> {
-        let mut out = Vec::new();
-        for event in self.repeat.tick(MonotonicNs::new(now_ns)).map_err(InputdError::from)? {
-            let usage = KeyboardUsage::from_raw(event.key().raw() as u8);
-            let output =
-                self.keymap.resolve(usage, self.modifiers.snapshot()).map_err(InputdError::from)?;
-            let delivery = self
-                .router
-                .route_keyboard(u32::from(event.key().raw()))
-                .map_err(InputdError::from)?;
-            let dispatch = InputDispatch::Keyboard {
-                delivery,
-                key_code: u32::from(event.key().raw()),
-                output,
-                repeated: true,
-            };
-            self.push_dispatch(dispatch.clone())?;
-            out.push(dispatch);
-        }
-        Ok(out)
+    /// When the held key repeats next (`None` = none held): the owner's timer deadline.
+    #[must_use]
+    pub fn next_repeat_deadline_ns(&self) -> Option<u64> {
+        self.repeat.next_deadline_ns()
     }
 
-    fn apply_keyboard(&mut self, events: &[HidEvent]) -> Result<(), InputdError> {
-        for event in events {
+    /// The held key's repeat due at `now_ns`, as the dispatch log's only entry (cleared first,
+    /// its buffer reused: nothing allocated per repeat). At most one (`key_repeat`: a stall
+    /// gives one repeat, never a burst).
+    pub fn tick_repeat_in_place(&mut self, now_ns: u64) -> Result<(), InputdError> {
+        self.dispatch_log.clear();
+        let now_ns = now_ns.max(self.repeat_clock_ns);
+        self.repeat_clock_ns = now_ns;
+        let Some(event) = self.repeat.tick(MonotonicNs::new(now_ns)).map_err(InputdError::from)?
+        else {
+            return Ok(());
+        };
+        let usage = KeyboardUsage::from_raw(event.key().raw() as u8);
+        let output =
+            self.keymap.resolve(usage, self.modifiers.snapshot()).map_err(InputdError::from)?;
+        let delivery =
+            self.router.route_keyboard(u32::from(event.key().raw())).map_err(InputdError::from)?;
+        self.push_dispatch(InputDispatch::Keyboard {
+            delivery,
+            key_code: u32::from(event.key().raw()),
+            output,
+            repeated: true,
+            seq: self.repeat_seq,
+            t_ns: event.timestamp().raw(),
+        })
+    }
+
+    /// [`Self::tick_repeat_in_place`], the repeat returned.
+    pub fn tick_repeat(&mut self, now_ns: u64) -> Result<Vec<InputDispatch>, InputdError> {
+        self.tick_repeat_in_place(now_ns)?;
+        Ok(self.dispatch_log.clone())
+    }
+
+    fn apply_keyboard(&mut self, events: &[HidEvent], seq_first: u32) -> Result<(), InputdError> {
+        for (index, event) in events.iter().enumerate() {
+            // RFC-0113 §1: event `index` of the batch is its stream's `seq_first + index`.
+            let seq = seq_first.wrapping_add(index as u32);
             if event.kind() != HidEventKind::Key {
                 continue;
             }
@@ -306,17 +354,22 @@ impl<R: RouteTarget> InputdService<R> {
                 continue;
             }
             self.update_non_modifier_key_hold(usage, pressed);
-            // TASK-0066 window-tiling chords (Super+Ctrl+…) and RFC-0095 capture keys
-            // (Print, Shift+Print, Alt+Print): facts, not keys — they ride the state push to
-            // windowd and never reach imed or an app. Recognized on the press only.
+            // The registry's window and capture chords (RFC-0113 §7, exact modifiers): facts,
+            // not keys — they ride the state push to windowd and never reach imed or an app.
+            // Recognized on the press only.
             if pressed {
-                if let Some(code) = wm_chord_for(usage, &self.modifiers) {
-                    self.pending_wm_chord = code;
-                    continue;
-                }
-                if let Some(kind) = capture_key_for(usage, &self.modifiers) {
-                    self.pending_capture = kind;
-                    continue;
+                let keymap = self.keymap;
+                let letter = || keymap.letter(usage);
+                match shortcuts::system_action(self.modifiers.chord_mods(), usage, letter) {
+                    Some(shortcuts::Action::Window(code)) => {
+                        self.pending_wm_chord = code;
+                        continue;
+                    }
+                    Some(shortcuts::Action::Capture(kind)) => {
+                        self.pending_capture = kind;
+                        continue;
+                    }
+                    _ => {}
                 }
             }
             if pressed {
@@ -337,12 +390,18 @@ impl<R: RouteTarget> InputdService<R> {
                 let Ok(repeat_key) = RepeatKey::new(event.code().raw()) else {
                     continue;
                 };
-                let _ = self.repeat.press(repeat_key, MonotonicNs::new(event.timestamp().raw()));
+                let armed_at = event.timestamp().raw().max(self.repeat_clock_ns);
+                if self.repeat.press(repeat_key, MonotonicNs::new(armed_at)).is_ok() {
+                    self.repeat_clock_ns = armed_at;
+                    self.repeat_seq = seq;
+                }
                 let dispatch = InputDispatch::Keyboard {
                     delivery,
                     key_code: u32::from(event.code().raw()),
                     output,
                     repeated: false,
+                    seq,
+                    t_ns: event.timestamp().raw(),
                 };
                 self.push_dispatch(dispatch.clone())?;
                 if self.text_focus
@@ -367,6 +426,7 @@ impl<R: RouteTarget> InputdService<R> {
         &mut self,
         batch_source: Option<PointerSource>,
         events: &[HidEvent],
+        seq_first: u32,
     ) -> Result<(), InputdError> {
         let pointer_source = batch_source.or_else(|| infer_pointer_source(events));
         let mut dx = 0;
@@ -375,7 +435,9 @@ impl<R: RouteTarget> InputdService<R> {
         let mut absolute_x = None;
         let mut absolute_y = None;
         let mut pointer_button_state = None;
-        for event in events {
+        let mut reports = crate::motion::Reports::new();
+        for (index, event) in events.iter().enumerate() {
+            reports.note(event, seq_first.wrapping_add(index as u32));
             match event.kind() {
                 HidEventKind::Rel if event.code().raw() == RelativeAxis::X.event_code() => {
                     dx += event.value().raw();
@@ -412,6 +474,7 @@ impl<R: RouteTarget> InputdService<R> {
         // `display_to_route` quantization froze the cursor within a ~20px cell and
         // jumped it a whole cell at the boundary (the "bewegt sich nicht / springt" bug).
         if absolute_x.is_some() || absolute_y.is_some() {
+            reports.place_absolute(self.pointer_state, &mut self.motion);
             let display = self.pointer_state.apply_absolute(absolute_x, absolute_y);
             let delivery = self
                 .router
@@ -429,10 +492,12 @@ impl<R: RouteTarget> InputdService<R> {
             self.travel.0 = self.travel.0.saturating_add(dx.unsigned_abs().into());
             self.travel.1 = self.travel.1.saturating_add(dy.unsigned_abs().into());
             self.travel.2 = self.travel.2.saturating_add(1);
+            let start = self.pointer_state;
             let display = self.pointer_state.apply_relative(
                 self.pointer_accel.apply_axis(dx).map_err(InputdError::from)?,
                 self.pointer_accel.apply_axis(dy).map_err(InputdError::from)?,
             );
+            reports.place_relative(start, (display.x, display.y), &mut self.motion);
             let delivery = self
                 .router
                 .try_coalesce_pointer_move(display.x, display.y)

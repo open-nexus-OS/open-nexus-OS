@@ -9,5 +9,6 @@ publish = false
 hid = { path = "../../userspace/hid" }
 touch = { path = "../../userspace/touch" }
 keymaps = { path = "../../userspace/keymaps" }
+shortcuts = { path = "../../userspace/shortcuts" }
 key-repeat = { path = "../../userspace/key-repeat" }
 pointer-accel = { path = "../../userspace/pointer-accel" }

@@ -145,16 +145,16 @@ pub(in crate::probe) fn caret_input<'a>(
     }
 }
 
-/// The focused field's caret and selection for the row painters (TASK-0067B): the text
-/// node they belong to, the caret's x and the selection's x span (both relative to the
-/// run's origin), the run's color and the selection highlight (accent, translucent).
+/// The focused field's selection for the row painters (TASK-0067B): the text node it belongs
+/// to, the selection's x span (relative to the run's origin) and its highlight (accent,
+/// translucent). The caret is the compositor's (RFC-0113 §5).
 #[derive(Clone, Copy)]
 pub(in crate::probe) struct CaretPaint {
     pub(in crate::probe) nid: usize,
-    pub(in crate::probe) caret_x: i32,
     pub(in crate::probe) selection: Option<(i32, i32)>,
-    pub(in crate::probe) color: [u8; 4],
     pub(in crate::probe) highlight: [u8; 4],
+    /// The field's horizontal text offset (TASK-0346 P2: its caret stays in view).
+    pub(in crate::probe) scroll: i32,
 }
 
 /// Blends the selection highlight over `[bx + x0, bx + x1)` of one row inside the field's
@@ -183,37 +183,6 @@ pub(in crate::probe) fn paint_selection_row(
         for c in 0..3 {
             row[o + c] =
                 ((u32::from(row[o + c]) * (255 - a) + u32::from(color[c]) * a) / 255) as u8;
-        }
-    }
-}
-
-/// Paints the caret's 2-px slice of one row at `caret_x` (the prefix width before the
-/// caret; vertical inset 2 px; clipped to `right` and the row buffer).
-#[allow(clippy::too_many_arguments)]
-pub(in crate::probe) fn paint_caret_row(
-    row: &mut [u8],
-    y: i32,
-    by: i32,
-    bh: i32,
-    bx: i32,
-    caret_x: i32,
-    right: u32,
-    color: [u8; 4],
-) {
-    if y < by + 2 || y >= by + bh - 2 {
-        return;
-    }
-    let x = (bx + caret_x + 1).max(0);
-    for px in x..x + 2 {
-        if px < 0 || px as u32 >= right {
-            continue;
-        }
-        let o = px as usize * 4;
-        if o + 4 <= row.len() {
-            row[o] = color[0];
-            row[o + 1] = color[1];
-            row[o + 2] = color[2];
-            row[o + 3] = 255;
         }
     }
 }

@@ -287,7 +287,14 @@ acks_headless=()
 # TASK-0333 6e-1 (ADR-0086): the operator opens settings, goes to another section, closes the
 # window (Super+Ctrl+W) and opens settings again — it comes back on that section; the act lines
 # are `apphost: persist saved (` → `SELFTEST: app restore ok (` (an ack without them is not given).
-acks_visible=("desktop" "typed" "pointer" "modal" "tile" "clipboard" "screenshot" "gpu-desktop" "lifecycle" "restore")
+# TASK-0346 (RFC-0113): the operator clicks into a text field — the caret blinks where the click
+# landed — selects by mouse (drag, double click) and by keyboard (Shift+arrows, Ctrl+Shift+arrows),
+# deletes a word, undoes, types on: `caret`, act lines `windowd: caret layer on` → `apphost: input
+# session (` with `actions=` above 0 and no loss line — and no `windowd: layers over the frame
+# bound` behind the caret line (the first cycle's caret was that dropped layer). Then Settings ›
+# Allgemeine Verwaltung › Tastaturkurzbefehle — its window — every category tapped, closed with
+# Fertig: `shortcuts`, act line `apphost: shortcuts listed (`.
+acks_visible=("desktop" "typed" "pointer" "modal" "tile" "clipboard" "screenshot" "gpu-desktop" "lifecycle" "restore" "caret" "shortcuts")
 
 case "$PROFILE" in
   board-headless) ladder=("${ladder_headless[@]}"); acks=("${acks_headless[@]}") ;;
@@ -348,7 +355,8 @@ fi
 # The kernel's markers arrive behind its logger prefix (`[ERROR smp] KSELFTEST: … FAIL`); an
 # anchor on the bare marker never saw them (26 board traces with `bkl budget FAIL` judged green,
 # found 2026-10-10).
-fail_re="^(\[[A-Z]+ [^]]*\] )?(K?SELFTEST): .* FAIL|^gpud: FAIL|^xhcid: FAIL"
+# RFC-0113: a key lost on the way (a sequence gap, a failed send, a key windowd could not hand on).
+fail_re="^(\[[A-Z]+ [^]]*\] )?(K?SELFTEST): .* FAIL|^gpud: FAIL|^xhcid: FAIL|^inputd: FAIL (input gap|key send)|^WINDOWD: FAIL key input"
 fail_lines="$(grep -aE "$fail_re" "$LOG" || true)"
 for allow in "$ALLOW" "$ALLOW_BOARD"; do
   if [ -n "$fail_lines" ] && [ -f "$allow" ]; then

@@ -105,11 +105,30 @@ pub const ACTION_COPY: u8 = 14;
 pub const ACTION_CUT: u8 = 15;
 /// Paste the newest clipboard item at the caret (Ctrl+V).
 pub const ACTION_PASTE: u8 = 16;
+// The word commands and the history (TASK-0346 P2, RFC-0113; append-only).
+/// Caret to the start of the word before (Ctrl+Left).
+pub const ACTION_WORD_LEFT: u8 = 17;
+/// Caret to the end of the word after (Ctrl+Right).
+pub const ACTION_WORD_RIGHT: u8 = 18;
+/// Extend the selection by a word left (Ctrl+Shift+Left).
+pub const ACTION_SELECT_WORD_LEFT: u8 = 19;
+/// Extend the selection by a word right (Ctrl+Shift+Right).
+pub const ACTION_SELECT_WORD_RIGHT: u8 = 20;
+/// Delete the word before the caret, or the selection (Ctrl+Backspace).
+pub const ACTION_DELETE_WORD_BACK: u8 = 21;
+/// Delete the word after the caret, or the selection (Ctrl+Delete).
+pub const ACTION_DELETE_WORD_FORWARD: u8 = 22;
+/// Undo the field's last change (Ctrl+Z).
+pub const ACTION_UNDO: u8 = 23;
+/// Redo what the undo took back (Ctrl+Shift+Z, Ctrl+Y).
+pub const ACTION_REDO: u8 = 24;
+/// Shift+Tab: the focus goes to the field before (TASK-0346 P2; Tab is `ACTION_TAB`).
+pub const ACTION_BACKTAB: u8 = 25;
 
 /// Whether `action` is a text-field editing command (passes composition untouched).
 #[must_use]
 pub const fn is_edit_action(action: u8) -> bool {
-    action >= ACTION_LEFT && action <= ACTION_PASTE
+    action >= ACTION_LEFT && action <= ACTION_BACKTAB
 }
 
 /// `OP_SET_FOCUS` field kind: plain text field.

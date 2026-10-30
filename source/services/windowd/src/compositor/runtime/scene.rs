@@ -199,9 +199,17 @@ impl DisplayServerRuntime {
         // the layers, so a moved frame and its transform take effect together — the present is
         // the only way a transform reaches the display.
         let transforms = self.present_transforms();
+        // RFC-0113 §5: the focused field's caret, over the surface that holds it.
+        let caret = self.caret_draw();
         // The frame's layer bound shared out (RFC-0109): the bodies first, then each drawn
-        // surface's declared layers within its max-min fair share.
-        let mut quotas = layer_quotas(&app_snaps, &win_order[..win_n], desktop_surface.as_ref());
+        // surface's declared layers — and the caret it holds — within its max-min fair share.
+        let caret_owner = caret.map(|c| c.owner);
+        let mut quotas =
+            layer_quotas(&app_snaps, &win_order[..win_n], desktop_surface.as_ref(), caret_owner);
+        // The caret's layer set aside before its surface spends the share: a tight frame drops
+        // the surface's own last layer, never the caret (`None`: not drawn this frame).
+        let caret =
+            caret.filter(|c| quotas[c.owner.map_or(MAX_APP_WINDOWS, usize::from)].set_aside());
         // Dock layer params (bar rect is None while inactive/covered).
         self.scene_cb.clear();
         {
@@ -310,6 +318,9 @@ impl DisplayServerRuntime {
                                 &mut quotas[usize::from(slot)],
                             );
                         }
+                        if let Some(c) = caret.filter(|c| c.owner == Some(slot)) {
+                            c.encode(&mut encoder, (mode.width, mode.height));
+                        }
                     }
                     // The desktop base surface (the shell / greeter app-host):
                     // composed as an OPAQUE full-screen layer at the bottom band
@@ -391,6 +402,10 @@ impl DisplayServerRuntime {
                     );
                 }
             }
+            // The desktop's caret over its topmost layer (the shell's search, the greeter).
+            if let Some(c) = caret.filter(|c| c.owner.is_none()) {
+                c.encode(&mut encoder, (mode.width, mode.height));
+            }
 
             // 3. Dock of minimized windows (TASK-0070 Phase 2): a glass bar
             //    bottom-center, present ONLY while ≥1 window is minimized and
@@ -425,11 +440,14 @@ impl DisplayServerRuntime {
 
 /// Each surface's share of the frame's layers (RFC-0109 failure model): the drawn windows' bodies
 /// and the desktop's base and bar first, then the declared layers max-min fair (`fair_shares`) —
-/// index `slot` a window, [`MAX_APP_WINDOWS`] the desktop.
+/// index `slot` a window, [`MAX_APP_WINDOWS`] the desktop. The caret is its surface's last layer
+/// and counts in that surface's demand (`caret`: its window slot, `Some(None)` the desktop) — left
+/// out, every share was exactly the declared layers and the caret the one dropped.
 fn layer_quotas(
     snaps: &[AppSceneSnap; MAX_APP_WINDOWS],
     order: &[WindowId],
     desktop: Option<&super::surface_layers_encode::LayerSnap>,
+    caret: Option<Option<u8>>,
 ) -> [LayerQuota; MAX_APP_WINDOWS + 1] {
     let mut demand = [0usize; MAX_APP_WINDOWS + 1];
     let mut bodies = if desktop.is_some() { 2 } else { 0 };
@@ -438,10 +456,13 @@ fn layer_quotas(
         let Some(sn) = snaps.get(usize::from(slot)) else { continue };
         bodies += usize::from(sn.glass.is_some() || sn.solid.is_some());
         if sn.solid.is_none() {
-            demand[usize::from(slot)] = sn.surface.map_or(0, |l| l.layers.demand());
+            let holds_caret = caret == Some(Some(slot));
+            demand[usize::from(slot)] =
+                sn.surface.map_or(0, |l| l.layers.demand()) + usize::from(holds_caret);
         }
     }
-    demand[MAX_APP_WINDOWS] = desktop.map_or(0, |l| l.layers.demand());
+    let desktop_caret = usize::from(caret == Some(None));
+    demand[MAX_APP_WINDOWS] = desktop.map_or(0, |l| l.layers.demand() + desktop_caret);
     let mut share = [0usize; MAX_APP_WINDOWS + 1];
     fair_shares(nexus_gfx::frame::MAX_LAYERS.saturating_sub(bodies), &demand, &mut share);
     share.map(LayerQuota::new)

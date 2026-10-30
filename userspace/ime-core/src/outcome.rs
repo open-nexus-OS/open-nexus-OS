@@ -46,7 +46,9 @@ impl ImeKey {
             KeyOutput::Action(KeyAction::Tab) => Some(Self::Action(ImeAction::Tab)),
             // Layout switching is inputd's; editing commands pass composition untouched —
             // imed hands them to the focused field (TASK-0067B).
-            KeyOutput::Action(KeyAction::ImeSwitch | KeyAction::Edit(_)) => None,
+            KeyOutput::Action(KeyAction::ImeSwitch | KeyAction::Edit(_) | KeyAction::BackTab) => {
+                None
+            }
         }
     }
 }

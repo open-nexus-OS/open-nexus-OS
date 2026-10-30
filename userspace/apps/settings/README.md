@@ -22,6 +22,12 @@ it yet, and the app says so by construction:
 | Stundenformat | `time.format` | Allgemeine Verwaltung |
 | Adaptive Vorschläge / Vergessen | `ime.personalization` | Allgemeine Verwaltung |
 
+Read from a system, not written: **Allgemeine Verwaltung › Tastaturkurzbefehle** opens a
+window (app-modal, over the settings window) that lists the shortcut registry
+(`svc.shortcuts.list`, RFC-0113 §7 — the same table inputd and the keymap match keys against;
+`ShortcutsWindow`, `shortcuts.store.nx`). Its "Ändern" and "Standard wiederherstellen" are drawn
+disabled: rebinding is a later phase.
+
 Everything else is the handoff's demo data. The ~34 switches live in
 `demo.store.nx` and reach no service — moving one out of that store is the
 signal that it stopped being a mockup. Two things are drawn but deliberately
@@ -34,8 +40,8 @@ inert, and both are recorded in `docs/dev/ui/design-token-audit.md`:
 ```
 manifest.toml              bundle_type = "settings" (admits nexus.permission.SETTINGS);
                            dependencies = ["window-kit"]
-i18n/{en,de}.json          complete (251 keys); en is BAKED as the default
-i18n/{ja,ko,zh}.json       navigation + chrome only; row detail falls back to en
+i18n/{en,de}.json          complete (349 keys); en is BAKED as the default
+i18n/{ja,ko,zh}.json       navigation, chrome, the shortcuts page; row detail falls back to en
 ui/pages/
   Routes.nx                "/" -> SettingsPage
   SettingsPage.nx          Window intent · WinTopBar · WinAppWindow slots ·
@@ -49,7 +55,9 @@ ui/components/
   appearance/              AppearanceView · ApModeTile · ApSwatch ·
                            ApIconTile · ApFolderTile
   sections/                SectionView + Sec* (one per section)
-ui/composables/            window · navigation · appearance · region · demo
+  shortcuts/               ShortcutsWindow (categories left, the list right) · ScCategory ·
+                           ScRow · ScKeys · ScName (id → name: one arm per registry entry)
+ui/composables/            window · navigation · appearance · region · demo · shortcuts
 ```
 
 ## Stores — one per domain, and why the split falls where it does
@@ -76,7 +84,8 @@ Phase 1 renders the section ROOTS. The handoff's ~20 chevron sub-pages are
 Phase 2 and their rows show as value rows until then — a chevron that pushes
 nothing would promise a screen that does not exist. `Personalisierung ›
 Erscheinungsbild` is the exception: it is a real sub-page because the page
-behind it is real.
+behind it is real — as is `Info › Systemaktualisierung`. `Tastaturkurzbefehle`
+opens a window instead (`ScOpen`), on the page root like the picker sheets.
 
 ## Traps worth knowing before editing
 

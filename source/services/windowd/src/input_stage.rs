@@ -12,18 +12,22 @@
 //! same IPC batch) folded into its release — the newest sample won and windowd never saw the
 //! press; and motion queued behind a press moved the press to where the pointer was a frame
 //! later. Batching motion but never a button change is Android's input-consumer rule (moves
-//! batch; a down or an up ends the batch).
+//! batch; a down or an up ends the batch). The pointer's samples (RFC-0113 §2) batch with the
+//! motion: every push's join the staged sample's, and an edge leaves with the samples up to it.
 //! OWNERS: @ui
 //! STATUS: Functional
 //! API_STABILITY: Internal
 //! TEST_COVERAGE: `tests/input_staging.rs`
 
 use input_live_protocol::VisibleState;
+use nexus_display_proto::surface_motion::MotionBatch;
 
 /// The frame's staged input sample, and the button level of the last sample handed out.
 #[derive(Debug, Default)]
 pub struct InputStage {
     pending: Option<VisibleState>,
+    /// Every pointer sample since the last hand-out (the pending sample's motion).
+    motion: MotionBatch,
     /// The primary-button level of the last sample handed to the applier (`stage`'s flush or
     /// `take`): the level the staged sample is an edge against.
     applied_held: bool,
@@ -37,20 +41,24 @@ const fn held(state: &VisibleState) -> bool {
 impl InputStage {
     #[must_use]
     pub const fn new() -> Self {
-        Self { pending: None, applied_held: false }
+        Self { pending: None, motion: MotionBatch::new(), applied_held: false }
     }
 
-    /// Stages `state` for the frame. Returns the sample staged before it when that sample
-    /// changes the button's level (a press or a release): an edge ends the batch, and the
-    /// caller applies the returned sample NOW, before the frame applies `state`. A sample at
-    /// the same level is motion — `state` replaces it and carries its wheel notches and
-    /// one-shot facts.
+    /// Stages `state` and its `motion` for the frame. Returns the sample staged before it, with
+    /// its samples, when that sample changes the button's level (a press or a release): an edge
+    /// ends the batch, and the caller applies the returned sample NOW, before the frame applies
+    /// `state`. A sample at the same level is motion — `state` replaces it and carries its wheel
+    /// notches, one-shot facts and samples.
     #[must_use]
-    pub fn stage(&mut self, mut state: VisibleState) -> Option<VisibleState> {
+    pub fn stage(
+        &mut self,
+        mut state: VisibleState,
+        motion: &MotionBatch,
+    ) -> Option<(VisibleState, MotionBatch)> {
         let flushed = match self.pending.take() {
             Some(prev) if held(&prev) != self.applied_held => {
                 self.applied_held = held(&prev);
-                Some(prev)
+                Some((prev, core::mem::take(&mut self.motion)))
             }
             Some(prev) => {
                 state.wheel_delta_y = state.wheel_delta_y.saturating_add(prev.wheel_delta_y);
@@ -64,14 +72,15 @@ impl InputStage {
             }
             None => None,
         };
+        self.motion.append(motion);
         self.pending = Some(state);
         flushed
     }
 
-    /// The frame's sample, once (`None` when nothing was staged since the last frame).
-    pub fn take(&mut self) -> Option<VisibleState> {
+    /// The frame's sample and its samples, once (`None` when nothing was staged since).
+    pub fn take(&mut self) -> Option<(VisibleState, MotionBatch)> {
         let state = self.pending.take()?;
         self.applied_held = held(&state);
-        Some(state)
+        Some((state, core::mem::take(&mut self.motion)))
     }
 }

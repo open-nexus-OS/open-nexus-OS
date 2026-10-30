@@ -13,6 +13,10 @@ pub struct Modifiers {
     shift: bool,
     control: bool,
     alt_gr: bool,
+    /// Left Alt and Super select no character; they ride along so the shortcut registry matches
+    /// exact modifier sets (RFC-0113 §7: Alt+← moves no caret).
+    alt: bool,
+    super_key: bool,
 }
 
 impl Modifiers {
@@ -35,6 +39,18 @@ impl Modifiers {
     }
 
     #[must_use]
+    pub const fn with_alt(mut self) -> Self {
+        self.alt = true;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_super(mut self) -> Self {
+        self.super_key = true;
+        self
+    }
+
+    #[must_use]
     pub const fn shift(self) -> bool {
         self.shift
     }
@@ -47,5 +63,27 @@ impl Modifiers {
     #[must_use]
     pub const fn alt_gr(self) -> bool {
         self.alt_gr
+    }
+
+    /// The set as the shortcut registry names it.
+    #[must_use]
+    pub const fn chord_mods(self) -> shortcuts::Mods {
+        let mut bits = 0;
+        if self.shift {
+            bits |= shortcuts::Mods::SHIFT.bits();
+        }
+        if self.control {
+            bits |= shortcuts::Mods::CTRL.bits();
+        }
+        if self.alt {
+            bits |= shortcuts::Mods::ALT.bits();
+        }
+        if self.alt_gr {
+            bits |= shortcuts::Mods::ALTGR.bits();
+        }
+        if self.super_key {
+            bits |= shortcuts::Mods::SUPER.bits();
+        }
+        shortcuts::Mods::from_bits(bits)
     }
 }

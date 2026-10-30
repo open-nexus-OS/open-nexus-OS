@@ -13,6 +13,10 @@ the geometry in windowd's window manager.
 | Return (the frame before the first tile) | drag a tiled window off its tile · menu tile · Super+Ctrl+↓ or +R |
 | Arrangements: Left&Right, Top&Bottom, Quarters | menu tiles — the window plus the next ones in z-order |
 
+The chords are the shortcut registry's (`userspace/shortcuts`, RFC-0113 §7 — matched with
+exactly their modifiers; Settings › Allgemeine Verwaltung › Tastaturkurzbefehle lists them);
+this table repeats them for reading.
+
 Frames are a pure function of the display mode, the work area (status bar top, taskbar
 bottom) and the margin (`zones::zone_frame`); odd sizes give the extra pixel to the
 right/bottom tile. `ui.tile.margin` (0 | 8 | 16 px) insets every tile; neighbours share one gap.
@@ -26,8 +30,9 @@ right/bottom tile. `ui.tile.margin` (0 | 8 | 16 px) insets every tile; neighbour
 - **desktop shell** (`overlays/TilePreview.nx`): paints the candidate zone from
   `device.tilePreview` as a translucent pane over the work area — a full-bleed overlay with no
   handler.
-- **inputd**: Super+Ctrl chords are facts on the state push (`VisibleState.wm_chord`,
-  one-shot); the chord's key never reaches imed or an app.
+- **inputd**: the registry's window chords are facts on the state push
+  (`VisibleState.wm_chord`, one-shot; `shortcuts::system_action`); the chord's key never
+  reaches imed or an app.
 - **window-kit**: `WinAppWindow` mounts `WinAppMenu` for every window-kit app when
   `$state.menu == "app"` (the app chip opens it): two `WinTileGlyph` rows without text
   headers (move & resize, fill & arrange), Vollbild, the inert "Auf anderes Gerät bewegen",

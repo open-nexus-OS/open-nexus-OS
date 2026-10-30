@@ -125,6 +125,12 @@ Page SettingsPage {
                 Stack { }
             }
         }
+        // TASK-0346 P3: the keyboard-shortcuts window (`ShortcutsWindow`), app-modal.
+        if $state.scOpen {
+            ShortcutsWindow { }
+        } else {
+            Stack { }
+        }
         if $state.picker == "language" {
             PickerSheet { title: @t("gen.language") } {
                 options {

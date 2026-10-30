@@ -195,6 +195,9 @@ pub(crate) const WINDOWD: ServiceSpec = ServiceSpec {
             name: NamedSlot::SessionWatchSend,
             slot: slots::windowd::SESSION_WATCH_SEND,
         },
+        // RFC-0113 §5: the caret's blink — a one-shot timer, armed only while a caret blinks.
+        NamedSlotBinding { name: NamedSlot::TimerNotifyRecv, slot: slots::windowd::TIMER_RECV },
+        NamedSlotBinding { name: NamedSlot::TimerNotifySend, slot: slots::windowd::TIMER_SEND },
     ],
 };
 

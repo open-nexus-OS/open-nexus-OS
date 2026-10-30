@@ -156,3 +156,18 @@ Still intentionally out of scope for this slice:
 - turning `nx input keymap set`, `nx input cursor`, and `nx input test type`
   into live daemon-affecting RPC surfaces,
 - any perf-budget or launcher-UX claims beyond the closed live-input path.
+
+## Instant input (RFC-0113, TASK-0346)
+
+- **Every event counted:** hidrawd numbers each device stream (`seq`) and keeps the event's time
+  (`t_ns`); every later hop checks the sequence (`inputd: FAIL input gap (`), a key keeps both to
+  the field.
+- **Keys never lost:** the route by input source (`text-input.md`), blocking hops, joined commits
+  for a client that is behind; losses are FAIL lines that fail a lane and a board run.
+- **Delivery classes:** `frame` (every app) — one pointer frame per display frame, its MOVE or
+  DRAG carrying every sample since the last (`surface_motion::MotionBatch`, 16 samples, the oldest
+  folding past the bound); `stream` (every sample at the device's rate, for drawing and games) —
+  the permission `nexus.permission.INPUT_STREAM`, declared and refused until its phase lands.
+- **Shortcuts:** one registry, matched exactly (`shortcuts.md`).
+- **Privacy:** rate lines count pointer traffic only; nothing logs a line per key.
+

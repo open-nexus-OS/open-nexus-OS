@@ -17,6 +17,8 @@ struct SettingsSpy {
     /// Outcome the mutating updates verbs answer with — `Err(4)` is the
     /// policy deny (`ERR_SVC_DENIED`), the state the page must render.
     updates_action: Result<bool, u32>,
+    /// The category of each `svc.shortcuts.list` call (TASK-0346 P3).
+    shortcut_lists: Vec<String>,
     /// Program symbols — the status record is symbol-id keyed, mirroring
     /// the REAL row shape app-host's effect host builds (the hover_sweep
     /// rule: a simpler spy record green-lights a broken boot).
@@ -88,6 +90,35 @@ impl nexus_dsl_runtime::EffectHost for SettingsSpy {
                 self.updates_calls.push(("rollback".into(), String::new()));
                 self.updates_action.map(Value::Bool)
             }
+            // The REAL row shape app-host's `effect_shortcuts.rs` builds from the registry's
+            // listing: only interned symbols, sorted by symbol id.
+            ("shortcuts", "list") => {
+                let (Some(Value::Str(category)), Some(Value::Str(locale))) =
+                    (args.first(), args.get(1))
+                else {
+                    return Err(2);
+                };
+                self.shortcut_lists.push(category.clone());
+                let rows = shortcuts::listing(category, locale)
+                    .into_iter()
+                    .map(|row| {
+                        let mut fields: Vec<(u32, Value)> = Vec::new();
+                        for (name, value) in [
+                            ("id", Value::Str(row.id.into())),
+                            ("keys", Value::Str(row.keys)),
+                            ("alt", Value::Str(row.alt)),
+                            ("active", Value::Bool(row.active)),
+                        ] {
+                            if let Some(sym) = self.sym(name) {
+                                fields.push((sym, value));
+                            }
+                        }
+                        fields.sort_by_key(|(s, _)| *s);
+                        Value::Record(fields)
+                    })
+                    .collect();
+                Ok(Value::List(rows))
+            }
             _ => Err(0),
         }
     }
@@ -117,6 +148,7 @@ impl Harness {
             sets: Vec::new(),
             updates_calls: Vec::new(),
             updates_action: Ok(true),
+            shortcut_lists: Vec::new(),
             symbols: symbols.clone(),
         };
         Self { view, device, symbols, keys, host }
@@ -448,4 +480,41 @@ fn updates_stage_tap_reaches_the_engine() {
     );
     let after = h.host.updates_calls.iter().filter(|(m, _)| m == "status").count();
     assert!(after > before, "a completed action must re-read the status");
+}
+
+/// TASK-0346 P3: `Allgemeine Verwaltung › Tastaturkurzbefehle` opens a window over the settings
+/// window that lists the shortcut registry — on its first category, a category tap lists that
+/// category, every row's chord is the registry's, rebinding is drawn but takes no tap, a shortcut
+/// nothing acts on yet says so, and "Done" closes the window.
+#[test]
+fn general_shortcuts_row_opens_the_registry_window() {
+    let mut h = Harness::new();
+    h.send("NavEvent", "WinMenuPick", vec![Value::Str("general".into())]);
+    assert!(h.shows("Keyboard shortcuts"), "the General section's row: {:?}", h.texts());
+    assert!(!h.shows("Left half"), "the window is closed until the row is tapped");
+    assert!(
+        h.tap_content_until_shows("Left half"),
+        "the shortcuts row did not open the window: {:?}",
+        h.texts()
+    );
+    assert_eq!(h.host.shortcut_lists.last().map(String::as_str), Some("windows"));
+    assert!(h.shows("Super+Ctrl+←"), "the registry's chord: {:?}", h.texts());
+    assert!(h.shows("Super+Ctrl+R"), "an alternate chord: {:?}", h.texts());
+    assert!(h.shows("Windows") && h.shows("Text editing"), "the categories: {:?}", h.texts());
+    let changes = h.texts().iter().filter(|t| *t == "Change").count();
+    assert_eq!(changes, shortcuts::listing("windows", "").len(), "one Change per row");
+
+    h.send("ShortcutsEvent", "ScPick", vec![Value::Str("text".into())]);
+    assert_eq!(h.host.shortcut_lists.last().map(String::as_str), Some("text"));
+    assert!(h.shows("Copy") && h.shows("Ctrl+C"), "{:?}", h.texts());
+    assert!(h.shows("Redo") && h.shows("Ctrl+Shift+Z") && h.shows("Ctrl+Y"));
+    assert!(!h.shows("Left half"), "the windows rows left with their category");
+
+    h.send("ShortcutsEvent", "ScPick", vec![Value::Str("input".into())]);
+    assert!(h.shows("Next input source") && h.shows("Not available yet"), "{:?}", h.texts());
+    assert!(h.shows("Restore defaults") && h.shows("Done"), "the footer is drawn");
+
+    h.send("ShortcutsEvent", "ScClose", vec![]);
+    assert!(!h.shows("Next input source"), "Done closes the window: {:?}", h.texts());
+    assert!(h.shows("Keyboard shortcuts"), "the General section is still there");
 }

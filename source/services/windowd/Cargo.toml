@@ -52,6 +52,10 @@ nexus-ux-budgets = { path = "../../libs/nexus-ux-budgets" }
 nexus-text-baked = { path = "../../../userspace/ui/text-baked", default-features = false, features = ["layout", "embedded-atlas"] }
 # RFC-0065 / ADR-0037 step 1: the search window's content (word list + filter) is
 
+[dev-dependencies]
+# TASK-0346 P3: the shortcut registry's window codes are windowd's `zones::CODE_*` (tests/tile_zones.rs).
+shortcuts = { path = "../../../userspace/shortcuts" }
+
 [build-dependencies]
 fontdue = "0.9"
 nexus-dsl-core = { path = "../../../userspace/dsl/core" }

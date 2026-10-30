@@ -17,11 +17,11 @@ use nexus_service_topology::slots::inputd as topo;
 
 use hidrawd::PointerSource;
 use input_live_protocol::{
-    decode_push_hid_batch_reusing, encode_status, encode_update_visible_state,
-    encode_visible_state_frame, frame_has_op, VisibleState, WireHidBatch, OP_GET_VISIBLE_STATE,
-    OP_PUSH_HID_BATCH, STATUS_MALFORMED, STATUS_OK, STATUS_OVERFLOW, STATUS_UNSUPPORTED,
+    decode_push_hid_batch_reusing, encode_status, encode_visible_state_frame, frame_has_op,
+    motion_push::encode_update_visible_state_motion, VisibleState, WireHidBatch,
+    OP_GET_VISIBLE_STATE, OP_PUSH_HID_BATCH, STATUS_MALFORMED, STATUS_OK, STATUS_OVERFLOW,
+    STATUS_UNSUPPORTED,
 };
-use keymaps::{KeyAction, KeyOutput};
 use nexus_abi::{debug_println, debug_trace, nsec};
 use nexus_ipc::{Client as _, KernelClient, KernelServer, Server as _, Wait};
 
@@ -37,6 +37,8 @@ use crate::{
 // TASK-0324 P7-d: the waitset + pacing-timer side of the loop (child module: it reaches the
 // runtime's private state without widening any visibility).
 mod display_space;
+/// RFC-0113: the key channel to windowd, the stream checks, the layout relay.
+mod keys;
 mod wait;
 use wait::{build_waitset, serve_request};
 
@@ -114,6 +116,7 @@ pub fn service_main_loop() -> Result<(), &'static str> {
         if let Some(t) = timer.as_mut() {
             t.drain();
         }
+        runtime.tick_key_repeat();
         // 3. The clock-bound state, then the timer for whatever is still pending.
         runtime.expire_transient_input_state();
         runtime.report_chain_if_due();
@@ -182,10 +185,8 @@ struct LiveRouteRuntime {
     wheel_indicator_direction: WheelIndicatorDirection,
     wheel_indicator_deadline_ns: u64,
     windowd_client: Option<KernelClient>,
-    /// Key-forward channel to imed (RFC-0075). Lazily routed by name; imed
-    /// gates on ITS focus state — inputd forwards resolved keys per batch.
-    imed_client: Option<KernelClient>,
-    imed_forward_ok_emitted: bool,
+    /// The key channel (RFC-0113): translation, stream checks, the frame being filled.
+    keys: keys::KeyChannel,
     /// RFC-0078 settings-watch: OP_WATCH subscription sent (retried from the
     /// idle arm until the fire-and-forget send succeeds).
     settings_watch_subscribed: bool,
@@ -275,8 +276,7 @@ impl LiveRouteRuntime {
             wheel_indicator_deadline_ns: 0,
             windowd_client: KernelClient::new_with_slots(topo::WINDOWD.send, topo::WINDOWD.recv)
                 .ok(),
-            imed_client: None,
-            imed_forward_ok_emitted: false,
+            keys: keys::KeyChannel::new(),
             settings_watch_subscribed: false,
             last_windowd_push_state: None,
             last_windowd_push_ns: 0,
@@ -340,6 +340,7 @@ impl LiveRouteRuntime {
         // OS-lite consumes the per-batch dispatch result directly for telemetry and visible-state
         // updates, so the internal dispatch history must not accumulate across live batches.
         self.input.clear_dispatches();
+        self.check_stream(batch.device_id, batch.seq_first, batch.events.len());
         self.chain.raw_events =
             self.chain.raw_events.saturating_add(u64::from(batch.raw_event_count));
         self.chain.normalized_events =
@@ -439,9 +440,9 @@ impl LiveRouteRuntime {
         self.chain.dispatch_events = self.chain.dispatch_events.saturating_add(dispatch_count);
         self.chain.delivered_events =
             self.chain.delivered_events.saturating_add(delivered_count as u64);
-        // Keys reach apps through imed only (RFC-0075); the visible state carries no
-        // typed text (input-live-protocol v2).
-        self.forward_keys_to_imed();
+        // RFC-0113 §3: the keys ride the key channel to windowd (the visible state carries no
+        // text) — sent before this batch's state push, on the same channel, in order.
+        self.send_keys();
         if !self.absolute_source_debug_emitted
             && matches!(
                 active_source,
@@ -490,98 +491,6 @@ impl LiveRouteRuntime {
         STATUS_OK
     }
 
-    /// RFC-0075 key branch: forward every resolved key of this batch to the
-    /// Relays an APPLIED keymap change to imed (`OP_SET_LAYOUT`, RFC-0075
-    /// Phase 3): the composition engine follows `input.keymap`. Fire-and-
-    /// forget on the same lazily-routed channel as the key forward.
-    fn forward_layout_to_imed(&mut self, layout: &str) {
-        use nexus_wire::imed as ime_wire;
-        if self.imed_client.is_none() {
-            self.imed_client = KernelClient::new_for("imed").ok();
-        }
-        let Some(client) = self.imed_client.as_ref() else {
-            return;
-        };
-        let mut frame = [0u8; 16];
-        let Some(n) = ime_wire::encode_set_layout(layout, &mut frame) else {
-            return;
-        };
-        if client.send(&frame[..n], Wait::NonBlocking).is_err() {
-            self.imed_client = None; // re-route on the next forward
-        }
-    }
-
-    /// IME authority. Fire-and-forget (imed drops keys while unfocused); the
-    /// hot pointer path is untouched. No per-key allocation: fixed frames.
-    fn forward_keys_to_imed(&mut self) {
-        use nexus_wire::imed as ime_wire;
-        let mut frames: [Option<[u8; 12]>; 16] = [None; 16];
-        let mut count = 0usize;
-        for dispatch in self.input.recent_dispatches() {
-            if count >= frames.len() {
-                break;
-            }
-            let InputDispatch::Keyboard { output, .. } = dispatch else {
-                continue;
-            };
-            let (kind, ch, action) = match output {
-                KeyOutput::Text(ch) => (ime_wire::KEY_KIND_TEXT, u32::from(*ch), 0),
-                KeyOutput::Dead(ch) => (ime_wire::KEY_KIND_DEAD, u32::from(*ch), 0),
-                KeyOutput::Action(KeyAction::Enter) => {
-                    (ime_wire::KEY_KIND_ACTION, 0, ime_wire::ACTION_ENTER)
-                }
-                KeyOutput::Action(KeyAction::Escape) => {
-                    (ime_wire::KEY_KIND_ACTION, 0, ime_wire::ACTION_ESCAPE)
-                }
-                KeyOutput::Action(KeyAction::Backspace) => {
-                    (ime_wire::KEY_KIND_ACTION, 0, ime_wire::ACTION_BACKSPACE)
-                }
-                KeyOutput::Action(KeyAction::Tab) => {
-                    (ime_wire::KEY_KIND_ACTION, 0, ime_wire::ACTION_TAB)
-                }
-                // Layout switching is inputd's own concern, never composition's.
-                KeyOutput::Action(KeyAction::ImeSwitch) => continue,
-                // TASK-0067B: text-field editing commands (navigation, Ctrl+A/C/X/V).
-                KeyOutput::Action(KeyAction::Edit(key)) => {
-                    (ime_wire::KEY_KIND_ACTION, 0, crate::edit_keys::action_code(*key))
-                }
-            };
-            frames[count] =
-                Some(ime_wire::encode_key(ime_wire::KEY_SOURCE_HW, kind, ch, action, 0));
-            count += 1;
-        }
-        if count == 0 {
-            return;
-        }
-        if self.imed_client.is_none() {
-            self.imed_client = KernelClient::new_for("imed").ok();
-            if self.imed_client.is_none() && !self.imed_forward_ok_emitted {
-                let _ = nexus_abi::trace_line("inputd: imed route FAIL");
-            }
-        }
-        let Some(client) = self.imed_client.as_ref() else {
-            return;
-        };
-        let mut all_ok = true;
-        for frame in frames.iter().flatten() {
-            all_ok &= client.send(frame, Wait::NonBlocking).is_ok();
-        }
-        if all_ok && !self.imed_forward_ok_emitted {
-            let _ = nexus_abi::trace_line("inputd: imed forward ok");
-            self.imed_forward_ok_emitted = true;
-        }
-        if !all_ok {
-            let _ = nexus_abi::trace_line("inputd: imed send FAIL");
-            // Drop the cached route; the next batch re-resolves (imed restart).
-            self.imed_client = None;
-        }
-    }
-
-    /// RFC-0078 settings-watch pump (idle arm, every ~16ms): subscribe once
-    /// (OP_WATCH with the cap-moved push channel), then drain pushed events.
-    /// Slots are FIXED init grants (see `route_provision.rs`): 0x20 = SEND to
-    /// settingsd, 0x21 = event inbox RECV, 0x22 = push SEND half (moved).
-
     fn report_chain_if_due(&mut self) {
         self.chain.report_if_due(self.visible_state);
     }
@@ -605,6 +514,8 @@ impl LiveRouteRuntime {
         // 1280×800 control rects.
         let display_pointer = self.input.display_pointer_position();
         let pointer_held = self.input.primary_pointer_held();
+        // TASK-0346 P2: the modifiers ride every push (a click's Shift extends a selection).
+        self.visible_state.modifiers = self.input.modifier_bits();
         let keyboard_held = self.input.held_non_modifier_key_count() > 0;
         let previous_launcher_click = self.visible_state.launcher_click_visible;
         let previous_focus_visible = self.visible_state.focus_visible;
@@ -745,29 +656,19 @@ impl LiveRouteRuntime {
         let Some(client) = &self.windowd_client else {
             return;
         };
-        let frame = encode_update_visible_state(self.visible_state);
-        match client.send(&frame, Wait::Blocking) {
+        let (frame, n) =
+            encode_update_visible_state_motion(self.visible_state, self.input.motion());
+        match client.send(&frame[..n], Wait::Blocking) {
             Ok(()) => {
                 // The accumulated wheel delta is DELIVERED: clear it so the
                 // next (possibly move-throttled) push cannot replay it.
-                self.pending_wheel_delta = 0;
-                self.visible_state.wheel_delta_y = 0;
-                // …and the one-shot key facts: delivered once, never replayed.
+                (self.pending_wheel_delta, self.visible_state.wheel_delta_y) = (0, 0);
+                self.input.clear_motion(); // the pointer's samples went with it (RFC-0113 §2)
+                                           // …and the one-shot key facts: delivered once, never replayed.
                 (self.visible_state.wm_chord, self.visible_state.capture) = (0, 0);
+                self.note_push_rate(now_ns);
                 self.last_windowd_push_state = Some(self.visible_state);
                 self.last_windowd_push_ns = now_ns;
-                // Push-cadence telemetry (hyper-smooth diagnosis): report the
-                // real delivered push rate ~1/s, only under sustained traffic.
-                self.push_rate_count = self.push_rate_count.saturating_add(1);
-                if self.push_rate_window_ns == 0 {
-                    self.push_rate_window_ns = now_ns;
-                } else if now_ns.saturating_sub(self.push_rate_window_ns) >= 1_000_000_000 {
-                    if self.push_rate_count >= 8 {
-                        let _ = debug_println(&format!("inputd: push hz={}", self.push_rate_count));
-                    }
-                    self.push_rate_window_ns = now_ns;
-                    self.push_rate_count = 0;
-                }
                 if !self.windowd_push_ok_emitted {
                     let _ = nexus_abi::trace_line("inputd: windowd visible-state pushed");
                     // Input-chain hop I5: normalized state delivered to windowd.
@@ -790,8 +691,9 @@ impl LiveRouteRuntime {
             Err(_) => {
                 // Unreachable windowd: the sample is spent for pacing purposes (the next
                 // event carries fresh state) — the timer never chases a dead route.
-                self.last_windowd_push_state = Some(self.visible_state);
-                self.last_windowd_push_ns = now_ns;
+                (self.last_windowd_push_state, self.last_windowd_push_ns) =
+                    (Some(self.visible_state), now_ns);
+                self.input.clear_motion();
                 if !self.windowd_push_fail_emitted {
                     let _ = debug_println("inputd: windowd visible-state push fail");
                     // Input-chain hop I5 fail: windowd unreachable (route dropped).

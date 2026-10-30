@@ -17,9 +17,12 @@ mod config;
 /// TASK-0067B: the keymap's editing commands as imed action codes (one table).
 pub mod edit_keys;
 mod error;
+/// RFC-0113 §2/§3: what a key becomes on the key channel (the source decides the route).
+pub mod key_channel;
 mod key_facts;
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 mod live_push;
+mod motion;
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 mod os_lite;
 mod route;

@@ -176,10 +176,12 @@ pub const WIN_MODE_FULLSCREEN: u8 = 2;
 /// toggle fullscreen ⇄ freeform (the title-bar zoom semantics).
 pub const WIN_MODE_SPLIT: u8 = 3;
 
-/// The input kinds `OP_SURFACE_INPUT` carries (taps, hover, wheel, drag).
+/// The input kinds `OP_SURFACE_INPUT` carries (taps, hover, wheel, drag) and its codec — a
+/// press's modifiers and click count with it (TASK-0346 P2).
 pub use crate::surface_input::{
-    wheel_delta_from_wire, wheel_delta_to_wire, INPUT_KIND_DRAG, INPUT_KIND_LEAVE, INPUT_KIND_MOVE,
-    INPUT_KIND_RELEASE, INPUT_KIND_TAP, INPUT_KIND_WHEEL,
+    decode_surface_input, encode_surface_input, encode_surface_pointer, wheel_delta_from_wire,
+    wheel_delta_to_wire, PointerFacts, INPUT_KIND_DRAG, INPUT_KIND_LEAVE, INPUT_KIND_MOVE,
+    INPUT_KIND_RELEASE, INPUT_KIND_TAP, INPUT_KIND_WHEEL, SURFACE_INPUT_FRAME_LEN,
 };
 
 /// Pixel format tags. v1: BGRA8888 only.
@@ -435,38 +437,7 @@ pub fn decode_surface_destroy(frame: &[u8]) -> Option<u32> {
 }
 
 // ------------------------------------------------------------------- input
-
-pub const SURFACE_INPUT_FRAME_LEN: usize = HEADER_LEN + 9;
-
-#[must_use]
-pub fn encode_surface_input(
-    surface_id: u32,
-    kind: u8,
-    x: u16,
-    y: u16,
-) -> [u8; SURFACE_INPUT_FRAME_LEN] {
-    let mut f = [0u8; SURFACE_INPUT_FRAME_LEN];
-    f[..HEADER_LEN].copy_from_slice(&header(OP_SURFACE_INPUT));
-    f[4..8].copy_from_slice(&surface_id.to_le_bytes());
-    f[8] = kind;
-    f[9..11].copy_from_slice(&x.to_le_bytes());
-    f[11..13].copy_from_slice(&y.to_le_bytes());
-    f
-}
-
-/// `(surface_id, kind, x, y)`.
-#[must_use]
-pub fn decode_surface_input(frame: &[u8]) -> Option<(u32, u8, u16, u16)> {
-    if !has_op(frame, OP_SURFACE_INPUT) || frame.len() != SURFACE_INPUT_FRAME_LEN {
-        return None;
-    }
-    Some((
-        u32::from_le_bytes([frame[4], frame[5], frame[6], frame[7]]),
-        frame[8],
-        u16::from_le_bytes([frame[9], frame[10]]),
-        u16::from_le_bytes([frame[11], frame[12]]),
-    ))
-}
+// The `OP_SURFACE_INPUT` codec lives in `surface_input` (re-exported above).
 
 // ------------------------------------------------------------------ events
 
@@ -668,7 +639,7 @@ mod tests {
 
     #[test]
     fn ops_do_not_collide_with_the_input_family() {
-        // input-live-protocol occupies 1–4 on the same endpoint envelope.
+        // input-live-protocol holds 1–7 on the same endpoint envelope (RFC-0113: 6 = keys).
         for op in [
             OP_SURFACE_CREATE,
             OP_SURFACE_PRESENT,
@@ -676,7 +647,7 @@ mod tests {
             OP_SURFACE_INPUT,
             OP_SURFACE_EVENTS,
         ] {
-            assert!(op > 4, "op {op} collides with the input family");
+            assert!(op > 7, "op {op} collides with the input family");
         }
     }
 
@@ -688,12 +659,5 @@ mod tests {
         let mut wrong = f;
         wrong[3] = OP_SURFACE_INPUT;
         assert!(!is_surface_events(&wrong));
-    }
-
-    #[test]
-    fn input_round_trip() {
-        let f = encode_surface_input(3, INPUT_KIND_TAP, 120, 88);
-        assert_eq!(decode_surface_input(&f), Some((3, INPUT_KIND_TAP, 120, 88)));
-        assert_eq!(decode_surface_input(&f[..f.len() - 1]), None);
     }
 }

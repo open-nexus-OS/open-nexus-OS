@@ -20,10 +20,34 @@ pub enum ImeHook {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InputDispatch {
-    PointerMove { delivery: InputDelivery, x: i32, y: i32 },
-    PointerDown { delivery: InputDelivery, x: i32, y: i32 },
-    PointerWheel { delta_y: i32 },
-    Keyboard { delivery: InputDelivery, key_code: u32, output: KeyOutput, repeated: bool },
-    Touch { delivery: InputDelivery, event: TouchEvent, x: i32, y: i32 },
+    PointerMove {
+        delivery: InputDelivery,
+        x: i32,
+        y: i32,
+    },
+    PointerDown {
+        delivery: InputDelivery,
+        x: i32,
+        y: i32,
+    },
+    PointerWheel {
+        delta_y: i32,
+    },
+    /// A key that produced output — `seq` is its device stream sequence and `t_ns` when the
+    /// system first saw it (RFC-0113 §1; a repeat carries its held key's `seq` and its due time).
+    Keyboard {
+        delivery: InputDelivery,
+        key_code: u32,
+        output: KeyOutput,
+        repeated: bool,
+        seq: u32,
+        t_ns: u64,
+    },
+    Touch {
+        delivery: InputDelivery,
+        event: TouchEvent,
+        x: i32,
+        y: i32,
+    },
     ImeHook(ImeHook),
 }

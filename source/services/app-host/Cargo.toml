@@ -51,6 +51,7 @@ nexus-service-topology = { path = "../../libs/nexus-service-topology" }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
 nexus-display-proto = { path = "../../libs/nexus-display-proto" }
 keymaps = { path = "../../../userspace/keymaps" }
+shortcuts = { path = "../../../userspace/shortcuts" }
 nexus-wire = { path = "../../libs/nexus-wire" }
 tz-lite = { path = "../../../userspace/tz-lite" }
 # TASK-0080C: SSOT for cap→service→child-slot routing — the effect host
@@ -72,6 +73,8 @@ animation = { path = "../../../userspace/ui/animation" }
 # boundary, same rule as windowd's demo mount).
 nexus-dsl-ir = { path = "../../../userspace/dsl/ir", default-features = false }
 nexus-dsl-runtime = { path = "../../../userspace/dsl/runtime", default-features = false }
+# TASK-0346 P2: where the focused field shows its text (the horizontal follow rule).
+nexus-textedit = { path = "../../../userspace/ui/textedit_core" }
 nexus-app-icons = { path = "../../../userspace/ui/app-icons", default-features = false }
 nexus-mime-icons = { path = "../../../userspace/ui/mime-icons", default-features = false }
 nexus-scene-raster = { path = "../../../userspace/ui/scene_raster", default-features = false }

@@ -19,6 +19,10 @@
 #![cfg_attr(not(test), no_std)]
 #![forbid(unsafe_code)]
 
+/// A text field's input session: counts and key → present latencies, one aggregate per session
+/// (RFC-0113 §6).
+pub mod session;
+
 /// A frame at 60 Hz: the panel's period. A frame past it is a dropped one (a stutter).
 pub const FRAME_US: u64 = 16_667;
 /// Dropped frames a 32-frame window tolerates before `warn` (one is a visible hitch).

@@ -78,9 +78,9 @@ extern crate alloc;
 use core::fmt::Write as _;
 
 use input_live_protocol::{
-    decode_update_visible_state, encode_display_space, encode_status, encode_visible_state_frame,
-    frame_has_op, OP_GET_DISPLAY_SPACE, OP_GET_VISIBLE_STATE, OP_UPDATE_VISIBLE_STATE,
-    STATUS_MALFORMED, STATUS_UNSUPPORTED,
+    encode_display_space, encode_status, encode_visible_state_frame, frame_has_op,
+    motion_push::decode_update_visible_state_motion, OP_GET_DISPLAY_SPACE, OP_GET_VISIBLE_STATE,
+    OP_PUSH_KEY_INPUT, OP_UPDATE_VISIBLE_STATE, STATUS_MALFORMED, STATUS_UNSUPPORTED,
 };
 use nexus_abi::{debug_println, debug_trace, nsec};
 use nexus_display_proto::layout;
@@ -244,14 +244,17 @@ fn dispatch_client_frame(
         // Frame-aligned coalescing: STAGE the update (latest position wins,
         // wheel sums, a button edge is applied at once); applied ONCE per frame
         // by apply_staged_input. Reply immediately so inputd is never blocked.
-        let status = match decode_update_visible_state(frame) {
-            Some(state) => runtime.stage_input_state(state),
+        let status = match decode_update_visible_state_motion(frame) {
+            Some((state, motion)) => runtime.stage_input_state(state, motion),
             None => STATUS_MALFORMED,
         };
         if let Some(reply) = moved_cap.take() {
             let response = encode_status(OP_UPDATE_VISIBLE_STATE, status);
             let _ = reply.reply_and_close_wait(&response, Wait::Blocking);
         }
+    } else if frame_has_op(frame, OP_PUSH_KEY_INPUT) {
+        // RFC-0113 §3: the key channel — in order to the focused field, never dropped.
+        runtime.handle_key_input(frame, sender_sid);
     } else if frame.get(3).copied() == Some(nexus_display_proto::client_surface::OP_SURFACE_EVENTS)
     {
         // ADR-0042 per-app event channel: the moved capability is the
@@ -492,6 +495,7 @@ pub fn service_main_loop() -> Result<(), &'static str> {
         runtime.drain_launch_replies();
         runtime.pump_presentation();
         runtime.pump_capture(nsec().unwrap_or(0));
+        runtime.pump_caret();
         #[cfg(nexus_env = "os")]
         loop_stats.note_apply(applied);
         #[cfg(not(nexus_env = "os"))]
@@ -561,6 +565,7 @@ fn build_waitset(server: &KernelServer) -> Option<u32> {
         topo::WATCH_RECV,
         topo::SESSION_WATCH_RECV,
         topo::ABILITYMGR.recv,
+        topo::TIMER_RECV,
     ] {
         nexus_abi::waitset_add(ws, slot).ok()?;
     }

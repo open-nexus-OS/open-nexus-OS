@@ -78,11 +78,14 @@ fn action_json(out: &mut String, action: &Action) {
             json_str(out, key);
             out.push('}');
         }
-        Action::Type { word, text } => {
+        Action::Type { word, text, pace_ms } => {
             out.push_str("{\"kind\":\"type\",\"word\":");
             json_str(out, word);
             out.push_str(",\"text\":");
             json_str(out, text);
+            if let Some(ms) = pace_ms {
+                out.push_str(&format!(",\"pace_ms\":{ms}"));
+            }
             out.push('}');
         }
         Action::Drag { from, to } => {

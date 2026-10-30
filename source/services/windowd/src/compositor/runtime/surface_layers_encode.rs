@@ -30,6 +30,8 @@ pub(crate) const KIND_SLICE: u32 = 3;
 pub(crate) const KIND_WASH: u32 = 4;
 pub(crate) const KIND_SOLID: u32 = 5;
 pub(crate) const KIND_BAR: u32 = 6;
+/// The focused field's caret (RFC-0113 §5, `caret.rs`).
+pub(crate) const KIND_CARET: u32 = 7;
 
 /// A layer's key: who drew it, what it is, which one.
 pub(crate) const fn key(owner: u32, kind: u32, index: u32) -> u32 {

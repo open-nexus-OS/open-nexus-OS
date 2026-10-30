@@ -93,6 +93,14 @@ const dslSurface :List(DslMethod) = [
   #    path is host-owned — PageNext/PagePrev triggers; this is the reverse
   #    direction, store → pager.
   (service = "shell", method = "scrollToPage", args = ["Int"], result = "Bool"),
+  # -- keyboard shortcuts (the shortcut registry, RFC-0113 §7): in-process app-host verb, no
+  #    service round trip — the registry is compiled into every component that needs it.
+  #    `list(category, locale)` = the category's entries in table order as
+  #    `ShortcutRow { id, keys, alt, active }`: `keys` names the primary chord and `alt` the
+  #    alternates (" · " between them, "" = none), both for `locale`; `active` false = matched
+  #    but nothing acts on it yet. Categories: windows | screenshots | text | input; an unknown
+  #    one is an empty list. The page names a row from its language files by `id` (`sc.<id>`).
+  (service = "shortcuts", method = "list", args = ["Str", "Str"], result = "List<ShortcutRow>"),
   # -- OSK key injection (imed's dedicated osk endpoint, RFC-0075 Phase 2;
   #    ime-type bundles only). `key` commits ONE character; `action` sends a
   #    control action ("backspace" | "enter").

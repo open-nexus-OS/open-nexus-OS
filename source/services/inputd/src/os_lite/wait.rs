@@ -24,7 +24,13 @@ pub(super) fn serve_request(
         runtime.chain.visible_state_polls = runtime.chain.visible_state_polls.saturating_add(1);
     } else if frame_has_op(&frame, OP_PUSH_HID_BATCH) {
         runtime.chain.hid_push_frames = runtime.chain.hid_push_frames.saturating_add(1);
-        runtime.note_hid_rx_for_rate_line();
+        // The rate line counts pointer batches only: keyboard batches per second are what was
+        // typed, as rhythm and length (RFC-0113 §6).
+        if input_live_protocol::hid_batch_device_kind(frame)
+            == Some(input_live_protocol::HID_KIND_MOUSE)
+        {
+            runtime.note_hid_rx_for_rate_line();
+        }
     } else {
         runtime.chain.unsupported_frames = runtime.chain.unsupported_frames.saturating_add(1);
     }
@@ -45,8 +51,10 @@ pub(super) fn serve_request(
             runtime.chain.visible_state_replies =
                 runtime.chain.visible_state_replies.saturating_add(1);
         } else {
+            // A batch's status is a courtesy nobody waits for: never a wait on hidrawd, whose
+            // sends to inputd BLOCK (RFC-0113 §2) — a wait both ways would be a deadlock.
             let response = runtime.handle_frame(&frame);
-            let _ = server.send(&response, Wait::Blocking);
+            let _ = server.send(&response, Wait::NonBlocking);
         }
     }
     runtime.report_chain_if_due();
@@ -112,7 +120,7 @@ impl LiveRouteRuntime {
             if key == "input.keymap" {
                 if self.input.set_layout_name(value).is_ok() {
                     let _ = debug_println(&format!("inputd: keymap set {value}"));
-                    self.forward_layout_to_imed(value);
+                    self.layout_changed(value);
                 } else {
                     let _ = debug_println("inputd: FAIL keymap set (invalid layout)");
                 }
@@ -124,13 +132,42 @@ impl LiveRouteRuntime {
         }
     }
 
-    /// The next clock-bound deadline, if any: the wheel indicator's expiry, or the throttled
+    /// Push-cadence telemetry (hyper-smooth diagnosis): the delivered push rate ~1/s under
+    /// sustained traffic — POINTER pushes only (the cursor or a button changed since the last
+    /// push): a push a key caused counted is typing rhythm in the log (RFC-0113 §6).
+    pub(super) fn note_push_rate(&mut self, now_ns: u64) {
+        let pointer = self.last_windowd_push_state.is_none_or(|last| {
+            (last.cursor_x, last.cursor_y, last.launcher_click_visible)
+                != (
+                    self.visible_state.cursor_x,
+                    self.visible_state.cursor_y,
+                    self.visible_state.launcher_click_visible,
+                )
+        });
+        if !pointer {
+            return;
+        }
+        self.push_rate_count = self.push_rate_count.saturating_add(1);
+        if self.push_rate_window_ns == 0 {
+            self.push_rate_window_ns = now_ns;
+        } else if now_ns.saturating_sub(self.push_rate_window_ns) >= 1_000_000_000 {
+            if self.push_rate_count >= 8 {
+                let _ = debug_println(&format!("inputd: push hz={}", self.push_rate_count));
+            }
+            self.push_rate_window_ns = now_ns;
+            self.push_rate_count = 0;
+        }
+    }
+
+    /// The next clock-bound deadline, if any: the wheel indicator's expiry, the throttled
     /// pointer push (a move that arrived inside the push interval is delivered when the
-    /// interval ends — never dropped, never re-polled). `None` = nothing pending.
+    /// interval ends — never dropped, never re-polled), or the held key's next repeat (a timer
+    /// only while a key is held, RFC-0113). `None` = nothing pending.
     pub(super) fn next_pacing_deadline_ns(&self) -> Option<u64> {
-        let mut next: Option<u64> = None;
+        let mut next: Option<u64> = self.input.next_repeat_deadline_ns();
         if self.wheel_indicator_direction != WheelIndicatorDirection::None {
-            next = Some(self.wheel_indicator_deadline_ns.saturating_add(1));
+            let due = self.wheel_indicator_deadline_ns.saturating_add(1);
+            next = Some(next.map_or(due, |n| n.min(due)));
         }
         if self.last_windowd_push_state.is_some_and(|pushed| pushed != self.visible_state) {
             let due = self.last_windowd_push_ns.saturating_add(POINTER_PUSH_INTERVAL_NS);

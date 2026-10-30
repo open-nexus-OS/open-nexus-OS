@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-10-30 (instant input: keys never lost, the caret at once, shortcuts in one place — TASK-0346, RFC-0113, ADR-0090)
+
+- **No typed letter is lost.** The input source decides the route: a layout source (de, us) is
+  translated in inputd and travels one ordered key channel to windowd and the focused field; a
+  composition source (jp, kr, zh) reaches imed behind windowd's focus. Every hop waits for room
+  instead of dropping, a client that is behind gets its commits joined, and a loss that still
+  happens is a FAIL line naming its hop — the board's lost letters came from two hops that dropped.
+- **Every input event is counted.** hidrawd numbers each device stream and keeps the event's
+  time; every later hop checks the sequence, and a field session ends with one aggregate line
+  (`apphost: input session …`, never a line per key, never for a password field).
+- **The field is instant.** A click shows the blinking caret where it landed — the caret is a
+  compositor layer that windowd blinks without waking the app; drag, double and triple click and
+  Shift+click select; Ctrl+arrows move by words, Shift and Ctrl+Shift select, Ctrl+Backspace and
+  Ctrl+Delete delete words, Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y undo and redo; a long value scrolls
+  to keep the caret in view; Enter submits, Tab and Shift+Tab walk the fields.
+- **One shortcut registry.** Every key chord the system acts on lives in `userspace/shortcuts`,
+  matched there with exactly its modifiers (Super+Ctrl+Shift+F is no longer a Fill) and listed in
+  a new window, Settings › Allgemeine Verwaltung › Tastaturkurzbefehle — categories left, the
+  shortcuts right, rebinding drawn but not yet possible. The hand-written chord list in the
+  language files (one of its lines wrong) points at the page now.
+- **Pointer frames carry their history.** A MOVE or DRAG brings every sample since the last one
+  (position, time, sequence; 16 per frame, the oldest folding), so a later drawing or game class
+  adds a delivery mode, not a format; that `stream` class (every sample at the device's rate) is
+  declared and refused until its phase. Rate lines count pointer traffic only — a push or batch a
+  key caused no longer reaches a per-second line.
+- **An app's stack grows as its page needs.** execd reserves every app's stack lazily (8 MiB of
+  address space; a page costs memory only when reached, the memory authority decides the rest):
+  a fixed 64 KiB budget had the settings app overflow on a deeper page. The caret's layer is set
+  aside in its window's share of the frame — it was the one layer a full share dropped.
+
 ### Changed - 2026-10-29 (real memory pressure kills a frozen app, the kill is recorded, the app comes back — TASK-0333 6f-3, RFC-0100 §5)
 
 - **A real level, end to end.** A new QEMU lane, `lowmem` (`just ci-os-lowmem`, part of

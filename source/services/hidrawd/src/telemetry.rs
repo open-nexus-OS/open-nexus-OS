@@ -3,7 +3,8 @@
 
 //! CONTEXT: hidrawd ingest telemetry — the folded `fps:` chain-counter dump
 //! plus the plain (unfolded) `hidrawd: wake/rx/ev/tx hz` rate line for
-//! input-rate triage. Split out of `os_lite.rs` (structure-gate).
+//! input-rate triage. Split out of `os_lite.rs` (structure-gate). Both count POINTER traffic
+//! only: keyboard batches per window are what was typed, as rhythm and length (RFC-0113 §6).
 
 #![cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 
@@ -25,12 +26,13 @@ pub(crate) struct HidrawChainTelemetry {
     pub(crate) sent_batches: u64,
     pub(crate) raw_events: u64,
     pub(crate) normalized_events: u64,
-    pub(crate) keyboard_batches: u64,
     pub(crate) mouse_relative_batches: u64,
     pub(crate) tablet_absolute_batches: u64,
     pub(crate) touch_absolute_batches: u64,
     pub(crate) send_failures: u64,
     pub(crate) route_rebinds: u64,
+    /// This loop pass drained pointer traffic (a keyboard-only pass is no wake of the line's).
+    pub(crate) pointer_pass: bool,
 }
 
 impl HidrawChainTelemetry {
@@ -50,12 +52,12 @@ impl HidrawChainTelemetry {
             sent_batches: 0,
             raw_events: 0,
             normalized_events: 0,
-            keyboard_batches: 0,
             mouse_relative_batches: 0,
             tablet_absolute_batches: 0,
             touch_absolute_batches: 0,
             send_failures: 0,
             route_rebinds: 0,
+            pointer_pass: false,
         }
     }
 
@@ -65,9 +67,11 @@ impl HidrawChainTelemetry {
     /// `wake` = loop passes (one per waitset wake), `rx` = raw batches, `ev` = raw
     /// events, `tx` = wire batches sent to inputd. wake high + rx low = ring/
     /// device dry; wake low under a storm = IRQ starvation; rx high + tx low =
-    /// wire-path loss.
+    /// wire-path loss. Called after a pass's drains: only a pass with pointer traffic counts.
     pub(crate) fn note_wake_for_rate_line(&mut self) {
-        self.wake_rate_count = self.wake_rate_count.saturating_add(1);
+        if core::mem::take(&mut self.pointer_pass) {
+            self.wake_rate_count = self.wake_rate_count.saturating_add(1);
+        }
         let now_ns = nsec().unwrap_or(0);
         if self.rate_window_ns == 0 {
             self.rate_window_ns = now_ns;
@@ -90,6 +94,7 @@ impl HidrawChainTelemetry {
     }
 
     pub(crate) fn note_rx_for_rate_line(&mut self, raw_events: u32) {
+        self.pointer_pass = true;
         self.rx_rate_count = self.rx_rate_count.saturating_add(1);
         self.ev_rate_count = self.ev_rate_count.saturating_add(raw_events);
     }
@@ -118,7 +123,7 @@ impl HidrawChainTelemetry {
         // (recall `NEXUS_LOG_EXPAND=hidrawd`) and prints raw in proof. Gated via `service_trace`
         // directly (NOT trace_line) because the `send_fail=` field would trip the failure safety net.
         let _ = (!nexus_abi::service_trace()).then(|| debug_println(&format!(
-            "fps: hidrawd ingress_hz={} sent_hz={} raw_batches={} wire_batches={} wire_skip={} raw_events={} norm_events={} kbd_batches={} mouse_rel={} tablet_abs={} touch_abs={} send_fail={} rebinds={}",
+            "fps: hidrawd ingress_hz={} sent_hz={} raw_batches={} wire_batches={} wire_skip={} raw_events={} norm_events={} mouse_rel={} tablet_abs={} touch_abs={} send_fail={} rebinds={}",
             ingress_hz,
             sent_hz,
             self.raw_batches,
@@ -126,7 +131,6 @@ impl HidrawChainTelemetry {
             self.wire_batches_skipped,
             self.raw_events,
             self.normalized_events,
-            self.keyboard_batches,
             self.mouse_relative_batches,
             self.tablet_absolute_batches,
             self.touch_absolute_batches,
@@ -141,7 +145,6 @@ impl HidrawChainTelemetry {
         self.sent_batches = 0;
         self.raw_events = 0;
         self.normalized_events = 0;
-        self.keyboard_batches = 0;
         self.mouse_relative_batches = 0;
         self.tablet_absolute_batches = 0;
         self.touch_absolute_batches = 0;

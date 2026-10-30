@@ -97,6 +97,12 @@ pub struct View<'p> {
     pub(crate) handlers: Vec<(usize, HandlerEntry)>,
     /// The focused text field (tap-to-focus; None = no field focused).
     pub(crate) focused_text: Option<crate::focus::FocusedText>,
+    /// Focus sessions handed out (RFC-0113 §6: a new field, a new session).
+    pub(crate) focus_sessions: u32,
+    /// The focused field's undo history and the session it belongs to (TASK-0346 P2): kept
+    /// beside the focus, not in it — a keystroke never clones it.
+    pub(crate) text_history: nexus_textedit::History,
+    pub(crate) history_session: u32,
     /// The scene's kinded overlays (TASK-0074): rebuilt by every emit, read by
     /// the routing (`modal_confine`) and the host (depth, transient timeouts).
     pub(crate) overlays: crate::overlay::OverlayStack,
@@ -156,6 +162,9 @@ impl<'p> View<'p> {
             deps: Vec::new(),
             handlers: Vec::new(),
             focused_text: None,
+            focus_sessions: 0,
+            text_history: nexus_textedit::History::new(),
+            history_session: 0,
             overlays: crate::overlay::OverlayStack::new(),
             last_dismiss: None,
             animations: Vec::new(),

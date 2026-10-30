@@ -342,6 +342,17 @@ impl LayerQuota {
         Self { left: share, dropped: 0 }
     }
 
+    /// Sets one layer of the share aside BEFORE the surface spends it, for a layer drawn over
+    /// the surface (the caret): a tight frame drops the surface's own last layer, never that one.
+    /// `false` (not counted) when the share is empty — the surface is not drawn as layers.
+    pub(crate) fn set_aside(&mut self) -> bool {
+        if self.left == 0 {
+            return false;
+        }
+        self.left -= 1;
+        true
+    }
+
     /// Whether one more layer fits the share (counted as dropped when it does not).
     pub(crate) fn take(&mut self) -> bool {
         if self.left == 0 {
@@ -564,5 +575,19 @@ mod tests {
         let mut quota = LayerQuota::new(share[0]);
         let kept = (0..32).filter(|_| quota.take()).count();
         assert_eq!((kept, quota.dropped()), (share[0], 32 - share[0]));
+    }
+
+    /// RFC-0113 §5: the caret's layer set aside first is kept when the frame is tight — the
+    /// surface loses its own last layer instead; an empty share sets nothing aside.
+    #[test]
+    fn a_layer_set_aside_survives_a_tight_share() {
+        let mut quota = LayerQuota::new(3);
+        assert!(quota.set_aside(), "the caret's layer");
+        assert!(quota.take() && quota.take(), "two of the surface's layers fit");
+        assert!(!quota.take(), "its third is the one dropped");
+        assert_eq!(quota.dropped(), 1);
+        let mut empty = LayerQuota::new(0);
+        assert!(!empty.set_aside());
+        assert_eq!(empty.dropped(), 0, "an undrawn surface counts no drop");
     }
 }

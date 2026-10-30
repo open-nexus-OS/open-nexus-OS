@@ -11,9 +11,11 @@
 use alloc::vec::Vec;
 use hid::KeyboardUsage;
 
+use shortcuts::Action;
+
 use crate::{
     table::{self, lookup, MappingEntry},
-    EditKey, KeyAction, KeyOutput, KeymapError, Modifiers,
+    KeyAction, KeyOutput, KeymapError, Modifiers,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,78 +58,52 @@ impl Keymap {
         usage: KeyboardUsage,
         modifiers: Modifiers,
     ) -> Result<KeyOutput, KeymapError> {
-        // The navigation keys edit a text field in every layout; Shift selects.
-        if !modifiers.control() && !modifiers.alt_gr() {
-            if let Some(key) = navigation(usage, modifiers.shift()) {
-                return Ok(KeyOutput::Action(KeyAction::Edit(key)));
+        let tables = self.tables();
+        // The shortcut registry first (RFC-0113 §7): the field commands and the input-source
+        // switch, each only with exactly its modifiers. Window and capture chords never get here —
+        // inputd takes them before the keymap.
+        let letter = || letter_in(tables.as_slice(), usage);
+        if let Some(entry) = shortcuts::lookup(modifiers.chord_mods(), usage, letter) {
+            match entry.action {
+                Action::Field(key) => return Ok(KeyOutput::Action(KeyAction::Edit(key))),
+                Action::NextInputSource => return Ok(KeyOutput::Action(KeyAction::ImeSwitch)),
+                Action::Window(_) | Action::Capture(_) => {}
             }
         }
-        if modifiers.control() {
-            if usage == KeyboardUsage::SPACE && !modifiers.alt_gr() {
-                return Ok(KeyOutput::Action(KeyAction::ImeSwitch));
-            }
-            if !modifiers.alt_gr() && !modifiers.shift() {
-                if let Some(key) = self.shortcut(usage) {
-                    return Ok(KeyOutput::Action(KeyAction::Edit(key)));
-                }
-            }
+        if modifiers.control() || (modifiers.shift() && modifiers.alt_gr()) {
             return Err(KeymapError::UnsupportedModifierCombination);
         }
-        if modifiers.shift() && modifiers.alt_gr() {
-            return Err(KeymapError::UnsupportedModifierCombination);
-        }
+        let entry = lookup(tables.as_slice(), usage).ok_or(KeymapError::UnsupportedKey)?;
+        resolve_entry(self.layout, entry, modifiers)
+    }
 
-        let tables = match self.layout {
+    /// The lowercase ASCII letter this layout types on `usage` — where it types no Latin letter
+    /// there, the key's US letter — so a letter chord (`shortcuts::Key::Letter`: Ctrl+C is the key
+    /// that types `c`) works in every layout. `None` for a key that is no letter.
+    #[must_use]
+    pub fn letter(&self, usage: KeyboardUsage) -> Option<char> {
+        letter_in(self.tables().as_slice(), usage)
+    }
+
+    fn tables(&self) -> Tables {
+        match self.layout {
             LayoutId::Us => Tables::Borrowed(table::us::TABLE),
             LayoutId::De => Tables::Borrowed(table::de::TABLE),
             LayoutId::Jp => Tables::Owned(table::jp::merged()),
             LayoutId::Kr => Tables::Owned(table::kr::merged()),
             LayoutId::Zh => Tables::Owned(table::zh::merged()),
-        };
-        let entry = lookup(tables.as_slice(), usage).ok_or(KeymapError::UnsupportedKey)?;
-        resolve_entry(self.layout, entry, modifiers)
-    }
-}
-
-impl Keymap {
-    /// Ctrl+A / C / X / V by the LAYOUT's letter (Ctrl+C is the key that types `c` in the
-    /// active layout, as on every desktop); a layout whose key types no Latin letter there
-    /// falls back to the key's US position, so the shortcuts work in every layout.
-    fn shortcut(&self, usage: KeyboardUsage) -> Option<EditKey> {
-        let letter = match self.resolve(usage, Modifiers::default()) {
-            Ok(KeyOutput::Text(ch)) if ch.is_ascii_alphabetic() => ch.to_ascii_lowercase(),
-            _ => match usage {
-                KeyboardUsage::A => 'a',
-                KeyboardUsage::C => 'c',
-                KeyboardUsage::X => 'x',
-                KeyboardUsage::V => 'v',
-                _ => return None,
-            },
-        };
-        match letter {
-            'a' => Some(EditKey::SelectAll),
-            'c' => Some(EditKey::Copy),
-            'x' => Some(EditKey::Cut),
-            'v' => Some(EditKey::Paste),
-            _ => None,
         }
     }
 }
 
-/// The navigation keys as editing commands (layout-independent); Shift extends a selection.
-fn navigation(usage: KeyboardUsage, shift: bool) -> Option<EditKey> {
-    Some(match (usage, shift) {
-        (KeyboardUsage::LEFT_ARROW, false) => EditKey::Left,
-        (KeyboardUsage::RIGHT_ARROW, false) => EditKey::Right,
-        (KeyboardUsage::HOME, false) => EditKey::Home,
-        (KeyboardUsage::END, false) => EditKey::End,
-        (KeyboardUsage::LEFT_ARROW, true) => EditKey::SelectLeft,
-        (KeyboardUsage::RIGHT_ARROW, true) => EditKey::SelectRight,
-        (KeyboardUsage::HOME, true) => EditKey::SelectHome,
-        (KeyboardUsage::END, true) => EditKey::SelectEnd,
-        (KeyboardUsage::DELETE_FORWARD, _) => EditKey::Delete,
-        _ => return None,
-    })
+fn letter_in(tables: &[MappingEntry], usage: KeyboardUsage) -> Option<char> {
+    match lookup(tables, usage).map(|entry| entry.base) {
+        Some(KeyOutput::Text(ch)) if ch.is_ascii_alphabetic() => Some(ch.to_ascii_lowercase()),
+        _ => {
+            let place = usage.raw().checked_sub(KeyboardUsage::A.raw())?;
+            (usage.raw() <= KeyboardUsage::Z.raw()).then(|| char::from(b'a' + place))
+        }
+    }
 }
 
 enum Tables {

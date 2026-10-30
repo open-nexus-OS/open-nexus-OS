@@ -391,6 +391,21 @@ mod tests {
         assert_eq!(outcome, Outcome::Stored { app: b"x", n: 1, replaced: false });
     }
 
+    /// RFC-0113 §8: the `stream` input class is declared, not grantable — nxb-pack refuses it at
+    /// pack time and the authority does not know it, so a bundle that names it anyway never
+    /// publishes.
+    #[test]
+    fn test_reject_stream_class_at_publish() {
+        let mut table = AppGrants::new();
+        let mut out = [0u8; 512];
+        let put =
+            put_frame("painter", &["nexus.permission.WINDOW", "nexus.permission.INPUT_STREAM"]);
+        let (_, outcome) = run(&mut table, &put, "bundlemgrd", &mut out);
+        let cap = b"nexus.permission.INPUT_STREAM";
+        assert_eq!(outcome, Outcome::Rejected { app: b"painter", cap });
+        assert!(table.grants_of("painter").is_none());
+    }
+
     #[test]
     fn unknown_app_reads_deny_and_a_published_app_without_grants_reads_allow_empty() {
         let mut table = AppGrants::new();

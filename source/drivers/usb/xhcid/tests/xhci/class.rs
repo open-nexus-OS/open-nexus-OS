@@ -130,10 +130,11 @@ fn a_detached_interface_is_told_and_a_replugged_one_is_a_new_device() {
     assert_eq!(heard(&frames), [mouse(3)]);
 }
 
-/// A client that does not drain: attaches and detaches stay owed, in order, and go out when it
-/// drains again (on the retry deadline); reports are dropped and counted.
+/// A client that does not drain: everything stays owed, in order — the report frame it refused,
+/// the detach after it, the next attach — and goes out when it drains again (on the retry
+/// deadline). Nothing is dropped.
 #[test]
-fn a_full_client_keeps_attaches_and_detaches_owed_and_drops_reports() {
+fn a_full_client_keeps_everything_owed_in_order() {
     let (m, mut rig) = qemu_rig();
     let frames = rig.subscribe();
     frames.drain();
@@ -147,14 +148,96 @@ fn a_full_client_keeps_attaches_and_detaches_owed_and_drops_reports() {
     m.borrow_mut().service();
     rig.settle();
     assert!(heard(&frames).is_empty());
-    assert_eq!(rig.sink.class.dropped(), 1);
+    assert_eq!(rig.sink.class.dropped(), 0);
     assert!(rig.sink.class.deadline().is_some(), "a retry is armed");
     frames.full.set(false);
     rig.retry();
-    assert_eq!(heard(&frames), [Heard::Detached(2), keyboard(3)]);
+    assert_eq!(heard(&frames), [reports(2, &[&[0, 1, 1, 0]]), Heard::Detached(2), keyboard(3)]);
     assert_eq!(rig.sink.class.deadline(), None);
     rig.report(1, 0x3, 0x81, &[0, 0, 0x05, 0, 0, 0, 0, 0]);
     assert_eq!(heard(&frames), [reports(3, &[&[0, 0, 0x05, 0, 0, 0, 0, 0]])]);
+}
+
+/// The reports a device's frames carried, in order (how they were grouped into frames aside).
+fn reports_of(device: u16, heard: &[Heard]) -> Vec<Vec<u8>> {
+    heard
+        .iter()
+        .filter_map(|h| match h {
+            Heard::Reports { device: d, reports } if *d == device => Some(reports.clone()),
+            _ => None,
+        })
+        .flatten()
+        .collect()
+}
+
+fn key_report(n: u8) -> [u8; 8] {
+    [0, 0, 0x04 + n % 26, 0, 0, 0, 0, 0]
+}
+
+/// A boot keyboard report is the keys held at that moment: a press dropped between two reports is
+/// a letter lost. Typed while the client is full, every report waits and arrives in order
+/// (RFC-0113 §2) — the refused frame held, the reports after it gathered behind it.
+#[test]
+fn keyboard_reports_wait_for_a_full_client_and_arrive_in_order() {
+    let (_m, mut rig) = qemu_rig();
+    let frames = rig.subscribe();
+    frames.drain();
+    frames.full.set(true);
+    let typed: Vec<[u8; 8]> = (0..40).map(key_report).collect();
+    for report in &typed {
+        rig.report(1, 0x1, 0x81, report);
+    }
+    assert!(heard(&frames).is_empty());
+    frames.full.set(false);
+    rig.retry();
+    let expected: Vec<Vec<u8>> = typed.iter().map(|r| r.to_vec()).collect();
+    assert_eq!(reports_of(1, &heard(&frames)), expected);
+    assert_eq!((rig.sink.class.dropped(), rig.sink.class.keys_lost()), (0, 0));
+}
+
+/// Past the places a full client can be owed, a keyboard frame is dropped — and named: its
+/// reports count as keys lost (the OS loop says `FAIL`); every other report still arrives.
+#[test]
+fn test_reject_a_keyboard_frame_past_the_held_places_is_counted_as_keys_lost() {
+    let (_m, mut rig) = qemu_rig();
+    let frames = rig.subscribe();
+    frames.drain();
+    frames.full.set(true);
+    let mut sent = 0u32;
+    while rig.sink.class.keys_lost() == 0 && sent < 1_000 {
+        rig.report(1, 0x1, 0x81, &key_report(sent as u8));
+        sent += 1;
+    }
+    let lost = rig.sink.class.keys_lost();
+    assert!(lost > 0, "the places ran out");
+    assert_eq!(rig.sink.class.dropped(), lost, "only keyboard frames were dropped");
+    frames.full.set(false);
+    rig.retry();
+    assert_eq!(reports_of(1, &heard(&frames)).len() as u32 + lost, sent, "lost or delivered");
+}
+
+/// A pointer's frames hold only their share: the keys typed after a burst of motion still find
+/// a place.
+#[test]
+fn pointer_frames_hold_only_their_share_and_the_keys_keep_the_rest() {
+    let (_m, mut rig) = qemu_rig();
+    let frames = rig.subscribe();
+    frames.drain();
+    frames.full.set(true);
+    let mut moved = 0u32;
+    while rig.sink.class.dropped() == 0 && moved < 1_000 {
+        rig.report(1, 0x2, 0x81, &[0, moved as u8, 1, 0]);
+        moved += 1;
+    }
+    assert!(rig.sink.class.dropped() > 0, "motion past its share loses its deltas");
+    let keys = 16 * (xhcid::HELD_MAX - xhcid::HELD_POINTER_MAX) as u32;
+    for n in 0..keys {
+        rig.report(1, 0x1, 0x81, &key_report(n as u8));
+    }
+    assert_eq!(rig.sink.class.keys_lost(), 0, "the keys kept their places");
+    frames.full.set(false);
+    rig.retry();
+    assert_eq!(reports_of(1, &heard(&frames)).len() as u32, keys);
 }
 
 /// An interface that comes and goes while the client is full: its attach is withdrawn, so the

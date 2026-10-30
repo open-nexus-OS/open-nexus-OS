@@ -376,6 +376,14 @@ proves = "a person at the monitor hid the focused app (Super+Ctrl+M), waited pas
 phase = "end"
 proves = "a person at the monitor opened settings, went to another section, closed the window (Super+Ctrl+W or the close button) and opened settings again — it came back on that section, on THIS boot, with the act lines `apphost: persist saved (` and `SELFTEST: app restore ok (` in the trace (TASK-0333 6e-1, ADR-0086)"
 
+[marker."board-visual: caret"]
+phase = "end"
+proves = "a person at the monitor clicked into a text field and saw the caret blink where the click landed, selected by mouse (drag, double click) and by keyboard (Shift+arrows, Ctrl+Shift+arrows), deleted a word and undid it — on THIS boot, with the act lines `windowd: caret layer on` and `apphost: input session (` (editing actions counted, no loss line) in the trace (TASK-0346, RFC-0113)"
+
+[marker."board-visual: shortcuts"]
+phase = "end"
+proves = "a person at the monitor opened Settings › Allgemeine Verwaltung › Tastaturkurzbefehle — its window over the settings window — and saw every category's shortcuts listed from the registry, the rebinding controls drawn disabled, and closed it with Fertig — on THIS boot, with the act line `apphost: shortcuts listed (` in the trace (TASK-0346 P3, RFC-0113 §7)"
+
 [marker."board-visual: typed"]
 phase = "end"
 proves = "a person confirmed that a USB keyboard and mouse move THIS boot's desktop (Block 2 gate)"

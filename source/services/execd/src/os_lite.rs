@@ -807,7 +807,7 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
         return rsp(op, STATUS_MALFORMED, 0).to_vec();
     }
     let image_id = frame[4];
-    let stack_pages = frame[5].max(1) as usize;
+    let stack_pages = images::stack_pages(image_id, frame[5]);
     let req_len = frame[6] as usize;
     if req_len == 0 || req_len > 48 || frame.len() < 7 + req_len {
         return rsp(op, STATUS_MALFORMED, 0).to_vec();

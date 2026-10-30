@@ -240,15 +240,15 @@ impl DisplayServerRuntime {
         #[cfg(nexus_env = "os")]
         {
             let Some(id) = self.desktop_surface_id else { return false };
-            let (x, y) = (local_x.max(0) as u16, local_y.max(0) as u16);
-            let frame = wire::encode_surface_input(id, kind, x, y);
+            // A tap carries the press's facts, a MOVE or DRAG its samples (`motion.rs`).
+            let (frame, n) = self.pointer_frame(id, kind, local_x, local_y);
             let Some(slot) = self.desktop_channel else {
                 if kind == wire::INPUT_KIND_TAP {
                     let _ = debug_println("WINDOWD: FAIL desktop input (no event channel)");
                 }
                 return false;
             };
-            let sent = self.client_send(slot, &frame, Delivery::for_input(kind)).accepted();
+            let sent = self.client_send(slot, &frame[..n], Delivery::for_input(kind)).accepted();
             if sent && kind == wire::INPUT_KIND_TAP && super::input_hover::first_tap_routed(true) {
                 let _ = debug_println("WINDOWD: desktop input routed");
             } else if !sent && kind == wire::INPUT_KIND_TAP {

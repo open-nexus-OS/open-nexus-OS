@@ -392,6 +392,12 @@ fn compile_toml_to_manifest_nxb(input: &str) -> Result<Vec<u8>, Box<dyn std::err
             // through `updated`; settings-type only — and mutation stays
             // policy-gated inside updated even for the holder.
             "nexus.permission.UPDATES" => Some(("settings", mf::BundleType::Settings)),
+            // INPUT_STREAM (RFC-0113 §8): every pointer sample at the device's rate — declared,
+            // granted to no bundle type until its phase lands (all get the `frame` class).
+            "nexus.permission.INPUT_STREAM" => {
+                let why = "the `stream` input class (RFC-0113 §8) is declared, not grantable yet";
+                return Err(format!("manifest.toml capability `{cap}`: {why}").into());
+            }
             _ => None,
         };
         if let Some((role, needed)) = required {

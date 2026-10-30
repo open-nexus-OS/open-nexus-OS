@@ -288,7 +288,8 @@ pub(super) fn run() -> Result<(), &'static str> {
     //    Plain blocking recv (P0.2): the sender-wake of an exec'd child in
     //    blocking recv is proven every boot by the recv-wake gate.
     let mut seq: u32 = 1;
-    let mut event_frame = [0u8; 64];
+    // Every frame windowd sends fits (RFC-0113: 64 bytes cut long text and candidate pages).
+    let mut event_frame = [0u8; nexus_display_proto::surface_text::CLIENT_EVENT_FRAME_MAX];
     let mut recv_err_marked = false;
     let mut odd_frame_markers: u32 = 0;
     let mut tap_miss_markers: u32 = 0;
@@ -442,7 +443,9 @@ pub(super) fn run() -> Result<(), &'static str> {
                     let _ = client.send(&req, Wait::Blocking);
                 }
             }
-        } else if let Some((_, kind, x, y)) = wire::decode_surface_input(&event_frame[..len]) {
+        } else if let Some((_, kind, x, y, facts, motion)) =
+            drag::decode_pointer(&event_frame[..len])
+        {
             let rx_ns = nsec_now();
             if matches!(
                 kind,
@@ -453,6 +456,9 @@ pub(super) fn run() -> Result<(), &'static str> {
             ) {
                 // Hover, leave and the drag gesture (`probe/drag.rs`).
                 if let Some(dsl) = app.as_mut() {
+                    if let Some(motion) = &motion {
+                        dsl.note_motion(kind, motion);
+                    }
                     let (x, y) = (i32::from(x), i32::from(y));
                     dsl.pointer_frame(&client, surface_id, kind, x, y, &mut dirty, &mut dirty_rows);
                 }
@@ -468,6 +474,10 @@ pub(super) fn run() -> Result<(), &'static str> {
                 if let Some(dsl) = app.as_mut() {
                     let outcome = dsl.tap(i32::from(x), i32::from(y));
                     dsl.announce_text_focus(&client, surface_id, i32::from(x), i32::from(y));
+                    // TASK-0346 P2: the caret where the press landed on the focused field.
+                    if dsl.press_text(i32::from(x), i32::from(y), facts) {
+                        dsl.merge_tap_damage(&mut dirty, &mut dirty_rows);
+                    }
                     // ONLY a repaint is dirty. A tap a handler absorbed
                     // without one (`PanelNoop`, or a control whose effect
                     // lands in another service) is NOT a miss; calling it

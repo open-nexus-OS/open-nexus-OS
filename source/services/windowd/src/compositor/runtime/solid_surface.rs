@@ -56,7 +56,7 @@ impl DisplayServerRuntime {
         }
     }
 
-    fn fill_atlas_patch(&mut self, patch: &crate::atlas::AtlasSurface, bgra: [u8; 4]) {
+    pub(super) fn fill_atlas_patch(&mut self, patch: &crate::atlas::AtlasSurface, bgra: [u8; 4]) {
         let Some(handle) = self.framebuffer else { return };
         let stride = self.mode.stride as usize;
         let mut row = [0u8; PATCH as usize * 4];

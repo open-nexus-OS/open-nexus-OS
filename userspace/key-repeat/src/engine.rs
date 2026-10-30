@@ -5,13 +5,10 @@
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Stable
-//! TEST_COVERAGE: No direct tests (covered by 4 integration tests in `tests/input_v1_0_host/tests/repeat_contract.rs`).
+//! TEST_COVERAGE: No direct tests (covered by 5 integration tests in `tests/input_v1_0_host/tests/repeat_contract.rs`).
 //! ADR: docs/adr/0029-input-v1-host-core-architecture.md
 
 use crate::{MonotonicNs, RepeatConfig, RepeatError, RepeatKey};
-use alloc::vec::Vec;
-
-const MAX_EVENTS_PER_TICK: usize = 64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RepeatEvent {
@@ -64,27 +61,39 @@ impl RepeatEngine {
         Ok(())
     }
 
+    /// When the held key repeats next (`None` = no key held) — the owner arms its timer at it
+    /// (RFC-0113: a repeat is a kernel timer while a key is held, never a tick).
+    #[must_use]
+    pub fn next_deadline_ns(&self) -> Option<u64> {
+        self.active.map(|active| active.next_repeat_ns)
+    }
+
     pub fn release(&mut self, key: RepeatKey) {
         if self.active.map(|active| active.key) == Some(key) {
             self.active = None;
         }
     }
 
-    pub fn tick(&mut self, now: MonotonicNs) -> Result<Vec<RepeatEvent>, RepeatError> {
+    /// The held key's repeat due at `now`, if any — ONE at most, stamped with the time it was
+    /// due. A consumer that fell behind (a stall past a whole period) gets one repeat now and the
+    /// rhythm resumes from it: never a burst of the repeats it slept through (text that jumps by
+    /// a dozen letters is worse than a repeat skipped), and never a held key that stops
+    /// repeating because too many came due at once.
+    pub fn tick(&mut self, now: MonotonicNs) -> Result<Option<RepeatEvent>, RepeatError> {
         self.observe_time(now)?;
-
-        let mut out = Vec::new();
-        if let Some(mut active) = self.active {
-            while now.raw() >= active.next_repeat_ns {
-                if out.len() == MAX_EVENTS_PER_TICK {
-                    return Err(RepeatError::TickBudgetExceeded);
-                }
-                out.push(RepeatEvent::new(active.key, MonotonicNs::new(active.next_repeat_ns)));
-                active.next_repeat_ns += self.config.period_ns();
-            }
-            self.active = Some(active);
+        let Some(mut active) = self.active else {
+            return Ok(None);
+        };
+        let due = active.next_repeat_ns;
+        if now.raw() < due {
+            return Ok(None);
         }
-        Ok(out)
+        let period = self.config.period_ns();
+        let on_time = due.saturating_add(period);
+        active.next_repeat_ns =
+            if now.raw() >= on_time { now.raw().saturating_add(period) } else { on_time };
+        self.active = Some(active);
+        Ok(Some(RepeatEvent::new(active.key, MonotonicNs::new(due))))
     }
 
     fn observe_time(&mut self, now: MonotonicNs) -> Result<(), RepeatError> {

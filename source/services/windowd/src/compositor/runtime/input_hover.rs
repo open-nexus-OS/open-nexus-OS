@@ -11,6 +11,7 @@
 //! API_STABILITY: Unstable
 
 use super::*;
+use nexus_display_proto::surface_motion::MotionBatch;
 
 /// The surface that took the primary press (RFC-0095, the drag gesture): while the button is
 /// held it receives `INPUT_KIND_DRAG` instead of hover moves, and `INPUT_KIND_RELEASE` at the end.
@@ -84,8 +85,9 @@ impl DisplayServerRuntime {
     /// hover. One-time proof marker: `windowd: hover routing on`.
     pub(crate) fn forward_pointer_hover(&mut self, cursor_x: i32, cursor_y: i32) {
         use nexus_display_proto::client_surface::{INPUT_KIND_LEAVE, INPUT_KIND_MOVE};
+        let motion = core::mem::take(&mut self.motion.applied);
         // A held press drags on the surface that took it — no hover routing meanwhile.
-        if self.forward_drag(cursor_x, cursor_y) {
+        if self.forward_drag(cursor_x, cursor_y, &motion) {
             return;
         }
         let mut route = HOVER_ROUTE_NONE;
@@ -145,6 +147,8 @@ impl DisplayServerRuntime {
         let route_changed = route != self.hover_route
             || (route == HOVER_ROUTE_APP && route_idx != self.hover_app_idx);
         if route_changed {
+            // The held-back samples were the old surface's (RFC-0113 §2).
+            self.motion.hover.clear();
             let (lx, ly) = self.hover_last;
             match self.hover_route {
                 HOVER_ROUTE_APP => {
@@ -165,7 +169,11 @@ impl DisplayServerRuntime {
         // taps queue in order (ADR-0075) — so display-rate forwarding is safe.
         let now = nexus_abi::nsec().unwrap_or(0);
         let move_due = now.saturating_sub(self.hover_last_move_ns) >= PACER_INTERVAL_NS;
+        // A MOVE carries every sample since the last one to this surface (RFC-0113 §2).
+        self.motion.hover.append(&motion);
         if move_due {
+            let (dx, dy) = (local.0 - cursor_x, local.1 - cursor_y);
+            self.motion.out = core::mem::take(&mut self.motion.hover).shifted(dx, dy);
             match route {
                 HOVER_ROUTE_APP => {
                     self.send_app_input_kind(route_idx, INPUT_KIND_MOVE, local.0, local.1);
@@ -175,6 +183,7 @@ impl DisplayServerRuntime {
                 }
                 _ => {}
             }
+            self.motion.out.clear(); // staged for this MOVE only, sent or not
             if route != HOVER_ROUTE_NONE {
                 self.hover_last_move_ns = now;
             }
@@ -203,25 +212,39 @@ impl DisplayServerRuntime {
     /// One frame of `kind` to the press's surface; `false` when it did not go out.
     fn send_press_kind(&mut self, target: PressTarget, kind: u8, x: i32, y: i32) -> bool {
         let (lx, ly) = self.press_local(target, x, y);
-        match target {
+        let sent = match target {
             PressTarget::Desktop => self.send_desktop_input_kind(kind, lx, ly),
             PressTarget::App(idx) => self.send_app_input_kind(idx, kind, lx, ly),
-        }
+        };
+        self.motion.out.clear(); // staged for this frame only, sent or not
+        sent
     }
 
     /// While the primary button holds a press, the pointer is a DRAG to the surface that took
     /// it — wherever the pointer is. Every applied sample goes out (one per loop pass, already
-    /// frame-aligned); the surface computes only the newest it holds. A sample its full queue
-    /// refused is owed (`flush_drag`). `true` when it was one.
-    fn forward_drag(&mut self, x: i32, y: i32) -> bool {
+    /// frame-aligned) with its pointer samples; the surface computes only the newest it holds.
+    /// A sample its full queue refused is owed (`flush_drag`), its samples kept. `true` when it
+    /// was one.
+    fn forward_drag(&mut self, x: i32, y: i32, motion: &MotionBatch) -> bool {
         use nexus_display_proto::client_surface::INPUT_KIND_DRAG;
         let Some(mut press) = self.press_route.filter(|_| self.state.launcher_click_visible) else {
             return false;
         };
+        self.motion.owed.append(motion);
+        self.stage_drag_motion(press.target, x, y);
         let sent = self.send_press_kind(press.target, INPUT_KIND_DRAG, x, y);
         press.owed = (!sent).then_some((x, y));
+        if sent {
+            self.motion.owed.clear();
+        }
         self.press_route = Some(press);
         true
+    }
+
+    /// The owed drag samples as the press's surface sees them, for the DRAG about to go out.
+    fn stage_drag_motion(&mut self, target: PressTarget, x: i32, y: i32) {
+        let (lx, ly) = self.press_local(target, x, y);
+        self.motion.out = self.motion.owed.shifted(lx - x, ly - y);
     }
 
     /// The loop pass's retry of a drag position a full queue refused — reactive: the next pass
@@ -230,8 +253,10 @@ impl DisplayServerRuntime {
         use nexus_display_proto::client_surface::INPUT_KIND_DRAG;
         let Some(press) = self.press_route else { return };
         let Some((x, y)) = press.owed else { return };
+        self.stage_drag_motion(press.target, x, y);
         if self.send_press_kind(press.target, INPUT_KIND_DRAG, x, y) {
             self.press_route = Some(PressRoute { owed: None, ..press });
+            self.motion.owed.clear();
         }
     }
 
@@ -240,6 +265,7 @@ impl DisplayServerRuntime {
     pub(crate) fn release_press_route(&mut self, x: i32, y: i32) {
         use nexus_display_proto::client_surface::INPUT_KIND_RELEASE;
         if let Some(press) = self.press_route.take() {
+            self.motion.owed.clear(); // the release supersedes an owed drag, samples and all
             self.send_press_kind(press.target, INPUT_KIND_RELEASE, x, y);
         }
     }

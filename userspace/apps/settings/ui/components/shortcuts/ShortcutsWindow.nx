@@ -1,0 +1,100 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Tastaturkurzbefehle (TASK-0346 P3) — a window over the settings window, the way the
+// shortcuts open on the reference desktop: the categories on the left (more will join), the
+// chosen category's shortcuts on the right, every row the shortcut registry's truth
+// (`svc.shortcuts.list`). Rebinding is a later phase: each row's control and the restore button
+// are drawn, disabled. An app-modal layer (TASK-0074, the window kit's `WinModal` rule): a tap
+// on the backdrop, ESC and the close glyph and "Fertig" all close it (`ScClose`); the panel eats
+// its own taps. On the PAGE ROOT, like the picker sheets — a full-window layer belongs to the
+// page that owns the z-order.
+
+Component ShortcutsWindow {
+    Stack {
+        Stack {
+            Spacer
+            Stack {
+                Panel {
+                    Stack {
+                        Text(@t("sc.title")).textSize(md).fontWeight(semibold).fg(onGlass)
+                        Spacer
+                        Circle { size: 28
+                            Icon { symbol: "xmark", size: 12 }
+                                .fg(onGlassMuted)
+                        }
+                        .hitSlop(2)
+                        on Tap -> dispatch(ScClose)
+                    }
+                    .direction(row)
+                    .align(center)
+                    Stack {
+                        Stack {
+                            ScCategory { id: "windows", label: @t("sc.cat.windows"), icon: "app.window", active: $state.scCategory == "windows" }
+                            ScCategory { id: "screenshots", label: @t("sc.cat.screenshots"), icon: "camera", active: $state.scCategory == "screenshots" }
+                            ScCategory { id: "text", label: @t("sc.cat.text"), icon: "textformat", active: $state.scCategory == "text" }
+                            ScCategory { id: "input", label: @t("sc.cat.input"), icon: "keyboard", active: $state.scCategory == "input" }
+                        }
+                        .gap(0)
+                        .width(190)
+                        .padding(1)
+                        .rounded(xl)
+                        .material(subtle)
+                        Stack {
+                            List($state.shortcuts) { row in
+                                Stack {
+                                    ScRow { id: row.id, keys: row.keys, alt: row.alt, active: row.active }
+                                }
+                                .key(row.id)
+                            }
+                        }
+                        .gap(0)
+                        .grow(1)
+                        .rounded(xl)
+                        .material(subtle)
+                        .scroll(vertical)
+                    }
+                    .direction(row)
+                    .align(stretch)
+                    .gap(3)
+                    .height(380)
+                    if $state.scCategory == "windows" {
+                        Text(@t("sc.windowsNote")).textSize(xs).leading(normal).fg(onGlassMuted)
+                    } else if $state.scError != 0 {
+                        Text(@t("sc.error")).textSize(xs).fg(danger)
+                    } else {
+                        Stack { }
+                    }
+                    Stack {
+                        Button { label: @t("sc.reset") }
+                            .bg(surfaceVariant)
+                            .disabled(true)
+                        Text(@t("sc.rebindNote")).textSize(xs).leading(normal).fg(onGlassMuted)
+                            .grow(1)
+                        Button { label: @t("sc.done") }
+                            on Tap -> dispatch(ScClose)
+                    }
+                    .direction(row)
+                    .align(center)
+                    .gap(3)
+                }
+                .material(overlay)
+                .rounded(xl)
+                .gap(3)
+                .padding(4)
+                on Tap -> dispatch(WinNoop)
+            }
+            .maxWidth(780)
+            .grow(1)
+            Spacer
+        }
+        .direction(row)
+        .align(center)
+        .grow(1)
+        .paddingX(4)
+    }
+    .overlay(modal)
+    .bg(scrim)
+    .transition(fade)
+    on Dismiss -> dispatch(ScClose)
+}

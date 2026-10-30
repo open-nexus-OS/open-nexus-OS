@@ -5,7 +5,8 @@
 //! capture keys (Print, Shift+Print, Alt+Print): inputd recognizes them on the press, parks the
 //! code for exactly one state push (`take_wm_chord`, `take_capture_key`, `stamp_key_facts`),
 //! and the key never becomes a keyboard dispatch (imed and the focused app never see it). A key
-//! without its modifiers stays an ordinary key.
+//! without its modifiers stays an ordinary key. The chords are the shortcut registry's
+//! (RFC-0113 §7), matched with EXACTLY their modifiers.
 //! OWNERS: @runtime
 
 use hid::TimestampNs;
@@ -173,4 +174,31 @@ fn key_facts_stamp_once_and_keep_an_undelivered_fact() {
     assert!(rig.inputd.stamp_key_facts(&mut chord, &mut capture), "a new chord");
     assert_eq!((chord, capture), (1, 3), "the chord lands, the undelivered capture key stays");
     assert!(!rig.inputd.stamp_key_facts(&mut chord, &mut capture), "nothing new: no push owed");
+}
+
+/// RFC-0113 §7: a chord matches only its very modifier set — one more modifier is no tile, no
+/// capture, and no stray key either (Ctrl is held: the layout skips it).
+#[test]
+fn test_reject_a_chord_with_extra_modifiers() {
+    let mut rig = Rig::new();
+    assert_eq!(rig.chord(LCTRL | LGUI | LSHIFT, KEY_F), 0, "Super+Ctrl+Shift+F types nothing");
+    assert_eq!(rig.inputd.take_wm_chord(), 0, "and fills nothing");
+    let _ = rig.chord(LCTRL | LGUI | LSHIFT | LALT, LEFT);
+    assert_eq!(rig.inputd.take_wm_chord(), 0, "Shift and Alt at once is no quarter");
+    let _ = rig.chord(LSHIFT | LALT, PRINT);
+    assert_eq!(rig.inputd.take_capture_key(), 0, "Shift+Alt+Print is no capture key");
+    let _ = rig.chord(LCTRL | LGUI | LSHIFT, UP);
+    assert_eq!(rig.inputd.take_wm_chord(), 0, "Super+Ctrl+Shift+Up is no fill");
+}
+
+/// The registry's modifier bits ARE the surface wire's (a tap's modifiers and a chord's are one
+/// vocabulary).
+#[test]
+fn registry_modifier_bits_are_the_wire_bits() {
+    use nexus_display_proto::surface_input as wire;
+    assert_eq!(shortcuts::Mods::SHIFT.bits(), wire::MOD_SHIFT);
+    assert_eq!(shortcuts::Mods::CTRL.bits(), wire::MOD_CTRL);
+    assert_eq!(shortcuts::Mods::ALT.bits(), wire::MOD_ALT);
+    assert_eq!(shortcuts::Mods::ALTGR.bits(), wire::MOD_ALTGR);
+    assert_eq!(shortcuts::Mods::SUPER.bits(), wire::MOD_SUPER);
 }

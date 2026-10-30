@@ -12,10 +12,12 @@
 //! no anchor, or an anchor equal to the caret, means nothing is selected. Movement without
 //! Shift collapses a selection to its edge, as text fields do on every desktop.
 //!
-//! Not here yet (TASK-0095): word jumps, pointer drag and double/triple-click selection,
-//! grapheme clusters (a char is a Unicode scalar), bidi.
+//! TASK-0346 P2: word moves and selection, deletion by words (`words`), the pointer's caret —
+//! a click places it, Shift+click and a drag extend, a double click takes the word, a triple
+//! click everything ([`place`], [`select_at`]) — and undo/redo (`history`).
+//! Not here: grapheme clusters (a char is a Unicode scalar), bidi, multi-line.
 //! OWNERS: @ui
-//! STATUS: Functional (keyboard core)
+//! STATUS: Functional (keyboard + pointer core)
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: unit tests below
 
@@ -25,6 +27,16 @@
 extern crate alloc;
 
 use alloc::string::String;
+
+/// Undo and redo for one field.
+pub mod history;
+/// Where a field shows its text: the horizontal offset that keeps the caret in view.
+pub mod view;
+/// Word boundaries (the word commands, the double click).
+pub mod words;
+
+pub use history::{Change, History, Snapshot, HISTORY_MAX};
+use words::{run_at, word_left, word_right};
 
 /// Where the caret is and where a selection began, as char indices into the value.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -58,8 +70,9 @@ impl Edit {
 }
 
 /// One editing command (the keyboard's — arrows, Home/End, Shift for selection, Ctrl+A,
-/// Backspace, Delete). Copy, cut and paste are the host's: they read [`selected_text`] and
-/// call [`delete_selection`] / [`insert`].
+/// Backspace, Delete, and with Ctrl the word steps). Copy, cut and paste are the host's: they
+/// read [`selected_text`] and call [`delete_selection`] / [`insert`]; undo and redo are the
+/// runtime's ([`History`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Command {
     Left,
@@ -73,6 +86,26 @@ pub enum Command {
     SelectAll,
     Backspace,
     Delete,
+    /// Ctrl+Left / Ctrl+Right: to the start of the word before, the end of the word after.
+    WordLeft,
+    WordRight,
+    /// Ctrl+Shift+Left / Ctrl+Shift+Right.
+    SelectWordLeft,
+    SelectWordRight,
+    /// Ctrl+Backspace / Ctrl+Delete: the word before or after the caret (or the selection).
+    DeleteWordBack,
+    DeleteWordForward,
+}
+
+impl Command {
+    /// Whether the command can change the value (an undo step), not only the caret.
+    #[must_use]
+    pub const fn deletes(self) -> bool {
+        matches!(
+            self,
+            Self::Backspace | Self::Delete | Self::DeleteWordBack | Self::DeleteWordForward
+        )
+    }
 }
 
 /// The result of an edit: the new value when it changed, and the next caret state.
@@ -147,6 +180,62 @@ pub fn apply(value: &str, edit: Edit, cmd: Command) -> Applied {
                 edit: Edit { caret: edit.caret, anchor: None },
             },
         },
+        // A word step without Shift leaves from the selection's edge in its direction.
+        Command::WordLeft => {
+            moved(word_left(value, edit.selection().map_or(edit.caret, |(start, _)| start)))
+        }
+        Command::WordRight => {
+            moved(word_right(value, edit.selection().map_or(edit.caret, |(_, end)| end)))
+        }
+        Command::SelectWordLeft => extend(word_left(value, edit.caret)),
+        Command::SelectWordRight => extend(word_right(value, edit.caret)),
+        Command::DeleteWordBack => match edit.selection() {
+            Some(_) => delete_selection(value, edit),
+            None => delete_range(value, word_left(value, edit.caret), edit.caret),
+        },
+        Command::DeleteWordForward => match edit.selection() {
+            Some(_) => delete_selection(value, edit),
+            None => delete_range(value, edit.caret, word_right(value, edit.caret)),
+        },
+    }
+}
+
+/// The char range `[start, end)` removed, the caret at `start` (nothing when it is empty).
+fn delete_range(value: &str, start: usize, end: usize) -> Applied {
+    if start >= end {
+        return Applied { value: None, edit: Edit { caret: start, anchor: None } };
+    }
+    Applied {
+        value: Some(splice(value, start, end, "")),
+        edit: Edit { caret: start, anchor: None },
+    }
+}
+
+/// The pointer at char index `idx`: a click places the caret there; Shift+click and a drag
+/// (`extend`) move the caret there and keep the selection's other end.
+#[must_use]
+pub fn place(value: &str, edit: Edit, idx: usize, extend: bool) -> Edit {
+    let len = char_len(value);
+    let (edit, idx) = (edit.clamped(len), idx.min(len));
+    if extend {
+        Edit { caret: idx, anchor: Some(edit.anchor.unwrap_or(edit.caret)) }
+    } else {
+        Edit { caret: idx, anchor: None }
+    }
+}
+
+/// A multi-click at char index `idx`: two clicks take the word (or the run of separators) under
+/// it, three take everything; one click places the caret.
+#[must_use]
+pub fn select_at(value: &str, idx: usize, clicks: u8) -> Edit {
+    let len = char_len(value);
+    match clicks {
+        0 | 1 => Edit { caret: idx.min(len), anchor: None },
+        2 => {
+            let (start, end) = run_at(value, idx.min(len));
+            Edit { caret: end, anchor: Some(start) }
+        }
+        _ => Edit { caret: len, anchor: Some(0) },
     }
 }
 
@@ -278,5 +367,51 @@ mod tests {
         assert_eq!(stale.clamped(3), Edit { caret: 3, anchor: Some(3) });
         assert_eq!(apply("abc", stale, Command::Left).edit, at(2));
         assert_eq!(delete_selection("abc", at(1)).value, None, "nothing selected, nothing cut");
+    }
+}
+
+#[cfg(test)]
+mod pointer_and_word_tests {
+    use super::*;
+
+    fn at(caret: usize) -> Edit {
+        Edit { caret, anchor: None }
+    }
+
+    #[test]
+    fn word_steps_move_and_select_by_words() {
+        let v = "eins zwei drei";
+        assert_eq!(apply(v, at(14), Command::WordLeft).edit, at(10));
+        assert_eq!(apply(v, at(0), Command::WordRight).edit, at(4));
+        let e = apply(v, at(14), Command::SelectWordLeft).edit;
+        let e = apply(v, e, Command::SelectWordLeft).edit;
+        assert_eq!(selected_text(v, e).as_deref(), Some("zwei drei"));
+        let sel = Edit { caret: 9, anchor: Some(5) };
+        assert_eq!(apply(v, sel, Command::WordRight).edit, at(14), "leaves from the right edge");
+    }
+
+    #[test]
+    fn word_deletion_takes_the_word_or_the_selection() {
+        let a = apply("eins zwei drei", at(14), Command::DeleteWordBack);
+        assert_eq!((a.value.as_deref(), a.edit), (Some("eins zwei "), at(10)));
+        let a = apply("eins zwei drei", at(4), Command::DeleteWordForward);
+        assert_eq!((a.value.as_deref(), a.edit), (Some("eins drei"), at(4)));
+        assert_eq!(apply("abc", at(0), Command::DeleteWordBack).value, None);
+        let sel = Edit { caret: 1, anchor: Some(3) };
+        assert_eq!(apply("abcd", sel, Command::DeleteWordBack).value.as_deref(), Some("ad"));
+        assert!(Command::DeleteWordBack.deletes() && !Command::WordLeft.deletes());
+    }
+
+    #[test]
+    fn the_pointer_places_extends_and_multi_clicks_select() {
+        let v = "Hallo Welt";
+        assert_eq!(place(v, at(10), 3, false), at(3), "a click places");
+        let e = place(v, at(2), 8, true);
+        assert_eq!(selected_text(v, e).as_deref(), Some("llo We"), "Shift+click extends");
+        let e = place(v, e, 9, true);
+        assert_eq!(e.anchor, Some(2), "a drag keeps the selection's start");
+        assert_eq!(selected_text(v, select_at(v, 7, 2)).as_deref(), Some("Welt"));
+        assert_eq!(selected_text(v, select_at(v, 7, 3)).as_deref(), Some("Hallo Welt"));
+        assert_eq!(place(v, at(0), 99, false), at(10), "past the end lands at the end");
     }
 }

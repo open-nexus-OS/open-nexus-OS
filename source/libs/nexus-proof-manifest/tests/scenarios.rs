@@ -110,7 +110,10 @@ retry_with = [{ click = "card" }]
     .expect("valid");
     assert_eq!(s.steps.len(), 3);
     assert_eq!(s.steps[0].action, Action::Click { target: "pill".into(), at: (10, 20) });
-    assert_eq!(s.steps[1].action, Action::Type { word: "word".into(), text: "kiwi".into() });
+    assert_eq!(
+        s.steps[1].action,
+        Action::Type { word: "word".into(), text: "kiwi".into(), pace_ms: None }
+    );
     assert_eq!(s.steps[2].timeout_s, scenario::DEFAULT_TIMEOUT_S);
     let json = s.to_json();
     assert!(json.contains("\"kind\":\"click\",\"target\":\"pill\",\"at\":[10,20]"), "{json}");
@@ -211,6 +214,32 @@ fn test_reject_out_of_range_bounds_and_retries() {
         "[[step]]\nname = \"x\"\ndo = { click = \"pill\" }\nretry = 1\nretry_with = [{ login = true }]\n",
         "[[step]]\nname = \"x\"\ndo = { chord = [\"ctrl\"] }\nexpect = [\"apphost: text copy ok\"]\n",
         "[[step]]\nname = \"x\"\ndo = { key = \"Esc!\" }\nexpect = [\"apphost: text copy ok\"]\n",
+    ] {
+        let err = check(body).expect_err(body);
+        assert!(matches!(err, ScenarioError::OutOfRange { .. }), "{body}: {err}");
+    }
+}
+
+/// RFC-0113: a word typed at a declared pace — the runner holds each key that long.
+#[test]
+fn a_typing_pace_is_declared_on_the_word_and_printed() {
+    let s = check(
+        "[[step]]\nname = \"type\"\ndo = { type = \"word\", pace_ms = 30 }\nacked_by = \"copy\"\n[[step]]\nname = \"copy\"\ndo = { wait = true }\nexpect = [\"apphost: text copy ok\"]\n",
+    )
+    .expect("paced");
+    assert_eq!(
+        s.steps[0].action,
+        Action::Type { word: "word".into(), text: "kiwi".into(), pace_ms: Some(30) }
+    );
+    assert!(s.to_json().contains("\"text\":\"kiwi\",\"pace_ms\":30}"), "{}", s.to_json());
+}
+
+#[test]
+fn test_reject_a_pace_without_typing_or_out_of_range() {
+    for body in [
+        "[[step]]\nname = \"x\"\ndo = { click = \"pill\", pace_ms = 30 }\n",
+        "[[step]]\nname = \"x\"\ndo = { type = \"word\", pace_ms = 5 }\nacked_by = \"y\"\n[[step]]\nname = \"y\"\ndo = { wait = true }\nexpect = [\"apphost: text copy ok\"]\n",
+        "[[step]]\nname = \"x\"\ndo = { type = \"word\", pace_ms = 1001 }\nacked_by = \"y\"\n[[step]]\nname = \"y\"\ndo = { wait = true }\nexpect = [\"apphost: text copy ok\"]\n",
     ] {
         let err = check(body).expect_err(body);
         assert!(matches!(err, ScenarioError::OutOfRange { .. }), "{body}: {err}");

@@ -347,13 +347,9 @@ fn spawn_app(app_id: &str) -> Option<u32> {
     req[2] = 1;
     req[3] = 1; // OP_EXEC_IMAGE
     req[4] = image_id;
-    // Stack pages: an APP is not a service. `app-host` walks its own scene
-    // recursively (lower → layout → paint), so its depth scales with the page
-    // the designer wrote. At 8 pages stash overflowed by 48 BYTES on a six-row
-    // listing — a store into its own frame, holes below, no diagnostic beyond a
-    // `[USER-PF]` register dump. 16 costs 32 KB per instance (128 KB at the
-    // 4-window quota). Still a fixed budget with no probe: a guard-page marker
-    // that says "stack" is the follow-up.
+    // Stack pages: execd reserves an app-host's stack itself (`images::stack_pages`:
+    // 8 MiB, lazy — the page an app renders decides its depth, the memory authority
+    // its RAM); the byte names a probe image's stack and is the floor here.
     req[5] = 16;
     req[6] = REQUESTER.len() as u8;
     req[7..7 + REQUESTER.len()].copy_from_slice(REQUESTER);

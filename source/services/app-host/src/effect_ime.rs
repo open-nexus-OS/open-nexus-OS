@@ -11,16 +11,31 @@
 //! TEST_COVERAGE: QEMU `SELFTEST: ime v2 osk ok` + the interactive OSK proof.
 
 use crate::effect_host::{
-    raw_marker, AppEffectHost, ERR_SVC_SHAPE, ERR_SVC_UNAVAILABLE, ERR_SVC_UNKNOWN,
+    int_of, raw_marker, str_of, AppEffectHost, ERR_SVC_SHAPE, ERR_SVC_UNAVAILABLE, ERR_SVC_UNKNOWN,
 };
 use nexus_dsl_runtime::Value;
 
 impl AppEffectHost {
+    /// The `svc.ime.*` dispatch (the host's `call` hands every `ime` method here).
+    pub(crate) fn ime_call(&self, method: &str, args: &[Value]) -> Result<Value, u32> {
+        let text = || args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE);
+        match method {
+            "key" => self.ime_key(text()?),
+            "action" => self.ime_action(text()?),
+            "select" => self.ime_select(args.first().and_then(int_of).ok_or(ERR_SVC_SHAPE)?),
+            "layout" => self.ime_layout(text()?),
+            "insert" => self.ime_insert(text()?),
+            "cycle" => self.ime_cycle(text()?),
+            "rows" => self.ime_rows(text()?, args.get(1).and_then(int_of).ok_or(ERR_SVC_SHAPE)?),
+            _ => Err(ERR_SVC_UNKNOWN),
+        }
+    }
+
     /// `svc.ime.key(text)` → OSK key injection (RFC-0075 Phase 2): ONE
     /// character to imed's DEDICATED osk endpoint (route slot = the
     /// authorization; only ime-type bundles hold it). Fire-and-forget
     /// NONBLOCK — key delivery is push-shaped; imed replies only to probes.
-    pub(crate) fn ime_key(&self, text: &str) -> Result<Value, u32> {
+    fn ime_key(&self, text: &str) -> Result<Value, u32> {
         let ch = text.chars().next().ok_or(ERR_SVC_SHAPE)?;
         let frame = nexus_wire::imed::encode_key(
             nexus_wire::imed::KEY_SOURCE_OSK,
@@ -33,7 +48,7 @@ impl AppEffectHost {
     }
 
     /// `svc.ime.action(name)` → OSK control action ("backspace" | "enter").
-    pub(crate) fn ime_action(&self, action: &str) -> Result<Value, u32> {
+    fn ime_action(&self, action: &str) -> Result<Value, u32> {
         let code = match action {
             "backspace" => nexus_wire::imed::ACTION_BACKSPACE,
             "enter" => nexus_wire::imed::ACTION_ENTER,
@@ -50,7 +65,7 @@ impl AppEffectHost {
     }
 
     /// `svc.ime.select(i)` → commits candidate `i` of the current page.
-    pub(crate) fn ime_select(&self, index: i64) -> Result<Value, u32> {
+    fn ime_select(&self, index: i64) -> Result<Value, u32> {
         let index = u8::try_from(index).map_err(|_| ERR_SVC_SHAPE)?;
         let frame = nexus_wire::imed::encode_candidate_select(index);
         self.ime_send(&frame)
@@ -60,7 +75,7 @@ impl AppEffectHost {
     /// cards, TASK-0067B). A text longer than one commit (`TEXT_MAX_BYTES`) goes as
     /// consecutive pieces cut on char boundaries; each is a KERNEL-PARKED send, so a full
     /// queue waits instead of dropping a piece out of the middle of the paste.
-    pub(crate) fn ime_insert(&self, text: &str) -> Result<Value, u32> {
+    fn ime_insert(&self, text: &str) -> Result<Value, u32> {
         let send_slot = Self::svc_send_slot("ime").ok_or(ERR_SVC_UNKNOWN)?;
         if text.is_empty() {
             return Err(ERR_SVC_SHAPE);
@@ -79,7 +94,7 @@ impl AppEffectHost {
     }
 
     /// `svc.ime.layout(tag)` → switches the composition engine (globe key).
-    pub(crate) fn ime_layout(&self, layout: &str) -> Result<Value, u32> {
+    fn ime_layout(&self, layout: &str) -> Result<Value, u32> {
         let mut buf = [0u8; 16];
         let n = nexus_wire::imed::encode_set_layout(layout, &mut buf).ok_or(ERR_SVC_SHAPE)?;
         self.ime_send(&buf[..n])
@@ -89,7 +104,7 @@ impl AppEffectHost {
     /// (cycle order = the keymaps SSOT — never an app-side if-chain). The
     /// switch is SYSTEM-WIDE: imed persists `input.keymap` and the change
     /// returns as a `KeymapEvent` region push.
-    pub(crate) fn ime_cycle(&self, current: &str) -> Result<Value, u32> {
+    fn ime_cycle(&self, current: &str) -> Result<Value, u32> {
         const ORDER: &[&str] = &["de", "us", "jp", "kr", "zh"];
         let idx = ORDER.iter().position(|l| *l == current).unwrap_or(0);
         let next = ORDER[(idx + 1) % ORDER.len()];
@@ -100,7 +115,7 @@ impl AppEffectHost {
     /// (RFC-0075 Phase 8b): `List<OskKey{label,key,action}>`. Unknown layout
     /// or row = empty list (the app's `List` renders nothing — bounded,
     /// never an error popup for data the platform simply lacks).
-    pub(crate) fn ime_rows(&self, layout: &str, row: i64) -> Result<Value, u32> {
+    fn ime_rows(&self, layout: &str, row: i64) -> Result<Value, u32> {
         use alloc::string::String;
         let (Some(label_sym), Some(key_sym), Some(action_sym)) =
             (self.label_sym, self.key_sym, self.action_sym)
@@ -128,7 +143,7 @@ impl AppEffectHost {
         Ok(Value::List(rows))
     }
 
-    pub(crate) fn ime_send(&self, frame: &[u8]) -> Result<Value, u32> {
+    fn ime_send(&self, frame: &[u8]) -> Result<Value, u32> {
         let send_slot = Self::svc_send_slot("ime").ok_or(ERR_SVC_UNKNOWN)?;
         let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
         let ok =

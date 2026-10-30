@@ -193,3 +193,9 @@ app-host writes the program's `@persist` fields there when the compositor says t
 hidden and when it closes, and restores them before the first frame of the next launch, so a kill
 under memory pressure brings the user back where they were. Naming the grant in `caps` is a
 pack-time error, as for `BACKGROUND`.
+
+`nexus.permission.INPUT_STREAM` (RFC-0113 §8) names the `stream` input class — every pointer
+sample at the device's rate, for drawing and games. It is declared and refused: no bundle type
+may pack it until its phase lands (`nxb-pack`, `test_reject_stream_class_without_a_grant`), and
+policyd does not recognize it (the publish-time backstop). Every app gets the `frame` class
+meanwhile: its MOVE and DRAG frames carry every sample since the last one.

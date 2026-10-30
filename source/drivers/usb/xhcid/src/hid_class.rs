@@ -8,13 +8,16 @@
 //! the subscriber's push channel: the answer to its SUBSCRIBE, an attach per interface (every
 //! one attached so far, for a new subscriber), each drain's reports, a detach.
 //!
-//! Delivery: attaches, detaches and the answer are OWED — kept in order until the channel takes
-//! them; a full channel is tried again on the next wake or after [`RETRY_NS`]. Reports are not:
-//! a frame the full channel refuses is dropped and counted (a boot keyboard report carries the
-//! whole key state, the next one heals it; a dropped mouse frame loses its deltas only). A
-//! report never overtakes its interface's attach, and a detaching interface's last reports go
-//! out before its detach. Pure and allocation-free: the OS loop hands it a [`Channel`] on the
-//! moved capability, the tests a recorder.
+//! Delivery: attaches, detaches, the answer and the report frames the channel refused are OWED —
+//! kept in order until the channel takes them; a full channel is tried again on the next wake or
+//! after [`RETRY_NS`]. A boot keyboard report carries the keys held at that moment: a press and
+//! its release in two reports, the first one dropped, is a letter lost for good (RFC-0113 §2 —
+//! a key is never dropped for a full queue). So a keyboard's frame takes any of [`HELD_MAX`]
+//! places, a pointer's only [`HELD_POINTER_MAX`] (a dropped pointer frame loses its deltas only);
+//! with no place left a frame is dropped and counted, a keyboard's as lost keys. Nothing
+//! overtakes: a report never its interface's attach, a frame never one owed before it, and a
+//! detaching interface's last reports go out before its detach. Pure and allocation-free: the OS
+//! loop hands it a [`Channel`] on the moved capability, the tests a recorder.
 
 use nexus_usb::HidRole;
 use nexus_wire::usb as wire;
@@ -23,8 +26,12 @@ use crate::Note;
 
 /// HID boot interfaces attached at once at most (keyboards and mice on the whole bus).
 pub const MAX_INTERFACES: usize = 16;
-/// Frames owed at most: the answer, and an attach and a detach per interface.
-const OWED_MAX: usize = 2 * MAX_INTERFACES + 1;
+/// Report frames held at most while the client is full.
+pub const HELD_MAX: usize = 8;
+/// Of them, a pointer's at most: the keys keep the rest.
+pub const HELD_POINTER_MAX: usize = 4;
+/// Frames owed at most: the answer, an attach and a detach per interface, the held reports.
+const OWED_MAX: usize = 2 * MAX_INTERFACES + 1 + HELD_MAX;
 /// A channel that was full is tried again after this long.
 pub const RETRY_NS: u64 = 4_000_000;
 
@@ -66,6 +73,16 @@ enum Owed {
     Answer,
     Attach(u16),
     Detach(u16),
+    /// The report frame held in that place.
+    Reports(u8),
+}
+
+/// A report frame the full channel refused, waiting its turn.
+struct Held {
+    frame: [u8; wire::FRAME_MAX],
+    len: usize,
+    count: u32,
+    keyboard: bool,
 }
 
 /// The class server: the attached interfaces, the one subscriber, what it is owed.
@@ -78,6 +95,11 @@ pub struct HidClass<C: Channel> {
     retry_at: Option<u64>,
     dropped: u32,
     refused: u32,
+    held: [Option<Held>; HELD_MAX],
+    /// Keyboard reports dropped (no place to hold them): keys lost.
+    keys_lost: u32,
+    /// The time of the last flush (a held frame's retry is armed from it).
+    now: u64,
 }
 
 impl<C: Channel> Default for HidClass<C> {
@@ -99,6 +121,9 @@ impl<C: Channel> HidClass<C> {
             retry_at: None,
             dropped: 0,
             refused: 0,
+            held: [const { None }; HELD_MAX],
+            keys_lost: 0,
+            now: 0,
         }
     }
 
@@ -108,6 +133,7 @@ impl<C: Channel> HidClass<C> {
     pub fn subscribe(&mut self, channel: C) -> Option<C> {
         let old = self.channel.replace(channel);
         self.owed_len = 0;
+        self.drop_held();
         self.retry_at = None;
         self.owe(Owed::Answer);
         for i in 0..MAX_INTERFACES {
@@ -142,6 +168,12 @@ impl<C: Channel> HidClass<C> {
     #[must_use]
     pub const fn dropped(&self) -> u32 {
         self.dropped
+    }
+
+    /// Keyboard reports dropped for want of a place to hold them: keys lost (RFC-0113 §2).
+    #[must_use]
+    pub const fn keys_lost(&self) -> u32 {
+        self.keys_lost
     }
 
     /// Reports and interfaces refused: no report of the class (empty, longer than a report
@@ -183,6 +215,7 @@ impl<C: Channel> HidClass<C> {
     /// What is owed, in order, then every interface's reports of this drain. Called after every
     /// wake that noted something, and when a subscriber was admitted.
     pub fn flush(&mut self, now: u64) {
+        self.now = now;
         while self.owed_len > 0 && self.channel.is_some() {
             let owed = self.owed[0];
             let mut frame = [0u8; wire::FRAME_MAX];
@@ -193,12 +226,16 @@ impl<C: Channel> HidClass<C> {
             match self.push(&frame[..n]) {
                 Pushed::Sent => {
                     self.unowe(0);
-                    if let Owed::Attach(device) = owed {
-                        if let Some(a) =
-                            self.attached.iter_mut().flatten().find(|a| a.device == device)
-                        {
-                            a.announced = true;
+                    match owed {
+                        Owed::Attach(device) => {
+                            if let Some(a) =
+                                self.attached.iter_mut().flatten().find(|a| a.device == device)
+                            {
+                                a.announced = true;
+                            }
                         }
+                        Owed::Reports(at) => self.held[usize::from(at)] = None,
+                        Owed::Answer | Owed::Detach(_) => {}
                     }
                 }
                 Pushed::Full => {
@@ -291,13 +328,15 @@ impl<C: Channel> HidClass<C> {
         }
     }
 
-    /// Interface `i`'s reports of this drain as one frame (if it has any and was announced).
+    /// Interface `i`'s reports of this drain as one frame (if it has any and was announced) —
+    /// at once when nothing is owed before it, else held behind what is.
     fn send_reports(&mut self, i: usize) {
         let Some(a) = self.attached[i].as_mut() else { return };
         if a.reports.is_empty() {
             return;
         }
         let count = u32::from(a.reports.count());
+        let keyboard = a.role == HidRole::Keyboard;
         let mut frame = [0u8; wire::FRAME_MAX];
         let encoded = if a.announced { a.reports.encode(a.device, &mut frame) } else { None };
         a.reports.clear();
@@ -305,8 +344,51 @@ impl<C: Channel> HidClass<C> {
             self.dropped = self.dropped.saturating_add(count);
             return;
         };
-        if self.push(&frame[..n]) != Pushed::Sent {
+        if self.owed_len == 0 {
+            match self.push(&frame[..n]) {
+                Pushed::Sent => return,
+                Pushed::Gone => {
+                    self.dropped = self.dropped.saturating_add(count);
+                    return;
+                }
+                Pushed::Full => {}
+            }
+        }
+        self.hold(&frame[..n], count, keyboard);
+    }
+
+    /// A report frame the client cannot take yet: owed in order behind what is owed already. A
+    /// keyboard's takes any free place, a pointer's only its share; with no place the frame is
+    /// dropped — a keyboard's counted as keys lost.
+    fn hold(&mut self, frame: &[u8], count: u32, keyboard: bool) {
+        let pointers = self.held.iter().flatten().filter(|h| !h.keyboard).count();
+        let room = keyboard || pointers < HELD_POINTER_MAX;
+        let free = self.held.iter().position(Option::is_none).filter(|_| room);
+        let (Some(at), true) = (free, self.channel.is_some()) else {
             self.dropped = self.dropped.saturating_add(count);
+            if keyboard {
+                self.keys_lost = self.keys_lost.saturating_add(count);
+            }
+            return;
+        };
+        let mut held = Held { frame: [0; wire::FRAME_MAX], len: frame.len(), count, keyboard };
+        held.frame[..frame.len()].copy_from_slice(frame);
+        self.held[at] = Some(held);
+        self.owe(Owed::Reports(at as u8));
+        if self.retry_at.is_none() {
+            self.retry_at = Some(self.now.saturating_add(RETRY_NS));
+        }
+    }
+
+    /// Every held frame let go (the subscriber changed or died), counted as dropped.
+    fn drop_held(&mut self) {
+        for place in self.held.iter_mut() {
+            if let Some(h) = place.take() {
+                self.dropped = self.dropped.saturating_add(h.count);
+                if h.keyboard {
+                    self.keys_lost = self.keys_lost.saturating_add(h.count);
+                }
+            }
         }
     }
 
@@ -324,6 +406,7 @@ impl<C: Channel> HidClass<C> {
     fn end(&mut self) {
         self.channel = None;
         self.owed_len = 0;
+        self.drop_held();
         self.retry_at = None;
         for a in self.attached.iter_mut().flatten() {
             a.announced = false;
@@ -348,6 +431,10 @@ impl<C: Channel> HidClass<C> {
                 put(out, &frame)
             }
             Owed::Detach(device) => put(out, &wire::encode_detached(device)),
+            Owed::Reports(at) => {
+                let held = self.held.get(usize::from(at))?.as_ref()?;
+                put(out, &held.frame[..held.len])
+            }
         }
     }
 

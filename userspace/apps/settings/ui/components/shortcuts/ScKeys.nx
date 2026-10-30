@@ -1,0 +1,28 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// A shortcut's chords as the registry names them: the primary one as a key
+// pill, the alternates (` · ` between them) small beneath it.
+
+Component ScKeys {
+    props: {
+        keys: Str,
+        alt: Str,
+    }
+    Stack {
+        Stack {
+            Text($props.keys).textSize(sm).fontWeight(medium).fg(onGlass)
+        }
+        .paddingX(2)
+        .paddingY(1)
+        .rounded(md)
+        .bg(glassHover)
+        if $props.alt != "" {
+            Text($props.alt).textSize(xs).fg(onGlassMuted)
+        } else {
+            Stack { }
+        }
+    }
+    .gap(1)
+    .align(end)
+}

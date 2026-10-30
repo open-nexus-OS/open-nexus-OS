@@ -53,6 +53,9 @@ mod effect_host;
 mod effect_parse;
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 mod effect_screencap;
+// `svc.shortcuts.list` — the shortcut registry's rows for the settings page (RFC-0113 §7).
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+mod effect_shortcuts;
 // The embedded nexus-query demo store (split out of effect_host — ratchet).
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 mod effect_ime;

@@ -12,9 +12,10 @@
 use super::*;
 
 mod collect;
+pub(in crate::probe) use collect::caret_input;
 pub(super) use collect::collect_texts;
 pub(super) use collect::dump_text_runs as collect_dump_text_runs;
-use collect::{caret_input, paint_caret_row, paint_selection_row, CaretPaint};
+use collect::{paint_selection_row, CaretPaint};
 
 /// What a pass's rows read beside the picked boxes, resolved once per pass: the animated nodes'
 /// transforms and the focused field's caret.
@@ -205,6 +206,7 @@ impl super::DslApp {
         // the caret — once per pass, never per row.
         let mut ctx = PassCtx::EMPTY;
         ctx.anim_n = self.expand_node_anims(&mut ctx.anims);
+        self.update_field_scroll();
         ctx.caret = self.caret_probe();
         let anims = ctx.anims();
         let mut vis_pick = core::mem::take(&mut self.vis_pick);
@@ -304,7 +306,8 @@ impl super::DslApp {
                 anims,
             );
         }
-        // Caret v1 (RFC-0075 8c): the FOCUSED TextInput paints a static 2-px bar.
+        // The focused field's selection highlight (TASK-0067B); its caret is the compositor's
+        // layer (RFC-0113 §5, `interaction/text_caret.rs`), never painted here.
         let caret = self.pass_ctx.caret;
         let row_px = (row.len() / 4) as i32;
         for &(bi, ti) in &self.vis_text {
@@ -364,9 +367,26 @@ impl super::DslApp {
                     }
                     None => (*color, bx - dx),
                 };
-            // A run wider than its own box is CUT — mark it so a truncated label reads as
-            // truncated instead of as a shorter label.
-            let (cut, ell) = nexus_text_baked::ellipsis_cut(content, *font, bw.max(0) as u32);
+            // The focused field shows its WHOLE text, scrolled so its caret stays in view
+            // (TASK-0346 P2) and clipped to its box; any other run wider than its box is CUT —
+            // marked, so a truncated label reads as truncated instead of as a shorter label.
+            let focused = caret.filter(|c| c.nid == b.node_id);
+            let (row, bx_glyph, right) = match focused {
+                Some(c) => {
+                    let box_l = (bx - dx).max(0) as usize;
+                    if box_l * 4 >= row.len() {
+                        continue;
+                    }
+                    let box_r = ((bx - dx + bw).max(0) as u32).min(right);
+                    let shifted = bx_glyph - c.scroll - box_l as i32;
+                    (&mut row[box_l * 4..], shifted, box_r.saturating_sub(box_l as u32))
+                }
+                None => (row, bx_glyph, right),
+            };
+            let (cut, ell) = match focused {
+                Some(_) => (content.chars().count(), false),
+                None => nexus_text_baked::ellipsis_cut(content, *font, bw.max(0) as u32),
+            };
             let run = || {
                 content
                     .chars()
@@ -374,7 +394,7 @@ impl super::DslApp {
                     .chain(core::iter::once(nexus_text_baked::ELLIPSIS).take(ell as usize))
             };
             // TASK-0067B: the selection BEHIND the run.
-            if let Some(c) = caret.filter(|c| c.nid == b.node_id) {
+            if let Some(c) = focused {
                 paint_selection_row(row, y_eff, by, bh, bx_glyph, c.selection, right, c.highlight);
             }
             // RFC-0082: `.textShadow(soft|strong)` — one extra glyph pass at the offset.
@@ -401,9 +421,6 @@ impl super::DslApp {
                 *font,
                 color,
             );
-            if let Some(c) = caret.filter(|c| c.nid == b.node_id) {
-                paint_caret_row(row, y_eff, by, bh, bx_glyph, c.caret_x, right, c.color);
-            }
         }
     }
 
@@ -415,19 +432,42 @@ impl super::DslApp {
         use nexus_dsl_runtime::theme_tokens::ColorToken;
         let f = self.view.text_focus()?;
         let mut idx = 0usize;
-        let (nid, content, font, color) =
-            caret_input(self.view.scene(), &mut idx, f.box_id, false)?;
-        // TASK-0067B: the caret at its char index and the selection as an x span — prefix
-        // widths of the DISPLAYED run (a masked password has the same char count).
+        let (nid, content, font, _) = caret_input(self.view.scene(), &mut idx, f.box_id, false)?;
+        // TASK-0067B: the selection as an x span — prefix widths of the DISPLAYED run (a masked
+        // password has the same char count).
         let x_at = |n: usize| nexus_text_baked::measure(content.chars().take(n), font) as i32;
         let a = tokens_for(self.theme_mode).color(ColorToken::Accent);
         Some(CaretPaint {
             nid,
-            caret_x: x_at(f.caret),
             selection: f.selection.map(|(s, e)| (x_at(s), x_at(e))),
-            color,
             highlight: [a.b, a.g, a.r, 96],
+            scroll: self.field_scroll.1,
         })
+    }
+
+    /// The focused field's horizontal offset, followed to its caret (TASK-0346 P2) — once per
+    /// pass, before the probe that paints with it; a new focus session starts at 0.
+    fn update_field_scroll(&mut self) {
+        let Some(f) = self.view.text_focus() else {
+            self.field_scroll = (0, 0);
+            return;
+        };
+        let mut idx = 0usize;
+        let Some((nid, content, font, _)) =
+            caret_input(self.view.scene(), &mut idx, f.box_id, false)
+        else {
+            return;
+        };
+        let x_at = |n: usize| nexus_text_baked::measure(content.chars().take(n), font) as i32;
+        let (caret_x, text_w) = (x_at(f.caret), x_at(content.chars().count()));
+        let Some(box_w) =
+            self.layout.boxes.iter().find(|b| b.node_id == nid).map(|b| b.rect.width.0)
+        else {
+            return;
+        };
+        let prev = if self.field_scroll.0 == f.session { self.field_scroll.1 } else { 0 };
+        let off = nexus_textedit::view::follow(prev, caret_x, box_w, text_w, 8);
+        self.field_scroll = (f.session, off);
     }
 }
 

@@ -182,13 +182,14 @@ pub fn decode_wire_batch_reusing(
     }
 
     let events = core::mem::take(events);
-    Ok(match (kind, pointer_source) {
+    let batch_out = match (kind, pointer_source) {
         (HidDeviceKind::Keyboard, _) => HidBatch::new(DeviceId::new(batch.device_id), kind, events),
         (HidDeviceKind::Mouse, Some(source)) => {
             HidBatch::new_pointer(DeviceId::new(batch.device_id), source, events)
         }
         (HidDeviceKind::Mouse, None) => HidBatch::new(DeviceId::new(batch.device_id), kind, events),
-    })
+    };
+    Ok(batch_out.with_seq_first(batch.seq_first))
 }
 
 fn pointer_source_from_wire(value: u8) -> Result<PointerSource, WireBatchReject> {

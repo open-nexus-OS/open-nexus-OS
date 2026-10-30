@@ -62,12 +62,12 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
             ready = true;
         }
         let woken = waitset.wait().map_err(|_| nexus_abi::AbiError::Unsupported)?;
-        batch.chain.note_wake_for_rate_line();
         for (member, source) in members.iter().zip(sources.iter_mut()) {
             if *member == woken {
                 source.drain(now(), &mut batch);
             }
         }
+        batch.chain.note_wake_for_rate_line();
         batch.chain.report_if_due();
     }
 }

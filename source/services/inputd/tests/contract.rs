@@ -6,6 +6,7 @@
 //! STATUS: Experimental
 //! API_STABILITY: Stable
 //! TEST_COVERAGE: config rejects, bounded queue overflow, stale-route reject, repeat determinism
+//!   (the keyboard wire decode and RFC-0113's key stamps: `tests/key_sequence.rs`)
 //! ADR: docs/adr/0029-input-v1-host-core-architecture.md
 
 use hid::{AbsoluteAxis, HidEvent, RelativeAxis, TimestampNs};
@@ -14,9 +15,8 @@ use hidrawd::{
     RawIngressEvent, RawIngressEventKind,
 };
 use input_live_protocol::{
-    WireHidBatch, WireHidEvent, EVENT_KIND_ABS, EVENT_KIND_BTN, EVENT_KIND_KEY, EVENT_KIND_REL,
-    HID_KIND_KEYBOARD, HID_KIND_MOUSE, POINTER_SOURCE_MOUSE_RELATIVE, POINTER_SOURCE_NONE,
-    POINTER_SOURCE_TABLET_ABSOLUTE,
+    WireHidBatch, WireHidEvent, EVENT_KIND_ABS, EVENT_KIND_BTN, EVENT_KIND_REL, HID_KIND_MOUSE,
+    POINTER_SOURCE_MOUSE_RELATIVE, POINTER_SOURCE_TABLET_ABSOLUTE,
 };
 use inputd::{InputDispatch, InputdConfig, InputdError, InputdService};
 use touch::{RawTouchSample, TouchBounds, TouchPhase, TouchTimestampNs};
@@ -104,6 +104,7 @@ fn visible_pointer_wire_batch(
         abs_max_y,
         raw_event_count: events.len() as u16,
         normalized_event_count: events.len() as u16,
+        seq_first: 0,
         events,
     }
 }
@@ -437,35 +438,6 @@ fn tablet_absolute_wire_batch_accepts_relative_wheel_events_for_scroll() {
     assert_eq!(hid_batch.events()[0].kind(), hid::HidEventKind::Rel);
     assert_eq!(hid_batch.events()[0].code().raw(), RelativeAxis::Wheel.event_code());
     assert_eq!(hid_batch.events()[0].value().raw(), -1);
-}
-
-#[test]
-fn keyboard_wire_batch_decodes_without_pointer_source() {
-    let transform = inputd::visible_pointer_transform().expect("pointer transform");
-    let hid_batch = inputd::decode_wire_batch(
-        WireHidBatch {
-            device_kind: HID_KIND_KEYBOARD,
-            device_id: 4,
-            pointer_source: POINTER_SOURCE_NONE,
-            abs_max_x: 0,
-            abs_max_y: 0,
-            raw_event_count: 1,
-            normalized_event_count: 1,
-            events: vec![WireHidEvent {
-                kind: EVENT_KIND_KEY,
-                code: 0x04,
-                value: 1,
-                timestamp_ns: 16,
-            }],
-        },
-        transform,
-    )
-    .expect("keyboard wire batch");
-
-    assert_eq!(hid_batch.kind(), hidrawd::HidDeviceKind::Keyboard);
-    assert_eq!(hid_batch.pointer_source(), None);
-    assert_eq!(hid_batch.events().len(), 1);
-    assert_eq!(hid_batch.events()[0].kind(), hid::HidEventKind::Key);
 }
 
 #[test]

@@ -13,6 +13,7 @@
 //! TEST_COVERAGE: No tests (behavior covered via windowd QEMU smoke + host integration)
 
 use super::*;
+use nexus_display_proto::surface_motion::MotionBatch;
 
 impl DisplayServerRuntime {
     /// STAGE one upstream input update into the frame-aligned sample instead of
@@ -22,7 +23,7 @@ impl DisplayServerRuntime {
     /// position, before the newer sample is staged. Replies can be sent immediately by
     /// the caller — staging always "accepts". This is the consumer half of the
     /// frame-aligned input model.
-    pub(crate) fn stage_input_state(&mut self, state: VisibleState) -> u8 {
+    pub(crate) fn stage_input_state(&mut self, state: VisibleState, motion: MotionBatch) -> u8 {
         if state.wheel_delta_y != 0 && self.wheel_stage_count < 40 {
             self.wheel_stage_count += 1;
             let _ = debug_println(&alloc::format!(
@@ -31,8 +32,8 @@ impl DisplayServerRuntime {
                 state.wheel_delta_y
             ));
         }
-        if let Some(edge) = self.input_stage.stage(state) {
-            self.apply_input_state(edge);
+        if let Some((edge, edge_motion)) = self.input_stage.stage(state, &motion) {
+            self.apply_input_state(edge, edge_motion);
         }
         STATUS_OK
     }
@@ -43,15 +44,17 @@ impl DisplayServerRuntime {
     /// move + scroll — the work is bounded by frame rate, not input rate.
     pub(crate) fn apply_staged_input(&mut self) -> bool {
         match self.input_stage.take() {
-            Some(state) => {
-                self.apply_input_state(state);
+            Some((state, motion)) => {
+                self.apply_input_state(state, motion);
                 true
             }
             None => false,
         }
     }
 
-    pub(crate) fn apply_input_state(&mut self, upstream: VisibleState) -> u8 {
+    pub(crate) fn apply_input_state(&mut self, upstream: VisibleState, motion: MotionBatch) -> u8 {
+        // RFC-0113 §2: the sample's pointer samples, for its MOVE or DRAG (`motion.rs`).
+        self.motion.applied = motion;
         if !self.input_state_debug_emitted {
             let _ = debug_trace("dbg: windowd input state applied");
             // Input-chain hop I6: input reached windowd and was applied. The
@@ -86,6 +89,11 @@ impl DisplayServerRuntime {
         self.state.launcher_click_visible = primary_down;
 
         let mut window_consumed_press = false;
+        // TASK-0346 P2: the press's click count and modifiers ride its tap frame.
+        if primary_press {
+            let now = nexus_abi::nsec().unwrap_or(0);
+            self.presses.press(now, cursor_x, cursor_y, upstream.modifiers);
+        }
         // REMOVED: the bottom-left shell-switcher hotspot (ADR-0035's "current
         // dev trigger"). Its premise was "always wallpaper" — that stopped
         // being true when the desktop taskbar (56px) put a 36px launcher glyph
@@ -325,7 +333,8 @@ impl DisplayServerRuntime {
         // to the surface under it — the app-host hit-tests its interactive
         // boxes and blends the hover wash at PAINT time (no re-layout).
         // Bounded by frame rate (staged input), silent per move.
-        if old_cursor_x != self.state.cursor_x || old_cursor_y != self.state.cursor_y {
+        let moved = old_cursor_x != self.state.cursor_x || old_cursor_y != self.state.cursor_y;
+        if moved || !self.motion.applied.is_empty() {
             self.forward_pointer_hover(self.state.cursor_x, self.state.cursor_y);
         }
         // Wheel routing (Scroll-Track S1) — MUST run BEFORE the no-change

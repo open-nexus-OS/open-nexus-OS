@@ -112,6 +112,8 @@ struct OsSink {
     class: HidClass<OsChannel>,
     /// The client was full once (said once: the count is the class's).
     full_said: bool,
+    /// Keyboard reports were lost (said once, `FAIL`: RFC-0113 §2).
+    keys_lost_said: bool,
 }
 
 impl Sink for OsSink {
@@ -183,6 +185,13 @@ impl OsSink {
             emit(format_args!("xhcid: hid client full (reports dropped)"));
             self.full_said = true;
         }
+        if !self.keys_lost_said && self.class.keys_lost() > 0 {
+            emit(format_args!(
+                "xhcid: FAIL keyboard reports lost (client full, n={})",
+                self.class.keys_lost()
+            ));
+            self.keys_lost_said = true;
+        }
     }
 }
 
@@ -215,10 +224,10 @@ struct Controller {
 }
 
 /// The one-second window of the controller's counters (RFC-0099 Phase 3): printed under
-/// traffic (eight interrupts or more) as `xhcid: irq hz=… events hz=… reports hz=…
-/// per_irq_max=… dry=… dropped=… refused=…` — `dry` counts drains in which a pipe's every
-/// TRB had completed (the device went unpolled: reports lost), `dropped`/`refused` are the
-/// class server's running totals.
+/// POINTER traffic (eight pointer reports or more — a window of typing alone prints nothing,
+/// RFC-0113 §6) as `xhcid: irq hz=… events hz=… reports hz=… per_irq_max=… dry=… dropped=…
+/// refused=…` — `dry` counts drains in which a pipe's every TRB had completed (the device went
+/// unpolled: reports lost), `dropped`/`refused` are the class server's running totals.
 struct Rates {
     since: u64,
     stats: Stats,
@@ -229,7 +238,7 @@ struct Rates {
 }
 
 const RATE_WINDOW_NS: u64 = 1_000_000_000;
-const RATE_MIN_INTERRUPTS: u32 = 8;
+const RATE_MIN_POINTER_REPORTS: u32 = 8;
 
 impl Rates {
     fn add(&mut self, now: u64, drain_ns: u64, stats: Stats, class: &HidClass<OsChannel>) {
@@ -248,7 +257,7 @@ impl Rates {
         if now.saturating_sub(self.since) < RATE_WINDOW_NS {
             return;
         }
-        if s.interrupts >= RATE_MIN_INTERRUPTS {
+        if s.reports >= RATE_MIN_POINTER_REPORTS {
             emit(format_args!(
                 "xhcid: irq hz={} events hz={} reports hz={} per_irq_max={} dry={} dropped={} refused={} drain_us avg={} max={}",
                 s.interrupts,
@@ -518,7 +527,8 @@ pub fn service_main_loop() -> Result<()> {
     // RFC-0093: a server of the DisplayReady stage — it serves from here on, with a controller
     // or without one.
     let _ = nexus_service_entry::ready("xhcid: serving (class=hid-boot)");
-    let mut sink = OsSink { irq: 0, class: HidClass::new(), full_said: false };
+    let mut sink =
+        OsSink { irq: 0, class: HidClass::new(), full_said: false, keys_lost_said: false };
     // The board's glue first (TASK-0328 U3): socd brings the host node and the hub up; a
     // refusal leaves the controller untouched (its window may be gated).
     let mut controller = match glue::bring_up() {

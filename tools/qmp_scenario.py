@@ -43,7 +43,7 @@ import sys
 import time
 from pathlib import Path
 
-from qmp_input import InputDriver, InputEnv
+from qmp_input import KEY_DOWN_HOLD_S, InputDriver, InputEnv
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 # The guest's window opens after its ladder; the bound only ends a dead run.
@@ -158,8 +158,10 @@ class ScenarioRunner(InputDriver):
             elif kind == "key":
                 self.key(action["key"])
             elif kind == "type":
+                pace_ms = action.get("pace_ms")
+                hold_s = pace_ms / 1000.0 if pace_ms else KEY_DOWN_HOLD_S
                 for letter in action["text"]:
-                    self.key(letter)
+                    self.key(letter, hold_s)
             elif kind == "drag":
                 if not self.drag(tuple(action["from_at"]), tuple(action["to_at"])):
                     return f"drag {action['from']} -> {action['to']}", False

@@ -46,6 +46,6 @@ mod glue;
 pub mod os_lite;
 
 pub use controller::{PortRef, Stats, Xhci};
-pub use hid_class::{Channel, HidClass, Pushed};
+pub use hid_class::{Channel, HidClass, Pushed, HELD_MAX, HELD_POINTER_MAX};
 pub use memory::{DmaAlloc, Region};
 pub use sink::{Note, Sink, Step};

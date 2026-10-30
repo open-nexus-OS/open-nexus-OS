@@ -7,9 +7,13 @@
 
 use super::*;
 
+/// RFC-0113 §5: the focused field's caret, declared to windowd (which draws and blinks it).
+mod text_caret;
 /// RFC-0075 text delivery (focus, commit, actions, IME strip) — its own file.
 mod text_edit;
 mod text_io;
+/// TASK-0346 P2: the pointer's caret and selection in the focused field.
+mod text_pointer;
 
 /// What a tap actually did — the three cases the single `bool` used to
 /// flatten into one, which made an absorbed tap indistinguishable from a
@@ -52,6 +56,18 @@ impl super::DslApp {
             nexus_layout_types::FxPx::new(y),
             &views[..nv],
         );
+        // A press into a text field is the FIELD's (TASK-0346 P2): it focuses and places the
+        // caret (`announce_text_focus`, `press_text`) — never a Tap of a container or a modal's
+        // backdrop below it. A control drawn over the field (a later box) still takes its own.
+        let field = self.view.text_field_at(
+            &self.layout.boxes,
+            nexus_layout_types::FxPx::new(x),
+            nexus_layout_types::FxPx::new(y),
+            &views[..nv],
+        );
+        if field.is_some_and(|f| hit.is_none_or(|h| f >= h)) {
+            return TapOutcome::HandledQuietly;
+        }
         // Some kinds animate a PART instead of the whole control (the toggle's
         // thumb): the handler carries a structural box-id offset (registry
         // `press_offset`, resolved at emit time — no widget kind leaks here).

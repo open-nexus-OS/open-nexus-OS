@@ -7,14 +7,21 @@
 //! DEPENDS_ON: nexus-abi IPC syscalls, nexus-ipc transports, imed::ImedCore
 //! INVARIANTS:
 //! - ready marker emits once, only after route/server are armed
-//! - OP_KEY accepted ONLY from inputd, OP_SET_FOCUS ONLY from windowd
-//!   (kernel sender_service_id — never payload identity)
+//! - OP_KEY and OP_SET_FOCUS accepted ONLY from windowd (kernel sender_service_id — never
+//!   payload identity): windowd opens the session and sends the keys after it on one ordered
+//!   outbox (RFC-0113 §3, ADR-0090) — a key can no longer overtake its focus; inputd relays only
+//!   the layout (`OP_SET_LAYOUT`)
+//! - pushes to windowd are BLOCKING on the declared leg (windowd never waits on imed: no cycle) —
+//!   a commit is never dropped for a full queue
 //! - OSK keys arrive ONLY on the dedicated `imed-osk` endpoint (RFC-0075
 //!   Phase 2): possession of that route cap IS the authorization (init
 //!   wires it to imed; execd provisions it only to `nexus.permission.IME`
 //!   bundles). `source=osk` on the MAIN endpoint stays DENIED.
 //! - typed text NEVER appears in log lines or markers
 //! - fixed frame buffers; no per-key allocation in the loop
+//! - a focus change's storage work (persist the learning, re-read the personalization switch,
+//!   load the locale's blob) runs when the queue is EMPTY, never between a focus and the keys
+//!   behind it (RFC-0113 §3: a key never waits on statefsd/settingsd)
 
 use core::sync::atomic::{AtomicBool, Ordering};
 
@@ -59,6 +66,7 @@ pub fn service_main_loop() -> Result<(), ImedError> {
     let mut core = ImedCore::new();
     let mut windowd: Option<KernelClient> = None;
     let mut frame_buf = [0u8; 512];
+    let mut due = StorageDue::default();
 
     nexus_abi::service_verdict_flush("imed");
     // TASK-0204: prove the personalization store persists through statefsd
@@ -73,7 +81,8 @@ pub fn service_main_loop() -> Result<(), ImedError> {
             }
         };
         if member == 0 {
-            drain_main(&server, &mut core, &mut windowd, inputd_sid, windowd_sid, &mut frame_buf);
+            let sids = (inputd_sid, windowd_sid);
+            drain_main(&server, &mut core, &mut windowd, sids, &mut due, &mut frame_buf);
         } else if let Some(osk_server) = osk.as_ref() {
             drain_osk(osk_server, &mut core, &mut windowd, &mut frame_buf);
         }
@@ -91,21 +100,31 @@ fn build_waitset(main_recv_slot: u32, osk_wired: bool) -> Option<nexus_abi::Cap>
     Some(ws)
 }
 
-/// Drains the MAIN endpoint (inputd hw keys, windowd focus) until empty.
+/// Storage work a focus change asked for — done when the queue is empty.
+#[derive(Default)]
+struct StorageDue {
+    /// Persist pending learning (coalesced: writes only when dirty).
+    flush: bool,
+    /// A field gained focus: re-read the personalization switch, load the locale's blob.
+    reload: bool,
+}
+
+/// Drains the MAIN endpoint (windowd's focus and keys, inputd's layout) until empty, then does
+/// the storage work the focus changes asked for.
 fn drain_main(
     server: &KernelServer,
     core: &mut ImedCore,
     windowd: &mut Option<KernelClient>,
-    inputd_sid: u64,
-    windowd_sid: u64,
+    (inputd_sid, windowd_sid): (u64, u64),
+    due: &mut StorageDue,
     frame_buf: &mut [u8; 512],
 ) {
     loop {
         match server.recv_request_with_meta_into(Wait::NonBlocking, frame_buf) {
             Ok((len, sender_sid, reply)) => {
                 let frame = &frame_buf[..len];
-                let status =
-                    handle_frame(core, windowd, sender_sid, inputd_sid, windowd_sid, frame);
+                let sids = (inputd_sid, windowd_sid);
+                let status = handle_frame(core, windowd, sender_sid, sids, due, frame);
                 // Push senders fire-and-forget: OK produces no reply. Rejects
                 // (DENIED/MALFORMED) answer on the reply cap when attached,
                 // else non-blocking on the shared response endpoint — the
@@ -120,9 +139,42 @@ fn drain_main(
                     }
                 }
             }
-            Err(_) => return,
+            Err(_) => {
+                run_storage(core, due);
+                return;
+            }
         }
     }
+}
+
+/// TASK-0204's focus-change storage, off the key path: persist any pending learning (coalesced
+/// — only writes when dirty); on a focus GAIN re-read the `ime.personalization` toggle
+/// (settingsd SSOT, so a Settings change applies on the next focus) and reload the locale's
+/// blob (both no-op when personalization is off).
+fn run_storage(core: &mut ImedCore, due: &mut StorageDue) {
+    let StorageDue { flush, reload } = core::mem::take(due);
+    if !flush && !reload {
+        return;
+    }
+    let mut io = crate::statefs::StatefsBlobIo;
+    let _ = core.flush_store(&mut io);
+    if !reload {
+        return;
+    }
+    match read_personalization() {
+        Some(PersonalizationSetting::On) => core.set_personalization(true),
+        Some(PersonalizationSetting::Off) => core.set_personalization(false),
+        Some(PersonalizationSetting::Forget) => {
+            // "Forget learned words": clear + re-enable + truncate the blob now, and reset the
+            // key so it never rests at `forget` (settingsd is the SSOT).
+            core.forget_learned();
+            core.set_personalization(true);
+            let _ = core.flush_store(&mut io);
+            set_setting("ime.personalization", "on");
+        }
+        None => {}
+    }
+    core.load_store(&io);
 }
 
 /// Drains the OSK endpoint until empty. Possession of the route cap IS the
@@ -233,8 +285,8 @@ fn handle_frame(
     core: &mut ImedCore,
     windowd: &mut Option<KernelClient>,
     sender_sid: u64,
-    inputd_sid: u64,
-    windowd_sid: u64,
+    (inputd_sid, windowd_sid): (u64, u64),
+    due: &mut StorageDue,
     frame: &[u8],
 ) -> Option<(u8, u8)> {
     if frame.len() < 4 || frame[0] != wire::MAGIC0 || frame[1] != wire::MAGIC1 {
@@ -252,36 +304,17 @@ fn handle_frame(
                 return Some((op, wire::STATUS_MALFORMED));
             };
             core.set_focus(surface_id, focused != 0, field_kind);
-            // TASK-0204: persist any pending learning across the focus change
-            // (coalesced — only writes when dirty), then on focus-GAIN re-read
-            // the `ime.personalization` toggle (settingsd SSOT, so a Settings
-            // change applies on the next focus) and reload the locale's blob
-            // (both no-op when personalization is off).
-            let mut io = crate::statefs::StatefsBlobIo;
-            let _ = core.flush_store(&mut io);
-            if focused != 0 {
-                match read_personalization() {
-                    Some(PersonalizationSetting::On) => core.set_personalization(true),
-                    Some(PersonalizationSetting::Off) => core.set_personalization(false),
-                    Some(PersonalizationSetting::Forget) => {
-                        // "Forget learned words": clear + re-enable + truncate
-                        // the blob now, and reset the key so it never rests at
-                        // `forget` (settingsd is the SSOT).
-                        core.forget_learned();
-                        core.set_personalization(true);
-                        let _ = core.flush_store(&mut io);
-                        set_setting("ime.personalization", "on");
-                    }
-                    None => {}
-                }
-                core.load_store(&io);
-            }
+            // TASK-0204's storage work is DUE, not done: it runs once the queue is empty, so the
+            // keys windowd sent behind this focus are composed first (RFC-0113 §3).
+            due.flush = true;
+            due.reload |= focused != 0;
             Some((op, wire::STATUS_OK))
         }
         wire::OP_KEY => {
-            // Hardware chain only on the MAIN endpoint; OSK-sourced keys
-            // ride the DEDICATED osk endpoint (capability = authorization).
-            if sender_sid != inputd_sid {
+            // Hardware chain only on the MAIN endpoint, from windowd (the focus owner, behind its
+            // session — RFC-0113 §3); OSK-sourced keys ride the DEDICATED osk endpoint
+            // (capability = authorization).
+            if sender_sid != windowd_sid {
                 if !FOREIGN_KEY_REJECT_EMITTED.swap(true, Ordering::Relaxed) {
                     emit_line("imed: reject foreign key source");
                 }
@@ -334,7 +367,9 @@ fn handle_frame(
 
 fn push_to_windowd(windowd: &mut Option<KernelClient>, pushes: &crate::KeyPushes) {
     if windowd.is_none() {
-        *windowd = KernelClient::new_for("windowd").ok();
+        // The declared leg (TASK-0324 P4a) — no route ask in the key path (RFC-0113 §3).
+        let leg = nexus_service_topology::slots::imed::WINDOWD;
+        *windowd = KernelClient::new_with_slots(leg.send, leg.recv).ok();
     }
     let Some(client) = windowd.as_ref() else {
         return;
@@ -343,19 +378,19 @@ fn push_to_windowd(windowd: &mut Option<KernelClient>, pushes: &crate::KeyPushes
     if let Some(commit) = pushes.commit {
         let mut buf = [0u8; 96];
         if let Some(n) = wire::encode_commit(pushes.surface_id, commit.as_str(), &mut buf) {
-            sent_ok &= client.send(&buf[..n], Wait::NonBlocking).is_ok();
+            sent_ok &= client.send(&buf[..n], Wait::Blocking).is_ok();
         }
     }
     if let Some(action) = pushes.action {
         let frame = wire::encode_action(pushes.surface_id, action);
-        sent_ok &= client.send(&frame, Wait::NonBlocking).is_ok();
+        sent_ok &= client.send(&frame, Wait::Blocking).is_ok();
     }
     // Strip snapshots (RFC-0075 Phase 3): preedit + candidate page ride to
     // windowd, which relays them to the ime-ui overlay (never the app).
     if let Some(preedit) = pushes.preedit {
         let mut buf = [0u8; 96];
         if let Some(n) = wire::encode_preedit(pushes.surface_id, 0, preedit.as_str(), &mut buf) {
-            sent_ok &= client.send(&buf[..n], Wait::NonBlocking).is_ok();
+            sent_ok &= client.send(&buf[..n], Wait::Blocking).is_ok();
         }
     }
     if let Some(page) = pushes.candidates {
@@ -376,7 +411,7 @@ fn push_to_windowd(windowd: &mut Option<KernelClient>, pushes: &crate::KeyPushes
                 &list[..list_len],
                 &mut buf,
             ) {
-                sent_ok &= client.send(&buf[..n], Wait::NonBlocking).is_ok();
+                sent_ok &= client.send(&buf[..n], Wait::Blocking).is_ok();
             }
         }
     }

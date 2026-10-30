@@ -143,6 +143,9 @@ pub(super) struct DslApp {
     /// `probe/band.rs`), and the input chain's hop in the app: received → answered.
     pub(super) input_rx_ns: Option<u64>,
     pub(super) hop_input: nexus_ux_budgets::Hop,
+    /// The focused field's input session (RFC-0113 §6): counts and key → present latencies,
+    /// one aggregate when the focus leaves the field — never for a secure one.
+    pub(super) input_session: nexus_ux_budgets::session::InputSession,
     /// The keyboard overlay (`level: overlay`): a tap here IS a keystroke, so it
     /// is never traced — no per-tap line carries what was typed (privacy rule).
     pub(super) taps_are_keystrokes: bool,
@@ -152,4 +155,13 @@ pub(super) struct DslApp {
     /// The press a drag may grow from (RFC-0095, `probe/drag.rs`): the press point, and the
     /// box that took `DragStart` once the pointer moved past the slop (`None` until then).
     pub(super) drag: Option<super::drag::Drag>,
+    /// The held press began on the focused text field: a drag selects (TASK-0346 P2).
+    pub(super) text_press: bool,
+    /// The caret windowd was last told of (RFC-0113 §5; hidden = none).
+    pub(super) sent_caret: nexus_display_proto::surface_caret::Caret,
+    /// The field a Tab moves the focus to, focused after the next present (TASK-0346 P2).
+    pub(super) pending_focus: Option<usize>,
+    /// The focused field's horizontal text offset and the focus session it belongs to
+    /// (TASK-0346 P2: the caret stays in view; `paint.rs`, `text_caret.rs`, `text_pointer.rs`).
+    pub(super) field_scroll: (u32, i32),
 }

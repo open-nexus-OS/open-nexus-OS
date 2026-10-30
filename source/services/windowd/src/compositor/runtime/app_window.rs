@@ -621,15 +621,9 @@ impl DisplayServerRuntime {
         }
     }
 
-    /// Routes a body tap to the surface's owning app process (R3) over the
-    /// DEDICATED event channel (the shared response endpoint raced with
-    /// inputd's ack drain — a tap there could be consumed by any receiver).
-    /// Best-effort non-blocking — input must never stall the compositor.
-    /// Markers are honest: `routed` prints only on a delivered send.
-    /// Routes a wheel notch to an app window (`INPUT_KIND_WHEEL`): the signed
-    /// delta rides the wire `y` field UNCLAMPED (`wheel_delta_to_wire` — the
-    /// `max(0)` clamp of the pointer kinds would destroy negative deltas).
-    /// Single-shot NONBLOCK: dropped wheel under pressure is correct.
+    /// Routes a wheel notch to an app window (`INPUT_KIND_WHEEL`): the signed delta rides the wire
+    /// `y` field UNCLAMPED (`wheel_delta_to_wire` — the pointer kinds' `max(0)` clamp would
+    /// destroy negative deltas), ordered through the client's outbox.
     pub(crate) fn send_app_wheel(&mut self, idx: usize, local_x: u16, wire_delta: u16) {
         #[cfg(nexus_env = "os")]
         {
@@ -655,6 +649,8 @@ impl DisplayServerRuntime {
         }
     }
 
+    /// Routes a body tap to the surface's owning app (R3) on its DEDICATED event channel (the
+    /// shared response endpoint raced with inputd's ack drain), with the press's facts.
     pub(crate) fn send_app_input(&mut self, idx: usize, x: i32, y: i32) {
         self.send_app_input_kind(idx, nexus_display_proto::client_surface::INPUT_KIND_TAP, x, y);
     }
@@ -670,16 +666,15 @@ impl DisplayServerRuntime {
             else {
                 return false;
             };
-            let (x, y) = (x.max(0) as u16, y.max(0) as u16);
-            let frame =
-                nexus_display_proto::client_surface::encode_surface_input(client.id, kind, x, y);
+            // A tap carries the press's facts, a MOVE or DRAG its samples (`motion.rs`).
+            let (frame, n) = self.pointer_frame(client.id, kind, x, y);
             let Some(slot) = self.apps[idx].event_channel else {
                 if is_tap {
                     let _ = debug_println("WINDOWD: FAIL surface input (no event channel)");
                 }
                 return false;
             };
-            let sent = self.client_send(slot, &frame, Delivery::for_input(kind)).accepted();
+            let sent = self.client_send(slot, &frame[..n], Delivery::for_input(kind)).accepted();
             if sent && is_tap && super::input_hover::first_tap_routed(false) {
                 let _ = debug_println("WINDOWD: surface input routed");
             } else if !sent && is_tap {

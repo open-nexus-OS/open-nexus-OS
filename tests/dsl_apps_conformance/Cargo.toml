@@ -21,6 +21,8 @@ animation = { path = "../../userspace/ui/animation" }
 nexus-dsl-core = { path = "../../userspace/dsl/core", features = ["std"] }
 nexus-dsl-ir = { path = "../../userspace/dsl/ir" }
 nexus-dsl-runtime = { path = "../../userspace/dsl/runtime" }
+# The shortcut registry: the settings page's rows are its listing (RFC-0113 §7).
+shortcuts = { path = "../../userspace/shortcuts" }
 nexus-layout = { path = "../../userspace/ui/layout" }
 nexus-scene-raster = { path = "../../userspace/ui/scene_raster" }
 nexus-layout-types = { path = "../../userspace/ui/layout-types" }

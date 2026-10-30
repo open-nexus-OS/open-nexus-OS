@@ -118,6 +118,8 @@ pub(crate) struct AppEffectHost {
     pub(crate) pending_scroll_page: Option<i32>,
     /// `svc.screencap` record symbols (TASK-0068, `effect_screencap.rs`).
     pub(crate) screencap: crate::effect_screencap::CaptureSyms,
+    /// `svc.shortcuts` row symbols (RFC-0113 §7, `effect_shortcuts.rs`).
+    pub(crate) shortcuts: crate::effect_shortcuts::ShortcutSyms,
 }
 
 use crate::effect_query::{QueryStore, SEED_MESSAGES};
@@ -157,6 +159,7 @@ impl AppEffectHost {
             staged_sym: symbols.iter().position(|s| s == "staged").map(|i| i as u32),
             pending_scroll_page: None,
             screencap: crate::effect_screencap::CaptureSyms::new(symbols),
+            shortcuts: crate::effect_shortcuts::ShortcutSyms::new(symbols),
             surface_id: 0,
         }
     }
@@ -603,25 +606,6 @@ impl EffectHost for AppEffectHost {
             }
             ("session", "users") => self.session_users(),
             ("session", "active") => self.session_active(),
-            ("ime", "key") => self.ime_key(args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?),
-            ("ime", "action") => {
-                self.ime_action(args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?)
-            }
-            ("ime", "select") => {
-                self.ime_select(args.first().and_then(int_of).ok_or(ERR_SVC_SHAPE)?)
-            }
-            ("ime", "layout") => {
-                self.ime_layout(args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?)
-            }
-            ("ime", "insert") => {
-                self.ime_insert(args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?)
-            }
-            ("ime", "cycle") => self.ime_cycle(args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?),
-            ("ime", "rows") => {
-                let layout = args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?;
-                let row = args.get(1).and_then(int_of).ok_or(ERR_SVC_SHAPE)?;
-                self.ime_rows(layout, row)
-            }
             ("session", "login") => {
                 let user = args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?;
                 self.session_login(user)
@@ -699,7 +683,9 @@ impl EffectHost for AppEffectHost {
             ("updates", "switch") => self.updates_switch(),
             ("updates", "rollback") => self.updates_rollback(),
             ("clipboard", method) => self.clipboard_call(method, args), // effect_clipboard.rs
+            ("ime", method) => self.ime_call(method, args),             // effect_ime.rs
             ("screencap", method) => self.screencap_call(method, args), // effect_screencap.rs
+            ("shortcuts", method) => self.shortcuts_call(method, args), // effect_shortcuts.rs
             _ => Err(ERR_SVC_UNKNOWN),
         }
     }

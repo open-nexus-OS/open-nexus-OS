@@ -9,14 +9,15 @@
 //! OWNERS: @ui
 //! STATUS: Functional
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: host tests in this module (sender resolution + routing
-//! bookkeeping); the wire path is proven by the QEMU IME selftests.
+//! TEST_COVERAGE: the push gate in `key_gate` on the host (`tests/key_gate.rs`); the wire path
+//! is proven by the QEMU IME selftests.
 
 use super::*;
 use nexus_display_proto::surface_text;
 use nexus_wire::imed as ime_wire;
 
 use crate::client_surface::Delivery;
+use crate::key_gate;
 
 /// The focused surface's routing entry (identity-derived, RFC-0075).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71,10 +72,23 @@ impl DisplayServerRuntime {
                 return;
             }
         }
-        self.relay_focus_to_imed(u64::from(surface_id), focused, field_kind, caret);
+        // imed hears a field's focus only where it is in use (RFC-0113 §3): the on-screen
+        // keyboard's profiles, or an open composition session (a layout source never opens one).
+        if self.imed_in_use() {
+            self.relay_focus_to_imed(u64::from(surface_id), focused, field_kind, caret);
+            if self.key_route.imed_session.is_some() {
+                self.key_route.imed_session = focused.then_some((surface_id, field_kind));
+            }
+        }
         self.update_osk_visibility();
         // A text blur hands imed's focus back to the WINDOW (ESC still reaches it).
         self.sync_surface_focus_to_imed();
+    }
+
+    /// Whether imed is in use: an on-screen-keyboard profile, or a composition session open.
+    fn imed_in_use(&self) -> bool {
+        use nexus_display_proto::client_surface as wire;
+        self.shell_profile_wire() != wire::PROFILE_DESKTOP || self.key_route.imed_session.is_some()
     }
 
     /// TASK-0074 D3: imed delivers keys ONLY to a focused surface. Without a
@@ -86,16 +100,23 @@ impl DisplayServerRuntime {
     /// hands it back. One relay per change; called after input, focus and
     /// window-set changes.
     pub(crate) fn sync_surface_focus_to_imed(&mut self) {
-        let want = if self.text_focus.is_some() { None } else { self.focused_surface_id() };
-        if want == self.imed_surface_focus {
+        // Only the on-screen keyboard's profiles keep imed told of the window (RFC-0113 §3: on
+        // the desktop a layout's Escape reaches the window directly, a composition session is
+        // opened by its first key).
+        if self.shell_profile_wire() == nexus_display_proto::client_surface::PROFILE_DESKTOP {
+            self.key_route.surface_focus = None;
+            return;
+        }
+        let want = if self.text_focus.is_some() { None } else { self.window_focus_surface() };
+        if want == self.key_route.surface_focus {
             return;
         }
         if self.text_focus.is_some() {
             // The text relay already replaced imed's focus — nothing to send.
-            self.imed_surface_focus = None;
+            self.key_route.surface_focus = None;
             return;
         }
-        match (want, self.imed_surface_focus) {
+        match (want, self.key_route.surface_focus) {
             (Some(sid), _) => {
                 self.relay_focus_to_imed(
                     u64::from(sid),
@@ -114,19 +135,7 @@ impl DisplayServerRuntime {
             }
             (None, None) => {}
         }
-        self.imed_surface_focus = want;
-    }
-
-    /// The surface of the focused window (the desktop surface when the shell
-    /// holds focus), if its surface is live.
-    fn focused_surface_id(&self) -> Option<u32> {
-        // Focus follows raise; before any raise the topmost on-screen window
-        // (the shell) is what a key would reach.
-        match self.windows.focused().or_else(|| self.windows.top()) {
-            Some(crate::window_scene::WindowId::App(i)) => self.apps[usize::from(i)].surface_id,
-            Some(crate::window_scene::WindowId::Desktop) => self.desktop_surface_id,
-            None => None,
-        }
+        self.key_route.surface_focus = want;
     }
 
     /// OSK show/hide (RFC-0075 Phase 8c policy): text focus shows the
@@ -245,7 +254,7 @@ impl DisplayServerRuntime {
     /// imed push (`'I','E'` frames): route commit/action to the focused
     /// surface's app channel. Sender-gated to the IME authority.
     pub(crate) fn handle_imed_push(&mut self, frame: &[u8], sender_sid: u64) {
-        if sender_sid != nexus_abi::service_id_from_name(b"imed") {
+        if key_gate::imed_sender(sender_sid, nexus_abi::service_id_from_name(b"imed")).is_err() {
             let _ = debug_println("WINDOWD: FAIL imed push (foreign sender)");
             return;
         }
@@ -254,7 +263,9 @@ impl DisplayServerRuntime {
             surface_id = sid;
             kind = surface_text::SURFACE_TEXT_COMMIT;
             aux = 0;
-            let Some((b, n)) = surface_text::encode_surface_text(kind, aux, text) else {
+            let Some((b, n)) =
+                surface_text::encode_surface_text(kind, aux, text, surface_text::TextStamp::NONE)
+            else {
                 return;
             };
             buf = b;
@@ -263,7 +274,9 @@ impl DisplayServerRuntime {
             surface_id = sid;
             kind = surface_text::SURFACE_TEXT_ACTION;
             aux = act;
-            let Some((b, n)) = surface_text::encode_surface_text(kind, aux, "") else {
+            let Some((b, n)) =
+                surface_text::encode_surface_text(kind, aux, "", surface_text::TextStamp::NONE)
+            else {
                 return;
             };
             buf = b;
@@ -285,23 +298,24 @@ impl DisplayServerRuntime {
         // Without a text field, the WINDOW-focus relay (`FIELD_KIND_NONE`,
         // TASK-0074 D3) is the holder — and imed sends it ACTIONS only
         // (Escape, the modal's dismissal); anything else is dropped here too.
+        let holders = key_gate::Holders {
+            field: self.text_focus.map(|route| route.surface_id),
+            window: self.key_route.surface_focus.or(match self.key_route.imed_session {
+                Some((sid, ime_wire::FIELD_KIND_NONE)) => Some(sid),
+                _ => None,
+            }),
+        };
+        let is_action = kind == surface_text::SURFACE_TEXT_ACTION;
+        let Ok(holder) = key_gate::imed_push_holder(surface_id, is_action, holders) else {
+            return;
+        };
         let target = match self.text_focus {
-            Some(route) if u64::from(route.surface_id) == surface_id => route.target,
-            Some(_) => return,
-            None => {
-                if kind != surface_text::SURFACE_TEXT_ACTION
-                    || self.imed_surface_focus.map(u64::from) != Some(surface_id)
-                {
-                    return;
-                }
-                if self.desktop_surface_id.map(u64::from) == Some(surface_id) {
-                    TextFocusTarget::Desktop
-                } else if let Some(idx) = self.app_index_by_surface(surface_id as u32) {
-                    TextFocusTarget::App(idx)
-                } else {
-                    return;
-                }
-            }
+            Some(route) if route.surface_id == holder => route.target,
+            _ if self.desktop_surface_id == Some(holder) => TextFocusTarget::Desktop,
+            _ => match self.app_index_by_surface(holder) {
+                Some(idx) => TextFocusTarget::App(idx),
+                None => return,
+            },
         };
         match target {
             TextFocusTarget::App(idx) => {
@@ -326,9 +340,9 @@ impl DisplayServerRuntime {
         }
     }
 
-    /// Fire-and-forget `OP_SET_FOCUS` relay to imed (lazy route; the reply,
-    /// if any, lands on the shared inbox and is ignored).
-    #[allow(unused_variables)]
+    /// `OP_SET_FOCUS` to imed through the ordered outbox (RFC-0113 §3) — never dropped while imed
+    /// lives, never a park; a refused relay is said (the old relay recorded the focus as sent
+    /// even when its non-blocking send failed, and never repeated it).
     fn relay_focus_to_imed(
         &mut self,
         surface_id: u64,
@@ -336,32 +350,17 @@ impl DisplayServerRuntime {
         field_kind: u8,
         caret: surface_text::CaretRect,
     ) {
-        #[cfg(nexus_env = "os")]
-        {
-            if self.imed_client.is_none() {
-                // The declared imed leg (TASK-0324 P4a) — no route ask (P7-b).
-                let leg = nexus_service_topology::slots::windowd::IMED;
-                self.imed_client = nexus_ipc::KernelClient::new_with_slots(leg.send, leg.recv).ok();
-            }
-            let Some(client) = self.imed_client.as_ref() else {
-                let _ = debug_println("WINDOWD: FAIL imed route");
-                return;
-            };
-            let frame = ime_wire::encode_set_focus(
-                surface_id,
-                u8::from(focused),
-                field_kind,
-                caret.0,
-                caret.1,
-                caret.2,
-                caret.3,
-            );
-            use nexus_ipc::Client as _;
-            if client.send(&frame, Wait::NonBlocking).is_err() {
-                let _ = debug_println("WINDOWD: FAIL imed relay send");
-                // Drop the cached route; the next transition re-resolves.
-                self.imed_client = None;
-            }
+        let frame = ime_wire::encode_set_focus(
+            surface_id,
+            u8::from(focused),
+            field_kind,
+            caret.0,
+            caret.1,
+            caret.2,
+            caret.3,
+        );
+        if !self.send_to_imed(&frame) {
+            let _ = debug_println("WINDOWD: FAIL imed relay send");
         }
     }
 }

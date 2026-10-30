@@ -64,9 +64,8 @@ use crate::systemui_shell::{HOVER_LAYER_ID, SIDEBAR_LAYER_ID};
 use crate::interaction::SIDEBAR_WIDTH;
 const ANIMATION_UPDATE_CAP: usize = 8;
 
-// Topical submodules holding `impl DisplayServerRuntime` blocks split out of this
-// file (TASK-0063 modularization). Child modules of `runtime` so they retain
-// access to the struct's private fields without weakening encapsulation.
+// Topical submodules holding `impl DisplayServerRuntime` blocks (TASK-0063): children of
+// `runtime`, so they reach the struct's private fields without weakening encapsulation.
 mod anim;
 mod app_death;
 mod app_surface;
@@ -78,6 +77,7 @@ mod cursor;
 mod desktop_surface;
 mod solid_surface;
 use crate::present_acks as acks;
+mod caret;
 mod frame_pulse;
 mod framebuffer;
 pub(crate) mod gpud;
@@ -85,7 +85,9 @@ mod input;
 mod input_hover;
 mod input_wheel;
 pub(crate) mod intent;
+mod key_input;
 mod marker_emit;
+mod motion;
 mod observer;
 mod present;
 mod presentation;
@@ -466,8 +468,6 @@ pub(crate) struct DisplayServerRuntime {
     abilitymgr_client: Option<nexus_ipc::KernelClient>,
     /// Text-focus route (RFC-0075, identity-derived — see `text_input.rs`).
     text_focus: Option<text_input::TextFocusRoute>,
-    /// imed's WINDOW-focus relay (`FIELD_KIND_NONE`, TASK-0074 D3; `None` while a field owns it).
-    imed_surface_focus: Option<u32>,
     /// TASK-0074 proof bookkeeping for the `SELFTEST: ui v10 …` rungs.
     modal_proof: crate::modal_gate::ModalProof,
     /// The desktop surface's (the shell's) modal flag — it gates no sibling, it records the edge.
@@ -480,28 +480,29 @@ pub(crate) struct DisplayServerRuntime {
     tile_proof_said: bool,
     /// The tile-preview zone last pushed to the desktop surface (0 = none) — TASK-0066.
     tile_preview_sent: u8,
-    /// Cached IME-authority route (lazy; fire-and-forget focus relays).
-    #[cfg(nexus_env = "os")]
-    imed_client: Option<nexus_ipc::KernelClient>,
+    /// The key channel's route: imed's session and window relay, the lost-key count (RFC-0113).
+    key_route: key_input::KeyRoute,
     /// The clipboard authority's focus truth (TASK-0067, `clipboard_focus.rs`).
     clip_focus: clipboard_focus::ClipFocusState,
     /// The screen-capture verb (TASK-0068, `capture.rs`): frame VMO, parked reply, freeze.
     capture: capture::CaptureState,
     /// The surface that took the primary press — it hears the drag (RFC-0095, `input_hover.rs`).
     press_route: Option<input_hover::PressRoute>,
+    /// TASK-0346 P2: the presses — the click count and modifiers each tap frame carries.
+    presses: crate::click_count::Presses,
+    /// RFC-0113 §5: the focused field's caret, drawn and blinked here (`caret.rs`).
+    caret: caret::CaretLayer,
     /// Region relay cache (RFC-0076/0077 — see `region.rs`).
     pub(crate) region: region::RegionState,
     /// Atlas allocator, kept live so windows can acquire surfaces on show and
     /// release them on hide (the on-demand surface pool — a closed window costs
     /// zero atlas rows). The boot layers reserved their bands from it in `new`.
     atlas_alloc: crate::atlas::AtlasAllocator,
-    /// Frame-aligned input sample (Android `Choreographer`/`InputConsumer` model):
-    /// every queued `OP_UPDATE_VISIBLE_STATE` is STAGED here (the latest cursor wins, wheel
-    /// deltas sum, a button edge is never coalesced — `input_stage`) and applied ONCE per
-    /// present-loop iteration — not per raw event. Decouples per-frame work from input rate,
-    /// so a flood (hidrawd ~800/s) can't back up the cursor command stream + hit-testing
-    /// ("mouse vanished then everything caught up").
+    /// Frame-aligned input (`input_stage`): every push STAGED, applied ONCE per loop pass — a
+    /// flood (hidrawd ~800/s) can't back up the cursor and the hit-testing.
     input_stage: crate::input_stage::InputStage,
+    /// RFC-0113 §2: the pointer's samples on their way to a surface's MOVE or DRAG (`motion.rs`).
+    motion: motion::MotionRoute,
     /// The DESKTOP surface's declared layers (RFC-0109): its glass regions over the wallpaper,
     /// its scroll layers, its washes.
     desktop_layers: surface_layers::SurfaceLayers,
@@ -804,7 +805,6 @@ impl DisplayServerRuntime {
             #[cfg(nexus_env = "os")]
             abilitymgr_client: None,
             text_focus: None,
-            imed_surface_focus: None,
             modal_proof: crate::modal_gate::ModalProof::default(),
             desktop_modal: false,
             tile_edges: true,
@@ -813,13 +813,15 @@ impl DisplayServerRuntime {
             tile_proof_said: false,
             tile_preview_sent: 0,
             region: region::RegionState::new(),
-            #[cfg(nexus_env = "os")]
-            imed_client: None,
+            key_route: key_input::KeyRoute::new(),
             clip_focus: clipboard_focus::ClipFocusState::new(),
             capture: capture::CaptureState::new(),
             press_route: None,
+            presses: crate::click_count::Presses::new(),
+            caret: caret::CaretLayer::new(),
             atlas_alloc: atlas,
             input_stage: crate::input_stage::InputStage::new(),
+            motion: motion::MotionRoute::default(),
             desktop_layers: surface_layers::SurfaceLayers::EMPTY,
             hover_route: HOVER_ROUTE_NONE,
             hover_last: (0, 0),

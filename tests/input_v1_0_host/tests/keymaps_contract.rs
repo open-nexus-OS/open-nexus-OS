@@ -5,12 +5,13 @@
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Stable
-//! TEST_COVERAGE: 4 integration tests.
+//! TEST_COVERAGE: 12 integration tests.
 //!
 //! TEST_SCOPE:
 //!   - deterministic layout vectors for `us`, `de`, `jp`, `kr`, `zh`
 //!   - IME-switch shared primitive behavior
 //!   - unknown layout and unsupported key/modifier rejects
+//!   - every field chord of the shortcut registry, in every layout, with exact modifiers
 //!
 //! TEST_SCENARIOS:
 //!   - keymaps_resolve_deterministic_vectors_for_all_layouts()
@@ -19,6 +20,7 @@
 //! DEPENDENCIES:
 //!   - `hid::KeyboardUsage`
 //!   - `keymaps` crate resolution API
+//!   - `shortcuts` (the registry the keymap matches its field chords from)
 //!
 //! ADR: docs/adr/0029-input-v1-host-core-architecture.md
 
@@ -201,14 +203,138 @@ fn editing_commands_resolve_by_key_and_by_layout_letter() {
     }
 }
 
+/// TASK-0346 P2: with Ctrl the arrows step by words (Shift selects), Backspace and Delete
+/// delete a word, Ctrl+Z undoes and Ctrl+Shift+Z / Ctrl+Y redo — Z and Y by the layout's letter
+/// (the German layout swaps the keys).
+#[test]
+fn word_steps_and_the_history_resolve_with_ctrl() {
+    use keymaps::{EditKey, KeyAction};
+    let ctrl = Modifiers::default().with_control();
+    let ctrl_shift = Modifiers::default().with_control().with_shift();
+    let edit = |out: KeyOutput| match out {
+        KeyOutput::Action(KeyAction::Edit(k)) => k,
+        other => panic!("expected an editing command, got {other:?}"),
+    };
+    let us = Keymap::new(LayoutId::Us);
+    let pairs = [
+        (KeyboardUsage::LEFT_ARROW, ctrl, EditKey::WordLeft),
+        (KeyboardUsage::RIGHT_ARROW, ctrl, EditKey::WordRight),
+        (KeyboardUsage::LEFT_ARROW, ctrl_shift, EditKey::SelectWordLeft),
+        (KeyboardUsage::RIGHT_ARROW, ctrl_shift, EditKey::SelectWordRight),
+        (KeyboardUsage::BACKSPACE, ctrl, EditKey::DeleteWordBack),
+        (KeyboardUsage::DELETE_FORWARD, ctrl, EditKey::DeleteWordForward),
+        (KeyboardUsage::Z, ctrl, EditKey::Undo),
+        (KeyboardUsage::Z, ctrl_shift, EditKey::Redo),
+        (KeyboardUsage::Y, ctrl, EditKey::Redo),
+    ];
+    for (usage, mods, want) in pairs {
+        assert_eq!(edit(us.resolve(usage, mods).expect("resolves")), want, "{usage:?}");
+    }
+    // Shift+Tab walks back (its own action, not a Tab).
+    assert_eq!(
+        us.resolve(KeyboardUsage::TAB, Modifiers::default().with_shift()).expect("shift tab"),
+        KeyOutput::Action(KeyAction::BackTab)
+    );
+    // German: the key in the US `Y` position types `z` — Ctrl on it is the undo.
+    let de = Keymap::new(LayoutId::De);
+    assert_eq!(edit(de.resolve(KeyboardUsage::Y, ctrl).expect("de ctrl z")), EditKey::Undo);
+    assert_eq!(edit(de.resolve(KeyboardUsage::Z, ctrl).expect("de ctrl y")), EditKey::Redo);
+}
+
 #[test]
 fn test_reject_other_ctrl_combinations() {
     let ctrl = Modifiers::default().with_control();
     let us = Keymap::new(LayoutId::Us);
-    for usage in [KeyboardUsage::B, KeyboardUsage::Z, KeyboardUsage::DIGIT_1] {
+    for usage in [KeyboardUsage::B, KeyboardUsage::Q, KeyboardUsage::DIGIT_1] {
         let err = us.resolve(usage, ctrl).unwrap_err();
         assert_eq!(err.code(), KeymapError::UnsupportedModifierCombination.code());
     }
     let ctrl_shift = Modifiers::default().with_control().with_shift();
     assert!(us.resolve(KeyboardUsage::C, ctrl_shift).is_err(), "Ctrl+Shift+C is no copy");
+    assert!(us.resolve(KeyboardUsage::Y, ctrl_shift).is_err(), "Ctrl+Shift+Y is no redo");
+    assert!(us.resolve(KeyboardUsage::BACKSPACE, ctrl_shift).is_err(), "the modifier set is exact");
+}
+
+fn every_layout() -> [Keymap; 5] {
+    [LayoutId::Us, LayoutId::De, LayoutId::Jp, LayoutId::Kr, LayoutId::Zh].map(Keymap::new)
+}
+
+/// The keymap's Modifiers for a registry set (the inverse of `Modifiers::chord_mods`).
+fn held(mods: shortcuts::Mods) -> Modifiers {
+    let mut held = Modifiers::default();
+    for (bit, with) in [
+        (shortcuts::Mods::SHIFT, Modifiers::with_shift as fn(Modifiers) -> Modifiers),
+        (shortcuts::Mods::CTRL, Modifiers::with_control),
+        (shortcuts::Mods::ALT, Modifiers::with_alt),
+        (shortcuts::Mods::ALTGR, Modifiers::with_alt_gr),
+        (shortcuts::Mods::SUPER, Modifiers::with_super),
+    ] {
+        if mods.contains(bit) {
+            held = with(held);
+        }
+    }
+    assert_eq!(held.chord_mods(), mods);
+    held
+}
+
+/// The key a chord is pressed on in `km`: by place, or the key that types its letter there.
+fn key_of(km: &Keymap, key: shortcuts::Key) -> KeyboardUsage {
+    match key {
+        shortcuts::Key::Usage(usage) => usage,
+        shortcuts::Key::Letter(letter) => (KeyboardUsage::A.raw()..=KeyboardUsage::Z.raw())
+            .map(KeyboardUsage::from_raw)
+            .find(|usage| km.letter(*usage) == Some(letter))
+            .expect("every layout types every letter chord"),
+    }
+}
+
+/// RFC-0113 §7: the keymap's field commands and its input-source switch ARE the registry's — every
+/// such chord resolves to its entry's action in every layout.
+#[test]
+fn every_registry_field_chord_resolves_in_every_layout() {
+    use shortcuts::{Action, SHORTCUTS};
+    for km in every_layout() {
+        for entry in SHORTCUTS {
+            let want = match entry.action {
+                Action::Field(key) => KeyOutput::Action(KeyAction::Edit(key)),
+                Action::NextInputSource => KeyOutput::Action(KeyAction::ImeSwitch),
+                Action::Window(_) | Action::Capture(_) => continue,
+            };
+            for chord in entry.chords {
+                let usage = key_of(&km, chord.key);
+                let got = km.resolve(usage, held(chord.mods)).expect(entry.id);
+                assert_eq!(got, want, "{} {km:?}", entry.id);
+            }
+        }
+    }
+}
+
+/// The modifier set is exact: Alt or Super on top of a field chord makes it no command — and
+/// Alt or Super alone keeps typing as before (they select no character).
+#[test]
+fn test_reject_field_chords_under_alt_or_super() {
+    let us = Keymap::new(LayoutId::Us);
+    let alt = Modifiers::default().with_alt();
+    let sup = Modifiers::default().with_super();
+    assert!(us.resolve(KeyboardUsage::LEFT_ARROW, alt).is_err(), "Alt+← moves no caret");
+    assert!(us.resolve(KeyboardUsage::LEFT_ARROW, sup).is_err(), "Super+← moves no caret");
+    let ctrl_alt = Modifiers::default().with_control().with_alt();
+    assert!(us.resolve(KeyboardUsage::C, ctrl_alt).is_err(), "Ctrl+Alt+C is no copy");
+    let ctrl_super = Modifiers::default().with_control().with_super();
+    assert!(us.resolve(KeyboardUsage::V, ctrl_super).is_err(), "Super+Ctrl+V is no paste");
+    assert_eq!(text(us.resolve(KeyboardUsage::A, alt).expect("alt a")), 'a');
+}
+
+/// A letter chord follows the layout's letter; where a layout types no Latin letter on a key,
+/// its US letter counts. Non-letter keys have none.
+#[test]
+fn letters_follow_the_layout() {
+    let de = Keymap::new(LayoutId::De);
+    assert_eq!(de.letter(KeyboardUsage::Y), Some('z'), "QWERTZ swaps Y and Z");
+    assert_eq!(de.letter(KeyboardUsage::Z), Some('y'));
+    assert_eq!(de.letter(KeyboardUsage::LEFT_BRACKET), None, "ü is no Latin letter key");
+    let us = Keymap::new(LayoutId::Us);
+    assert_eq!(us.letter(KeyboardUsage::W), Some('w'));
+    assert_eq!(us.letter(KeyboardUsage::LEFT_ARROW), None);
+    assert_eq!(us.letter(KeyboardUsage::DIGIT_1), None);
 }

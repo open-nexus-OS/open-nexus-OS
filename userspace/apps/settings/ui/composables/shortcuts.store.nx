@@ -1,0 +1,57 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// SHORTCUTS domain (RFC-0113 §7, TASK-0346 P3) — the keyboard-shortcuts window that
+// `Allgemeine Verwaltung › Eingabe › Tastaturkurzbefehle` opens over the settings window.
+// Every row is REGISTRY truth from `svc.shortcuts.list(category, locale)`: the chords come from
+// the one table inputd and the keymap match keys against, named for the device's language —
+// this window holds no chord of its own. Rebinding is a later phase: its controls are drawn,
+// disabled.
+
+Store ShortcutsStore {
+    // The window is open.
+    scOpen: Bool = false,
+    // The category on screen: windows | screenshots | text | input.
+    scCategory: Str = "windows",
+    // Its rows (`ShortcutRow { id, keys, alt, active }`); [] until listed.
+    shortcuts: List<ShortcutRow> = [],
+    // Non-zero effect error code when the list failed.
+    scError: Int = 0,
+}
+
+Event ShortcutsEvent {
+    ScOpen,
+    ScClose,
+    ScPick(Str),
+    ScListed(List<ShortcutRow>),
+    ScFailed(Int),
+}
+
+reduce ShortcutsEvent {
+    ScOpen => {
+        state.scOpen = true;
+        state.scCategory = "windows";
+    },
+    ScClose => state.scOpen = false,
+    ScPick(id) => state.scCategory = id,
+    ScListed(rows) => {
+        state.shortcuts = rows;
+        state.scError = 0;
+    },
+    ScFailed(code) => state.scError = code,
+}
+
+// The window opens on its first category.
+@effect on ScOpen {
+    match svc.shortcuts.list("windows", device.locale) {
+        Ok(rows) => dispatch(ScListed(rows)),
+        Err(e) => dispatch(ScFailed(e)),
+    }
+}
+
+@effect on ScPick(id) {
+    match svc.shortcuts.list(id, device.locale) {
+        Ok(rows) => dispatch(ScListed(rows)),
+        Err(e) => dispatch(ScFailed(e)),
+    }
+}

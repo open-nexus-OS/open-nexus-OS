@@ -240,6 +240,7 @@ pub fn normalize_ingress_batch(
         abs_max_y,
         raw_event_count: evidence.raw_event_count(),
         normalized_event_count: evidence.normalized_event_count(),
+        seq_first: hid_batch.seq_first(),
         events: batch_to_wire_events(&hid_batch),
     };
     Ok(IngressNormalization { evidence, hid_batch: Some(hid_batch), wire_batch: Some(wire_batch) })
@@ -402,12 +403,82 @@ fn linux_key_to_hid(code: u16) -> Option<u16> {
         56 => 0xe2,
         57 => 0x2c,
         58 => 0x39,
-        59 => 0x3a,
+        // F1..F10, then F11/F12 (TASK-0346: the function keys are shortcut keys).
+        59..=68 => 0x3a + (code - 59),
+        87 => 0x44,
+        88 => 0x45,
+        69 => 0x53, // Num Lock
+        70 => 0x47, // Scroll Lock
+        // The keypad: 7 8 9 - / 4 5 6 + / 1 2 3 / 0 .
+        71 => 0x5f,
+        72 => 0x60,
+        73 => 0x61,
+        74 => 0x56,
+        75 => 0x5c,
+        76 => 0x5d,
+        77 => 0x5e,
+        78 => 0x57,
+        79 => 0x59,
+        80 => 0x5a,
+        81 => 0x5b,
+        82 => 0x62,
+        83 => 0x63,
+        86 => 0x64, // KEY_102ND: the ISO key next to left Shift (`<>|` on the German layout)
+        96 => 0x58, // keypad Enter
         97 => 0xe4,
+        98 => 0x54, // keypad /
         99 => 0x46, // KEY_SYSRQ: the Print key (RFC-0095 capture keys)
         100 => 0xe6,
+        // The navigation block (TASK-0346: the caret moves with the arrows on every transport).
+        102 => 0x4a, // Home
+        103 => 0x52, // Up
+        104 => 0x4b, // Page Up
+        105 => 0x50, // Left
+        106 => 0x4f, // Right
+        107 => 0x4d, // End
+        108 => 0x51, // Down
+        109 => 0x4e, // Page Down
+        110 => 0x49, // Insert
+        111 => 0x4c, // Delete
+        119 => 0x48, // Pause
         125 => 0xe3,
         126 => 0xe7,
+        127 => 0x65, // Compose / the menu key
         _ => return None,
     })
+}
+
+#[cfg(test)]
+mod key_table_tests {
+    use super::linux_key_to_hid;
+
+    #[test]
+    fn the_navigation_block_and_function_keys_reach_their_usages() {
+        let pairs = [
+            (105, 0x50),
+            (106, 0x4f),
+            (103, 0x52),
+            (108, 0x51),
+            (102, 0x4a),
+            (107, 0x4d),
+            (111, 0x4c),
+            (104, 0x4b),
+            (109, 0x4e),
+            (59, 0x3a),
+            (68, 0x43),
+            (87, 0x44),
+            (88, 0x45),
+            (86, 0x64),
+        ];
+        for (code, usage) in pairs {
+            assert_eq!(linux_key_to_hid(code), Some(usage), "linux key {code}");
+        }
+    }
+
+    #[test]
+    fn test_reject_a_key_code_outside_the_table() {
+        assert_eq!(linux_key_to_hid(0), None, "KEY_RESERVED");
+        assert_eq!(linux_key_to_hid(240), None, "KEY_UNKNOWN");
+        assert_eq!(linux_key_to_hid(u16::MAX), None);
+    }
 }

@@ -38,3 +38,10 @@ pub const WATCH_SEND: u32 = 0x41;
 pub const SESSION_WATCH_RECV: u32 = 0x42;
 /// Session push channel: SEND half, cloned once and moved with sessiond's `OP_WATCH`.
 pub const SESSION_WATCH_SEND: u32 = 0x43;
+/// Timer-notify endpoint (RFC-0113 §5 — the caret's blink, armed only while a caret blinks):
+/// RECV half, a waitset member.
+pub const TIMER_RECV: u32 = 0x44;
+/// Timer-notify endpoint: SEND half the kernel timer cap is bound to.
+pub const TIMER_SEND: u32 = 0x45;
+/// The pair as one value (`nexus_ipc::timer::NotifyTimer::bind`).
+pub const TIMER: SlotPair = SlotPair::new(TIMER_SEND, TIMER_RECV);

@@ -31,6 +31,9 @@ pub struct TextFocusSnapshot {
     pub caret: usize,
     /// The selected char range `[start, end)`, if any.
     pub selection: Option<(usize, usize)>,
+    /// The focus session (RFC-0113 §6): the same number while the same field keeps focus —
+    /// across re-emits (whose box ids change) and re-taps — a new one for another field.
+    pub session: u32,
 }
 
 /// What an editing command did (TASK-0067B).
@@ -60,6 +63,8 @@ pub(crate) struct FocusedText {
     /// `on Change` was dead on every keystroke in every app — a store field
     /// moved and no effect ever ran (see [`View::insert_text`]).
     pub(crate) change_dispatch: Option<ChangeDispatch>,
+    /// The focus session (see [`TextFocusSnapshot::session`]).
+    pub(crate) session: u32,
 }
 
 /// The `(event, case, payload)` of a Change handler that DISPATCHES, as
@@ -114,9 +119,22 @@ impl View<'_> {
                 let secure = subtree_is_secure(&self.scene, box_id);
                 let change_dispatch =
                     trigger_sym.and_then(|sym| self.enclosing_change_dispatch(sym, &node_path));
-                // A tap focuses with the caret at the end (pointer placement is TASK-0095's).
+                // A tap on another field focuses it with the caret at the end; the same field (by
+                // binding identity) keeps its caret, selection and session — the host then places
+                // the caret where the pointer landed (`place_caret`, TASK-0346 P2: it knows the
+                // glyph metrics), and a Shift+click extends from where the caret was.
                 let len = self.bound_text(store, entry.instance, &path).chars().count();
-                let edit = nexus_textedit::Edit::at_end(len);
+                let same = self
+                    .focused_text
+                    .as_ref()
+                    .filter(|f| f.store == store && f.instance == entry.instance && f.path == path);
+                let (edit, session) = match same {
+                    Some(f) => (f.edit.clamped(len), f.session),
+                    None => {
+                        self.focus_sessions = self.focus_sessions.wrapping_add(1);
+                        (nexus_textedit::Edit::at_end(len), self.focus_sessions)
+                    }
+                };
                 self.focused_text = Some(FocusedText {
                     store,
                     instance: entry.instance,
@@ -125,11 +143,36 @@ impl View<'_> {
                     secure,
                     edit,
                     change_dispatch,
+                    session,
                 });
-                Some(TextFocusSnapshot { box_id, secure, caret: edit.caret, selection: None })
+                Some(TextFocusSnapshot {
+                    box_id,
+                    secure,
+                    caret: edit.caret,
+                    selection: edit.selection(),
+                    session,
+                })
             }
             None => self.keep_or_clear_focus(),
         }
+    }
+
+    /// The text field under `(x, y)` — its handler box, the hit [`Self::focus_text_at`] would
+    /// focus, without focusing (TASK-0346 P2: a press into a field is the field's, never a Tap of
+    /// a container or a backdrop under it). Confined like every pointer hit.
+    #[must_use]
+    pub fn text_field_at(
+        &self,
+        boxes: &[nexus_layout::LayoutBox],
+        x: nexus_layout_types::FxPx,
+        y: nexus_layout_types::FxPx,
+        layers: &[ScrollLayerView],
+    ) -> Option<usize> {
+        let sym = self.runtime.symbols().iter().position(|s| s == "Change").map(|i| i as u32)?;
+        let confine = self.modal_confine();
+        let hit = interact::hit_scrolled(&self.handlers, boxes, sym, x, y, layers, confine)?;
+        matches!(hit.entry.action, HandlerAction::Bind { value: BindValue::Text, .. })
+            .then_some(hit.box_id)
     }
 
     /// The innermost `Change` handler ABOVE `node_path` whose action is a
@@ -224,6 +267,7 @@ impl View<'_> {
             secure: f.secure,
             caret: f.edit.caret,
             selection: f.edit.selection(),
+            session: f.session,
         })
     }
 
@@ -233,8 +277,9 @@ impl View<'_> {
         self.focused_text = None;
     }
 
-    /// Inserts committed text into the FOCUSED field (append-at-end, v1 caret
-    /// model). No-op without focus. Values are bounded (`TEXT_VALUE_MAX_CHARS`).
+    /// Inserts committed (typed) text into the FOCUSED field at the caret, replacing the
+    /// selection — a run of typing is one undo step. No-op without focus. Values are bounded
+    /// (`TEXT_VALUE_MAX_CHARS`).
     ///
     /// # Errors
     /// Runtime errors from the write/emission.
@@ -246,11 +291,27 @@ impl View<'_> {
         host: &mut dyn EffectHost,
         text: &str,
     ) -> Result<Option<Damage>, RtError> {
+        self.insert_as(tokens, device, locale, host, text, nexus_textedit::Change::Typing)
+    }
+
+    /// [`Self::insert_text`] recorded as `kind` in the field's history (a paste is a step alone).
+    pub(crate) fn insert_as(
+        &mut self,
+        tokens: &dyn Tokens,
+        device: &dyn DeviceEnv,
+        locale: &dyn LocaleSource,
+        host: &mut dyn EffectHost,
+        text: &str,
+        kind: nexus_textedit::Change,
+    ) -> Result<Option<Damage>, RtError> {
         let Some(focused) = self.focused_text.clone() else {
             return Ok(None);
         };
         let value = self.bound_text(focused.store, focused.instance, &focused.path);
         let applied = nexus_textedit::insert(&value, focused.edit, text, TEXT_VALUE_MAX_CHARS);
+        if applied.value.is_some() {
+            self.field_history(focused.session).record(&value, focused.edit, kind);
+        }
         self.commit_edit(tokens, device, locale, host, &focused, applied).map(|r| match r {
             EditResult::Value(d) => Some(d),
             _ => None,
@@ -293,6 +354,13 @@ impl View<'_> {
         };
         let value = self.bound_text(focused.store, focused.instance, &focused.path);
         let applied = nexus_textedit::apply(&value, focused.edit, cmd);
+        // A deletion is an undo step (a run of them one); a caret move ends a run.
+        let history = self.field_history(focused.session);
+        if applied.value.is_some() {
+            history.record(&value, focused.edit, nexus_textedit::Change::Deleting);
+        } else {
+            history.moved();
+        }
         self.commit_edit(tokens, device, locale, host, &focused, applied)
     }
 
@@ -321,11 +389,20 @@ impl View<'_> {
         };
         let value = self.bound_text(focused.store, focused.instance, &focused.path);
         let applied = nexus_textedit::delete_selection(&value, focused.edit);
+        if applied.value.is_some() {
+            let kind = nexus_textedit::Change::Other;
+            self.field_history(focused.session).record(&value, focused.edit, kind);
+        }
         self.commit_edit(tokens, device, locale, host, &focused, applied)
     }
 
     /// The bound value of a text field ("" when unset or not a string).
-    fn bound_text(&self, store: u32, instance: u64, path: &[u32]) -> alloc::string::String {
+    pub(crate) fn bound_text(
+        &self,
+        store: u32,
+        instance: u64,
+        path: &[u32],
+    ) -> alloc::string::String {
         match self.runtime.read_binding(store, instance, path) {
             Some(Value::Str(s)) => s.clone(),
             _ => alloc::string::String::new(),
@@ -334,7 +411,7 @@ impl View<'_> {
 
     /// Applies an engine result: writes a changed value (with the field's `on Change`), then
     /// records the caret — AFTER the write, whose re-emit re-anchors the focus.
-    fn commit_edit(
+    pub(crate) fn commit_edit(
         &mut self,
         tokens: &dyn Tokens,
         device: &dyn DeviceEnv,
@@ -426,6 +503,7 @@ impl View<'_> {
             secure: subtree_is_secure(&self.scene, box_id),
             edit: focused.edit.clamped(len),
             change_dispatch: self.enclosing_change_dispatch(sym, &node_path),
+            session: focused.session,
         });
     }
 }

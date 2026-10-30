@@ -68,14 +68,57 @@ impl DslApp {
         dirty: &mut bool,
         dirty_rows: &mut Option<(i32, i32)>,
     ) {
+        use nexus_display_proto::surface_text as st;
+        use nexus_ux_budgets::session::Applied;
         let rx_ns = super::super::boot_env::nsec_now();
+        // A focus that moved since the last present (a tap elsewhere) ends its session before
+        // this key counts in the next one.
+        self.track_input_session();
         // A typed character re-renders the rows its edit changed (`relayout_bounded`), never the
         // page; a caret move, an escape or a paint-only change repaints in full (no span).
         self.tap_render_span = None;
-        if self.apply_surface_text(frame) {
+        let in_field = self.view.text_focus().is_some();
+        // A commit carries a run of characters when windowd joined them for a client behind
+        // (RFC-0113): every one counts, each timed from the run's first key.
+        let applied = st::decode_surface_text(frame).map(|(kind, _, text, stamp)| {
+            let n = if kind == st::SURFACE_TEXT_COMMIT { text.chars().count() } else { 1 };
+            (kind, n, stamp)
+        });
+        let shows = self.apply_surface_text(frame);
+        if shows {
             self.merge_tap_damage(dirty, dirty_rows);
         }
+        // RFC-0113 §6: the focused field counts what it applied — timed to the present that shows
+        // it, or now when it shows nothing.
+        if let (true, Some((kind, n, stamp))) = (in_field, applied) {
+            let what =
+                if kind == st::SURFACE_TEXT_COMMIT { Applied::Char } else { Applied::Action };
+            for _ in 0..n {
+                if shows {
+                    self.input_session.applied(what, stamp.t_ns);
+                } else {
+                    self.input_session.applied_now(what, stamp.t_ns, rx_ns);
+                }
+            }
+        }
         self.note_input_rx(rx_ns, *dirty);
+    }
+
+    /// RFC-0113 §6: when the focus left the field (a tap elsewhere, a closed overlay, another
+    /// field), its session's ONE aggregate — the counts first (what the field applied: the lane
+    /// reads them whole), then the key → present latencies and the p99's verdict against the
+    /// input budget (`untimed`: no key carried a device stamp — never `ok` without a
+    /// measurement). Never a line per key, never one for a secure field. Asked after every present
+    /// (the key that moved the focus is timed by the present that shows it) and before every key.
+    pub(in crate::probe) fn track_input_session(&mut self) {
+        let focus = self.view.text_focus().map(|f| (f.session as usize, f.secure));
+        if let Some(s) = self.input_session.track(focus) {
+            let verdict = s.verdict().map_or("untimed", nexus_ux_budgets::Verdict::as_str);
+            raw_marker(&alloc::format!(
+                "apphost: input session (chars={} actions={} timed={}) key_present {verdict} (p50_us={} p99_us={} max_us={})",
+                s.chars, s.actions, s.timed, s.p50_us, s.p99_us, s.max_us
+            ));
+        }
     }
 
     /// RFC-0075 committed-text delivery: insert into the FOCUSED field.
@@ -110,15 +153,43 @@ impl DslApp {
     /// RFC-0075 editing-action delivery (imed wire `ACTION_*` in `aux`).
     /// Backspace edits the focused field; Escape fires the topmost modal's
     /// `on Dismiss` (TASK-0074 D3 — the ONE escape path; with no modal open
-    /// it changes nothing). Enter/Tab are page-level concerns (deferred — no
-    /// focus traversal yet). Returns re-render need.
+    /// it changes nothing); Enter runs the field's enclosing `on Submit`; Tab and Shift+Tab
+    /// move the focus to the next / previous field (TASK-0346 P2 — focused after the next
+    /// present, like `.autofocus`). Returns re-render need.
     pub(crate) fn text_action(&mut self, action: u8) -> bool {
+        use nexus_wire::imed as ime;
         match action {
-            nexus_wire::imed::ACTION_ESCAPE => self.dismiss_escape(),
+            ime::ACTION_ESCAPE => self.dismiss_escape(),
+            ime::ACTION_ENTER => self.submit_field(),
+            ime::ACTION_TAB | ime::ACTION_BACKTAB => {
+                self.pending_focus = self.view.next_text_field(action == ime::ACTION_BACKTAB);
+                self.pending_focus.is_some()
+            }
             // Backspace and the TASK-0067B editing commands: `text_edit.rs`.
-            nexus_wire::imed::ACTION_BACKSPACE => self.edit_action(action),
-            a if nexus_wire::imed::is_edit_action(a) => self.edit_action(a),
+            ime::ACTION_BACKSPACE => self.edit_action(action),
+            a if ime::is_edit_action(a) => self.edit_action(a),
             _ => false,
+        }
+    }
+
+    /// Enter in the focused field: its enclosing `on Submit` (a search, a form, a composer).
+    fn submit_field(&mut self) -> bool {
+        use nexus_dsl_runtime::Damage;
+        let tokens = tokens_for(self.theme_mode);
+        let device =
+            device_for(self.shell_profile, self.w, &self.locale_tag, &self.keymap, self.theme_mode);
+        let locale = super::app_locale!(self);
+        match self.view.submit_text(tokens, &device, &locale, &mut self.host) {
+            Ok(Some(Damage::Layout)) => {
+                self.relayout_bounded();
+                true
+            }
+            Ok(Some(_)) => true,
+            Ok(None) => false,
+            Err(e) => {
+                raw_marker(&alloc::format!("apphost: text submit ERR {e:?}"));
+                false
+            }
         }
     }
 
@@ -148,9 +219,14 @@ impl DslApp {
     /// field is on screen, focus it through the tap path and announce it. Called after a
     /// present — the layout its box comes from is the one on screen.
     pub(crate) fn apply_autofocus(&mut self, client: &KernelClient, surface_id: u32) {
-        let Some(box_id) = self.view.autofocus_box() else { return };
+        // A Tab's next field first (TASK-0346 P2), else the autofocus field.
+        let Some(box_id) = self.pending_focus.take().or_else(|| self.view.autofocus_box()) else {
+            return;
+        };
         let Some(b) = self.layout.boxes.iter().find(|b| b.node_id == box_id) else { return };
-        let (cx, cy) = (b.rect.x.0 + b.rect.width.0 / 2, b.rect.y.0 + b.rect.height.0 / 2);
+        // Where the field shows on the surface (a scroll layer moves it): the hit sees that.
+        let (x, y) = self.on_surface(b);
+        let (cx, cy) = (x + b.rect.width.0 / 2, y + b.rect.height.0 / 2);
         self.announce_text_focus(client, surface_id, cx, cy);
     }
 
@@ -159,7 +235,7 @@ impl DslApp {
     /// for non-text frames). Text content NEVER hits markers/logs.
     pub(crate) fn apply_surface_text(&mut self, frame: &[u8]) -> bool {
         use nexus_display_proto::surface_text as st;
-        let Some((tkind, aux, text)) = st::decode_surface_text(frame) else {
+        let Some((tkind, aux, text, _stamp)) = st::decode_surface_text(frame) else {
             return false;
         };
         match tkind {

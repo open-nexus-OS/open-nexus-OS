@@ -88,3 +88,48 @@ fn test_reject_unknown_zone_codes() {
     assert_eq!(request_from_code(CODE_CLOSE), Some(ZoneRequest::Close));
     assert!(Zone::Fill.code() <= 0b1111);
 }
+
+/// TASK-0346 P3 (RFC-0113 §7): the shortcut registry's window chords carry windowd's codes — the
+/// table inputd matches from and the page lists can never name a tile windowd does not know.
+#[test]
+fn registry_window_codes_are_the_zone_codes() {
+    use shortcuts::{by_id, Action, SHORTCUTS};
+    use windowd::zones::{
+        CODE_BOTTOM_LEFT, CODE_BOTTOM_RIGHT, CODE_LEFT_HALF, CODE_RIGHT_HALF, CODE_TOP_LEFT,
+        CODE_TOP_RIGHT,
+    };
+    for (id, request) in [
+        ("window.leftHalf", ZoneRequest::Tile(Zone::LeftHalf)),
+        ("window.rightHalf", ZoneRequest::Tile(Zone::RightHalf)),
+        ("window.topLeft", ZoneRequest::Tile(Zone::TopLeft)),
+        ("window.topRight", ZoneRequest::Tile(Zone::TopRight)),
+        ("window.bottomLeft", ZoneRequest::Tile(Zone::BottomLeft)),
+        ("window.bottomRight", ZoneRequest::Tile(Zone::BottomRight)),
+        ("window.fill", ZoneRequest::Tile(Zone::Fill)),
+        ("window.return", ZoneRequest::Return),
+        ("window.minimize", ZoneRequest::Minimize),
+        ("window.close", ZoneRequest::Close),
+    ] {
+        let Some(Action::Window(code)) = by_id(id).map(|e| e.action) else {
+            panic!("{id} is no window entry");
+        };
+        assert_eq!(request_from_code(code), Some(request), "{id}");
+    }
+    let codes = [
+        CODE_LEFT_HALF,
+        CODE_RIGHT_HALF,
+        CODE_TOP_LEFT,
+        CODE_TOP_RIGHT,
+        CODE_BOTTOM_LEFT,
+        CODE_BOTTOM_RIGHT,
+        CODE_FILL,
+        CODE_RETURN,
+        CODE_MINIMIZE,
+        CODE_CLOSE,
+    ];
+    for entry in SHORTCUTS {
+        if let Action::Window(code) = entry.action {
+            assert!(codes.contains(&code), "{} carries an unpinned code {code}", entry.id);
+        }
+    }
+}

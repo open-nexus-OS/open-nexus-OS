@@ -16,6 +16,12 @@
 //! a frame pulse, a presentation snapshot — keeps one pending frame per kind, the newest
 //! replacing the older. Frames leave in the order they were queued, a LATEST frame at the
 //! place of its last update, so a client never sees a state older than an event queued after it.
+//! One exception keeps every character of a fast typist (RFC-0113, TASK-0346): a committed text
+//! queued right behind another one is APPENDED to it while the joined text fits a text frame —
+//! not a character lost, none reordered, fewer frames for a client that is behind (it applies
+//! the run as one edit). The joined frame keeps its first key's stamp; an editing action is never
+//! joined. Likewise a waiting MOVE or DRAG hands its pointer samples to the one replacing it
+//! (RFC-0113 §2: the position is the newest, the history keeps every sample).
 //!
 //! The storage is allocated once (`Outboxes::new`, at the compositor's start) and reused: a
 //! client's outbox is a pool entry bound to its channel while frames wait, nothing per frame.
@@ -31,8 +37,9 @@ extern crate alloc;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 
-/// The largest frame windowd sends a client: the IME's candidate page.
-pub(crate) const FRAME_MAX: usize = nexus_display_proto::surface_text::SURFACE_IME_STATE_FRAME_MAX;
+/// The largest frame windowd sends a client (the IME's candidate page) — the one bound its
+/// clients size their buffers by.
+pub(crate) const FRAME_MAX: usize = nexus_display_proto::surface_text::CLIENT_EVENT_FRAME_MAX;
 /// ORDERED frames one client keeps before it is far behind (a refused frame is counted, and
 /// named on the compositor's line — an app that drains nothing for that long is hung).
 pub(crate) const ORDERED_MAX: usize = 16;
@@ -160,8 +167,27 @@ impl Outbox {
         let seq = self.seq;
         if let Kind::Latest(key) = kind {
             let pending = self.latest.iter().position(|s| s.len != 0 && s.key == key);
+            // A waiting MOVE or DRAG hands its pointer samples to its successor (RFC-0113 §2).
+            let joined = pending.and_then(|i| {
+                nexus_display_proto::surface_input::join_motion_frames(
+                    self.latest[i].frame(),
+                    frame,
+                )
+            });
+            if let (Some(i), Some((bytes, n))) = (pending, joined) {
+                self.latest[i].set(seq, key, &bytes[..n]);
+                return true;
+            }
             if let Some(i) = pending.or_else(|| self.latest.iter().position(|s| s.len == 0)) {
                 self.latest[i].set(seq, key, frame);
+                return true;
+            }
+        }
+        if self.count > 0 {
+            let last = (self.head + self.count - 1) % ORDERED_MAX;
+            if let Some(joined) = join_commits(self.ordered[last].frame(), frame) {
+                let keep = self.ordered[last].seq;
+                self.ordered[last].set(keep, 0, &joined.0[..joined.1]);
                 return true;
             }
         }
@@ -215,6 +241,29 @@ impl Outbox {
         }
         Flush::Drained
     }
+}
+
+/// Two committed texts, `first` then `then`, as ONE text frame with `first`'s stamp — `None` when
+/// either is not a commit or the joined text would not fit a text frame.
+fn join_commits(
+    first: &[u8],
+    then: &[u8],
+) -> Option<([u8; nexus_display_proto::surface_text::SURFACE_TEXT_FRAME_MAX], usize)> {
+    use nexus_display_proto::surface_text as st;
+    let (k0, aux, t0, stamp) = st::decode_surface_text(first)?;
+    let (k1, _, t1, _) = st::decode_surface_text(then)?;
+    if k0 != st::SURFACE_TEXT_COMMIT || k1 != st::SURFACE_TEXT_COMMIT {
+        return None;
+    }
+    let n = t0.len() + t1.len();
+    if n > st::SURFACE_TEXT_MAX_BYTES {
+        return None;
+    }
+    let mut text = [0u8; st::SURFACE_TEXT_MAX_BYTES];
+    text[..t0.len()].copy_from_slice(t0.as_bytes());
+    text[t0.len()..n].copy_from_slice(t1.as_bytes());
+    let text = core::str::from_utf8(&text[..n]).ok()?;
+    st::encode_surface_text(st::SURFACE_TEXT_COMMIT, aux, text, stamp)
 }
 
 #[derive(Clone, Copy)]
@@ -448,6 +497,59 @@ mod tests {
         assert!(pool.bind(999).is_some());
     }
 
+    fn commit(text: &str, seq: u32) -> Vec<u8> {
+        use nexus_display_proto::surface_text as st;
+        let stamp = st::TextStamp { seq, t_ns: u64::from(seq) * 1_000 };
+        let (frame, len) =
+            st::encode_surface_text(st::SURFACE_TEXT_COMMIT, 0, text, stamp).expect("encodes");
+        frame[..len].to_vec()
+    }
+
+    fn texts(o: &mut Outbox) -> Vec<(u8, alloc::string::String, u32)> {
+        use nexus_display_proto::surface_text as st;
+        let mut got = Vec::new();
+        o.flush(|frame| {
+            let (kind, _, text, stamp) = st::decode_surface_text(frame).expect("a text frame");
+            got.push((kind, alloc::string::String::from(text), stamp.seq));
+            Attempt::Sent
+        });
+        got
+    }
+
+    /// RFC-0113: a client behind a fast typist gets the run as one frame — every character, in
+    /// order, the first key's stamp.
+    #[test]
+    fn consecutive_commits_join_while_the_client_is_behind() {
+        let mut o = Outbox::new();
+        for (i, ch) in ["f", "a", "s", "t"].iter().enumerate() {
+            assert!(o.push(&commit(ch, i as u32 + 1), Kind::Ordered));
+        }
+        assert_eq!(o.queued(), 1, "one frame holds the run");
+        assert_eq!(texts(&mut o), [(0, "fast".into(), 1)]);
+    }
+
+    #[test]
+    fn test_reject_a_join_across_an_action_or_past_the_text_bound() {
+        use nexus_display_proto::surface_text as st;
+        let mut o = Outbox::new();
+        o.push(&commit("ab", 1), Kind::Ordered);
+        let (back, len) =
+            st::encode_surface_text(st::SURFACE_TEXT_ACTION, 2, "", st::TextStamp::NONE).unwrap();
+        o.push(&back[..len], Kind::Ordered);
+        o.push(&commit("c", 3), Kind::Ordered);
+        let got = texts(&mut o);
+        assert_eq!(got.len(), 3, "an action between two commits keeps them apart");
+        assert_eq!(got[2].1, "c");
+        let long = "x".repeat(st::SURFACE_TEXT_MAX_BYTES - 1);
+        o.push(&commit(&long, 4), Kind::Ordered);
+        o.push(&commit("yz", 5), Kind::Ordered);
+        assert_eq!(o.queued(), 2, "the joined text would not fit one frame");
+        let mut taps = Outbox::new();
+        taps.push(&f(1), Kind::Ordered);
+        taps.push(&f(2), Kind::Ordered);
+        assert_eq!(taps.queued(), 2, "only commits join");
+    }
+
     #[test]
     fn the_latest_key_groups_the_pointer_and_separates_ops() {
         use nexus_display_proto::client_surface as wire;
@@ -459,5 +561,34 @@ mod tests {
         assert_ne!(latest_key(&mv), latest_key(&drag));
         assert_ne!(latest_key(&mv), latest_key(&pulse));
         assert_eq!(latest_key(&[1, 2]), None);
+    }
+
+    /// RFC-0113 §2: a MOVE that replaces a waiting one carries both batches' samples.
+    #[test]
+    fn a_replaced_move_hands_on_its_samples() {
+        use nexus_display_proto::client_surface as wire;
+        use nexus_display_proto::surface_input::{decode_surface_motion, encode_surface_motion};
+        use nexus_display_proto::surface_motion::{MotionBatch, MotionSample};
+        let batch = |x: i32| {
+            let mut b = MotionBatch::new();
+            b.push(MotionSample { x, y: 1, t_ns: x as u64 * 1_000, seq: x as u32 });
+            b
+        };
+        let (a, n) = encode_surface_motion(7, wire::INPUT_KIND_MOVE, 3, 1, &batch(3)).expect("a");
+        let (b, m) = encode_surface_motion(7, wire::INPUT_KIND_MOVE, 5, 1, &batch(5)).expect("b");
+        let key = latest_key(&a[..n]).expect("key");
+        let mut o = Outbox::new();
+        assert!(o.push(&a[..n], Kind::Latest(key)));
+        assert!(o.push(&b[..m], Kind::Latest(key)));
+        let mut got = Vec::new();
+        let _ = o.flush(|f| {
+            got.push(f.to_vec());
+            Attempt::Sent
+        });
+        assert_eq!(got.len(), 1, "one MOVE leaves");
+        let (_, _, x, _, motion) = decode_surface_motion(&got[0]).expect("a motion frame");
+        let mut both = batch(3);
+        both.append(&batch(5));
+        assert_eq!((x, motion), (5, both));
     }
 }

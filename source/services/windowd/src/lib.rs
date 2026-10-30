@@ -32,12 +32,19 @@ mod settings_client;
 // the runtime monolith so the black-screen-prone logic is host-tested (RFC-0066).
 /// TASK-0068: the screen-capture machine — admission, freeze, thaw, bounds (pure, host-tested).
 pub mod capture_gate;
+/// RFC-0113 §5: the compositor caret's blink phase and placement (pure, host-tested).
+pub mod caret_rule;
+/// TASK-0346 P2: a press's click count — the double and the triple click (pure, host-tested).
+pub mod click_count;
 /// RFC-0086 sender-identity gates (own-window verbs + taskbar verbs) — pure,
 /// host-tested (`test_reject_*` tables), like `window_scene`.
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod control_gate;
 /// Frame-aligned input staging: motion coalesces, a button edge never does (pure, host-tested).
 pub mod input_stage;
+/// RFC-0113 / ADR-0090: the key-route gate — the key channel's sender, a key's target, the
+/// input method's session and pushes (pure, host-tested from `tests/`).
+pub mod key_gate;
 /// TASK-0074 D4: the app-modal routing gate (pure, host-tested from `tests/`).
 pub mod modal_gate;
 /// What the compositor states about each app window to the lifecycle authority (6d) — pure,

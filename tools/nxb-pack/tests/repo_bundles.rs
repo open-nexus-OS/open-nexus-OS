@@ -151,3 +151,40 @@ fn test_reject_screencap_cap_outside_shell_and_settings() {
         assert!(!status.success(), "SCREENCAP on bundle_type={bundle_type} must fail the pack");
     }
 }
+
+#[test]
+fn test_reject_stream_class_without_a_grant() {
+    // RFC-0113 §8: the `stream` input class is declared and refused for every bundle type until
+    // its phase lands — no manifest can ship it.
+    for bundle_type in ["app", "shell", "settings", "filemanager", "ime", "greeter"] {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let toml = tmp.path().join("manifest.toml");
+        std::fs::write(
+            &toml,
+            format!(
+                "name = \"painter\"\nversion = \"0.1.0\"\nmin_sdk = \"1.0.0\"\n\
+                 bundle_type = \"{bundle_type}\"\nabilities = [\"painter.MainAbility\"]\n\
+                 caps = [\"nexus.permission.INPUT_STREAM\"]\n"
+            ),
+        )
+        .expect("write manifest");
+        let payload = tmp.path().join("placeholder.elf");
+        std::fs::write(
+            &payload,
+            &exec_image::tiny::build_elf(&exec_image::tiny::print_and_exit(0, b"x\0")),
+        )
+        .expect("write payload");
+        let out = tmp.path().join("painter.nxb");
+        let run = Command::new(env!("CARGO_BIN_EXE_nxb-pack"))
+            .arg("--toml")
+            .arg(&toml)
+            .arg(&payload)
+            .arg(&out)
+            .output()
+            .expect("run nxb-pack");
+        assert!(!run.status.success(), "INPUT_STREAM on bundle_type={bundle_type} must fail");
+        let said = String::from_utf8_lossy(&run.stderr);
+        assert!(said.contains("INPUT_STREAM"), "refused for the stream class: {said}");
+        assert!(!out.exists(), "no bundle is written");
+    }
+}

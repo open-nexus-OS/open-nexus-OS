@@ -167,3 +167,10 @@ emit_when = { profile = "board-headless" }
 phase = "bringup"
 proves = "TASK-0328 U3: socd brought the host node up but refused or failed the named nodes' (a PHY, the hub) — the controller's own bring-up goes on (a measurement), no device can show"
 forbidden_when = { profile = ["board-headless", "board-visible"] }
+
+# RFC-0113 (TASK-0346): a keyboard's report frame the full client refused waits its turn, in order
+# (`hid_class`: a boot report is the keys held — a press dropped between two reports is a letter
+# lost); only past the places a full client can be owed is one dropped, and then named.
+[marker."xhcid: FAIL keyboard reports lost ("]
+phase = "end"
+proves = "keyboard report frames were dropped because the HID client stayed full past every held place (n= reports): keys lost — fails the lane through the FAIL gate"

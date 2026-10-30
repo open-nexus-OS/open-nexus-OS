@@ -23,6 +23,8 @@ pub mod effects;
 pub mod emit;
 mod fixture_env;
 pub mod focus;
+/// TASK-0346 P2: undo/redo, paste, the pointer's caret on the focused field.
+mod focus_edit;
 pub mod i18n;
 mod initial;
 pub mod interact;

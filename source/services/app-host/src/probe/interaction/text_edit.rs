@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! app-host `DslApp`: the focused field's editing commands (TASK-0067B, RFC-0075
-//! amendment). imed passes the keyboard's editing commands through composition; here they
-//! become the runtime's caret/selection edits (`View::edit_text`) or clipboard calls: copy
+//! amendment; the word commands and undo/redo since TASK-0346 P2). The keyboard's editing
+//! commands become the runtime's caret/selection edits (`View::edit_text`), its history
+//! (`View::undo_text`/`redo_text`) or clipboard calls: copy
 //! and cut write the selection to clipboardd over this app's `CLIPBOARD` route, paste reads
 //! the newest item (clipboardd allows it because this app's window has focus) and inserts it
 //! at the caret. A password field never yields its text (`View::selected_text`). Markers
@@ -39,6 +40,12 @@ fn command_of(action: u8) -> Option<EditCommand> {
         ime::ACTION_SELECT_ALL => EditCommand::SelectAll,
         ime::ACTION_BACKSPACE => EditCommand::Backspace,
         ime::ACTION_DELETE => EditCommand::Delete,
+        ime::ACTION_WORD_LEFT => EditCommand::WordLeft,
+        ime::ACTION_WORD_RIGHT => EditCommand::WordRight,
+        ime::ACTION_SELECT_WORD_LEFT => EditCommand::SelectWordLeft,
+        ime::ACTION_SELECT_WORD_RIGHT => EditCommand::SelectWordRight,
+        ime::ACTION_DELETE_WORD_BACK => EditCommand::DeleteWordBack,
+        ime::ACTION_DELETE_WORD_FORWARD => EditCommand::DeleteWordForward,
         _ => return None,
     })
 }
@@ -87,9 +94,16 @@ impl DslApp {
                 if crate::proof_line::TEXT_PASTE.claim() {
                     raw_marker("apphost: text paste ok");
                 }
+                // A paste is an undo step of its own (TASK-0346 P2), never part of a typing run.
                 self.view
-                    .insert_text(tokens, &device, &locale, &mut self.host, &text)
+                    .paste_text(tokens, &device, &locale, &mut self.host, &text)
                     .map(|d| d.map_or(EditResult::None, EditResult::Value))
+            }
+            (None, ime::ACTION_UNDO) => {
+                self.view.undo_text(tokens, &device, &locale, &mut self.host)
+            }
+            (None, ime::ACTION_REDO) => {
+                self.view.redo_text(tokens, &device, &locale, &mut self.host)
             }
             _ => return false,
         };

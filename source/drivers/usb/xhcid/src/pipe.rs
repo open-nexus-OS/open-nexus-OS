@@ -9,7 +9,7 @@
 //! Dequeue Pointer past the failed TD) before anything else happens on it.
 
 use nexus_hal::Bus;
-use nexus_usb::SetupPacket;
+use nexus_usb::{HidRole, SetupPacket};
 
 use crate::command::Issuer;
 use crate::controller::Xhci;
@@ -165,7 +165,9 @@ impl<B: Bus, A: DmaAlloc> Xhci<B, A> {
         }
         pipe.drained = pipe.drained.saturating_add(1);
         let dry = usize::from(pipe.drained) == PIPE_TRBS;
-        let report = matches!(pipe.kind, PipeKind::Hid { .. });
+        // The rate window counts POINTER reports only: a keyboard's reports per second are what
+        // was typed, as rhythm and length (RFC-0113 §6).
+        let report = matches!(pipe.kind, PipeKind::Hid { role: HidRole::Mouse, .. });
         let Some(mem) = dev.pipes_mem.as_mut() else { return };
         let n = usize::from(pipe.max_packet).saturating_sub(event.residual() as usize);
         let at = pipe.buffers + usize::from(buffer) * pipe.stride;

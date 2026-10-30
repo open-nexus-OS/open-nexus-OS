@@ -19,7 +19,9 @@
 //! root moved. The release carries the gesture's last position (windowd parks on it), so a drag
 //! whose motion frames were lost still starts, moves and ends where the pointer let go. One
 //! bounded trace line per gesture (`apphost: drag …`, the tap trace's sibling) — never in the
-//! keyboard overlay, where a press is a keystroke.
+//! keyboard overlay, where a press is a keystroke. It counts the gesture's pointer history
+//! (RFC-0113 §2: a DRAG carries every sample since the last one): frames, samples, the most in
+//! one frame, the folded ones — at a 1000 Hz device several per frame.
 //! OWNERS: @ui @runtime
 //! STATUS: Functional
 //! API_STABILITY: Internal
@@ -30,6 +32,8 @@
 use core::sync::atomic::{AtomicI32, AtomicU32, Ordering};
 
 use nexus_display_proto::client_surface as wire;
+use nexus_display_proto::surface_input::{decode_surface_motion, PointerFacts};
+use nexus_display_proto::surface_motion::MotionBatch;
 use nexus_dsl_runtime::Damage;
 use nexus_ipc::{Client as _, KernelClient, Wait};
 
@@ -44,6 +48,20 @@ pub(super) struct Drag {
     taken: Option<Option<usize>>,
     /// The newest DRAG position not computed yet — every later one supersedes it.
     pending: Option<(i32, i32)>,
+    /// The gesture's pointer history: (frames, samples, the most in one frame, folded).
+    history: (u32, u32, usize, u32),
+}
+
+/// A pointer frame that is not a tap's facts alone: `(surface, kind, x, y, facts, motion)` — a
+/// MOVE or DRAG brings its samples (RFC-0113 §2), any other pointer frame none.
+pub(super) fn decode_pointer(
+    frame: &[u8],
+) -> Option<(u32, u8, u16, u16, PointerFacts, Option<MotionBatch>)> {
+    if let Some((surface, kind, x, y, motion)) = decode_surface_motion(frame) {
+        return Some((surface, kind, x, y, PointerFacts::default(), Some(motion)));
+    }
+    let (surface, kind, x, y, facts) = wire::decode_surface_input(frame)?;
+    Some((surface, kind, x, y, facts, None))
 }
 
 static DRAG_X: AtomicI32 = AtomicI32::new(0);
@@ -71,7 +89,19 @@ pub(crate) fn current() -> (i32, i32, i32, i32) {
 impl super::DslApp {
     /// A primary press landed on this surface (the tap): a drag may grow from it.
     pub(super) fn arm_drag(&mut self, x: i32, y: i32) {
-        self.drag = Some(Drag { start: (x, y), taken: None, pending: None });
+        self.drag = Some(Drag { start: (x, y), taken: None, pending: None, history: (0, 0, 0, 0) });
+    }
+
+    /// A DRAG's pointer samples, counted for the gesture's trace line.
+    pub(super) fn note_motion(&mut self, kind: u8, motion: &MotionBatch) {
+        if let Some(drag) = self.drag.as_mut().filter(|_| kind == wire::INPUT_KIND_DRAG) {
+            let (frames, samples, max, folded) = &mut drag.history;
+            let n = motion.samples().len();
+            *frames = frames.saturating_add(1);
+            *samples = samples.saturating_add(n as u32);
+            *max = (*max).max(n);
+            *folded = folded.saturating_add(u32::from(motion.folded()));
+        }
     }
 
     /// One pointer frame that is not a tap: hover motion, leave, drag motion, release.
@@ -129,6 +159,13 @@ impl super::DslApp {
         dirty_rows: &mut Option<(i32, i32)>,
     ) {
         let Some((x, y)) = self.drag.as_mut().and_then(|d| d.pending.take()) else { return };
+        // A press on the focused text field: the drag selects (TASK-0346 P2), no gesture.
+        if let Some(repaint) = self.drag_text(x, y) {
+            if repaint {
+                self.merge_tap_damage(dirty, dirty_rows);
+            }
+            return;
+        }
         let damage = self.drag_move(x, y);
         if self.settle(damage, dirty, dirty_rows) && self.anim_active() {
             let _ = client.send(&wire::encode_surface_frame_req(surface_id), Wait::Blocking);
@@ -180,6 +217,15 @@ impl super::DslApp {
         if let Some(drag) = self.drag.as_mut() {
             drag.pending = None;
         }
+        // A selection drag ends where the pointer let go (TASK-0346 P2).
+        if let Some(repaint) = self.drag_text(x, y) {
+            self.release_text();
+            self.drag = None;
+            if repaint {
+                self.merge_tap_damage(dirty, dirty_rows);
+            }
+            return repaint;
+        }
         let mut damage = self.drag_move(x, y);
         let Some(drag) = self.drag.take() else { return self.settle(damage, dirty, dirty_rows) };
         if let Some(Some(box_id)) = drag.taken {
@@ -203,7 +249,11 @@ impl super::DslApp {
         }
         let (sx, sy) = drag.start;
         let (ex, ey) = end;
-        super::raw_marker(&alloc::format!("apphost: drag ({sx},{sy})->({ex},{ey}) hit={hit:?}"));
+        let (frames, samples, max, folded) = drag.history;
+        super::raw_marker(&alloc::format!(
+            "apphost: drag ({sx},{sy})->({ex},{ey}) hit={hit:?} history(frames={frames} \
+             samples={samples} max={max} folded={folded})"
+        ));
     }
 
     /// Dispatches `trigger` on `box_id`: the store moves and the scene re-emits; the layout waits

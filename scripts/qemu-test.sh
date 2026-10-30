@@ -728,6 +728,13 @@ USB_INPUT_MARKERS=(
   "apphost: text paste ok"
   "apphost: dsl svc clipboard.restore ok (seq="
   "SELFTEST: ui v7 clipboard ok"
+  # TASK-0346 / RFC-0113: the keys rode inputd's key channel to windowd; the search field's
+  # caret was windowd's own layer (declared by the app, blinked by the compositor); then the
+  # injector types 28 letters faster than a person and the field's session counts every one
+  # (the scenario reads the counts whole: `(chars=28 actions=1 timed=29)`).
+  "inputd: key channel to windowd open"
+  "windowd: caret layer on"
+  "apphost: input session ("
   # TASK-0068 / RFC-0095: then it presses Print — the shell opens the screenshot UI over the
   # frame screencapd froze (gpud's readback, windowd's freeze), drags a selection with the
   # button held (the DSL drag gesture) and presses the shutter: the crop becomes a PNG in the
@@ -3439,7 +3446,9 @@ if [[ "${FAIL_MARKER_GATE:-1}" == "1" ]]; then
   # `gpud: FAIL …` = scanout-policy fatals (TASK-0324 P0), never allow-listable.
   # The kernel's markers arrive behind its logger prefix (`[ERROR smp] KSELFTEST: … FAIL`);
   # the gate reads them with it (scripts/board-test.sh keeps the same expression).
-  fail_lines=$(grep -aE "^(\[[A-Z]+ [^]]*\] )?(K?SELFTEST): .* FAIL|^gpud: FAIL|^xhcid: FAIL" "$UART_LOG" || true)
+  # RFC-0113: a key lost on the way (a sequence gap, a send that failed, a key windowd could not
+  # hand its receiver) is a FAIL of the lane, never a line to scroll past.
+  fail_lines=$(grep -aE "^(\[[A-Z]+ [^]]*\] )?(K?SELFTEST): .* FAIL|^gpud: FAIL|^xhcid: FAIL|^inputd: FAIL (input gap|key send)|^WINDOWD: FAIL key input" "$UART_LOG" || true)
   if [[ -n "$fail_lines" && -f "$allow_file" ]]; then
     fail_lines=$(printf '%s\n' "$fail_lines" | grep -vFf <(grep -v '^#' "$allow_file" | sed '/^[[:space:]]*$/d') || true)
   fi

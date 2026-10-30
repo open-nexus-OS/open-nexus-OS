@@ -179,13 +179,15 @@ class InputDriver:
             self.env.sock, [{"type": "btn", "data": {"down": down, "button": button}}], console=None
         )
 
-    def key(self, qcode: str) -> None:
+    def key(self, qcode: str, hold_s: float = KEY_DOWN_HOLD_S) -> None:
+        """Tap one key: held `hold_s`, then released and `hold_s` until the next (a scenario's
+        declared typing pace, RFC-0113; the default is the slow, safe pace)."""
         for down in (True, False):
             self.env.send_input_events(
                 self.env.sock,
                 [{"type": "key", "data": {"down": down, "key": {"type": "qcode", "data": qcode}}}],
             )
-            time.sleep(KEY_DOWN_HOLD_S)
+            time.sleep(hold_s)
 
     def click_observed(self, timeout_s: float = 10.0) -> tuple[int, int] | None:
         """Click at the current pointer and return where app-host saw the tap."""

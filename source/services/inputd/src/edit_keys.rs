@@ -30,6 +30,14 @@ pub fn action_code(key: EditKey) -> u8 {
         EditKey::Copy => wire::ACTION_COPY,
         EditKey::Cut => wire::ACTION_CUT,
         EditKey::Paste => wire::ACTION_PASTE,
+        EditKey::WordLeft => wire::ACTION_WORD_LEFT,
+        EditKey::WordRight => wire::ACTION_WORD_RIGHT,
+        EditKey::SelectWordLeft => wire::ACTION_SELECT_WORD_LEFT,
+        EditKey::SelectWordRight => wire::ACTION_SELECT_WORD_RIGHT,
+        EditKey::DeleteWordBack => wire::ACTION_DELETE_WORD_BACK,
+        EditKey::DeleteWordForward => wire::ACTION_DELETE_WORD_FORWARD,
+        EditKey::Undo => wire::ACTION_UNDO,
+        EditKey::Redo => wire::ACTION_REDO,
     }
 }
 
@@ -53,6 +61,14 @@ mod tests {
             EditKey::Copy,
             EditKey::Cut,
             EditKey::Paste,
+            EditKey::WordLeft,
+            EditKey::WordRight,
+            EditKey::SelectWordLeft,
+            EditKey::SelectWordRight,
+            EditKey::DeleteWordBack,
+            EditKey::DeleteWordForward,
+            EditKey::Undo,
+            EditKey::Redo,
         ];
         let codes: Vec<u8> = all.iter().map(|k| action_code(*k)).collect();
         for (i, c) in codes.iter().enumerate() {

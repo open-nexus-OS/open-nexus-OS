@@ -19,6 +19,9 @@ The reference desktop's interactive screenshot tool, in the shell's glass.
 | Shift+Print | the whole screen is saved at once, no tool |
 | Alt+Print | the focused (front-most) window is saved at once, no tool |
 
+The keys are the shortcut registry's capture chords (`userspace/shortcuts`, RFC-0113 §7 — exact
+modifiers: Ctrl+Print, Super+Print and Shift+Alt+Print stay free).
+
 Inside the tool:
 
 - **Selection** (the default): drag anywhere to draw a rectangle; drag inside it to move it;

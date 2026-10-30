@@ -26,6 +26,22 @@ use exec_payloads::HELLO_ELF;
 /// Image ids are 1..=7: one sealed-image slot per id.
 pub(super) const IMAGE_IDS: usize = 8;
 
+/// An app-host's stack (TASK-0346): 8 MiB of address space, LAZY (ADR-0077) — a page costs a
+/// frame only when the stack first reaches it. The page an app renders decides how deep it goes
+/// and the memory authority decides its RAM (squeeze, swap, kill under pressure): no small fixed
+/// budget an app can outgrow (16 pages overflowed on the settings app's shortcuts page).
+pub(super) const APPHOST_STACK_PAGES: usize = 2048;
+
+/// The stack pages a spawn of `image_id` reserves: an app-host's own reserve, a probe image what
+/// its requester named (`requested`, at least one).
+pub(super) fn stack_pages(image_id: u8, requested: u8) -> usize {
+    if image_id == IMG_APPHOST {
+        APPHOST_STACK_PAGES
+    } else {
+        usize::from(requested.max(1))
+    }
+}
+
 /// The embedded bytes behind a probe image id (`None`: not an embedded image).
 fn image_bytes(image_id: u8) -> Option<&'static [u8]> {
     match image_id {

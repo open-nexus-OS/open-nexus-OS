@@ -113,7 +113,7 @@ pub mod us {
             Some(action(KeyAction::Backspace)),
             None,
         ),
-        entry(KeyboardUsage::TAB, action(KeyAction::Tab), Some(action(KeyAction::Tab)), None),
+        entry(KeyboardUsage::TAB, action(KeyAction::Tab), Some(action(KeyAction::BackTab)), None),
     ];
 }
 
@@ -185,7 +185,7 @@ pub mod de {
             Some(action(KeyAction::Backspace)),
             None,
         ),
-        entry(KeyboardUsage::TAB, action(KeyAction::Tab), Some(action(KeyAction::Tab)), None),
+        entry(KeyboardUsage::TAB, action(KeyAction::Tab), Some(action(KeyAction::BackTab)), None),
     ];
 }
 
@@ -218,7 +218,7 @@ pub mod jp {
             Some(action(KeyAction::Backspace)),
             None,
         ),
-        entry(KeyboardUsage::TAB, action(KeyAction::Tab), Some(action(KeyAction::Tab)), None),
+        entry(KeyboardUsage::TAB, action(KeyAction::Tab), Some(action(KeyAction::BackTab)), None),
     ];
 
     pub fn merged() -> Vec<MappingEntry> {
