@@ -12,7 +12,7 @@ links:
   - label: Tasks
     target: "`tasks/TASK-0011-kernel-simplification-phase-a.md` (execution + proof)"
   - label: "Kernel overview"
-    target: "`docs/architecture/01-neuron-kernel.md`"
+    target: "`docs/kernel/README.md`"
 ---
 
 # RFC-0001: Kernel Simplification (Logic-Preserving)

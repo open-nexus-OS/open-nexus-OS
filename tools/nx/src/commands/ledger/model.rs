@@ -17,6 +17,8 @@ pub(crate) enum Kind {
     Milestone,
     Sprint,
     Subsystems,
+    /// A page under `docs/` outside `rfcs/`, `adr/`, `board/`, `dev/` (TASK-0349).
+    Doc,
 }
 
 impl Kind {
@@ -28,13 +30,22 @@ impl Kind {
             Kind::Milestone => "milestone",
             Kind::Sprint => "sprint",
             Kind::Subsystems => "subsystems",
+            Kind::Doc => "doc",
         }
     }
 
     pub(crate) fn parse(s: &str) -> Option<Kind> {
-        [Kind::Task, Kind::Rfc, Kind::Track, Kind::Milestone, Kind::Sprint, Kind::Subsystems]
-            .into_iter()
-            .find(|k| k.label() == s)
+        [
+            Kind::Task,
+            Kind::Rfc,
+            Kind::Track,
+            Kind::Milestone,
+            Kind::Sprint,
+            Kind::Subsystems,
+            Kind::Doc,
+        ]
+        .into_iter()
+        .find(|k| k.label() == s)
     }
 }
 
@@ -69,8 +80,19 @@ pub(crate) fn classify(rel: &str) -> Option<(Kind, String)> {
         }
         return Some((Kind::Rfc, leading_id(name, is_rfc_id)?));
     }
+    if let Some(name) = stem.strip_prefix("docs/") {
+        let top = name.split('/').next().unwrap_or("");
+        if name.contains('/') && DOC_FOREIGN.contains(&top) {
+            return None;
+        }
+        return Some((Kind::Doc, stem.to_string()));
+    }
     None
 }
+
+/// The trees under `docs/` that are not `Kind::Doc`: RFCs are their own kind, ADRs, the board's
+/// measurements and the developer guides keep their own formats.
+pub(crate) const DOC_FOREIGN: &[&str] = &["rfcs", "adr", "board", "dev", "assets"];
 
 /// `TASK-0003B-dsoftbus-…` → `TASK-0003B`: the longest prefix that is an id and ends at `-` or the end.
 fn leading_id(name: &str, ok: fn(&str) -> bool) -> Option<String> {
@@ -105,6 +127,10 @@ pub(crate) enum Ty {
     PhaseIds,
     Week,
     StepKey,
+    /// Repo-relative paths that must exist (a file or a directory).
+    Paths,
+    /// `RFC-NNNN` or `ADR-NNNN`.
+    ContractIds,
     Map(&'static [Field]),
     Records(&'static [Field]),
 }
@@ -143,6 +169,8 @@ pub(crate) const KIND: &[&str] = &[
 ];
 pub(crate) const NOVELTY: &[&str] = &["first", "variant", "repeat"];
 pub(crate) const DATES_SOURCE: &[&str] = &["recorded", "status-text", "git-reconstructed"];
+/// What a doc is for; the word budget follows from it (`docs::budget`).
+pub(crate) const DOC_ROLE: &[&str] = &["index", "guide", "reference", "spec"];
 pub(crate) const TIER: &[&str] = &["production-grade", "production-floor", "beta-floor"];
 
 const LINK: &[Field] = &[f("label", Ty::Text, true), f("target", Ty::Text, true)];
@@ -268,6 +296,15 @@ const SPRINT: &[Field] = &[
     f("completed", Ty::StoryRefs, false),
     f("slipped", Ty::StoryRefs, false),
 ];
+const DOC: &[Field] = &[
+    f("schema", Ty::Schema, true),
+    f("title", Ty::Text, true),
+    f("role", Ty::Enum(DOC_ROLE), true),
+    f("subsystem", Ty::Slug, false),
+    f("sources", Ty::Paths, false),
+    f("contracts", Ty::ContractIds, false),
+    f("verified", Ty::Date, true),
+];
 const SUBSYSTEMS: &[Field] =
     &[f("schema", Ty::Schema, true), f("subsystems", Ty::Records(SUBSYSTEM), true)];
 
@@ -279,6 +316,7 @@ pub(crate) fn fields(kind: Kind) -> &'static [Field] {
         Kind::Milestone => MILESTONE,
         Kind::Sprint => SPRINT,
         Kind::Subsystems => SUBSYSTEMS,
+        Kind::Doc => DOC,
     }
 }
 
@@ -310,6 +348,22 @@ pub(crate) fn is_track_id(s: &str) -> bool {
                 !p.is_empty() && p.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
             })
     })
+}
+
+pub(crate) fn is_adr_id(s: &str) -> bool {
+    s.strip_prefix("ADR-").is_some_and(|r| digits(r, 4))
+}
+
+pub(crate) fn is_contract_id(s: &str) -> bool {
+    is_rfc_id(s) || is_adr_id(s)
+}
+
+/// A repo-relative path as a doc names it: no leading `/`, no `..`, no glob or placeholder.
+pub(crate) fn is_repo_path(s: &str) -> bool {
+    !s.is_empty()
+        && !s.starts_with('/')
+        && !s.split('/').any(|p| p == ".." || p == ".")
+        && !s.contains(['*', '<', '>', '{', '}', '$', ' ', '\\'])
 }
 
 pub(crate) fn is_slug(s: &str) -> bool {

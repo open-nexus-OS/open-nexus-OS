@@ -8,7 +8,7 @@
 //! STATUS: Functional
 //! API_STABILITY: Internal
 //! TEST_COVERAGE: service_topology affinity tests (unchanged).
-//! ADR: docs/adr/0049-lockclass-right-of-way.md
+//! ADR: docs/adr/0049-bkl-lockclass-and-softrt-cpu-placement.md
 
 /// Declarative CPU placement SSOT (SMP soft-realtime plan P1). The display +
 /// input chain is pinned to cpu0 (the soft-RT hart: its BKL competitors are

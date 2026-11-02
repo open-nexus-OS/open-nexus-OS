@@ -312,8 +312,8 @@ Notes:
      - `SELFTEST: tracing spans ok`
 
 8. **Docs**
-   - `docs/observability/metrics.md`: naming/labels, histogram buckets, limits.
-   - `docs/observability/tracing.md`: span model, deterministic IDs, correlation with logs.
+   - `docs/reliability/observability.md`: naming/labels, histogram buckets, limits.
+   - `docs/reliability/observability.md`: span model, deterministic IDs, correlation with logs.
 
 ## Acceptance criteria (behavioral)
 

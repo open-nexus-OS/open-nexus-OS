@@ -12,7 +12,7 @@ links:
   - label: ADR
     target: docs/adr/0061-exposure-intent-instead-of-free-binds.md
   - label: "Ingress overview"
-    target: docs/security/ingress.md
+    target: docs/security/network-policy.md
   - label: Parent
     target: tasks/TASK-0052-security-v3-ingress-policy-ingressd-gateway.md
 ---

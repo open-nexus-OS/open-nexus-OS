@@ -13,7 +13,7 @@
 # STATUS:  Functional
 # API_STABILITY: Stable
 # TEST_COVERAGE: Self-verifying (it IS the check); exercised by `make doctor`
-# ADR: docs/architecture/02-selftest-and-ci.md
+# ADR: docs/standards/BUILD_STANDARDS.md
 #
 # Usage:
 #   scripts/check-deps.sh                 # full report, exit 1 on any failure

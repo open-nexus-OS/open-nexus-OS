@@ -45,6 +45,12 @@ pub(crate) fn show(repo: &Repo, ids: &[String]) -> Result<String, String> {
 }
 
 fn header_line(doc: &Doc) -> String {
+    if doc.kind == Kind::Doc {
+        let mut parts = vec![doc.id.clone(), doc.text("role").unwrap_or("?").to_string()];
+        parts.extend(doc.text("subsystem").map(str::to_string));
+        parts.extend(doc.text("verified").map(|v| format!("verified {v}")));
+        return format!("{} · {}", parts.join(" · "), doc.text("title").unwrap_or(""));
+    }
     let mut parts = vec![doc.id.clone(), doc.status().to_string()];
     for key in ["subsystem", "kind", "novelty"] {
         if let Some(v) = doc.text(key) {
@@ -225,7 +231,7 @@ pub(crate) fn list(repo: &Repo, f: &Filter) -> String {
             out,
             "{:<12} {:<11} {:<12} {}",
             d.id,
-            d.status(),
+            if d.kind == Kind::Doc { d.text("role").unwrap_or("-") } else { d.status() },
             d.text("subsystem").unwrap_or("-"),
             d.text("title").unwrap_or("")
         );
@@ -353,6 +359,19 @@ pub(crate) fn brief(repo: &Repo, week: &str) -> String {
             t.id,
             if current.is_empty() { String::from("no open phase") } else { current.join(", ") }
         );
+    }
+    match super::upkeep::stale(repo) {
+        Ok(s) if !s.is_empty() => {
+            let _ = writeln!(
+                out,
+                "Docs: {} stale — their sources changed after `verified` (`nx ledger stale`).",
+                s.len()
+            );
+        }
+        Ok(_) => {}
+        Err(e) => {
+            let _ = writeln!(out, "Docs: drift unknown ({e}).");
+        }
     }
     out.push_str("Write state with `nx ledger phase|set|step`; read with `nx ledger show <ID>`.");
     out

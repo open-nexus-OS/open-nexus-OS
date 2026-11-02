@@ -98,7 +98,13 @@ pub(crate) enum LedgerAction {
         #[command(subcommand)]
         kind: NewKind,
     },
-    /// The gate: every planning document parses, follows the rules and is canonical.
+    /// The docs whose `sources` changed in a commit after their `verified` day (TASK-0349).
+    Stale,
+    /// Rewrite every reference to a moved or merged doc (`-`: drop the `links` records to a
+    /// deleted one) and list what still names the old path.
+    Relink { old: String, new: String },
+    /// The gate: every planning document and doc parses, follows the rules and is canonical;
+    /// every doc a code comment names exists.
     Lint {
         /// Render every document canonically first.
         #[arg(long)]

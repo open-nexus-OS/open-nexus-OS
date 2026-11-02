@@ -1,270 +1,153 @@
-# Network & Distributed Debugging (SSOT)
+---
+schema: 1
+title: "Network and distributed debugging"
+role: reference
+subsystem: devx
+sources: [tools/os2vm.sh, scripts/qemu-test.sh, tests/remote_e2e, userspace/dsoftbus, source/services/dsoftbusd, tools/pcap_summary.py]
+contracts: [RFC-0007, RFC-0010, ADR-0025]
+verified: 2026-11-02
+---
 
-This document is the single source of truth (SSOT) for networking and distributed debugging in Open Nexus OS.
-It covers host-first validation, QEMU proof knobs, `tools/os2vm.sh` operations, packet capture, and typed failure triage.
+<!-- Copyright 2026 Open Nexus OS Contributors -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
-Address/subnet/profile values are maintained in `docs/architecture/network-address-matrix.md`.
+# Network and distributed debugging
 
-## Scope
+> **Purpose** — how to prove and debug networking and DSoftBus: the host suites, the single-VM network lanes, and the `tools/os2vm.sh` 2-VM harness with its knobs, artifacts and typed failures.
+> **Owns** — operations of `tools/os2vm.sh` and the network gates of `scripts/qemu-test.sh`; addresses and subnets are in `docs/network/address-matrix.md`
+> **Contracts** — [RFC-0007](../rfcs/RFC-0007-dsoftbus-os-transport-v1.md) (DSoftBus OS transport), [RFC-0010](../rfcs/RFC-0010-dsoftbus-cross-vm-harness-v1.md) (cross-VM harness), [ADR-0025](../adr/0025-qemu-smoke-proof-gating.md) (network proofs are opt-in per profile)
+> **Invariants** — host first. A transport claim needs marker and wire evidence together. Network gates are selected by profile, never by `REQUIRE_*` in a recipe.
+> **Read next** — [e2e.md](e2e.md), [run-logs.md](run-logs.md), [os-markers.md](os-markers.md)
 
-- Networking proof flow for host + OS runs.
-- Distributed proof flow for DSoftBus discovery/session/remote proxy.
-- Canonical interpretation of `os2vm` markers, artifacts, and error classification.
+## Proof ladder
 
-For general testing philosophy and non-network domains, see `docs/testing/README.md`.
+| Layer | Proves | Run |
+|---|---|---|
+| Host unit | wire formats, Noise/session state machines, mux bounds, `test_reject_*` | `just test-dsoftbus-host`, `just test-dsoftbus-mux`, `just test-dsoftbus-quic`, `cargo test -p nexus-net-os` |
+| Host E2E | discovery → auth → remote proxy over `FakeNet` | `cargo test -p remote_e2e` |
+| QEMU 1-VM | smoltcp interface, DHCP, DSoftBus session in one VM | `just ci-os-dhcp`, `just ci-os-dhcp-strict`, `just ci-os-quic` |
+| QEMU 2-VM | cross-VM discovery (UDP), session (TCP), mux, remote packagefs/statefs, perf budgets, soak | `just ci-os-os2vm` |
 
-## Core Principles
+`just ci-network` runs `ci-os-dhcp`, `ci-os-quic` and `ci-os-os2vm`. It is not part of
+`just test-all` or CI.
 
-- Host-first, OS-last: prove protocol and state-machine logic on host before QEMU.
-- Deterministic first: bounded loops, stable markers, explicit phase budgets.
-- No fake green: success must prove real behavior, not only API return status.
-- Correlated evidence: marker state and on-wire packet evidence should agree.
+## Single-VM gates (`scripts/qemu-test.sh`)
 
-## Layered Proof Ladder
+Every lane requires `net: smoltcp iface up`. Profiles add:
 
-### Host
+| Profile | Env it declares | Requires |
+|---|---|---|
+| `dhcp` | `REQUIRE_QEMU_DHCP=1` | the DHCP path (deterministic fallback allowed) |
+| `dhcp-strict` | + `REQUIRE_QEMU_DHCP_STRICT=1` | DHCP bound, ping and DNS proof; DNS fail markers rejected |
+| `quic-required` | `REQUIRE_DSOFTBUS=1` | `dsoftbusd: transport selected quic`, `dsoftbusd: auth ok`, `SELFTEST: quic session ok`; `dsoftbusd: transport selected tcp` is forbidden |
+| `os2vm` | `REQUIRE_DSOFTBUS=1`, `REQUIRE_DSOFTBUS_REMOTE_PKGFS=1`, `REQUIRE_DSOFTBUS_REMOTE_STATEFS=1` | read by `tools/os2vm.sh` |
 
-- Wire-format encode/decode and golden vectors.
-- Noise/session state-machine stepping with host backends.
-- Negative tests (`test_reject_*`) for malformed frames, oversized input, identity mismatch.
-- Network logic tests in `nexus-net-os`: `cargo test -p nexus-net-os`.
+The single-VM DSoftBus probes that need a peer (`SELFTEST: dsoftbus os connect FAIL`,
+`SELFTEST: dsoftbus ping FAIL`) are tolerated by `config/fail-marker-allow.txt` with their
+tracking reference.
 
-### QEMU 1-VM
+## 2-VM harness (`tools/os2vm.sh`)
 
-- Deterministic smoke and marker ladder via `scripts/qemu-test.sh`.
-- Optional strict networking requirements via smoke proof knobs (DHCP/DSoftBus).
+Recipes: `just ci-os-os2vm` (= `just test-os2vm`: runs the harness, then the `os2vm` chain group
+against node A's log), `just os2vm` (harness only), `just os2vm-pcap` /
+`just test-dsoftbus-2vm-pcap` (with packet capture). Direct:
+`RUN_OS2VM=1 RUN_TIMEOUT=180s OS2VM_PROFILE=ci tools/os2vm.sh`.
 
-### QEMU 2-VM (`os2vm`)
+Phases, in order: `build`, `launch`, `discovery`, `session`, `mux`, `remote`, `perf`, `soak`, `end`.
+`RUN_PHASE=<phase>` stops after that phase on success.
 
-- Cross-VM discovery over real UDP path.
-- Cross-VM authenticated session over TCP.
-- Remote proxy proof (`remote resolve`, `remote query`, `remote pkgfs stat/open/read/close`, `remote packagefs served`).
+### Knobs
 
-## Commands
+| Knob | Values (default) | Effect |
+|---|---|---|
+| `OS2VM_PROFILE` | `debug` (default), `ci`, `fast-local` | `debug`: full run, PCAP on; `ci`: full run, PCAP auto; `fast-local`: through `session`, skip build, PCAP off. All use typed exits. |
+| `OS2VM_SKIP_BUILD` | `0`/`1` | skip the build, check artifacts exist |
+| `RUN_TIMEOUT` | duration | global bound |
+| `OS2VM_MARKER_TIMEOUT_DISCOVERY` / `_SESSION` / `_MUX` / `_REMOTE` | duration | per-phase wait; falls back to `MARKER_TIMEOUT` / `RUN_TIMEOUT` |
+| `OS2VM_PCAP` | `off`, `on`/`1`, `auto` | `auto` keeps captures only on failure |
+| `OS2VM_PCAP_BASENAME` | (`packets`) | `<name>-A.pcap`, `<name>-B.pcap` |
+| `OS2VM_EXIT_CODE_MODE` | `typed`, `legacy` | `legacy` collapses failures to `1` |
+| `OS2VM_BUDGET_ENABLE` | (`1`) | enforce phase budgets |
+| `OS2VM_BUDGET_DISCOVERY_MS` / `_SESSION_MS` / `_MUX_MS` / `_REMOTE_MS` / `_TOTAL_MS` | (`15000`/`5000`/`5000`/`60000`/`120000`) | `perf` phase thresholds |
+| `OS2VM_SOAK_ENABLE`, `OS2VM_SOAK_DURATION`, `OS2VM_SOAK_ROUNDS` | (`1`, `15s`, `1`) | `soak` phase: liveness and no FAIL/panic markers |
+| `OS2VM_SUMMARY_JSON`, `OS2VM_SUMMARY_TXT`, `OS2VM_SUMMARY_STDOUT` | paths, `0`/`1` | summary outputs |
+| `OS2VM_ARTIFACT_ROOT` | (`build/logs`) | where run dirs go |
+| `OS2VM_RETENTION_*` | `ENABLE` (`1`), `KEEP_SUCCESS` (`4`), `KEEP_FAILURE` (`12`), `MAX_TOTAL_MB` (`3072`), `MAX_AGE_DAYS` (`14`) | run-dir retention |
+| `OS2VM_SANDBOX_CACHE_*` | `GC` (`auto`), `DIR`, `MAX_MB`, `TARGET_FREE_MB`, `MIN_AGE_SECS` | build-cache GC during `build` |
 
-- Host E2E: `just test-e2e`
-- QEMU smoke: `RUN_UNTIL_MARKER=1 just test-os`
-- QEMU 2-VM: `RUN_OS2VM=1 RUN_TIMEOUT=180s OS2VM_PROFILE=ci RUN_PHASE=end tools/os2vm.sh`
-- QEMU 2-VM + forced packet capture: `RUN_OS2VM=1 RUN_TIMEOUT=180s OS2VM_PROFILE=debug OS2VM_PCAP=on tools/os2vm.sh`
+### Artifacts
 
-Convenience targets:
+A run writes `build/logs/os2vm--<ts>/`:
 
-- `just test-dsoftbus-2vm` / `just os2vm`
-- `just test-dsoftbus-2vm-pcap` / `just os2vm-pcap`
+| File | Content |
+|---|---|
+| `uart-A.txt`, `uart-B.txt` | each node's serial output |
+| `host-A.txt`, `host-B.txt` | each node's QEMU host stream |
+| `<basename>-A.pcap`, `<basename>-B.pcap` | captures, when kept |
+| `summary.json`, `summary.txt` | phase durations and budgets, first failure (`errorCode`, `phase`, `node`, `subsystem`, hint), marker hits per node, packet counters |
+| `release-evidence.json` | gate snapshot for mux/perf/soak with artifact pointers |
+| `hypothesis.json` | triage records ([run-logs.md](run-logs.md)) |
+| `result.txt`, `pids.env` | result and node PIDs |
 
-### TASK-0020 mux marker status
+Each node also assembles an evidence bundle ([evidence-bundle.md](evidence-bundle.md)).
 
-For `TASK-0020` runs, keep marker interpretation explicit:
+### Typed failures
 
-- **Single-VM proven** (green with `REQUIRE_DSOFTBUS=1`): `dsoftbusd: auth ok`, `dsoftbusd: os session ok`, `dsoftbus:mux session up`, `dsoftbus:mux data ok`, `SELFTEST: mux pri control ok`, `SELFTEST: mux bulk ok`, `SELFTEST: mux backpressure ok`, `SELFTEST: dsoftbus os connect ok`, `SELFTEST: dsoftbus ping ok`.
-- **2-VM proven** (green with `RUN_OS2VM=1`): `dsoftbus:mux crossvm session up`, `dsoftbus:mux crossvm data ok`, `SELFTEST: mux crossvm pri control ok`, `SELFTEST: mux crossvm bulk ok`, `SELFTEST: mux crossvm backpressure ok` (checked on both nodes by `tools/os2vm.sh` phase `mux`).
-- **2-VM performance-gate proven**: deterministic runtime budgets are enforced in `tools/os2vm.sh` phase `perf` (discovery/session/mux/remote/total thresholds in summary JSON).
-- **2-VM hardening soak proven**: bounded stability window is enforced in `tools/os2vm.sh` phase `soak` (node liveness + fail/panic marker absence, configurable soak rounds).
+| Code | Exit | Subsystem |
+|---|---:|---|
+| `OS2VM_E_DISCOVERY_TIMEOUT` | 31 | dsoftbusd/discovery (UDP 37020 path) |
+| `OS2VM_E_DISCOVERY_NODE_A_ENDED` / `_B_ENDED` | 32 / 33 | a node ended before discovery |
+| `OS2VM_E_SESSION_TIMEOUT` | 41 | dsoftbusd/session |
+| `OS2VM_E_SESSION_NODE_A_ENDED` / `_B_ENDED` | 42 / 43 | a node ended before the session |
+| `OS2VM_E_SESSION_NO_SYN` | 44 | netstackd/connect: no SYN on the wire |
+| `OS2VM_E_SESSION_NO_SYNACK` | 45 | netstackd/accept or network: SYN without SYN-ACK |
+| `OS2VM_E_MUX_TIMEOUT` | 46 | dsoftbusd/mux-crossvm |
+| `OS2VM_E_MUX_NODE_A_ENDED` / `_B_ENDED` | 47 / 48 | a node ended before mux |
+| `OS2VM_E_MUX_NEGATIVE_MARKER` | 49 | dsoftbusd/mux-crossvm |
+| `OS2VM_E_REMOTE_RESOLVE_MISSING`, `_QUERY_MISSING` | 51, 52 | remote proxy resolve, query |
+| `OS2VM_E_REMOTE_PKGFS_STAT/_OPEN/_READ/_CLOSE_MISSING` | 53–56 | remote packagefs steps |
+| `OS2VM_E_REMOTE_PKGFS_FLOW_MISSING` | 57 | final `remote pkgfs read ok` |
+| `OS2VM_E_REMOTE_SERVED_MISSING` | 58 | node B never served packagefs |
+| `OS2VM_E_REMOTE_STATEFS_FLOW_MISSING` | 60 | remote statefs flow |
+| `OS2VM_E_BUILD_ARTIFACT_MISSING` | 61 | build/artifacts |
+| `OS2VM_E_HOST_ENOSPC` | 62 | host storage full |
+| `OS2VM_E_REMOTE_STATEFS_SERVED_MISSING` | 65 | node B never served statefs |
+| `OS2VM_E_REMOTE_NEGATIVE_MARKER` | 66 | selftest-client/remote |
+| `OS2VM_E_LAUNCH_NODE_A_FAILED` / `_B_FAILED` | 71 / 72 | qemu/launch |
+| `OS2VM_E_PERF_BUDGET_DISCOVERY/_SESSION/_MUX/_REMOTE/_TOTAL` | 81–85 | a `perf` budget exceeded |
+| `OS2VM_E_SOAK_NODE_A_ENDED` / `_B_ENDED`, `OS2VM_E_SOAK_FAIL_MARKER` | 86 / 87, 88 | `soak` phase |
+| `OS2VM_E_UNEXPECTED` | 99 | unclassified |
 
-Do not infer distributed mux closure from transport/session markers alone; use the dedicated `phase: mux` ladder checks.
+Evidence-pipeline failures (`OS2VM_E_EVIDENCE_BIN`, `_DISABLED`, `_NODE_A`, `_NODE_B`) are
+recorded with the same mechanism.
 
-## QEMU Networking Proof Knobs
-
-Single-VM smoke (`scripts/qemu-test.sh`) supports explicit proof gating:
-
-- Default smoke: requires `net: smoltcp iface up ...`
-- `REQUIRE_QEMU_DHCP=1`: requests DHCP proof path.
-- `REQUIRE_QEMU_DHCP_STRICT=1` with `REQUIRE_QEMU_DHCP=1`: requires deterministic DHCP bound.
-- `REQUIRE_DSOFTBUS=1`: requires DSoftBus transport markers in smoke.
-- `REQUIRE_DSOFTBUS_REMOTE_PKGFS=1`: enforces remote packagefs markers when cross-VM session markers are present; in single-VM profile it logs an explicit skip warning.
-
-2-VM harness (`tools/os2vm.sh`) supports deterministic performance budgets:
-
-- `OS2VM_BUDGET_ENABLE=1|0`: enable/disable budget enforcement (default `1`)
-- `OS2VM_BUDGET_DISCOVERY_MS`, `OS2VM_BUDGET_SESSION_MS`, `OS2VM_BUDGET_MUX_MS`, `OS2VM_BUDGET_REMOTE_MS`, `OS2VM_BUDGET_TOTAL_MS`
-
-2-VM harness (`tools/os2vm.sh`) supports bounded hardening soak checks:
-
-- `OS2VM_SOAK_ENABLE=1|0`: enable/disable soak hardening gate (default `1`)
-- `OS2VM_SOAK_DURATION=<seconds|Ns|Nm|Nh>`: soak window duration (default `15s`)
-- `OS2VM_SOAK_ROUNDS=<N>`: number of deterministic soak rounds (default `1`)
-
-Release-ready evidence artifact:
-
-- `artifacts/os2vm/runs/<runId>/release-evidence.json` (machine-readable gate snapshot for mux/perf/soak + artifact pointers)
-
-See `docs/adr/0025-qemu-smoke-proof-gating.md` for policy rationale.
-
-## `os2vm` Debug Controls
-
-`tools/os2vm.sh` now supports phase-gated debugging and typed triage.
-
-### Phase & Build Controls
-
-- `OS2VM_PROFILE=debug|ci|fast-local`
-  - `debug`: full ladder, typed exits, PCAP on.
-  - `ci`: full ladder, typed exits, PCAP auto.
-  - `fast-local`: run through session, skip build, PCAP off.
-- `RUN_PHASE=build|launch|discovery|session|remote|end`
-  - Runs only through the selected phase and exits early on success.
-- `OS2VM_SKIP_BUILD=1`
-  - Skips compile and validates required artifacts before launch.
-
-### Timeout Controls
-
-- `RUN_TIMEOUT=<duration>` global hard runtime bound (e.g. `180s`).
-- `OS2VM_MARKER_TIMEOUT_DISCOVERY=<duration>`
-- `OS2VM_MARKER_TIMEOUT_SESSION=<duration>`
-- `OS2VM_MARKER_TIMEOUT_REMOTE=<duration>`
-
-If a phase timeout is missing, `MARKER_TIMEOUT` (or `RUN_TIMEOUT`) is used as fallback.
-
-### Packet Capture Controls
-
-- `OS2VM_PCAP=off|on|auto`
-  - `off`: no packet capture.
-  - `on`: always capture and keep PCAP artifacts.
-  - `auto`: capture during run, keep on failure, drop on success.
-- `OS2VM_PCAP_BASENAME=<name>`
-  - Produces run-scoped files like `<name>-A.pcap` and `<name>-B.pcap`.
-
-### Exit & Summary Controls
-
-- `OS2VM_EXIT_CODE_MODE=legacy|typed`
-  - `legacy`: non-zero failures collapse to `1`.
-  - `typed`: uses rule-matrix-specific exit codes.
-- `OS2VM_SUMMARY_JSON=<path>`
-- `OS2VM_SUMMARY_TXT=<path>`
-- `OS2VM_SUMMARY_STDOUT=1|0`
-
-### Artifact & Retention Controls
-
-- `OS2VM_ARTIFACT_ROOT=<path>` (default: `artifacts/os2vm`)
-- `OS2VM_RETENTION_ENABLE=1|0`
-- `OS2VM_RETENTION_KEEP_SUCCESS=<n>`
-- `OS2VM_RETENTION_KEEP_FAILURE=<n>`
-- `OS2VM_RETENTION_MAX_TOTAL_MB=<n>`
-- `OS2VM_RETENTION_MAX_AGE_DAYS=<n>`
-- `OS2VM_SANDBOX_CACHE_GC=auto|on|off`
-- `OS2VM_SANDBOX_CACHE_DIR=<path>` (default: `/tmp/cursor-sandbox-cache`)
-- `OS2VM_SANDBOX_CACHE_MAX_MB=<n>`
-- `OS2VM_SANDBOX_CACHE_TARGET_FREE_MB=<n>`
-- `OS2VM_SANDBOX_CACHE_MIN_AGE_SECS=<n>`
-
-Default behavior: `os2vm` runs sandbox-cache GC automatically during `phase_build` (mode `auto`) and prunes stale entries when cache pressure or low `/tmp` free space is detected.
-
-## `os2vm` Artifacts (Evidence Bundle)
-
-Per run:
-
-- Run directory: `artifacts/os2vm/runs/<runId>/`
-- UART logs: `uart-A.txt`, `uart-B.txt`
-- Host/QEMU streams: `host-A.txt`, `host-B.txt`
-- Optional PCAP: `<basename>-A.pcap`, `<basename>-B.pcap`
-- Structured run summaries: `summary.json`, `summary.txt`
-- Metadata: `result.txt` and `pids.env`
-
-Summary contains:
-
-- Phase durations and configured budgets
-- First failure classification (`errorCode`, `phase`, `node`, `subsystem`)
-- Missing marker and next-step hint
-- Marker line hits for both nodes
-- Packet counters (ARP/UDP/TCP/SYN/SYN-ACK/RST) when PCAP is available
-
-## Typed Error Rule Matrix
-
-`os2vm` classifies failures with stable error codes.
-
-| Error code | Typed exit | Phase | Typical subsystem | Primary meaning |
-| --- | ---: | --- | --- | --- |
-| `OS2VM_E_DISCOVERY_TIMEOUT` | 31 | discovery | dsoftbusd/discovery | Discovery marker not reached in time |
-| `OS2VM_E_DISCOVERY_NODE_A_ENDED` | 32 | discovery | selftest-client/node-a | Node A hit terminal marker before discovery success |
-| `OS2VM_E_DISCOVERY_NODE_B_ENDED` | 33 | discovery | selftest-client/node-b | Node B hit terminal marker before discovery success |
-| `OS2VM_E_SESSION_TIMEOUT` | 41 | session | dsoftbusd/session | Session marker missing within budget |
-| `OS2VM_E_SESSION_NODE_A_ENDED` | 42 | session | selftest-client/node-a | Node A ended before session success |
-| `OS2VM_E_SESSION_NODE_B_ENDED` | 43 | session | selftest-client/node-b | Node B ended before session success |
-| `OS2VM_E_SESSION_NO_SYN` | 44 | session | netstackd/connect | No TCP SYN observed in packet evidence |
-| `OS2VM_E_SESSION_NO_SYNACK` | 45 | session | netstackd/accept-or-network | SYN observed, but no SYN-ACK evidence |
-| `OS2VM_E_REMOTE_RESOLVE_MISSING` | 51 | remote | remote-proxy-resolve | `remote resolve ok` marker missing |
-| `OS2VM_E_REMOTE_QUERY_MISSING` | 52 | remote | remote-proxy-query | `remote query ok` marker missing |
-| `OS2VM_E_REMOTE_PKGFS_STAT_MISSING` | 53 | remote | remote-proxy-packagefs-stat | `remote pkgfs stat ok` marker missing |
-| `OS2VM_E_REMOTE_PKGFS_OPEN_MISSING` | 54 | remote | remote-proxy-packagefs-open | `remote pkgfs open ok` marker missing |
-| `OS2VM_E_REMOTE_PKGFS_READ_MISSING` | 55 | remote | remote-proxy-packagefs-read | `remote pkgfs read step ok` marker missing |
-| `OS2VM_E_REMOTE_PKGFS_CLOSE_MISSING` | 56 | remote | remote-proxy-packagefs-close | `remote pkgfs close ok` marker missing |
-| `OS2VM_E_REMOTE_PKGFS_FLOW_MISSING` | 57 | remote | remote-proxy-packagefs | final `remote pkgfs read ok` marker missing |
-| `OS2VM_E_REMOTE_SERVED_MISSING` | 58 | remote | remote-proxy-node-b | `remote packagefs served` marker missing |
-| `OS2VM_E_BUILD_ARTIFACT_MISSING` | 61 | build | build/artifacts | Required binaries not present for run |
-| `OS2VM_E_UNEXPECTED` | 99 | any | unknown | Unclassified shell/runtime failure |
-
-## Packet Capture & Correlation
-
-Packet capture is the fastest way to confirm actual network behavior:
+## Packet capture
 
 ```bash
 RUN_OS2VM=1 RUN_TIMEOUT=180s OS2VM_PCAP=on tools/os2vm.sh
 ```
 
-Inspect in Wireshark/tshark with filters:
+Filters: `arp`, `udp.port == 37020` (discovery), `tcp.port == 34567 || tcp.port == 34568`
+(sessions). Connections to `127/8` or the interface's own address are served inside netstackd
+(RFC-0092 §5) and never reach the NIC, so they are invisible to a capture.
 
-- `arp`
-- `udp.port == 37020`
-- `tcp.port == 34567 || tcp.port == 34568`
-  (in-facade pairs never reach the NIC: since TASK-0052 P3 every connect to
-  `127/8` or to the interface's own address is served inside netstackd —
-  RFC-0092 §5 — so those legs, like the legacy pairing ports, are invisible
-  to a capture)
+| Markers say | Wire shows | Look at |
+|---|---|---|
+| dial | no SYN | the connect path |
+| dial | SYN, no SYN-ACK | peer listen/readiness or the network |
+| session up | SYN/SYN-ACK present | transport proof holds |
 
-Correlation rule of thumb:
+## Workflow
 
-- Marker says dial but packet evidence has no SYN -> connect path issue.
-- SYN exists but no SYN-ACK -> peer listen/readiness or network path issue.
-- Session marker present and packet evidence present -> transport proof is strong.
+1. Host suites first (`remote_e2e`, `dsoftbus`, `nexus-net-os`).
+2. `tools/os2vm.sh` phase by phase: `RUN_PHASE=discovery`, then `session`, then `remote`.
+3. `summary.json` first (classified root cause), then the UART logs, then the PCAP.
+4. A distributed mux claim needs the `mux` phase checks on both nodes, not session markers alone.
 
-## Debugging Workflow (Recommended)
+## Other aids
 
-1. Run host-first tests (`remote_e2e`, `nexus-net-os`) to narrow logic issues.
-2. Run `os2vm` phase-gated:
-   - `RUN_PHASE=discovery`
-   - `RUN_PHASE=session`
-   - `RUN_PHASE=remote`
-3. Inspect `artifacts/os2vm/runs/<runId>/summary.json` first (root-cause candidate).
-4. Use UART logs for service-level details.
-5. Use PCAP to confirm on-wire behavior and reconcile with markers.
-
-## Avoiding Fake Success
-
-- Treat marker-only success as insufficient for transport-sensitive paths.
-- Prefer proof pairs:
-  - Marker + packet evidence.
-  - Internal state + externally observable event.
-- Keep “state entered” markers distinct from “wire observed” conclusions.
-
-## Remote E2E (Host) Context
-
-`tests/remote_e2e` remains the fastest deterministic path for discovery/auth/proxy logic.
-Use it to validate protocol and routing behavior before moving to `os2vm` runtime evidence.
-
-## IPC Slot Mismatch Runbook
-
-A common deterministic failure mode is slot mismatch between init-lite allocation and hardcoded service slot constants.
-
-Symptoms:
-
-- send path appears successful, receive queue stays empty
-- repeated timeouts without explicit transport failure
-
-Triage:
-
-1. log actual slot assignment from init-lite
-2. compare with service constants
-3. align constants or use routing-query based resolution where available
-
-## Init-lite Topic Logging for Networking Triage
-
-Use `INIT_LITE_LOG_TOPICS` to opt into richer init-lite diagnostics during network/distributed debugging:
-
-- `general`
-- `svc-meta`
-- `probe`
-
-Example:
-
-```bash
-INIT_LITE_LOG_TOPICS=general,svc-meta,probe RUN_UNTIL_MARKER=1 just test-os
-```
+- **Slot mismatch:** sends succeed but the receiver's queue stays empty and waits time out. Compare
+  the slot init assigned (init log) with the constant the service uses; prefer routing-query
+  resolution.
+- **Init diagnostics:** `INIT_LITE_LOG_TOPICS=general,svc-meta,probe RUN_UNTIL_MARKER=1 just test-os`
+  (topics are baked in at build time).

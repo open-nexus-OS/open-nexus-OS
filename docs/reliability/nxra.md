@@ -1,69 +1,67 @@
+---
+schema: 1
+title: "Recovery action tokens (.nxra)"
+role: guide
+subsystem: security
+sources: [userspace/nxra, source/services/bootctld/src/nxra_gate.rs, tools/nx/src/commands/recovery.rs, policies/nxra-trust.toml]
+contracts: [RFC-0088, ADR-0055]
+verified: 2026-11-02
+---
+
 <!-- Copyright 2026 Open Nexus OS Contributors -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# `.nxra` — signed recovery action tokens (TASK-0053)
+# Recovery action tokens (.nxra)
 
-Status: shipped — bootctld enforcement QEMU-proven; format/pipeline host-tested.
+> **Purpose** — how an operator signs a break-glass `.nxra` token and where the device enforces it.
+> **Owns** — `userspace/nxra/`, `source/services/bootctld/src/nxra_gate.rs`, `tools/nx/src/commands/recovery.rs`
+> **Contracts** — [RFC-0088](../rfcs/RFC-0088-nxra-signed-recovery-action-tokens.md) (token format, trust, replay, time model), [ADR-0055](../adr/0055-bootctld-single-boot-state-authority.md) (bootctld is the single boot-state authority)
+> **Invariants** — a token only authorizes what standing policy would deny; it never weakens a standing grant. The high-water mark is persisted before the action runs (consume-before-act). A windowed token without a trusted clock rejects `no-clock`.
+> **Read next** — [recovery-operations.md](recovery-operations.md)
 
-## CONTEXT
+## Model
 
-- Scope: RFC-0088 break-glass on the recovery ops surface (TASK-0051):
-  one 136-byte Ed25519-signed token authorizes exactly ONE mutating
-  recovery action for a sender standing policy would deny.
-- Contracts: `docs/rfcs/RFC-0088-nxra-signed-recovery-action-tokens.md`
-  (format, trust, replay, time model), `userspace/nxra/` (the ONE
-  parse/verify/sign implementation).
-- Proof commands: `cargo test -p nxra` + `cargo test -p nxra_host`,
-  `cargo test -p nx --test recovery_cli`,
-  `scripts/qemu-test.sh --profile=headless` (require → accept → replay
-  chain, required markers).
+- One 136-byte Ed25519-signed token (`nxra::TOKEN_LEN`) authorizes exactly one mutating recovery action.
+- Standing capability **or** presented token. Holders of the standing capability (e.g. updated's OTA path) are untouched.
+- `userspace/nxra/` is the one parse/verify/sign implementation.
+- Trust: a build-time key list, `policies/nxra-trust.toml` → `nxra::BAKED_TRUST`. It is as strong as image integrity. No revocation list: trust changes ship as an image update.
+- Replay: a per-(verifier, key) monotone high-water mark, stored as an Integrity envelope at `/state/boot/nxra.hwm.<keyid8>`. A burned token can be re-minted with a higher `seq`.
 
-## Model in one paragraph
+## Actions
 
-Standing capability OR presented token — never both required, never
-weakening: updated's OTA ladder and admin-capable subjects run untouched;
-a token only ever authorizes what standing policy would have denied.
-Trust is a build-time-baked key list (`policies/nxra-trust.toml` →
-`nxra::BAKED_TRUST`; exactly as strong as image integrity — the hardware
-root lands with TASK-0289). Replay protection is a per-(verifier, key)
-monotone high-water mark persisted as an Integrity envelope at
-`/state/boot/nxra.hwm.<keyid8>` BEFORE the action executes
-(consume-before-act; a burned token is re-mintable, never a brick). Time
-windows are optional; where no trusted wall clock exists (the recovery
-graph runs no timed) a windowed token rejects `no-clock`, fail closed.
+| label | bootctld op |
+|---|---|
+| `slot-switch` | `OP_SWITCH` (2) |
+| `target-set` | `OP_SET_NEXT_BOOT` (7), `OP_SET_TARGET` (8) |
+| `reset` | `OP_RESET` (9) |
+| `fsck-repair` | defined in the format; statefsd does not check tokens |
 
 ## Operator flow
 
 ```bash
-# sign one action (seed file = 64 hex chars; seq: unix time works)
+# sign one action (key = 64 hex chars Ed25519 seed; seq: unix time works)
 nx recovery token-make --key operator.hex --action target-set \
     --seq "$(date +%s)" --arg 1 --out token.nxra
+# optional window: --not-before <ns> --not-after <ns> (both or neither)
 
-# inspect any token + verdict against the baked anchor
+# decode a token and show the verdict against the baked trust
 nx recovery token-show token.nxra --json
 ```
 
-The client appends the 136 token bytes to the mutating op frame
-(`[B,T,1,op,arg,token…]`). Verifier markers carry the stable labels:
-`bootctld: nxra accept (key=<id8> action=<label>)` /
-`bootctld: nxra reject (reason=<malformed|unknown-version|untrusted-key|
-bad-signature|action-denied|replay|expired|not-yet-valid|no-clock>)`.
+The client appends the 136 token bytes to the mutating bootctld frame at offset 5 (`[B,T,1,op,arg,token…]`).
 
-## Proof chain (every proof boot)
+## Markers
 
-`SELFTEST: nxra require ok` (standing deny holds without a token) →
-`SELFTEST: nxra accept ok` (token authorizes an OP_SWITCH that the machine
-then rejects `NotStaged` — state-neutral by construction) →
-`SELFTEST: nxra replay deny ok` (the same token dies at the hwm). The
-proof signer is the deterministic key from `policies/nxra-trust.toml`
-(private half public by construction — proof images only; production
-images replace the list).
+| marker | when |
+|---|---|
+| `bootctld: nxra accept (key=<id8> action=<label>)` | token verified and consumed |
+| `bootctld: nxra reject (reason=<r>)` | `r` ∈ `malformed`, `unknown-version`, `untrusted-key`, `bad-signature`, `action-denied`, `replay`, `expired`, `not-yet-valid`, `no-clock` |
+| `SELFTEST: nxra require ok` | standing deny holds without a token |
+| `SELFTEST: nxra accept ok` | a token authorizes a switch the machine then rejects as not staged (state-neutral) |
+| `SELFTEST: nxra replay deny ok` | the same token dies at the high-water mark |
 
-## Deliberate limits (v1)
+The proof signer is the deterministic key in `policies/nxra-trust.toml`; its private half is public, so it belongs in proof images only.
 
-- Enforcement point is bootctld (target/slot/reset). The statefsd
-  fsck-repair gate joins when a token-carrying client path exists —
-  wiring it now would be dead code (the selftest holds `statefs.admin`;
-  standing wins).
-- No revocation list: trust changes ship as an image update.
-- No device-side wall clock wiring: windowed tokens reject `no-clock`.
+## Tests
+
+`cargo test -p nxra`, `cargo test -p nxra_host`, `cargo test -p nx --test recovery_cli`; QEMU: `just test-os headless`.

@@ -2,15 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //! CONTEXT: Finds the repository, reads every planning document (tasks, tracks, RFCs, milestones,
-//!          sprints, the subsystem list) and writes one back atomically, body untouched.
+//!          sprints, the subsystem list) and every doc under `docs/` (TASK-0349), and writes one
+//!          back atomically.
 //! OWNERS: @tools-team
 //! STATUS: Functional
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: tools/nx/tests/ledger_cli.rs
 //! ADR: docs/rfcs/RFC-0115-planning-as-data-milestones-sprints-phases-one-ledger-cli.md
 
-use super::model::{classify, Kind};
+use super::model::{classify, Kind, DOC_FOREIGN};
 use super::yaml::{self, Entries};
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -48,6 +50,8 @@ pub(crate) struct Repo {
     pub(crate) root: PathBuf,
     pub(crate) docs: Vec<Doc>,
     pub(crate) errors: Vec<LoadError>,
+    /// `ADR-NNNN` ids of `docs/adr/NNNN-*.md` (contracts a doc may name).
+    pub(crate) adrs: BTreeSet<String>,
 }
 
 impl Repo {
@@ -90,7 +94,47 @@ pub(crate) fn load(root: &Path) -> Repo {
             }
         }
     }
-    Repo { root: root.to_path_buf(), docs, errors }
+    let mut doc_files = Vec::new();
+    walk_docs(root, "docs", &mut doc_files);
+    doc_files.sort();
+    for rel in doc_files {
+        let Some((kind, id)) = classify(&rel) else { continue };
+        if kind != Kind::Doc {
+            continue;
+        }
+        match read_doc(root, &rel, kind, id) {
+            Ok(doc) => docs.push(doc),
+            Err(message) => errors.push(LoadError { rel, message }),
+        }
+    }
+    let adrs = fs::read_dir(root.join("docs/adr"))
+        .map(|read| {
+            read.filter_map(|e| e.ok()?.file_name().into_string().ok())
+                .filter(|n| n.ends_with(".md") && n.as_bytes().get(4) == Some(&b'-'))
+                .filter(|n| n[..4].bytes().all(|b| b.is_ascii_digit()))
+                .map(|n| format!("ADR-{}", &n[..4]))
+                .collect()
+        })
+        .unwrap_or_default();
+    Repo { root: root.to_path_buf(), docs, errors, adrs }
+}
+
+/// Every `.md` below `docs/` outside the foreign trees, repo-relative.
+fn walk_docs(root: &Path, rel: &str, out: &mut Vec<String>) {
+    let Ok(read) = fs::read_dir(root.join(rel)) else { return };
+    for entry in read.filter_map(|e| e.ok()) {
+        let Ok(name) = entry.file_name().into_string() else { continue };
+        let child = format!("{rel}/{name}");
+        let is_dir = entry.file_type().is_ok_and(|t| t.is_dir());
+        if is_dir {
+            if rel == "docs" && DOC_FOREIGN.contains(&name.as_str()) {
+                continue;
+            }
+            walk_docs(root, &child, out);
+        } else if name.ends_with(".md") {
+            out.push(child);
+        }
+    }
 }
 
 fn read_doc(root: &Path, rel: &str, kind: Kind, id: String) -> Result<Doc, String> {

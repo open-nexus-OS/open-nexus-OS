@@ -11,7 +11,7 @@ links:
   - label: Vision
     target: docs/architecture/vision.md
   - label: "DSoftBus base"
-    target: docs/distributed/dsoftbus-lite.md
+    target: docs/network/dsoftbus.md
   - label: "Testing contract"
     target: scripts/qemu-test.sh
 ---

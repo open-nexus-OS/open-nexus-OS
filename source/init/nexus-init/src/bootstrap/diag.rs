@@ -6,7 +6,7 @@
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable
-//! RFC: docs/rfcs/RFC-0068-structured-event-observability.md
+//! RFC: docs/rfcs/RFC-0068-structured-event-observability-subject-grouped-journal-renderer.md
 
 /// True if `name` is listed in `NEXUS_LOG_EXPAND` (a comma set). The grid GROUP names are themselves
 /// the flags: `init_spawn` / `init_caps` expand their whole group (the displayed name IS what you

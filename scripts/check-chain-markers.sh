@@ -9,7 +9,7 @@
 # STATUS: Functional
 # API_STABILITY: Stable
 # TEST_COVERAGE: exercised by qemu-test.sh proof profiles (MARKER_CONTRACT=1)
-# ADR: docs/adr/0030-integration-chain-test-framework.md
+# ADR: docs/rfcs/RFC-0066-production-grade-service-chain-declarative-routing-typed-ipc-inprocess-tests.md
 #
 # Usage: check-chain-markers.sh [--log <uart.log>] [--groups a,b,c]
 #   --log     uart log to check (default: build/logs/latest/uart.log)

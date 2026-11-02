@@ -18,7 +18,7 @@
 //!   - nexus_hal::{Bus, DmaBuffer}: test stubs
 //!   - storage_virtio_blk::VirtioBlk: driver under test
 //!
-//! ADR: docs/architecture/01-neuron-kernel.md
+//! ADR: docs/kernel/README.md
 
 use nexus_hal::{Bus, DmaBuffer};
 use storage_virtio_blk::{

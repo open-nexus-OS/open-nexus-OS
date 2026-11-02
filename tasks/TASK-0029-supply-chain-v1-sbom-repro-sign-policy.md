@@ -24,11 +24,11 @@ links:
   - label: "ADR (canonical-vs-interop format policy)"
     target: docs/adr/0021-structured-data-formats-json-vs-capnp.md
   - label: "Policy baseline"
-    target: docs/security/signing-and-policy.md
+    target: docs/security/signing.md
   - label: "Packaging docs"
     target: docs/packaging/nxb.md
   - label: "System-set packaging"
-    target: docs/packaging/system-set.md
+    target: docs/updates/system-set.md
   - label: "Keystored capnp schema (to extend)"
     target: tools/nexus-idl/schemas/keystored.capnp
   - label: "Production-gate tier (Updates/Packaging/Recovery → production-grade)"
@@ -341,9 +341,9 @@ These decisions are frozen for TASK-0029 implementation and mirrored in `RFC-003
 
 ## Docs (English)
 
-- `docs/supplychain/sbom.md`: where SBOM lives in `.nxb`, how to inspect.
-- `docs/supplychain/repro.md`: schema, `SOURCE_DATE_EPOCH`, verifier usage.
-- `docs/supplychain/sign-policy.md`: publisher allowlist format, key rotation, failure modes.
+- `docs/packaging/supply-chain.md`: where SBOM lives in `.nxb`, how to inspect.
+- `docs/packaging/supply-chain.md`: schema, `SOURCE_DATE_EPOCH`, verifier usage.
+- `docs/packaging/supply-chain.md`: publisher allowlist format, key rotation, failure modes.
 - `docs/testing/README.md`: how to run host tests; expected OS markers once enabled.
 
 ## Implementation checkpoint (2026-04-22)

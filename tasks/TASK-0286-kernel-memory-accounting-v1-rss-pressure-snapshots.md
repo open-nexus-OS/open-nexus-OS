@@ -341,7 +341,7 @@ side (RFC-0085).
   and ring depth (two `ci-os-smp1` runs back to back: identical evidence lines, identical
   memory record). The kernel gauges stay live-only; retained memory samples come with M4's
   pressure events. Docs:
-  `docs/architecture/01-neuron-kernel.md` gains *Physical Memory* and syscall 61. Measured on
+  `docs/kernel/README.md` gains *Physical Memory* and syscall 61. Measured on
   smp1 (320M): 77 291 frames, 47 035 free at the fence, 3 176 allocs / 131 frees, 216
   page-table frames, 54 VMOs = 70.0 MB of which 272 KiB contiguous (the virtio queues only),
   37 spaces, `rss_sum` 108.0 MB, `rss_max` 50.3 MB (windowd), `exhausted=0`; `QEMU_MEM=1G`:

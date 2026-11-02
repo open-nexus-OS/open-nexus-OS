@@ -1,96 +1,93 @@
+---
+schema: 1
+title: "Recovery operations"
+role: reference
+subsystem: storage
+sources: [source/services/statefsd/src/fsck_op.rs, source/services/statefsd/src/fsck_os.rs, userspace/statefs/src/fsck.rs, source/services/bootctld/src, tools/nx/src/commands/diagnose.rs, tools/fsck-statefs]
+contracts: [RFC-0087, ADR-0055]
+verified: 2026-11-02
+---
+
 <!-- Copyright 2026 Open Nexus OS Contributors -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# Recovery operations surface (TASK-0051)
+# Recovery operations
 
-Status: shipped — fsck op + bootctld ops QEMU-proven (reset lane), `nx diagnose` host-tested.
-
-## CONTEXT
-
-- Scope: `TASK-0051` — statefsd fsck ops, bootctld slot/target ops with the
-  recovery commit block, `nx diagnose` (the ONE diagnostic bundle, Keystone
-  Gate 6).
-- Contracts: RFC-0087 §4 (boot targets/one-shot consumption),
-  ADR-0055 (bootctld = single boot-state authority),
-  `userspace/statefs/src/fsck.rs` (ONE repair semantics; host twin
-  `tools/fsck-statefs`).
-- Proof commands: `cargo test -p statefsd --test fsck_op_contract`,
-  `cargo test -p statefs` (engine matrix + streaming-window cases),
-  `cargo test -p nx --test diagnose_cli`,
-  `scripts/qemu-test.sh --profile=reset` (three-boot recovery cycle).
+> **Purpose** — the recovery ops surface: statefsd fsck ops, bootctld target/reset ops with the recovery commit block, and the `nx diagnose` bundle.
+> **Owns** — `source/services/statefsd/src/fsck_op.rs`, `source/services/statefsd/src/fsck_os.rs`, `tools/nx/src/commands/diagnose.rs`
+> **Contracts** — [RFC-0087](../rfcs/RFC-0087-reliability-failure-model-v1.md) §4 (boot targets, one-shot `next_boot`), [ADR-0055](../adr/0055-bootctld-single-boot-state-authority.md) (bootctld is the single boot-state authority)
+> **Invariants** — one repair semantics: `userspace/statefs/src/fsck.rs` (host twin `tools/fsck-statefs`). fsck never runs while a transaction is open. In the recovery graph every slot mutation is refused before the sender gate.
+> **Read next** — [nxra.md](nxra.md), [crashdump-v2.md](crashdump-v2.md)
 
 ## statefsd fsck ops
 
-Wire ops `OP_FSCK_CHECK` (11) / `OP_FSCK_REPAIR` (12) on the statefs protocol
-run the delivered 0026/0027 engine against the mounted store:
+| op | code | needs |
+|---|---|---|
+| `OP_FSCK_CHECK` | 11 | `statefs.read` |
+| `OP_FSCK_REPAIR` | 12 | `statefs.admin` |
 
-- **Policy**: CHECK needs `statefs.read`, REPAIR needs `statefs.admin`
-  (deny-by-default via policyd; denials audit as access-denied).
-- **Quiesce**: both ops reject with `STATUS_BUSY` (11) while any transaction
-  is open — fsck re-opens the journal from the raw device and would silently
-  drop RAM-staged transactions. Marker: `statefsd: fsck busy (open txns)`.
-- **Engine swap**: the live engine is replaced by a mem placeholder, fsck
-  consumes the device, then the store re-opens (fresh `SeqTracker`, enrolled
-  replay, enc re-enable). A store that cannot re-open degrades LOUD:
-  `statefsd: fsck fail (unrecoverable)`.
-- **Repair bound**: structural — repair appends at most one ABORT per orphan
-  and open transactions are capped at `MAX_OPEN_TXNS` (8).
-- **Report**: fixed 34-byte wire payload (see `statefsd::fsck_op`), status
-  mirrors the fsck-statefs exit-code contract (clean-with-enc-failures is
-  NOT ok).
-- **Memory truth**: the scan streams the journal region through a bounded
-  window (`statefs::fsck_window`), so the op survives statefsd's 1 MiB heap
-  and a clean journal reads ~journal-length bytes, not the whole region.
+Policy is deny-by-default via policyd; denials audit as access-denied.
 
-Markers: `statefsd: fsck check ok (clean)` · `statefsd: fsck repaired (n=<k>)`
-· `statefsd: fsck fail (unrecoverable)`.
+| aspect | behaviour |
+|---|---|
+| quiesce | both ops reply `STATUS_BUSY` (11) while any transaction is open — fsck re-opens the journal from the raw device and would drop RAM-staged transactions |
+| engine swap | the live engine is swapped for a placeholder, fsck consumes the device, then the store re-opens (fresh `SeqTracker`, replay, encryption re-enabled) |
+| repair bound | at most one ABORT appended per orphan; open transactions are capped at `MAX_OPEN_TXNS` (8) |
+| report | fixed 34-byte payload (`FSCK_REPORT_WIRE_LEN`, layout in `fsck_op.rs`); status mirrors the `fsck-statefs` exit codes (clean with encryption failures is not ok) |
+| memory | the scan streams the journal region through a bounded window (`userspace/statefs/src/fsck_window.rs`) |
 
-## bootctld slot/target ops
+Markers: `statefsd: fsck busy (open txns)` · `statefsd: fsck check ok (clean)` · `statefsd: fsck repaired (n=<k>)` · `statefsd: fsck fail (unrecoverable)` (store could not re-open).
 
-Schedule-only mutations at the single boot-state authority (`'B','T'` wire v1):
+## bootctld ops
 
-- `OP_GET_TARGET` (6), `OP_SET_NEXT_BOOT` (7), `OP_SET_TARGET` (8) — target
-  reads/writes need the delegated `boot.target` capability.
-- `OP_RESET` (9) — SBI SRST via the identity-bound kernel syscall; needs
-  `boot.reset`.
-- `OP_GET_RECORD` (11) — read-only record snapshot for diagnostics.
-- **Commit block**: while the session graph is `recovery`, every slot
-  mutation (STAGE/SWITCH/HEALTH_OK/ROLLBACK) rejects with
-  `STATUS_COMMIT_BLOCKED` (5) BEFORE the sender gate — provable from the
-  recovery boot itself. Marker: `bootctld: commit blocked (target=recovery)`.
-- **Persist-or-restore**: the on-disk record and the RAM machine commit
-  together or not at all; `bootctld: switch scheduled (to=<slot>)` is emitted
-  only after the record persisted (required in the OTA ladder).
+Wire `'B','T'` v1 (`source/services/bootctld/src/wire.rs`).
+
+| op | code | needs |
+|---|---|---|
+| `OP_STAGE` / `OP_SWITCH` | 1 / 2 | sender = `updated` (switch also accepts an `.nxra` token) |
+| `OP_HEALTH_OK` | 3 | sender in the declared health quorum |
+| `OP_GET_STATUS` | 4 | — |
+| `OP_GET_TARGET` | 6 | — (read) |
+| `OP_SET_NEXT_BOOT` | 7 | `boot.target` |
+| `OP_SET_TARGET` | 8 | `boot.target` |
+| `OP_RESET` | 9 | `boot.reset` and sender = init or selftest (SBI SRST via the identity-bound kernel syscall) |
+| `OP_ROLLBACK` | 10 | sender = `updated` |
+| `OP_GET_RECORD` | 11 | — (record snapshot for diagnostics) |
+| `OP_GET_MEASURED` | 12 | — |
+
+For switch, target and reset ops a sender without the standing grant can present a `.nxra` token instead ([nxra.md](nxra.md)).
+
+- **Commit block**: while the session graph is `recovery`, STAGE/SWITCH/HEALTH_OK/ROLLBACK reply `STATUS_COMMIT_BLOCKED` (5) before the sender gate. Marker: `bootctld: commit blocked (target=recovery)`.
+- **Persist-or-restore**: the on-disk record and the RAM machine commit together or not at all. `bootctld: switch scheduled (to=<slot>)` is emitted only after the record persisted.
 
 ## `nx diagnose`
 
-The ONE diagnostic bundle (host-side assembly; TASK-0227 owns the format
-lineage and rebases onto these sections):
-
 ```bash
-# after any QEMU run that left a store image:
-nx diagnose --image build/data.img --out nx-diagnose.tar --json
+nx diagnose --image <statefs.img> --out nx-diagnose.tar --json
 ```
 
-> Image naming caveat: virtio-mmio slots enumerate in reverse device
-> order, so the statefs journal currently lands in `build/data.img` (the
-> launcher's `blk.img`/`data.img` name↔role comment is swapped; keep-blk
-> lanes preserve both, which is why nothing ever noticed). Verify with
-> `fsck-statefs <image>` if in doubt — the statefs image replays.
+- `--image` is a raw statefs journal image (default `build/blk.img`); a whole GPT disk is not decoded. The QEMU disk is one GPT image (`build/nexus.img`) whose `state` partition holds the journal.
+- Archive sections, fixed order:
 
-- Sections (fixed order): `diagnose/boot-record.json` (bootctld record via
-  `open_record`), `diagnose/evidence.jsonl` (logd evidence ring, oldest
-  first), `diagnose/fsck-report.json`, `diagnose/meta.json`.
-- Deterministic by construction: same image bytes ⇒ byte-identical archive
-  (hand-rolled ustar, mtime 0, no host timestamps). Plain `.tar` — a
-  compression layer would trade determinism for nothing at these sizes.
-- The fsck OUTCOME is data inside the bundle; `nx` exit classes stay the CLI
-  contract (missing image = `missing_dependency`, unaligned image =
-  `validation_reject`).
+| section | source |
+|---|---|
+| `diagnose/boot-record.json` | bootctld record (`bootctld::record::open_record`) |
+| `diagnose/evidence.jsonl` | logd evidence ring, oldest first (`logd::spill::decode_slot_value`) |
+| `diagnose/fsck-report.json` | `statefs::fsck` verdict |
+| `diagnose/meta.json` | bundle metadata |
+| `crash/<id>.nxcd` | artifacts under `/state/crash/`, verbatim |
 
-## Recovery-cycle proof (reset lane)
+- Deterministic: same image bytes ⇒ byte-identical archive (hand-rolled ustar, mtime 0, no host timestamps, no compression).
+- The fsck outcome is data in the bundle. Exit classes: missing image → `missing_dependency`; image not a whole number of blocks → `validation_reject`.
 
-`scripts/qemu-test.sh --profile=reset` drives THREE boots in one UART stream:
-normal (arm `next_boot=recovery`) → recovery graph (quiesce-busy → fsck check
-clean → commit block → `SELFTEST: recovery slot ok`) → normal (one-shot
-consumed, ungranted mutating op denies: `SELFTEST: recovery ops deny ok`).
+## Recovery-cycle proof (`reset` profile)
+
+`just test-os reset` drives three boots in one UART stream:
+
+1. normal boot arms `next_boot=recovery`;
+2. recovery graph: fsck busy → fsck check clean → commit block → `SELFTEST: recovery slot ok`;
+3. normal boot: one-shot consumed; an ungranted mutating op is denied → `SELFTEST: recovery ops deny ok`.
+
+## Tests
+
+`cargo test -p statefsd --test fsck_op_contract`, `cargo test -p statefs`, `cargo test -p nx --test diagnose_cli`.

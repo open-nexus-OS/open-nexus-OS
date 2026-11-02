@@ -1,138 +1,56 @@
+---
+schema: 1
+title: "Bundle types"
+role: reference
+subsystem: app-platform
+sources: [tools/nexus-idl/schemas/manifest.capnp, tools/nxb-pack/src/main.rs, source/services/bundlemgrd/src/os_lite.rs, source/services/abilitymgr/build.rs]
+contracts: [ADR-0020, RFC-0073, RFC-0075]
+verified: 2026-11-02
+---
+
 <!-- Copyright 2026 Open Nexus OS Contributors -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# Packaging artifact kinds
+# Bundle types
 
-Open Nexus OS packaging needs more semantic distinction than "everything is just an app bundle".
+> **Purpose** — what each `bundle_type` value means: which permissions it may carry, whether the user can launch it, and how the launcher treats it.
+> **Owns** — the `BundleType` enum in `tools/nexus-idl/schemas/manifest.capnp`
+> **Contracts** — [ADR-0020](../adr/0020-manifest-format-capnproto.md) (manifest format), [RFC-0073](../rfcs/RFC-0073-app-files-surface-svc-files-permission-filemanager-role.md) (filemanager role), [RFC-0075](../rfcs/RFC-0075-ime-v2-text-focus-composition-delivery.md) (IME role)
+> **Invariants** — The type is a privilege ceiling: what a bundle MAY request, enforced fail-closed by `nxb-pack` at pack time. The product assigns which bundle plays a role; the type only permits it. New values are appended, never renumbered.
+> **Read next** — [nxb.md](nxb.md)
 
-This page describes the intended artifact kinds at the packaging and product level so install, update, lifecycle, and
-developer-workstation stories can remain understandable as the ecosystem grows.
+## Values
 
-This page does **not** replace the container-format contract in `docs/packaging/nxb.md`.
+`bundle_type` in `manifest.toml` (default `app`) → `bundleType` in `manifest.nxb`:
 
-## Why artifact kinds matter
+| @ | type | user-launchable | may hold (system-role permissions) | in the repo |
+|---|---|---|---|---|
+| 0 | `app` | yes | none | `calculator`, `chat` |
+| 1 | `service` | no | none | every service bundle `scripts/build.sh` generates (with `meta/launch.json`) |
+| 2 | `library` | no | none | `window-kit` (DSL components compiled into the apps that list it in `dependencies`); `system` (`build.prop`) |
+| 3 | `driver` | no | none | — |
+| 4 | `framework` | no | none | — |
+| 5 | `shell` | no | `LAUNCH`, `ENUMERATE`, `SETTINGS`, `SCREENCAP` | `desktop-shell` |
+| 6 | `greeter` | no | `SESSION` | `greeter` |
+| 7 | `settings` | yes | `SETTINGS`, `SCREENCAP`, `UPDATES` | `settings` |
+| 8 | `filemanager` | yes | `FILES` | `stash` |
+| 9 | `ime` | no | `IME` | `ime-ui` |
 
-Different installed things behave differently:
+Permission names are `nexus.permission.<NAME>`. Any type may carry ordinary permissions
+(`WINDOW`, `NOTIFY`, …); the table lists only the gated ones. `INPUT_STREAM` is refused for every
+type.
 
-- an end-user app is visible and launchable,
-- a runtime exists so other developer workflows can use it,
-- a tool may be used from Console or Dev Studio,
-- and a local service may have data, ports, logs, and lifecycle.
+## What reads the type
 
-If the platform treats them all as undifferentiated bundles, the developer and policy story becomes muddy very quickly.
+| reader | rule | where |
+|---|---|---|
+| `nxb-pack` | the privilege ceiling above; unknown type is a pack error | `tools/nxb-pack/src/main.rs` |
+| bundlemgrd `OP_LIST_APPS` | lists only `app`, `settings`, `filemanager` (the launcher grid) | `source/services/bundlemgrd/src/os_lite.rs` (`is_launchable`) |
+| abilitymgr | `greeter` and `ime` may launch before a session; `shell`, `greeter`, `ime` are single-instance (a second launch answers the running one) | `source/services/abilitymgr/build.rs` (`APP_PRE_SESSION`, `APP_SINGLETON`) |
+| `nx app compile` | copies the type into `meta/app.properties` | `tools/nx/src/commands/app.rs` |
 
-## Core kinds
+## Adding a type
 
-### App
-
-An **app** is an installable user-facing application.
-
-Typical expectations:
-
-- appears in launcher/search/navigation when appropriate,
-- can be launched directly,
-- may declare abilities/capabilities,
-- and participates in normal install/update/remove flows.
-
-### Runtime
-
-A **runtime** is an installable execution foundation used by developer or app workflows.
-
-Examples:
-
-- Python
-- Node.js
-
-Typical expectations:
-
-- versioned and installable,
-- selectable by projects or environments,
-- not necessarily a user-facing launcher app,
-- and may underpin tools, builds, and package-manager flows.
-
-### Tool
-
-A **tool** is an installable utility, CLI, compiler, package manager, or developer helper.
-
-Examples:
-
-- npm
-- pip
-- git
-- clang
-
-Typical expectations:
-
-- usable from Console and Dev Studio,
-- may depend on a runtime,
-- may belong to user or project scope,
-- and should not imply unrestricted machine mutation.
-
-### Service
-
-A **service** is an installable local capability provider with lifecycle and often persistent state.
-
-Examples:
-
-- database
-- local cache
-- language server
-- dev web server helper
-
-Typical expectations:
-
-- start/stop/restart semantics,
-- logs and status,
-- storage and possibly ports,
-- and explicit visibility in developer workflows.
-
-## Optional future kinds
-
-Depending on how the platform evolves, other kinds may also make sense:
-
-- **provider**
-- **sdk**
-- **toolset**
-
-Those should be introduced only when they clarify lifecycle and developer understanding rather than just adding taxonomy.
-
-## Relationship to packaging format
-
-The current `.nxb` packaging page defines the container and manifest baseline:
-
-- `docs/packaging/nxb.md`
-
-This page is about the **meaning** of installed artifacts, not the byte layout alone.
-
-That distinction matters because:
-
-- two artifacts can share a container format,
-- while still differing in lifecycle, visibility, trust posture, or developer expectations.
-
-## Relationship to developer workflows
-
-Artifact kinds help explain workflows such as:
-
-- install Python as a runtime,
-- install npm as a tool,
-- install PostgreSQL as a local service,
-- install an app for ordinary use or testing,
-- and reason about which things should appear in launcher, Console, Dev Studio, or service-management surfaces.
-
-## Best practice
-
-- use artifact kinds to clarify lifecycle and intent,
-- keep the set of kinds small and understandable,
-- and avoid collapsing all developer-facing installs into "just another app".
-
-## Avoid
-
-- creating many near-duplicate artifact categories with unclear behavior,
-- or using artifact kinds as a replacement for the actual security, capability, or lifecycle contracts.
-
-## Related docs
-
-- `docs/packaging/nxb.md`
-- `docs/dev/ui/foundations/development/package-manager.md`
-- `docs/dev/platform/developer-workstation.md`
-- `docs/security/capabilities.md`
+Append to `enum BundleType` in the schema, add the TOML mapping and its ceiling in
+`tools/nxb-pack/src/main.rs`, decide launchability in `is_launchable`, and add a
+`test_reject_*` for a bundle that requests the new role's permission under a different type.

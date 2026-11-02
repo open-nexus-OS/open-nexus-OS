@@ -24,11 +24,11 @@ links:
   - label: "NexusGfx v1b resource/fence core"
     target: tasks/TASK-0169B-gpu-draws-gfxdevice-on-the-device-first-quad-offline-shaders.md
   - label: "Gfx command/pass model"
-    target: docs/architecture/graphics/nexusgfx-command-and-pass-model.md
+    target: tasks/TRACK-NEXUSGFX-SDK.md
   - label: "Gfx sync/lifetime model"
-    target: docs/architecture/graphics/nexusgfx-sync-and-lifetime.md
+    target: tasks/TRACK-NEXUSGFX-SDK.md
   - label: "Gfx tile-aware design"
-    target: docs/architecture/graphics/nexusgfx-tile-aware-design.md
+    target: tasks/TRACK-NEXUSGFX-SDK.md
 ---
 
 ## Context

@@ -97,5 +97,5 @@ This is a major platform differentiator if kept coherent and secure.
 
 - `docs/dev/technologies/family-mode.md`
 - `docs/dev/technologies/managed-devices.md`
-- `docs/security/managed-policy-and-enrollment.md`
+- `docs/architecture/vision.md`
 - `tasks/TRACK-GROUP-AND-DEVICE-MANAGEMENT.md`

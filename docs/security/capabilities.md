@@ -1,247 +1,120 @@
+---
+schema: 1
+title: "Capability names"
+role: reference
+subsystem: security
+sources: [policies/base.toml, source/services/policyd/src/app_grants.rs, source/services/policyd/build.rs, userspace/policy/src/lib.rs, source/libs/nexus-sdk-routes]
+contracts: [ADR-0014, RFC-0005, ADR-0084, RFC-0111]
+verified: 2026-11-02
+---
+
 <!-- Copyright 2026 Open Nexus OS Contributors -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# Capabilities
-
-Open Nexus OS uses a capability-based model rather than ambient authority. This page collects the capability names that
-already exist in the repo, plus the capability families that are clearly planned in active tracks.
-
-This page is a **catalog and naming guide**, not the single enforcement source of truth.
-
-## Where the truth lives
-
-Use these sources together:
-
-- current baseline allowlist: `policies/base.toml`
-- policy authority and evaluation model: `docs/architecture/11-policyd-and-policy-flow.md`
-- signing/install/policy flow: `docs/security/signing-and-policy.md`
-- capability-driven track contracts: for example `tasks/TRACK-NEXUSNET-SDK.md` and `tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md`
-
-## Current baseline capabilities (enforced today)
-
-These names appear in the current baseline policy file under `policies/base.toml`.
-
-### Core routing and process
-
-- `ipc.core`
-- `proc.spawn`
-- `policy.delegate`
-- `policy.abi_mode` — authority for the RFC-0091 runtime ABI mode switch (`OP_SET_ABI_MODE`); proof boots: `selftest-client`
-- `time.read`
-
-### Files and package access
-
-- `fs.read`
-- `fs.verify`
-
-### Crypto and entropy
-
-- `crypto.sign`
-- `crypto.verify`
-- `rng.entropy`
-
-### Device identity and key custody
-
-- `device.keygen`
-- `device.pubkey.read`
-- `device.key.reload`
-
-### StateFS and persistence
-
-- `statefs.read`
-- `statefs.write`
-- `statefs.boot`
-- `statefs.keystore`
-
-### Device MMIO
-
-- `device.mmio.blk`
-- `device.mmio.net`
-- `device.mmio.rng`
-
-## Additional capabilities already appearing in recipes
-
-These names appear in recipe manifests today and should be treated as real capability strings already in circulation.
-
-### UI / shell / graphics
-
-- `ability.start`
-- `window.launch`
-- `window.manage`
-- `graphics.compose`
-
-### Distributed / service-facing
-
-- `distributed.bus`
-
-## Planned capability families with explicit track anchors
-
-The following names are not all globally enforced today, but they are already spelled out in active tracks and should be
-kept consistent as the capability catalog grows.
-
-### Networking and cloud
-
-From `tasks/TRACK-NEXUSNET-SDK.md`:
-
-- `network.tcp.connect`
-- `network.tcp.listen`
-- `network.udp.send`
-- `network.udp.bind`
-- `network.http.request`
-- `cloud.sync`
-- `cloud.graphql.query`
-- `cloud.graphql.mutate`
-- `cloud.oauth2.start`
-- `cloud.oauth2.finish`
-- `cloud.oauth2.token.refresh`
-- `account.manage`
-- `account.use`
-
-### DSoftBus / distributed app model
-
-From `tasks/TRACK-NEXUSNET-SDK.md`:
-
-- `dsoftbus.discover`
-- `dsoftbus.session.open`
-- `dsoftbus.stream.open`
-- `dsoftbus.rpc.call`
-- `dsoftbus.share.send`
-- `dsoftbus.share.receive`
-
-### App-facing policy matrix
-
-From `tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md`:
-
-- `content.read`
-- `content.write.state`
-- `clipboard.read`
-- `clipboard.write`
-- `camera`
-- `microphone`
-- `screen.capture`
-- `location.coarse`
-- `location.precise`
-- `audio.output`
-- `notifications.post`
-- `intents.send`
-- `intents.receive`
-- `webview.net`
-- `storage.manage`
-- `sms.send`
-- `sms.receive`
-- `mms.send`
-- `mms.receive`
-
-### Store and package-management examples
-
-From store/package tracks:
-
-- `store.feed.read`
-- `store.install`
-- `store.remove`
-- `store.rate.write`
-
-### Media, search, backup, battery, and similar subsystem examples
-
-Capability strings already proposed in task contracts include:
-
-- `media.remote.publish`
-- `media.remote.control`
-- `media.session.publish`
-- `media.session.control`
-- `media.volume.set`
-- `media.mute.set`
-- `search.query`
-- `search.index.write`
-- `search.debug`
-- `backup.create`
-- `backup.restore`
-- `backup.read`
-- `backup.delete`
-- `battery.status.read`
-- `battery.calibrate`
-- `battery.inject`
-- `power.lowpower.enter`
-- `power.shutdown.request`
-
-### Delegation and app-surface examples
-
-Track-level examples that look like capability or action-style names and should stay consistent with capability naming
-work:
-
-- `chat.compose`
-- `contacts.pick`
-- `social.compose`
-- `maps.pick_location`
-- `track.inline`
-- `confirm.inline`
-- `open.inline`
-
-Some of these may ultimately remain system-delegation action IDs rather than raw policy capabilities. Document the
-difference explicitly when the contract is finalized.
-
-## Naming guidance
-
-Capability names should stay:
-
-- short,
-- stable,
-- lowercase,
-- and grouped by domain.
-
-Recommended pattern:
-
-- `<domain>.<verb>`
-- `<domain>.<resource>.<verb>` when one segment is not enough
-
-Examples:
-
-- `crypto.sign`
-- `network.http.request`
-- `device.mmio.net`
-- `cloud.oauth2.token.refresh`
-
-Avoid:
-
-- UI-marketing names as capability strings,
-- duplicated names that differ only by punctuation or case,
-- or names that describe a screen instead of an authority.
-
-## Scope and interpretation
-
-Capability strings should describe **authority**, not aesthetics or implementation details.
-
-Good examples:
-
-- "may sign with this service"
-- "may request HTTP"
-- "may publish a media session"
-
-Less useful examples:
-
-- screen names,
-- generic product labels,
-- or names that smuggle multiple unrelated powers into one string.
-
-## Notes for future developer-tooling work
-
-The planned developer workstation model will likely need additional capability families for:
-
-- runtime installation and use,
-- tool installation and execution,
-- local service lifecycle,
-- package-manager network profiles,
-- and shell or automation posture.
-
-When those names are introduced, extend this page and clearly label whether they are:
-
-- current baseline,
-- current recipe usage,
-- or planned catalog entries.
-
-## Related docs
-
-- `docs/security/signing-and-policy.md`
-- `docs/security/shell-scripts-and-automation.md`
-- `docs/architecture/11-policyd-and-policy-flow.md`
-- `docs/packaging/artifact-kinds.md`
+# Capability names
+
+> **Purpose** — what a capability string means, who checks it, and where a grant is written down; the table of current holders is generated from the policy.
+> **Owns** — `policies/base.toml` (`[allow]`), `source/services/policyd/src/app_grants.rs` (app permissions)
+> **Contracts** — [ADR-0014](../adr/0014-policy-architecture.md) (policyd decides), [RFC-0005](../rfcs/RFC-0005-kernel-ipc-capability-model.md) (kernel capabilities), [ADR-0084](../adr/0084-one-permission-authority-policyd-holds-every-app-grant-published-by-the-bundle-manager-asked-by-the-launchers.md) (app grants)
+> **Invariants** — a capability string is authority only when policyd answers for it. No grant ⇒ deny. Never hand-list holders in a doc; the table below is generated.
+> **Read next** — [policyd.md](policyd.md), [abi-filters.md](abi-filters.md), [sandboxing.md](sandboxing.md)
+
+## Two kinds of capability
+
+| | Kernel capability | Policy capability (this page) |
+|---|---|---|
+| What | a handle in a task's cap slot (endpoint, VMO, IRQ, MMIO window) with rights | a string such as `crypto.sign` that names an authority |
+| Who enforces | the kernel, on every syscall that uses the slot | the service that owns the operation, by asking policyd |
+| How it is held | init pins it into a declared slot (`nexus-service-topology`), or it is moved over IPC (`CAP_MOVE`) | an entry in `policies/base.toml [allow]`, or a published app grant |
+| Contract | [RFC-0005](../rfcs/RFC-0005-kernel-ipc-capability-model.md) | [ADR-0014](../adr/0014-policy-architecture.md) |
+
+A policy capability without the matching kernel handle grants nothing, and the reverse also holds: `device.mmio.net` is the policy name, the MMIO window is the kernel handle init gives to its one holder.
+
+## Who checks
+
+The service that performs the operation is the enforcement point. It asks policyd with the subject's kernel sender id:
+
+- about itself — `OP_CHECK_CAP`;
+- about the caller it serves — `OP_CHECK_CAP_DELEGATED`, which requires the asking service to hold `policy.delegate`.
+
+Examples in the code: keystored checks `crypto.sign`, `device.keygen`, `device.pubkey.read`, `device.key.reload`; rngd checks `rng.entropy`; init asks `ipc.core` (route) and `proc.spawn` (exec) per request; updated checks `updates.manage` for the sender. The wire is in [policyd.md](policyd.md).
+
+## Where grants live
+
+| Subject | Grant source | Name shape |
+|---|---|---|
+| Services, drivers, init, selftest | `policies/base.toml` → `[allow] "<service>" = ["cap", …]`, compiled into policyd at build time | lowercase `<domain>.<verb>` or `<domain>.<resource>.<verb>`; trimmed and lowercased before evaluation |
+| Apps | the app manifest's `caps = [...]` (e.g. `userspace/apps/calculator/manifest.toml`) → verified volume sidecar → bundlemgrd publishes → policyd's app-grant table ([ADR-0084](../adr/0084-one-permission-authority-policyd-holds-every-app-grant-published-by-the-bundle-manager-asked-by-the-launchers.md)) | `nexus.permission.<NAME>` from `KNOWN_PERMISSIONS`, or app-owned `app.<bundle>.<CAP>`; case is kept |
+
+Derived app grants never appear in `caps`: `background = [...]` becomes `nexus.permission.BACKGROUND`, `restorable = true` becomes `nexus.permission.STATE`. An unknown name rejects the whole app at publish. execd turns an app's routable grants into SDK service routes (`source/libs/nexus-sdk-routes/`).
+
+Argument-level limits on a capability (which statefs prefix, which CIDR) are RFC-0091 profiles, not capability names — see [abi-filters.md](abi-filters.md).
+
+## Naming rules
+
+- Name an authority, not a screen or a product: `network.http.request`, not `browser`.
+- One power per name; never bundle unrelated powers.
+- No two names that differ only by case or punctuation.
+- A narrower prefix capability beats a broad one: `statefs.crash` for `/state/crash/`, not `statefs.write`.
+- A name that is withheld on purpose is documented next to the grant in `policies/base.toml` (e.g. `crash.attach.full`).
+
+## Adding a capability
+
+1. Add the check at the enforcement point (`OP_CHECK_CAP` / `OP_CHECK_CAP_DELEGATED`) with a `test_reject_*` test for the denied case.
+2. Grant it in `policies/base.toml` with a one-line comment on why this subject needs it.
+3. Run `nx policy validate --write-manifest` and commit `policies/manifest.json`.
+4. For an app permission: add it to `KNOWN_PERMISSIONS` in `source/services/policyd/src/app_grants.rs`.
+
+## Current holders
+
+Generated from `policies/base.toml [allow]`.
+
+<!-- gen:capabilities -->
+| capability | held by |
+|---|---|
+| `app.grants.publish` | bundlemgrd |
+| `app.grants.read` | abilitymgr, execd, selftest-client |
+| `boot.reset` | init-lite, nexus-init, selftest-client |
+| `boot.target` | init-lite, nexus-init, selftest-client |
+| `bundle.query` | abilitymgr, windowd |
+| `crash.attach.stack` | execd |
+| `crypto.derive.statefs` | selftest-client |
+| `crypto.sign` | keystored |
+| `crypto.verify` | keystored, updated |
+| `device.key.reload` | selftest-client |
+| `device.keygen` | keystored, selftest-client |
+| `device.mmio.blk` | blkd |
+| `device.mmio.display` | gpud |
+| `device.mmio.gpu` | gpud |
+| `device.mmio.input` | hidrawd, selftest-client |
+| `device.mmio.mmc` | blkd |
+| `device.mmio.net` | netstackd, selftest-client |
+| `device.mmio.rng` | rngd |
+| `device.mmio.rtc` | timed |
+| `device.mmio.syscon` | socd |
+| `device.mmio.usb` | xhcid |
+| `device.pubkey.read` | selftest-client |
+| `fs.read` | bundlemgrd, execd, init-lite, nexus-init, packagefsd |
+| `fs.verify` | bundlemgrd |
+| `ipc.core` | abilitymgr, blkd, bootctld, bundlemgrd, clipboardd, dsoftbusd, execd, gpud, hidrawd, imed, ingressd, init-lite, inputd, keystored, logd, memd, metricsd, netstackd, nexus-init, packagefsd, pinched, rngd, samgrd, screencapd, selftest-client, sessiond, settingsd, socd, statefsd, timed, updated, vfsd, windowd, xhcid |
+| `net.expose` | selftest-client |
+| `policy.abi_mode` | selftest-client |
+| `policy.delegate` | bootctld, ingressd, init-lite, keystored, netstackd, nexus-init, rngd, socd, statefsd, updated, xhcid |
+| `proc.spawn` | abilitymgr, execd, init-lite, nexus-init, selftest-client |
+| `rng.entropy` | keystored, selftest-client |
+| `session.query` | abilitymgr, windowd |
+| `settings.query` | windowd |
+| `soc.glue.display` | gpud, selftest-client |
+| `soc.glue.gpu` | gpud |
+| `soc.glue.storage` | blkd |
+| `soc.glue.usb` | xhcid |
+| `statefs.admin` | selftest-client |
+| `statefs.boot` | bootctld, selftest-client, updated |
+| `statefs.crash` | execd, selftest-client |
+| `statefs.keystore` | keystored |
+| `statefs.read` | dsoftbusd, imed, init-lite, logd, memd, nexus-init, selftest-client, settingsd |
+| `statefs.write` | dsoftbusd, imed, init-lite, logd, memd, metricsd, nexus-init, selftest-client, settingsd |
+| `time.read` | samgrd |
+| `updates.manage` | selftest-client |
+| `usb.hid` | hidrawd |
+<!-- /gen:capabilities -->

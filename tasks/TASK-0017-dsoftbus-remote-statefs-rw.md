@@ -196,7 +196,7 @@ Prove in QEMU:
 - `recipes/policy/base.toml` (capability grant for remote statefs proxy path)
 - `scripts/qemu-test.sh`
 - `tools/os2vm.sh`
-- `docs/distributed/remote-fs.md`
+- `docs/network/dsoftbus.md`
 
 ## Plan (small PRs)
 

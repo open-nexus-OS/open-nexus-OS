@@ -52,7 +52,7 @@ The 2-VM harness remains the canonical proof for cross-VM networking and must no
   - `REQUIRE_DSOFTBUS=1 ...`
   - `REQUIRE_SMP=1 SMP=2 ...`
 - `netstackd` gains a `qemu-smoke` feature used only by the QEMU smoke harness build.
-- Concrete profile values are maintained in `docs/architecture/network-address-matrix.md`.
+- Concrete profile values are maintained in `docs/network/address-matrix.md`.
 
 ## Invariants
 

@@ -20,9 +20,9 @@ links:
   - label: "DMA buffer ownership prototype"
     target: tasks/TASK-0284-userspace-dmabuffer-ownership-v1-prototype.md
   - label: "NexusInfer rust design"
-    target: docs/architecture/inference/nexusinfer-rust-design.md
+    target: tasks/TRACK-NEXUSINFER-SDK.md
   - label: "NexusInfer techniques catalog"
-    target: docs/architecture/inference/nexusinfer-techniques.md
+    target: tasks/TRACK-NEXUSINFER-SDK.md
   - label: "Zero-copy VMO plumbing"
     target: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
 ---
@@ -118,7 +118,7 @@ Create a host-first `NexusInfer` CPU reference executor that models:
 
 - `userspace/` (new infer runtime/executor crate or module)
 - `tests/` (host fixture and rejection tests)
-- `docs/architecture/inference/nexusinfer-rust-design.md` (only if implementation discovers a contract gap)
+- `tasks/TRACK-NEXUSINFER-SDK.md` (only if implementation discovers a contract gap)
 - `tasks/TRACK-NEXUSINFER-SDK.md`
 
 ## Plan (small PRs)

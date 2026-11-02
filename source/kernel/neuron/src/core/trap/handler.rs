@@ -107,7 +107,7 @@ pub fn handle_ecall(frame: &mut TrapFrame, table: &SyscallTable, ctx: &mut api::
                 let _ = u.write_str("\n");
             });
             // ABI: return -errno in a0; do not terminate the calling task for expected syscall errors.
-            // (See RFC-0005 and docs/architecture/01-neuron-kernel.md.)
+            // (See RFC-0005 and docs/kernel/README.md.)
             maybe_ret = Some(_errno_val);
         }
     }

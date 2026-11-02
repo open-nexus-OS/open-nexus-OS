@@ -8,7 +8,7 @@ owners: ["@tools-team"]
 created: 2026-11-02
 updated: 2026-11-02
 subsystem: devx
-tasks: []
+tasks: [TASK-0349]
 depends_on: []
 links:
   - label: Reader
@@ -187,6 +187,20 @@ slipped: [TASK-0348/P7]
 `schema` and `subsystems`, a list of `slug, name, tier (production-grade | production-floor |
 beta-floor), release, focus`.
 
+### Doc (TASK-0349)
+
+Every page under `docs/` outside `rfcs/`, `adr/`, `board/`, `dev/`, `assets/`; its id is its path
+without `.md` (`docs/storage/statefs`). Keys: `schema`, `title`, `role` (`index | guide |
+reference | spec`), `subsystem`, `sources` (repo paths the page describes), `contracts`
+(`RFC-NNNN`/`ADR-NNNN`), `verified` (the day it was last checked against its sources). The gate:
+`sources` and `contracts` exist; every backticked repo path and markdown link in the prose
+resolves; no task status words (status lives in the ledger); the prose outside generated blocks
+stays within the role's word budget (index 800, guide 1200, reference 2000, spec 4000); every
+generated block (`<!-- gen:syscalls|capabilities|markers|docs-index -->`) equals its source's
+rendering (`lint --fix` renders it). Beyond the documents: a `docs/…md` named from a code comment,
+a root file or `.claude/` exists (fatal); one named from a planning document is a note, fatal for a
+task started under the new process.
+
 ## Rules the gate enforces
 
 1. Round trip: parse → render equals the file; keys known and in order; id matches the file name.
@@ -250,10 +264,13 @@ nx ledger plan <ID> <P,P> [--week] [--p50] [--p85] [--sample-size]
 nx ledger review [<week>]             # completed/slipped counted from the phases, written, printed
 nx ledger new task --title … --subsystem … --owner …   # next free number, template body
 nx ledger new sprint --milestone … --capacity …
-nx ledger lint [--fix] [--notes]      # the gate; --fix renders canonically
+nx ledger lint [--fix] [--notes]      # the gate; --fix renders canonically (and generated blocks)
+nx ledger stale                       # docs whose sources changed in a commit after `verified`
+nx ledger relink <old> <new|->        # a doc moved or merged: rewrite every reference; `-` drops links
 ```
 
-The CLI edits only the frontmatter; the body is preserved byte for byte. Output is compact by
+The CLI edits only the frontmatter; the body is preserved byte for byte (exceptions: `relink`
+rewrites paths in bodies, `lint --fix` renders a doc's generated blocks). Output is compact by
 design: an agent reads `show` (a few hundred tokens) instead of a 20 KB ledger.
 
 ## The weekly rhythm and parallel planning

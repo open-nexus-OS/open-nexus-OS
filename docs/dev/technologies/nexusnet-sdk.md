@@ -85,6 +85,6 @@ For app developers, the important rule is:
 - `tasks/TRACK-NEXUSACCOUNT.md`
 - `tasks/TRACK-NEXUSGAME-SDK.md`
 - `tasks/TRACK-NEXUSMEDIA-SDK.md`
-- `docs/distributed/dsoftbus-lite.md`
+- `docs/network/dsoftbus.md`
 - `docs/dev/technologies/message-delegation.md`
 - `docs/dev/technologies/zero-copy-data-plane.md`

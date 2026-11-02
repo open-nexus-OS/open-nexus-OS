@@ -1,4 +1,23 @@
-# ABI syscall guardrails (TASK-0019 → TASK-0028, RFC-0091)
+---
+schema: 1
+title: "ABI argument filters (RFC-0091 profiles)"
+role: reference
+subsystem: security
+sources: [userspace/policy/src/schema.rs, source/libs/nexus-abi/src/abi_filter, source/services/policyd/src/abi_eval.rs, source/services/policyd/src/abi_learn.rs, source/services/statefsd/src/abi_seam_os.rs, source/services/netstackd/src/os/facade/authz.rs]
+contracts: [RFC-0091]
+verified: 2026-11-02
+---
+
+<!-- Copyright 2026 Open Nexus OS Contributors -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
+# ABI argument filters (RFC-0091 profiles)
+
+> **Purpose** — the per-subject argument profile grammar, its precedence, wire, seams, learn pipeline and markers.
+> **Owns** — `userspace/policy/src/schema.rs`, `source/libs/nexus-abi/src/abi_filter/`, `source/services/policyd/src/abi_*.rs`
+> **Contracts** — [RFC-0091](../rfcs/RFC-0091-policy-profile-v2-schema-wire-argument-matchers.md) (schema v2, wire, matchers, learn/enforce)
+> **Invariants** — one grammar, one parser (host and policyd's build share it). Most specific rule wins, deny beats allow on ties. Unknown keys, classes or bytes fail closed.
+> **Read next** — [policyd.md](policyd.md), [network-policy.md](network-policy.md), [sandboxing.md](sandboxing.md)
 
 ## Scope and boundary
 
@@ -7,8 +26,8 @@ evaluated by the service that owns the governed operation (statefsd for
 `statefs.put`, netstackd for `net.bind` / `net.connect`). They are **not** a
 hard sandbox against malicious code issuing raw `ecall` instructions.
 
-- Kernel remains unchanged.
-- True raw-ecall enforcement is deferred to kernel scope (`TASK-0188`).
+- The kernel is not involved.
+- Raw-ecall enforcement is kernel scope (`tasks/TASK-0188-kernel-sysfilter-v1-task-profiles-rate-buckets.md`).
 - Contract: `docs/rfcs/RFC-0091-policy-profile-v2-schema-wire-argument-matchers.md`.
 
 ## Profile schema v2 (`policies/*.toml`)
@@ -129,8 +148,7 @@ the empty deny-all profile.
   seam holds `policy.delegate`, which is what lets it name the subject it
   serves.
 - **Governed = authored.** Only subjects with an `[abi_profile]` are
-  argument-filtered today; authoring every statefs writer and flipping
-  un-profiled subjects to deny is the tracked follow-up in TASK-0028. A
+  argument-filtered; an un-profiled subject is capability-only. A
   governed subject's profile must name EVERY prefix it legitimately writes
   (the selftest's lists its own trees plus `/state/boot/`, `/state/crash/`,
   `/state/statefsd/`, `/state/shared/selftest/`).

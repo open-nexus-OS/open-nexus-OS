@@ -125,7 +125,7 @@ kernel, services — is inspectable.
 There are no ambient rights. A service can only touch what it holds a capability
 for, policy is deny-by-default, and identity is the kernel-provided
 `sender_service_id` on an IPC channel rather than anything a caller can put in a
-payload. See `docs/architecture/11-policyd-and-policy-flow.md`.
+payload. See `docs/security/policyd.md`.
 
 ### Does the RISC-V desktop run on real hardware?
 
@@ -166,11 +166,11 @@ design contracts (`docs/rfcs/`) and architecture decisions (`docs/adr/`).
 - **Overview and layout**: `docs/README.md`
 - **Architecture** (start here for the design): `docs/architecture/README.md`
 - **Testing (host-first, QEMU-last)**: `docs/testing/README.md`
-- **Security** — policy authority and audit: `docs/security/signing-and-policy.md`,
+- **Security** — policy authority and audit: `docs/security/signing.md`,
   `docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md`; device identity
-  keys (virtio-rng → `rngd` → `keystored`): `docs/security/identity-and-sessions.md`
-- **Updates** — userspace A/B update skeleton: `docs/packaging/ab-updates-skeleton-v1.md`
-- **Observability** — logd journal and crash reports: `docs/observability/logging.md`
+  keys (virtio-rng → `rngd` → `keystored`): `docs/security/identity.md`
+- **Updates** — OTA, delta updates and system sets: `docs/updates/README.md`
+- **Observability** — logd journal and crash reports: `docs/reliability/observability.md`
 - **Standards** — headers, ownership, drift rules: `docs/standards/DOCUMENTATION_STANDARDS.md`
 - **CI**: `.github/workflows/ci.yml` wraps the canonical `just` recipes;
   `cla-check.yml` checks the CLA on pull requests (`.github/CLA.md`).

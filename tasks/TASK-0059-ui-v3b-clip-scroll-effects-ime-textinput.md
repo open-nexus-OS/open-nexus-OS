@@ -26,7 +26,7 @@ links:
   - label: "Layout pipeline"
     target: docs/dev/ui/foundations/layout/layout-pipeline.md
   - label: Architecture
-    target: docs/architecture/graphics/display-output-service-chain.md
+    target: docs/graphics-ui/display-chain.md
   - label: Testing
     target: scripts/qemu-test.sh
 ---

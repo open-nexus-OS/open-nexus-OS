@@ -1,0 +1,109 @@
+---
+schema: 1
+title: "SMP and IPIs"
+role: guide
+subsystem: kernel
+sources: [source/kernel/neuron/src/core/smp, source/kernel/neuron/src/sync, source/kernel/neuron/src/core/cpu_main.rs, source/kernel/neuron/src/core/trap/runtime.rs]
+contracts: [RFC-0021, ADR-0049, ADR-0052]
+verified: 2026-11-02
+---
+
+<!-- Copyright 2026 Open Nexus OS Contributors -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
+# SMP and IPIs
+
+> **Purpose** — how NEURON runs on several harts: bring-up, identity, the lock model, rescheduling and TLB shootdown, and which IPIs may be dropped.
+> **Owns** — `source/kernel/neuron/src/core/smp/`, `source/kernel/neuron/src/sync/`
+> **Contracts** — [RFC-0021](../rfcs/RFC-0021-kernel-smp-v1-percpu-runqueues-ipi-contract.md), [ADR-0049](../adr/0049-bkl-lockclass-and-softrt-cpu-placement.md), [ADR-0052](../adr/0052-per-hart-earliest-deadline-timer-and-affinity-respecting-steal.md)
+> **Invariants** — a correctness IPI is never dropped. No lock is held across a context switch. Never take the BKL while holding a lock below it.
+> **Read next** — [README.md](README.md), [../architecture/concurrency.md](../architecture/concurrency.md)
+
+## Shape
+
+- `MAX_CPUS` = 4 (`source/kernel/neuron/src/core/smp/mod.rs`). The interactive launcher boots
+  `SMP=4`; proof lanes default to `SMP=1`; the `smp` profile and `just ci-os-smp` run several harts
+  under MTTCG. With `SMP=1` everything lands on CPU 0 in the same order as a single-CPU scheduler.
+- Every hart runs `cpu_main` (`source/kernel/neuron/src/core/cpu_main.rs`) and schedules from its
+  own run-queue set inside the one `Scheduler`. Secondaries park in WFI until `runtime_ready()`
+  (set after kernel selftests and the init spawn).
+
+## Bring-up
+
+`source/kernel/neuron/src/core/smp/bringup.rs` starts secondaries one by one over SBI HSM, waits for
+each to settle, re-issues the start for a hart that did not come online (bounded), and prints
+the gate:
+
+- `KINIT: cpuN online` per hart, `KINIT: hartN disabled by the tree — not started` for a hart the
+  device tree disables;
+- `KGATE: smp bringup ok mask=0x…`, or `KGATE: smp bringup DEGRADED expected=… got=…` — a lost hart
+  degrades the boot loudly instead of killing it.
+
+## CPU identity
+
+`HartLocal` (one cache-line-aligned block per hart) holds the trap stack top, trap-prologue scratch
+slots, the CPU index, a magic tag, the preemption tick counter and the staging slot for the next
+context switch. `sscratch` and `tp` point at it; its field order is an ABI with
+`source/kernel/neuron/src/arch/riscv/trap.S`. `cpu_current_id()` trusts `tp` when the magic matches
+and otherwise falls back to the stack range, counting each fallback; selftests require the count to
+stay 0.
+
+## Locks
+
+| primitive | use |
+|---|---|
+| `SpinIrqLock` (`source/kernel/neuron/src/sync/spin_irq.rs`) | the only lock allowed on a trap-reachable path; clears SIE before spinning, restores on drop; same-hart re-lock panics in debug builds |
+| BKL (`KERNEL_LOCK` + `KernelGuard`, `source/kernel/neuron/src/core/trap/runtime.rs`) | every mutable borrow of kernel subsystems, held for the whole borrow |
+| `PerCpu` (`source/kernel/neuron/src/sync/percpu.rs`) | a slot reachable only from its own CPU, IRQs masked; host-tested, not yet used by a subsystem |
+| atomics | online/idle masks, resched flags, TLB mailboxes — leaf level |
+
+Hierarchy (normative): BKL → per-CPU run-queue locks (ascending CPU index) → leaf atomics. Today
+the run queues live inside the BKL aggregate, so the middle tier is empty.
+
+BKL rules from ADR-0049: the lock-free class (only `nsec`; the debug writes went back under the
+BKL so log lines stay whole) takes no lock, phased syscalls drop it for their
+expensive middle, cpu0 (display and input) gets right of way while it waits, and a hart spinning on
+the BKL keeps servicing TLB shootdown requests. Hold and wait times are budgeted in
+`source/kernel/neuron/src/core/trap/budgets.rs`; a breach fails the boot gate.
+
+## Rescheduling
+
+`request_resched(cpu)` sets a per-CPU pending flag with a swap. Only the caller that flips it from
+0 sends the IPI; a second request while one is outstanding is counted as skipped, because the
+consumer rescans the whole queue. The S_SOFT trap consumes the flag and acks. Proof chain:
+request accepted → `send_ipi` ok → S_SOFT trap → ack, plus a forced-failure counterfactual.
+
+Work stealing (`Scheduler::steal_into_current`) takes at most one task per attempt, never above
+the thief's QoS class and never against a task's affinity (ADR-0052), at most once per
+millisecond per CPU (`steal_rate_gate`). Markers: `KSELFTEST: work stealing ok`,
+`KSELFTEST: steal park ok`, `KSELFTEST: test_reject_steal_above_bound ok`,
+`KSELFTEST: test_reject_steal_higher_qos ok`.
+
+## TLB shootdown
+
+`source/kernel/neuron/src/core/smp/tlb.rs`, epoch-based and allocation-free:
+
+1. The initiator flushes locally, bumps the global epoch and writes it into each online hart's
+   mailbox (`fetch_max`, so concurrent shootdowns coalesce).
+2. Harts parked in WFI are skipped (`source/kernel/neuron/src/core/smp/masks.rs`); they flush before
+   their next user dispatch.
+3. Responders flush fully from the S_SOFT trap and ack lock-free. An ack for a later epoch
+   satisfies every earlier one.
+4. The initiator waits up to 100 ms of timebase for all acks. A hart that does not ack is a lost-IPI
+   kernel bug: `KPANIC: tlb shootdown ack timeout …`, never silent staleness.
+
+`vm_unmap` initiates with the BKL dropped. Markers: `KSELFTEST: tlb shootdown ok`,
+`KSELFTEST: tlb shootdown counterfactual ok`, `KSELFTEST: tlb shootdown skipped (smp=1)`.
+
+## IPI classes
+
+Not every IPI is equal; rate limiting must not create stale mappings.
+
+| class | examples | rule |
+|---|---|---|
+| correctness — must not drop | TLB shootdown, ASID / page-table invalidation | may be merged or coalesced; under load apply backpressure (delay the caller, merge requests), never skip |
+| best-effort — may throttle | resched, wake nudges | may be coalesced, rate-limited or dropped; the receiver rescans its queue on any delivered one |
+
+What exists today: coalescing for both classes (pending flag, epoch mailbox) and the steal rate
+gate. No per-task or global IPI budget is implemented; a future limiter applies to the best-effort
+class only.

@@ -239,7 +239,7 @@ Phase 6 (replay):
 - `tools/replay-evidence.sh`, `tools/diff-traces.sh`, `tools/bisect-evidence.sh` (new)
 - `scripts/regression-bisect.sh` (new wrapper)
 - `docs/testing/replay-and-bisect.md` (new)
-- `docs/testing/trace-diff-format.md` (new)
+- `docs/testing/replay-and-bisect.md` (new)
 
 Out-of-allowlist (must not touch in this task):
 
@@ -479,7 +479,7 @@ Scope (production-grade evidence foundation, A3):
 Cuts (6):
 
 - **P6-01 (✅ done, 2026-04-20)**: `tools/replay-evidence.sh` skeleton delivered and hardened — bundle extraction, signature verification, git-SHA pinning, recorded profile/env replay, bounded `timeout` enforcement, structured logging (`--log-file`), and deterministic tool/binary resolution.
-- **P6-02 (✅ done, 2026-04-20)**: trace diff format spec (`docs/testing/trace-diff-format.md`) + `tools/diff-traces.sh` implementation delivered; fixture corpus moved to `docs/testing/trace-diff-fixtures.json` and validated for exact/extra/missing/reorder/phase-mismatch classes.
+- **P6-02 (✅ done, 2026-04-20)**: trace diff format spec (`docs/testing/replay-and-bisect.md`) + `tools/diff-traces.sh` implementation delivered; fixture corpus moved to `docs/testing/trace-diff-fixtures.json` and validated for exact/extra/missing/reorder/phase-mismatch classes.
 - **P6-03 (✅ done, 2026-04-20)**: `tools/bisect-evidence.sh` delivered with mandatory `--max-commits` + `--max-seconds`, fail-closed budget handling, and production-grade binary-search strategy over `good_sha..bad_sha` (bounded probe count).
 - **P6-04 (✅ done, 2026-04-20)**: `scripts/regression-bisect.sh` wrapper delivered for CI-style invocation, forwarding bounded replay/bisect/logging controls.
 - **P6-05 (✅ functionally done, 2026-04-20; ⚠ external CI-runner artifact pending — environmental only)**: cross-host determinism floor mechanics delivered (allowlist enforcement in replay config compare; append-only allowlist documented). Validation passes on two host configurations for the same sealed bundle (native dev host + containerized CI-like host), both with exact trace match + allowlist-clean config compare. Synthetic bad-bundle proof + 3-commit good→drift→regress bisect smoke both pass with classified outputs. Only the external CI-runner replay artifact remains, captured on the next CI run using the recipe in `docs/testing/replay-and-bisect.md` §8.

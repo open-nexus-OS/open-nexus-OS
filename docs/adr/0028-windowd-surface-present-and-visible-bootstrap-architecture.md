@@ -54,7 +54,7 @@ Adopt a dedicated `windowd` architecture contract with these rules:
    - The live chain is `hidrawd -> inputd -> windowd -> gpud (virtio-gpu)`.
    - `selftest-client` remains observer-only and may only emit display/input proof markers after polling service-owned `VisibleState`.
    - A missing stable marker in `visible-bootstrap` is treated as a missing host/service proof for the first broken hop.
-   - Current fast-closure matrix: `docs/testing/display-output-hardening-matrix.md`.
+   - Current fast-closure matrix: `docs/graphics-ui/display-chain.md`.
 
 10. **TASK-0057 grows `windowd` into Minimal DisplayServer v0**
    - `windowd` is now a standalone os-lite service, not only an in-process library.

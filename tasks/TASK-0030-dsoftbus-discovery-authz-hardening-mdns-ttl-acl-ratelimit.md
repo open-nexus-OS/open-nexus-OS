@@ -15,7 +15,7 @@ links:
   - label: ADR
     target: docs/adr/0005-dsoftbus-architecture.md
   - label: "DSoftBus overview"
-    target: docs/distributed/dsoftbus-lite.md
+    target: docs/network/dsoftbus.md
   - label: "Testing contract"
     target: scripts/qemu-test.sh
 ---
@@ -187,7 +187,7 @@ Implement discovery/authz hardening without changing transports or mux:
 - Discovery packet format (NXSB): `source/libs/nexus-discovery-packet` (approval-gated zone)
 - Peer cache: `source/libs/nexus-peer-lru` (approval-gated zone)
 - DSoftBus backend traits: `userspace/dsoftbus`
-- DSoftBus discovery docs: `docs/distributed/dsoftbus-lite.md`
+- DSoftBus discovery docs: `docs/network/dsoftbus.md`
 - QEMU marker contract: `scripts/qemu-test.sh` (gated)
 
 ## Stop conditions (Definition of Done)

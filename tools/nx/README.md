@@ -9,7 +9,7 @@ scripts.
 
 ## Contract Anchors
 
-- DevX guide: `docs/devx/nx-cli.md`
+- DevX guide: `docs/dev/nx-cli.md`
 - CLI convergence task: `tasks/TASK-0045-devx-nx-cli-v1.md`
 - Config v1: `docs/rfcs/RFC-0044-config-v1-configd-schema-layering-2pc-host-first-os-gated.md`
 - Policy as Code v1: `docs/rfcs/RFC-0045-policy-as-code-v1-unified-policy-tree-evaluator-explain-dry-run-learn-enforce-nx-policy.md`

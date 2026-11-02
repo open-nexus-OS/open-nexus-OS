@@ -188,7 +188,7 @@ deterministic pacing (the timer's *fixed* cap-deadline drives it via the working
 > structure logic, the spine's table modules (`waitset.rs`, `fence.rs`) are the *only* ungated
 > kernel modules: pure `alloc` + raw `u32` ids, no router/MMIO coupling, so their
 > `#[cfg(test)] mod tests` **do** run under `cargo test -p neuron`. See
-> `docs/architecture/02-selftest-and-ci.md` § "Host unit tests for kernel logic".
+> `docs/testing/README.md` § "Host unit tests for kernel logic".
 
 - **Host (oracle)**: `cargo test -p neuron` runs the ungated table tests —
   `waitset::tests::*` (readiness aggregation, member/table bounds, dedup, free) and
@@ -216,4 +216,4 @@ deterministic pacing (the timer's *fixed* cap-deadline drives it via the working
 - [x] Phase 4: gpud on DriverKit (`SubmitRing`) + windowd timer-cap pacing (`spin_hz`→0).
       Follow-up: full windowd waitset present-scheduler once gpud signals a completion fence.
 - [ ] Phase 5: clean idle/deadline (retire degenerate-spin) + SMP reruns — **deferred** (ADR-0033).
-- [x] ADR-0033 + `docs/architecture/02-selftest-and-ci.md` host-test section.
+- [x] ADR-0033 + `docs/testing/README.md` host-test section.

@@ -106,7 +106,7 @@ This RFC defines a minimal, reviewable contract for that preparation.
 
 The kernel must have a single place that answers “who owns what?” at subsystem granularity.
 
-- **Document location (normative)**: `docs/architecture/01-neuron-kernel.md`
+- **Document location (normative)**: `docs/kernel/README.md`
 - **Minimum required content**:
   - global kernel state shape (what is initialized once, what is mutated during syscalls)
   - ownership of core subsystems (`Scheduler`, `TaskTable`, `IpcRouter`, `AddressSpaceManager`)

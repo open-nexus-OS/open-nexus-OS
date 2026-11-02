@@ -99,7 +99,7 @@ open, as does resuming kernel-mode tasks from the idle loop.
   kernel modules (pure `alloc` + raw ids) so `cargo test -p neuron` runs them (8 + 8 tests);
   `cargo test -p nexus-driverkit` runs the ring/qos/buffer goldens (21). QEMU markers prove the
   syscall integration: `KSELFTEST: waitset wake/timeout ok`, `fence wait/timeout ok`. See
-  `docs/architecture/02-selftest-and-ci.md` § "Host unit tests for kernel logic" for why the
+  `docs/testing/README.md` § "Host unit tests for kernel logic" for why the
   rest of the kernel runs 0 host tests and the riscv `cargo check` + QEMU markers are the gates.
 - The full windowd waitset present-scheduler (a waitset over {command, vsync-timer,
   gpud-completion-fence}) earns its multi-source keep only once gpud signals a completion fence

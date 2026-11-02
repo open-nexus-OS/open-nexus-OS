@@ -19,7 +19,7 @@ links:
   - label: Playbook
     target: CLAUDE.md
   - label: "Storage docs"
-    target: docs/storage/vfs.md
+    target: docs/storage/README.md
   - label: "Testing contract"
     target: scripts/qemu-test.sh
   - label: enables

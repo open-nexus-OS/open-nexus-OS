@@ -11,7 +11,7 @@ links:
   - label: Playbook
     target: CLAUDE.md
   - label: "Policy flow"
-    target: docs/architecture/11-policyd-and-policy-flow.md
+    target: docs/security/policyd.md
   - label: "Content providers (pathless streams)"
     target: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
   - label: "Doc picker (SAF flows)"
@@ -59,7 +59,7 @@ while remaining **sandboxed and auditable**:
 - **Cross-provider operations**: copy/move are performed by `fileopsd` via streams; apps do not bulk-copy by raw paths.
   Source: `TASK-0085`.
 - **Policy authority**: `policyd` is single authority; identity binds to kernel `sender_service_id`.
-  Source: `docs/architecture/11-policyd-and-policy-flow.md`.
+  Source: `docs/security/policyd.md`.
 - **Persistence for remember-access / metadata**: persistable grants and storage-related metadata live under `/state` via the `/state` authority plan.
   Source: `TASK-0009`.
 - **Device-class boundary**: any real userspace block/USB frontend relies on capability-gated device access (MMIO caps now; IRQ/DMA later).

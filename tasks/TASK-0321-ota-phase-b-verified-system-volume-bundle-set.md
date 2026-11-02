@@ -508,8 +508,8 @@ distributor; fixed ctrl-plane slots never shift. `ComponentSink` grows only `com
 - **P5 — Boot-image floor**: `APP_PAYLOADS` and the `FETCH_IMAGE` pkgimg move into the volume as
   `SystemVolume` bundles; packagefsd mounts via `OP_GET_FILE_VMO` (per-file digest from the v3
   index) instead of RAM bytes (`packagefsd: mounted (system volume slot=a)`); pkgimg v2 transcode
-  retired; docs `docs/architecture/09-nexus-init.md`, `15-bundlemgrd.md`,
-  `docs/packaging/system-set.md`, `docs/updates/*` swept.
+  retired; docs `docs/boot-init/nexus-init.md`, `15-bundlemgrd.md`,
+  `docs/updates/system-set.md`, `docs/updates/*` swept.
 
 ### Stop conditions (Definition of Done — replaces the seed DoD)
 

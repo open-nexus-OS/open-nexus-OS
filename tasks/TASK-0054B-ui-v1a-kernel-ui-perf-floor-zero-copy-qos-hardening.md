@@ -189,8 +189,8 @@ Notes:
 - `source/libs/nexus-abi/`
 - `source/services/execd/`
 - `source/apps/selftest-client/`
-- `docs/architecture/01-neuron-kernel.md`
-- `docs/architecture/16-rust-concurrency-model.md`
+- `docs/kernel/README.md`
+- `docs/architecture/concurrency.md`
 - `docs/testing/README.md`
 - `docs/storage/vmo.md`
 

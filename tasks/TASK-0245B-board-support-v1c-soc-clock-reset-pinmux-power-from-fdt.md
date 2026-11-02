@@ -252,7 +252,7 @@ Delivered and proven on the board (`docs/board/measurements/2026-10-05-usb-cycle
 - **The literal gate** (DoD): `scripts/check-no-platform-literals.sh` matches the six syscon windows
   (APBC, MPMU, PLL, APMU, APBC2, pinctrl) in every crate but `socd`'s own; its self-test proves a
   window outside the owner hits and the owner's does not.
-- **Docs** (DoD): RFC-0106 Phase 1 ✅, `docs/architecture/06-boot-and-bringup.md` (the SoC glue
+- **Docs** (DoD): RFC-0106 Phase 1 ✅, `docs/boot-init/boot.md` (the SoC glue
   paragraph), CHANGELOG.
 
 Moved, each with the consumer that needs it (no new work in this task):
@@ -288,4 +288,4 @@ Moved, each with the consumer that needs it (no new work in this task):
 
 P1–P2 green on QEMU (host tests, `socd` markers in every profile, the probe); the SDHCI consumer
 up on the board through `socd` (TASK-0246); the literal gate carries the window addresses; docs
-(RFC-0106 Phase 1 ✅, `docs/architecture/06-boot-and-bringup.md` glue paragraph, CHANGELOG).
+(RFC-0106 Phase 1 ✅, `docs/boot-init/boot.md` glue paragraph, CHANGELOG).

@@ -167,7 +167,7 @@ mapping work is where it belongs; the open driver maps every firmware object wri
 - `source/services/windowd/`
 - `source/services/*` (only minimal counter consumers if needed)
 - `docs/storage/vmo.md`
-- `docs/architecture/01-neuron-kernel.md`
+- `docs/kernel/README.md`
 - `scripts/qemu-test.sh`
 
 ## Plan (small PRs)

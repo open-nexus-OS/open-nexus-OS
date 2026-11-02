@@ -221,7 +221,7 @@ UART markers (gated in `scripts/qemu-test.sh` + proof-manifest):
 - `source/apps/selftest-client/` (reanimated exec phase + new proofs)
 - `source/apps/selftest-client/proof-manifest/markers/exec.toml`
 - `scripts/qemu-test.sh` (marker list)
-- `docs/reliability/` (failure vocabulary section), `docs/services/lifecycle.md`
+- `docs/reliability/` (failure vocabulary section), `docs/boot-init/lifecycle.md`
   (correction — the described OS supervisor does not exist yet; point to RFC-0087)
 
 ## Plan (small PRs)

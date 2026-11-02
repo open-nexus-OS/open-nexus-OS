@@ -30,7 +30,7 @@ links:
   - label: "Pretext layout engine"
     target: docs/rfcs/RFC-0057-ui-v3a-layout-engine-pretext-contract.md
   - label: "Hardening plan (GPU pipeline + scene graph)"
-    target: docs/architecture/hardening-plan.md
+    target: docs/graphics-ui/README.md
   - label: "Platform-class UI perf matrix"
     target: docs/dev/perf/PLATFORM-CLASS-UI-PERFORMANCE-OPTIMIZATIONS-QEMU-MATRIX.md
   - label: "Lazy loading contract"
@@ -79,7 +79,7 @@ per-row `blur_backdrop_segment`) that cannot sustain 120 Hz under blur load. The
 (`scene_graph.rs`, 834 lines, fully built) and SystemUI shell (`systemui_shell.rs`, 299 lines, fully built)
 already exist but are not wired into the frame path — `flush_pending_damage` still uses the old CPU path.
 
-The hardening plan (`docs/architecture/hardening-plan.md`, ~4.5h estimated) defines the exact sequence to
+The hardening plan (`docs/graphics-ui/README.md`, ~4.5h estimated) defines the exact sequence to
 remove CPU compositing and unify into a GPU-only pipeline driven by the scene graph. This task must
 execute that plan as its first phase so the virtual list, blur, and pacing work all target the correct
 architecture from day one.

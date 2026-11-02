@@ -9,6 +9,7 @@
 //! TEST_COVERAGE: tools/nx/tests/ledger_cli.rs (a `test_reject_*` per rule)
 //! ADR: docs/rfcs/RFC-0115-planning-as-data-milestones-sprints-phases-one-ledger-cli.md
 
+use super::docs;
 use super::model::*;
 use super::repo::{Doc, Repo};
 use super::yaml::{get, get_text, Value};
@@ -47,6 +48,7 @@ pub(crate) fn lint(repo: &Repo) -> Vec<Problem> {
             fatal: false,
         }));
     }
+    out.extend(docs::code_refs(&repo.root));
     out
 }
 
@@ -80,7 +82,7 @@ pub(crate) fn check_doc(doc: &Doc, out: &mut Vec<String>) {
         }
     }
     let id_field = get_text(&doc.entries, "id");
-    if doc.kind != Kind::Subsystems && id_field != Some(doc.id.as_str()) {
+    if !matches!(doc.kind, Kind::Subsystems | Kind::Doc) && id_field != Some(doc.id.as_str()) {
         out.push(format!("`id` must be `{}` (the file name)", doc.id));
     }
     if let Some(note) = doc.text("status_note") {
@@ -104,6 +106,7 @@ pub(crate) fn check_doc(doc: &Doc, out: &mut Vec<String>) {
                 out.push(String::from("a superseded RFC names its successor in `superseded_by`"));
             }
         }
+        Kind::Doc => docs::alone(doc, out),
         Kind::Sprint | Kind::Subsystems => {}
     }
 }
@@ -164,6 +167,8 @@ fn check_value(key: &str, ty: Ty, value: &Value, out: &mut Vec<String>) {
         Ty::Slugs => each(is_slug, "a slug", out),
         Ty::StoryRefs => each(is_story_ref, "a story (TASK-NNNN/P3)", out),
         Ty::PhaseIds => each(is_phase_id, "a phase id", out),
+        Ty::Paths => each(is_repo_path, "a repo-relative path", out),
+        Ty::ContractIds => each(is_contract_id, "a contract id (RFC-NNNN, ADR-NNNN)", out),
         Ty::Map(spec) => match value {
             Value::Map(map) => check_record(key, spec, map, out),
             _ => out.push(bad("a block of `key: value` lines")),
@@ -407,6 +412,13 @@ pub(crate) fn check_refs(
                 notes.push(format!("`{key}` names {id}, which has no file"));
             }
         }
+    }
+    match doc.kind {
+        Kind::Doc => docs::refs(repo, doc, fatal),
+        Kind::Task | Kind::Track | Kind::Rfc | Kind::Milestone => {
+            docs::planning_refs(repo, doc, fatal, notes)
+        }
+        Kind::Sprint | Kind::Subsystems => {}
     }
     match doc.kind {
         Kind::Task => {

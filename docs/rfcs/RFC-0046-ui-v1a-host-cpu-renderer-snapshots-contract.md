@@ -16,7 +16,7 @@ links:
   - label: "Related RFCs"
     target: "`docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md`, `docs/rfcs/RFC-0038-selftest-client-production-grade-deterministic-test-architecture-refactor-v1.md`, `docs/rfcs/RFC-0040-zero-copy-vmos-v1-plumbing-host-first-os-gated.md`"
   - label: Architecture
-    target: "`docs/architecture/graphics/nexusgfx-compute-and-executor-model.md`, `docs/architecture/graphics/nexusgfx-text-pipeline.md`"
+    target: "`tasks/TRACK-NEXUSGFX-SDK.md`, `tasks/TRACK-NEXUSGFX-SDK.md`"
   - label: "Production gate policy"
     target: "`tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` (Gate E: Windowing, UI & Graphics, production-floor; kernel production-grade follow-ups stay explicit)"
 ---

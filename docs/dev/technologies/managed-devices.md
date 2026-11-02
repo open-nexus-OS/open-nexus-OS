@@ -74,4 +74,4 @@ For organizations, it should scale without changing the core model.
 - `docs/dev/technologies/family-mode.md`
 - `docs/dev/technologies/dev-mode.md`
 - `docs/dev/platform/group-and-device-management.md`
-- `docs/security/managed-policy-and-enrollment.md`
+- `docs/architecture/vision.md`

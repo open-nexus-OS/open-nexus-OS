@@ -1,428 +1,127 @@
+---
+schema: 1
+title: "OS markers"
+role: reference
+subsystem: devx
+sources: [source/apps/selftest-client/proof-manifest/markers, source/apps/selftest-client/proof-manifest/phases.toml, tools/nx/chains/markers.txt, scripts/qemu-test.sh, scripts/check-chain-markers.sh, config/fail-marker-allow.txt]
+contracts: [RFC-0013, RFC-0014, RFC-0038, RFC-0108]
+verified: 2026-11-02
+---
+
 <!-- Copyright 2026 Open Nexus OS Contributors -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# Scaffold sanity and OS-E2E marker sequence
+# OS markers
 
-QEMU smoke scaffolding and the canonical UART marker contract: just targets, the manifest-driven proof workflow (profiles/markers/phases), phase-gated smoke, Miri tiers, and the full OS-E2E marker sequence with VMO split notes. Split out of the former `docs/testing/index.md`; see [README.md](README.md) for the entry point.
+> **Purpose** — where the UART marker truth lives, how a marker is declared, which gates judge a run, and how to find a marker.
+> **Owns** — the reference only; the data is `source/apps/selftest-client/proof-manifest/` and `tools/nx/chains/markers.txt`.
+> **Contracts** — [RFC-0014](../rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md) (phases), [RFC-0038](../rfcs/RFC-0038-selftest-client-production-grade-deterministic-test-architecture-refactor-v1.md) (manifest as the one marker source), [RFC-0013](../rfcs/RFC-0013-boot-gates-readiness-spawn-resource-v1.md) (readiness), [RFC-0108](../rfcs/RFC-0108-ux-latency-contract-instant-and-smooth-as-numbers.md) (judged measurement lines)
+> **Invariants** — no fake green (CLAUDE.md `no-fake-green`): `*: ready` / `SELFTEST: * ok` only after the real behavior, stubs print `stub`/`placeholder`. A marker string is a stable contract. This page copies no marker lists.
+> **Read next** — [proof-manifest.md](proof-manifest.md), [run-logs.md](run-logs.md), `.claude/skills/boot-proof/SKILL.md`
 
-## Scaffold sanity
+## Where the truth lives
 
-Run the QEMU smoke test to confirm the UART marker sequence reaches
-`SELFTEST: e2e exec-elf ok`. Keep `RUN_UNTIL_MARKER=1` to exit early once markers are
-seen and ensure log caps are in effect. `just test-os` wraps
-`scripts/qemu-test.sh`, so the same command exercises the minimal exec path.
+| Source | Holds | Read by |
+|---|---|---|
+| `source/apps/selftest-client/proof-manifest/markers/*.toml` | every marker literal, its phase, `proves`, profile gates | `selftest-client` build (`M_*` constants), `nexus-proof-manifest` CLI, `scripts/qemu-test.sh`, `tools/os2vm.sh`, `nexus-evidence` |
+| `source/apps/selftest-client/proof-manifest/phases.toml` | the 12 RFC-0014 phases and their order | the same |
+| `source/apps/selftest-client/proof-manifest/profiles/*.toml` | which lane expects what (`emit_when`/`forbidden_when` resolve against these) | the same |
+| `tools/nx/chains/markers.txt` | cross-service chain markers, by group | `cargo test -p nx`, `scripts/check-chain-markers.sh` |
+| `scripts/qemu-test.sh` | lane-only ladders (`USB_MARKERS`, `USB_INPUT_MARKERS`, `LOWMEM_INPUT_MARKERS`, …) and `RUN_PHASE` slices | the harness itself |
+| `config/fail-marker-allow.txt`, `config/fail-marker-allow-board.txt` | tolerated `FAIL` lines, each with its tracking reference | FAIL gate |
 
-### Just targets
+## Phases
 
-- Host unit/property: `just test-host`
-- Host E2E: `just test-e2e` (runs `nexus-e2e`, `remote_e2e`, `logd-e2e`, `vfs-e2e`, `e2e_policy`)
-- DSoftBus mux requirement suites (`TASK-0020`): `just test-dsoftbus-mux`
-- DSoftBus QUIC host requirement suites (`TASK-0021`): `just test-dsoftbus-quic`
-- DSoftBus full host regression: `just test-dsoftbus-host`
-- nx CLI host proof suite (`TASK-0045`): `cargo test -p nx -- --nocapture`
-- Config v1 host proof floor (`TASK-0046`):
-  - `cargo test -p nexus-config -- --nocapture`
-  - `cargo test -p configd -- --nocapture`
-  - `cargo test -p nx -- --nocapture`
-  - proves Soll-Verhalten, not implementation detail coupling:
-    - stable reject classification for unknown/type/depth/size failures
-    - deterministic layered merge order and JSON-only authoring contract
-    - semantic parity between `configd` views and `nx config effective --json`
-    - honest 2PC commit/abort/rollback state transitions with unchanged-version evidence on failure
-    - deterministic CLI exit/JSON/file-effect contracts under `nx config`
-- Policy as Code v1 host proof floor (`TASK-0047`):
-  - `cargo test -p policy -- --nocapture`
-  - `cargo test -p nexus-config -- --nocapture`
-  - `cargo test -p configd -- --nocapture`
-  - `cargo test -p policyd -- --nocapture`
-  - `cargo test -p nx -- --nocapture`
-  - proves Soll-Verhalten, not implementation detail coupling:
-    - single live policy root under `policies/` with `recipes/policy/` non-authoritative
-    - deterministic `PolicyVersion` for equivalent validated inputs
-    - stable `test_reject_*` classes for invalid/oversize/ambiguous/traversal/trace-budget cases
-    - deterministic `policies/manifest.json` validation and fail-closed missing/mismatch handling
-    - bounded explain traces and dry-run/learn non-bypass semantics
-    - authenticated/current-version mode changes and stale/unauthorized rejects
-    - Config v1 `policy.root` effective-snapshot carriage into the `configd::ConfigConsumer` policy reload path
-    - external `policyd` host frame operations for version/eval/mode get/mode set
-    - first adapter parity plus service-facing `policyd` check-frame cutover through the unified authority
-    - `nx policy` deterministic exit/JSON contracts under the existing `tools/nx` binary, including explicit `mode` preflight-only output
-- UI host renderer snapshot proof floor (`TASK-0054` / `RFC-0046`):
-  - `cargo test -p ui_renderer -- --nocapture`
-  - `cargo test -p ui_host_snap -- --nocapture`
-  - `cargo test -p ui_host_snap reject -- --nocapture`
-  - proves Soll-Verhalten, not implementation detail coupling:
-    - BGRA8888 byte order and 64-byte frame stride
-    - deterministic primitive pixels and bounded damage semantics
-    - fixture-font text without host font discovery or locale fallback
-    - canonical BGRA golden comparison with PNG metadata ignored
-    - fail-closed update/path traversal/input reject classes
-    - no host-only fake OS/QEMU success markers
-- Input v1.0a host-core proof floor (`TASK-0252` / `RFC-0052`):
-  - `cargo test -p input_v1_0_host -- --nocapture`
-  - proves Soll-Verhalten, not implementation detail coupling:
-    - USB-HID boot keyboard/mouse parsing emits deterministic logical events
-    - touch normalization preserves ordered `down -> move* -> up`
-    - shared base keymaps cover deterministic `us`, `de`, `jp`, `kr`, and `zh` vectors without locale probing
-    - repeat timing is driven by injected monotonic time rather than wall-clock behavior
-    - pointer acceleration is monotonic, bounded, and safe for extreme deltas
-    - `test_reject_*` coverage exists for malformed HID/touch inputs and invalid repeat/accel configuration
-  - no QEMU markers or `SELFTEST: ... ok` strings are part of 0252 closure; live-input markers remain `TASK-0253` scope
-- Input v1.0b live-input proof floor (`TASK-0253` / `RFC-0053`):
-  - `cargo test -p hidrawd -- --nocapture`
-  - `cargo test -p touchd -- --nocapture`
-  - `cargo test -p inputd -- --nocapture`
-  - `cargo test -p settingsd -- --nocapture`
-  - `cargo test -p nx -- --nocapture`
-  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap`
-  - proves Soll-Verhalten for the currently landed live-input slice:
-    - `hidrawd` keyboard/mouse ingest rejects malformed boot-protocol input deterministically
-    - `touchd` deterministic synthetic touches remain bounded and normalized
-    - `inputd` routes keyboard, pointer, and touch through `windowd` authority with bounded queues
-    - IME show/hide hooks remain bounded stubs only
-    - `visible-bootstrap` marker verification covers the in-process `hidrawd|touchd -> inputd -> windowd` proof path under `verify-uart`
-  - active hardening/debug order for the remaining live pointer closure:
-    - derive visible QEMU input devices from the selected SystemUI profile manifest instead of hardcoding mouse+tablet together,
-    - run source-isolated proofs first (`mouse-only`, `tablet-only`, `keyboard-only`) to identify the failing service boundary honestly,
-    - only then rerun the combined visible-bootstrap lane for modern desktop-style mixed mouse+touch behavior,
-    - keep `visible-bootstrap` as the guest-side/QMP-injected proof lane only; real host-pointer closure belongs to `make run` / `just start`,
-    - for the interactive lane, require sustained cursor movement evidence on the real GTK/QEMU path rather than accepting a single first-move event as closure.
-  - does **not** yet prove separate OS daemon startup/device wiring for `hidrawd`, `touchd`, and `inputd`; broad closure gates remain task-controlled
-- RFC-0054 gate hardening floor (`TASK-0253` in-progress live-daemon slice):
-  - **General capability/routing/IPC gates**
-    - `cargo test -p nx --test interactive_os_startup`
-    - proves deterministic owner-chain contracts as static guards:
-      - `init-lite` transfers dedicated `input_req` / `input_rsp` caps to `hidrawd` and `inputd`,
-      - routing contract exposes explicit `inputd`/`hidrawd` lookup entries,
-      - `inputd` keeps a deterministic named-route -> slot-fallback posture for startup resilience.
-  - **Input-specific gates**
-    - `cargo test -p virtio-input -- --nocapture`
-    - proves virtio-input role detection is bounded and tolerant of optional config-bit absence (keyboard-safe default).
-    - `cargo test -p hidrawd -- --nocapture`
-    - proves bounded ingest and deterministic event mapping remain green while OS-lite owner-loop posture evolves.
-  - **Focused OS startup gate**
-    - `RUN_PHASE=input-startup RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s scripts/qemu-test.sh --profile=visible-bootstrap`
-    - proves `hidrawd`/`touchd`/`inputd` startup markers in canonical order without waiting for full end-to-end closure.
-- QEMU smoke: `RUN_UNTIL_MARKER=1 just test-os` (defaults to `PROFILE=full`)
-- QEMU smoke (DHCP requested): `just ci-os-dhcp` (PROFILE-driven; replaces the deleted `test-os-dhcp`)
-- QEMU smoke (Strict DHCP gate): `just ci-os-dhcp-strict` (PROFILE-driven; replaces the deleted `test-os-dhcp-strict`)
-- DSoftBus 2-VM harness (TASK-0005): `just ci-os-os2vm` (PROFILE-driven; or `just os2vm` for the raw 2-VM driver)
-- Crashdump v1 host proofs (TASK-0018):
-  - `cargo test -p crash -- --nocapture`
-  - `cargo test -p execd -- --nocapture`
-  - `cargo test -p minidump-host -- --nocapture`
-  - `cargo test -p statefsd -- --nocapture`
-- DSoftBus 2-VM harness + PCAP: `just test-dsoftbus-2vm-pcap` (or `just os2vm-pcap`)
-  - Expected remote markers on success: `SELFTEST: remote resolve ok`, `SELFTEST: remote query ok`, `SELFTEST: remote pkgfs stat ok`, `SELFTEST: remote pkgfs open ok`, `SELFTEST: remote pkgfs read step ok`, `SELFTEST: remote pkgfs close ok`, `SELFTEST: remote pkgfs read ok`, and `dsoftbusd: remote packagefs served`
-- Full gate (recommended before “everything is green”): `just test-all`
-  - Includes `fmt-check`, `lint`, `deny-check`, host tests, Miri tiers, `arch-check`, and QEMU selftests.
-- Make convenience wrapper: `make verify`
-  - Delegates to `just` gates (`diag-host`, `test-host`, `test-e2e`, `dep-gate`, `diag-os`, `test-os`).
-  - Optional SMP dual-mode extension: `REQUIRE_SMP_VERIFY=1 make verify`.
+<!-- gen:markers -->
+| # | phase | markers | declared in |
+|---|---|---|---|
+| 1 | `bringup` | 578 | board.toml, bringup.toml, ota.toml, ui.toml, usb.toml |
+| 2 | `ipc_kernel` | 27 | ipc_kernel.toml |
+| 3 | `mmio` | 15 | mmio.toml |
+| 4 | `routing` | 53 | routing.toml |
+| 5 | `ota` | 73 | ota.toml |
+| 6 | `policy` | 54 | policy.toml |
+| 7 | `exec` | 71 | exec.toml |
+| 8 | `logd` | 56 | logd.toml |
+| 9 | `vfs` | 29 | vfs.toml |
+| 10 | `net` | 80 | net.toml |
+| 11 | `remote` | 21 | remote.toml |
+| 12 | `end` | 174 | board.toml, end.toml, ui.toml, usb.toml |
 
-### Manifest-driven workflow (TASK-0023B Phase 4)
+1231 markers in 15 files.
+<!-- /gen:markers -->
 
-The QEMU marker ladder, harness profile catalog, and runtime selftest profile catalog live under **`source/apps/selftest-client/proof-manifest/manifest.toml`** and its included `markers/`, `profiles/`, and `phases.toml` files. This proof-manifest tree is the single source of truth (SSOT). `scripts/qemu-test.sh`, `tools/os2vm.sh`, the `selftest-client` build, and the `nexus-proof-manifest` host CLI all read from it; nothing else is allowed to declare markers, profile env, or phase order.
+## Declaring a marker
 
-#### Profile catalog
+1. Add the entry to the phase's file under `markers/`:
+   ```toml
+   [marker."dsoftbusd: transport selected tcp"]
+   phase = "net"
+   proves = "QUIC path actually used (TCP fallback banned under quic-required)"
+   forbidden_when = { profile = "quic-required" }
+   ```
+   Optional keys: `emit_when`, `emit_when_not`, `forbidden_when` (`{ profile = "<name>" }`,
+   matched along the `extends` chain), `introduced_in`. Literals match as substrings of a UART
+   line, so one ending in a space or `(` acts as a prefix for a line that carries values.
+2. `cargo build -p selftest-client` regenerates `markers_generated.rs` with
+   `pub(crate) const M_<KEY>: &str`.
+3. Emit through the constant: `emit_line(crate::markers::M_<KEY>)`. `just arch-gate` (Rule 3 in
+   `scripts/check-selftest-arch.sh`) fails on a hand-written `SELFTEST:`/`dsoftbusd:` literal
+   outside `markers.rs` / `markers_generated.rs`. Services other than `selftest-client` print
+   their lines themselves; the manifest still declares them.
+4. Changing or renaming a marker: update the emitter, the manifest, `scripts/qemu-test.sh` (if a
+   lane ladder names it), `tools/nx/chains/markers.txt` + the chain contract (if it is a chain
+   marker), and docs, in one change.
+5. Check: `cargo test -p nexus-proof-manifest`;
+   `cargo run -p nexus-proof-manifest -- list-markers --profile=<p>` prints the expected ladder.
 
-| Kind     | Profile         | Driver                          | Purpose |
-|---       |---              |---                              |---|
-| Harness  | `full`          | `scripts/qemu-test.sh`          | Default 12-phase ladder (`just test-os` / `just ci-os-full`). |
-| Harness  | `visible-bootstrap` | `scripts/qemu-test.sh`      | TASK-0055B/0055C/0056/TASK-0057 visible `ramfb`, SystemUI, v2a, live-input, and Minimal DisplayServer v0 asset marker ladder (`just test-os visible-bootstrap`); not a SystemUI start profile or screenshot proof. |
-| Harness  | `smp`           | `scripts/qemu-test.sh`          | Real-parallelism lane: declares `SMP=2` + `REQUIRE_SMP=1` + icount off (MTTCG), so the secondary-hart proofs (`KINIT: cpu1 online`, `smp exec cpu1`, `smp per-hart ticks`, `runtime timer budget` — emitted from a non-boot hart) are required; `bkl budget ok` is required here too but is not hart-dependent. Non-deterministic by nature → bounded retry via `just ci-os-smp`. |
-| Harness  | `smp1`          | `scripts/qemu-test.sh`          | Deterministic single-hart gate (`just ci-os-smp1`, the hard `test-all` boot proof): declares `SMP=1` + icount on, extends `headless`, and does NOT set `REQUIRE_SMP` — one hart cannot emit secondary-hart proofs, so `KSELFTEST: tlb shootdown skipped (smp=1)` is the explicit absence line. |
-| Harness  | `dhcp`          | `scripts/qemu-test.sh`          | DHCP requested; deterministic fallback allowed (`just ci-os-dhcp`). |
-| Harness  | `dhcp-strict`   | `scripts/qemu-test.sh`          | DHCP must bind (`just ci-os-dhcp-strict`); extends `dhcp`. |
-| Harness  | `quic-required` | `scripts/qemu-test.sh`          | QUIC required; `transport selected tcp` is forbidden (`just ci-os-quic`). |
-| Harness  | `supply-chain`  | `scripts/qemu-test.sh`          | Supply-chain marker ladder required (`just test-os supply-chain`). |
-| Harness  | `os2vm`         | `tools/os2vm.sh`                | Cross-VM DSoftBus harness (`just ci-os-os2vm`). |
-| Runtime  | `bringup`       | `os_lite::profile` (in-OS)      | Boots `bringup` + `end` phases only (`SELFTEST_PROFILE=bringup`). |
-| Runtime  | `quick`         | `os_lite::profile` (in-OS)      | `bringup` → `ipc_kernel` → `mmio` → `end`. |
-| Runtime  | `ota`           | `os_lite::profile` (in-OS)      | `bringup` → `ipc_kernel` → `ota` → `end`. |
-| Runtime  | `net`           | `os_lite::profile` (in-OS)      | `bringup` → `ipc_kernel` → `mmio` → `routing` → `net` → `end`. |
-| Runtime  | `none`          | `os_lite::profile` (in-OS)      | `bringup` + `end` only — empty middle. |
+Markers are ASCII. `dbg:` lines are never markers. A guest writes no line per keystroke or per
+frame (privacy rule, `docs/standards/SECURITY_STANDARDS.md`).
 
-Harness profiles live under `[profile.<name>]` with `runner` + optional `extends` + `env` keys. Runtime profiles set `runtime_only = true` and declare `phases = [...]` (subset of the 12 declared `[phase.X]` entries); skipped phases emit a single `dbg: phase X skipped` breadcrumb instead of any `SELFTEST:` markers.
+## Gates on a run
 
-#### Adding a new marker
+| Gate | Where | Fails when | Off switch (manual only) |
+|---|---|---|---|
+| Ladder | `scripts/qemu-test.sh` (`list-markers --profile`) + lane ladders | a required marker is missing; prints `first_failed_phase=` and `missing_marker=` | — |
+| Deny-by-default | `nexus-proof-manifest verify-uart` | an unexpected or `forbidden_when` marker appears (all lanes except the non-display list in `profile_has_display` and `display-gpu`) | `PM_VERIFY_UART=0` |
+| FAIL gate | `scripts/qemu-test.sh` | any `SELFTEST:`/`KSELFTEST:` `FAIL` line not in `config/fail-marker-allow.txt` | `FAIL_MARKER_GATE=0` |
+| Chain contract | `scripts/check-chain-markers.sh` | a chain group of `tools/nx/chains/markers.txt` the lane covers is missing | `MARKER_CONTRACT=0` |
+| Trace contract | `scripts/qemu-test.sh` (RFC-0107) | the boot disk's kept trace differs from the UART | — |
+| Pixel proof | `tools/pixel_proof_judge.py` (`visible*` lanes) | the desktop or settled frame is black, has an unpainted band, or equals the splash | — |
+| Evidence seal | `scripts/qemu-test.sh` post-pass | assemble/seal fails when sealing is required ([evidence-bundle.md](evidence-bundle.md)) | `NEXUS_EVIDENCE_DISABLE=1` (rejected under `CI=1`) |
 
-1. Append a `[marker."<literal>"]` entry to `proof-manifest.toml` with `phase = "<name>"` and any `emit_when = { profile = "..." }` / `forbidden_when = { profile = "..." }` gates.
-2. Re-run `cargo build -p selftest-client` (the `build.rs` regenerates `markers_generated.rs` with a `pub(crate) const M_<KEY>: &str = "<literal>";` constant).
-3. In the emitting site, reference the constant: `crate::markers::emit_line(crate::markers::M_<KEY>);`. Do not hand-write the literal — `arch-gate` Rule 3 fails the build if any `SELFTEST:` / `dsoftbusd:` / `dsoftbus:` literal appears outside `markers.rs` + `markers_generated.rs`.
-4. Add a `cargo test -p nexus-proof-manifest` reject test if the marker carries new gating semantics.
+Check a chain group against any log: `just check-markers build/logs/<run>/uart.log` or
+`bash scripts/check-chain-markers.sh --log <uart.log> --groups input-live`.
 
-#### Adding a new harness profile
+## Kinds of lines
 
-1. Append `[profile.<name>]` with `runner = "scripts/qemu-test.sh"` (or your driver), optional `extends = "<parent>"`, and `env = { ... }`. Use `extends` for inheritance — child entries shadow parent keys; cycles are rejected at parse time.
-2. Add a `just ci-<flavor>` recipe in the `# CI matrix` section of `justfile` that invokes `just test-os PROFILE=<name>` (or your alternate runner). Do **not** put `REQUIRE_*` env literals in the recipe body — `arch-gate` Rule 6 will fail. All env wiring belongs in the manifest.
-3. Verify: `nexus-proof-manifest list-env --profile=<name>` prints the resolved env; `nexus-proof-manifest list-markers --profile=<name>` prints the expected marker ladder.
+- **Readiness** — `<svc>: ready` (serves its contract) vs `init: up <svc>` (init saw `@ready`).
+- **Proof** — `SELFTEST: … ok` / `KSELFTEST: … ok`, with a matching `FAIL` form where a probe can fail.
+- **Explicit absence** — a lane without a device prints why, e.g. `init: usb plane none (no host
+  controller)`; the ladder requires the honest absence line, not silence.
+- **Measurement** — numbers without a verdict (e.g. `KSELFTEST: ipc stats (`); the ladder pins the prefix only.
+- **Judged measurement** (RFC-0108) — `<service>: ux <name> <ok|warn|FAIL> (… budget_<unit>=<n>)`.
+  Budgets live only in `source/libs/nexus-ux-budgets/src/lib.rs`; the rung is the prefix
+  (`gpud: ux frame `), the verdict is judged by the FAIL scan and its allow-lists.
+- **Build provenance** — gpud's first line `gpud: features=…` names the compiled feature set;
+  `scripts/check-bundle-provenance.sh` checks the bundle for it.
 
-#### Adding a new runtime profile
+Interactive boots (`just start`) fold routine lines into per-service verdicts and expand only
+failures (RFC-0068); proof boots print every line raw. Headless GPU coverage is
+`just ci-os-display-gpu-pci`; the visible desktop is `just start` or `just start-vnc`
+(judge a frame with `tools/visual-postflight.py`).
 
-1. Append `[profile.<name>]` with `runtime_only = true` and `phases = ["...", "..."]` (subset of declared phases). The parser rejects unknown phase names and rejects `runner` keys on runtime-only profiles.
-2. Add a `Profile::<Name>` variant to `source/apps/selftest-client/src/os_lite/profile.rs` and wire it into `Profile::from_kernel_cmdline_or_default` + `Profile::includes`.
-3. Add a `ci-os-runtime-<name>` recipe that sets `SELFTEST_PROFILE=<name>` at build time (the env is read via `option_env!`, so the value is baked into the binary; `build.rs` already advertises `cargo:rerun-if-env-changed=SELFTEST_PROFILE`).
-
-#### Adding a new phase
-
-1. Update [RFC-0014](../rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md) and append a `[phase.<name>] order = N` entry to `proof-manifest.toml`.
-2. Add `source/apps/selftest-client/src/os_lite/phases/<name>.rs` and register it in `os_lite/phases/mod.rs`.
-3. Extend `PhaseId` in `os_lite/profile.rs` and the `run_or_skip!` chain in `os_lite/mod.rs` (declarative; no logic).
-4. Add a `dbg: phase <name> skipped` marker entry to `proof-manifest.toml` so runtime profiles can declaratively skip the phase.
-
-#### Deny-by-default analyzer (P4-09)
-
-After every QEMU pass `scripts/qemu-test.sh` invokes `nexus-proof-manifest verify-uart --profile=<name> --uart=uart.log`. Any marker that is not in the profile's expected set, or that the profile lists as forbidden, fails the run with exit 1. Set `PM_VERIFY_UART=0` only as a temporary escape hatch (will be required by P4-10 closure / Phase-5).
-
-### Phase-gated QEMU smoke (triage helper)
-
-For faster triage (RFC‑0014 Phase 2), you can stop QEMU early after a named **phase** and only
-validate markers up to that phase:
-
-- Supported phases: `bring-up`, `routing`, `ota`, `policy`, `logd`, `vfs`, `end`
-
-Examples:
+## Finding a marker
 
 ```bash
-# Stop after core service bring-up (init + core *: ready markers)
-RUN_PHASE=bring-up RUN_TIMEOUT=90s just test-os
-
-# Stop after OTA smoke (stage → switch → health → rollback)
-RUN_PHASE=ota RUN_TIMEOUT=190s just test-os
+# Which phase/file declares it, what it proves, which profiles gate it
+grep -rn -A4 'marker."SELFTEST: policy allow ok"' source/apps/selftest-client/proof-manifest/markers/
+# Who emits it
+grep -rn 'M_SELFTEST_POLICY_ALLOW_OK' source/apps/selftest-client/src/
+# Is it a chain marker or in a lane ladder
+grep -n 'policy allow ok' tools/nx/chains/markers.txt scripts/qemu-test.sh
+# The full expected ladder of one profile
+cargo run -q -p nexus-proof-manifest -- list-markers --profile=smp1
+# Did the last run print it
+grep -a 'SELFTEST: policy allow ok' "$(ls -dt build/logs/*--*/ | head -1)uart.log"
 ```
-
-On failure, the harness prints:
-
-- `first_failed_phase=<name>`
-- `missing_marker='<marker>'`
-- a **bounded** UART excerpt scoped to the failed phase.
-
-### Network/distributed debugging (SSOT)
-
-Canonical networking proof semantics and knobs now live in:
-
-- `docs/testing/network-distributed-debugging.md` (SSOT)
-
-Keep this file focused on the global testing workflow. For DHCP/DSoftBus proof gates, packet evidence expectations, and `os2vm` typed failure triage, use the SSOT document.
-
-### Miri tiers
-
-- Strict (no IO): run on crates without filesystem/network access.
-  - Example: `just miri-strict` (uses `MIRIFLAGS='--cfg nexus_env="host"'`).
-- FS-enabled: for crates that legitimately touch the filesystem or env.
-  - Example: `just miri-fs` (uses `MIRIFLAGS='-Zmiri-disable-isolation --cfg nexus_env="host"'`).
-- Under `#[cfg(miri)]`, keep property tests lightweight (lower case count, disable persistence) to avoid long runtimes.
-
-## Measurement lines and UX budgets (RFC-0108, TASK-0334)
-
-A measurement line names a number; a **judged** measurement line names it against a budget and
-carries a verdict. The shape is one for every emitter:
-
-```
-<service>: ux <name> <ok|warn|FAIL> (<measure>=<value> … budget_<unit>=<budget>)
-```
-
-- The budgets live in ONE place, `source/libs/nexus-ux-budgets/src/lib.rs` (a frame 16 667 µs
-  with one dropped frame per 32 as `warn` and four as `FAIL`; an input's wait in the compositor
-  50 ms / 100 ms; a launch's first frame 300 ms / 1 s; a tap's feedback 100 ms). A service reads
-  them; it never re-types a number. The verdict is the crate's `judge` (host truth table), never
-  a service's own comparison — `ok` only inside the budget.
-- The lines of Phase 0: `gpud: ux frame <v> (dropped= of=32 max_us= budget_us=16667)` once per
-  32-frame window beside `gpu frame us`; `windowd: ux input <v> (to_submit_us= of=16
-  budget_us=50000)` once per 16 inputs (the first staged input to the submit of the frame that
-  carries it — the way to the pixel is gpud's `dc present us`, the way from the device is
-  hidrawd's `drain_us` until the input carries its own stamp); `apphost: ux launch <v>
-  (first_frame_ms= budget_ms=300)` once per app, from its first instruction to its first
-  frame's ack.
-- **The rung is the prefix** (`gpud: ux frame `): a ladder requires the line's presence. **The
-  verdict is the scan's**: `FAIL` is red unless the lane's allow-list names it with its tracking
-  reference (`config/fail-marker-allow.txt` for QEMU — an emulated lane's timing is not the
-  contract; `config/fail-marker-allow-board.txt` for the board — each red named with the package
-  that meets it, removed when it turns green). A reader of any run judges it the same way:
-  the lines, then the allow-list.
-- Where a lane's rungs go: `apphost: ux launch ` on `headless`/`visible`/`board-headless`
-  (the greeter); `gpud: ux frame ` and `windowd: ux input ` on `board-visible` (the operator's
-  series fills the windows; the GPU path exists on the board alone).
-
-## Display truth: build provenance + host pixel proof (TASK-0324 P0)
-
-UART markers are the compositor's and the driver's *claims*; the display is
-judged on the host. Three contracts hold this together:
-
-- `gpud: features=os-lite,virgl` / `gpud: features=os-lite` — gpud's FIRST
-  line, raw in every boot mode (`debug_write`, never folded): the cargo
-  feature set the binary was compiled with. `scripts/build.sh` resolves every service's features
-  from `[package.metadata.nexus-service]` (`scripts/discover-services.sh
-  --cargo-features <svc>`) for the embedded table AND the system-volume
-  bundles, publishes the ELF under `build/services/<svc>/<feature-key>/`, and
-  `scripts/check-bundle-provenance.sh` greps the bundle for this line. Under
-  `GPU_MODE=virgl` the harness requires the `virgl` variant and treats
-  `gpud: cpu fallback` as a contract violation.
-- `gpud: FAIL virgl device needs virgl feature` / `gpud: FAIL gl draw
-  unavailable on gl device` / `gpud: FAIL gl scanout init` — scanout policy
-  (`backend/scanout_policy.rs`): a GL device (`virtio-gpu-gl`) is driven
-  through the GL render target or not at all. The former 2D plane-row retry
-  (`SET_SCANOUT{y=1600}`) shows black on every GL display backend, which
-  blits the scanout texture from row 0. These lines fail every lane
-  (`FAIL_MARKER_GATE`, not allow-listable).
-- Pixel proof (`[profile.visible]`, `just ci-os-visible`, in `test-all`):
-  egl-headless + VNC (`QEMU_VNC_DISPLAY`), `tools/pixel_proof_on_marker.py`
-  snapshots the host framebuffer at `gpud: completion wait …` (splash — raw in
-  every boot mode, right after gpud's bootstrap scanout),
-  `systemui: first frame visible` (desktop) and `SELFTEST: ota stage ok`
-  (settled — minutes into the ladder, the greeter as it stays, with its clock;
-  TASK-0251 finding 1: a band only a settled frame showed) into the run's log dir;
-  `tools/pixel_proof_judge.py` requires the desktop and the settled frame to be
-  non-black and to have no unpainted band (fewer than 64 consecutive rows that are
-  each one flat colour across the width — `flat_band_rows` in the JSON), AND the
-  desktop to differ from the splash. `[profile.visible-2d]` (`just ci-os-visible-2d`) runs the same proof
-  on the 2D scanout at 1920x1080 — the CPU executor the board shows. `just start-vnc` exposes the same VNC listener
-  (127.0.0.1:5979) so `tools/visual-postflight.py --out shot.png` judges an
-  interactive boot the same way (a windowed gtk,gl=on context cannot share a
-  VNC display — QEMU refuses the combination).
-
-## OS-E2E marker sequence and VMO split
-
-The os-lite `nexus-init` backend is responsible for announcing service
-bring-up. The OS smoke path emits a deterministic sequence of UART markers that
-the runner validates in order.
-
-Readiness contract (RFC-0013):
-
-- `init: up <svc>` means init observed the service’s `@ready` announce on the control channel (RFC-0093 §2, TASK-0324 P2) — it follows `<svc>: ready` and is presence-checked, not order-checked.
-- `<svc>: ready` means the service is fully ready to serve its v1 contract.
-- Tests MUST NOT treat `init: up` as readiness; missing `<svc>: ready` is a hard failure with an explicit error message.
-- Low-effort readiness gates may query `logd` for `*: ready` markers when a service lacks a dedicated ready RPC (stopgap until readiness RPCs exist).
-
-Additional kernel selftest markers may appear before `init: start`:
-
-- `KSELFTEST: spawn reasons ok`
-- `KSELFTEST: resource sentinel ok`
-
-IPC numbers (TASK-0054C P1, RFC-0096 Phase 1 — printed, never asserted; the
-values calibrate the budgets in `core/trap/budgets.rs` before P4 asserts them,
-and the harness gates only the stable prefix):
-
-- `SELFTEST: ipc bench (rt=<n>us n=<N>)` — `ipc_kernel` phase: mean round trip
-  of `N` request/reply exchanges over the ONE exchange (`nexus_ipc::exchange::
-  call_into`: two traps, moved reply cap, EOF-opted wait) against samgrd's
-  `OP_PING_CAP_MOVE` (12-byte request, 12-byte reply — inside the ≤ 64-byte
-  inline tier). `SELFTEST: ipc bench FAIL` when any reply is not the expected
-  `PONG` + nonce.
-- `KSELFTEST: ipc stats (sends=<n> heap_allocs=<a> copies=<c> copy_bytes=<b>
-  wake_ipis=<i> handoff_hit=0 handoff_miss=<w>)` — `end` phase, emitted by the
-  kernel next to `KSELFTEST: bkl budget` over the steady-state window
-  (`ipc_stats::reset()` runs with `budgets::reset()` once bring-up completes):
-  messages accepted, kernel heap allocations for payloads, payload copies and
-  their bytes, receiver wakes that needed a cross-hart IPI, and every receiver
-  wake counted as a handoff miss. TASK-0054C P4c-2 REMOVED the `handoff_hit=0` field
-  rather than keep printing a number that could not be non-zero — decoration is not
-  telemetry — and put `wake_enq_ticks=<mean>/<max>` in its place: the cost of the
-  runqueue half of a wake, which is exactly what a direct handoff (D3) would remove.
-  Ticks, not microseconds, because one enqueue is far below a microsecond and rounding
-  it to 0 µs would hide the number this exists to show.
-  `kheap_used` is kernel heap bytes in use at the same fence (TASK-0054C P3b):
-  the inline tier makes `Message` bigger to make most messages allocation-free,
-  so what that trade COSTS is a number in the log, not an argument.
-  Zero-copy direction (RFC-0096): the target is 0 heap allocations and exactly
-  two register-sized copies per control message, and bulk never through the
-  kernel (VMO). Since TASK-0054C P3a `heap_allocs` is ONE per message, not two:
-  the send path cloned the payload "in case the attempt fails", but its loop has
-  no `continue` and a failed send hands the whole message back anyway. Since P3b
-  it is far below one: a payload of at most `IPC_SHORT_MAX` rides inline, so
-  `heap_allocs` equals the payload histogram's >32 B population exactly and no
-  longer scales with the boot (0.276 per message on smp1, 0.114 on visible).
-- `SELFTEST: ipc oversize rejected ok` — `ipc_kernel` phase. A payload of
-  `IPC_PAYLOAD_MAX + 1` real bytes must come back as `E2BIG` and as nothing
-  else; success fails the probe too (TASK-0054C P3b). Before P3b the kernel
-  answered `EINVAL`, which userspace could not tell apart from a bad pointer.
-- `KSELFTEST: ipc payload hist (zero=<n> le32=<n> le64=<n> le128=<n> le256=<n>
-  le512=<n> le1k=<n> gt1k=<n>)` — `end` phase, same window and same line pair as
-  the stats above. The payload-size distribution of accepted sends, one count per
-  message, counted where the kernel copies the payload in — the same point
-  `heap_allocs` counts, so the bucket total always equals `heap_allocs` and both
-  exceed `sends` by the messages that fail to enqueue after copy-in. It exists to
-  SIZE the inline tier (TASK-0054C P3b): RFC-0096 wrote
-  `IPC_SHORT_MAX = 64` before anything measured the distribution, and an average
-  cannot choose a tier — many tiny frames and a few large ones average like
-  all-medium ones. Numbers, no verdict.
-
-SMP-gated markers (enabled only with `REQUIRE_SMP=1` and `SMP>=2`):
-
-- `KINIT: cpu1 online`
-- `KSELFTEST: smp online ok`
-- `KSELFTEST: ipi counterfactual ok`
-- `KSELFTEST: ipi resched ok`
-- `KSELFTEST: test_reject_invalid_ipi_target_cpu ok`
-- `KSELFTEST: test_reject_offline_cpu_resched ok`
-- `KSELFTEST: work stealing ok`
-- `KSELFTEST: test_reject_steal_above_bound ok`
-- `KSELFTEST: test_reject_steal_higher_qos ok`
-
-Memory pressure note (until TASK-0228):
-
-- Boot runs may still hit allocator exhaustion (`ALLOC-FAIL`) or late spawn failures due to memory pressure.
-- This is expected to be fully addressed by the cooperative OOM watchdog in
-  `tasks/TASK-0228-oomd-v1-deterministic-watchdog-cooperative-memstat-samgr-kill.md`.
-- Until then, use the SpawnFailReason markers and readiness gates to diagnose failures quickly.
-
-Marker order:
-
-1. `neuron vers.` – kernel banner
-2. `init: start` – init process begins bootstrapping services
-3. `init: start keystored` – os-lite init launching the keystore daemon
-4. `init: up keystored` – os-lite init observed the keystore daemon reach readiness
-5. `init: start policyd` – os-lite init launching the policy daemon
-6. `init: up policyd` – os-lite init observed the policy daemon reach readiness
-7. `init: start samgrd` – os-lite init launching the service manager
-8. `init: up samgrd` – os-lite init observed the service manager reach readiness
-9. `init: start bundlemgrd` – os-lite init launching the bundle manager
-10. `init: up bundlemgrd` – os-lite init observed the bundle manager reach readiness
-11. `init: start packagefsd` – os-lite init launching the package FS daemon
-12. `init: up packagefsd` – os-lite init observed the package FS daemon reach readiness
-13. `init: start vfsd` – os-lite init launching the VFS dispatcher
-14. `init: up vfsd` – os-lite init observed the VFS dispatcher reach readiness
-15. `init: start execd` – os-lite init launching the exec daemon
-16. `init: up execd` – os-lite init observed the exec daemon reach readiness
-17. `init: ready` – init completed baseline bring-up
-18. `keystored: ready` – keystore daemon ready (emitted by service process)
-19. `policyd: ready` – policy daemon ready
-20. `samgrd: ready` – service manager daemon ready
-21. `bundlemgrd: ready` – bundle manager daemon ready
-22. `packagefsd: ready` – package file system daemon registered
-23. `vfsd: ready` – VFS dispatcher ready to serve requests
-24. `execd: ready` – exec daemon ready (may be stubbed during bring-up)
-25. `execd: elf load ok` – exec syscall mapped the embedded ELF into the child address space
-26. `child: hello-elf` – spawned task from the ELF payload started and yielded control back to the kernel
-27. `SELFTEST: e2e exec-elf ok` – selftest client observed the ELF loader path end-to-end
-28. `child: exit0 start` – demo payload exercising `exit(0)` began execution
-29. `execd: child exited pid=… code=0` – selftest client observed the exit status (marker name kept for compatibility)
-30. `SELFTEST: child exit ok` – selftest client observed the lifecycle markers
-31. `SELFTEST: policy allow ok` – simulated allow path succeeded via policy check
-32. `SELFTEST: policy deny ok` – simulated denial path emitted for `demo.testsvc`
-33. `SELFTEST: ipc payload roundtrip ok` – kernel IPC v1 payload copy-in/out roundtrip succeeded
-34. ~~`SELFTEST: ipc deadline timeout ok`~~ – retired 2026-09-15 (TASK-0054C P2-a): no userspace wait carries a deadline any more (RFC-0093 §7); the kernel's deadline semantics stay covered by the kernel's own tests (`syscall/api/tests.rs`)
-35. `SELFTEST: nexus-ipc kernel loopback ok` – `nexus-ipc` OS backend exercised kernel IPC v1 syscalls (loopback on bootstrap endpoint)
-36. `SELFTEST: ipc routing ok` – `nexus-ipc` resolved a named service target via the init-lite routing responder
-37. `SELFTEST: vfs stat ok` – VFS over IPC: stat succeeded
-38. `SELFTEST: vfs read ok` – VFS over IPC: open/read succeeded
-39. `SELFTEST: vfs ebadf ok` – VFS over IPC: EBADF behavior verified
-40. `logd: ready` – logd RAM journal ready for APPEND/QUERY/STATS
-41. `SELFTEST: log query ok` – selftest client queried logd and verified records
-42. `SELFTEST: core services log ok` – core services (samgrd/bundlemgrd/policyd/dsoftbusd) emit structured logs to logd (verified via bounded QUERY + STATS delta)
-43. `execd: minidump written /state/crash/child.demo.minidump.nmd` – crash artifact metadata validated and accepted
-44. `execd: crash report pid=... code=42 name=demo.minidump` – execd observed non-zero exit and emitted crash report
-45. `SELFTEST: crash report ok` – selftest client verified crash report via logd query
-46. `SELFTEST: minidump ok` – selftest client validated artifact + report path end-to-end
-47. `SELFTEST: minidump forged metadata rejected` – forged metadata rejected fail-closed
-48. `SELFTEST: minidump no-artifact metadata rejected` – report without artifact bytes rejected fail-closed
-49. `SELFTEST: minidump mismatched build_id rejected` – inconsistent build metadata rejected fail-closed
-50. `SELFTEST: end` – concluding marker from the selftest client
-
-### OS E2E: exec-elf (service path)
-
-- Run `RUN_UNTIL_MARKER=1 just test-os` to exercise the service-integrated loader flow on QEMU.
-- Confirm the UART log contains `execd: elf load ok`, `child: hello-elf`, the lifecycle markers (`child: exit0 start`, `execd: child exited pid=… code=0`, `SELFTEST: child exit ok`), and `SELFTEST: e2e exec-elf ok` before ending the run.
-- Host coverage mirrors the flow via `cargo test -p nexus-loader` for loader unit tests and the bundle manager IPC round-trips in
-  `cargo test -p tests/e2e`.

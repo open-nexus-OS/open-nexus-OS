@@ -437,7 +437,7 @@ mod timer;
 // module; only its `EndpointId`/`Pid` mapping lives in the (gated) syscall layer.
 mod waitset;
 // RFC-0033: timeline fence table — host-testable for the same reason as `waitset` (pure
-// `alloc` + raw u64 value / u32 ids). See `docs/architecture/02-selftest-and-ci.md`.
+// `alloc` + raw u64 value / u32 ids). See `docs/testing/README.md`.
 mod fence;
 // RFC-0075 8e: per-task process-image arena bookkeeping (pure usize ranges, host-unit-tested):
 // `exec` records the blocks, task teardown returns them to the frame pool.

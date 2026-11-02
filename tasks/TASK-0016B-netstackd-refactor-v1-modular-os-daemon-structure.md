@@ -22,7 +22,7 @@ links:
   - label: ADR
     target: docs/adr/0026-network-address-profiles-and-validation.md
   - label: "Architecture SSOT"
-    target: docs/architecture/network-address-matrix.md
+    target: docs/network/address-matrix.md
   - label: Related
     target: tasks/TASK-0249-bringup-rv-virt-v1_2b-os-virtionetd-netstackd-fetchd-echod-selftests.md
   - label: "Testing methodology"
@@ -65,7 +65,7 @@ links:
   (`p0_unit.rs`, `handler_rejects.rs`, `runtime_steps.rs`, `ipc_parse_reply.rs`, `loopback_observability.rs`).
 - `scripts/qemu-test.sh` already gates key `netstackd` markers (`netstackd: ready`, `SELFTEST: net iface ok`, `SELFTEST: net ping ok`, `SELFTEST: net udp dns ok`, `SELFTEST: net tcp listen ok`).
 - Address profile governance is now explicit and centralized in:
-  - `docs/architecture/network-address-matrix.md`
+  - `docs/network/address-matrix.md`
   - `docs/adr/0026-network-address-profiles-and-validation.md`
 
 ## Progress update (2026-03-24 session)
@@ -116,13 +116,13 @@ links:
 ## Progress update (2026-03-24 address-governance sync session)
 
 - Added normative networking profile governance and linked it to this completed task scope:
-  - `docs/architecture/network-address-matrix.md` (SSOT for QEMU/os2vm address profiles)
+  - `docs/network/address-matrix.md` (SSOT for QEMU/os2vm address profiles)
   - `docs/adr/0026-network-address-profiles-and-validation.md` (policy/governance ADR)
 - Synced related docs so contracts do not drift:
-  - `docs/architecture/networking-authority.md`
-  - `docs/distributed/dsoftbus-lite.md`
+  - `docs/network/authority.md`
+  - `docs/network/dsoftbus.md`
   - `docs/testing/network-distributed-debugging.md`
-  - `docs/testing/e2e-coverage-matrix.md`
+  - `docs/testing/e2e.md`
   - `docs/adr/0025-qemu-smoke-proof-gating.md`
 - Aligned runtime code to named address-profile constants and semantic DNS-proof validation:
   - `source/services/netstackd/src/os/entry_pure.rs`

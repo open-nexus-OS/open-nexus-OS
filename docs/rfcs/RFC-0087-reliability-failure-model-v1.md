@@ -70,7 +70,7 @@ injection + fsck, nxfs), a strong *boot diagnostics* floor (RFC-0013), and a goo
   gpud from GL to 2D; statefsd silently stays RAM-backed when the virtio upgrade
   window is missed.
 - RFC-0002 lists "failure handling" as an open question; it was never answered.
-  `docs/services/lifecycle.md` describes a supervisor that does not exist on OS.
+  `docs/boot-init/lifecycle.md` describes a supervisor that does not exist on OS.
 
 This RFC is the missing contract. It also encodes three conservation principles
 inspired by capability-time systems (S3K, RTSS 2025; correspondence with

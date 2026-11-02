@@ -7,7 +7,7 @@
   - RFCs: — (harness policy, not a wire contract)
   - Related ADRs: `docs/adr/0062-boot-stage-fence-and-readiness-barriers.md` (the same
     principle one layer down: declared barriers instead of ambient timing)
-  - Related: `docs/architecture/02-selftest-and-ci.md`, `docs/testing/run-logs.md`
+  - Related: `docs/testing/README.md`, `docs/testing/run-logs.md`
 
 ## Context
 

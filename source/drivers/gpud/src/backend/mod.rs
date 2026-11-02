@@ -10,7 +10,7 @@
 //! STATUS: Experimental
 //! API_STABILITY: Unstable
 //! ADR: docs/adr/0032-gpu-command-ring-and-pipelined-present.md
-//! ARCH: docs/architecture/gpud-command-ring-and-present-pipeline.md
+//! ARCH: docs/graphics-ui/gpud-ring.md
 //! TESTS: `cargo test -p gpud` (protocol size + Submit3d byte-format goldens);
 //!   `tools/nx` `chain_gpu_scanout.rs` (hop-order chain); `scripts/qemu-test.sh`
 //!   (`GPU_MODE=virgl` + mmio boot proof: uniform present `max`, 0 alloc-fail).

@@ -268,7 +268,7 @@ OS/QEMU policy closure remains intentionally unclaimed. No policy OS markers are
 - `tools/nx/` (`nx policy ...` subcommands; follow-up in TASK-0045)
 - `tools/policy-gen/` (optional generator)
 - `tests/`
-- `docs/security/policy-as-code.md`
+- `docs/security/policyd.md`
 - Policy snapshot artifacts (stable JSON + compact binary) are a follow-up tracked in `TASK-0229`.
 
 ## Plan (small PRs)

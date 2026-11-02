@@ -175,7 +175,7 @@ re-provisions from declared topology only).
 - `userspace/nexus-ipc/src/` (Connection re-resolve)
 - `source/apps/selftest-client/` (fault-injector phase + probe service)
 - `source/apps/selftest-client/proof-manifest/markers/` + `scripts/qemu-test.sh`
-- `docs/reliability/` (supervision section), `docs/services/lifecycle.md`
+- `docs/reliability/` (supervision section), `docs/boot-init/lifecycle.md`
 
 ## DoD reconciliation (2026-08-20, documented recuts — Option C)
 

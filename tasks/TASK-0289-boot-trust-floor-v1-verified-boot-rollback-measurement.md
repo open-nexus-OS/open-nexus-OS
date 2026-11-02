@@ -147,7 +147,7 @@ Fatal signatures registered in the harness: `nxboot: PANIC`, unexpected
 - `scripts/build.sh`, `scripts/qemu-launcher.sh`, `scripts/qemu-test.sh`,
   `scripts/check-image-budgets.sh` (approval), `Makefile`/`justfile` (approval)
 - `tools/nx/chains/markers.txt`, `source/apps/selftest-client/proof-manifest/`
-- `docs/security/`, `docs/architecture/06-boot-and-bringup.md`
+- `docs/security/`, `docs/boot-init/boot.md`
 
 ## Progress
 

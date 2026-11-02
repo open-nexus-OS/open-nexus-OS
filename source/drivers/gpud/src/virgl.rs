@@ -20,7 +20,7 @@
 //! API_STABILITY: Unstable
 //! `Submit3d` is HEAP-FREE (inline `[u32; 1024]`, `as_bytes() -> &[u8]` view) so a
 //! draw can be built per-frame without an allocation on gpud's present
-//! path. See ADR-0032 / docs/architecture/gpud-command-ring-and-present-pipeline.md.
+//! path. See ADR-0032 / docs/graphics-ui/gpud-ring.md.
 //! TESTS: the `#[cfg(test)]` byte-format goldens in this file (`cargo test -p gpud`).
 
 // ── Command opcodes (VIRGL_CCMD_*) ──────────────────────────────────

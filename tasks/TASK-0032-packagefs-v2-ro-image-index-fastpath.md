@@ -21,7 +21,7 @@ links:
   - label: "Related (VMO plumbing)"
     target: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
   - label: "Architecture baseline"
-    target: docs/architecture/12-storage-vfs-packagefs.md
+    target: docs/storage/README.md
   - label: "Testing contract"
     target: scripts/qemu-test.sh
 ---
@@ -105,7 +105,7 @@ Key properties:
 ## Contract sources (single source of truth)
 
 - `docs/packaging/nxb.md` (bundle layout direction)
-- `docs/architecture/12-storage-vfs-packagefs.md` (service boundary and ownership)
+- `docs/storage/README.md` (service boundary and ownership)
 - `source/services/packagefsd/src/std_server.rs` (host in-memory baseline)
 - `source/services/packagefsd/src/os_lite.rs` (existing `fetch_image` path and `pkgimg` v2 decoder)
 - `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` (Gate-C production-grade closure language)
@@ -189,7 +189,7 @@ The following production-grade closure items remain explicit follow-ups and are 
 - `tools/pkgimg-build/` (new host tool) and optionally `tools/nxb-pack/` integration
 - `source/services/packagefsd/` (v2 image-backed path; host + os-lite)
 - `source/apps/selftest-client/` (gated markers)
-- `docs/architecture/12-storage-vfs-packagefs.md` (new/updated for pkgimg v2)
+- `docs/storage/README.md` (new/updated for pkgimg v2)
 - `docs/testing/README.md`
 - `scripts/qemu-test.sh` (gated)
 
@@ -226,7 +226,7 @@ The following production-grade closure items remain explicit follow-ups and are 
    - Verify mount marker + read a known `pkg:/demo.hello/manifest...`.
 
 5. **Docs**
-   - `docs/architecture/12-storage-vfs-packagefs.md` describing v2 image layout, determinism, and migration strategy.
+   - `docs/storage/README.md` describing v2 image layout, determinism, and migration strategy.
 
 ## Follow-ups (separate tasks)
 

@@ -11,7 +11,7 @@
 //! INVARIANTS: A slot is only ever accessed by the CPU it belongs to; access
 //!             runs with interrupts masked (no trap-path reentrancy); nested
 //!             access to the same wrapper on one CPU panics instead of aliasing.
-//! ADR: docs/architecture/16-rust-concurrency-model.md
+//! ADR: docs/architecture/concurrency.md
 
 use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicBool, Ordering};

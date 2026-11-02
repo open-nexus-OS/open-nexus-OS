@@ -90,9 +90,9 @@ Establish and enforce a single-authority runtime model:
 
 - **Docs gate (keep architecture entrypoints in sync)**:
   - If this task is ever revisited or the init/spawn/load authority boundaries change, update (or create) the corresponding architecture landing pages:
-    - `docs/architecture/09-nexus-init.md`
-    - `docs/architecture/10-execd-and-loader.md`
-    - `docs/architecture/05-system-map-and-boundaries.md`
+    - `docs/boot-init/nexus-init.md`
+    - `docs/boot-init/execd.md`
+    - `docs/architecture/system-map.md`
     - and the index `docs/architecture/README.md`
 
 Notes:

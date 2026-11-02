@@ -121,7 +121,7 @@ a DSL test app without FILES and is deferred to the track's next slice.
   path if any per-permission wiring is needed)
 - app-host runtime (svc.files dispatch): `userspace/dsl/runtime/`, app-host service host
 - `userspace/apps/stash/` (manifest + store + page)
-- `source/apps/selftest-client/`, `scripts/qemu-test.sh`, `docs/storage/vfs.md`
+- `source/apps/selftest-client/`, `scripts/qemu-test.sh`, `docs/storage/README.md`
 
 ## Plan (small PRs)
 

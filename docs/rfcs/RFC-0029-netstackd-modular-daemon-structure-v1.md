@@ -16,7 +16,7 @@ links:
   - label: ADRs
     target: "`docs/adr/0026-network-address-profiles-and-validation.md`"
   - label: "Architecture SSOT"
-    target: "`docs/architecture/network-address-matrix.md`"
+    target: "`docs/network/address-matrix.md`"
   - label: "Related RFCs"
     target: "`docs/rfcs/RFC-0006-userspace-networking-v1.md`"
   - label: "Related RFCs"
@@ -38,7 +38,7 @@ Definition:
 Post-completion sync (2026-03-24):
 
 - Address/profile governance for QEMU + os2vm is now anchored outside this RFC in:
-  - `docs/architecture/network-address-matrix.md`
+  - `docs/network/address-matrix.md`
   - `docs/adr/0026-network-address-profiles-and-validation.md`
 - Runtime code and proof gates were re-validated after this governance sync:
   - `cargo test -p netstackd --tests -- --nocapture`

@@ -14,7 +14,7 @@ links:
   - label: "`docs/adr/0020-manifest-format-capnproto.md` (bundle manifest contract"
     target: "`manifest.nxb`)"
   - label: "Packaging docs"
-    target: "`docs/packaging/system-set.md` (system-set layout + signature binding)"
+    target: "`docs/updates/system-set.md` (system-set layout + signature binding)"
   - label: "Related RFCs"
     target: "`docs/rfcs/RFC-0003-unified-logging.md` (audit logging facade discipline)"
   - label: "Related RFCs"
@@ -354,7 +354,7 @@ Audit logging (normative):
 ### Policy enforcement (out of scope for v1.0)
 
 Signature verification is mandatory for v1.0. The enforcement modes, trust-store policy,
-and developer workflow are defined in `docs/security/signing-and-policy.md` (single source of truth).
+and developer workflow are defined in `docs/security/signing.md` (single source of truth).
 
 **v1.0 implementation note**:
 

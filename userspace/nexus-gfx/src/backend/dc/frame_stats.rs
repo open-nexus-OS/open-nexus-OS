@@ -17,7 +17,7 @@
 //! INVARIANTS: a window is sums over its presents, never a line per present or per command;
 //!   it closes after [`FrameStats::WINDOW`] presents and starts empty.
 //!
-//! ADR: docs/adr/0028-nexusgfx-architecture.md
+//! ADR: docs/rfcs/RFC-0059-ui-v5a-animation-nexusgfx-sdk-gpu-driver-contract.md
 
 use core::fmt;
 

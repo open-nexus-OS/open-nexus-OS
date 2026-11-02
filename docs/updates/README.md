@@ -1,119 +1,103 @@
-# Updates v1 — UI + CLI workflow (TASK-0140)
+---
+schema: 1
+title: "Updates (OTA)"
+role: guide
+subsystem: updates
+sources: [source/services/updated, source/services/bootctld, userspace/updates, tools/nx/src/commands/update.rs, tools/nx/src/cli_update.rs, userspace/apps/settings/ui/components/sections/UpdatesView.nx]
+contracts: [RFC-0089, RFC-0090, RFC-0012]
+verified: 2026-11-02
+---
 
-<!--
-CONTEXT: How a developer drives the RFC-0089 OTA engine offline: the `nx
-update` host CLI over built artifacts, and the Settings → Info → System
-update page over the live services. The honest boundary of every surface
-is stated where it applies.
-OWNERS: @tools-team @runtime
-STATUS: Functional
-API_STABILITY: Unstable
-ADR: docs/rfcs/RFC-0089-ota-v2-component-manifest-ab-boot-images-nxboot-bsb.md
--->
+<!-- Copyright 2026 Open Nexus OS Contributors -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
-Both surfaces drive the REAL engine (`updated` v2 + bootctld) and hold no
-update logic of their own. There is **no host↔guest transport**: the CLI
-works on built artifacts (disk/data images), the page works on the live
-services inside the OS.
+# Updates (OTA)
 
-## The honest boundary (read this first)
+> **Purpose** — how a developer drives the OTA engine: the `nx update` host CLI over built images, and the Settings update page over the live services.
+> **Owns** — `source/services/updated/`, `userspace/updates/`, `tools/nx/src/commands/update.rs`, `userspace/apps/settings/ui/components/sections/UpdatesView.nx`
+> **Contracts** — [RFC-0089](../rfcs/RFC-0089-ota-v2-component-manifest-ab-boot-images-nxboot-bsb.md) (`.nxs` v2 component manifest, A/B boot images, nxboot, boot selection block), [RFC-0090](../rfcs/RFC-0090-nxdelta-boot-image-delta-stream-format.md) (`.nxdelta` streams), [RFC-0012](../rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md) (the v1 `.nxs` system set)
+> **Invariants** — commit happens only through the health quorum, never through a button. Stage/switch/rollback need `updates.manage` on the kernel-attributed sender. Neither surface holds update logic of its own.
+> **Read next** — [delta.md](delta.md), [system-set.md](system-set.md)
 
-- **Commit happens via health quorum, never via a button.** A switch arms a
-  bounded trial (tries=2); the commit fires only when the full declared
-  quorum reports health after the reboot (RFC-0089 §13). Nothing on any
-  surface can "force" a commit.
-- **Mutation is policy-gated.** `updated` requires the policyd-granted
-  `updates.manage` capability on the kernel-attributed sender for
-  stage/switch/rollback (deny-by-default; reads stay open). The Settings
-  page holds the route but NOT the grant — its action rows render the
-  honest DENIED state. The CLI's switch/rollback verbs are offline
-  preflights and say so (`applied=false`).
+## Shape
+
+| piece | role |
+|---|---|
+| `updated` | verifies `.nxs` v2 containers from `/updates/*.nxs` on the data volume, writes the inactive slot, forwards status |
+| `bootctld` | single boot-state authority: slots, trial, tries, health commit, rollback floor |
+| `userspace/updates/` | the engine: `component_set.rs` (verify + apply), `volume_apply.rs` (system volume), `delta_apply.rs`, `bundle_delta.rs`, `stage_journal.rs` |
+| `nx update` | host CLI over a built disk image; same codecs and engine |
+| Settings update page | reads and drives the live services |
+
+There is no host↔guest transport: the CLI works on built images, the page on the live OS.
+
+## Rules
+
+- **Commit = health quorum.** A switch arms a bounded trial (`tries=2`). The commit fires only when the full declared quorum reports health after the reboot (RFC-0089 §13).
+- **Mutation is policy-gated.** `updated` asks policyd whether the sender holds `updates.manage` (`source/services/updated/src/manage_gate.rs`). Reads stay open. The Settings page holds the route but not the grant, so its action rows render the DENIED state.
 
 ## `nx update` (host, offline)
 
 ```bash
-nx update status  [--image build/nexus.img] [--key keys/dev-os-image]
-nx update check   [--image build/nexus.img | --data data.img]
-nx update stage <container.nxs> [--image build/nexus.img | --data data.img]
-nx update switch  [--image build/nexus.img] [--tries 2]
-nx update rollback [--image build/nexus.img]
+nx update status   [--image build/nexus.img] [--key <seed> | --pubkey <hex>] [--json]
+nx update check    [--image build/nexus.img | --data <data.img>] [--json]
+nx update stage <container.nxs> [--image build/nexus.img | --data <data.img>] [--json]
+nx update switch   [--image build/nexus.img] [--tries 2] [--json]
+nx update rollback [--image build/nexus.img] [--json]
 ```
 
-- `status` decodes the BSB + both slot NXBDs from the disk through the same
-  `bootfmt` codecs nxboot/bootctld link. Without a key, descriptors report
-  `sig=unchecked`; verdicts are data, the exit class is the CLI contract.
-- `check` enumerates `/updates/*.nxs` on the data volume and verifies every
-  candidate through the REAL device engine against the baked anchor and the
-  disk's anti-downgrade floor. A blank data volume is an honest empty feed.
-- `stage` is the RFC-0089 §9 provisioning drop: verify FIRST (same engine,
-  same floor gate — the stable reject vocabulary: `untrusted publisher |
-  sig | digest | bounds | path | component kind unsupported | downgrade |
-  io`), then write into `/updates/`. The device stages from there.
-- `switch` / `rollback` are **preflights**: they report what the machine
-  would do (`applied=false` in the JSON data) — the live transitions belong
-  to `updated`/bootctld on the device.
+| verb | does |
+|---|---|
+| `status` | decodes the BSB and both slot NXBDs with the `bootfmt` codecs nxboot/bootctld use; without a key descriptors report `sig=unchecked` |
+| `check` | lists `/updates/*.nxs` on the data volume and verifies each through the device engine against the baked anchor and the disk's anti-downgrade floor |
+| `stage` | verifies first, then writes into `/updates/`; rejects: `untrusted publisher`, `sig`, `digest`, `bounds`, `path`, `component kind unsupported`, `downgrade`, `io` |
+| `switch`, `rollback` | preflights only (`applied=false`); the live transitions belong to `updated`/bootctld |
 
-After a QEMU OTA lane, `nx update status --image build/nexus.img` decodes
-the state the LIVE machinery produced; the `ota-flip` harness gates on it.
+`--data` takes a standalone nxfs data image and skips the floor gate. After a QEMU OTA lane, `nx update status --image build/nexus.img` decodes the state the live machine left; the `ota-flip` profile gates on it.
 
-## Bundle sets — the system volume travels with the flip (TASK-0321 P3)
+## Component kinds
 
-RFC-0089 §12 (Phase B) makes a component set carry the verified system
-volume alongside the boot image: `[boot-image | boot-image-delta]?,
-system-volume, (bundle)*`. The `system-volume` component (kind 6) ships the
-pkgimg v3 superblock + index with the signed NXSV as `kindData` — paired
-with the set's boot image digest, so a volume can never be staged against
-a different kernel; each `bundle` component (kind 2) ships exactly one
-index window (its sha256 IS the index bundle digest). The device engine
-(`updates::volume_apply::VolumeAssembler`, host-proven in
-`tests/updates_host/tests/component_set_volume.rs`) writes the inactive
-system slot: index first, bundle windows readback-verified, bundles the
-set did NOT ship copied from the ACTIVE volume against the new index
-(`updated: bundle reused (name=…@… sha=…)`), the whole volume read back
-against `volume_sha256`, and the NXSV **last** — a valid NXSV exists only
-over a complete, byte-identical volume (power-cut matrix). New reject
-vocabulary: `order | volume-binding | bundle-not-in-index | volume-digest`.
+| kind | name | payload |
+|---|---|---|
+| 1 | `boot-image` | full boot image + embedded NXBD |
+| 2 | `bundle` | one system-volume index window (its sha256 is the index's bundle digest) |
+| 3 | `boot-image-delta` | `.nxdelta` stream against the active boot slot |
+| 4 | `bundle-delta` | `.nxdelta` stream against one bundle window of the active volume |
+| 6 | `system-volume` | pkgimg superblock + index, signed NXSV as `kindData`, bound to the set's boot digest |
 
-Since TASK-0321 P5 the volume also carries the app bundles (`payload.nxir` +
-`meta/app.properties`) and the `system` data bundle: `pkg:/`, the launcher grid
-and `GET_PAYLOAD` all derive from the same NXSV-verified index — an app update is
-a bundle-set update like any other.
+## Bundle sets (system volume travels with the flip)
 
-A boot-image update on a volume-based system is only complete WITH its
-paired volume (the NXSV binds the boot digest): ship `system-volume` next to
-the `boot-image` and let the device reuse every unchanged bundle — the set
-then carries the index and zero bundle payloads.
+A set is `[boot-image | boot-image-delta]?, system-volume, (bundle | bundle-delta)*` (RFC-0089 §12). The device assembler (`userspace/updates/src/volume_apply.rs`) writes the inactive system slot:
 
-A torn stage resumes: the assembler keeps the `NXSJ` journal at sector 1 of
-the inactive system slot (bound to the target volume's digests) and, on the
-next stage of the same set, readback-verifies every journalled window and
-rewrites only the rest — `updated: restage resume (bundles=k/N)`; a valid
-NXSV zeroes the journal (TASK-0035 P1).
+1. index first;
+2. shipped bundle windows, read back and verified;
+3. bundles the set did not ship are copied from the active volume (`updated: bundle reused (name=…)`);
+4. the whole volume read back against `volume_sha256`;
+5. NXSV last — a valid NXSV exists only over a complete volume.
 
-`nx image ota --bundle-set <dir> --reuse-from <active.img>` ships only the
-bundles whose window digest changed against the device's `system-a` (JSON
-`bundle_set.shipped` / `.reused` = the reuse manifest, TASK-0035 P2);
-`nx image ota --bundle-set <dir>` alone builds the full set from bundle
-directories; `nx image fixtures --system-bundles <dir>` emits
-`/updates/bundle-set.nxs` (os-B + the NEXT system volume, `build.sh`
-ships it as `build/system-bundles-next`, metricsd@1.0.1). The
-`ota-bundle` QEMU lane (`just ci-os-ota-bundle`, two boots one uart)
-stages it, flips, and proves on boot 2 that bundlemgrd verified system-b
-paired with the measured image and init spawned metricsd@1.0.1 FROM that
-volume (`SELFTEST: ota bundle-set ok`).
+Extra rejects: `order`, `volume-binding`, `bundle-not-in-index`, `volume-digest`.
 
-## Settings → Info → System update (live)
+The volume carries the app bundles and the `system` data bundle, so `pkg:/`, the launcher grid and `GET_PAYLOAD` all come from one NXSV-verified index. A boot-image update on a volume system ships `system-volume` next to the boot image; unchanged bundles are reused.
 
-The page reads `svc.updates.status` (updated forwards bootctld's status
-plus the staged-build tail), `svc.updates.feed` and `svc.updates.check` —
-active slot, pending trial, tries left, health commit, BSB projection,
-rollback floor, staged build are all service truth, never derived
-client-side. Actions ask the engine (`stage`/`switch`/`rollback`) and
-render exactly what comes back: success, the machine's reject, or the
-policy DENIED state.
+A torn stage resumes: the `NXSJ` journal at sector 1 of the inactive system slot records verified windows; the next stage of the same set rewrites only the rest (`updated: restage resume (bundles=k/N)`). A valid NXSV zeroes the journal.
 
-Proof surfaces: the page logic is host-proven in
-`tests/dsl_apps_conformance/tests/settings.rs` (service-truth rendering,
-deny state, action→refresh chain); the live read surface is proven by
-`SELFTEST: updates surface ok` (status/feed/check coherence against the
-boot authority) in the QEMU ladder.
+Emission:
+
+| command | emits |
+|---|---|
+| `nx image ota --bundle-set <dir>` | the full set from bundle directories |
+| `nx image ota --bundle-set <dir> --reuse-from <active.img>` | only bundles whose window digest changed |
+| `nx image ota --bundle-set <dir> --delta-from-volume <active>` | changed bundles as `bundle-delta` (see [delta.md](delta.md)) |
+| `nx image fixtures --system-bundles <dir>` | `/updates/bundle-set.nxs` fixture |
+
+Lanes: `just ci-os-ota`, `just ci-os-ota-bundle`, `just ci-os-ota-bundle-resume`, `just ci-os-ota-bundle-delta`. The bundle lane proves `SELFTEST: ota bundle-set ok` on the second boot.
+
+## Settings update page (live)
+
+`UpdatesView.nx` with `userspace/apps/settings/ui/composables/updates.store.nx` reads `svc.updates.status`, `svc.updates.feed` and `svc.updates.check`. Active slot, pending trial, tries left, health commit, rollback floor and staged build are service truth, never derived client-side. Actions call stage/switch/rollback and render what comes back: success, the engine's reject, or DENIED.
+
+| proof | where |
+|---|---|
+| page logic | `tests/dsl_apps_conformance/tests/settings.rs` |
+| live read surface | `SELFTEST: updates surface ok` |
+| engine | `tests/updates_host/tests/` |

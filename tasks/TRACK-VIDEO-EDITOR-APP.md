@@ -21,11 +21,11 @@ links:
   - label: "NexusGfx SDK (render/compute contracts)"
     target: tasks/TRACK-NEXUSGFX-SDK.md
   - label: "Gfx resource model"
-    target: docs/architecture/graphics/nexusgfx-resource-model.md
+    target: tasks/TRACK-NEXUSGFX-SDK.md
   - label: "Gfx sync/lifetime model"
-    target: docs/architecture/graphics/nexusgfx-sync-and-lifetime.md
+    target: tasks/TRACK-NEXUSGFX-SDK.md
   - label: "Gfx artifact pipeline"
-    target: docs/architecture/graphics/nexusgfx-artifact-pipeline.md
+    target: tasks/TRACK-NEXUSGFX-SDK.md
   - label: "Drivers & accelerators (GPU/VPU/audio/camera contracts)"
     target: tasks/TRACK-DRIVERS-ACCELERATORS.md
   - label: "NexusInfer SDK (on-device ML runtime)"

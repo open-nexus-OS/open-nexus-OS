@@ -89,9 +89,9 @@ Notes:
 
 - **Docs gate (keep architecture entrypoints in sync)**:
   - If the VFS bring-up sequence, marker ownership, or client contract changes, update:
-    - `docs/architecture/09-nexus-init.md` (bring-up sequencing and `init:` marker ownership)
-    - `docs/architecture/12-storage-vfs-packagefs.md` (packagefsd/vfsd responsibilities + proof)
-    - `docs/architecture/06-boot-and-bringup.md` (bring-up pipeline overview)
+    - `docs/boot-init/nexus-init.md` (bring-up sequencing and `init:` marker ownership)
+    - `docs/storage/README.md` (packagefsd/vfsd responsibilities + proof)
+    - `docs/boot-init/boot.md` (bring-up pipeline overview)
     - and the index `docs/architecture/README.md`
 
 ## Touched paths (allowlist)

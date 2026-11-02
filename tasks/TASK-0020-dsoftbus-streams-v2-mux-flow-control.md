@@ -19,7 +19,7 @@ links:
   - label: ADR
     target: docs/adr/0005-dsoftbus-architecture.md
   - label: "DSoftBus overview"
-    target: docs/distributed/dsoftbus-lite.md
+    target: docs/network/dsoftbus.md
   - label: "Related (completed baseline)"
     target: tasks/TASK-0016-dsoftbus-remote-packagefs-ro.md
   - label: "Related (completed baseline)"
@@ -383,7 +383,7 @@ Notes:
 
 ## Docs
 
-- Add `docs/distributed/dsoftbus-mux.md` describing:
+- Add `docs/network/dsoftbus.md` describing:
   - frame format
   - flow control rules
   - priority policy and starvation bound

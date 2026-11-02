@@ -21,7 +21,7 @@ links:
   - label: "Packaging docs"
     target: docs/packaging/nxb.md
   - label: "Signing policy"
-    target: docs/security/signing-and-policy.md
+    target: docs/security/signing.md
   - label: ADR
     target: docs/adr/0020-manifest-format-capnproto.md
   - label: ADR
@@ -99,7 +99,7 @@ Prove end-to-end (host tests + QEMU selftest markers):
 - Delta updates, streaming updates, compression tuning (TASK-0034, TASK-0035).
 - Full policy language for updates (only minimal gating needed for the skeleton).
 - User-facing Settings UI and a developer CLI (`nx update`) (follow-up `TASK-0140`).
-- Policy enforcement modes, dev workflow, and sideload UX (see `docs/security/signing-and-policy.md`).
+- Policy enforcement modes, dev workflow, and sideload UX (see `docs/security/signing.md`).
 
 ## Constraints / invariants (hard requirements)
 
@@ -272,10 +272,10 @@ Notes:
 ### Docs gate (keep architecture entrypoints in sync)
 
 - If packaging/manifest contract, init orchestration for updates, or bundle publication semantics change, update:
-  - `docs/architecture/09-nexus-init.md`
-  - `docs/architecture/15-bundlemgrd.md`
-  - `docs/architecture/04-bundlemgr-manifest.md`
-  - `docs/architecture/07-contracts-map.md`
+  - `docs/boot-init/nexus-init.md`
+  - `docs/services/bundlemgrd.md`
+  - `docs/packaging/nxb.md`
+  - `docs/README.md`
   - and the index `docs/architecture/README.md`
 
 ## Touched paths (allowlist)
@@ -317,7 +317,7 @@ Notes:
 
 6. **Update docs**
    - `docs/packaging/nxb.md`: Document Cap'n Proto format
-   - `docs/architecture/04-bundlemgr-manifest.md`: Update to reflect binary format
+   - `docs/packaging/nxb.md`: Update to reflect binary format
    - Update all tasks referencing manifest format
 
 ### Phase 2: System-Set Format + Tooling
@@ -363,7 +363,7 @@ Notes:
    - Markers: All 6 OTA markers present
 
 2. **Documentation**
-   - `docs/packaging/ab-updates-skeleton-v1.md`: v1.0 model (non-persistent)
+   - `docs/updates/README.md`: v1.0 model (non-persistent)
    - Update architecture docs
    - Update testing docs
 

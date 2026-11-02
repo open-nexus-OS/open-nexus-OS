@@ -31,7 +31,9 @@ pub(crate) fn value_for(ty: Ty, raw: &str) -> Option<Value> {
         | Ty::TrackIds
         | Ty::Slugs
         | Ty::StoryRefs
-        | Ty::PhaseIds => Value::List(
+        | Ty::PhaseIds
+        | Ty::Paths
+        | Ty::ContractIds => Value::List(
             raw.split(',').map(str::trim).filter(|s| !s.is_empty()).map(Value::str).collect(),
         ),
         _ => item(raw),

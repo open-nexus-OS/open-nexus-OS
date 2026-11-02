@@ -20,7 +20,7 @@ links:
   - label: "Setup spine this extends"
     target: "Makefile (`initial-setup`, `doctor`), scripts/install-deps.sh, scripts/check-deps.sh, scripts/fetch-inputs.sh"
   - label: "The ADR anchor every setup script cites"
-    target: docs/architecture/02-selftest-and-ci.md
+    target: docs/testing/README.md
   - label: "Board notes (written by T2)"
     target: docs/board/bpi-f3.md
   - label: Consumers

@@ -20,7 +20,7 @@ links:
   - label: ADR
     target: docs/adr/0005-dsoftbus-architecture.md
   - label: "DSoftBus overview"
-    target: docs/distributed/dsoftbus-lite.md
+    target: docs/network/dsoftbus.md
   - label: "Related baseline"
     target: tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
   - label: "Related baseline"

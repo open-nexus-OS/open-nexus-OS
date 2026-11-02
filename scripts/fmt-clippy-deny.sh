@@ -7,7 +7,7 @@
 # STATUS: Functional
 # API_STABILITY: Stable
 # TEST_COVERAGE: No tests
-# ADR: docs/architecture/02-selftest-and-ci.md
+# ADR: docs/standards/BUILD_STANDARDS.md
 #
 # Delegates to `just fmt-check`, `just lint`, `just deny-check` so this hook can
 # never drift from the canonical gate (it used to run its own, stricter clippy

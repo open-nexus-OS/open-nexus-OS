@@ -153,7 +153,7 @@ Once `policyd` + at least one adapter is real in QEMU:
 - `source/services/notifd/` (adapter)
 - `source/services/permsd/` (consent integration where relevant)
 - `tests/`
-- `docs/security/policy-overview.md` (or `docs/security/policy-as-code.md` extension)
+- `docs/security/policy-overview.md` (or `docs/security/policyd.md` extension)
 
 ## Plan (small PRs)
 

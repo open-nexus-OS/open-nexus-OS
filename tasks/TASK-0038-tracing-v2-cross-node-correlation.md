@@ -50,7 +50,7 @@ module compiled into dsoftbusd — SSOT file `userspace/dsoftbus/src/mux_v2.rs`,
   `next_trace_id()` (`:164`, per-service seeded, no RNG).
 - Span-end export to logd is proven: `SELFTEST: tracing spans ok` is gated at
   `scripts/qemu-test.sh:566`.
-- `docs/observability/tracing.md:20` explicitly leaves cross-node propagation/correlation to
+- `docs/reliability/observability.md:20` explicitly leaves cross-node propagation/correlation to
   follow-up work — this task's scope is valid and unclaimed.
 
 **Open contract decision (record, do not silently resolve):** this ledger originally wanted a
@@ -150,7 +150,7 @@ Once the 2-VM proof lane is green (TRACK-NETWORK-PROOF-LANES; mux and `/state` a
 - `source/services/dsoftbusd/` (OS mux integration + markers)
 - `source/apps/selftest-client/` (OS-gated)
 - `tests/` (host tests)
-- `docs/observability/tracing.md`
+- `docs/reliability/observability.md`
 - `scripts/qemu-test.sh` (OS-gated)
 
 ## Plan (small PRs)

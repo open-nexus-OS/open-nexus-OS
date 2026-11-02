@@ -8,7 +8,7 @@
 //! OWNERS: @kernel-mm-team
 //! STATUS: Functional
 //! TEST_COVERAGE: the VMO selftests (`vmo runs ok`, `vmo lazy device ok`) and every write path
-//! ADR: docs/adr/0078-gpu-memory-is-the-one-pool.md
+//! ADR: docs/adr/0078-gpu-memory-is-the-one-pools-committed-when-the-gpu-is-told-its-pages-its-share-a-fraction-of-ram.md
 
 use alloc::vec::Vec;
 

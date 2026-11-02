@@ -21,7 +21,7 @@ links:
   - label: Related
     target: "`docs/rfcs/RFC-0062-kernel-timer-capability.md` (pacing timer infrastructure)"
   - label: Architecture
-    target: "`docs/architecture/hardening-plan.md` (GPU pipeline hardening — Phases A1–A4 + C)"
+    target: "`docs/graphics-ui/README.md` (GPU pipeline hardening — Phases A1–A4 + C)"
   - label: "Perf matrix"
     target: "`docs/dev/perf/PLATFORM-CLASS-UI-PERFORMANCE-OPTIMIZATIONS-QEMU-MATRIX.md`"
   - label: "Virtual list"
@@ -192,7 +192,7 @@ This RFC defines the contracts for:
 
 ### Phase 0 — GPU Pipeline Hardening
 
-The hardening plan (`docs/architecture/hardening-plan.md`) defines Phases A1–A4 + C. This RFC
+The hardening plan (`docs/graphics-ui/README.md`) defines Phases A1–A4 + C. This RFC
 normatively adopts those phases and adds proof requirements.
 
 **`generate_commands(dirty_set)` API contract:**

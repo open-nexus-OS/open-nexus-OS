@@ -20,7 +20,7 @@ links:
   - label: ADR
     target: docs/adr/0005-dsoftbus-architecture.md
   - label: Docs
-    target: docs/distributed/dsoftbus-lite.md
+    target: docs/network/dsoftbus.md
   - label: "Testing contract"
     target: scripts/qemu-test.sh
 ---

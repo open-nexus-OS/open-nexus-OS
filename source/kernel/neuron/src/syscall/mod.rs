@@ -44,7 +44,8 @@ impl Args {
     }
 }
 
-/// Public syscall numbers.
+// Public syscall numbers.
+/// Gives up the CPU to the next runnable task.
 pub const SYSCALL_YIELD: usize = 0;
 pub const SYSCALL_NSEC: usize = 1;
 pub const SYSCALL_SEND: usize = 2;

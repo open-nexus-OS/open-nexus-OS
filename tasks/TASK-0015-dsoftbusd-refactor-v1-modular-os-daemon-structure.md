@@ -21,7 +21,7 @@ links:
   - label: ADR
     target: docs/adr/0005-dsoftbus-architecture.md
   - label: Docs
-    target: docs/distributed/dsoftbus-lite.md
+    target: docs/network/dsoftbus.md
   - label: Docs
     target: docs/testing/README.md
 ---
@@ -230,7 +230,7 @@ Per `docs/testing/README.md` (host-first, OS-last), this task is only considered
 Only these paths may be modified without opening a separate task/ADR:
 
 - `source/services/dsoftbusd/**`
-- `docs/distributed/dsoftbus-lite.md`
+- `docs/network/dsoftbus.md`
 - `docs/testing/README.md`
 - `tools/os2vm.sh` (harness-only sync; no marker/wire contract drift)
 

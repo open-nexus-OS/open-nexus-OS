@@ -340,7 +340,7 @@ desktop through the controller, the picture at 1080p), step 3c (the controller's
 2026-10-06), step 3b's size half (the 1080p size sweep, 2026-10-09: findings 1 and 2 resolved),
 P3 (the first picture, this cycle). Docs: RFC-0074 superseded in its authority statement,
 ADR-0050 superseded in part, RFC-0098 Phase 5 ✅ (C7 amended 2026-10-10),
-`docs/architecture/graphics/display-output-service-chain.md` (the board's mode and pointer
+`docs/graphics-ui/display-chain.md` (the board's mode and pointer
 layer), README "real hardware: yes", CHANGELOG.
 
 Amended at the closure (the operator 2026-10-09: "pull the size sweep forward, the rest to G"; no
@@ -379,5 +379,5 @@ fixes for what the GPU lane replaces):
 QEMU: all lanes green with gpud as the mode authority and the kernel free of display-mode
 code; board: the two markers + the operator ack on the serial log of a `just board-test`
 run, the desktop visible; docs (RFC-0074 amended, ADR-0050 superseded note, RFC-0098 Phase 5
-✅, `docs/architecture/graphics/display-output-service-chain.md`, `README.md` "real hardware:
+✅, `docs/graphics-ui/display-chain.md`, `README.md` "real hardware:
 yes", CHANGELOG).

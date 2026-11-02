@@ -22,7 +22,7 @@ links:
   - label: Parent
     target: "tasks/TASK-0011-kernel-simplification-phase-a.md # NOTE: RFC-0001 is the seed contract for TASK-0011 (layout + headers). TASK-0011B requires its own seed RFC."
   - label: "Kernel overview"
-    target: docs/architecture/01-neuron-kernel.md
+    target: docs/kernel/README.md
 ---
 
 ## Closure 2026-09-09 (reconciliation — Done, delivered under RFC-0020)
@@ -36,7 +36,7 @@ wrong about the mechanism (outcome unaffected):
 
 - `docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md` — Status **Complete**,
   Phases 0–5 all ✅.
-- Ownership model documented: `docs/architecture/01-neuron-kernel.md` § "Ownership Model
+- Ownership model documented: `docs/kernel/README.md` § "Ownership Model
   (Rust-Specific, pre-SMP)".
 - Newtypes: `source/kernel/neuron/src/types.rs` (`Pid(u32)`, `CapSlot(u32)`),
   `mm/address_space.rs` (`AsHandle(NonZeroU32)`); capability phantom tags
@@ -134,7 +134,7 @@ All existing security invariants from TASK-0011 remain unchanged, plus:
 
 - Seed RFC: `docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md`
 - Background: `docs/rfcs/RFC-0001-kernel-simplification.md` (layout/taxonomy from TASK-0011)
-- `docs/architecture/01-neuron-kernel.md`
+- `docs/kernel/README.md`
 - `scripts/qemu-test.sh` marker contract (must not change)
 
 ## Stop conditions (Definition of Done)
@@ -149,7 +149,7 @@ All existing security invariants from TASK-0011 remain unchanged, plus:
 ## Touched paths (allowlist)
 
 - `source/kernel/neuron/src/**` (implementation changes allowed)
-- `docs/architecture/01-neuron-kernel.md` (document ownership model)
+- `docs/kernel/README.md` (document ownership model)
 - `docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md` (seed contract for this task)
 
 ## Plan (small PRs)
@@ -160,7 +160,7 @@ All existing security invariants from TASK-0011 remain unchanged, plus:
 
 **Changes**:
 
-- Add "Ownership model" section to `docs/architecture/01-neuron-kernel.md`:
+- Add "Ownership model" section to `docs/kernel/README.md`:
 
   ```markdown
   ## Ownership Model (Rust-specific)

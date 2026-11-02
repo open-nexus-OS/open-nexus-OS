@@ -12,7 +12,7 @@ links:
   - label: Vision
     target: docs/architecture/vision.md
   - label: "Rust SMP model"
-    target: docs/architecture/16-rust-concurrency-model.md
+    target: docs/architecture/concurrency.md
   - label: "SMP baseline"
     target: tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md
   - label: "SMP hardening bridge"
@@ -70,7 +70,7 @@ Introduce a kernel-internal `PerCpu<T>` abstraction that:
 ## Touched paths (allowlist)
 
 - `source/kernel/neuron/` (per-CPU wrapper + adoption)
-- `docs/architecture/16-rust-concurrency-model.md` (if normative API changes)
+- `docs/architecture/concurrency.md` (if normative API changes)
 
 
 ## Closure (2026-07-17)

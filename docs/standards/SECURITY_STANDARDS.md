@@ -1,316 +1,172 @@
-# Security Standards
-
-This document defines the security standards, guidelines, and best practices for the Open Nexus OS project.
-
-**Status**: Active (2026-01-07)  
-**Audience**: All developers, agents, reviewers
-
+---
+schema: 1
+title: "Security standards"
+role: reference
+subsystem: devx
+sources: [source/services/policyd, source/services/keystored, source/apps/selftest-client/proof-manifest/markers/policy.toml, source/kernel/neuron/src/cap]
+contracts: [RFC-0005, RFC-0008, RFC-0075, RFC-0091]
+verified: 2026-11-02
 ---
 
-## Core Security Philosophy
+<!-- Copyright 2026 Open Nexus OS Contributors -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
-Open Nexus OS follows a **security-by-design** approach inspired by capability-based microkernels:
+# Security standards
 
-1. **Kernel minimal**: Policy, crypto, and complex logic stay in userspace
-2. **Capability-based access**: No ambient authority; all access requires explicit capabilities
-3. **Deny-by-default**: Operations without explicit policy allow are rejected
-4. **Single authority**: Security decisions go through `policyd` (no bypass paths)
-5. **Channel-bound identity**: Trust kernel-provided `sender_service_id`, never payload strings
-6. **Audit everything**: All security-relevant decisions produce audit records
+> **Purpose** — the security invariants every change keeps, the tests and markers that prove them, and the review checklist.
+> **Owns** — no code; enforced by review, `test_reject_*` tests and the proof manifest
+> **Contracts** — [RFC-0005](../rfcs/RFC-0005-kernel-ipc-capability-model.md) (capabilities), [RFC-0008](../rfcs/RFC-0008-dsoftbus-noise-xk-v1.md) (identity binding), [RFC-0075](../rfcs/RFC-0075-ime-v2-text-focus-composition-delivery.md) (typed text delivery), [RFC-0091](../rfcs/RFC-0091-policy-profile-v2-schema-wire-argument-matchers.md) (ABI profiles)
+> **Invariants** — identity is the kernel's `sender_service_id`; sensitive operations go through `policyd`, deny by default; no secret and no keystroke rhythm reaches a log.
+> **Read next** — [RUST_STANDARDS.md](RUST_STANDARDS.md), [../security/policyd.md](../security/policyd.md), [../security/capabilities.md](../security/capabilities.md)
 
----
+## Principles
 
-## Security Invariants (MUST Hold)
+1. **Minimal kernel** — policy, crypto and complex parsing stay in userspace.
+2. **Capabilities** — no ambient authority; every access needs an explicit capability.
+3. **Deny by default** — an operation without an explicit allow is refused.
+4. **One authority** — security decisions go through `policyd`; no bypass path.
+5. **Channel-bound identity** — trust the kernel-provided `sender_service_id`, never payload strings.
+6. **Audit** — security-relevant decisions produce audit records.
 
-These invariants MUST be maintained across all code. Violations are **security bugs**.
+## Invariants
 
-### 1. Secrets Management
+### Secrets
 
-```text
-✅ DO:
-- Store secrets only in keystored
-- Use signing APIs (return signatures, not keys)
-- Label test keys: // SECURITY: bring-up test keys, NOT production custody
-- Use deterministic keys only in bring-up/test builds
+- Secrets live in `keystored` (persisted under `/state/keystore/` through statefsd). Signing APIs
+  return signatures, never keys.
+- Never log plaintext secrets, private keys, credentials or session keys — not in error messages,
+  not on the UART.
+- Deterministic keys only in bring-up and test code, labelled
+  `// SECURITY: bring-up test keys, NOT production custody`, cfg-gated out of production paths and
+  named in the task with their migration.
 
-❌ DON'T:
-- Log plaintext secrets, private keys, or credentials
-- Include keys in error messages or UART output
-- Use deterministic/hardcoded keys in production
-- Store secrets in plaintext files outside /state/keystore/
-```
+### What the user types
 
-**What the user types never reaches a log — not its text, and not its rhythm or length.**
-Typed text travels only through imed's focus-gated delivery (RFC-0075). No log line may fire
-per key press, per on-screen-keyboard tap, or per frame or service call a keystroke causes (a
-live search re-runs per keystroke; a present follows each one): a line per keystroke writes the
-length and rhythm of what was typed — a password included — into the boot log. Interaction
-proofs fire once per process; counts log on a new high or on powers of two; pointer traces are
-bounded and silent in the keyboard overlay, where a tap is a keystroke. Aggregates (rates per
-second, totals) are fine. (2026-10-08 — `app-host/src/proof_line.rs`, `metricsd::snapshot_due`,
-RFC-0053's v2 visible state.)
+Typed text travels only through imed's focus-gated delivery (RFC-0075). No log line fires per key
+press, per on-screen-keyboard tap, or per frame or service call a keystroke causes: a line per
+keystroke writes the length and rhythm of what was typed — a password included — into the boot
+log. Interaction proofs fire once per process; counts log on a new high or on powers of two
+(`snapshot_due` in `source/services/metricsd/src/lib.rs`); pointer traces stay silent in the
+keyboard overlay. Aggregates (rates, totals) are fine. Example:
+`source/services/app-host/src/proof_line.rs`.
 
-### 2. Identity and Authentication
+### Identity and authentication
 
-```text
-✅ DO:
-- Use sender_service_id from kernel IPC (unforgeable)
-- Verify identity binding (device_id ↔ noise_static_pub)
-- Complete authentication before processing application data
-- Reject sessions on identity mismatch
+- Use `sender_service_id` from kernel IPC; it cannot be forged.
+- Verify identity binding (device id ↔ Noise static key) and finish authentication before
+  processing application data. A mismatch rejects the session — no "warn and continue", no
+  exception for localhost or "trusted" networks.
 
-❌ DON'T:
-- Trust identity strings from payload bytes
-- Skip authentication for "trusted" networks or localhost
-- Allow "warn and continue" on identity verification failure
-- Log session keys or derived secrets
-```
+### Input
 
-### 3. Input Validation
-
-```text
-✅ DO:
-- Bound all input sizes (max lengths enforced)
-- Validate format before parsing
-- Reject malformed input deterministically (no crash)
-- Use explicit error handling (match, not unwrap)
-- Add #[must_use] on security-critical error types
-
-❌ DON'T:
-- Use unwrap/expect on untrusted input
-- Accept unbounded input sizes
-- Crash on malformed input (DoS vector)
-- Trust caller-provided sizes or lengths
-- Silently ignore security errors (use #[must_use])
-```
-
-**Error handling discipline** (TASK-11B principles):
-
-All error types representing **security decisions** MUST be marked `#[must_use]`:
+- Bound every size before parsing or allocating; validate format first.
+- Reject malformed input deterministically, never crash (a crash is a DoS).
+- No `unwrap`/`expect` on untrusted input. Error types that carry a security decision are
+  `#[must_use]`:
 
 ```rust
-/// Permission denial MUST be handled (security-critical)
 #[must_use = "permission errors must be handled"]
 pub enum AuthError {
     PermissionDenied,
     InvalidCredential,
     SessionExpired,
 }
-
-/// Input validation MUST be checked (prevents injection)
-#[must_use = "validation errors must be checked"]
-pub enum ValidateError {
-    OversizedInput,
-    Malformed,
-    InvalidEncoding,
-}
 ```
 
-This ensures the compiler **prevents accidental silent failures** in security-critical paths.
+### Capabilities and policy
 
-### 4. Capability and Policy
+- Sensitive operations go through `policyd`; policy logic is not duplicated in services.
+- No ambient capabilities; grant the minimum. No policy skip for "trusted" services.
+- Policy does not change at runtime, with one exception (RFC-0091 §6): the per-subject ABI mode
+  (Enforce ↔ Learn) through `OP_SET_ABI_MODE` in `source/services/policyd/src/abi_mode.rs` —
+  sender-authenticated (`policy.abi_mode`), epoch-guarded, audited, never persisted (every boot
+  starts in Enforce). Profiles never change at runtime; Learn mode never changes a decision.
 
-```text
-✅ DO:
-- Route all sensitive operations through policyd
-- Use deny-by-default policies
-- Audit all allow/deny decisions
-- Scope capabilities to minimum required
+### Memory and devices
 
-❌ DON'T:
-- Duplicate policy logic in multiple services
-- Grant ambient capabilities
-- Skip policy checks for "trusted" services
-- Allow runtime policy modification
-```
+- W^X: the kernel refuses a writable and executable mapping.
+- MMIO maps are USER|RW, never EXEC, bounded to the device capability's window; device
+  capabilities are minted by init from the device tree, not granted to arbitrary services.
+- VMO sizes and offsets are validated; a bus address leaves the kernel only through `vmo_runs` to
+  the device's holder.
 
-The ONE exception (RFC-0091 §6): the per-subject ABI **mode** (Enforce ↔
-Learn) may change at runtime through policyd's `OP_SET_ABI_MODE` — and only
-there: authenticated by the kernel-attributed sender holding `policy.abi_mode`,
-epoch-guarded, audited, never persisted (every boot starts in Enforce). The
-profiles themselves never change at runtime; Learn mode never changes a
-decision.
+## Security-relevant work
 
-### 5. Memory and Mapping
+A task is security-relevant when it touches crypto or authentication, the network, IPC or
+capabilities, the kernel boundary (syscalls, MMIO, mappings), secrets or personal data, signing and
+updates, or key and credential storage. UI layout and docs-only changes are not. Such a task states
+its threat model, invariants and attack surface, and its proof carries `test_reject_*` tests and
+hardening markers (`tasks/TASK-TEMPLATE.md`).
 
-```text
-✅ DO:
-- Enforce W^X (never RWX mappings)
-- Bound MMIO mappings to device windows
-- Use capability-gated device access
-- Validate all VMO sizes and offsets
+## Proof
 
-❌ DON'T:
-- Allow executable mappings of device memory
-- Grant MMIO capabilities to arbitrary services
-- Map outside designated physical windows
-- Skip capability checks for device access
-```
+### Negative tests
 
----
-
-## Security-Relevant Tasks
-
-Tasks are considered **security-relevant** if they touch:
-
-| Category | Examples | Requires Security Section |
-|----------|----------|---------------------------|
-| **Crypto/Auth** | Noise XK, key derivation, signatures | ✅ Yes |
-| **Network** | Discovery, sessions, remote proxy | ✅ Yes |
-| **IPC/Caps** | Capability transfer, policy enforcement | ✅ Yes |
-| **Kernel boundary** | Syscalls, MMIO, memory mapping | ✅ Yes |
-| **Sensitive data** | Secrets, credentials, PII | ✅ Yes |
-| **Updates/Packaging** | Code signing, verification | ✅ Yes |
-| **Persistence** | Key storage, credential storage | ✅ Yes |
-| **UI/UX** | Layout, colors, animations | ❌ No |
-| **Docs only** | README updates, comments | ❌ No |
-
-For security-relevant tasks, the task template includes:
-
-1. **Security considerations** (optional, N/A if not relevant)
-   - Threat model
-   - Security invariants
-   - DON'T DO list
-   - Attack surface impact
-   - Mitigations
-
-2. **Security proof** (for security-relevant tasks only)
-   - Audit tests (negative cases / attack simulation)
-   - Hardening markers (QEMU)
-   - Fuzz coverage (optional)
-
----
-
-## Security Testing Requirements
-
-### Negative Case Tests
-
-Security-relevant code MUST include tests that verify rejection of invalid inputs:
+Every security path has a `test_reject_*` test that proves the refusal:
 
 ```rust
-// Example: test_reject_* pattern
-#[test]
-fn test_reject_identity_mismatch() {
-    // Provide wrong key, verify session is rejected
-    let result = handshake_with_wrong_key();
-    assert!(result.is_err());
-    assert!(matches!(result, Err(AuthError::IdentityMismatch)));
-}
-
 #[test]
 fn test_reject_oversized_input() {
-    // Provide input exceeding max size
     let oversized = vec![0u8; MAX_INPUT_SIZE + 1];
-    let result = parse_packet(&oversized);
-    assert!(result.is_err());
+    assert!(parse_packet(&oversized).is_err());
 }
 ```
 
-### Hardening Markers (QEMU)
-
-Security behavior MUST be verifiable via QEMU markers:
-
-```text
-# Successful security checks
-dsoftbusd: auth ok
-dsoftbusd: identity bound peer=<id>
-
-# Security rejections (prove enforcement works)
-dsoftbusd: identity mismatch peer=<id>
-dsoftbusd: announce ignored (malformed)
-policyd: deny (subject=<svc> action=<op>)
-keystored: sign denied (subject=<svc>)
-```
-
-### Fuzz Testing (Recommended)
-
-For parsing and protocol code, fuzz testing is recommended:
-
 ```bash
-# Discovery packet fuzzing
-cargo +nightly fuzz run fuzz_discovery_packet
-
-# Noise handshake fuzzing
-cargo +nightly fuzz run fuzz_noise_handshake
-
-# Policy rule parsing
-cargo +nightly fuzz run fuzz_policy_parser
+cargo test -- reject --nocapture       # every reject test in the workspace
+cargo test -p dsoftbusd -- reject
+cargo test -p keystored -- reject
+cargo test -p nexus-sel -- reject
+just test-kernel                        # the kernel's own reject matrices
 ```
 
----
+### Hardening markers
 
-## Code Review Security Checklist
+Markers that prove enforcement, declared in the proof manifest
+(`source/apps/selftest-client/proof-manifest/markers/policy.toml`,
+`source/apps/selftest-client/proof-manifest/markers/net.toml`):
 
-Reviewers MUST verify for security-relevant PRs:
+| marker | proves |
+|---|---|
+| `dsoftbusd: auth ok` | handshake and identity binding succeeded |
+| `dsoftbusd: identity mismatch peer=<id>` | binding enforcement rejects a wrong key |
+| `dsoftbusd: announce ignored (malformed)` | discovery input validation |
+| `policyd: audit emit ok` | an audit record reached logd |
+| `SELFTEST: policy deny audit ok` | deny decision plus its audit record |
+| `SELFTEST: policy allow audit ok` | allow decision plus its audit record |
+| `SELFTEST: keystored sign denied ok` | signing refused without the capability |
 
-### Identity and Auth
-- [ ] No payload-provided identity trusted
-- [ ] `sender_service_id` used for all policy decisions
-- [ ] Identity binding verified before `auth ok`
-- [ ] No "warn and continue" on auth failure
+A marker change updates `scripts/qemu-test.sh`, `tools/nx/chains/markers.txt` and the manifest
+together.
 
-### Secrets
-- [ ] No secrets in logs, markers, or error messages
-- [ ] No log line per keystroke, per OSK tap, or per frame/service call typing causes (once-per-process proofs)
-- [ ] Test keys labeled `// SECURITY: bring-up test keys`
-- [ ] No deterministic keys in production paths
+### Property and state-machine tests
 
-### Input Handling
-- [ ] All inputs bounded (max sizes enforced)
-- [ ] No `unwrap`/`expect` on untrusted data
-- [ ] Malformed input handled gracefully (no crash)
+There is no `cargo fuzz` target in the tree. Parsers and state machines are covered by property
+tests (`proptest`) and bounded deterministic stress mixes:
 
-### Policy
-- [ ] Sensitive ops go through `policyd`
-- [ ] Deny-by-default behavior verified
-- [ ] Audit records produced for decisions
+| where | what |
+|---|---|
+| `source/kernel/neuron/src/cap/tests_prop.rs` | capability-table rights properties |
+| `source/kernel/neuron/src/mm/frames/tests.rs` | frame allocator properties |
+| `source/kernel/neuron/src/va_space_tests.rs` | VA allocator invariant after every random op |
+| `source/kernel/neuron/src/ipc/mod.rs` | router state-machine stress |
+| `source/services/logd/tests/journal_protocol.rs` | journal protocol decoder |
+| `userspace/samgr/src/lib.rs` | registry properties |
 
-### Memory
-- [ ] No executable device mappings
-- [ ] MMIO bounded to device window
-- [ ] Capability checks present
+A new parser for untrusted input adds one of these.
 
----
+## Review checklist
 
-## Bring-up vs Production Security
+- [ ] No payload-provided identity trusted; `sender_service_id` for every policy decision
+- [ ] Identity binding verified before `auth ok`; no "warn and continue"
+- [ ] No secrets in logs, markers or errors; no log line per keystroke, tap or keystroke-caused call
+- [ ] Test keys labelled and out of production paths
+- [ ] Every input bounded; no `unwrap`/`expect` on untrusted data; malformed input refused, not a crash
+- [ ] Sensitive operations through `policyd`; deny by default; audit records produced
+- [ ] No executable device mapping; MMIO bounded to the device window
+- [ ] `test_reject_*` tests and hardening markers present
 
-Some security shortcuts are acceptable during bring-up, but MUST be:
+## Escalation
 
-1. **Explicitly labeled** in code:
-   ```rust
-   // SECURITY: bring-up test keys, NOT production custody
-   let key = derive_test_secret(port);
-   ```
-
-2. **Feature-gated** for removal in production:
-   ```rust
-   #[cfg(feature = "bring-up")]
-   fn derive_test_secret(port: u16) -> [u8; 32] { ... }
-   ```
-
-3. **Documented in the task** with migration path:
-   ```markdown
-   ### Security considerations
-   - Test keys used for bring-up (not production)
-   - Migration: TASK-0008 integrates with policyd/keystored policy-gated ops; device key entropy + keygen lands in TASK-0008B
-   ```
-
----
-
-## Security Contact
-
-For security-sensitive issues:
-
-- **Internal**: Use `RED (blocking)` in task/RFC red flags
-- **Review**: Tag security-relevant PRs with `security-review-required`
-- **Escalation**: Contact @runtime for critical security decisions
-
----
-
-## Related Documents
-
-- `BUILD_STANDARDS.md` — Build hygiene and `no_std` dependency rules
-- `DOCUMENTATION_STANDARDS.md` — Documentation requirements
-- `docs/rfcs/RFC-0005-kernel-ipc-capability-model.md` — Capability model
-- `docs/rfcs/RFC-0008-dsoftbus-noise-xk-v1.md` — Noise XK identity binding
-- `tasks/TASK-TEMPLATE.md` — Task template with security sections
+Mark a blocking security concern `RED (blocking)` in the task or RFC; tag the PR
+`security-review-required`.

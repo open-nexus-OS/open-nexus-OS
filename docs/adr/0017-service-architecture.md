@@ -24,7 +24,7 @@ Establish a unified service architecture with the following components:
 2. **Hybrid Communication Pattern**:
    - **Control Plane**: Small, structured IPC (Cap'n Proto for host/std, versioned byte frames for OS/os-lite)
    - **Data Plane**: Large payloads out-of-band (VMO for production, filebuffer for testing/exports)
-   - See `docs/architecture/08-service-architecture-onboarding.md` for details
+   - See `docs/services/README.md` for details
 3. **Lifecycle Management**: Standard startup, shutdown, and health check patterns
 4. **Capability-Based Access**: Policy-driven access control via policyd
 5. **Host/OS Backends**: Support for both host development and OS deployment
@@ -64,7 +64,7 @@ Services performing sensitive operations must use `policyd` for authorization:
 - All allow/deny decisions produce audit records (via `logd`)
 - Deny-by-default: operations without explicit capability are rejected
 - See `docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md`
-- Policy as Code v1 details live in `docs/rfcs/RFC-0045-policy-as-code-v1-unified-policy-tree-evaluator-explain-dry-run-learn-enforce-nx-policy.md` and `docs/architecture/11-policyd-and-policy-flow.md`
+- Policy as Code v1 details live in `docs/rfcs/RFC-0045-policy-as-code-v1-unified-policy-tree-evaluator-explain-dry-run-learn-enforce-nx-policy.md` and `docs/security/policyd.md`
 
 ## Consequences
 - **Positive**: Consistent service development, easier maintenance, clear separation of concerns

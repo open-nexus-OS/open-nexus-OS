@@ -79,7 +79,7 @@ implementation in this task (contract slot only); outbound policy (TASK-0043).
   forwarding, capabilities (`net.expose`, gateway `policy.delegate`), failure model, markers, the
   five `test_reject_*` names, phases P1–P3, TLS/IPv6/DSoftBus open questions.
 - `docs/adr/0061-exposure-intent-instead-of-free-binds.md` (Accepted), `tools/nexus-idl/schemas/
-  ingress.capnp` (host SSOT: `ExposeIntent`, `ExposeResponse`), `docs/security/ingress.md`, RFC +
+  ingress.capnp` (host SSOT: `ExposeIntent`, `ExposeResponse`), `docs/security/network-policy.md`, RFC +
   ADR indexes.
 - Proof: `just check` docs gates. Next: P1 (Layer A). ✅ see below.
 
@@ -191,7 +191,7 @@ implementation in this task (contract slot only); outbound policy (TASK-0043).
 `source/services/netstackd/`, `source/services/policyd/`, `userspace/policy/`,
 `source/libs/nexus-abi/` (via 0028 P0, approval), `tools/nexus-idl/schemas/` (ExposeIntent),
 `source/services/ingressd/` (new), `source/init/nexus-init/` (wiring), `policies/`,
-`tests/ingress_host/`, `source/apps/selftest-client/`, `docs/security/ingress.md` (new),
+`tests/ingress_host/`, `source/apps/selftest-client/`, `docs/security/network-policy.md` (new),
 `scripts/qemu-test.sh` + `tools/nx/chains/markers.txt` (approval, markers).
 
 ### Stop conditions (Definition of Done — replaces older DoD)
@@ -301,7 +301,7 @@ UART markers (once networking + policy + config are present):
 - `source/libs/nexus-abi/` (bind guardrail; approval-gated zone — needs address dimension on NetBind)
 - `tools/nx/` (optional follow-up: `nx ingress` or `nx policy` integration)
 - `tests/ingress_host/`
-- `docs/security/ingress.md`
+- `docs/security/network-policy.md`
 
 ## Plan (small PRs)
 

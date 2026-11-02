@@ -119,7 +119,7 @@ Close the runtime gap with explicit kernel latency-budget and stress-proof contr
 - `source/kernel/neuron/src/task/`
 - `source/services/execd/`
 - `source/apps/selftest-client/`
-- `docs/architecture/01-neuron-kernel.md`
+- `docs/kernel/README.md`
 - `docs/testing/README.md`
 - `scripts/qemu-test.sh`
 

@@ -88,7 +88,7 @@ which registry says what is installed. Verified facts that constrain the decisio
   spawn FAIL svc=… reason=…`), never the boot spine.
 - TASK-0239 (per-app A/B) and TASK-0166 (SDK catalog) build on `BundleSource::State` in the
   same registry; TASK-0035 builds the stage journal, reuse index and kind 4 on the seam.
-- Docs that still describe the RFC-0012 flow (`docs/architecture/09-nexus-init.md`,
+- Docs that still describe the RFC-0012 flow (`docs/boot-init/nexus-init.md`,
   `15-bundlemgrd.md`) are swept in TASK-0321 P5.
 
 ## Verification

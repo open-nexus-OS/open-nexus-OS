@@ -19,7 +19,7 @@ That increases the risk of non-standard, ad-hoc choices and future integration r
 
 1) Keep one normative address-profile matrix in:
 
-- `docs/architecture/network-address-matrix.md`
+- `docs/network/address-matrix.md`
 
 1) Treat profile values there as authoritative for:
 
@@ -37,7 +37,7 @@ Do not require a fixed DNS source IP under QEMU/slirp because upstream response 
 1) Any address-profile change must update, in one change set:
 
 - this ADR (if policy changes),
-- `docs/architecture/network-address-matrix.md`,
+- `docs/network/address-matrix.md`,
 - affected runtime code,
 - affected tests/harness checks.
 
@@ -57,5 +57,5 @@ Do not require a fixed DNS source IP under QEMU/slirp because upstream response 
 ## Related
 
 - `docs/adr/0025-qemu-smoke-proof-gating.md`
-- `docs/architecture/networking-authority.md`
-- `docs/architecture/network-address-matrix.md`
+- `docs/network/authority.md`
+- `docs/network/address-matrix.md`

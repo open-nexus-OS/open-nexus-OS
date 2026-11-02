@@ -121,9 +121,9 @@ production-grade supply-chain and boot-trust boundary.
 
 - **Docs gate (keep architecture entrypoints in sync)**:
   - If identity/keystore authority boundaries, trust-store locations, or attestation semantics change, update (or create):
-    - `docs/architecture/13-identity-and-keystore.md`
-    - `docs/architecture/11-policyd-and-policy-flow.md` (capability gates + trust policy)
-    - `docs/architecture/09-nexus-init.md` (boot-time orchestration/gating where applicable)
+    - `docs/security/identity.md`
+    - `docs/security/policyd.md` (capability gates + trust policy)
+    - `docs/boot-init/nexus-init.md` (boot-time orchestration/gating where applicable)
     - and the index `docs/architecture/README.md`
 
 ## Touched paths (allowlist)

@@ -268,7 +268,7 @@ To prevent drift and hidden assumptions, TASK-0006 explicitly promises:
    - Run a controlled crash payload (exit code 42); wait for execd crash report marker; marker: `SELFTEST: crash report ok`.
 
 7. **Docs**
-   - Add `docs/observability/logging.md`:
+   - Add `docs/reliability/observability.md`:
      - logd ring design, bounds, UART mirror semantics
      - nexus-log usage patterns (startup ordering + fallback)
      - crash reporting flow (v1 limits)

@@ -81,4 +81,4 @@ Console should work naturally alongside:
 - `docs/dev/technologies/dev-mode.md`
 - `docs/dev/ui/foundations/development/package-manager.md`
 - `docs/dev/ui/foundations/development/dev-studio.md`
-- `docs/security/shell-scripts-and-automation.md`
+- `docs/architecture/vision.md`

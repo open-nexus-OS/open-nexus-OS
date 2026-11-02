@@ -66,4 +66,4 @@ Introduce a typed capability wrapper that encodes:
 ## Touched paths (allowlist)
 
 - `source/kernel/neuron/` (cap table wrappers + pilot subsystem)
-- `docs/architecture/01-neuron-kernel.md` (capability invariants and construction authority)
+- `docs/kernel/README.md` (capability invariants and construction authority)

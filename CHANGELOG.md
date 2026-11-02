@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-11-02 (docs as data — TASK-0349)
+
+- **One folder per subsystem.** `docs/` outside rfcs/adr/board/dev is now `architecture/` (map,
+  vision, concurrency), `kernel/`, `boot-init/`, `services/`, `security/`, `storage/`,
+  `packaging/`, `updates/`, `network/`, `reliability/`, `graphics-ui/`, `testing/`,
+  `standards/`; `distributed/`, `observability/`, `supplychain/` are folded in. 105k → 49k words.
+- **Pages say what the code does.** Frozen status trackers, advocacy and the never-built API pages
+  are gone (git keeps them); the NexusInfer and NexusGfx design notes moved into their tracks.
+  Rewritten against the code: the process model (exec_vmo, own-space spawn, init supervision),
+  signing and trust anchors, storage (nxfs is the home store inside vfsd), bundle types, testing.
+  New: the UI/compositor stack (`docs/graphics-ui/README.md`).
+- **Docs are a ledger kind.** Each page carries `role`, `subsystem`, `sources`, `contracts`,
+  `verified`; `nx ledger lint` rejects dead paths and links, missing sources, task status in prose
+  and a page over its word budget, and every dead `docs/…md` named from a code comment.
+  Generated blocks render the syscall table, the capability grants, the marker phases and the
+  docs index from their sources. `nx ledger stale` (counted in `just brief`) lists pages whose
+  sources changed after `verified`; `nx ledger relink` follows a moved page everywhere.
+
 ### Changed - 2026-11-02 (planning as data — RFC-0115)
 
 - **Planning state is data.** Every task, track and RFC (557 documents) carries canonical

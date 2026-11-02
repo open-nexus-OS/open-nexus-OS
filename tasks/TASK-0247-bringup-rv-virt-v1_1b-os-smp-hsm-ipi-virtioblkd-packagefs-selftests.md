@@ -122,7 +122,7 @@ All existing SMP security invariants from TASK-0012 and TASK-0277 remain unchang
 - **Virtio-blk read-only**: Virtio-blk device is read-only (no writes allowed)
 - **Packagefs integrity**: Packagefs mount verifies signatures
   - **Phase 1 (this task)**: Use trusted build artifact (QEMU virt bring-up only)
-  - **Phase 2 (production)**: See `docs/security/signing-and-policy.md` for bundle signing
+  - **Phase 2 (production)**: See `docs/security/signing.md` for bundle signing
 
 ### DON'T DO (explicit prohibitions)
 
@@ -203,9 +203,9 @@ UART markers:
 ### Docs gate (keep architecture entrypoints in sync)
 
 - If bring-up sequencing, storage mount semantics, or marker ownership changes, update:
-  - `docs/architecture/06-boot-and-bringup.md` (boot/bring-up pipeline)
-  - `docs/architecture/09-nexus-init.md` (bring-up orchestration)
-  - `docs/architecture/12-storage-vfs-packagefs.md` (packagefs/vfs responsibilities and proofs)
+  - `docs/boot-init/boot.md` (boot/bring-up pipeline)
+  - `docs/boot-init/nexus-init.md` (bring-up orchestration)
+  - `docs/storage/README.md` (packagefs/vfs responsibilities and proofs)
   - and the index `docs/architecture/README.md`
 
 ## Touched paths (allowlist)

@@ -17,7 +17,7 @@ links:
   - label: Playbook
     target: CLAUDE.md
   - label: "Kernel overview"
-    target: docs/architecture/01-neuron-kernel.md
+    target: docs/kernel/README.md
   - label: "Testing contract"
     target: scripts/qemu-test.sh
 ---
@@ -141,7 +141,7 @@ When adding headers to security-critical modules, explicitly document:
 ## Contract sources (single source of truth)
 
 - `docs/rfcs/RFC-0001-kernel-simplification.md`
-- `docs/architecture/01-neuron-kernel.md`
+- `docs/kernel/README.md`
 - `scripts/qemu-test.sh` marker contract (must not change here)
 
 ## Stop conditions (Definition of Done)

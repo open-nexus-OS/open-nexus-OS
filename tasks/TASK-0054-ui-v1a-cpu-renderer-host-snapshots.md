@@ -16,9 +16,9 @@ links:
   - label: Playbook
     target: CLAUDE.md
   - label: "Gfx compute/executor model"
-    target: docs/architecture/graphics/nexusgfx-compute-and-executor-model.md
+    target: tasks/TRACK-NEXUSGFX-SDK.md
   - label: "Gfx text pipeline integration"
-    target: docs/architecture/graphics/nexusgfx-text-pipeline.md
+    target: tasks/TRACK-NEXUSGFX-SDK.md
   - label: "UI consumer of buffer/sync contracts"
     target: tasks/TRACK-DRIVERS-ACCELERATORS.md
   - label: "VMO plumbing"
@@ -121,7 +121,7 @@ Deliver:
 
 - This task should be treated as an **early structural slice** of the future `NexusGfx` CPU reference path, not as a
   parallel long-term renderer architecture.
-- Text rendering/materialization must align with `docs/architecture/graphics/nexusgfx-text-pipeline.md` and the canonical UI
+- Text rendering/materialization must align with `tasks/TRACK-NEXUSGFX-SDK.md` and the canonical UI
   layout/text contracts it references.
 - Resource and executor assumptions should remain portable to later `TASK-0169` / `TRACK-NEXUSGFX-SDK` work.
 

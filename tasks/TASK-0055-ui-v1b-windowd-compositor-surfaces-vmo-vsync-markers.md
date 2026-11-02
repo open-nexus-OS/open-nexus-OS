@@ -20,11 +20,11 @@ links:
   - label: Playbook
     target: CLAUDE.md
   - label: "Gfx resource model"
-    target: docs/architecture/graphics/nexusgfx-resource-model.md
+    target: tasks/TRACK-NEXUSGFX-SDK.md
   - label: "Gfx sync/lifetime model"
-    target: docs/architecture/graphics/nexusgfx-sync-and-lifetime.md
+    target: tasks/TRACK-NEXUSGFX-SDK.md
   - label: "Gfx command/pass model"
-    target: docs/architecture/graphics/nexusgfx-command-and-pass-model.md
+    target: tasks/TRACK-NEXUSGFX-SDK.md
   - label: "VMO plumbing"
     target: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
   - label: "QoS/timers (vsync spine)"

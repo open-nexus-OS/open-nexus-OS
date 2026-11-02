@@ -128,9 +128,9 @@ UART markers:
 ### Docs gate (keep architecture entrypoints in sync)
 
 - If install authority boundaries (“pkgr” as bundlemgrd extension), registry semantics, or trust/policy gating changes, update:
-  - `docs/architecture/15-bundlemgrd.md`
-  - `docs/architecture/04-bundlemgr-manifest.md`
-  - `docs/architecture/11-policyd-and-policy-flow.md`
+  - `docs/services/bundlemgrd.md`
+  - `docs/packaging/nxb.md`
+  - `docs/security/policyd.md`
   - and the index `docs/architecture/README.md`
 
 ## Touched paths (allowlist)

@@ -34,7 +34,7 @@ links:
   - label: "Freedesktop icon spec"
     target: "https://specifications.freedesktop.org/icon-theme-spec/"
   - label: Reference
-    target: docs/architecture/graphics/display-output-service-chain.md
+    target: docs/graphics-ui/display-chain.md
 ---
 
 > updated (migrated 2026-11-02): 2026-05-15 (Minimal DisplayServer v0: Mocu cursor + Inter text + transient input targets)

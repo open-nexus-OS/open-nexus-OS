@@ -13,7 +13,7 @@ links:
   - label: Tasks
     target: "`tasks/TASK-0062-ui-v5a-reactive-runtime-animation-transitions.md` (execution + proof)"
   - label: "Gfx architecture"
-    target: "`docs/architecture/graphics/nexusgfx-command-and-pass-model.md`, `docs/architecture/graphics/nexusgfx-resource-model.md`, `docs/architecture/graphics/nexusgfx-tile-aware-design.md`"
+    target: "`tasks/TRACK-NEXUSGFX-SDK.md`, `tasks/TRACK-NEXUSGFX-SDK.md`, `tasks/TRACK-NEXUSGFX-SDK.md`"
   - label: "Gfx track"
     target: "`tasks/TRACK-NEXUSGFX-SDK.md`, Driver track: `tasks/TRACK-DRIVERS-ACCELERATORS.md`"
   - label: "Performance target matrix"

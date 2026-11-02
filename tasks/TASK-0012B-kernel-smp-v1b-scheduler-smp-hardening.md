@@ -21,9 +21,9 @@ links:
   - label: "SMP baseline"
     target: tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md
   - label: "Rust SMP model"
-    target: docs/architecture/16-rust-concurrency-model.md
+    target: docs/architecture/concurrency.md
   - label: "Kernel overview"
-    target: docs/architecture/01-neuron-kernel.md
+    target: docs/kernel/README.md
   - label: "SMP policy"
     target: tasks/TASK-0277-kernel-smp-parallelism-policy-v1-deterministic.md
   - label: "Testing contract"
@@ -171,8 +171,8 @@ Required markers remain green and unchanged in meaning:
 - `source/kernel/neuron/src/syscall/api.rs` (explicit wake-outcome matching in syscall-side waiter wakeups)
 - `source/kernel/neuron/src/types.rs` (only if CPU/Hart ID helper contracts require narrow updates)
 - `scripts/qemu-test.sh` (only if marker ordering/gating contract needs explicit sync)
-- `docs/architecture/01-neuron-kernel.md`
-- `docs/architecture/16-rust-concurrency-model.md`
+- `docs/kernel/README.md`
+- `docs/architecture/concurrency.md`
 - `docs/testing/README.md` (only if proof commands/marker expectations change)
 - `docs/rfcs/RFC-0022-kernel-smp-v1b-scheduler-hardening-contract.md` (phase/checklist/status sync)
 - `docs/rfcs/README.md` (RFC status index sync)

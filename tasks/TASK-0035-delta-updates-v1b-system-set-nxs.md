@@ -17,7 +17,7 @@ links:
   - label: Vision
     target: docs/architecture/vision.md
   - label: "Signing policy"
-    target: docs/security/signing-and-policy.md
+    target: docs/security/signing.md
 ---
 
 ## End-state rewrite 2026-09-03 (binding; executes on TASK-0321 P3)

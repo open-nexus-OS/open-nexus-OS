@@ -29,7 +29,7 @@ created: 2026-05-18
   - Layout contract: `docs/rfcs/RFC-0057-ui-v3a-layout-engine-pretext-contract.md`
   - Layout pipeline: `docs/dev/ui/foundations/layout/layout-pipeline.md`
   - Scroll spec: `docs/dev/ui/foundations/layout/scroll.md`
-  - Architecture: `docs/architecture/graphics/display-output-service-chain.md`
+  - Architecture: `docs/graphics-ui/display-chain.md`
 
 ## Status at a Glance
 

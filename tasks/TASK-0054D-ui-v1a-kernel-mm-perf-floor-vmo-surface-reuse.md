@@ -166,7 +166,7 @@ Notes:
 - `source/kernel/neuron/src/task/`
 - `source/libs/nexus-abi/`
 - `source/apps/selftest-client/`
-- `docs/architecture/01-neuron-kernel.md`
+- `docs/kernel/README.md`
 - `docs/storage/vmo.md`
 - `docs/testing/README.md`
 

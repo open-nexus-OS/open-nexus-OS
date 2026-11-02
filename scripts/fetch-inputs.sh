@@ -11,7 +11,7 @@
 # STATUS:  Functional
 # API_STABILITY: Stable
 # TEST_COVERAGE: Covered indirectly (every `just inputs` consumer)
-# ADR: docs/architecture/02-selftest-and-ci.md
+# ADR: docs/standards/BUILD_STANDARDS.md
 #
 # Usage:
 #   scripts/fetch-inputs.sh                  # submodules + fonts

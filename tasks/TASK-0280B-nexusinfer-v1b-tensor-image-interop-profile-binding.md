@@ -22,13 +22,13 @@ links:
   - label: "QoS/timers contract"
     target: tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
   - label: "Gfx resource model"
-    target: docs/architecture/graphics/nexusgfx-resource-model.md
+    target: tasks/TRACK-NEXUSGFX-SDK.md
   - label: "Gfx sync/lifetime model"
-    target: docs/architecture/graphics/nexusgfx-sync-and-lifetime.md
+    target: tasks/TRACK-NEXUSGFX-SDK.md
   - label: "NexusInfer runtime profiles"
-    target: docs/architecture/inference/nexusinfer-runtime-profiles.md
+    target: tasks/TRACK-NEXUSINFER-SDK.md
   - label: "NexusInfer rust design"
-    target: docs/architecture/inference/nexusinfer-rust-design.md
+    target: tasks/TRACK-NEXUSINFER-SDK.md
 ---
 
 ## Context
@@ -125,8 +125,8 @@ Deliver the first concrete `NexusInfer` contract slice that defines:
 
 - `userspace/` (new infer core crate or runtime module)
 - `source/services/` (only if a minimal infer service scaffold already exists)
-- `docs/architecture/inference/nexusinfer-runtime-profiles.md` (only if contract gaps are discovered)
-- `docs/architecture/inference/nexusinfer-rust-design.md` (only if contract gaps are discovered)
+- `tasks/TRACK-NEXUSINFER-SDK.md` (only if contract gaps are discovered)
+- `tasks/TRACK-NEXUSINFER-SDK.md` (only if contract gaps are discovered)
 - `tasks/TRACK-NEXUSINFER-SDK.md`
 
 ## Plan (small PRs)

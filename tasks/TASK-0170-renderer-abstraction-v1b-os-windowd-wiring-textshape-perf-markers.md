@@ -12,11 +12,11 @@ links:
   - label: Playbook
     target: CLAUDE.md
   - label: "NexusGfx sync/lifetime model"
-    target: docs/architecture/graphics/nexusgfx-sync-and-lifetime.md
+    target: tasks/TRACK-NEXUSGFX-SDK.md
   - label: "NexusGfx command/pass model"
-    target: docs/architecture/graphics/nexusgfx-command-and-pass-model.md
+    target: tasks/TRACK-NEXUSGFX-SDK.md
   - label: "NexusGfx tile-aware design"
-    target: docs/architecture/graphics/nexusgfx-tile-aware-design.md
+    target: tasks/TRACK-NEXUSGFX-SDK.md
   - label: "Driver/accelerator contracts (CPU now, GPU later)"
     target: tasks/TRACK-DRIVERS-ACCELERATORS.md
   - label: "Renderer abstraction host slice"

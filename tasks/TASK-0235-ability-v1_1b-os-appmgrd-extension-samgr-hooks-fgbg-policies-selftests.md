@@ -128,8 +128,8 @@ UART markers:
 ### Docs gate (keep architecture entrypoints in sync)
 
 - If `samgrd` hooks / service discovery contracts or `execd` exit-notification contracts change, update (or create):
-  - `docs/architecture/14-samgrd-service-manager.md`
-  - `docs/architecture/10-execd-and-loader.md`
+  - `docs/services/samgr.md`
+  - `docs/boot-init/execd.md`
   - and the index `docs/architecture/README.md`
 
 ## Touched paths (allowlist)

@@ -11,7 +11,7 @@
 //! STATUS: Functional
 //! API_STABILITY: Unstable — diagnostic surface, not an ABI promise
 //! TEST_COVERAGE: QEMU marker ladder (`KSELFTEST: bkl budget ok`)
-//! ADR: docs/rfcs/RFC-0033-soft-real-time-spine.md
+//! ADR: docs/rfcs/RFC-0033-soft-real-time-spine-waitset-fence-driverkit.md
 
 use super::{Args, SysResult};
 use crate::mm::address_space::AddressSpaceManager;

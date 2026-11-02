@@ -220,7 +220,7 @@ soft dependency); cross-device VMO transport; changing `OP_GET_FILE_VMO`'s proto
   `packagefsd/volume_reader.rs`, `vfsd/namespace.rs`, `nexus-vfs/os.rs`, and the dsoftbus
   packagefs leg into `packagefs_ro.rs`. Blast: vfs lanes, `vfsd: vmo splice` markers, visible
   lane (app assets via `pkg:/`).
-- **P3** ✅ **2026-09-18** Docs + closure. `docs/storage/vfs.md` gains a "How bytes move"
+- **P3** ✅ **2026-09-18** Docs + closure. `docs/storage/README.md` gains a "How bytes move"
   section (the two tiers, who may write a success header, and what it cost before);
   `docs/storage/vmo.md`'s consumer list names the ONE header and both `pkg:/` markers;
   RFC-0072's Phase 3 row records that the read-only provider was the one that never spliced;

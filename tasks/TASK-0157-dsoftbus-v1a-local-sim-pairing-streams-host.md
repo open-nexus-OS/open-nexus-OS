@@ -13,7 +13,7 @@ links:
   - label: Playbook
     target: CLAUDE.md
   - label: "DSoftBus overview"
-    target: docs/distributed/dsoftbus-lite.md
+    target: docs/network/dsoftbus.md
   - label: "DSoftBus no_std refactor"
     target: tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md
   - label: "Share v2 (intents) later"

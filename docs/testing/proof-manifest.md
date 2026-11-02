@@ -1,116 +1,145 @@
+---
+schema: 1
+title: "Proof manifest"
+role: reference
+subsystem: devx
+sources: [source/apps/selftest-client/proof-manifest, source/libs/nexus-proof-manifest, source/apps/selftest-client/build.rs, source/apps/selftest-client/src/os_lite/profile.rs, tools/qmp_scenario.py]
+contracts: [RFC-0038, RFC-0014, ADR-0027, ADR-0089]
+verified: 2026-11-02
+---
+
 <!-- Copyright 2026 Open Nexus OS Contributors -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# Proof Manifest schema (`source/apps/selftest-client/proof-manifest.toml`)
+# Proof manifest
 
-- Status: TASK-0023B is `In Review` 2026-04-20; all six phases functionally closed (P1 extraction → P2 two-axis → P3 arch-gate → P4 manifest SSOT → P5 schema-v2 split + signed evidence → P6 replay/diff/bisect). RFC-0038 is `Done`. Single remaining environmental closure step: external CI-runner replay artifact for P6-05, see [`docs/testing/replay-and-bisect.md`](replay-and-bisect.md) §7-§11.
-- Owners: @runtime
-- Anchor RFC: [RFC-0038](../rfcs/RFC-0038-selftest-client-production-grade-deterministic-test-architecture-refactor-v1.md)
-- Phase-list contract: [RFC-0014 v2](../rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md) §3 (extended 8 → 12 in Cut P2-00).
-- Parser crate: [`source/libs/nexus-proof-manifest/`](../../source/libs/nexus-proof-manifest/).
+> **Purpose** — the schema of the proof-manifest directory: phases, markers, profiles and lane scenarios, and how to extend each.
+> **Owns** — `source/apps/selftest-client/proof-manifest/` (data), `source/libs/nexus-proof-manifest/` (parser + CLI)
+> **Contracts** — [RFC-0038](../rfcs/RFC-0038-selftest-client-production-grade-deterministic-test-architecture-refactor-v1.md) (manifest as the one source), [RFC-0014](../rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md) (the phase list), [ADR-0027](../adr/0027-selftest-client-two-axis-architecture.md) (selftest-client structure), [ADR-0089](../adr/0089-lane-choreography-is-declared-the-guest-opens-the-input-window-every-console-line-is-whole.md) (lane choreography as data)
+> **Invariants** — the schema is closed: an unknown key is a parse error. A profile owns its lane's topology; a contradicting caller env is a hard error. The parser is host-only (never in the OS graph).
+> **Read next** — [os-markers.md](os-markers.md), [evidence-bundle.md](evidence-bundle.md)
 
-## Why this file exists
+## Layout
 
-Before Phase 4 the `selftest-client` marker ladder was implicitly co-owned by two surfaces that drifted independently:
-
-1. [`scripts/qemu-test.sh`](../../scripts/qemu-test.sh) — hard-coded `PHASES`/`PHASE_START_MARKER`/`REQUIRE_*` arrays that the harness used to gate UART expectations.
-2. [`source/apps/selftest-client/src/`](../../source/apps/selftest-client/src/) — the actual emitter, with `"SELFTEST: …"` string literals scattered across 17 source files (allowlisted in `.arch-allowlist.txt` `[marker_emission]`).
-
-`proof-manifest.toml` collapses these two truths into one declarative artifact. From Cut P4-04 onward the emitter references constants generated from this manifest (`crate::markers_generated::M_*`). From Cut P4-05 onward the harness reads its expectations from the manifest via a thin host CLI binary (`nexus-proof-manifest list-markers --profile=…`). After Phase-4 closure, "add a new marker" means "add a `[marker."…"]` entry"; nothing else.
-
-This document is the **normative schema**. The TOML file is the data; this Markdown file is the contract that data must obey.
-
-## Schema-level invariants (Phase-4 carry-forward)
-
-- Schema is **closed**: any unknown top-level key, unknown `[meta]` key, or unknown `[phase.*]` key rejects with a stable [`ParseError`](../../source/libs/nexus-proof-manifest/src/error.rs) variant. Additions require a schema bump (`[meta] schema_version`) and a coordinated parser update.
-- Phase-name set MUST equal RFC-0014 §3 v2 (12 phases). The 1:1 binding table is in §"Phase mapping" below (populated in Cut P4-02).
-- Default profile MUST exist as a `[profile.X]` block (validated at parse time from Cut P4-05).
-- No `parking_lot`/`getrandom` are pulled into the OS graph: the parser is a host-only crate, consumed via `[build-dependencies]` (P4-03+) and from host tools (`scripts/qemu-test.sh`, `tools/os2vm.sh`).
-
-## Top-level shape
-
-```toml
-[meta]
-schema_version = "1"          # required, non-empty
-default_profile = "full"      # required, non-empty; must resolve to a [profile.X]
-
-[phase.<name>]                # 12 blocks, exactly one per RFC-0014 phase
-order = <1..12>               # required, unique across the manifest
-
-[profile.<name>]              # P4-05+ populates runner/env/extends/phases
-# (skeleton at P4-01: header only, body added in later cuts)
-
-[marker."<literal>"]          # P4-03+ populates one entry per emitted marker
-# phase = "<phase>"
-# proves = "..."              # optional, free-text
-# introduced_in = "TASK-..."  # optional, traceability
-# emit_when = { profile = "<name>" }      # optional (P4-08)
-# emit_when_not = { profile = "<name>" }  # optional (P4-08)
-# forbidden_when = { profile = "<name>" } # optional (P4-09 deny-by-default)
+```
+source/apps/selftest-client/proof-manifest/
+  manifest.toml        [meta] + [include] (schema v2 root)
+  phases.toml          [phase.<name>] order = 1..12
+  markers/<phase>.toml [marker."<literal>"] — one file per phase, plus board.toml, ui.toml, usb.toml
+  profiles/harness.toml  [profile.<name>] runner/extends/env — lanes
+  profiles/runtime.toml  [profile.<name>] runtime_only/phases — in-guest phase subsets
+  scenarios/<name>.toml  injector choreography per lane; scenarios/targets.toml points + words
 ```
 
-## Reject categories (Cut P4-01 surface)
+## Schema v2
 
-The skeleton parser surfaces 6 reject categories. Each maps 1:1 to a [`ParseError`](../../source/libs/nexus-proof-manifest/src/error.rs) variant, and each has a dedicated test in [`tests/parse_skeleton.rs`](../../source/libs/nexus-proof-manifest/tests/parse_skeleton.rs):
+```toml
+# manifest.toml
+[meta]
+schema_version = "2"
+default_profile = "full"        # must resolve to a [profile.X]
 
-| Variant                          | Trigger                                                     |
-| -------------------------------- | ----------------------------------------------------------- |
-| `Toml(_)`                        | Syntactically invalid TOML (handled before any schema check). |
-| `MissingMeta`                    | `[meta]` table absent.                                      |
-| `MissingSchemaVersion`           | `[meta].schema_version` missing or empty.                   |
-| `MissingDefaultProfile`          | `[meta].default_profile` missing or empty.                  |
-| `UnknownTopLevelKey(k)`          | A top-level key other than `meta`/`phase`/`profile`/`marker`. |
-| `UnknownMetaKey(k)`              | A key inside `[meta]` other than the two whitelisted ones.  |
-| `DuplicatePhase(name)`           | Two `[phase.X]` blocks with the same name.                  |
-| `PhaseOrderConflict { … }`       | Two `[phase.X]` blocks with the same `order`.               |
+[include]
+phases   = "phases.toml"
+markers  = "markers/*.toml"     # globs resolve lexicographically
+profiles = "profiles/*.toml"
+```
 
-(Marker / profile / runtime-profile reject categories land in P4-03 / P4-05 / P4-08 respectively.)
+| Table | Keys |
+|---|---|
+| `[phase.<name>]` | `order` (unique, 1-based) |
+| `[marker."<literal>"]` | `phase` (required, declared), `proves`, `introduced_in`, `emit_when`, `emit_when_not`, `forbidden_when` (each `{ profile = "<name>" }`, must name a declared profile) |
+| `[profile.<name>]` harness | `runner` (`scripts/qemu-test.sh`, `tools/os2vm.sh`, `scripts/board-test.sh`), `extends`, `env = { … }` |
+| `[profile.<name>]` runtime | `runtime_only = true`, `phases = [ … ]` (no `runner`) |
 
-## Phase mapping (RFC-0014 ↔ manifest ↔ source)
+An included file may hold only its own category. Duplicates across files, an `extends` cycle, an
+unknown parent and a `runner` on a runtime profile are rejected. Every reject is one
+`ParseError` variant in `source/libs/nexus-proof-manifest/src/error.rs`, each with a test under
+`source/libs/nexus-proof-manifest/tests/`. A schema change bumps `schema_version` and the parser together.
 
-This mapping is **normative**: every row must hold simultaneously. Adding a phase requires updating all three columns in the same change (RFC-0014 §3, this table, the source file). Deleting a phase requires the same plus a `schema_version` bump.
+## Phases
 
-| Order | RFC-0014 §3 phase | `[phase.X]` block | `os_lite/phases/<x>.rs`                                                                                                       |
-| ----- | ----------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-|     1 | bringup           | `bringup`         | [`source/apps/selftest-client/src/os_lite/phases/bringup.rs`](../../source/apps/selftest-client/src/os_lite/phases/bringup.rs)         |
-|     2 | ipc_kernel        | `ipc_kernel`      | [`source/apps/selftest-client/src/os_lite/phases/ipc_kernel.rs`](../../source/apps/selftest-client/src/os_lite/phases/ipc_kernel.rs) |
-|     3 | mmio              | `mmio`            | [`source/apps/selftest-client/src/os_lite/phases/mmio.rs`](../../source/apps/selftest-client/src/os_lite/phases/mmio.rs)               |
-|     4 | routing           | `routing`         | [`source/apps/selftest-client/src/os_lite/phases/routing.rs`](../../source/apps/selftest-client/src/os_lite/phases/routing.rs)         |
-|     5 | ota               | `ota`             | [`source/apps/selftest-client/src/os_lite/phases/ota.rs`](../../source/apps/selftest-client/src/os_lite/phases/ota.rs)                 |
-|     6 | policy            | `policy`          | [`source/apps/selftest-client/src/os_lite/phases/policy.rs`](../../source/apps/selftest-client/src/os_lite/phases/policy.rs)           |
-|     7 | exec              | `exec`            | [`source/apps/selftest-client/src/os_lite/phases/exec.rs`](../../source/apps/selftest-client/src/os_lite/phases/exec.rs)               |
-|     8 | logd              | `logd`            | [`source/apps/selftest-client/src/os_lite/phases/logd.rs`](../../source/apps/selftest-client/src/os_lite/phases/logd.rs)               |
-|     9 | vfs               | `vfs`             | [`source/apps/selftest-client/src/os_lite/phases/vfs.rs`](../../source/apps/selftest-client/src/os_lite/phases/vfs.rs)                 |
-|    10 | net               | `net`             | [`source/apps/selftest-client/src/os_lite/phases/net.rs`](../../source/apps/selftest-client/src/os_lite/phases/net.rs)                 |
-|    11 | remote            | `remote`          | [`source/apps/selftest-client/src/os_lite/phases/remote.rs`](../../source/apps/selftest-client/src/os_lite/phases/remote.rs)           |
-|    12 | end               | `end`             | [`source/apps/selftest-client/src/os_lite/phases/end.rs`](../../source/apps/selftest-client/src/os_lite/phases/end.rs)                 |
+The 12 phases of RFC-0014 in `phases.toml` map one to one onto
+`source/apps/selftest-client/src/os_lite/phases/<name>.rs`: `bringup`, `ipc_kernel`, `mmio`,
+`routing`, `ota`, `policy`, `exec`, `logd`, `vfs`, `net`, `remote`, `end`. A marker's phase is
+the phase it is declared under, not its position in the UART. Adding a phase: update RFC-0014,
+add `[phase.<name>]`, add `os_lite/phases/<name>.rs` (registered in `phases/mod.rs`), extend
+`PhaseId` in `os_lite/profile.rs` and the `run_or_skip!` chain in `os_lite/dispatch.rs`.
 
-The 1:1 binding gives Phase-4 cuts a single review surface: a manifest review can confirm that every declared `[phase.X]` block has a matching RFC-0014 phase and a matching source file, and a phase-source review can confirm that every emitted phase-ok marker is declared in the manifest. Both reviews refer back to this table.
+## Profiles
 
-## Runtime-vs-harness profile distinction (Cut P4-08 preview)
+Harness profiles shape the outside of a run (machine, devices, required proofs); runtime profiles
+shape the inside (which phases the guest runs). Harness profiles chain with `extends`; children
+shadow parent keys. `full` is the root (it carries the lane memory envelope), `headless` the
+common base. A runtime profile is selected at boot through `NEXUS_SELFTEST_PROFILE`
+(`ci-os-runtime-*`); skipped phases print `dbg: phase <name> skipped`.
 
-Phase 4 introduces two disjoint kinds of profile:
+**The profile owns the topology.** `pm_apply_profile_env` in `scripts/qemu-test.sh` exports the
+resolved `env`; a caller value that contradicts a declared key (`SMP`, `QEMU_NO_ICOUNT`,
+`REQUIRE_*`, …) exits 1 before the build and names the key. `NEXUS_PROFILE_ENV_OVERRIDE=1` keeps the
+caller's value with a warning, for local one-offs only. `just arch-gate` Rule 6 forbids
+`REQUIRE_*` literals in `test-*`/`ci-*` recipe bodies. Host tests keep the boot lanes honest
+without booting (`cargo test -p nexus-proof-manifest --test profiles`):
+`accept_boot_lane_topology_is_declared` pins `smp`/`smp1`, and
+`reject_require_smp_without_two_harts_on_disk` rejects `REQUIRE_SMP=1` with fewer than two harts.
 
-- **Harness profiles** (`full`, `smp`, `smp1`, `dhcp`, `os2vm`, `quic-required`) — consumed by [`scripts/qemu-test.sh`](../../scripts/qemu-test.sh) and [`tools/os2vm.sh`](../../tools/os2vm.sh) to decide which QEMU runner / env / required markers apply. These shape the **outside** of the run.
-- **Runtime profiles** (`full`, `bringup`, `quick`, `ota`, `net`, `none`) — consumed by [`source/apps/selftest-client/src/os_lite/profile.rs`](../../source/apps/selftest-client/src/os_lite/) (added in P4-08) to decide which phases the binary itself emits. These shape the **inside** of the run.
+## Scenarios (ADR-0089)
 
-Runtime-only profiles MUST set `runtime_only = true` (validated from P4-08); harness profiles MUST NOT. The `full` profile is the only legal name in both spaces — by construction it means the same thing on each side (every phase, no env extras).
+A lane that injects input names a scenario in its env (`QEMU_INPUT_SCENARIO`); one runner,
+`tools/qmp_scenario.py` over `tools/qmp_input.py`, executes it.
 
-## The profile owns lane topology (env-conflict rule)
+```toml
+[scenario]
+profile = "lowmem"
+start_after = "SELFTEST: input window open"   # the guest opens the input window
 
-A harness profile's `env` block is the **single source of truth** for what the lane runs on: hart count (`SMP`), determinism (`QEMU_NO_ICOUNT`), and which result-proofs are demanded (`REQUIRE_*`). Callers select a lane by naming a profile — they do not hand the harness a topology.
+[[step]]
+name = "the keyboard reaches the greeter"
+do = { key = "a" }                            # login | click | move | chord | key | type | drag | wait
+expect = ["inputd: live keyboard route on"]   # new lines after the action, any order
+timeout_s = 10
+retry = 2
+```
 
-`scripts/qemu-test.sh::pm_apply_profile_env` therefore treats a caller-exported value that **contradicts** a manifest-declared key as a hard error (exit 1, before any build or boot), and prints which key, which caller value, and what the profile declares. `NEXUS_PROFILE_ENV_OVERRIDE=1` keeps the caller's value with a `[warn]` line — a local one-off escape hatch, never valid in CI or a gate.
+| Key | Meaning |
+|---|---|
+| `expect` | markers that must appear as new lines after the action, in any order |
+| `then` | markers that must follow the last `expect` line |
+| `timeout_s` | bound for `expect` + `then` |
+| `retry`, `retry_with` | declared retries; otherwise a missing acknowledgement ends the run: `[scenario] FAIL step=… missing=…` (also in `hypothesis.json`) |
+| `acked_by` | an action that prints nothing (typing — privacy rule) names the later step that covers it |
+| `settle_s` | a declared pause with no event to wait for (bounded) |
 
-Why the rule exists (2026-07-25): the recipe `just ci-os-smp1` passed `SMP=1` to `[profile.smp]`, which declares `SMP=2 QEMU_NO_ICOUNT=1`. The manifest value silently won, so `just test-all`'s "deterministic single-hart boot gate" was in fact the 2-hart MTTCG lane — including its nondeterministic cpu1 bring-up, which surfaced as a flaky `KSELFTEST: runtime timer budget ok` (a secondary-hart proof). The lane now exists as its own declaration, [`profile.smp1`](../../source/apps/selftest-client/proof-manifest/profiles/harness.toml), and two host tests keep the pair honest without booting (`cargo test -p nexus-proof-manifest --test profiles`):
+A `click` is also acknowledged by app-host's tap readback; a miss (`input tap miss at`) is retried.
+Points and typed words come from `scenarios/targets.toml` (`[targets]`, `[words]`), the same file
+the shell conformance tests in `tests/dsl_apps_conformance/tests/` read. Every step logs its
+duration (`scenario step ok`). The contract is checked on the host:
+`cargo test -p nexus-proof-manifest --test scenarios` or
+`nexus-proof-manifest scenario --scenario=all` (every literal declared, every point known, every
+action acknowledged, every bound bounded).
 
-- `accept_boot_lane_topology_is_declared` — pins the resolved env of both boot lanes.
-- `reject_require_smp_without_two_harts_on_disk` — any profile demanding secondary-hart proofs (`REQUIRE_SMP=1`) must declare `SMP >= 2`; a one-hart lane asking for cpu1 proofs is a contradiction that fails here instead of after a 3-minute boot.
+## CLI
 
-## How to extend (post-Phase-4)
+`nexus-proof-manifest <cmd> [--manifest=<path>] [--profile=<p>] [--format=lines|json|shell]`
+(default manifest: `source/apps/selftest-client/proof-manifest/manifest.toml`):
 
-- **New marker** → add a `[marker."…"]` entry; `build.rs` re-emits `markers_generated.rs` at next compile; the emission site references the generated constant; `arch-gate` rule 3 enforces the literal does not appear elsewhere.
-- **New profile** → add a `[profile.X]` block (with `extends` if it inherits); `qemu-test.sh --profile=X` and `just test-os PROFILE=X` work without script changes.
-- **New phase** → update RFC-0014 §3 first; add `[phase.X]` block here; add `os_lite/phases/<x>.rs`; register in `os_lite/profile.rs::dispatch_phase` (P4-08+).
+| Command | Output |
+|---|---|
+| `list-markers --profile=<p>` | the expected ladder of a profile |
+| `list-forbidden --profile=<p>` | markers the profile forbids |
+| `list-env --profile=<p>` | the resolved env (what the harness exports) |
+| `list-phases` | phases in order |
+| `verify` | parse only |
+| `verify-uart --profile=<p> --uart=<log>` | deny-by-default judgement of a UART log |
+| `scenario --scenario=<name>\|all` | a validated scenario as JSON, or check all |
 
-(See P4-10 closure docs in [`docs/testing/os-markers.md`](os-markers.md) for the full workflow once Phase 4 lands.)
+## Extending
+
+- **Marker** — [os-markers.md](os-markers.md) § Declaring a marker.
+- **Harness profile** — add `[profile.<name>]` with `runner`, `extends`, `env`; add a
+  `ci-os-<name>` recipe that runs `just test-os <name>` (no `REQUIRE_*` in the recipe); check with
+  `list-env` and `list-markers`.
+- **Runtime profile** — add it to `profiles/runtime.toml`, a `Profile` variant in
+  `source/apps/selftest-client/src/os_lite/profile.rs`, and a `ci-os-runtime-<name>` recipe.
+- **Scenario** — add `scenarios/<name>.toml`, name it in the profile's `QEMU_INPUT_SCENARIO`,
+  run the scenario check.

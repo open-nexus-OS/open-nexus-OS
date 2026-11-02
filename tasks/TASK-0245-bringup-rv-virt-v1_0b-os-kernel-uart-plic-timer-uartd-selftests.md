@@ -219,14 +219,14 @@ display-mode authority move (TASK-0251).
 
 `just test-all` green with every QEMU profile printing the FDT marker; the literal gate in
 `just check`; two-load-address boot proven; the kernel has no fw_cfg code; init discovers
-virtio devices from the tree with IRQs from `interrupts`; docs (`docs/architecture/01-neuron-kernel.md`
+virtio devices from the tree with IRQs from `interrupts`; docs (`docs/kernel/README.md`
 platform section, RFC-0098 Phase 1 ✅, CHANGELOG).
 
 **Sweep 2026-09-22:** all of the above ✅ on QEMU (P1–P4). Added in the sweep: `irq_bind` and
 `irq_complete` accept only a line the caller's device capability carries
 (`CapTable::holds_device_irq`; negative proof `SELFTEST: irq bind deny ok` in the ipc_kernel
 phase, required in every profile; the positive half is every driver's own bind marker);
-`docs/architecture/01-neuron-kernel.md` boot flow + HAL rewritten around the tree with a
+`docs/kernel/README.md` boot flow + HAL rewritten around the tree with a
 "Platform from the device tree" section. RFC-0098 Phase 1 is 🟨: this task ✅, 0245B open.
 The board's serial shows these markers only after B1.6 (nxboot as FIT payload) — TASK-0327B.
 **Post-Done finding (2026-09-22, TASK-0286 P0):** the literal gate matched only the underscored

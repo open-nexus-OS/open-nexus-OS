@@ -16,24 +16,6 @@ links:
     target: tasks/TASK-0170B-nexusgfx-v1c-windowd-handoff-minimal-pass-planning.md
   - label: "Current state (2026-05-29)"
     target: "Module structure established (Phase 5 of RFC-0059). 10-directory Metal-like tree, 40+ skeleton files. Existing v0 code moved into core/, resource/, command/. Backward-compatible re-exports. See RFC-0059 for full structure."
-  - label: "Gfx compute/executor model"
-    target: docs/architecture/graphics/nexusgfx-compute-and-executor-model.md
-  - label: "Gfx resource model"
-    target: docs/architecture/graphics/nexusgfx-resource-model.md
-  - label: "Gfx sync/lifetime model"
-    target: docs/architecture/graphics/nexusgfx-sync-and-lifetime.md
-  - label: "Gfx command/pass model"
-    target: docs/architecture/graphics/nexusgfx-command-and-pass-model.md
-  - label: "Gfx compute kernel model"
-    target: docs/architecture/graphics/nexusgfx-compute-kernel-model.md
-  - label: "Gfx tile-aware design"
-    target: docs/architecture/graphics/nexusgfx-tile-aware-design.md
-  - label: "Gfx text pipeline integration"
-    target: docs/architecture/graphics/nexusgfx-text-pipeline.md
-  - label: "Gfx artifact pipeline"
-    target: docs/architecture/graphics/nexusgfx-artifact-pipeline.md
-  - label: "Gfx capability matrix"
-    target: docs/architecture/graphics/nexusgfx-capability-matrix.md
   - label: "NexusMedia SDK track (audio/video/image)"
     target: tasks/TRACK-NEXUSMEDIA-SDK.md
   - label: "NexusGame SDK track (games)"
@@ -102,21 +84,11 @@ These are cross-cutting and must remain stable as the SDK evolves:
 - **Perf gates**: regression gates must be deterministic and enforced via host tests first.  
   Sources: `tasks/TASK-0143`/`0144`/`0145`
 - **Hardware abstraction**: capability-driven lowering and executor selection; no CUDA/Tensor-Core assumptions in the portable contract.  
-  Sources: `docs/architecture/graphics/nexusgfx-compute-and-executor-model.md`, `docs/architecture/graphics/nexusgfx-capability-matrix.md`
+  Source: "Design notes" below (layer model, capability vocabulary).
 
-## Architecture surfaces (canonical docs)
+## Architecture surfaces
 
-Detailed design work for later task/RFC extraction lives in:
-
-- `docs/architecture/graphics/nexusgfx-compute-and-executor-model.md`
-- `docs/architecture/graphics/nexusgfx-resource-model.md`
-- `docs/architecture/graphics/nexusgfx-sync-and-lifetime.md`
-- `docs/architecture/graphics/nexusgfx-command-and-pass-model.md`
-- `docs/architecture/graphics/nexusgfx-compute-kernel-model.md`
-- `docs/architecture/graphics/nexusgfx-tile-aware-design.md`
-- `docs/architecture/graphics/nexusgfx-text-pipeline.md`
-- `docs/architecture/graphics/nexusgfx-artifact-pipeline.md`
-- `docs/architecture/graphics/nexusgfx-capability-matrix.md`
+Detailed design input for later task/RFC extraction lives in the "Design notes" section at the end of this track.
 
 ## Related tracks (intentional split, shared primitives)
 
@@ -260,3 +232,97 @@ The first `NexusGfx` task/RFC should explicitly avoid:
 - When extracted:
   - this entry is replaced with `Status: extracted → TASK-XXXX` and a link,
   - all detailed requirements live in the real task, not here.
+
+## Design notes (merged from docs/architecture/graphics/nexusgfx-*, 2026-11-02)
+
+Planning vocabulary for the future NexusGfx RFC; names are candidates, not API.
+
+**Already built — do not re-plan:** `userspace/nexus-gfx/` has the command buffer, render encoder and layer wire format with bounded validation (`userspace/nexus-gfx/src/command/`), the timeline-fence model (`userspace/nexus-gfx/src/sync/timeline.rs`, RFC-0033), the v2 device contract `GfxDevice` with its host oracle `cpu_mock` (`userspace/nexus-gfx/src/backend/v2/`, RFC-0101) and the capability report (`source/libs/nexus-driverkit/src/gpu.rs`), the offline pipeline library + IR + per-target code backends (`userspace/nexus-gfx/src/shader/`, ADR-0072, built by `tools/nxgpu`), the frame planner (`userspace/nexus-gfx/src/frame/`) and the one software rasterizer (`userspace/nexus-gfx/src/raster/`). The compute/blit encoders, passes, image/sampler/heap, barrier/event, `transfer/`, `cache/` and `pipeline/` modules are placeholders — the notes below are their design input.
+
+### Layers and the shared substrate
+
+| Layer | Owns |
+|-------|------|
+| App SDK (NexusGfx, NexusInfer) | product concepts; apps never get MMIO/IRQ/DMA, never target vendor APIs, never own policy |
+| Planner + validation (portable) | resource-state validation, submit/pass planning, budgets, residency/staging, profile selection and fallback — *what* happens |
+| IR + artifacts | pipeline, kernel and graph artifacts with stable IDs and versions |
+| Executor backend (thin) | import/export, submit, fence signalling, reset hooks, capability report |
+| DriverKit device service | MMIO, firmware protocol, command encoding, reset/recovery, audited faults — the only layer where hardware detail dominates |
+
+- NexusGfx and NexusInfer share and never fork: VMO/filebuffer references and slices, queues with bounded in-flight work, timeline fences/waitsets/deadlines, budgets and residency classes, import/export rules, audited fault/reset. NexusGfx is not the ML API; NexusInfer does not redefine graphics resources or sync.
+- Executor classes `cpu_ref` · `cpu_optimized` · `gfx_compute` · `npu` are visible to policy and debugging, never swapped by hidden heuristics. The `cpu_ref` floor is TASK-0054 / RFC-0046 (deterministic host frames + goldens); later backends keep its pixel, bounds and proof-honesty guarantees.
+
+### Resources
+
+- Classes: buffer (vertex/index, constants, storage, staging, indirect later, tensor payloads) · image (textures, render targets, depth-like, video planes, storage images) · sampler (state apart from image ownership) · pipeline-artifact reference (immutable; binds a program to a binding layout and execution config).
+- Residency: `host_visible` · `device_private` · `transient` (bounded pass window — prefer whenever a result does not outlive it) · `streamed` (large geometry, textures, artifact chunks) · `imported` · `exported` (window surfaces, media frames, infer tensors, capture).
+- Subresources: byte slice, image plane, array layer, mip-like level, tile/chunk region, attachment view — partial streaming and plane-aware interop without copies.
+- Access: `read_only` · `write_only` · `read_write` · `sampled` · `storage` · `presentable`. Write intent explicit; imported resources default to conservative access.
+- Staging explicit both ways: upload = host_visible staging + explicit copy/import; download = explicit, size-bounded readback target.
+- Budgets: live buffers/images, transient bytes per queue/client, staging pool bytes, imported count, cached pipelines/views, readback size.
+- No hidden refcount survival on hot paths; fences are the lifetime transition points.
+
+### Sync and lifetime
+
+- States: created → recorded-for-use → in-flight → completed → recycled → destroyed; imported: imported-visible → imported-in-flight → returned.
+- Waits: non-blocking check, deadline-bounded wait, waitset over a bounded group. No wait-forever in the portable contract, no userspace spin.
+- Every interop handoff (windowd, media frames, NexusInfer) states who owns the resource, which fence signals the handoff, which queue consumes next, and when the producer may reclaim.
+- Present exposes frame-ready completion, pacing deadline, dropped-frame accounting, bounded frame-queue depth, presentable lifetime.
+- Faults: stable error classes; in-flight resources recover only through an explicit, audited reset; per-client containment over global collapse; no silent retry of lost work.
+- Validation rejects with a bounded why-denied: use-after-submit, double-submit, queue overflow, invalid fence wait, reuse before completion, imported/presentable misuse.
+
+### Commands and passes
+
+- Pass classes: render (raster, attachments, 2D/text/UI, depth/selection) · compute (dispatch, image/buffer processing, postprocess, simulation) · copy/blit (upload/download, resolve, copies) — kept apart for bandwidth attribution.
+- A pass is one bounded execution region: not one per effect, not a kitchen sink that hides dependencies. Recording is deterministic: no wallclock input, no implicit pass insertion, no driver command repair.
+- Dependencies = resource access intent + queue order + pass order + explicit fences across queue/owner boundaries; no vendor barrier formats in the portable API.
+- Render-pass attachments carry explicit load / store / transient-only / resolve / consumed-next intent.
+- Secondary bundles and indirect draws/dispatches: later, capability-gated, bounded.
+- Every primitive validates and runs deterministically on the CPU backend; pass boundaries are real state transitions even when executed serially.
+
+### Compute kernels
+
+- A kernel declares inputs/outputs, binding layout, workgroup requirements, bounded specialization knobs and required capabilities. A dispatch carries global shape, workgroup shape, specialization values, ordering and a completion fence.
+- Same resource/handle/budget/sync model as rendering — no compute-only memory universe.
+- Local/shared scratch memory is a capability: a kernel declares it or has a fallback. Wave/warp terms live only inside lowerings.
+- Numeric classes: exact-by-contract · tolerance-bounded float · backend-native fast path · quantized/mixed.
+- Not first: autotuning, a general scientific library, any assumption that GPU compute exists.
+
+### Tile-aware rules
+
+- Transient candidates: G-buffer-like intermediates, depth/stencil scratch, MSAA intermediates, temporary lighting/composition targets, tile-local postprocess.
+- Anti-patterns: redundant full-surface store/load; a full-frame resolve where a bounded one suffices; attachment oversubscription; barriers without a real dependency; every postprocess through an externally stored texture; compute as a universal replacement for pass fusion; splitting a producer from its immediate consumer.
+- Pro surfaces: selection/highlight buffers without full-frame churn; timeline previews reuse transient or partial resources.
+- The CPU backend cannot prove tile-memory behaviour; it proves that pass boundaries, load/store intent and transient declarations reach the backend.
+
+### Text
+
+- The UI stack owns resolve tree, text preparation, shaping/bidi, line layout, measure/placement, invalidation classes and identity (`docs/dev/ui/foundations/layout/text.md`, `docs/dev/ui/foundations/layout/layout-pipeline.md`). NexusGfx owns glyph materialization, atlas/cache lifetime, batching, damage-aware submission and the backend draw.
+- The renderer consumes prepared paragraphs; scroll-only changes reuse prepared text and line layout; theme/colour changes are paint-only; a newly materialized glyph never forces an unrelated full redraw.
+- Atlas: lazy fill, deterministic keys (font, glyph, size/style bucket, subpixel bucket if needed, colour/emoji mode), bounded count/size and eviction. Vector glyph rasterization only later, never per frame.
+- Batch keys: atlas/resource, blend/colour mode, clip compatibility, transform, pipeline state; never batch across state that breaks determinism or damage accounting.
+- Virtual lists: cache churn must not break anchor-by-key; visible-range changes do not invalidate the whole atlas.
+- Colour glyphs are a materialization distinction, not a second layout pipeline; native surfaces still route text through the canonical contracts.
+
+### Artifacts (beyond the pipeline library)
+
+- Classes: source inputs, IR, pipeline artifacts, specialized variants, debug symbol/source-map sidecars, cache indexes/manifests — for graphics, compute, and shared infer graph artifacts.
+- Identity inputs: canonical source/IR, stable config fields, required capabilities/profile, specialization values, artifact format version. Never: traversal order, temp paths, timestamps, map iteration order.
+- Runtime cache: stable keys, bounded size, explicit warmup stages, no background harvesters, no runtime mutation that breaks reproducibility. Later: profile-driven or install-time prewarm.
+- Specialization explicit, bounded and part of the identity; no near-duplicate variant explosion.
+- Artifact IDs label traces and perf scenes; Dev Studio (`tasks/TRACK-DEVSTUDIO-IDE.md`) inspects, prebuilds, signs and deploys them.
+
+### Capability vocabulary
+
+Each entry is `supports_<name>`; tasks name required capabilities, never backend brands.
+
+| Group | Capabilities |
+|-------|--------------|
+| Resource | host_visible_buffers, device_private_buffers, transient_attachments, storage_images, subresource_views, imported_resources, exported_resources |
+| Sync | timeline_fences, waitsets, deadline_waits, cross_queue_sync |
+| Pass | render_passes, compute_passes, copy_blit_passes, tile_local_optimizations, resolve_attachments |
+| Compute | storage_buffer_compute, image_compute, shared_local_memory, indirect_dispatch, async_copy |
+| Artifact | offline_pipeline_artifacts, runtime_pipeline_warmup, specialization_variants |
+| Interop | presentable_images, media_frame_import, image_tensor_interop, infer_gfx_interop |
+
+Backend profiles to plan against: `cpu_ref` (deterministic, host-visible, all pass classes in software, no tile behaviour) · `mobile_tiled_gpu` (transient + tile-local, bandwidth-sensitive, pass structure matters) · `npu_interop` (no graphics pipeline, tensor/compute-specialized, selective interop). The first milestone needs only host-visible resources, explicit passes, bounded submit/sync, present hooks and offline artifacts; everything else is capability-gated.

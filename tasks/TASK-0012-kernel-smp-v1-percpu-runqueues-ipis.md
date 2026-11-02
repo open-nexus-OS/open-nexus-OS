@@ -19,7 +19,7 @@ links:
   - label: Playbook
     target: CLAUDE.md
   - label: "Kernel overview"
-    target: docs/architecture/01-neuron-kernel.md
+    target: docs/kernel/README.md
   - label: "QEMU platform determinism"
     target: docs/dev/platform/qemu-virtio-mmio-modern.md
   - label: "QEMU smoke proof policy"
@@ -153,7 +153,7 @@ When implementing SMP features, ensure:
 
 ## Contract sources (single source of truth)
 
-- `docs/architecture/01-neuron-kernel.md` (scheduler overview + determinism)
+- `docs/kernel/README.md` (scheduler overview + determinism)
 - `docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md` (ownership model + newtypes + explicit Send/Sync boundaries)
 - KSELFTEST marker contract (must be added/updated in kernel selftests)
 - QEMU acceptance harness + marker ordering contract: `scripts/qemu-test.sh` (and `docs/testing/README.md`)
@@ -178,7 +178,7 @@ When implementing SMP features, ensure:
   - `SMP=2 REQUIRE_SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
   - `SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
 - Docs stay in sync:
-  - Update `docs/architecture/01-neuron-kernel.md` and `docs/architecture/README.md` to reflect any new SMP invariants/markers and any scheduler model changes.
+  - Update `docs/kernel/README.md` and `docs/architecture/README.md` to reflect any new SMP invariants/markers and any scheduler model changes.
   - If SMP marker-gating behavior in the harness changes, update `docs/testing/README.md` in the same slice.
 
 ## Touched paths (allowlist)
@@ -186,7 +186,7 @@ When implementing SMP features, ensure:
 - `source/kernel/neuron/src/**`
 - `scripts/run-qemu-rv64.sh` (only if needed to parameterize `SMP`)
 - `scripts/qemu-test.sh` (marker expectations for SMP runs, gated/optional)
-- `docs/architecture/01-neuron-kernel.md`
+- `docs/kernel/README.md`
 - `docs/architecture/README.md`
 - `docs/testing/README.md` (only if marker-gating behavior/commands change)
 
@@ -217,7 +217,7 @@ When implementing SMP features, ensure:
 4. **Per-CPU runqueues**
    - Replace the single runqueue with per-CPU queues.
    - Prefer strict per-CPU ownership of runqueues (minimize shared mutable state).
-   - If any structure must become cross-CPU shared, add explicit synchronization and document the ownership change in `docs/architecture/01-neuron-kernel.md` (tie back to RFC-0020 ownership model).
+   - If any structure must become cross-CPU shared, add explicit synchronization and document the ownership change in `docs/kernel/README.md` (tie back to RFC-0020 ownership model).
 
 5. **Work stealing**
    - Simple round-robin steal when local queue empty; prove via selftest marker.

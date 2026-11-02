@@ -15,11 +15,11 @@ links:
   - label: "NexusGfx SDK track (render/compute)"
     target: tasks/TRACK-NEXUSGFX-SDK.md
   - label: "Gfx compute/executor model"
-    target: docs/architecture/graphics/nexusgfx-compute-and-executor-model.md
+    target: tasks/TRACK-NEXUSGFX-SDK.md
   - label: "Gfx artifact pipeline"
-    target: docs/architecture/graphics/nexusgfx-artifact-pipeline.md
+    target: tasks/TRACK-NEXUSGFX-SDK.md
   - label: "Gfx capability matrix"
-    target: docs/architecture/graphics/nexusgfx-capability-matrix.md
+    target: tasks/TRACK-NEXUSGFX-SDK.md
   - label: "NexusMedia SDK track (audio/video/image)"
     target: tasks/TRACK-NEXUSMEDIA-SDK.md
   - label: "NexusNet SDK track (cloud + DSoftBus)"

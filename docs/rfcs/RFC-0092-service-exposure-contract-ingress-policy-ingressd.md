@@ -17,7 +17,7 @@ links:
   - label: RFCs
     target: "`docs/rfcs/RFC-0091-policy-profile-v2-schema-wire-argument-matchers.md` (`net.bind` address class, `OP_ABI_EVAL`, deny taxonomy), `docs/rfcs/RFC-0068-structured-event-observability-subject-grouped-journal-renderer.md` (audit record)"
   - label: Docs
-    target: "`docs/security/network-egress.md` (the outbound half), `docs/security/abi-filters.md` (seams), `docs/security/ingress.md` (this contract's user-facing notes)"
+    target: "`docs/security/network-policy.md` (the outbound half), `docs/security/abi-filters.md` (seams), `docs/security/network-policy.md` (this contract's user-facing notes)"
   - label: IDL
     target: "`tools/nexus-idl/schemas/ingress.capnp` (host SSOT of the exposure intent)"
 ---
@@ -42,7 +42,7 @@ Definition:
 ## Scope boundaries (anti-drift)
 
 - **This RFC owns**: the `expose` policy domain (schema, precedence, bounds), the rule that only the gateway may bind a non-loopback address, the `ingressd` service contract (wire ops, identity, accept-side filters, rate limits, forwarding, markers, counters), and the named TLS/mTLS slot.
-- **This RFC does NOT own**: outbound policy (RFC-0091 `net.connect`, `docs/security/network-egress.md`); the matcher/precedence engine and the `net.bind` address class themselves (RFC-0091); DSoftBus discovery/session authorization (TASK-0030); TLS implementation (network track); IPv6 (reserved, like RFC-0091).
+- **This RFC does NOT own**: outbound policy (RFC-0091 `net.connect`, `docs/security/network-policy.md`); the matcher/precedence engine and the `net.bind` address class themselves (RFC-0091); DSoftBus discovery/session authorization (TASK-0030); TLS implementation (network track); IPv6 (reserved, like RFC-0091).
 
 ### Relationship to tasks (single execution truth)
 
@@ -128,7 +128,7 @@ The gateway is a facade client like every other service, so the facade must carr
 
 ### Phases / milestones (contract-level)
 
-- **Phase 0** (TASK-0052 P0): this contract, ADR-0061, the IDL seed, `docs/security/ingress.md`.
+- **Phase 0** (TASK-0052 P0): this contract, ADR-0061, the IDL seed, `docs/security/network-policy.md`.
 - **Phase 1** (P1): schema rule `AnyBindNeedsGateway`, corpus fixtures, `test_reject_nonloopback_bind_without_intent`, selftest bind probe, `SELFTEST: ingress deny ok` in headless/smp1.
 - **Phase 2** (P2): `[[expose]]` grammar + tables, `source/services/ingressd/` (src/ + tests/), `tests/ingress_host/`: allow, `test_reject_intent_policy_denied`, `test_reject_cidr`, `test_reject_rate_exceeded`, `test_reject_forged_intent_sender`.
 - **Phase 3** (P3): init wiring (fixed policyd + netstackd slots — a seam never routes from its hot loop), policy grants, markers `ingressd: ready`, `ingressd: port open (…)`, `ingressd: deny (reason=…)`, `SELFTEST: ingress allow ok`, `SELFTEST: ingress deny ok`, `SELFTEST: ingress rate ok` (single-VM: the selftest exposes a loopback backend, connects through the gateway over QEMU user-net's own address, and drives the rate limit deterministically).
@@ -181,7 +181,7 @@ cd /home/jenning/open-nexus-OS && just test-os headless   # and smp1
 
 ## Implementation Checklist
 
-- [x] **Phase 0**: contract seed (this RFC), ADR-0061, IDL seed, `docs/security/ingress.md`, RFC/ADR indexes — proof: `just check` docs gates (2026-09-08)
+- [x] **Phase 0**: contract seed (this RFC), ADR-0061, IDL seed, `docs/security/network-policy.md`, RFC/ADR indexes — proof: `just check` docs gates (2026-09-08)
 - [x] **Phase 1**: Layer A bind gate — proof: `test_reject_nonloopback_bind_without_intent`, `SELFTEST: ingress deny ok` (2026-09-08)
 - [x] **Phase 2**: `ingressd` host + `tests/ingress_host/` — proof: the five `test_reject_*` (2026-09-08)
 - [x] **Phase 3**: `ingressd` OS — proof: markers above in headless/smp1 (2026-09-08)

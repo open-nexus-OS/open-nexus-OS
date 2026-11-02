@@ -1,198 +1,163 @@
-# Nexus bundle packaging (`.nxb`)
+---
+schema: 1
+title: "Bundles (.nxb)"
+role: reference
+subsystem: app-platform
+sources: [tools/nexus-idl/schemas/manifest.capnp, tools/nxb-pack, userspace/bundlemgr, source/services/bundlemgrd, tools/nx/src/commands/app.rs, userspace/storage/src/pkgimg_bundles.rs]
+contracts: [ADR-0020, ADR-0021, ADR-0060, RFC-0089, RFC-0111, ADR-0084]
+verified: 2026-11-02
+---
 
-**Status**: Active (updated 2026-04-22)  
-**Canonical source**: ADR-0020 (manifest format decision)
+<!-- Copyright 2026 Open Nexus OS Contributors -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
-The loader v1.1 milestone wires `bundlemgrd` and `execd` together so installed
-bundles can be executed via the same assets used during packaging. Keeping the
-layout deterministic makes it trivial to stage artifacts in host tests and on
-the OS image.
+# Bundles (.nxb)
+
+> **Purpose** — the `.nxb` bundle layout, the `manifest.toml` → `manifest.nxb` fields, and how bundles become the system volume that `pkg:/` serves.
+> **Owns** — `tools/nexus-idl/schemas/manifest.capnp`, `tools/nxb-pack/`, `userspace/bundlemgr/`
+> **Contracts** — [ADR-0020](../adr/0020-manifest-format-capnproto.md) (Cap'n Proto manifest), [ADR-0021](../adr/0021-structured-data-formats-json-vs-capnp.md) (JSON only for interop metadata), [ADR-0060](../adr/0060-verified-system-volume-bundlemgrd-verifier-init-spawner.md) (verified system volume), [RFC-0089](../rfcs/RFC-0089-ota-v2-component-manifest-ab-boot-images-nxboot-bsb.md) §12 (pkgimg v3 volume), [RFC-0111](../rfcs/RFC-0111-process-lifecycle-freeze-thaw-kill-the-parent-orders-the-process.md) §6 + [ADR-0084](../adr/0084-one-permission-authority-policyd-holds-every-app-grant-published-by-the-bundle-manager-asked-by-the-launchers.md) (one permission authority)
+> **Invariants** — `manifest.nxb` is the signable contract; TOML is input only. Schema fields are append-only. A system-role permission is refused at pack time unless the bundle type holds that role.
+> **Read next** — [artifact-kinds.md](artifact-kinds.md), [supply-chain.md](supply-chain.md), [../storage/README.md](../storage/README.md)
 
 ## Layout
 
-An `.nxb` directory contains canonical contract bytes plus interop metadata:
-
 ```text
-<bundle>.nxb/
-├── manifest.nxb
-├── payload.elf            (native service/app ELF)  — or —
-├── payload.nxir           (ui-program bundles: the compiled DSL program)
+<bundle>/
+├── manifest.nxb           Cap'n Proto BundleManifest (canonical, deterministic, signable)
+├── payload.elf            native service/app ELF         — or —
+├── payload.nxir           payload_kind = "ui-program": the compiled DSL program
 └── meta/
-    ├── sbom.json
-    ├── repro.env.json
-    ├── launch.json        (services on the system volume: { "stack_pages": N })
-    └── app.properties     (app bundles: label= / icon= / bundle_type= / payload_kind=)
+    ├── sbom.json          CycloneDX 1.5 (digest bound in manifest.sbomDigest)
+    ├── repro.env.json     repro metadata (digest bound in manifest.reproDigest)
+    ├── launch.json        services only: { "stack_pages": N, "features": "…" } — marks a spawnable bundle
+    └── app.properties     apps only: the registry sidecar (below)
 ```
 
-On the verified system volume (RFC-0089 §12, TASK-0321) these directories are
-packed verbatim: `meta/launch.json` marks a spawnable service bundle (init
-spawns it from the volume), `meta/app.properties` marks an app bundle
-(bundlemgrd's launcher registry + `GET_PAYLOAD` read it; written by
-`nx app compile --meta`). `payload.nxir` is what `nxb-pack` names the payload
-of a `payload_kind = "ui-program"` manifest.
+`nxb-pack` names the payload file from the manifest's `payloadKind`. Digest and size fields are
+payload-agnostic.
 
-- **`manifest.nxb`**: Canonical, deterministic bundle manifest (Cap'n Proto binary).
-  - **Format**: Cap'n Proto (`tools/nexus-idl/schemas/manifest.capnp`)
-  - **Deterministic**: Same manifest data → same binary output (signable)
-  - **Versionable**: Schema v1.0 (core fields), v1.1 (`payloadDigest`/`payloadSize`), v1.2 (`sbomDigest`/`reproDigest`)
-  - **Replaces**: Old JSON/TOML formats (drift resolved in TASK-0007)
-  
-- **`payload.elf`**: ELF64/RISC-V binary. In v1.1 the same payload is staged
+## Sources
 
-  in `bundlemgrd`'s artifact store so the daemon can serve it to `execd` during
-  `getPayload`.
-
-- **`meta/sbom.json`**: CycloneDX JSON 1.5 SBOM (interop artifact).
-  - Format policy: JSON is intentional for SBOM interoperability (ADR-0021).
-  - Integrity binding: SHA-256 is stored in `manifest.nxb` (`sbomDigest`).
-
-- **`meta/repro.env.json`**: Reproducibility metadata snapshot.
-  - Includes deterministic build context (`SOURCE_DATE_EPOCH`, toolchain, digests).
-  - Integrity binding: SHA-256 is stored in `manifest.nxb` (`reproDigest`).
-
-### Why JSON under `meta/` while manifest is Cap'n Proto?
-
-- Cap'n Proto is the canonical contract format for runtime/signing/persistence bytes.
-- SBOM and repro metadata are interoperability artifacts and therefore JSON by ADR-0021 policy.
-- Integrity is still enforced through manifest digest fields, so JSON does not weaken trust binding.
-
-## Authoring bundles
-
-The helper `tools/nxb-pack` crate creates the directory for you:
+| bundle | source | built by |
+|---|---|---|
+| app | `userspace/apps/<app>/manifest.toml` (next to `ui/`, `assets/`, …) | `nx app compile --app <dir> --out <payload> --meta <props>` + `nxb-pack --toml` |
+| service | TOML generated per service in `scripts/build.sh` (`bundle_type = "service"`) | `nxb-pack --toml` + `meta/launch.json` |
+| `system` | generated in `scripts/build.sh`; payload is `build.prop` | `nxb-pack --toml` |
 
 ```bash
-# From TOML source (human-editable)
-cargo run -p nxb-pack -- --toml manifest.toml path/to/app.elf out/demo.hello.nxb
-
-# Quick mode (generates default manifest)
-cargo run -p nxb-pack -- path/to/app.elf out/demo.hello.nxb
+cargo run -p nxb-pack -- --toml manifest.toml <payload> out/<bundle>/   # from TOML
+cargo run -p nxb-pack -- <payload.elf> out/<bundle>/                    # default manifest
+cargo run -p nxb-pack -- --hello out/<bundle>/                          # fixture bundle
 ```
 
-**Workflow**:
-1. **Input**: `manifest.toml` (TOML, human-editable)
-2. **Compile**: `nxb-pack` → `manifest.nxb` (Cap'n Proto binary)
-3. **Generate**: `meta/sbom.json` + `meta/repro.env.json`
-4. **Bind digests**: write `payloadDigest`, `sbomDigest`, `reproDigest` into manifest
-5. **Package**: emit deterministic directory layout
+Pack steps: TOML → `manifest.nxb` (`schemaVersion = 2`) → write payload → `meta/sbom.json` →
+`meta/repro.env.json` → rewrite the manifest with `payloadDigest`/`payloadSize`/`sbomDigest`/
+`reproDigest`. A native payload must pass the `exec_image` page-grid check (ADR-0080).
 
-**Example `manifest.toml`**:
+## Manifest fields
 
-```toml
-name = "demo.hello"
-version = "1.0.0"
-abilities = ["nexus.ability.MainAbility"]
-caps = ["nexus.permission.INTERNET"]
-min_sdk = "1.0.0"
-publisher = "00000000000000000000000000000000"
-sig = "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+`tools/nexus-idl/schemas/manifest.capnp`, `struct BundleManifest`:
+
+| @ | capnp field | TOML key | type / rule |
+|---|---|---|---|
+| 0 | `schemaVersion` | — | `UInt8`; nxb-pack writes 2 |
+| 1 | `name` | `name` | non-empty |
+| 2 | `semver` | `version` | SemVer |
+| 3 | `abilities` | `abilities` | `List(Text)`, non-empty entries |
+| 4 | `capabilities` | `caps` | `List(Text)` permission names |
+| 5 | `minSdk` | `min_sdk` | SemVer |
+| 6 | `publisher` | `publisher` | 16 bytes (32 hex); default zero placeholder |
+| 7 | `signature` | `sig` | 64 bytes (128 hex); default zero placeholder |
+| 8 | `payloadDigest` | — | SHA-256 of the payload, written by nxb-pack |
+| 9 | `payloadSize` | — | payload bytes |
+| 10 | `sbomDigest` | — | SHA-256 of `meta/sbom.json` |
+| 11 | `reproDigest` | — | SHA-256 of `meta/repro.env.json` |
+| 12 | `bundleType` | `bundle_type` | `BundleType`, default `app` ([artifact-kinds.md](artifact-kinds.md)) |
+| 13 | `dependencies` | `dependencies` | `"name"` or `"name@<constraint>"` (default `*`) |
+| 14 | `providedServices` | `provides` | `List(Text)` |
+| 15 | `resources` | `resources` | `"kind:path"`; kind ∈ icon, cursor, font, wallpaper, sound, data (default data) |
+| 16 | `payloadKind` | `payload_kind` | `elf` (default) or `"ui-program"` (`uiProgram`) |
+| 17 | `exports` | `exports` | `[{ ability, permission }]`; permission must be `app.<name>.<CAP>` |
+
+TOML keys that are not in `manifest.nxb`: `label`, `icon`, `icon_svg`, `background`,
+`restorable`. They reach the device through `meta/app.properties` or build-time icon rendering.
+
+Host parser: `userspace/bundlemgr/src/manifest.rs` — `Error::Decode`, `MissingField`,
+`InvalidField { field, reason }`; publisher must be 16 bytes, signature 64, digests empty or 32.
+
+### Pack-time role gate (`tools/nxb-pack/src/main.rs`)
+
+| permission | allowed `bundle_type` |
+|---|---|
+| `nexus.permission.SESSION` | `greeter` |
+| `nexus.permission.LAUNCH`, `ENUMERATE` | `shell` |
+| `nexus.permission.SETTINGS`, `SCREENCAP` | `settings` or `shell` |
+| `nexus.permission.FILES` | `filemanager` |
+| `nexus.permission.IME` | `ime` |
+| `nexus.permission.UPDATES` | `settings` |
+| `nexus.permission.INPUT_STREAM` | none (declared, not grantable; `test_reject_stream_class_without_a_grant`) |
+
+### `meta/app.properties`
+
+Written by `nx app compile --meta` (`tools/nx/src/commands/app.rs`), parsed by bundlemgrd
+(`volume.rs::parse_app_properties`):
+
+```
+label=<label or capitalized name>
+icon=<icon>
+bundle_type=<type>
+payload_kind=ui-program
+permissions=<caps, comma-joined>
+background=<modes, comma-joined>
+restorable=<true|false>
 ```
 
-**Output `manifest.nxb`**: Binary Cap'n Proto encoding (deterministic, signable)
+## Grants: one authority
 
-## Building the system volume (pkgimg v3) and host pkgimg images
+- bundlemgrd reads every app's `permissions`/`background`/`restorable` from the verified volume
+  and publishes them to policyd once per boot. abilitymgr (launch) and execd (SDK routes) ask
+  policyd for grants (ADR-0084).
+- An unknown permission rejects the whole app at publish (`policyd: app grants reject (app= cap=)`).
+- `background = ["audio", …]` (≤ 8 modes of 1..=32 `[a-z0-9-]`, `tools/nxb-pack/src/background.rs`)
+  becomes `nexus.permission.BACKGROUND`: a hidden app is not frozen.
+- `restorable = true` (`tools/nxb-pack/src/restorable.rs`, RFC-0100 §6) becomes
+  `nexus.permission.STATE`: the app's own `/state/app/@self/…` record via `svc.state`.
+- Naming `BACKGROUND` or `STATE` in `caps` directly is a pack-time error.
+- Exports: a consumer declares `app.<bundle>.<CAP>` in `caps`; the grant resolves only if an
+  app exports the ability. abilitymgr's export table (`APP_EXPORTS`, `find_export`) is generated
+  at build time from the app manifests (`source/services/abilitymgr/src/caps.rs`), fail-closed.
 
-On the device `pkg:/` IS the verified system volume: `nx image build
---system-bundles <dir>` packs every bundle directory under `<dir>` into the
-pkgimg v3 volume (`scripts/build.sh` emits `build/system-bundles/<name>/` for
-services via `nxb-pack --toml`, for apps via `nx app compile` + `nxb-pack`,
-plus the `system` data bundle). packagefsd mounts the NXSV-verified index
-bundlemgrd serves (`GET_INDEX`) and reads files on demand (`GET_FILE_VMO`,
-digest-checked) — no RAM image, no transcode (TASK-0321 P5).
+## The system volume (pkgimg v3)
 
-For PackageFS v2 HOST workflows, one or more `.nxb` directories can still be
-packed into a deterministic read-only `pkgimg` image and validated before use.
+On the device `pkg:/` is the verified system volume:
+
+1. `scripts/build.sh` emits `build/system-bundles/<name>/` for every service, every
+   `payload_kind = "ui-program"` app under `userspace/apps/`, and `system`.
+2. `nx image build --system-bundles <dir>` packs them into a pkgimg v3 volume
+   (`userspace/storage/src/pkgimg_bundles.rs`): per-file sha256, a bundle table with each
+   bundle's data window, window sha256 and launch parameters (`stack_pages` 1..=64,
+   `global_pointer`), bound by an NXSV signed against `policies/os-trust.toml`.
+3. bundlemgrd verifies the index at boot and each bundle's digest lazily; packagefsd mounts the
+   index (`GET_INDEX`) and fetches files on demand (`GET_FILE_VMO`). Init spawns services from
+   the volume (ADR-0060).
+4. `/packages/<name>@<version>/…` is the versioned view; `pkg:/<name>/…` the active version.
+
+Host-only pkgimg v2 (`userspace/storage/src/pkgimg.rs`, magic `PKGIMGV2`) remains for fixtures
+and packagefsd host mode:
 
 ```bash
-# Build pkgimg v2 from one or more <bundle>@<version>.nxb directories
-cargo run -p pkgimg-build -- out/packages.pkgimg path/to/demo.hello@1.0.0.nxb
-
-# Verify pkgimg v2 structure and index integrity
+cargo run -p pkgimg-build -- out/packages.pkgimg path/to/<bundle>@<version>.nxb
 cargo run -p pkgimg-build --bin pkgimg-verify -- out/packages.pkgimg
 ```
 
-The generated `pkgimg` contract is consumed by `packagefsd` for read-only package
-mount/read fastpaths and is validated fail-closed during mount.
-
 ## Loader handshake
 
-Once a bundle is installed, `execd` starts it from a sealed image with `exec_vmo`
-(ADR-0080): the kernel maps the image's text from its own frames, copies its data
-and reserves its `.bss` and stack lazily; an app's program (`payload.nxir`) is
-filled into a payload object by `bundlemgrd` (`OP_ARM_VMO` / `GET_PAYLOAD`). The
-older path — an ELF loader in `execd` that mapped segments into a fresh space with
-`as_create`/`as_map` — is gone with those syscalls (ADR-0091).
+- Services: execd starts a process from a sealed image with `exec_vmo` (ADR-0080).
+- Apps (`uiProgram`): execd arms a VMO at bundlemgrd and asks `GET_PAYLOAD`; the program runs in
+  the app-host runtime process, which presents through its own windowd surface (ADR-0042).
+- `userspace/exec-payloads/` exposes the fixture manifest and payload `nxb-pack --hello` uses.
 
-After installation completes `bundlemgrd` also publishes the bundle to
-`packagefsd`. Files are exposed under `/packages/<name>@<version>/...` and the
-alias `pkg:/<name>/...` resolves to the active version. This read-only view is
-used by the userspace VFS service (`vfsd`) and is available to other services
-via the `nexus-vfs` client crate.
+## Proof
 
-`userspace/exec-payloads` exposes the same manifest bytes and canonical payload
-used by `tools/nxb-pack`. This keeps selftests, host fixtures, and the
-packaging toolchain aligned.
-
-## Payload kinds (manifest v2.1, TASK-0080D)
-
-A bundle's payload is either a native ELF or a compiled DSL UI program:
-
-- `payload_kind = "elf"` (default, backward compatible) — the payload is
-  `payload.elf`, spawned directly by execd.
-- `payload_kind = "ui-program"` — the payload is **`payload.nxir`** (the
-  canonical, hash-verified Scene IR produced by `nx-dsl build`); execd
-  dispatches such bundles to the **app-host runtime process**, which
-  validates and mounts the program and presents through its own
-  cross-process windowd surface (ADR-0042).
-
-The manifest field is append-only (`payloadKind @16`, readers of older
-manifests see the `elf` default). `nxb-pack` names the packed payload file by
-the kind; the digest/size fields (`payloadDigest`/`payloadSize`) are
-payload-agnostic, so bundlemgrd install/enumerate/GET_PAYLOAD are unchanged.
-Round-trip pinned by `tools/nxb-pack/tests/payload_kind.rs`.
-
-## Source consolidation (planned, TASK-0081)
-
-The bundle SOURCE moves from `bundles/<app>/manifest.toml` into the app
-folder itself (`userspace/apps/<app>/manifest.toml`, next to `ui/`, `i18n/`,
-`assets/`, `native/`) — one app, one folder. `nxb-pack` and the build-time
-registry generators (abilitymgr/bundlemgrd `build.rs`) switch to that source;
-the packed `.nxb` layout is unchanged.
-
-## Manifest v2.2: app-to-app exports (TASK-0081)
-
-`exports = [{ ability = "chat.Send", permission = "app.chat.SEND" }, …]` —
-an app exposes abilities under its OWN permission namespace
-(`app.<bundle>.<CAP>`; a foreign namespace fails at PACK time). Consumers
-declare the permission in `caps`; the permission authority (policyd, RFC-0111 §6 / ADR-0084)
-accepts an `app.<bundle>.<CAP>` grant by shape at publish, and the mediation resolves it only
-if some installed app actually exports the ability (fail-closed, `caps::find_export`).
-Exports survive the digest rewrite. The mediated-then-direct channel
-(resolve → grant check both sides → launch if needed → endpoint mint →
-direct IPC) rides on `caps::exports_of` with the broker work.
-
-## Manifest: `caps` and `background` are grants of ONE authority (RFC-0111 §6, ADR-0084)
-
-`nx app compile --meta` writes the manifest's `caps` and `background` into the bundle's
-`meta/app.properties` sidecar (`permissions=…`, `background=…`, comma-joined); on the device
-bundlemgrd reads them from the VERIFIED system volume and publishes every installed app's set
-to policyd once per boot. abilitymgr (launch) and execd (the child's SDK service routes) ask
-policyd and never read a manifest — there is no build-time copy of the manifests in any
-service any more. `background = ["audio", …]` (≤ 8 modes of 1..=32 `[a-z0-9-]`) becomes the one
-grant `nexus.permission.BACKGROUND`: the app is not frozen for being hidden (ADR-0083); a
-manifest may not name that grant in `caps` directly (pack-time error). A permission the
-authority does not recognize rejects the whole app at publish, by name
-(`policyd: app grants reject (app= cap=)`), and the app does not launch.
-
-`restorable = true` (RFC-0100 §6, ADR-0086) is the manifest's third word of this kind: a boolean
-that becomes the one grant `nexus.permission.STATE` — the app's own record in statefsd
-(`/state/app/@self/…`, the owner is the sender's kernel identity) over the SDK route `svc.state`.
-app-host writes the program's `@persist` fields there when the compositor says the window is
-hidden and when it closes, and restores them before the first frame of the next launch, so a kill
-under memory pressure brings the user back where they were. Naming the grant in `caps` is a
-pack-time error, as for `BACKGROUND`.
-
-`nexus.permission.INPUT_STREAM` (RFC-0113 §8) names the `stream` input class — every pointer
-sample at the device's rate, for drawing and games. It is declared and refused: no bundle type
-may pack it until its phase lands (`nxb-pack`, `test_reject_stream_class_without_a_grant`), and
-policyd does not recognize it (the publish-time backstop). Every app gets the `frame` class
-meanwhile: its MOVE and DRAG frames carry every sample since the last one.
+`cargo test -p nxb-pack` (`tools/nxb-pack/tests/payload_kind.rs`,
+`tools/nxb-pack/tests/repo_bundles.rs` — the repo app manifests pack), `cargo test -p bundlemgr`, `cargo test -p storage --test pkgimg_v3`.

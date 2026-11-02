@@ -104,8 +104,8 @@ Once `policyd` + sysfilter + profile application are real:
 ## Docs gate (keep architecture entrypoints in sync)
 
 - If policy authority boundaries, snapshot semantics, or “where enforcement happens” changes, update:
-  - `docs/architecture/11-policyd-and-policy-flow.md`
-  - `docs/architecture/07-contracts-map.md` (contract pointers)
+  - `docs/security/policyd.md`
+  - `docs/README.md` (contract pointers)
   - and the index `docs/architecture/README.md`
 
 ## Snapshot content (v1 minimum)
@@ -127,7 +127,7 @@ Once `policyd` + sysfilter + profile application are real:
 - `tools/` (new: snapshot compiler tool; must be integrated with existing `nx policy` tooling, not parallel)
 - `userspace/security/` (new: snapshot encode/decode crate, no_std-friendly)
 - `tests/` (new host tests + fixtures)
-- `docs/security/policy-as-code.md` (extend: snapshot artifacts + versioning)
+- `docs/security/policyd.md` (extend: snapshot artifacts + versioning)
 
 ## Plan (small PRs)
 

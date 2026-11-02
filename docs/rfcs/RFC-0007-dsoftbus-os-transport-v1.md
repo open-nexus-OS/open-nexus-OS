@@ -15,7 +15,7 @@ links:
   - label: ADR
     target: "`docs/adr/0005-dsoftbus-architecture.md`"
   - label: Docs
-    target: "`docs/distributed/dsoftbus-lite.md`"
+    target: "`docs/network/dsoftbus.md`"
   - label: "Related RFCs"
     target: "`docs/rfcs/RFC-0006-userspace-networking-v1.md` (sockets facade)"
   - label: "Related RFCs"
@@ -104,7 +104,7 @@ This RFC is a **design seed / contract**. Implementation planning and proofs liv
 
 ## Context
 
-`userspace/dsoftbus` is the distributed fabric (ADR‑0005). `docs/distributed/dsoftbus-lite.md` describes the host-first split:
+`userspace/dsoftbus` is the distributed fabric (ADR‑0005). `docs/network/dsoftbus.md` describes the host-first split:
 
 - host backend can be deterministic without real sockets,
 - OS backend is currently stubbed until the OS has a minimal sockets facade.

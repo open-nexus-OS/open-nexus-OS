@@ -230,7 +230,7 @@ on the same model afterwards (TASK-0133 lineage), never a second model.
   `just test-all` green 2026-09-07 (`exit=0`, all nine QEMU lanes, the three egress markers +
   `icmp ping ok` in every boot).
 - Next: P4 (audit taxonomy `AuditReason::{QuotaExceeded, EgressDenied, IngressDenied}`, counters
-  `quota_denies_total{subject}` / `egress_denies_total{subject}`, `docs/security/network-egress.md`,
+  `quota_denies_total{subject}` / `egress_denies_total{subject}`, `docs/security/network-policy.md`,
   `sandboxing.md` boundary paragraph) — closes TASK-0043.
 
 ### P4 delivered 2026-09-08 — deny taxonomy, counters, docs (TASK-0043 Done)
@@ -247,7 +247,7 @@ on the same model afterwards (TASK-0133 lineage), never a second model.
   500 ms sends). `egress_denies_total` / `ingress_denies_total` counted in policyd where the
   decision is made (`audit_os::DenyCounters`, threaded through `handle_frame` — policyd forbids
   `unsafe`, so no static cell); `quota_denies_total` in statefsd's `QuotaState`.
-- **Docs**: `docs/security/network-egress.md` (new: model, seam, learn, audit + counters, RED
+- **Docs**: `docs/security/network-policy.md` (new: model, seam, learn, audit + counters, RED
   boundary, proofs), `sandboxing.md` network-boundary paragraph (`device.mmio.net` grant =
   bypass), `abi-filters.md` audit/counter section; TASK-0133 marked executed for `/state`.
 - Proof: `cargo test -p nexus-ipc audit` 3, `-p nexus-metrics deny` 2, `-p policyd` green,
@@ -276,7 +276,7 @@ on the same model afterwards (TASK-0133 lineage), never a second model.
   records the attempt), OS `net-egress: enforced`, `SELFTEST: egress deny ok`, `SELFTEST: egress
   allow ok` (loopback + QEMU user-net targets, single-VM profile).
 - **P4 — Audit taxonomy + counters + docs**: `AuditReason` variants, counters,
-  `docs/security/network-egress.md` (new), `sandboxing.md` boundary paragraph (`device.mmio.net`
+  `docs/security/network-policy.md` (new), `sandboxing.md` boundary paragraph (`device.mmio.net`
   grant = bypass), `abi-filters.md`, CHANGELOG, board.
 
 ### Touched paths (corrected)
@@ -428,7 +428,7 @@ Once sandbox v1 namespaces, `/state`, and OS net wrappers exist:
 - `recipes/security/{quotas.toml,egress.toml}` (new)
 - `tests/`
 - `docs/security/sandboxing.md`
-- `docs/security/network-egress.md` (new)
+- `docs/security/network-policy.md` (new)
 - `docs/security/abi-filters.md`
 - `scripts/qemu-test.sh` (gated)
 

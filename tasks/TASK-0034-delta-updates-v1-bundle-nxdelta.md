@@ -19,7 +19,7 @@ links:
   - label: "Manifest format"
     target: docs/adr/0020-manifest-format-capnproto.md
   - label: "Signing policy"
-    target: docs/security/signing-and-policy.md
+    target: docs/security/signing.md
   - label: "Supply-chain baseline (SBOM/sign policy)"
     target: tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
   - label: "Persistence substrate (resume checkpoints)"

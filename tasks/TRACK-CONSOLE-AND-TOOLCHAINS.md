@@ -29,9 +29,9 @@ links:
   - label: "Service architecture"
     target: docs/adr/0017-service-architecture.md
   - label: "bundlemgrd onboarding"
-    target: docs/architecture/15-bundlemgrd.md
+    target: docs/services/bundlemgrd.md
   - label: "samgrd onboarding"
-    target: docs/architecture/14-samgrd-service-manager.md
+    target: docs/services/samgr.md
   - label: "Security standards"
     target: docs/standards/SECURITY_STANDARDS.md
   - label: "Build standards"

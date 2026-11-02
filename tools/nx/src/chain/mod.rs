@@ -10,7 +10,7 @@
 //! Services laufen als Futures im selben Prozess, kommunizieren über
 //! einen In-Memory-IPC-Bus. Hop-Marker validieren die Kette.
 //!
-//! ADR: docs/adr/0030-integration-chain-test-framework.md
+//! ADR: docs/rfcs/RFC-0066-production-grade-service-chain-declarative-routing-typed-ipc-inprocess-tests.md
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

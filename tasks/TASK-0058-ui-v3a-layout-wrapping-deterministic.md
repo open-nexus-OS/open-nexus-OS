@@ -38,7 +38,7 @@ links:
   - label: "Testing contract"
     target: docs/dev/ui/foundations/quality/goldens.md
   - label: "Minimal DisplayServer v0"
-    target: docs/architecture/graphics/display-output-service-chain.md
+    target: docs/graphics-ui/display-chain.md
   - label: "Proof surface reference"
     target: "source/services/windowd/src/os_lite.rs (current hardcoded panel)"
 ---

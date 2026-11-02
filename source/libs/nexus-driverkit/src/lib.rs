@@ -29,7 +29,7 @@
 //! its own submit/harvest path, and signals a kernel timeline fence (`nexus_abi::fence_signal`)
 //! to [`SubmitRing::completed`] so consumers can `fence_wait`. Keeping the contract pure makes
 //! the host the deterministic oracle (RFC-0033 §Proof); see
-//! `docs/architecture/02-selftest-and-ci.md`.
+//! `docs/testing/README.md`.
 //!
 //! ```
 //! use nexus_driverkit::{SubmitRing, Qos};

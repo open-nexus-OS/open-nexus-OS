@@ -18,7 +18,7 @@
 //! DESIGN: Like [`crate::waitset`], this module holds only the *pure table logic* and is
 //! deliberately free of riscv/MMIO/router coupling (owners/pids are raw `u32`, the value
 //! is a raw `u64`), so it compiles and is unit-tested on the host — the deterministic
-//! oracle (RFC-0033 §Proof; see `docs/architecture/02-selftest-and-ci.md`). The syscall
+//! oracle (RFC-0033 §Proof; see `docs/testing/README.md`). The syscall
 //! layer (`syscall/api.rs`, riscv-only) maps caps/pids and drives the block/wake machinery
 //! (`BlockReason::Fence` + `tasks.wake`); that integration is proven at boot by the QEMU
 //! selftest. The waiter list is the only state the fence owns directly — it is **bounded**.

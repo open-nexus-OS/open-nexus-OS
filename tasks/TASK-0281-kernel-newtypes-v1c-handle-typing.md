@@ -11,7 +11,7 @@ links:
   - label: Vision
     target: docs/architecture/vision.md
   - label: "Kernel overview"
-    target: docs/architecture/01-neuron-kernel.md
+    target: docs/kernel/README.md
 ---
 
 ## Context
@@ -65,4 +65,4 @@ Extend the newtype pattern to cover all kernel-facing identifiers and handles (e
 ## Touched paths (allowlist)
 
 - `source/kernel/neuron/` (types + call sites)
-- `docs/architecture/01-neuron-kernel.md` (construction authority updates as needed)
+- `docs/kernel/README.md` (construction authority updates as needed)

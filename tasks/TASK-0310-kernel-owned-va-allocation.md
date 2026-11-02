@@ -39,7 +39,7 @@ virtio-rng ×2, virtio-input, virtio-blk, nexus-net-os, smoltcp_probe,
 nexus-init. `InvalidArgument` no longer doubles as a success — it was masking
 genuinely bad arguments.
 
-`docs/architecture/01-neuron-kernel.md`'s syscall list was stale at 28; now
+`docs/kernel/README.md`'s syscall list was stale at 28; now
 complete through 52 with the ADR-0054 errno notes.
 
 Ratchet fallout, four honest splits: `syscall/api/vm_map.rs` (map surface out

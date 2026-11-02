@@ -23,13 +23,13 @@ links:
   - label: "Podcasts app (RSS + downloads; HTTP + caching)"
     target: tasks/TRACK-PODCASTS-APP.md
   - label: "Networking authority (canonical vs bring-up)"
-    target: docs/architecture/networking-authority.md
+    target: docs/network/authority.md
   - label: "Userspace networking contract seed"
     target: docs/rfcs/RFC-0006-userspace-networking-v1.md
   - label: "DSoftBus architecture"
     target: docs/adr/0005-dsoftbus-architecture.md
   - label: "DSoftBus overview"
-    target: docs/distributed/dsoftbus-lite.md
+    target: docs/network/dsoftbus.md
   - label: "NexusMedia SDK track (optional large payload flows)"
     target: tasks/TRACK-NEXUSMEDIA-SDK.md
   - label: "Policy as Code (future unification)"

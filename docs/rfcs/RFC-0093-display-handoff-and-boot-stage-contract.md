@@ -19,7 +19,7 @@ links:
   - label: ADRs
     target: "`docs/adr/0041-never-black-boot-splash-atomic-desktop-reveal.md` (atomic desktop reveal — kept, mechanism replaced), `docs/adr/0050-display-mode-authority.md` (display-mode authority — the query chain is retired), `docs/adr/0057-service-restart-capability-re-resolve.md` (`STATUS_STALE`), `docs/adr/0052-per-hart-earliest-deadline-timer-and-affinity-respecting-steal.md` (kernel timeline fence)"
   - label: Docs
-    target: "`docs/testing/os-markers.md` \"Display truth\", `docs/architecture/09-nexus-init.md`, `docs/architecture/06-boot-and-bringup.md`"
+    target: "`docs/testing/os-markers.md` \"Display truth\", `docs/boot-init/nexus-init.md`, `docs/boot-init/boot.md`"
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -54,7 +54,7 @@ Definition:
 ## Scope boundaries (anti-drift)
 
 - **This RFC owns**: the routing frame v2 and its reply-parking semantics; the readiness verbs (`@ready`, `@stage`) on the init control channel; the boot-stage fence values and the fence-capability handout; the slot topology as ONE declarative source for init, services and app children; the windowd↔gpud handoff contract v2 (attach ack, reveal handshake, present sequence acks); the rule that the display mode has exactly one source; and the marker/proof contract for display truth.
-- **This RFC does NOT own**: the compositor/present pipeline (scene graph, damage, layers, cursor compositing — RFC-0059/0067); the session/greeter design (only the poll mechanics go, TASK-0324 P7); build truth (delivered P0, documented in `docs/testing/display-output-hardening-matrix.md`); supervision/restart semantics (RFC-0087, ADR-0057); the network family; QEMU/virglrenderer behaviour.
+- **This RFC does NOT own**: the compositor/present pipeline (scene graph, damage, layers, cursor compositing — RFC-0059/0067); the session/greeter design (only the poll mechanics go, TASK-0324 P7); build truth (delivered P0, documented in `docs/graphics-ui/display-chain.md`); supervision/restart semantics (RFC-0087, ADR-0057); the network family; QEMU/virglrenderer behaviour.
 
 ### Relationship to tasks (single execution truth)
 

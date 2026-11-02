@@ -100,4 +100,4 @@ The Package Manager should work naturally with:
 - `docs/dev/ui/foundations/development/console.md`
 - `docs/dev/ui/foundations/development/dev-studio.md`
 - `docs/packaging/artifact-kinds.md`
-- `docs/security/shell-scripts-and-automation.md`
+- `docs/architecture/vision.md`

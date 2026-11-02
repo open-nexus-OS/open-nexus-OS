@@ -14,20 +14,14 @@ links:
     target: tasks/TASK-0280B-nexusinfer-v1b-tensor-image-interop-profile-binding.md
   - label: "Extracted (NexusInfer v1c ownership + CPU reference executor)"
     target: tasks/TASK-0284B-nexusinfer-v1c-ownership-based-tensor-buffer-states-cpu-reference-executor.md
-  - label: "Techniques catalog"
-    target: docs/architecture/inference/nexusinfer-techniques.md
-  - label: "Runtime profile vocabulary"
-    target: docs/architecture/inference/nexusinfer-runtime-profiles.md
-  - label: "Rust ownership/type design"
-    target: docs/architecture/inference/nexusinfer-rust-design.md
   - label: "Gfx compute/executor model"
-    target: docs/architecture/graphics/nexusgfx-compute-and-executor-model.md
+    target: tasks/TRACK-NEXUSGFX-SDK.md
   - label: "Gfx resource model"
-    target: docs/architecture/graphics/nexusgfx-resource-model.md
+    target: tasks/TRACK-NEXUSGFX-SDK.md
   - label: "Gfx sync/lifetime model"
-    target: docs/architecture/graphics/nexusgfx-sync-and-lifetime.md
+    target: tasks/TRACK-NEXUSGFX-SDK.md
   - label: "Gfx capability matrix"
-    target: docs/architecture/graphics/nexusgfx-capability-matrix.md
+    target: tasks/TRACK-NEXUSGFX-SDK.md
   - label: "IPC hybrid (control Cap'n Proto + data VMO)"
     target: docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
   - label: "Service architecture (data plane)"
@@ -152,12 +146,8 @@ the existing DSL/state/layout pipeline instead of creating a parallel UI authori
 Do **not** create a separate infer-only image/buffer universe when the same resource model, sync model, and capability
 language can be shared with `NexusGfx`.
 
-For image/video/tensor style workflows, `NexusInfer` should align with:
-
-- `docs/architecture/graphics/nexusgfx-compute-and-executor-model.md`
-- `docs/architecture/graphics/nexusgfx-resource-model.md`
-- `docs/architecture/graphics/nexusgfx-sync-and-lifetime.md`
-- `docs/architecture/graphics/nexusgfx-capability-matrix.md`
+For image/video/tensor style workflows, `NexusInfer` should align with the layer model, resource model,
+sync/lifetime model and capability vocabulary in the "Design notes" section of `tasks/TRACK-NEXUSGFX-SDK.md`.
 
 This keeps graphics, media, and inference interop zero-copy-friendly and prevents later drift into parallel buffer
 contracts.
@@ -220,6 +210,90 @@ Extract a candidate only when it has:
 - explicit **minimal v1** vs **deluxe** boundaries,
 - no ad-hoc parallel buffer or IPC schemes (stay on RFC-0005 hybrid),
 - security section for untrusted models and oversized inputs (`test_reject_*` pattern per project standards).
+
+## Design notes (merged from docs/architecture/inference, 2026-11-02)
+
+Research vocabulary for the future NexusInfer RFC, which fixes the normative names. Nothing here is a contract yet.
+
+### Parameter vocabulary — never one "model size" number
+
+| Term | Meaning |
+|------|---------|
+| total | all learned parameters in the checkpoint |
+| loaded | parameters in any accessible memory now |
+| resident | parameters inside the executor's fast working budget now |
+| active | parameters used for this token/request |
+| effective | practical footprint of the selected profile after streaming, skipping or nesting |
+
+- A profile may claim a small *effective* footprint only if it also states what is *loaded* or *streamed* elsewhere. Profiles report all five.
+- Active ≠ loaded: an expert-routed (MoE) model activates few experts per token but keeps the whole pool loaded; plan routing cost apart from active compute.
+
+### Runtime profile fields
+
+| Field | Candidate values |
+|-------|------------------|
+| `executor_class` | `cpu_ref` (deterministic proof path) · `cpu_optimized` · `npu` · `gfx_compute` |
+| `weight_precision`, `activation_precision`, `k_cache_precision`, `v_cache_precision` | `bf16` · `sfp8` · `int8` · `int4` · `mixed` · `backend_native` — four independent fields |
+| `kv_policy` | `none` · `full` · `windowed` · `shared` · `quantized` · `offloaded`, combinable (`shared+quantized`) |
+| `residency_policy` | `core_resident` · `modality_optional` · `layer_streamed` · `storage_backed_assist` |
+| `modality_policy` | `text_only` · `text_image` · `text_audio` · `multimodal_full` |
+| `submodel_tier` | `tier_min` · `tier_balanced` · `tier_quality` · `tier_custom` |
+| `power_profile` | `fixed` · `adaptive` · `frugal` · `normal` · `burst` (QoS hint) |
+| `deadline_class` | `best_effort` · `interactive` · `realtime_assist` · `background_batch` |
+| `tolerance_class` | exact · tolerance-bounded |
+
+- Tier and profile changes are visible in policy/profile metadata. A thermal/battery downgrade (smaller tier, lower precision, text-only, CPU fallback, shorter context) is an explicit profile transition under QoS, never a backend surprise.
+- KV pages, when externally materialized, ride the VMO/filebuffer data plane like weights.
+
+### Reference profiles (proof targets)
+
+| Profile | For | Typical settings |
+|---------|-----|------------------|
+| `cpu_ref` | host/QEMU proofs, API bring-up | `cpu_ref`, bf16 or host-friendly weights, KV full/windowed, text_only, power fixed, best_effort/interactive |
+| `low_ram` | constrained devices | lower weight precision, optional modalities, layer streaming, KV shared/quantized |
+| `low_latency` | speech or responsive UI assistant | smaller tier, prefill-efficient, optional shared KV, modalities loaded on demand |
+| `long_context` | document/video/audio summarization | local/global-attention model family, KV windowed/shared, optionally quantized/offloaded |
+| `thermal_safe` | sustained use | adaptive power, downgrade path to smaller tier or CPU, fewer modalities |
+| `quality_burst` | short high-quality turn | larger tier, higher precision, bounded burst budget |
+
+Proof policy: each extracted task names which profile parts are proven by exact host tests, tolerance-bounded host tests, QEMU functional markers, or backend capability checks. `cpu_ref`: exact or tightly bounded. `npu low_ram`: functional equivalence + bounded tolerance. `long_context shared+quantized`: memory gate and output-quality gate kept separate.
+
+### Techniques → what the contract must carry
+
+The first nine rows are documented in public material of an open on-device model family; the last five are candidate runtime policies.
+
+| Technique | What it does | Contract consequence |
+|-----------|--------------|----------------------|
+| Per-layer embeddings (PLE) caching | per-layer embedding blocks live in fast local storage, injected as each layer runs | parameter classes core_resident / layer_streamed / optional_modality; capability for storage-assisted injection |
+| Effective parameters | runtime footprint below the stored total | profiles carry total and effective (plus loaded, active) |
+| Conditional parameter loading | audio/vision blocks stay unloaded for text-only work | explicit modality mask; model = independently managed parameter groups, not one blob |
+| Hybrid local/global attention | sliding-window layers interleaved with sparse global layers | KV policy distinguishes windowed / global / mixed — not a `use_cache` bool |
+| KV cache sharing | upper layers reuse K/V of earlier compatible layers; faster prefill | `shared` is a named policy, not hidden backend behaviour |
+| Activation quantization | activations in lower precision, maybe only some subgraphs/backends | own precision field; tests state exact / tolerance-bounded / backend-specific per op family |
+| Weight quantization profiles | one family shipped at bf16 / sfp8 / 4-bit | named weight precision class; does not imply every tensor tolerates it |
+| Expert routing (MoE) | few experts active, full pool loaded | loaded and active reported separately |
+| Nested submodels (MatFormer) | a large model contains smaller runnable subnetworks | named tiers; switching is an explicit runtime feature |
+| Online KV compression (TurboQuant-like: PolarQuant-style transform + scalar quantization, then 1-bit QJL residual correction) | low-distortion KV vectors; KV is the long-context memory wall | room for `quantized`, `quantized_turboquant_like` and future tags; the ABI names the goal, not a brand |
+| Asymmetric K/V quantization | K is more sensitive than V | independent K and V precision |
+| KV offloading / tiering | old KV pages move to slower RAM or storage | tiered residency policy, only with explicit bounds and reclaim — no unbounded paging loop |
+| Profile switching under pressure | runtime changes class mid-session | transition policy governed by QoS (see above) |
+| Tensor-class-sensitive quantization | embeddings, routers, encoders kept at higher precision | per-tensor-class policy |
+
+Tensor classes: `embedding`, `attention_q`, `attention_k`, `attention_v`, `attention_out`, `mlp`, `router`, `vision_encoder`, `audio_encoder`, `kv_cache_k`, `kv_cache_v`.
+
+### Backend capabilities (generic terms only)
+
+`supports_int4_weights`, `supports_int8_dot`, `supports_int8_activations`, `supports_quantized_kv`, `supports_shared_kv`, `supports_fast_storage_parameter_streaming`, `supports_image_tensor_interop`, `supports_async_copy`. Planning and fallback run on these; matrix-tile sizes, warp reductions and graph-capture semantics stay out of the portable surface.
+
+### Rust shape (input for TASK-0284B and after)
+
+- Newtypes on the hot path, never raw `u32`/`usize`/strings: `SessionId`, `GraphId`, `ModelId`, `TensorId`, `TensorSliceId`, `FenceId`, `QueueId`, `ExecutorId`, `ProfileId`, `VmoHandle`, `FilebufferHandle`; value wrappers `Shape`, `DType`, `Layout`, `ByteLen`, `ByteOffset`, `TokenCount`, `LayerIndex`. `#[repr(transparent)]` where ABI-visible, one construction authority, untrusted integers validated before conversion, no casual from-raw constructors (TASK-0281 direction).
+- Tensor type states `Tensor<S>`, `S` ∈ `HostOwned` (exclusive mutable) · `ReadOnlyMapped` (immutable view) · `ExecutorOwned` (moved into the executor domain) · `InFlight` (only fence completion returns access).
+- Model residency states: `Unloaded` · `MetadataOnly` · `PartiallyLoaded` · `Resident` · `Suspended` — conditional loading in types, not bool flags.
+- Metadata apart from bytes: `TensorDesc { shape, dtype, layout, len }` on the control plane; `TensorStorage::{Vmo, Filebuffer} { handle, offset, len }` on the data plane. Slices, borrowed views and ownership transfer over copies into `Vec<u8>`.
+- Executor: `fn submit(&mut self, s: Self::Submission) -> Result<Self::Fence, SubmitError>`; one mutable owner per queue, submit moves ownership in, fence completion returns it. No global shared executor, no callback mutation, no hidden worker pools.
+- `Send` not `Sync`: `Tensor<HostOwned>`, `Fence`, `Submission`, `SessionCommand`, `ExecutorTicket`. Neither: executor-local scratch allocators, CPU decode caches, single-owner queue internals, thread-bound encoders. `Sync`: immutable `TensorDesc`, model metadata, quantization tables, profile catalogs. `unsafe impl Send/Sync` only when auto-derive is impossible and the invariant is written next to it.
+- No `Arc<Mutex<_>>` / `Arc<RwLock<_>>` / mutable global caches in the submit/decode path; profiles are exhaustive enums internally even if the wire uses stable strings.
 
 ## See also
 

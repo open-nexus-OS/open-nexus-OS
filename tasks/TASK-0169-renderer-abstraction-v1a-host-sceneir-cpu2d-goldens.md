@@ -12,13 +12,13 @@ links:
   - label: Playbook
     target: CLAUDE.md
   - label: "NexusGfx compute/executor model"
-    target: docs/architecture/graphics/nexusgfx-compute-and-executor-model.md
+    target: tasks/TRACK-NEXUSGFX-SDK.md
   - label: "NexusGfx resource model"
-    target: docs/architecture/graphics/nexusgfx-resource-model.md
+    target: tasks/TRACK-NEXUSGFX-SDK.md
   - label: "NexusGfx capability matrix"
-    target: docs/architecture/graphics/nexusgfx-capability-matrix.md
+    target: tasks/TRACK-NEXUSGFX-SDK.md
   - label: "NexusGfx text pipeline"
-    target: docs/architecture/graphics/nexusgfx-text-pipeline.md
+    target: tasks/TRACK-NEXUSGFX-SDK.md
   - label: "Driver/accelerator contracts (CPU now, GPU later)"
     target: tasks/TRACK-DRIVERS-ACCELERATORS.md
   - label: "UI v1a renderer baseline (to be refactored into this)"

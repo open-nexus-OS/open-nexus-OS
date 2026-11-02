@@ -1,340 +1,137 @@
+---
+schema: 1
+title: "Testing guide"
+role: guide
+subsystem: devx
+sources: [scripts/qemu-test.sh, source/apps/selftest-client/proof-manifest, tests, ".github/workflows/ci.yml"]
+contracts: [RFC-0013, RFC-0014, RFC-0038, ADR-0025, ADR-0063]
+verified: 2026-11-02
+---
+
 <!-- Copyright 2026 Open Nexus OS Contributors -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# Testing methodology
+# Testing guide
 
-Open Nexus OS follows a **host-first, OS-last** strategy. Most logic is exercised with fast host tools, leaving QEMU for end-to-end smoke coverage only. This README is the entry point: it holds the philosophy, the workflow checklist, and a document map routing to the focused testing docs (formerly a single `index.md`).
+> **Purpose** — which test layer proves what, which command to run for a change, and where the result lands.
+> **Owns** — `scripts/qemu-test.sh`, `source/apps/selftest-client/proof-manifest/`, `tests/`
+> **Contracts** — [RFC-0013](../rfcs/RFC-0013-boot-gates-readiness-spawn-resource-v1.md) (readiness), [RFC-0014](../rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md) (phases), [RFC-0038](../rfcs/RFC-0038-selftest-client-production-grade-deterministic-test-architecture-refactor-v1.md) (manifest, evidence, replay), [ADR-0025](../adr/0025-qemu-smoke-proof-gating.md), [ADR-0063](../adr/0063-proof-lane-resource-envelope-and-authority.md)
+> **Invariants** — host first, QEMU last. A UART marker is printed only after the real behavior (no fake green). A lane is selected by its profile, never by hand-set `SMP=`/`REQUIRE_*` env.
+> **Read next** — [layers.md](layers.md), [os-markers.md](os-markers.md), [run-logs.md](run-logs.md), `.claude/skills/verify/SKILL.md`, `.claude/skills/boot-proof/SKILL.md`
 
-**Related RFCs:**
-- **RFC-0013**: Boot gates v1 — readiness contract + spawn failure reasons (Complete)
-- **RFC-0014**: Testing contracts v1 — host-first service contract tests + phased QEMU smoke (Complete)
-- **RFC-0015**: Policy Authority & Audit Baseline v1 — policy engine + audit trail (Complete)
-- **RFC-0017**: Device MMIO access model v1 — capability-gated MMIO mapping + init/policy distribution (Done)
-- **RFC-0019**: IPC request/reply correlation v1 — nonce correlation + deterministic QEMU virtio-mmio policy (Complete)
-- **RFC-0031**: Crashdumps v1 — deterministic in-process minidumps + host symbolization (Complete)
-- **RFC-0038**: Selftest-client production-grade deterministic test architecture refactor + manifest/evidence/replay v1 — proof-manifest SSOT, signed evidence bundles, replay/bisect tooling (Done; one environmental closure step remaining — external CI-runner replay artifact for P6-05, see `docs/testing/replay-and-bisect.md` §7-§11)
-- **RFC-0046**: UI v1a host CPU renderer + deterministic snapshots — BGRA8888 host renderer, deterministic goldens, reject tests, and fake-marker prohibition (Done; `TASK-0054` Done)
-- **RFC-0047**: UI v1b windowd surface/layer/present — headless `windowd` compositor contract, bounded surface/VMO/layer rejects, generated Cap'n Proto roundtrips, and honest QEMU markers (Done; `TASK-0055` Done)
-- **RFC-0048**: UI v1c visible QEMU scanout bootstrap — fixed-mode QEMU `ramfb`, capability-gated `fw_cfg` setup, visible marker ladder, and harness-profile proof (Done; `TASK-0055B` Done)
+## Test layers
 
-## Philosophy
+| Layer | Proves | Command | Page |
+|---|---|---|---|
+| Userspace libraries (`userspace/`) | logic, wire formats, reject paths (`test_reject_*`) | `just test-host` / `cargo test -p <crate>` | [layers.md](layers.md) |
+| Services (`source/services/`) | IPC adapter contracts on the host | `cargo test -p <svc>` | [layers.md](layers.md) |
+| Kernel host tests | pure kernel tables (waitset, fence, frames, …) | `just test-kernel` | [layers.md](layers.md) |
+| Host E2E (`tests/*e2e*`) | several real daemons over loopback IPC | `just test-e2e` | [e2e.md](e2e.md) |
+| Miri | UB in host crates | `just miri-strict`, `just miri-fs` | [layers.md](layers.md) |
+| QEMU lane | the booted system: UART marker ladder per profile | `just test-os <profile>` / `just ci-os-*` | [os-markers.md](os-markers.md) |
+| QEMU 2-VM | cross-VM DSoftBus | `just ci-os-os2vm` | [network-distributed-debugging.md](network-distributed-debugging.md) |
+| Board | the desk board, judged like a lane | `just board-test board-headless` | `docs/board/bpi-f3.md` |
 
-- Prioritise fast feedback by writing unit, property, and contract tests in userspace crates first.
-- Keep kernel selftests focused on syscall, IPC, and VMO surface validation; they should advertise success through UART markers that CI can detect.
-- Reserve QEMU for smoke and integration validation. Runs are bounded by a timeout and produce trimmed logs to avoid multi-gigabyte artefacts.
-- No fake-success markers: `*: ready` / `SELFTEST: * ok` strings may only be used as proof when the associated behavior is asserted by deterministic tests or harness checks.
+## Which command for which change
 
-## Testing layers at a glance
+The minimum gate per kind of change is the ladder in `.claude/skills/verify/SKILL.md`; running and
+decoding a QEMU lane is `.claude/skills/boot-proof/SKILL.md`. In short:
 
-| Layer | Scope | Typical command | Details |
-| --- | --- | --- | --- |
-| Kernel selftests (`source/kernel/neuron`) | Traps, scheduler, IPC router, spawn; success via UART markers | `RUN_UNTIL_MARKER=1 just test-os` | [layers.md](layers.md) |
-| Userspace libraries (`userspace/`) | Host-first unit/property/contract tests, golden vectors, Miri | `cargo test --workspace` | [layers.md](layers.md) |
-| Services and daemons (`source/services/*d`) | Thin IPC adapters; IDL round-trip + contract tests | `cargo test -p <svc>` | [layers.md](layers.md) |
-| Host E2E suites (`tests/`) | In-process loopback E2E: `nexus-e2e`, `remote_e2e`, `logd-e2e`, `vfs-e2e`, `e2e_policy` | `just test-e2e` | [e2e.md](e2e.md), [e2e-coverage-matrix.md](e2e-coverage-matrix.md) |
-| QEMU smoke (`scripts/qemu-test.sh`) | Kernel selftests + service readiness marker ladder | `RUN_UNTIL_MARKER=1 just test-os` | [os-markers.md](os-markers.md) |
-| QEMU 2-VM opt-in (`tools/os2vm.sh`) | Cross-VM DSoftBus discovery, Noise sessions, remote proxy | `just ci-os-os2vm` | [layers.md](layers.md), [network-distributed-debugging.md](network-distributed-debugging.md) |
+- Fast pre-commit: `just check`; then `just test-host` (+ `just test-e2e` for cross-service changes).
+- OS services: add `just dep-gate` and `just diag-os` (warnings are failures).
+- Kernel: `just build-kernel`, `just lint-kernel`, `just test-kernel`, then a QEMU lane.
+- Boot or marker behavior: the QEMU lane that carries the marker.
+- End of a work package: `just test-all` (check, diag, host + e2e tests, Miri, kernel, then every
+  `ci-os-*` lane listed in the `test-all` recipe in `justfile`).
 
-The full layer reference — including the end-to-end coverage table and the per-TASK requirement matrices (TASK-0020 … TASK-0057) — lives in [layers.md](layers.md).
+## QEMU lanes
 
-> **`just ci-network` is currently RED — known, tracked, not a regression you introduced.**
-> Measured 2026-08-05: `ci-os-dhcp` green, `ci-os-quic` and `ci-os-os2vm` red.
-> Cross-VM DSoftBus discovery does not happen at all (`OS2VM_E_DISCOVERY_TIMEOUT`,
-> no marker on either node within the full window), and `quic-required` requires
-> a peer connect that its own marker contract documents as impossible in a
-> single-VM profile. The lane is in neither `test-all` nor CI, which is why it
-> rotted unnoticed since ~2026-07-24. Details, workstreams and exit criteria:
-> [tasks/TRACK-NETWORK-PROOF-LANES.md](../../tasks/TRACK-NETWORK-PROOF-LANES.md).
+`just test-os <profile>` runs `scripts/qemu-test.sh --profile=<profile>` (default `headless`).
+The profile is positional: `just test-os PROFILE=x` is parsed as a second recipe name.
+Each `ci-os-*` recipe wraps one profile with its timeout. Profiles live in
+`source/apps/selftest-client/proof-manifest/profiles/harness.toml`; a profile declares its topology
+(harts, icount) and its `REQUIRE_*` gates, and a contradicting caller env is a hard error.
 
-## Workflow checklist
+| Recipe | Profile | What it adds |
+|---|---|---|
+| `just ci-os-headless` | `headless` | full service chain, no display (the CI lane) |
+| `just ci-os-smp1` | `smp1` | one hart + icount: the deterministic gate |
+| `just ci-os-smp` | `smp` | two harts, MTTCG, secondary-hart proofs, bounded retry |
+| `just ci-os-visible` / `-fhd` / `-2d` | `visible*` | virgl (or 2D) compositor over VNC + host pixel proof |
+| `just ci-os-usb` / `ci-os-usb-visible` | `usb*` | xHCI + hub + HID; the desktop driven over USB alone |
+| `just ci-os-lowmem`, `ci-os-many-windows` | `lowmem`, `many-windows` | declared scenarios: real memory pressure, many windows |
+| `just ci-os-sdhci` | `sdhci` | system image on eMMC behind SDHCI, no virtio disk |
+| `just ci-os-reset`, `ci-os-ota*` | `reset`, `ota-*` | reboot, A/B flip, bundles, tamper/downgrade/fallback |
+| `just ci-os-dhcp`, `ci-os-dhcp-strict`, `ci-os-quic` | `dhcp*`, `quic-required` | network proofs (`just ci-network` aggregates them) |
+| `just input-flood` | `visible` | ~900 pointer moves/s for 45 s; asserts no `alloc-fail` |
 
-1. Extend userspace tests first and run `cargo test --workspace` until green.
-2. Execute Miri for host-compatible crates.
-3. Refresh Golden Vectors (IDL frames, ABI structs) and bump SemVer when contracts change.
-4. Rebuild the Podman development container (`podman build -t open-nexus-os-dev -f podman/Containerfile`) so host tooling matches CI.
-5. **Run OS build hygiene checks**: `just diag-os` and `just dep-gate` (catches forbidden dependencies).
-6. Run OS smoke coverage via QEMU: `just test-os` (bounded by `RUN_TIMEOUT`, exits on readiness markers).
-7. For SMP changes, run both boot lanes sequentially. Select the lane by
-   **profile** — the profile declares the topology (harts, icount,
-   `REQUIRE_SMP`), and passing a contradicting `SMP=`/`QEMU_NO_ICOUNT=` in the
-   environment is a hard error, not a silent override:
-   - `just ci-os-visible` — display truth: the real virgl compositor on
-     egl-headless + VNC with a host-side pixel proof (desktop non-black,
-     ≠ splash, no unpainted band — at the reveal and again on the settled frame
-     minutes later), see [os-markers.md](os-markers.md) "Display truth";
-     `just ci-os-visible-fhd` the same at 1920x1080.
-   - `just ci-os-visible-2d` — the board's picture on QEMU (TASK-0251 P2a
-     step 3): the 2D virtio scanout — the CPU executor the board's display
-     controller shows — at 1920x1080 over VNC, judged by the same pixel proof
-     (`[profile.visible-2d]`: `GPU_MODE=mmio`, `-display none` + VNC).
-   - `just ci-os-smp1` — deterministic gate: `-smp 1` + icount, no
-     secondary-hart demands (`[profile.smp1]`).
-   - `just ci-os-sdhci` — the SDHCI lane (TASK-0246 P5): the smp1 topology
-     with QEMU's `sdhci-pci` (spec 3.00, 8-bit) + `emmc` holding the system
-     image and no virtio disk; nxboot reads it by PIO, `blkd` serves it by
-     ADMA2, every store mounts over it (`[profile.sdhci]`; the image is grown
-     past 2 GiB with `QEMU_BLK_IMG_BYTES`). It needs a QEMU with both device
-     models (`make doctor` checks); like smp1 it runs in `test-all`, not in CI.
-   - `just ci-os-usb` — the USB lane (TASK-0328 U1, RFC-0099): the smp1
-     topology with QEMU's `qemu-xhci`, a full-speed `usb-hub` on its first USB 2
-     port (root port 5 — `qemu-xhci` numbers its USB 3 ports first) and a boot
-     keyboard and mouse behind the hub (`[profile.usb]`, launcher env
-     `QEMU_USB_DEVICE`). `xhcid` brings the controller up, enumerates through the
-     hub and runs both HID boot interfaces, woken by the controller's line and a
-     one-shot only; the ladder (`USB_MARKERS` in `scripts/qemu-test.sh`) pins the
-     values the lane measured. Every other full-ladder lane requires the honest
-     `init: usb plane none (no host controller)` + `xhcid: no host controller
-     (usb plane none)`; a `xhcid: FAIL (…)` line fails any lane (FAIL gate).
-     QEMU's hub is full speed, so the transaction translator is the board's to
-     prove (U3). Since TASK-0253B every full-ladder lane also requires the HID
-     class served and hidrawd's subscription admitted (`USB_CLASS_MARKERS`:
-     `xhcid: serving (class=hid-boot)`, `xhcid: hid class subscribed (…`,
-     `hidrawd: usb hid subscribed`); the `usb` lanes add hidrawd's two devices.
-   - `just ci-os-usb-visible` — the desktop driven over USB alone (TASK-0253B,
-     RFC-0099 §5): the visible lane without a single virtio input device
-     (`[profile.usb-visible]`: launcher env `QEMU_INPUT_TRANSPORT=usb`), the
-     `usb` lane's controller, hub, keyboard and mouse instead, and the
-     injector's QMP input reaching them (`QEMU_INPUT_AUTOINJECT=1`; the mouse is
-     relative — the injector walks from inputd's start point; its first event
-     waits for the guest's last OSK composition probe, `SELFTEST: ime insert `,
-     because the first pointer event makes windowd hand imed the window focus
-     and that transition resets a half-typed composition — the probes are
-     guest-sequenced, the injector host-timed, so without the wait the order
-     depends on the emulator's speed, 2026-10-28; and for the IPC benchmarks'
-     budget line, `KSELFTEST: ipc call budget ` — a pointer burst during them
-     on the one hart failed the budget once, 2026-10-29). The ladder
-     (`USB_INPUT_MARKERS`) requires the chain end to end: hidrawd's USB source
-     (`hidrawd: usb hid report seen`, I1, I2), inputd's live routes, the cursor
-     moved on screen and `SELFTEST: ui v2 input ok`; then (TASK-0074/0066) the
-     injector logs in from the greeter's handler dump, opens the shell's
-     shutdown alert (pill → power → Confirm → toast → timeout → alert →
-     background press → ESC: `SELFTEST: ui v10 dialog ok` / `live modal ok`),
-     opens the launcher, launches the settings app and tiles it with
-     Super+Ctrl+← / ↓ (`windowd: wm chord/tile/return`, `SELFTEST: ui v7 tile
-     ok`), then (TASK-0067B) opens the top bar's search over that window, picks
-     Clipboard, types a word no prefill item contains, selects and copies it
-     (Ctrl+A, Ctrl+C — the open history re-reads at once), pastes it (Ctrl+V)
-     and presses the first card, which exists only because of that re-read
-     (`clipboardd: focus truth live`, `apphost: text copy ok`, `apphost: text
-     paste ok`, `apphost: dsl svc clipboard.restore ok`, `SELFTEST: ui v7
-     clipboard ok`), then (TASK-0068) presses Print — the screen freezes and
-     the shell's screenshot tool opens over the frozen frame (`windowd: capture
-     freeze on`, `screencapd: freeze ok`) — draws a selection by dragging and
-     presses the shutter (`screencapd: saved (kind=area …)`, `windowd: capture
-     freeze off`, `SELFTEST: ui v7 screenshot ok` — the launcher's early stop
-     waits for it, `QEMU_LADDER_ALSO_WAIT`, inside a 900 s budget); the
-     chain-marker contract checks the `input-live`, `ui-modal`, `wm-tile`,
-     `clipboard` and `capture` groups here at every run. Between presses the
-     injector waits for `apphost: tap settled` (app-host's line for a traced
-     pointer tap once its frame is on screen); in the drag every edge waits
-     for its own trace (the press's `apphost: tap (…)`, the release's
-     `apphost: drag (…)->(…) hit=…`) — an edge injected while the one-hart
-     guest is seconds behind merges with the one before it. The guest writes no
-     line per frame or per keystroke (the keystroke privacy rule,
-     `docs/standards/SECURITY_STANDARDS.md`). Every visible lane also reads the
-     shown frame back through the whole capture path once (`SELFTEST: ui v7
-     screencap ok`).
-   - `just ci-os-lowmem` — REAL memory pressure (TASK-0333 6f-3, RFC-0100 §5;
-     `[profile.lowmem]` extends usb-visible, the guest reads `lowmem` from
-     `/chosen`). The usb-visible desktop and input chain, then the lane's own
-     choreography instead of the modal, tiling, clipboard and capture phases
-     (the scenario `lowmem.toml`, see "Lane scenarios" below): the injector
-     launches settings and hides
-     it (the grace freezes it); the harness takes memory until free frames are
-     halfway between the critical and the emergency watermark — the kernel's
-     own level (`SELFTEST: mem pressure held (level=critical …)`); memd's
-     chain runs from the kernel's frame — squeeze, swap-out, kill, journal, all
-     `reason=oom` (`SELFTEST: mem pressure kill ok (band=suspended
-     reason=oom)`, `SELFTEST: memd journal ok (reason=oom …)`); the harness
-     gives the memory back at the kill (`SELFTEST: mem pressure released
-     (level=normal …)`); the injector launches settings again and the new
-     process restores what the hidden one saved (`SELFTEST: app restore ok`,
-     the early stop's marker, inside a 480 s budget). The drill's line is
-     forbidden on the profile (verify-uart): no step is simulated. The ladder
-     is `LOWMEM_INPUT_MARKERS`; the chain-marker contract checks `input-route`,
-     `input-live`, `gpu-core` and `display`.
-   - `just ci-os-smp` — real parallelism: `-smp 2`, MTTCG, secondary-hart
-     proofs required, bounded retry (`[profile.smp]`).
+Triage helpers: `RUN_PHASE=<phase> just test-os` stops after a phase
+(`bring-up`, `input-startup`, `mmio`, `routing`, `ota`, `policy`, `logd`, `vfs`, `end`) and on
+failure prints `first_failed_phase=` and a bounded UART excerpt; `just test-mmio` is the `mmio`
+shortcut. Runtime profiles (`NEXUS_SELFTEST_PROFILE=bringup|quick|none`, recipes
+`ci-os-runtime-*`) make the guest skip phases instead.
 
-## Quick commands
+Cold-boot durability (ADR-0044): `just test-os` seeds `SELFTEST: statefs cold-boot seeded`, then
+`NEXUS_KEEP_BLK=1 REQUIRE_STATEFS_COLD_BOOT=1 just test-os` boots the preserved image and requires
+`SELFTEST: statefs cold-boot persist ok`.
 
-- Host unit/property: `just test-host`
-- Host E2E: `just test-e2e` (runs `nexus-e2e`, `remote_e2e`, `logd-e2e`, `vfs-e2e`, `e2e_policy`)
-- QEMU smoke: `RUN_UNTIL_MARKER=1 just test-os` (defaults to `PROFILE=full`; e.g. `just test-os visible-bootstrap` for the visible ladder)
-- Phase-gated triage: `RUN_PHASE=bring-up RUN_TIMEOUT=90s just test-os` (supported phases and failure output: [os-markers.md](os-markers.md))
-- Cold-boot durability (statefs, ADR-0044): two runs — `just test-os` seeds the sentinel on a
-  fresh image (`SELFTEST: statefs cold-boot seeded`), then
-  `NEXUS_KEEP_BLK=1 REQUIRE_STATEFS_COLD_BOOT=1 just test-os` boots against the PRESERVED
-  image and requires `SELFTEST: statefs cold-boot persist ok`. Without the `REQUIRE_` flag a
-  "seeded" verdict on the second boot would pass silently; with it, broken persistence fails
-  the lane. This is the only lane that proves real cold boot rather than soft-reboot replay.
-- Miri tiers: `just miri-strict` / `just miri-fs` (tier rules: [os-markers.md](os-markers.md))
-- Build hygiene gates: `just diag-os`, `just dep-gate`, `just diag-host` ([build-hygiene.md](build-hygiene.md))
-- Full gate before "everything is green": `just test-all`; Make wrapper: `make verify`
+## Readiness contract (RFC-0013)
 
-The complete just-target catalog (incl. per-TASK proof floors) lives in [os-markers.md](os-markers.md) § "Just targets".
+- `<svc>: ready` — the service serves its v1 contract. Missing it is a hard failure.
+- `init: up <svc>` — init saw the service's `@ready` announce; it is not readiness by itself.
 
-## Readiness contract essentials (RFC-0013)
+## Lane resources (ADR-0063)
 
-- `init: up <svc>` means the control-plane handshake completed (spawn + bootstrap channel is live).
-- `<svc>: ready` means the service is fully ready to serve its v1 contract.
-- Tests MUST NOT treat `init: up` as readiness; missing `<svc>: ready` is a hard failure with an explicit error message.
-- The full deterministic UART marker order (50 markers, banner → `SELFTEST: end`) is documented in [os-markers.md](os-markers.md).
+A profile declares its memory envelope (`NEXUS_LANE_MEM_HIGH`/`_MEM_MAX`); `scripts/qemu-test.sh`
+runs build + QEMU in a user cgroup scope with those limits and records `memory.peak` in
+`hypothesis.json`. Without a cgroup scope (CI containers) it says so and runs unenforced. An
+external signal writes `qemu-test: lane terminated externally (signal N)`. `build/` and `target/`
+carry a `CACHEDIR.TAG`; exclude them from desktop file indexers by hand.
 
-## Environment parity essentials
+## Kernel code on the host
 
-- `make initial-setup` provisions all of the below; `make doctor` (`scripts/check-deps.sh`) verifies a host in seconds and names the exact fix for each gap. Prefer it over eyeballing package lists — package *names* differ per distro and per release (Ubuntu 25.10+ split RISC-V out of `qemu-system-misc`), capabilities do not.
-- Toolchain pinned via `rust-toolchain.toml`; targets require `rustup target add riscv64imac-unknown-none-elf`. `just test-all` additionally needs the `miri` component.
-- System dependencies: a RISC-V-capable `qemu-system-riscv64`, `capnproto`, `ripgrep` (failure triage in `scripts/qemu-test.sh` and `just deadcode` shell out to `rg`), `just`, and supporting build packages; the Podman container image installs the same set for CI parity.
-- **Headless lanes need no display stack; `just start` does.** The interactive path defaults to `GPU_MODE=virgl` in a `-display gtk,gl=on` window, and the virgl proof lane uses `egl-headless`. Both come from host GTK + EGL/virglrenderer, which on Debian/Ubuntu live in packages separate from the emulator (`qemu-system-gui`, `qemu-system-modules-opengl`). CI is deliberately headless and never exercises this path — `make doctor` is what catches a QEMU that boots fine but cannot open a window.
-- Do not rely on host-only tools — update `scripts/install-deps.sh` **and** `podman/Containerfile` together when new packages are needed.
-- Full detail: [e2e.md](e2e.md) § "Environment parity & prerequisites".
+The `neuron` crate gates almost every module with `#[cfg(target_os = "none")]`, so their
+`#[cfg(test)]` modules never compile on the host. A few pure modules are declared un-gated in
+`source/kernel/neuron/src/lib.rs` (`waitset`, `fence`, `sync`, `frames`, `phys`, `dma_runs`, …)
+and are the host oracle under `just test-kernel`. The rule for a new one: no riscv-only types
+(raw `u32`/`u64` ids, `alloc` only), the gated syscall layer maps ids to kernel types, and the
+integration is proven by a `KSELFTEST:` marker. The type gate for the rest is
+`just diag-kernel` / `just lint-kernel` on `riscv64imac-unknown-none-elf`.
 
-## Lane scenarios — the injector's choreography as data (ADR-0089, TASK-0333 6f-3)
+## CI
 
-The visible lanes that inject input (`usb-visible`, `lowmem`, and `input-flood`'s warm-up) do not
-script it in Python: the profile names a scenario (`QEMU_INPUT_SCENARIO`), a TOML file in
-`source/apps/selftest-client/proof-manifest/scenarios/`, and ONE runner (`tools/qmp_scenario.py`
-over the primitives in `tools/qmp_input.py`) executes it.
+`.github/workflows/ci.yml` runs `just check`, `just test-host` + `just test-e2e`, Miri,
+`just deadcode`, the kernel build/lint/tests, and a QEMU job (`scripts/qemu-test.sh --profile=headless`
+then `just ci-os-smp`) that uploads `build/logs/` on failure. `.github/workflows/cla-check.yml` is
+the CLA bot. The full ladder (`test-all`) runs locally; CI is the authority for the lanes it runs.
 
-- **When.** Nothing is injected before the guest prints `SELFTEST: input window open` — after its
-  timing gates (IPC budget, console and BKL budgets) and its end-phase probes. The guest decides;
-  the host never guesses which incidental line comes last.
-- **A step** is one action — `login`, `click`, `move`, `chord`, `key`, `type`, `drag`, `wait` —
-  and `expect`: markers that must appear as NEW lines after the action, in any order (services
-  write concurrently; only causality orders their lines), then `then`: markers each after the
-  LAST `expect` line (a re-created window's first frame counts only after its resize), all within
-  `timeout_s`; a `wait` step, having no action, counts from the action of the step before it. A
-  `click` is also acknowledged by app-host's readback — a HIT on the point (`apphost: tap (x,y)
-  hit=Some(…)`); a miss there (`input tap miss at`) means the surface under it is not laid out
-  yet, so the runner waits 1.5 s and presses again — and a `drag` by its drag trace; an action
-  that writes no line (typing: the keystroke privacy rule) names the later step that covers it
-  (`acked_by`); a pause with no event to wait for is declared (`settle_s`, ≤ 10 s).
-- **Failure is loud and first.** A step whose acknowledgement does not come is retried as declared
-  (`retry`, `retry_with`) and otherwise ENDS the run: `[scenario] FAIL step=… missing=…` and the
-  same in `hypothesis.json`. No step runs blind on a screen a failed step left behind. A click
-  whose press never surfaced homes the pointer before it retries (the travel before it was
-  merged away too). Every step's duration is logged (`scenario step ok`, `s=`).
-- **The contract is checked on the host.** `nexus-proof-manifest scenario --scenario=all` (and
-  `cargo test -p nexus-proof-manifest --test scenarios`): every literal is a declared marker or a
-  specialisation of one, every point and word exists in `scenarios/targets.toml`, every action is
-  acknowledged, names are unique, bounds are bounded. The points and the typed word are the same
-  file the shell's conformance tests read (`tests/dsl_apps_conformance/tests/shell_*.rs` via
-  `common::inject_point`): a moved widget fails a host test, not a lane.
-- **The disk does not wait for the host.** A proof session attaches its per-run image with
-  `cache=unsafe` (`scripts/qemu-launcher.sh`): a guest flush is not a host `fdatasync`, which on a
-  busy host disk stalled the guest's block requests for seconds. Interactive sessions keep QEMU's
-  default.
-- **A device's answer is an event.** virtio-blk waits for its device's interrupt and nothing else
-  (no watchdog, no poll; the line bound before the warm-up read — rung `blk: irq bound`): a
-  stalled device only delays a request. A device that failed says so (`DEVICE_NEEDS_RESET` →
-  `virtio-blk: device failed (needs reset)`). Before 6f-3 a 2 s watchdog gave requests up and
-  leaked their slots: `virtio-blk: timeout` ×4 → `slots exhausted` for the rest of the boot.
-- **The first key after boot is a step of its own** (`… reaches the greeter`: a letter, retried
-  until `inputd: live keyboard route on`) — a chord as the first input got one empty report from
-  QEMU's USB keyboard and nothing after it (open for the keyboard package).
+## Environment
 
-## Gates beyond the ladder
+`make initial-setup` provisions the host; `make doctor` (`scripts/check-deps.sh`) checks it and
+names each fix. The toolchain is pinned in `rust-toolchain.toml` (target
+`riscv64imac-unknown-none-elf`, `miri` for `test-all`). Headless lanes need no display stack;
+`just start` and the virgl lanes need QEMU with GTK/EGL. Add a host package to
+`scripts/install-deps.sh` and `podman/Containerfile` together.
 
-- **No-fake-green FAIL gate** (`scripts/qemu-test.sh`, `FAIL_MARKER_GATE=1` default): the
-  marker ladder is a presence check, so a proof that ALSO printed a `FAIL` marker used to
-  pass unnoticed. Any `SELFTEST:`/`KSELFTEST:` FAIL line in the UART now fails the lane
-  unless it is listed, with its tracking reference, in `config/fail-marker-allow.txt`
-  (today: the two DSoftBus single-VM probes, network family on HOLD).
-- **Boot-hart lottery**: interactive boots (`just start`, SMP=4, MTTCG) receive the image on
-  a random hart; nxboot normalizes to hart 0 (ADR-0059). Symptom before the fix:
-  `KGATE: smp bringup DEGRADED`, 2 s block reads, `init: volume spawn FAIL reason=header`.
-  The deterministic lanes always booted on hart 0, so only `just start` saw it.
-- **Folding (RFC-0068)**: interactive boots fold routine markers into per-service verdict
-  lines and expand only failures; proof boots print everything raw. A raw line in an
-  interactive boot is a bug in the emitter (`debug_write` instead of `debug_println`, or
-  a service that never armed verdict folding), not a harness setting.
+## Logs
 
-- **`just input-flood` — the load lane** (TASK-0054C P2-g, in `test-all`): every other lane
-  drives input politely, and that politeness hid a defect a user found in seconds. inputd
-  allocated one `Vec` per HID batch on a heap that never frees, so ~400 batches a second walked
-  its 384 KiB heap to `alloc_error` in under twenty seconds — and a dead inputd takes the whole
-  input chain with it (`hidrawd: tx hz=0` while events keep arriving), which is why the boot sat
-  on the greeter with a login nobody could click. The lane boots `visible`, floods ~900 pointer
-  moves a second over QMP for 45 s, and asserts what must NOT happen: no `alloc-fail` from any
-  service, and hidrawd still forwarding at the end. Both assertions were checked against the
-  pre-fix log — a lane that cannot fail on the defect it exists for is decoration.
-- **The IPC fastpath budget** (TASK-0054C P6, RFC-0096): `KSELFTEST: ipc call budget ok
-  (rt=<n>us budget=64)` asserts the request/reply round trip every boot, next to the two printed
-  benches (`SELFTEST: ipc bench` over the old two-trap path, `ipc call bench` over `ipc_call`,
-  same server and payload so they COMPARE). Measured 41–43 µs across smp1, visible, reset and the
-  OTA lanes; the path it replaced was 192 µs, so a regression that puts a kernel entry back into
-  an exchange fails the boot rather than waiting to be noticed in a log.
+Every run writes `build/logs/<profile>--<timestamp>/` (`uart.log`, `hypothesis.json`,
+`qemu.stderr`, boot-disk trace files); the board writes `build/logs/board--<timestamp>/`. Layout, the
+`hypothesisId` grid and troubleshooting: [run-logs.md](run-logs.md). Prune with `just logs-gc`.
 
-## Lane resources and where a verdict comes from (ADR-0063)
+## Pages
 
-- **A lane declares what it needs from the machine**, in its profile
-  (`proof-manifest/profiles/harness.toml`: `NEXUS_LANE_MEM_HIGH/_MEM_MAX`; CPU/IO weights are
-  supported but declared only with evidence),
-  and `scripts/qemu-test.sh` re-executes the whole lane — build and QEMU — inside a
-  transient user cgroup scope with exactly those limits. `MemoryHigh` is the declared
-  working set (crossing it reclaims); `MemoryMax` is the wall that says "this is a bug"
-  (crossing it kills inside the lane's own cgroup, with a witness). Where no user cgroup scope
-  is available (CI containers), the harness says so in the log and runs unenforced — it never
-  claims an envelope it does not have.
-- **A lane never dies silently.** A `TERM`/`INT`/`HUP` from outside writes
-  `qemu-test: lane terminated externally (signal N)` plus a `hypothesis.json` record naming
-  the signal, the elapsed time and the phase. If a run directory just stops, that is a
-  harness defect — not something a reader has to guess about. Every run also records its own
-  `memory.peak`, which is where the declared numbers come from (measured 2026-09-11 in a cold
-  `make clean` + `test-all`: 751-1,099 MiB per lane, build + QEMU).
-- **The full ladder's verdict belongs to CI, not to a workstation.** A green `test-all` on a
-  desktop is evidence; the authority is the run on a machine with no other tenants. Locally,
-  run the subset that fits the machine you are on.
-- **Developer setup (not automated on purpose):** `build/` and `target/` carry a
-  `CACHEDIR.TAG`, so cache- and backup-aware tools skip them. Desktop file indexers use their
-  own exclusion setting (an "exclude folders" list) — add `<repo>/build` and `<repo>/target`
-  there. A build script must never reach into your desktop configuration, so this stays a
-  documented step: an indexer walking a few hundred MB of freshly written images on every
-  lane is a real cause of the memory pressure that kills lanes.
+| Page | Role |
+|---|---|
+| [layers.md](layers.md) | what each layer proves, one example each |
+| [os-markers.md](os-markers.md) | marker truth, gates on the ladder, finding a marker |
+| [proof-manifest.md](proof-manifest.md) | the manifest directory schema, profiles, scenarios |
+| [e2e.md](e2e.md) | host E2E suites and coverage |
+| [run-logs.md](run-logs.md) | run directory, `hypothesis.json`, troubleshooting |
+| [network-distributed-debugging.md](network-distributed-debugging.md) | network lanes, `os2vm` |
+| [evidence-bundle.md](evidence-bundle.md) | signed evidence bundle format |
+| [replay-and-bisect.md](replay-and-bisect.md) | replay, trace diff, bisect |
+| [SECURITY_STANDARDS.md](../standards/SECURITY_STANDARDS.md), [BUILD_STANDARDS.md](../standards/BUILD_STANDARDS.md) | security tests (`test_reject_*`), build hygiene gates |
 
-## Test logs
-
-All test/QEMU runs write to `build/logs/<profile>--<timestamp>/` (`latest` symlink can be stale — prefer the newest run directory). The reference board's console is captured the same way by `just board-serial` — `build/logs/board--<timestamp>/uart.log` (`latest-board` symlink), so the marker tools read a board log without knowing the difference (TASK-0327; `docs/board/bpi-f3.md`). See [`docs/testing/run-logs.md`](run-logs.md) for the run-directory layout, the `hypothesis.json` decode grid (H1..H5, H4 = build errors, H4b = build warnings, …), and `just logs-gc [keep]` pruning.
-
-## Document map
-
-Split reference documents (formerly `index.md`):
-
-- [layers.md](layers.md) — full testing-layers reference: kernel/userspace/services layers, end-to-end coverage table, and all per-TASK requirement matrices.
-- [os-markers.md](os-markers.md) — scaffold sanity: just targets, manifest-driven proof workflow (profile catalog, adding markers/profiles/phases, `verify-uart`), phase-gated QEMU smoke, Miri tiers, and the full OS-E2E UART marker sequence + VMO split notes.
-- [e2e.md](e2e.md) — Policy E2E notes, Remote E2E harness, and environment parity & prerequisites.
-- [security.md](security.md) — security testing: `test_reject_*` negative cases, hardening markers, fuzz targets, review checklist.
-- [build-hygiene.md](build-hygiene.md) — OS build hygiene gates (`just diag-os`, `just dep-gate`) and house rules.
-- [troubleshooting.md](troubleshooting.md) — QEMU/UART triage tips, log knobs, and determinism pointers.
-
-Topic guides:
-
-- [e2e-coverage-matrix.md](e2e-coverage-matrix.md) — feature-by-feature E2E coverage map across host-first and OS-last layers.
-- [device-mmio-access.md](device-mmio-access.md) — Device MMIO access tests today + extension plan.
-- [network-distributed-debugging.md](network-distributed-debugging.md) — SSOT for network/distributed triage (`qemu-test` proof knobs, `os2vm` phases, packet capture, typed error matrix).
-- [proof-manifest.md](proof-manifest.md) — Proof Manifest schema (`source/apps/selftest-client/proof-manifest.toml`), the marker/profile/phase SSOT.
-- [display-output-hardening-matrix.md](display-output-hardening-matrix.md) — per-service proof matrix for visible display-output closure.
-- [replay-and-bisect.md](replay-and-bisect.md) — Phase-6 replay/bisect workflow, bounded budgets, determinism allowlist operations, **proof-floor evidence map (§9)**, **synthetic bad-bundle reproducer (§10)**, and **single remaining environmental closure step (external CI-runner replay artifact, §11)**.
-- [trace-diff-format.md](trace-diff-format.md) — deterministic trace diff classes and machine-readable output contract.
-- [evidence-bundle.md](evidence-bundle.md) — normative spec for signed evidence bundles (RFC-0038 Phase 5).
-- [bisect-good-drift-regress.json](bisect-good-drift-regress.json) — fixture for the Phase-6 3-commit `good→drift→regress` synthetic bisect smoke (`tools/bisect-evidence.sh ... --synthetic-map=docs/testing/bisect-good-drift-regress.json ...`).
-- [trace-diff-fixtures.json](trace-diff-fixtures.json) — fixture corpus for `tools/diff-traces.sh` (exact / extra / missing / reorder / phase-mismatch classes).
-
-## Board lane (`just board-test PROFILE=board-headless|board-visible`)
-
-The desk board is judged like a QEMU lane (`scripts/board-test.sh`, TASK-0327B P4): the image is
-built and flashed, the operator is prompted step by step with the user LED's ladder as the wait
-signal, the boot trace is pulled from the eMMC by `just board-log` (no serial adapter needed),
-and the capture is judged three ways — `verify-uart` (surprise/forbidden lines, the board
-vocabulary in `proof-manifest/markers/board.toml`), the FAIL gate (`config/fail-marker-allow.txt`
-plus the board's tracked reds in `config/fail-marker-allow-board.txt`, each with its owner)
-and the REQUIRED ladder in the runner, judged by presence like the QEMU harness (since
-2026-09-30 it includes the SoC glue's display rung `SELFTEST: soc glue display ok`: the display
-pipeline is powered and clocked on every board boot). `board-visible` additionally asks the operator
-for one `board-visual:` rung per visual task — `desktop`, `typed`, `pointer`, `modal`, `tile`,
-`clipboard`, `screenshot` (Block 1's gate, 2026-10-10) — each appended with `just board-ack` only
-for what the operator saw on the monitor. Nothing passes by timeout. Judge an
-archived capture without a board: `scripts/board-test.sh --profile=board-headless --log=<uart.log>`.
-In `just test-all` the lane runs only with `NEXUS_BOARD=1` (`just board-lane`); without it the
-step prints that it was skipped.
+Two JSON fixtures sit here for the replay tooling: `docs/testing/trace-diff-fixtures.json`
+(trace-diff classes) and `docs/testing/bisect-good-drift-regress.json` (synthetic bisect map).

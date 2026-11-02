@@ -1,48 +1,60 @@
-# Sandboxing v1 Security Notes
+---
+schema: 1
+title: "Sandboxing v1"
+role: reference
+subsystem: security
+sources: [source/services/vfsd/src/sandbox.rs, source/services/vfsd/src/namespace.rs, userspace/nexus-vfs, source/services/execd/src/lib.rs]
+contracts: [RFC-0042]
+verified: 2026-11-02
+---
 
-## Scope Boundary
+<!-- Copyright 2026 Open Nexus OS Contributors -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
-Sandboxing v1 is a userspace confinement floor. It does not claim kernel-enforced namespace or syscall containment.
+# Sandboxing v1
 
-- Kernel remains untouched.
-- Confinement depends on spawn-time capability distribution (`execd/init` authority).
-- App subjects must not receive direct `packagefsd` or `statefsd` capabilities.
+> **Purpose** — what confines an app subject today, which rejects prove it, and where the boundary stops.
+> **Owns** — `source/services/vfsd/src/sandbox.rs`, `source/services/vfsd/src/namespace.rs`, `userspace/nexus-vfs/`
+> **Contracts** — [RFC-0042](../rfcs/RFC-0042-sandboxing-v1-vfs-namespaces-capfd-manifest-permissions-host-first-os-gated.md) (VFS namespaces, CapFd, manifest permissions)
+> **Invariants** — confinement comes from which capabilities a subject receives at spawn. App subjects never get direct `packagefsd` / `statefsd` capabilities, or `device.mmio.net`.
+> **Read next** — [capabilities.md](capabilities.md), [network-policy.md](network-policy.md), [abi-filters.md](abi-filters.md)
 
-## Network boundary (TASK-0043)
+## Scope
 
-Outbound policy is enforced at netstackd's facade (`docs/security/network-egress.md`)
-and inbound binds at the same seam (TASK-0052). A subject that holds
-`device.mmio.net` drives the NIC itself and bypasses both — the grant is the
-boundary, not the facade: never grant it to a sandboxed app subject.
+Sandboxing v1 is a userspace confinement floor. It does not claim kernel-enforced namespaces or syscall containment.
 
-## v1 Enforcement Floor
+- The kernel is not involved.
+- Confinement depends on spawn-time capability distribution: init and execd decide what a child holds.
+- App subjects reach files only through vfsd's namespace view, never through a direct `packagefsd` or `statefsd` capability.
 
-- Namespace path handling is canonicalized and rejects traversal (`..`) deterministically.
-- CapFd token checks are fail-closed for integrity, replay, subject binding, expiry, and rights subset.
-- Reject behavior is deterministic for unauthorized namespace paths and rights mismatches.
+## Network boundary
 
-## Required Reject Proofs
+netstackd's facade enforces outbound and inbound policy ([network-policy.md](network-policy.md)). A subject holding `device.mmio.net` drives the NIC itself and bypasses both. The grant is the boundary, so never give it to a sandboxed app subject.
 
-Run these host proofs:
+## Enforcement floor
+
+- Namespace paths are canonicalized; `..` traversal is rejected deterministically.
+- CapFd tokens fail closed on integrity, replay, subject binding, expiry and rights subset.
+- Unauthorized namespace paths and rights mismatches are rejected the same way every time.
+
+## Required reject proofs
 
 ```bash
-cd /home/jenning/open-nexus-OS && cargo test -p vfsd -- --nocapture
-cd /home/jenning/open-nexus-OS && cargo test -p nexus-vfs -- --nocapture
-cd /home/jenning/open-nexus-OS && cargo test -p execd --lib test_reject_direct_fs_cap_bypass_at_spawn_boundary -- --nocapture
+cargo test -p vfsd -- --nocapture
+cargo test -p nexus-vfs -- --nocapture
+cargo test -p execd --lib test_reject_direct_fs_cap_bypass_at_spawn_boundary -- --nocapture
 ```
 
-Required test names:
+| Test | Where |
+|---|---|
+| `test_reject_path_traversal` | `source/services/vfsd/src/sandbox.rs`, `userspace/nexus-vfs/src/lib.rs` |
+| `test_reject_unauthorized_namespace_path` | same |
+| `test_reject_forged_capfd` | `source/services/vfsd/src/sandbox.rs` |
+| `test_reject_replayed_capfd` | `source/services/vfsd/src/sandbox.rs` |
+| `test_reject_capfd_rights_mismatch` | `source/services/vfsd/src/sandbox.rs` |
+| `test_reject_direct_fs_cap_bypass_at_spawn_boundary` | `source/services/execd/src/lib.rs` |
 
-- `test_reject_path_traversal`
-- `test_reject_unauthorized_namespace_path`
-- `test_reject_forged_capfd`
-- `test_reject_replayed_capfd`
-- `test_reject_capfd_rights_mismatch`
-- `test_reject_direct_fs_cap_bypass_at_spawn_boundary`
-
-## OS-Gated Marker Contract
-
-Only stable labels are allowed:
+## QEMU markers
 
 - `vfsd: namespace ready`
 - `vfsd: capfd grant ok`

@@ -10,7 +10,7 @@
 //! STATUS: Functional
 //! API_STABILITY: Unstable — selftest surface
 //! TEST_COVERAGE: QEMU marker ladder (`KSELFTEST: smp lock ping`)
-//! ADR: docs/adr/0045-smp-production-grade.md
+//! ADR: docs/rfcs/RFC-0021-kernel-smp-v1-percpu-runqueues-ipi-contract.md
 
 use super::{
     cpu_is_online, cpu_online_mask, request_resched, AtomicUsize, CpuId, Ordering, MAX_CPUS,

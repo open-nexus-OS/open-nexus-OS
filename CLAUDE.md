@@ -22,7 +22,8 @@ development, QEMU-last proof.
 - `tools/nx/` — DSL compiler/CLI + integration chain tests
 - `tasks/` — planning as data (RFC-0115): `milestones/` (the order), `sprints/` (the week),
   `TASK-*` ledgers (execution truth), `SUBSYSTEMS.md` · `docs/rfcs/` — design contracts
-- `docs/adr/` — architecture decisions · `docs/architecture/` — deep dives
+- `docs/adr/` — architecture decisions · `docs/<subsystem>/` — how the code fits together
+  (one folder per subsystem; map in `docs/README.md`)
 
 ## Build & verify
 
@@ -151,17 +152,17 @@ English; prefer modular files (~600 LOC) over monoliths.
 3. Host-first: prove logic with host tests, then confirm in QEMU. Pick the
    smallest honest proof set; state target behavior → proof → regression
    signal.
-4. Bounded debugging: form hypotheses, check `docs/testing/README.md`
-   troubleshooting first, no endless retry chains.
-5. Docs sweep before "done": phases and status via `nx ledger`, RFC status, CHANGELOG,
-   affected `docs/**`. Progress reports use `nx ledger table` (counted, never estimated).
+4. Bounded debugging: form hypotheses, check `docs/testing/run-logs.md` (hypothesis IDs)
+   first, no endless retry chains.
+5. Docs sweep before "done": phases and status via `nx ledger`, RFC status, CHANGELOG, and
+   `nx ledger stale` — every doc whose `sources` you changed: fix it, then
+   `nx ledger set docs/<path> verified <today>`; a moved doc: `nx ledger relink <old> <new>`.
+   Docs carry no task status. Progress reports use `nx ledger table` (counted, never estimated).
 
 ## Read more
 
-- `docs/README.md` — documentation index
-- `docs/architecture/README.md` — architecture entry point + reading order
-- `docs/testing/README.md` — test layers, QEMU profiles, marker ladder
-- `docs/standards/` — Rust/build/security/documentation standards
+- `docs/README.md` — the docs entry point: one folder per subsystem, every page with its role
+  (read a page's 5-line header first; open the body only if it answers your question)
 - `.claude/skills/` — plan-package (RFC-0115 planning ritual) + code-quality + architecture-review
   (design gate) + boot-proof + verify workflows
 - `.claude/skills/driver-bringup/` — driver / board / SoC-block bring-up playbook: measure on the

@@ -218,7 +218,7 @@ together); `ci-os-reset` stays untouched-green; new `just ci-os-ota` recipe.
 - `tools/nexus-idl/schemas/system-set.capnp` + `tools/nx` (fixture emission)
 - `source/apps/selftest-client/` + `proof-manifest/markers/`
 - `tests/updates_host/`, `scripts/qemu-test.sh` + `justfile` (ota profile — approval)
-- `docs/packaging/system-set.md`, `docs/updates/` sweep
+- `docs/updates/system-set.md`, `docs/updates/` sweep
 
 ## Plan (small PRs)
 

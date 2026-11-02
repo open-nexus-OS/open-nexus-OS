@@ -19,7 +19,7 @@ links:
   - label: "Compositor baseline"
     target: tasks/TASK-0059-ui-v3b-clip-scroll-effects-ime-textinput.md
   - label: "Gfx architecture"
-    target: docs/architecture/graphics/nexusgfx-command-and-pass-model.md
+    target: tasks/TRACK-NEXUSGFX-SDK.md
   - label: "Device/MMIO model"
     target: tasks/TASK-0010-device-mmio-access-model.md
   - label: "Testing contract"

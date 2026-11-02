@@ -23,9 +23,9 @@ links:
   - label: "NexusInfer SDK (on-device ML runtime)"
     target: tasks/TRACK-NEXUSINFER-SDK.md
   - label: "Gfx capability matrix"
-    target: docs/architecture/graphics/nexusgfx-capability-matrix.md
+    target: tasks/TRACK-NEXUSGFX-SDK.md
   - label: "Gfx compute kernel model"
-    target: docs/architecture/graphics/nexusgfx-compute-kernel-model.md
+    target: tasks/TRACK-NEXUSGFX-SDK.md
   - label: "NexusGame SDK (realtime loop/input replay)"
     target: tasks/TRACK-NEXUSGAME-SDK.md
   - label: "Zero-Copy App Platform (OpLog/autosave/connectors/UI primitives)"

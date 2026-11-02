@@ -10,10 +10,13 @@
 //! TEST_COVERAGE: tools/nx/tests/ledger_cli.rs
 //! ADR: docs/rfcs/RFC-0115-planning-as-data-milestones-sprints-phases-one-ledger-cli.md
 
+mod docs;
 mod edit;
+mod gen;
 mod model;
 mod repo;
 mod rules;
+mod upkeep;
 mod view;
 mod yaml;
 
@@ -105,16 +108,28 @@ pub(crate) fn handle_ledger(args: LedgerArgs) -> ExecResult {
             }
         },
         LedgerAction::Lint { fix, notes } => lint(&mut repo, fix, notes),
+        LedgerAction::Stale => upkeep::stale_report(&repo).map_err(fail).and_then(ok),
+        LedgerAction::Relink { old, new } => {
+            upkeep::relink(&mut repo, &old, &new).map_err(fail).and_then(ok)
+        }
     }
 }
 
 fn lint(repo: &mut repo::Repo, fix: bool, notes: bool) -> ExecResult {
     if fix {
         let mut fixed = 0;
-        for doc in &mut repo.docs {
+        let bodies: Vec<Option<String>> = repo
+            .docs
+            .iter()
+            .map(|d| (d.kind == model::Kind::Doc).then(|| gen::render(repo, d).ok()).flatten())
+            .collect();
+        for (doc, body) in repo.docs.iter_mut().zip(bodies) {
             let order = model::order(model::fields(doc.kind));
             doc.entries
                 .sort_by_key(|(k, _)| order.iter().position(|o| o == k).unwrap_or(usize::MAX));
+            if let Some(body) = body {
+                doc.body = body;
+            }
             if doc.rendered() != doc.raw {
                 repo::write(&repo.root, doc).map_err(|e| NxError::new(ExitClass::Internal, e))?;
                 doc.raw = doc.rendered();

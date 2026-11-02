@@ -105,7 +105,7 @@ Boot-proven:
 - app-host runtime + `userspace/apps/stash/` (write flows)
 - `scripts/qemu-launcher.sh` (GPT prep + NEXUS_KEEP_BLK), `scripts/qemu-test.sh`
 - init wiring/manifests for the new service (behind the execd probe block, per ctrl-plane trap)
-- `docs/storage/nxfs.md`, `docs/storage/statefs.md`, `docs/architecture/12-storage-vfs-packagefs.md`
+- `docs/storage/nxfs.md`, `docs/storage/statefs.md`, `docs/storage/README.md`
 
 ## Plan (small PRs)
 

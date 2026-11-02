@@ -1,61 +1,83 @@
-# Agent Vision (Open Nexus OS)
+---
+schema: 1
+title: Vision
+role: guide
+subsystem: devx
+sources: [source/kernel/neuron, source/services]
+contracts: [RFC-0005, ADR-0001]
+verified: 2026-11-02
+---
 
-This document captures the **default product and architecture vision** agents should use when implementing changes.
+<!-- Copyright 2026 Open Nexus OS Contributors -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
-## North Star
+# Vision
 
-Build a **secure, high-performance OS core** that scales across phone, desktop, TV, automotive, and embedded classes.
+> **Purpose** — the product and architecture direction every change is judged against.
+> **Owns** — no code; the decision lens for `source/kernel/neuron/` and `source/services/`
+> **Contracts** — [RFC-0005](../rfcs/RFC-0005-kernel-ipc-capability-model.md) (kernel IPC and capabilities), [ADR-0001](../adr/0001-runtime-roles-and-boundaries.md) (one implementation per role)
+> **Invariants** — capability-based authority, no ambient authority; a minimal kernel; stubs are labelled and never emit success markers.
+> **Read next** — [system-map.md](system-map.md), [README.md](README.md)
 
-- **RISC-V-first, Rust-first**: favor Rust-idiomatic designs, stable interfaces, and simple invariants.
-- **Fast by default**: low-latency interactions with energy-aware defaults.
-- **Peak mode when explicit**: allow burst performance for pro workloads without making the baseline power-hungry.
-- **Local sovereignty**: support local development and self-hosted operations where policy allows.
-- **Managed posture support**: family, school, enterprise, and fleet policies share one coherent authority model.
-- **Distributed fabric trajectory**: services should feel local across trusted devices via userland distributed layers.
+## North star
+
+A **secure, high-performance OS core** that scales across phone, desktop, TV, automotive and
+embedded classes.
+
+- **RISC-V-first, Rust-first**: Rust-idiomatic designs, stable interfaces, simple invariants.
+- **Fast by default**: low-latency interaction with energy-aware defaults.
+- **Peak mode when explicit**: burst performance for pro workloads without a power-hungry baseline.
+- **Local sovereignty**: local development and self-hosted operation where policy allows.
+- **Managed posture**: family, school, enterprise and fleet policies share one authority model.
+- **Distributed fabric**: services feel local across trusted devices through userspace layers.
 
 ## Principles (decision lens)
 
-When choosing between designs, prefer solutions that:
+Prefer designs that:
 
-- **Preserve security boundaries**: capability-based authority, least privilege, no ambient authority.
-- **Use one coherent model**: reuse security/policy/identity architecture across product surfaces.
-- **Keep kernel minimal**: move policy, routing, parsing, and crypto orchestration to userland.
-- **Stay performance-scalable**: optimize fast paths, avoid copies, use VMO/filebuffer for bulk transfer.
-- **Balance efficiency and burst**: default energy-efficient paths, explicit peak modes.
-- **Remain testable**: host-first proofs + minimal authoritative QEMU E2E.
-- **Avoid lock-in**: no desktop-only or IoT-only forks of core authority model.
-- **Prefer local/self-hostable control paths** where equivalent security can be maintained.
-- **Do not clone reference systems 1:1**: adopt principles, keep implementations Rust-idiomatic.
+- **preserve security boundaries** — capabilities, least privilege, no ambient authority;
+- **use one coherent model** — the same security, policy and identity architecture on every surface;
+- **keep the kernel minimal** — policy, routing, parsing and crypto orchestration in userspace;
+- **stay performance-scalable** — fast paths, few copies, VMOs for bulk data;
+- **balance efficiency and burst** — efficient defaults, explicit peak modes;
+- **remain testable** — host-first proofs, minimal authoritative QEMU runs;
+- **avoid lock-in** — no desktop-only or IoT-only fork of the authority model;
+- **adopt principles, not clones** — learn from reference systems, keep implementations our own.
 
-## Architecture stance (current direction)
+## Architecture stance
 
-- **Control plane**: Cap’n Proto IDL in userland (typed messages).
-- **Data plane**: VMO/filebuffer for large payloads (low/zero copy).
-- **Local IPC**: kernel-enforced endpoint capabilities (RFC‑0005).
-- **Policy**: `policyd` decides authority; kernel enforces capability rights.
-- **Discovery graph**: `samgrd` registers and resolves services.
-- **Distributed (future)**: `softbusd` remains userland-layered; kernel ABI stays local and portable.
+- **Control plane**: Cap'n Proto IDL in userspace (typed messages).
+- **Data plane**: VMOs for large payloads (low or zero copy).
+- **Local IPC**: kernel-enforced endpoint capabilities (RFC-0005).
+- **Policy**: `policyd` decides authority; the kernel enforces capability rights.
+- **Discovery**: `samgrd` registers and resolves services.
+- **Distributed**: `dsoftbusd` stays in userspace; the kernel ABI stays local and portable.
 
-## Hybrid security-root roadmap (default)
+## Security root
 
-Use a hybrid approach:
+- **Trust root**: verified boot, signed bundles, policy gating, capability enforcement.
+- **Pluggable key custody**: `keystored` / `identityd` move from software keys to secure hardware
+  without ABI churn.
+- **Measured boot and attestation**: an additive layer for admitting devices to the mesh, with trust
+  policy in userspace.
 
-- **MVP trust root**: verified boot + signed bundles + policy gating + capability enforcement.
-- **Pluggable key custody**: `keystored`/`identityd` migrates from software bring-up to secure hardware without ABI churn.
-- **Measured boot + attestation (later)**: additive trust layer for distributed mesh admission, with trust policy in userland.
+## Direction
 
-## Distributed vision (softbusd, later)
+- **Managed devices.** Remote systems may supply management inputs — enrollment, group roles,
+  policy bundles, config profiles, rollout intent — but local authorities (`policyd`, `configd`,
+  `identityd`, `bundlemgrd`) validate, store, explain and enforce them. No remote bypass around
+  policy and no second install authority.
+- **Scripts and automation.** Shell scripts and package-manager hooks are allowed and expected, but
+  run bounded and auditable: project-scoped, no silent machine-wide mutation, no service
+  registration or broad filesystem and network access without an explicit grant. "Script can run"
+  never means "script owns the machine".
+- **Device mesh.** `dsoftbusd` provides discovery, secure sessions and routing so services can
+  appear local across devices; kernel IPC remains local and capability-based, and distributed
+  behavior is policy-gated in userspace.
 
-Long-term direction is a userland-driven “device mesh”:
+## What agents do by default
 
-- `softbusd` provides discovery, secure sessions, and routing so services can appear local across devices.
-- Kernel IPC remains local and capability-based; distributed behavior is expressed in userland and
-  is policy-gated.
-
-## What agents should do by default
-
-- Interpret user decisions and requests **in relation to this vision**.
-- If a request seems to conflict with the vision (security/perf/testability), call it out early.
-- Propose **better implementations** when they are clearly aligned with the vision, with concrete tradeoffs.
-- Keep stubs honest: label them, never fake success markers, and always provide proof of real behavior.
-- Keep responses concise by default; expand only when risk, tradeoff, or ambiguity requires detail.
+- Read requests against this vision; call out early when one conflicts with security, performance
+  or testability.
+- Propose a better implementation when it clearly fits the vision, with concrete tradeoffs.
+- Keep stubs honest: label them, never emit a success marker for them, prove real behavior.

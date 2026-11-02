@@ -175,7 +175,7 @@ Only once OS QUIC is real (future) should we add QEMU markers for pacing/cc/prio
 - `userspace/dsoftbus/` (transport/quic host, mux v2 scheduler)
 - `tests/` (host tuning/load tests)
 - `docs/distributed/dsoftbus-quic.md` (knobs, defaults, tuning notes)
-- `docs/distributed/dsoftbus-mux.md` (priority scheduler notes)
+- `docs/network/dsoftbus.md` (priority scheduler notes)
 
 ## Plan (small PRs)
 

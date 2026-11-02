@@ -1,408 +1,129 @@
-# Build Standards: Feature Gates & Dependency Hygiene
-
-**Created**: 2026-01-07  
-**Owner**: @runtime  
-**RFC**: RFC-0009 (no_std Dependency Hygiene v1)
-
-## Overview
-
-This document defines the build standards for Open Nexus OS to prevent dependency leakage between host and OS targets. **Failure to follow these rules causes hard-to-debug build failures on bare-metal targets.**
-
+---
+schema: 1
+title: "Build standards"
+role: reference
+subsystem: devx
+sources: [justfile, Makefile, scripts/build.sh, config/os-services.txt, config/deny.toml, rust-toolchain.toml]
+contracts: [RFC-0009]
+verified: 2026-11-02
 ---
 
-## The Golden Rule
+<!-- Copyright 2026 Open Nexus OS Contributors -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
-> **OS services MUST be built with `--no-default-features --features os-lite`**
+# Build standards
 
-This ensures that `std`-only dependencies (like `parking_lot`, `getrandom`) do not leak into bare-metal builds.
+> **Purpose** — how a crate is gated for host and OS, which crates may never reach the OS graph, and which gates prove a build before a commit.
+> **Owns** — the build rules behind `justfile`, `Makefile`, `scripts/build.sh`, `config/os-services.txt`
+> **Contracts** — [RFC-0009](../rfcs/RFC-0009-no-std-dependency-hygiene-v1.md) (no_std dependency hygiene)
+> **Invariants** — OS services build with `--no-default-features --features os-lite`; `parking_lot`, `parking_lot_core` and `getrandom` never enter the OS graph; one pinned toolchain everywhere.
+> **Read next** — [RUST_STANDARDS.md](RUST_STANDARDS.md), [../testing/README.md](../testing/README.md)
 
----
+## The golden rule
 
-## Feature Gate Convention
+OS services build with `--no-default-features --features os-lite`. Without it, `std`-only
+dependencies leak into the bare-metal build and fail with errors like:
 
-### Standard Feature Structure
+```text
+error: can't find crate for `std`
+  --> parking_lot_core/src/lib.rs
+```
 
-Every crate that supports both host and OS targets MUST define these features in `Cargo.toml`:
+## Toolchain
+
+One pinned nightly, `nightly-2025-01-15` (`rust-toolchain.toml`; `toolchain :=` in the
+`justfile`, `NIGHTLY ?=` in the `Makefile`), for lint, fmt, host tests, the OS cross-build and CI.
+Never a floating `+stable` in a recipe — a split silently diverges (a newer clippy accepts APIs the
+pinned build rejects; a newer rustfmt reorders imports). A green `just test-all` predicts a green
+`make build`, `just start` and CI because all of them use this toolchain.
+
+## Feature gates
+
+A crate that supports host and OS defines:
 
 ```toml
 [features]
-default = ["std"]           # Host builds get std by default
-std = []                    # Enables std-dependent code
-os-lite = []                # Enables no_std-compatible code path
+default = ["std"]   # host builds
+std = []            # std-dependent code
+os-lite = []        # the no_std path
 ```
 
-### Code Organization
-
 ```rust
-// In lib.rs or main.rs
+#![cfg_attr(all(feature = "os-lite", not(feature = "std"), nexus_env = "os"), no_std)]
 
-// Conditionally enable no_std for OS builds
-#![cfg_attr(
-    all(feature = "os-lite", not(feature = "std"), nexus_env = "os"),
-    no_std
-)]
-
-// REQUIRED: Declare alloc crate in no_std modules that use Vec, BTreeMap, etc.
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
-extern crate alloc;
+extern crate alloc; // required for Vec, String, BTreeMap in no_std
 
 #[cfg(feature = "std")]
-mod host_impl;              // Uses std, parking_lot, getrandom, etc.
-
+mod host_impl;
 #[cfg(feature = "os-lite")]
-mod os_impl;                // Uses no_std + alloc only
-
-#[cfg(all(not(feature = "std"), not(feature = "os-lite")))]
-compile_error!("Either 'std' or 'os-lite' feature must be enabled");
+mod os_impl;
 ```
 
-### The `extern crate alloc` Rule
-
-**Critical**: In `no_std` crates that use `alloc` types (`Vec`, `String`, `BTreeMap`, etc.), you MUST declare:
-
-```rust
-extern crate alloc;
-
-use alloc::vec::Vec;
-use alloc::collections::BTreeMap;
-use alloc::string::String;
-```
-
-This is different from `std` builds where `alloc` is re-exported automatically. Forgetting this causes:
-```text
-error[E0433]: failed to resolve: use of undeclared crate or module `alloc`
-```
-
----
-
-## Forbidden Crates (OS Target)
-
-These crates MUST NOT appear in the dependency graph for `riscv64imac-unknown-none-elf`:
-
-| Crate | Reason | Alternative |
-|-------|--------|-------------|
-| `parking_lot` | Requires OS threads | `spin` or `critical-section` |
-| `parking_lot_core` | Transitively pulls in std | (same) |
-| `getrandom` | Requires OS entropy | Deterministic seeds or hardware RNG |
-| `std` | Bare-metal has no std | `core` + `alloc` |
-
-### Validation Command
-
-```bash
-just dep-gate
-```
-
-This command checks the OS dependency graph and **fails if forbidden crates appear**.
-
----
-
-## Build System Rules
-
-### Nightly Toolchain Requirement
-
-**RISC-V bare-metal builds require the nightly toolchain** for certain unstable features. Always use:
-
-```bash
-cargo +nightly-2025-01-15 build --target riscv64imac-unknown-none-elf ...
-```
-
-The pinned nightly version is defined in:
-- `Makefile`: `NIGHTLY ?= nightly-2025-01-15`
-- `justfile`: `toolchain := "nightly-2025-01-15"`
-
-### Makefile
-
-When building OS services in `Makefile`:
-
-```makefile
-# ✅ CORRECT: Build OS services with os-lite AND nightly toolchain
-cargo +$(NIGHTLY) build --target riscv64imac-unknown-none-elf \
-    --no-default-features --features os-lite \
-    -p my-service
-
-# ❌ WRONG: Missing feature flags (pulls in std dependencies!)
-cargo build --target riscv64imac-unknown-none-elf \
-    -p my-service
-
-# ❌ WRONG: Missing nightly toolchain
-cargo build --target riscv64imac-unknown-none-elf \
-    --no-default-features --features os-lite \
-    -p my-service
-```
-
-### Library-Only Crates
-
-Some crates have a binary (`[[bin]]`) that only makes sense on host. For OS builds, build only the library:
-
-```makefile
-# ✅ CORRECT: Build only the library for crates with host-only binaries
-cargo +$(NIGHTLY) build -p nexus-init --lib \
-    --target riscv64imac-unknown-none-elf \
-    --no-default-features --features os-lite
-
-# ❌ WRONG: Building the binary fails on no_std (missing main, panic_handler)
-cargo +$(NIGHTLY) build -p nexus-init \
-    --target riscv64imac-unknown-none-elf \
-    --no-default-features --features os-lite
-```
-
-This is necessary because:
-- `no_std` binaries need `#![no_main]` and a panic handler
-- The actual OS binary is `init-lite`, not `nexus-init`
-
-### justfile
-
-The `justfile` MUST be consistent with `Makefile`:
-
-```just
-# diag-os target must use same flags as Makefile
-diag-os:
-    cargo check --target riscv64imac-unknown-none-elf \
-        --no-default-features --features os-lite \
-        -p my-service
-```
-
-### scripts/run-qemu-*.sh
-
-QEMU scripts MUST reference binaries built with correct flags:
-
-```bash
-# Binaries should come from:
-# target/riscv64imac-unknown-none-elf/release/my-service
-# NOT from default build without --no-default-features
-```
-
----
-
-## Adding a New OS Service
-
-### Checklist
-
-1. [ ] `Cargo.toml` has `default = ["std"]` and `os-lite` features
-2. [ ] Code compiles with `--no-default-features --features os-lite`
-3. [ ] No forbidden crates in dependency graph (`just dep-gate` passes)
-4. [ ] `Makefile` builds service with `--no-default-features --features os-lite`
-5. [ ] `justfile` `diag-os` target includes the service
-6. [ ] Service excluded from OS build if it cannot support `os-lite`
-
-### Template Cargo.toml
-
-```toml
-[package]
-name = "my-service"
-version = "0.1.0"
-edition = "2021"
-
-[features]
-default = ["std"]
-std = ["dep:parking_lot"]  # Host-only dependencies gated here
-os-lite = []               # No additional deps for OS
-
-[dependencies]
-# Always available (no_std compatible)
-log = "0.4"
-
-# Host-only (gated behind std feature)
-parking_lot = { version = "0.12", optional = true }
-
-[target.'cfg(all(target_os = "none", target_arch = "riscv64"))'.dependencies]
-# OS-only dependencies
-spin = "0.9"
-```
-
-### Feature Propagation for Multi-Crate Dependencies
-
-When a crate depends on other crates that have their own `std`/`os-lite` features, you MUST:
-
-1. **Disable default features** with `default-features = false`
-2. **Explicitly enable the required feature** in your feature definition
+- **Features select dependencies; `nexus_env` selects code.** A `std`-only crate is gated behind
+  the `std` feature, never behind `#[cfg(nexus_env = "host")]` alone.
+- **Propagate features explicitly.** A dependency that has its own `std`/`os-lite` is declared with
+  `default-features = false` and enabled per feature:
 
 ```toml
 [features]
 default = ["std"]
-std = [
-    "my-dep",
-    "my-dep/default",      # Explicitly enable default for host
-]
-os-lite = [
-    "my-dep",
-    "my-dep/os-lite",      # Propagate os-lite to dependency
-]
+std = ["my-dep", "my-dep/default"]
+os-lite = ["my-dep", "my-dep/os-lite"]
 
 [dependencies]
-# CRITICAL: default-features = false allows feature control
 my-dep = { path = "../my-dep", optional = true, default-features = false }
 ```
 
-**Without `default-features = false`**, Cargo builds the dependency with its default features, causing `std` dependencies to leak into `os-lite` builds!
+  Without `default-features = false`, Cargo builds the dependency with its defaults and pulls
+  `std`, serde or capnp into the OS build.
+- **Guard feature-only modules.** A module that uses capnp sits behind `#[cfg(feature = "idl-capnp")]`.
+- **Library-only OS builds.** A crate whose binary is host-only is built for the OS with `--lib`;
+  `nexus-init` is a library there and the OS binary is `source/apps/init-lite/`.
 
-Example failure mode:
-```text
-# nexus-init depends on samgrd
-samgrd = { path = "../../services/samgrd", optional = true }  # ❌ WRONG
+## Forbidden crates (OS target)
 
-# samgrd has default = ["std", "idl-capnp"]
-# This pulls in serde, capnp, etc. even when nexus-init uses os-lite!
+| crate | why | instead |
+|---|---|---|
+| `parking_lot`, `parking_lot_core` | need OS threads, pull `std` | `spin`, `source/libs/nexus-sync/` |
+| `getrandom` | needs OS entropy | rngd / the hardware RNG, deterministic seeds in tests |
+| `std` | bare metal | `core` + `alloc` |
 
-# ✅ CORRECT:
-samgrd = { path = "../../services/samgrd", optional = true, default-features = false }
-```
+Transitive leaks count: `rand = "0.8"` pulls `getrandom` through its defaults — use
+`default-features = false`. Licenses are limited to Apache-2.0, MIT and BSD (`config/deny.toml`).
 
----
+## Gates
 
-## Diagnostics
+| command | checks |
+|---|---|
+| `just dep-gate` | forbidden crates in the OS graph of every crate in `config/os-services.txt` (runs `arch-gate` first) |
+| `just deny-check` | licenses and advisories (`cargo deny`, `config/deny.toml`) |
+| `just diag-os` | every OS service checks for `riscv64imac-unknown-none-elf` with `os-lite` |
+| `just diag-host` / `just diag-kernel` | host and kernel builds |
+| `just diag` | all three with warnings denied — the hard warning gate |
+| `just build-os-workspace` | the real OS cross-build (`scripts/build.sh` under `NEXUS_WARN_GATE=1`) |
+| `just deadcode` | dead code against the time-boxed `config/deadcode.allow` (`tools/deadcode-scan.sh`) |
+| `just check` | fmt, clippy, deny, arch-check, structure gate, ledger gate and the repo's static gates |
 
-### just diag-os
-
-Checks all OS services compile for bare-metal:
-
-```bash
-just diag-os
-```
-
-**Must pass before any OS commit.**
-
-### just dep-gate
-
-Checks for forbidden crates in OS dependency graph:
-
-```bash
-just dep-gate
-```
-
-**Fails if `parking_lot`, `parking_lot_core`, or `getrandom` appear.**
-
----
-
-## Common Mistakes
-
-### Mistake 1: Building without feature flags
+When `dep-gate` fails, find the path:
 
 ```bash
-# ❌ WRONG
-cargo build --target riscv64imac-unknown-none-elf -p dsoftbusd
-
-# ✅ CORRECT
-cargo build --target riscv64imac-unknown-none-elf \
-    --no-default-features --features os-lite -p dsoftbusd
+cargo tree --target riscv64imac-unknown-none-elf -p dsoftbusd -i parking_lot
 ```
 
-### Mistake 2: Transitive dependencies
+## House rules
 
-A crate may be `no_std` but pull in `std` dependencies transitively:
+- No `unwrap`/`expect` in daemons; propagate errors with context.
+- Userspace crates keep `#![forbid(unsafe_code)]` and pass clippy's denied lints.
+- No blanket `#[allow(dead_code)]` or `#[allow(unused)]`: cfg-gate the item, or add a time-boxed
+  entry to `config/deadcode.allow`.
+- An unused parameter on one cfg path gets a leading underscore, not an allow.
+- `NEXUS_ALLOW_WARN=1` is a local escape only.
 
-```toml
-# ❌ WRONG: getrandom pulls in std
-rand = "0.8"  # default features include getrandom
+## Adding an OS service
 
-# ✅ CORRECT: disable default features
-rand = { version = "0.8", default-features = false }
-```
-
-### Mistake 3: Forgetting to update Makefile
-
-If you add a new OS service, you MUST:
-
-1. Add it to `Makefile` OS build targets
-2. Use `--no-default-features --features os-lite`
-3. Run `just dep-gate` to verify
-
-### Mistake 4: cfg(nexus_env) vs cfg(feature)
-
-```rust
-// ❌ WRONG: nexus_env is for conditional compilation, not feature gating
-#[cfg(nexus_env = "os")]
-use parking_lot::Mutex;  // parking_lot won't compile on OS!
-
-// ✅ CORRECT: use feature gates for dependency selection
-#[cfg(feature = "std")]
-use parking_lot::Mutex;
-
-#[cfg(feature = "os-lite")]
-use spin::Mutex;
-```
-
-### Mistake 5: Missing `extern crate alloc`
-
-```rust
-// ❌ WRONG: alloc is not automatically available in no_std
-use alloc::vec::Vec;  // error: use of undeclared crate or module `alloc`
-
-// ✅ CORRECT: explicitly declare alloc crate
-extern crate alloc;
-use alloc::vec::Vec;
-```
-
-### Mistake 6: Unused variables in conditional code
-
-```rust
-// ❌ WRONG: `s` is unused when cfg doesn't match
-fn debug_print(s: &str) {
-    #[cfg(all(nexus_env = "os", target_arch = "riscv64"))]
-    uart_write(s);  // s is unused on host builds
-}
-
-// ✅ CORRECT: prefix with underscore to indicate intentional non-use
-fn debug_print(_s: &str) {
-    #[cfg(all(nexus_env = "os", target_arch = "riscv64"))]
-    uart_write(_s);
-}
-```
-
-### Mistake 7: Feature-gated modules without guard
-
-```rust
-// ❌ WRONG: full_impl uses capnp but is compiled without idl-capnp feature
-mod full_impl;  // Contains: use capnp::...
-
-// ✅ CORRECT: guard the module with the required feature
-#[cfg(feature = "idl-capnp")]
-mod full_impl;
-```
-
----
-
-## History
-
-### 2026-01-07: Feature Propagation Fix
-
-**Problem**: `make build MODE=host` failed with `serde_core` errors on RISC-V target.
-
-**Root Causes**:
-1. `Makefile` was building OS services on x86_64-host without `--target riscv64imac-unknown-none-elf`
-2. `nexus-init/Cargo.toml` referenced services without `default-features = false`
-3. Missing `extern crate alloc;` in `vfsd` and `packagefsd` os_lite modules
-4. `keystored/lib.rs` included `full_impl` module without `idl-capnp` feature guard
-5. `nexus-init` binary was built for RISC-V but lacks `#![no_main]` and panic handler
-
-**Solution**:
-1. Added `--target riscv64imac-unknown-none-elf` to Makefile OS service builds
-2. Added `+$(NIGHTLY)` toolchain selector for RISC-V builds
-3. Added `default-features = false` to all service dependencies in `nexus-init`
-4. Explicit feature propagation: `"samgrd/os-lite"` in feature definitions
-5. Added `--lib` flag for `nexus-init` (binary is host-only)
-6. Added `extern crate alloc;` to os_lite modules
-7. Added `#[cfg(feature = "idl-capnp")]` guard to `keystored/lib.rs`
-
-### 2026-01-07: RFC-0009 Implementation
-
-**Problem**: OS services built without `--no-default-features --features os-lite` caused `parking_lot` and `getrandom` to leak into bare-metal builds.
-
-**Root Cause**: `Makefile` line 39 and 53 were building OS services without proper feature flags.
-
-**Solution**:
-1. Fixed `Makefile` to use `--no-default-features --features os-lite`
-2. Excluded services without `os-lite` feature from OS build
-3. Added `just dep-gate` command to enforce dependency hygiene
-4. Created this document to prevent future occurrences
-
-**RFC**: `docs/rfcs/RFC-0009-no-std-dependency-hygiene-v1.md`
-
----
-
-## Related Documents
-
-- `docs/rfcs/RFC-0009-no-std-dependency-hygiene-v1.md` — Full RFC with rationale
-- `docs/architecture/networking-authority.md` — Networking feature gates
-- `.cargo/config.toml` — Cargo configuration (check-cfg, default target)
-- `rust-toolchain.toml` — Toolchain pinning
+1. `Cargo.toml` with `default = ["std"]` and `os-lite`; dependencies with `default-features = false`.
+2. It builds with `--no-default-features --features os-lite`.
+3. Add it to `config/os-services.txt` — the one list `just dep-gate`, `just diag-os` and
+   `make dep-gate` read.
+4. `just dep-gate` and `just diag` pass; it ships `src/` and `tests/` (`config/service-layout.allow`).

@@ -7,7 +7,7 @@
 # STATUS: Functional
 # API_STABILITY: Stable
 # TEST_COVERAGE: No tests (3-line logging helper)
-# ADR: docs/architecture/02-selftest-and-ci.md
+# ADR: docs/testing/run-logs.md
 #
 # Usage: hypothesis-log.sh <hypothesisId> <location> <message> [data-json]
 # No-op unless HYPOTHESIS_LOG is set. Record schema matches the writers in

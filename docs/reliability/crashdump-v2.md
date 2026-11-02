@@ -1,44 +1,44 @@
+---
+schema: 1
+title: "Crash dumps (.nxcd)"
+role: spec
+subsystem: observability
+sources: [userspace/crash/nxcd, userspace/crash/src, tools/nxsym, source/services/execd/src/crash_os.rs, source/services/execd/src/crash_store.rs, tools/nx/src/commands/crash.rs]
+contracts: [RFC-0031, RFC-0009, ADR-0056, ADR-0043]
+verified: 2026-11-02
+---
+
 <!-- Copyright 2026 Open Nexus OS Contributors -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# Crashdump v2 (host-first pipeline)
+# Crash dumps (.nxcd)
 
-Status: v2a shipped (host); v2b at-rest writer shipped (TASK-0051B — execd-side, NO `crashd` daemon).
+> **Purpose** — the `.nxcd` container format, the Build-ID symbol index, the on-device writer in execd, and the `nx crash` host commands.
+> **Owns** — `userspace/crash/nxcd/`, `tools/nxsym/`, `source/services/execd/src/crash_os.rs`, `source/services/execd/src/crash_store.rs`
+> **Contracts** — [RFC-0031](../rfcs/RFC-0031-crashdumps-v1-minidump-host-symbolize.md) (minidump v1 + host symbolization), [RFC-0009](../rfcs/RFC-0009-no-std-dependency-hygiene-v1.md) (why zstd stays host-only), [ADR-0056](../adr/0056-task-exit-reason-kernel-abi.md) (the exit reason in `header.json`), [ADR-0043](../adr/0043-user-data-in-dedicated-cow-fs-statefs-stays-service-kv.md) (`/state` is a KV of small records)
+> **Invariants** — `build_id` comes from the producer and is carried verbatim; host tools never re-derive it for a dump. Every dump input is untrusted: size-bounded before parsing, malformed input is a deterministic reject. The `zst` feature of `nxcd` never enters the OS graph.
+> **Read next** — [observability.md](observability.md), [recovery-operations.md](recovery-operations.md), [../dev/nx-cli.md](../dev/nx-cli.md)
 
-## CONTEXT
-
-- Scope: `TASK-0048` — `.nxcd` container format, `nxsym` Build-ID symbol index,
-  `nx crash` operator commands, deterministic host tests.
-- Baseline: minidump v1 (`TASK-0018`, RFC-0031) — `userspace/crash` frames with
-  an embedded `build_id`; host symbolizer prior art in `tools/minidump-host`.
-- Canonical artifact: `.nxcd.zst` (registered in `tasks/TRACK-AUTHORITY-NAMING.md`;
-  no parallel dump formats).
-- Proof commands: `cargo test -p crashdump_v2_host`, `cargo test -p nxsym`,
-  `cargo test -p nxcd --features zst`, `cargo test -p nx` (`tests/crash_cli.rs`).
-
-## Pipeline overview
+## Pipeline
 
 ```
-producer (OS, v1)          host tooling (v2a)
-------------------         ---------------------------------------------
-execd writes .nmd   --->   nx crash export  --->  .nxcd.zst (canonical)
-(MinidumpFrame with        nx crash ls/show/purge/grep over dump dirs
- build_id embedded)        nxsym index <elf>... -o symbols.nxsym
-                           nx crash show --sym / nxsym addr2line
+device (execd)                                  host
+--------------                                  ----
+crash reap → NMD1 frame (build_id embedded)
+  → nxcd::from_minidump_with_reason
+  → PUT /state/crash/<ts>.<pid>.<name>.nxcd  →  nx diagnose → crash/<id>.nxcd
+                                                nx crash ls/show/export/purge/grep
+                                                nxsym index / addr2line
 ```
 
-The `build_id` in every crash artifact originates from the producer
-(`MinidumpFrame.build_id`) and is carried through conversion verbatim.
-Symbolization keys on it; **host tools never re-derive Build-IDs for dumps**.
+There is no `crashd` daemon; the writer is a library call inside execd. There is one dump format: `.nxcd` at rest, `.nxcd.zst` for export.
 
-## `.nxcd` container format (v1)
+## Container format v1
 
-Single-file binary container with named, bounded sections.
-
-Layout (all integers little-endian):
+All integers little-endian.
 
 | offset | field | size |
-| --- | --- | --- |
+|---|---|---|
 | 0 | magic `NXCD` | 4 |
 | 4 | version (`1`) | 2 |
 | 6 | section count | 2 |
@@ -47,125 +47,101 @@ Layout (all integers little-endian):
 | 16 | section table: `kind u8, pad[3], offset u32, len u32` × count | 12 × count |
 | … | payloads, packed in table order | — |
 
-Canonical-form rules (enforced on decode, so `decode(encode(c)) == c` and no
-overlap/gap encodings are representable):
+Canonical form, enforced on decode (so `decode(encode(c)) == c`):
 
-- table sorted strictly ascending by section kind (duplicates impossible),
-- payload offsets exactly contiguous, starting right after the table,
-- declared total length must equal the input length.
+- the table is sorted strictly ascending by kind (no duplicates);
+- payload offsets are contiguous, starting right after the table;
+- the declared total length equals the input length;
+- an unknown kind rejects;
+- the whole container is at most 1 MiB (`MAX_TOTAL_NXCD`).
 
-Sections (kind → name, bound, required):
+### Sections
 
 | kind | name | bound | required |
-| --- | --- | --- | --- |
+|---|---|---|---|
 | 0 | `header.json` | 16 KiB | yes |
 | 1 | `frames.json` | 64 KiB | yes |
 | 2 | `maps.json` | 64 KiB | yes |
 | 3 | `logs.jsonl` | 256 KiB | no |
 | 4 | `spans.jsonl` | 256 KiB | no |
 | 5 | `regs.bin` | 4 KiB | no |
+| 6 | `stack.bin` | 4 KiB | no |
+| 7 | `code.bin` | 256 B | no |
 
-Whole-container bound: 1 MiB. `header.json` keys are stable
-(`format, format_version, timestamp_nsec, pid, code, name, build_id`);
-`frames.json` records carry `pc, build_id, function, file, line` with the
-symbolization fields `null` until resolved.
+`stack.bin` and `code.bin` mirror the NMD1 preview bounds (`crash::MAX_STACK_PREVIEW` / `MAX_CODE_PREVIEW`), so the preview survives when the `.nmd` intermediate is deleted.
 
-The zstd wrapper (`.nxcd.zst`) sits **outside** the core format: it compresses
-the already-encoded container bytes. Decompression is streamed against the
-1 MiB container bound, so decompression bombs are rejected without buffering.
-The `zst` cargo feature of the `nxcd` crate is host-tool-only and must never be
-enabled from an OS-graph crate (RFC-0009).
+### JSON sections
 
-Implementation: `userspace/crash/nxcd/` (crate `nxcd`).
+| section | shape |
+|---|---|
+| `header.json` | keys in this order: `format` (`"nxcd"`), `format_version` (`1`), `timestamp_nsec`, `pid`, `code`, `name`, `build_id`, optional `reason` (kernel exit reason, omitted when absent) |
+| `frames.json` | `{"frames": [{pc, build_id, function, file, line}]}`; the last three stay `null` until symbolized |
+| `maps.json` | `{"modules": [{name, build_id}]}` |
 
-## `nxsym` — Build-ID keyed symbol index
+### zstd wrapper
 
-- `nxsym index <elf>... -o symbols.nxsym`
-  - Build-ID source order:
-    1. `.note.gnu.build-id` (hex-encoded, lowercase);
-    2. fallback: `crash::deterministic_build_id(<file stem>)` — the exact
-       function the OS producer stamps into `MinidumpFrame.build_id` for
-       payloads without an embedded id, so index keys and dump keys never drift.
-  - Per binary, every text symbol is resolved once through DWARF
-    (`addr2line`) and stored as `addr → (function, file, line)` ranges.
-  - Index file is CBOR with stable ordering (binaries by Build-ID, entries by
-    address); reads are size-bounded and invariant-validated (fail-closed).
-- `nxsym addr2line --sym symbols.nxsym --addr 0x... [--build-id <id>]`
-  - resolves against the index only (the ELF is not needed at lookup time);
-    `--build-id` defaults to the sole binary for single-binary indexes.
+`.nxcd.zst` compresses the already-encoded container; it is outside the core format. Decompression streams against the 1 MiB bound, so a decompression bomb rejects without buffering. The `zst` cargo feature is host-tool-only.
 
-Known limitation (documented on purpose): resolution granularity is the
-function entry (`line` = line of the function definition), not the exact
-statement for mid-function addresses. Full line-table indexing is v2b scope.
+## `nxsym` — Build-ID symbol index
 
-Implementation: `tools/nxsym/` (library + CLI).
+| command | does |
+|---|---|
+| `nxsym index <elf>... -o symbols.nxsym` | indexes every text symbol once through DWARF into `addr → (function, file, line)` ranges |
+| `nxsym addr2line --sym symbols.nxsym --addr 0x… [--build-id <id>]` | resolves from the index alone; `--build-id` is required for multi-binary indexes |
 
-## `nx crash` operator commands
+- Build-ID source: `.note.gnu.build-id` (lowercase hex); fallback `crash::deterministic_build_id(<file stem>)` — the same function execd stamps for payloads without an embedded id.
+- The index is CBOR with stable ordering (binaries by Build-ID, entries by address); reads are size-bounded and fail closed.
+- Limit: resolution is per function entry (`line` = line of the function definition), not per statement.
 
-See `docs/dev/nx-cli.md` for the full flag reference. Summary:
+## `nx crash` (host)
 
-- `ls` — deterministic listing of a dump directory; corrupt dumps are flagged,
-  not fatal.
-- `show` — decode one dump; `--sym` symbolizes frames using the Build-ID
-  carried in each frame record.
-- `export` — convert any supported input (`.nmd`, `.nxcd`, `.nxcd.zst`) to the
-  canonical `.nxcd.zst` (or plain `.nxcd`).
-- `purge` — budgeted GC (`--max-bytes`, `--max-count`, `--dry-run`): keeps the
-  newest dumps that fit both budgets; the plan is a pure function
-  (`nxcd::plan_purge`) and fully deterministic, including timestamp ties.
-  Invalid dump files are never deleted by budget logic.
-- `grep` — substring search across header, frames, modules, and log/span text.
+| verb | does |
+|---|---|
+| `ls [--dir ./crash]` | deterministic listing; corrupt dumps are flagged, not fatal |
+| `show <path> [--sym symbols.nxsym]` | decodes one dump; `--sym` symbolizes by each frame's `build_id` |
+| `export <path> -o <out>` | converts `.nmd`, `.nxcd` or `.nxcd.zst` to `.nxcd.zst` or plain `.nxcd` |
+| `purge [--dir] [--max-bytes N] [--max-count N] [--dry-run]` | keeps the newest dumps that fit both budgets (`nxcd::plan_purge`, deterministic incl. timestamp ties); invalid files are never deleted by budget logic |
+| `grep <pattern> [--dir]` | substring search over header, frames, modules, log and span text |
 
-All dump inputs are treated as untrusted: reads are size-bounded before
-parsing and every malformed input maps to a deterministic reject
-(exit class `3`, `validation_reject`).
+Every verb takes `--json`. A malformed input exits with class `3` (`validation_reject`).
 
-## On-device writer (v2b, TASK-0051B)
+## On-device writer (execd)
 
-The at-rest artifact is the canonical **plain `.nxcd`** container (the zstd
-wrapper stays host-tool-only per RFC-0009 dependency hygiene; `nx crash
-export` produces `.nxcd.zst`). The writer is an execd-side library call —
-there is no `crashd` daemon (authority registry decision).
+| aspect | behaviour |
+|---|---|
+| flow | reap → bounded NMD1 frame → `.nxcd` with the exit reason in `header.json` → sections per redaction level → PUT `/state/crash/<ts>.<pid>.<name>.nxcd` → `.nmd` deleted |
+| failure | conversion failure keeps the raw NMD1 and degrades loud: `crash: container write degraded (reason=…)` (fatal in proof boots) |
+| redaction | policyd, deny-by-default, resolved once per boot: `crash.attach.full` → `crash.attach.stack` → none; policyd unreachable = attach nothing |
+| artifact cap | 32 KiB per artifact (`ARTIFACT_MAX_BYTES`) |
+| retention | once per boot before the first publish: `crash: retention gc on (budget=256KiB)`; `plan_purge` over `/state/crash/` with max 8 artifacts / 256 KiB (`GC_BUDGET`), `.nmd` leftovers included; deletions emit `crash: retention gc deleted (n=…)` and an `execd.audit` evidence record |
 
-- **Flow**: crash reap → bounded NMD1 frame → `nxcd::from_minidump_with_reason`
-  (the ADR-0056 exit reason rides `header.json`) → preview sections per the
-  redaction level → PUT `/state/crash/<ts>.<pid>.<name>.nxcd` → the `.nmd`
-  intermediate is deleted. Conversion failure degrades LOUD
-  (`crash: container write degraded (reason=…)` — fatal in proof boots) and
-  keeps the raw NMD1 so evidence is never lost.
-- **Redaction** (policyd, deny-by-default): `crash.attach.full` →
-  `crash.attach.stack` → none; the conservative granted default is
-  stack-only (`stack.bin` ≤ 4 KiB + `code.bin` ≤ 256 B — exactly the NMD1
-  preview bounds; NMD1 carries no full-memory section). Resolved once per
-  boot; policyd unreachable = attach nothing.
-- **Placement**: statefs KV records under `/state/crash/` — per-artifact cap
-  32 KiB (a legal frame converts to ~12 KiB), ADR-0043-shaped. Bulk-scale
-  captures move to `/data` with TASK-0317.
-- **Retention**: once per boot, before the first publish —
-  `crash: retention gc on (budget=256KiB)`; `nxcd::plan_purge` over
-  `/state/crash/` (max 8 artifacts / 256 KiB total, `.nmd` leftovers
-  included), deletions marked (`crash: retention gc deleted (n=…)`) and
-  audited as an evidence-class record (`execd.audit` scope, 0049C ring).
-- **Markers**: `crash: dump written (id=… bytes=…)` (required),
-  `SELFTEST: crash artifact ok` (container magic verified + intermediate
-  gone), `SELFTEST: crash redaction ok` (allowed sections only, previews
-  exactly per level).
-- **Host round trip** (documented check): after a QEMU run,
+The at-rest artifact is plain `.nxcd`; only the host produces `.nxcd.zst`.
 
-  ```bash
-  nx diagnose --image build/data.img --out bundle.tar   # bundles crash/<id>.nxcd verbatim
-  tar -xf bundle.tar
-  nx crash ls --dir crash/                              # finds the artifacts
-  nx crash show crash/<id>.nxcd --sym symbols.nxsym     # symbolizes (0048 pipeline)
-  ```
+### Markers
 
-## Deferred
+| marker | means |
+|---|---|
+| `crash: dump written (id=… bytes=…)` | artifact persisted |
+| `SELFTEST: crash artifact ok` | container magic verified, intermediate gone |
+| `SELFTEST: crash redaction ok` | only allowed sections, previews exactly per level |
 
-- VMO artifacts (filebuffer path only until a consumer proves the need).
-- Log/trace correlation (`logs.jsonl` / `spans.jsonl` producers) — evidence
-  records already survive at rest (0049C) and `nx diagnose` correlates
-  host-side, so they are deliberately NOT copied into every container.
-- Export/notification surface (TASK-0141) + Problem Reporter UI (TASK-0142).
-- Packaging integration (embedding symbol indices into `.nxb`/`.nxs`) — gated
-  on packaging-format stability; v2a deliberately does not touch the packers.
-- Exact line-table symbolization.
+## Host round trip
+
+```bash
+nx diagnose --image <statefs.img> --out bundle.tar   # bundles crash/<id>.nxcd verbatim
+tar -xf bundle.tar
+nx crash ls --dir crash/
+nx crash show crash/<id>.nxcd --sym symbols.nxsym
+```
+
+`nx diagnose` reads a raw statefs journal image (see [recovery-operations.md](recovery-operations.md)).
+
+## Tests
+
+`cargo test -p crashdump_v2_host`, `cargo test -p nxsym`, `cargo test -p nxcd --features zst`, `cargo test -p nx --test crash_cli` (`tools/nx/tests/crash_cli.rs`).
+
+## Not in the format
+
+- Log/span producers for `logs.jsonl` / `spans.jsonl`: evidence records already persist in the logd ring and `nx diagnose` correlates them host-side.
+- Symbol indices embedded in `.nxb` / `.nxs`.
+- Line-table (per-statement) symbolization.

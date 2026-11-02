@@ -10,7 +10,7 @@
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: QEMU marker contract (`KSELFTEST: fence wait ok`,
 //!   `KSELFTEST: fence timeout ok`, `KSELFTEST: fence transfer ok`)
-//! ADR: docs/adr/0062-boot-stage-fence-and-ready-messages.md
+//! ADR: docs/adr/0062-boot-stage-fence-and-readiness-barriers.md
 
 use super::Context;
 use crate::hal::Timer;
