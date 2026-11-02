@@ -1,18 +1,26 @@
 ---
-title: TASK-0219 DSoftBus v1.2a (host-first): Media Remote (media.remote@1) protocol + remote control + transfer/group state sync + share@1 fallback + deterministic tests
-status: Draft
-owner: @media
+schema: 1
+id: TASK-0219
+title: "DSoftBus v1.2a (host-first): Media Remote (media.remote@1) protocol + remote control + transfer/group state sync + share@1 fallback + deterministic tests"
+status: draft
+owner: ["@media"]
 created: 2025-12-27
-depends-on: []
-follow-up-tasks: []
+subsystem: distributed
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - DSoftBus secure channels + share@1 resume: tasks/TASK-0195-dsoftbus-v1_1a-host-secure-channels-encrypted-streams-share.md
-  - DSoftBus directory + rpcmux + health: tasks/TASK-0211-dsoftbus-v1_1c-host-busdir-rpcmux-health-flow.md
-  - Media UX v2.1 (audiod + mediasessd integration): tasks/TASK-0217-media-v2_1a-host-audiod-deterministic-graph-mixer.md
-  - Media UX v2 semantics (playerctl/handoff): tasks/TASK-0184-media-ux-v2a-host-handoff-playerctl-deterministic-clock.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "DSoftBus secure channels + share@1 resume"
+    target: tasks/TASK-0195-dsoftbus-v1_1a-host-secure-channels-encrypted-streams-share.md
+  - label: "DSoftBus directory + rpcmux + health"
+    target: tasks/TASK-0211-dsoftbus-v1_1c-host-busdir-rpcmux-health-flow.md
+  - label: "Media UX v2.1 (audiod + mediasessd integration)"
+    target: tasks/TASK-0217-media-v2_1a-host-audiod-deterministic-graph-mixer.md
+  - label: "Media UX v2 semantics (playerctl/handoff)"
+    target: tasks/TASK-0184-media-ux-v2a-host-handoff-playerctl-deterministic-clock.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Short description

@@ -1,30 +1,51 @@
 ---
-title: TASK-0063 UI v5b: virtualized list + scene graph wiring + dual-panel blur + virgl GPU rendering + 120 Hz pacing + theme tokens
-status: Done
-owner: @ui
+schema: 1
+id: TASK-0063
+title: "UI v5b: virtualized list + scene graph wiring + dual-panel blur + virgl GPU rendering + 120 Hz pacing + theme tokens"
+status: done
+owner: ["@ui"]
 created: 2025-12-23
-updated: 2026-06-22 (closed: scene graph wiring + virtual list + theme tokens + virgl GPU pipeline + soft-real-time pacing all landed and boot-verified over virgl)
-depends-on: [TASK-0059, TASK-0062]
-follow-up-tasks: [TASK-0275, TASK-0064]
+updated: 2026-06-22
+subsystem: ui
+started: 2026-06-12
+done: 2026-06-12
+active_days: 1
+dates_source: git-reconstructed
+depends_on: [TASK-0059, TASK-0062]
+follow_ups: [TASK-0275, TASK-0064]
+implements: [RFC-0058, RFC-0063]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - UI v5a runtime baseline: tasks/TASK-0062-ui-v5a-reactive-runtime-animation-transitions.md
-  - UI v3b scroll/clip baseline: tasks/TASK-0059-ui-v3b-clip-scroll-effects-ime-textinput.md
-  - UI v4a tiling baseline: tasks/TASK-0060-ui-v4a-tiled-compositor-clipstack-atlases-perf.md
-  - UI layout pipeline contract: docs/dev/ui/foundations/layout/layout-pipeline.md
-  - Pretext layout engine: docs/rfcs/RFC-0057-ui-v3a-layout-engine-pretext-contract.md
-  - Clip/scroll/effects contract: docs/rfcs/RFC-0058-ui-v3b-clip-scroll-effects-ime-contract.md
-  - Hardening plan (GPU pipeline + scene graph): docs/architecture/hardening-plan.md
-  - Platform-class UI perf matrix: docs/dev/perf/PLATFORM-CLASS-UI-PERFORMANCE-OPTIMIZATIONS-QEMU-MATRIX.md
-  - Lazy loading contract: docs/dev/ui/collections/lazy-loading.md
-  - Virtual list contract: docs/dev/ui/collections/widgets/virtual-list.md
-  - Lazy loading follow-up: tasks/TASK-0275-ui-v5c-lazy-data-loading-virtual-list-paging-contract.md
-  - WM + scene transitions: tasks/TASK-0064-ui-v6a-window-management-scene-transitions.md
-  - Config broker (theme overrides): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
-  - Testing contract: scripts/qemu-test.sh
-  - Design contract (RFC): docs/rfcs/RFC-0063-ui-v5b-scene-graph-gpu-pipeline-virtual-list-theme-contract.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "UI v5a runtime baseline"
+    target: tasks/TASK-0062-ui-v5a-reactive-runtime-animation-transitions.md
+  - label: "UI v3b scroll/clip baseline"
+    target: tasks/TASK-0059-ui-v3b-clip-scroll-effects-ime-textinput.md
+  - label: "UI v4a tiling baseline"
+    target: tasks/TASK-0060-ui-v4a-tiled-compositor-clipstack-atlases-perf.md
+  - label: "UI layout pipeline contract"
+    target: docs/dev/ui/foundations/layout/layout-pipeline.md
+  - label: "Pretext layout engine"
+    target: docs/rfcs/RFC-0057-ui-v3a-layout-engine-pretext-contract.md
+  - label: "Hardening plan (GPU pipeline + scene graph)"
+    target: docs/architecture/hardening-plan.md
+  - label: "Platform-class UI perf matrix"
+    target: docs/dev/perf/PLATFORM-CLASS-UI-PERFORMANCE-OPTIMIZATIONS-QEMU-MATRIX.md
+  - label: "Lazy loading contract"
+    target: docs/dev/ui/collections/lazy-loading.md
+  - label: "Virtual list contract"
+    target: docs/dev/ui/collections/widgets/virtual-list.md
+  - label: "WM + scene transitions"
+    target: tasks/TASK-0064-ui-v6a-window-management-scene-transitions.md
+  - label: "Config broker (theme overrides)"
+    target: tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
+
+> updated (migrated 2026-11-02): 2026-06-22 (closed: scene graph wiring + virtual list + theme tokens + virgl GPU pipeline + soft-real-time pacing all landed and boot-verified over virgl)
 
 ## Closure (2026-06-22) — ist-zustand
 

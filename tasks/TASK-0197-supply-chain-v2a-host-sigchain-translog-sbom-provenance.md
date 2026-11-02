@@ -1,20 +1,27 @@
 ---
-title: TASK-0197 Supply-Chain hardening v2a (host-first): sigchain envelope + translog Merkle log + SBOM (SPDX subset) + provenance records + deterministic tests/tools
-status: Draft
-owner: @security
+schema: 1
+id: TASK-0197
+title: "Supply-Chain hardening v2a (host-first): sigchain envelope + translog Merkle log + SBOM (SPDX subset) + provenance records + deterministic tests/tools"
+status: draft
+owner: ["@security"]
 created: 2025-12-27
-depends-on: []
-follow-up-tasks:
-  - TASK-0198
-  - TASK-0289
+subsystem: updates
+follow_ups: [TASK-0198, TASK-0289]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Supply-chain v1 baseline (CycloneDX + allowlist policy): tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
-  - Trust store unification (roots/keys): tasks/TASK-0160-identity-keystore-v1_1-os-attestd-trust-unification-selftests.md
-  - Updates v2 orchestration (consumer): tasks/TASK-0179-updated-v2-offline-feed-delta-health-rollback.md
-  - Store v1 (consumer): tasks/TASK-0180-store-v1a-host-storefeedd-storemgrd-ratings.md
-  - Packages install authority (consumer): tasks/TASK-0130-packages-v1b-bundlemgrd-install-upgrade-uninstall-trust.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Supply-chain v1 baseline (CycloneDX + allowlist policy)"
+    target: tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
+  - label: "Trust store unification (roots/keys)"
+    target: tasks/TASK-0160-identity-keystore-v1_1-os-attestd-trust-unification-selftests.md
+  - label: "Updates v2 orchestration (consumer)"
+    target: tasks/TASK-0179-updated-v2-offline-feed-delta-health-rollback.md
+  - label: "Store v1 (consumer)"
+    target: tasks/TASK-0180-store-v1a-host-storefeedd-storemgrd-ratings.md
+  - label: "Packages install authority (consumer)"
+    target: tasks/TASK-0130-packages-v1b-bundlemgrd-install-upgrade-uninstall-trust.md
 ---
 
 ## Rebase note 2026-08-25 (RFC-0089 lane)

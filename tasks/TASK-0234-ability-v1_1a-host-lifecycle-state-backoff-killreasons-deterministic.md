@@ -1,19 +1,31 @@
 ---
-title: TASK-0234 Ability/Lifecycle v1.1a (host-first): deterministic lifecycle state machine + backoff/crash-loop + kill reasons + tests
-status: Draft — absorbed into Block 4 layer 6d under tasks/TASK-0333 (2026-10-19): the state machine driven by windowd's focus/visibility/occlusion, kernel-enforced suspend/kill through execd, kill reasons per ADR-0056
-owner: @runtime
+schema: 1
+id: TASK-0234
+title: "Ability/Lifecycle v1.1a (host-first): deterministic lifecycle state machine + backoff/crash-loop + kill reasons + tests"
+status: superseded
+status_note: "absorbed into Block 4 layer 6d under tasks/TASK-0333 (2026-10-19): the state machine driven by windowd's focus/visibility/occlusion"
+owner: ["@runtime"]
 created: 2025-12-29
-depends-on: []
-follow-up-tasks: []
+subsystem: observability
+superseded_by: [TASK-0333]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - App lifecycle baseline (appmgrd): tasks/TASK-0065-ui-v6b-app-lifecycle-notifications-navigation.md
-  - Execd (spawner authority): tasks/TASK-0001-runtime-roles-and-boundaries.md
-  - Intent routing (intentsd): tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md
-  - QoS/timer slack baseline: tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
-  - OOM watchdog (kill integration): tasks/TASK-0228-oomd-v1-deterministic-watchdog-cooperative-memstat-samgr-kill.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "App lifecycle baseline (appmgrd)"
+    target: tasks/TASK-0065-ui-v6b-app-lifecycle-notifications-navigation.md
+  - label: "Execd (spawner authority)"
+    target: tasks/TASK-0001-runtime-roles-and-boundaries.md
+  - label: "Intent routing (intentsd)"
+    target: tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md
+  - label: "QoS/timer slack baseline"
+    target: tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
+  - label: "OOM watchdog (kill integration)"
+    target: tasks/TASK-0228-oomd-v1-deterministic-watchdog-cooperative-memstat-samgr-kill.md
 ---
+
+> Status (migrated 2026-11-02): Draft — absorbed into Block 4 layer 6d under tasks/TASK-0333 (2026-10-19): the state machine driven by windowd's focus/visibility/occlusion, kernel-enforced suspend/kill through execd, kill reasons per ADR-0056
 
 ## Rebase note 2026-08-18 (reliability-lane recut)
 

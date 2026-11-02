@@ -1,15 +1,17 @@
 ---
-title: TASK-0281 Kernel Rust idioms v1c: complete newtype coverage for all kernel handles
-status: Draft
-owner: @kernel-team
+schema: 1
+id: TASK-0281
+title: "Kernel Rust idioms v1c: complete newtype coverage for all kernel handles"
+status: draft
+owner: ["@kernel-team"]
 created: 2026-01-09
-depends-on:
-  - TASK-0011B
-follow-up-tasks: []
+subsystem: kernel
+depends_on: [TASK-0011B]
 links:
-  - Vision: docs/architecture/vision.md
-  - Kernel overview: docs/architecture/01-neuron-kernel.md
-  - Depends-on (Rust idioms baseline): tasks/TASK-0011B-kernel-rust-idioms-pre-smp.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: "Kernel overview"
+    target: docs/architecture/01-neuron-kernel.md
 ---
 
 ## Context

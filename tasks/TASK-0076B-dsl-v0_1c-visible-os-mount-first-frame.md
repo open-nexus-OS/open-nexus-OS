@@ -1,23 +1,32 @@
 ---
-title: TASK-0076B DSL v0.1c (OS-gated): visible in-compositor mount + first DSL frame (delivered by the app-host path, TASK-0080C/0080D)
-status: Done (2026-09-09 — reconciled: visible mount + first DSL frame delivered by TASK-0080C/0080D app-host; mount marker gated in the visible lane)
-owner: @ui @runtime
+schema: 1
+id: TASK-0076B
+title: "DSL v0.1c (OS-gated): visible in-compositor mount + first DSL frame (delivered by the app-host path, TASK-0080C/0080D)"
+status: done
+status_note: "2026-09-09 — reconciled: visible mount + first DSL frame delivered by TASK-0080C/0080D app-host; mount marker gated in the visible lane"
+owner: ["@ui", "@runtime"]
 created: 2026-03-28
 updated: 2026-07-06
-depends-on:
-  - tasks/TASK-0076-dsl-v0_1b-interpreter-snapshots-os-demo.md
-follow-up-tasks:
-  - tasks/TASK-0080B-systemui-dsl-bootstrap-shell-launcher-host.md
-  - tasks/TASK-0080D-dsl-app-runtime-lifecycle-surface-contract.md
+subsystem: ui
+done: 2026-09-09
+dates_source: status-text
+depends_on: [TASK-0076]
+follow_ups: [TASK-0080B, TASK-0080D]
+split_from: TASK-0076
+tracks: [TRACK-DSL-V1-DEVX]
 links:
-  - Track: tasks/TRACK-DSL-V1-DEVX.md
-  - Runtime contract: docs/dev/dsl/runtime.md (host #2 = in-compositor mount)
-  - Shell-config SSOT feeding the mount: source/services/systemui/manifests/shells/*/shell.toml
-    (dsl_root + [first_frame]), products/profiles (ADR-0035)
-  - One reactive path: docs/rfcs/RFC-0070-ui-design-system-ssot-convergence.md
-  - Visible present baseline: tasks/TASK-0055C; input baseline: tasks/TASK-0056B
-  - Spawn path this task probes for Phase 6: source/services/execd (nexus-loader, as_create)
-  - Testing contract: scripts/qemu-test.sh
+  - label: "Runtime contract"
+    target: "docs/dev/dsl/runtime.md (host #2 = in-compositor mount)"
+  - label: "Shell-config SSOT feeding the mount"
+    target: "source/services/systemui/manifests/shells/*/shell.toml (dsl_root + [first_frame]), products/profiles (ADR-0035)"
+  - label: "One reactive path"
+    target: docs/rfcs/RFC-0070-ui-design-system-ssot-convergence.md
+  - label: "Visible present baseline"
+    target: "tasks/TASK-0055C; input baseline: tasks/TASK-0056B"
+  - label: "Spawn path this task probes for Phase 6"
+    target: "source/services/execd (nexus-loader, as_create)"
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Closure 2026-09-09 (reconciliation — Done, delivered by the app-host path)

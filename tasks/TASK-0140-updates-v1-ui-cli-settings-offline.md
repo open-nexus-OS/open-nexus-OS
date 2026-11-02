@@ -1,19 +1,31 @@
 ---
-title: TASK-0140 Updates v1 UI/CLI: Settings→Updates page + nx update CLI over the real OTA engine (offline)
-status: Done
-owner: @ui
+schema: 1
+id: TASK-0140
+title: "Updates v1 UI/CLI: Settings→Updates page + nx update CLI over the real OTA engine (offline)"
+status: done
+owner: ["@ui"]
 created: 2025-12-25
 updated: 2026-09-01
-depends-on:
-  - TASK-0179   # the engine these surfaces drive
-follow-up-tasks: []
+subsystem: updates
+started: 2026-09-01
+done: 2026-09-01
+active_days: 1
+dates_source: git-reconstructed
+depends_on: [TASK-0179]
+implements: [RFC-0089]
 links:
-  - Contract: docs/rfcs/RFC-0089-ota-v2-component-manifest-ab-boot-images-nxboot-bsb.md (§8 updated v2, §9 feed)
-  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
-  - DSL app integration kit: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md
-  - Settings tree baseline: tasks/TASK-0121-systemui-dsl-migration-phase2a-settings-notifs-host.md
-  - Policy gates (updates.manage): tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Contract
+    target: "docs/rfcs/RFC-0089-ota-v2-component-manifest-ab-boot-images-nxboot-bsb.md (§8 updated v2, §9 feed)"
+  - label: "DSL syntax/layout convention"
+    target: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
+  - label: "DSL app integration kit"
+    target: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md
+  - label: "Settings tree baseline"
+    target: tasks/TASK-0121-systemui-dsl-migration-phase2a-settings-notifs-host.md
+  - label: "Policy gates (updates.manage)"
+    target: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## DELIVERED 2026-09-01 (honest recuts stated)

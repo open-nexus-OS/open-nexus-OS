@@ -1,13 +1,23 @@
-# RFC-0047: UI v1b windowd surface/layer/present contract seed
+---
+schema: 1
+id: RFC-0047
+title: "UI v1b windowd surface/layer/present contract seed"
+status: done
+owners: ["@ui", "@runtime"]
+created: 2026-04-27
+updated: 2026-04-27
+subsystem: ui
+tasks: [TASK-0055]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md` (execution + proof SSOT)"
+  - label: "Related tasks"
+    target: "`tasks/TASK-0055B-ui-v1c-visible-qemu-scanout-bootstrap.md`, `tasks/TASK-0055C-ui-v1d-windowd-visible-present-systemui-first-frame.md`, `tasks/TASK-0055D-ui-v1e-dev-display-profile-presets-qemu-hz.md`, `tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md`, `tasks/TASK-0056B-ui-v2a-visible-input-cursor-focus-click.md`, `tasks/TASK-0056C-ui-v2a-present-input-perf-latency-coalescing.md`, `tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md`, `tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0046-ui-v1a-host-cpu-renderer-snapshots-contract.md`, `docs/rfcs/RFC-0040-zero-copy-vmos-v1-plumbing-host-first-os-gated.md`, `docs/rfcs/RFC-0023-qos-abi-timed-coalescing-contract-v1.md`"
+---
 
-- Status: Done
-- Owners: @ui @runtime
-- Created: 2026-04-27
-- Last Updated: 2026-04-27
-- Links:
-  - Tasks: `tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md` (execution + proof SSOT)
-  - Related tasks: `tasks/TASK-0055B-ui-v1c-visible-qemu-scanout-bootstrap.md`, `tasks/TASK-0055C-ui-v1d-windowd-visible-present-systemui-first-frame.md`, `tasks/TASK-0055D-ui-v1e-dev-display-profile-presets-qemu-hz.md`, `tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md`, `tasks/TASK-0056B-ui-v2a-visible-input-cursor-focus-click.md`, `tasks/TASK-0056C-ui-v2a-present-input-perf-latency-coalescing.md`, `tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md`, `tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md`
-  - Related RFCs: `docs/rfcs/RFC-0046-ui-v1a-host-cpu-renderer-snapshots-contract.md`, `docs/rfcs/RFC-0040-zero-copy-vmos-v1-plumbing-host-first-os-gated.md`, `docs/rfcs/RFC-0023-qos-abi-timed-coalescing-contract-v1.md`
+# RFC-0047: UI v1b windowd surface/layer/present contract seed
 
 ## Status at a Glance
 

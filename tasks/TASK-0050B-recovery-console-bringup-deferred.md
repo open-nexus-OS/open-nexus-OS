@@ -1,15 +1,20 @@
 ---
-title: TASK-0050B Recovery bringup console (recovery-sh) — resolved by decision: not part of the end system
-status: Done (2026-09-09 — resolved by decision: no recovery console in the consumer end state; nx recovery + bootctld targets are the solution)
-owner: @reliability
+schema: 1
+id: TASK-0050B
+title: "Recovery bringup console (recovery-sh) — resolved by decision: not part of the end system"
+status: done
+status_note: "2026-09-09 — resolved by decision: no recovery console in the consumer end state; nx recovery + bootctld targets are the solution"
+owner: ["@reliability"]
 created: 2026-08-18
-depends-on:
-  - TASK-0050 # boot targets (the graph this console would run in)
-  - TASK-0051 # ops surface (the ONLY operations it may call)
-follow-up-tasks: []
+subsystem: updates
+done: 2026-09-09
+dates_source: status-text
+depends_on: [TASK-0050, TASK-0051]
+split_from: TASK-0050
+implements: [RFC-0087]
 links:
-  - Reliability contract: docs/rfcs/RFC-0087-reliability-failure-model-v1.md
-  - Authority registry: tasks/TRACK-AUTHORITY-NAMING.md
+  - label: "Authority registry"
+    target: tasks/TRACK-AUTHORITY-NAMING.md
 ---
 
 ## Closure 2026-09-09 (resolved by decision — Done, nothing to build)

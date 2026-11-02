@@ -1,22 +1,38 @@
 ---
-title: TASK-0328 USB host stack v1: `nexus-usb` + `xhcid` (xHCI rings, hub, enumeration) with device-class services as clients
-status: Done (U3 ✅ 2026-10-06 — `[PASS] board-visible` 46 rungs + `board-headless` 38 on the desk board in cycle 20: socd releases the SuperSpeed PHY's inverted-polarity reset, xhcid runs both PHYs' PLL sequences, the DWC3 host mode and the xHCI at ~1 kHz with eight TRBs per pipe, the hub + keyboard + receiver enumerated, inputd's live routes from the operator's mouse and keys, the pointer on the display controller's own layer (ADR-0034 Tier 1b); 20 board cycles, `docs/board/measurements/2026-10-05-usb-cycle1/`; U2 ✅ 2026-10-05 — TASK-0253B P1–P3: xhcid serves the HID boot class to hidrawd (policyd `usb.hid`), the `usb-visible` lane drives the desktop over USB alone; U1 ✅ 2026-10-05 — xhcid + nexus-usb on QEMU: the `usb` lane enumerates a hub, a keyboard and a mouse driven by the interrupt alone; U0 ✅ 2026-10-04 — measured on the stock system (topology, registers, endpoints, the hub, what the devices send in the boot protocol), RFC-0099 seeded, the HID boot parsers fixed to the measured reports, TASK-0253B seeded; U1 next; rewritten to end state at U0; seeded 2026-09-21 by the hardware fast track)
-owner: @runtime
+schema: 1
+id: TASK-0328
+title: "USB host stack v1: `nexus-usb` + `xhcid` (xHCI rings, hub, enumeration) with device-class services as clients"
+status: done
+status_note: "U3 ✅ 2026-10-06 — `[PASS] board-visible` 46 rungs + `board-headless` 38 on the desk board in cycle 20: socd releases the SuperSpeed PHY's inverted-polarity …"
+owner: ["@runtime"]
 created: 2026-09-21
-depends-on: []
-follow-up-tasks:
-  - tasks/TASK-0253B-hid-ingress-hidsource-usb-and-virtio.md
+subsystem: hardware
+started: 2026-10-04
+done: 2026-10-06
+active_days: 3
+dates_source: git-reconstructed
+follow_ups: [TASK-0253B]
+implements: [RFC-0099]
 links:
-  - Execution order (Block 2): tasks/IMPLEMENTATION-ORDER.md
-  - Playbook: CLAUDE.md, .claude/skills/driver-bringup/
-  - Contract: docs/rfcs/RFC-0099-usb-host-contract-xhcid-reactive-event-rings.md
-  - Layering: docs/adr/0039-device-class-driver-architecture.md (amended: USB as a bus service)
-  - Board truth: docs/rfcs/RFC-0098-board-support-contract-fdt-truth-boot-chain.md, docs/rfcs/RFC-0106-soc-glue-one-owner-clocks-resets-power-pinmux.md
-  - MMIO access model: docs/rfcs/RFC-0017-device-mmio-access-model-v1.md
-  - Measurements: docs/board/measurements/2026-10-04-usb-topology/, docs/board/measurements/2026-10-04-usb-boot-protocol/
-  - HID contract: userspace/hid (TASK-0252), source/services/hidrawd
-  - Extracted from: tasks/TRACK-REMOVABLE-STORAGE.md (CAND-REM-030)
+  - label: "Execution order (Block 2)"
+    target: tasks/milestones/hardware-network.md
+  - label: Playbook
+    target: "CLAUDE.md, .claude/skills/driver-bringup/"
+  - label: Layering
+    target: "docs/adr/0039-device-class-driver-architecture.md (amended: USB as a bus service)"
+  - label: "Board truth"
+    target: "docs/rfcs/RFC-0098-board-support-contract-fdt-truth-boot-chain.md, docs/rfcs/RFC-0106-soc-glue-one-owner-clocks-resets-power-pinmux.md"
+  - label: "MMIO access model"
+    target: docs/rfcs/RFC-0017-device-mmio-access-model-v1.md
+  - label: Measurements
+    target: "docs/board/measurements/2026-10-04-usb-topology/, docs/board/measurements/2026-10-04-usb-boot-protocol/"
+  - label: "HID contract"
+    target: "userspace/hid (TASK-0252), source/services/hidrawd"
+  - label: "Extracted from"
+    target: "tasks/TRACK-REMOVABLE-STORAGE.md (CAND-REM-030)"
 ---
+
+> Status (migrated 2026-11-02): Done (U3 ✅ 2026-10-06 — `[PASS] board-visible` 46 rungs + `board-headless` 38 on the desk board in cycle 20: socd releases the SuperSpeed PHY's inverted-polarity reset, xhcid runs both PHYs' PLL sequences, the DWC3 host mode and the xHCI at ~1 kHz with eight TRBs per pipe, the hub + keyboard + receiver enumerated, inputd's live routes from the operator's mouse and keys, the pointer on the display controller's own layer (ADR-0034 Tier 1b); 20 board cycles, `docs/board/measurements/2026-10-05-usb-cycle1/`; U2 ✅ 2026-10-05 — TASK-0253B P1–P3: xhcid serves the HID boot class to hidrawd (policyd `usb.hid`), the `usb-visible` lane drives the desktop over USB alone; U1 ✅ 2026-10-05 — xhcid + nexus-usb on QEMU: the `usb` lane enumerates a hub, a keyboard and a mouse driven by the interrupt alone; U0 ✅ 2026-10-04 — measured on the stock system (topology, registers, endpoints, the hub, what the devices send in the boot protocol), RFC-0099 seeded, the HID boot parsers fixed to the measured reports, TASK-0253B seeded; U1 next; rewritten to end state at U0; seeded 2026-09-21 by the hardware fast track)
 
 ## Origin
 

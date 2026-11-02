@@ -1,16 +1,21 @@
 ---
-title: TASK-0001 Runtime roles & boundaries (Host + OS-lite): init/execd/loader single-authority, deprecations, and proof locks
-status: Done
-owner: @init-team @runtime
+schema: 1
+id: TASK-0001
+title: "Runtime roles & boundaries (Host + OS-lite): init/execd/loader single-authority, deprecations, and proof locks"
+status: done
+owner: ["@init-team", "@runtime"]
 created: 2025-10-23
-depends-on: []
-follow-up-tasks: []
+subsystem: kernel
+done: 2026-07-17
+dates_source: git-reconstructed
+implements: [RFC-0002, RFC-0004]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - RFC: docs/rfcs/RFC-0002-process-per-service-architecture.md
-  - RFC: docs/rfcs/RFC-0004-safe-loader-guards.md
-  - VFS proof (markers dependency): tasks/TASK-0002-userspace-vfs-proof.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "VFS proof (markers dependency)"
+    target: tasks/TASK-0002-userspace-vfs-proof.md
 ---
 
 ## Context

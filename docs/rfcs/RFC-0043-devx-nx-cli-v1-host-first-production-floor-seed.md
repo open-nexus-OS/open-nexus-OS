@@ -1,14 +1,25 @@
-# RFC-0043: DevX nx CLI v1 (host-first, production-floor) — single entrypoint contract seed
+---
+schema: 1
+id: RFC-0043
+title: "DevX nx CLI v1 (host-first, production-floor) — single entrypoint contract seed"
+status: done
+owners: ["@runtime", "@tools-team"]
+created: 2026-04-24
+updated: 2026-04-24
+subsystem: devx
+tasks: [TASK-0045]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0045-devx-nx-cli-v1.md` (execution + proof)"
+  - label: "Related tasks"
+    target: "`tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md`, `tasks/TASK-0047-policy-as-code-v1-unified-engine.md`, `tasks/TASK-0048-crashdump-v2a-host-pipeline-nxsym-nx-crash.md`, `tasks/TASK-0164-sdk-v1-part1b-nx-sdk-templates-client-stubs.md`, `tasks/TASK-0165-sdk-v1-part2a-devtools-lints-pack-sign-ci.md`, `tasks/TASK-0227-diagnostics-v1-bugreport-bundles-nx-diagnose-offline-deterministic.md`, `tasks/TASK-0230-nx-sec-v1-cli-security-introspection-deny-tests-offline.md`, `tasks/TASK-0268-devx-v1-nx-cli-convergence-subcommands-no-nx-drift.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md`, `docs/rfcs/RFC-0038-selftest-client-production-grade-deterministic-test-architecture-refactor-v1.md`"
+  - label: "Production gate policy"
+    target: "`tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` (Gate J: DevX, Config & Tooling, production-floor)"
+---
 
-- Status: Done
-- Owners: @runtime @tools-team
-- Created: 2026-04-24
-- Last Updated: 2026-04-24
-- Links:
-  - Tasks: `tasks/TASK-0045-devx-nx-cli-v1.md` (execution + proof)
-  - Related tasks: `tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md`, `tasks/TASK-0047-policy-as-code-v1-unified-engine.md`, `tasks/TASK-0048-crashdump-v2a-host-pipeline-nxsym-nx-crash.md`, `tasks/TASK-0164-sdk-v1-part1b-nx-sdk-templates-client-stubs.md`, `tasks/TASK-0165-sdk-v1-part2a-devtools-lints-pack-sign-ci.md`, `tasks/TASK-0227-diagnostics-v1-bugreport-bundles-nx-diagnose-offline-deterministic.md`, `tasks/TASK-0230-nx-sec-v1-cli-security-introspection-deny-tests-offline.md`, `tasks/TASK-0268-devx-v1-nx-cli-convergence-subcommands-no-nx-drift.md`
-  - Related RFCs: `docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md`, `docs/rfcs/RFC-0038-selftest-client-production-grade-deterministic-test-architecture-refactor-v1.md`
-  - Production gate policy: `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` (Gate J: DevX, Config & Tooling, production-floor)
+# RFC-0043: DevX nx CLI v1 (host-first, production-floor) — single entrypoint contract seed
 
 ## Status at a Glance
 

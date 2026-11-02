@@ -1,21 +1,32 @@
 ---
-title: TASK-0230 nx sec v1 (offline): security introspection CLI (`nx sec`) over policyd/sysfilter/sandbox/quotas + deterministic tests/markers
-status: Draft
-owner: @security @devx
+schema: 1
+id: TASK-0230
+title: "nx sec v1 (offline): security introspection CLI (`nx sec`) over policyd/sysfilter/sandbox/quotas + deterministic tests/markers"
+status: draft
+owner: ["@security", "@devx"]
 created: 2025-12-29
-depends-on: []
-follow-up-tasks: []
+subsystem: kernel
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - DevX CLI base (`nx`): tasks/TASK-0045-devx-nx-cli-v1.md
-  - Policy as Code (`nx policy ...`): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
-  - Policy snapshot artifact (optional fast path): tasks/TASK-0229-policy-snapshot-v1-canonical-json-bin-sysfilter-profiles-quotas.md
-  - Kernel sysfilter (true syscall enforcement): tasks/TASK-0188-kernel-sysfilter-v1-task-profiles-rate-buckets.md
-  - Sandbox profiles (IPC/VFS allowlists): tasks/TASK-0189-sandbox-profiles-v2-sandboxd-or-policyd-distribution-ipc-vfs.md
-  - ABI filters (guardrails): tasks/TASK-0019-security-v2-userland-abi-syscall-filters.md
-  - Quotas / egress (userspace): tasks/TASK-0043-security-v2-sandbox-quotas-egress-abi-audit.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "DevX CLI base (`nx`)"
+    target: tasks/TASK-0045-devx-nx-cli-v1.md
+  - label: "Policy as Code (`nx policy ...`)"
+    target: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
+  - label: "Policy snapshot artifact (optional fast path)"
+    target: tasks/TASK-0229-policy-snapshot-v1-canonical-json-bin-sysfilter-profiles-quotas.md
+  - label: "Kernel sysfilter (true syscall enforcement)"
+    target: tasks/TASK-0188-kernel-sysfilter-v1-task-profiles-rate-buckets.md
+  - label: "Sandbox profiles (IPC/VFS allowlists)"
+    target: tasks/TASK-0189-sandbox-profiles-v2-sandboxd-or-policyd-distribution-ipc-vfs.md
+  - label: "ABI filters (guardrails)"
+    target: tasks/TASK-0019-security-v2-userland-abi-syscall-filters.md
+  - label: "Quotas / egress (userspace)"
+    target: tasks/TASK-0043-security-v2-sandbox-quotas-egress-abi-audit.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

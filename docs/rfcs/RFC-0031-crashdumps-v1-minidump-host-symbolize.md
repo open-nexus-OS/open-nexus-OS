@@ -1,20 +1,33 @@
-# RFC-0031: Crashdumps v1 - deterministic in-process minidumps + host symbolization
+---
+schema: 1
+id: RFC-0031
+title: "Crashdumps v1 - deterministic in-process minidumps + host symbolization"
+status: done
+owners: ["@runtime", "@reliability", "@tools-team"]
+created: 2026-03-26
+updated: 2026-03-26
+subsystem: observability
+tasks: [TASK-0018]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0018-crashdumps-v1-minidump-host-symbolize.md` (execution + proof)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0011-logd-journal-crash-v1.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0018-statefs-journal-format-v1.md`"
+  - label: "Related tasks"
+    target: "`tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md`"
+  - label: "Related tasks"
+    target: "`tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md`"
+  - label: "Related tasks"
+    target: "`tasks/TASK-0048-crashdump-v2a-host-pipeline-nxsym-nx-crash.md`"
+  - label: "Related tasks"
+    target: "`tasks/TASK-0049-fault-exhaustion-truth-proof-reanimation.md`"
+  - label: "Related tasks"
+    target: "`tasks/TASK-0051B-crash-evidence-at-rest.md`"
+---
 
-- Status: Complete
-- Owners: @runtime @reliability @tools-team
-- Created: 2026-03-26
-- Last Updated: 2026-03-26
-- Links:
-  - Tasks: `tasks/TASK-0018-crashdumps-v1-minidump-host-symbolize.md` (execution + proof)
-  - Related RFCs:
-    - `docs/rfcs/RFC-0011-logd-journal-crash-v1.md`
-    - `docs/rfcs/RFC-0018-statefs-journal-format-v1.md`
-  - Related tasks:
-    - `tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md`
-    - `tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md`
-    - `tasks/TASK-0048-crashdump-v2a-host-pipeline-nxsym-nx-crash.md`
-    - `tasks/TASK-0049-fault-exhaustion-truth-proof-reanimation.md`
-    - `tasks/TASK-0051B-crash-evidence-at-rest.md`
+# RFC-0031: Crashdumps v1 - deterministic in-process minidumps + host symbolization
 
 ## Status at a Glance
 

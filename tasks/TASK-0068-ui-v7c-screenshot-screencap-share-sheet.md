@@ -1,22 +1,40 @@
 ---
-title: TASK-0068 UI v7c: screencapd over the ONE pixel-readback authority (gpud readback + windowd geometry/secure-surface gate) + consent/caps
-status: Done (2026-10-09 — the reference desktop's screenshot tool in our glass style: RFC-0095 Done, ADR-0071; `usb-visible` Print → drag → shutter, board rung `board-visual: screenshot`; recut with the operator 2026-10-08, see "Recut 2026-10-08" below)
-owner: @ui
+schema: 1
+id: TASK-0068
+title: "UI v7c: screencapd over the ONE pixel-readback authority (gpud readback + windowd geometry/secure-surface gate) + consent/caps"
+status: done
+status_note: "2026-10-09 — the reference desktop's screenshot tool in our glass style: RFC-0095 Done, ADR-0071"
+owner: ["@ui"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: security
+started: 2026-10-09
+done: 2026-10-09
+active_days: 1
+dates_source: git-reconstructed
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - ADR: docs/adr/0022-modern-image-formats-avif-webp.md
-  - UI v4a compositor baseline (readback): tasks/TASK-0060-ui-v4a-tiled-compositor-clipstack-atlases-perf.md
-  - UI v6a WM baseline (grab window): tasks/TASK-0064-ui-v6a-window-management-scene-transitions.md
-  - Clipboard v2 (destination): tasks/TASK-0067-ui-v7b-dnd-clipboard-v2.md
-  - DSoftBus (peer share, optional): tasks/TASK-0005-networking-cross-vm-dsoftbus-remote-proxy.md
-  - Policy as Code (consent/limits): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
-  - Persistence (/state save): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: ADR
+    target: docs/adr/0022-modern-image-formats-avif-webp.md
+  - label: "UI v4a compositor baseline (readback)"
+    target: tasks/TASK-0060-ui-v4a-tiled-compositor-clipstack-atlases-perf.md
+  - label: "UI v6a WM baseline (grab window)"
+    target: tasks/TASK-0064-ui-v6a-window-management-scene-transitions.md
+  - label: "Clipboard v2 (destination)"
+    target: tasks/TASK-0067-ui-v7b-dnd-clipboard-v2.md
+  - label: "DSoftBus (peer share, optional)"
+    target: tasks/TASK-0005-networking-cross-vm-dsoftbus-remote-proxy.md
+  - label: "Policy as Code (consent/limits)"
+    target: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
+  - label: "Persistence (/state save)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
+
+> Status (migrated 2026-11-02): Done (2026-10-09 — the reference desktop's screenshot tool in our glass style: RFC-0095 Done, ADR-0071; `usb-visible` Print → drag → shutter, board rung `board-visual: screenshot`; recut with the operator 2026-10-08, see "Recut 2026-10-08" below)
 
 ## Recut 2026-10-08 — the screenshot UI (binding; supersedes the 2026-09-09 rewrite below where they differ)
 

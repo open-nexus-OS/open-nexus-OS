@@ -1,20 +1,30 @@
 ---
-title: TASK-0176 WebView Net v1a (host-first): HTML sanitizer v2 + SanitizedDOM IR → Scene-IR WebView control + fixtures + golden snapshots
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0176
+title: "WebView Net v1a (host-first): HTML sanitizer v2 + SanitizedDOM IR → Scene-IR WebView control + fixtures + golden snapshots"
+status: draft
+owner: ["@ui"]
 created: 2025-12-27
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - WebView baseline (offline): tasks/TASK-0111-ui-v19a-webviewd-sandbox-offscreen.md
-  - Downloads helper baseline (saveAs): tasks/TASK-0112-ui-v19b-contentd-saveas-downloads.md
-  - Renderer abstraction (Scene-IR + cpu2d goldens): tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md
-  - Renderer OS wiring (windowd): tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md
-  - L10n/font fallback (optional for text): tasks/TASK-0174-l10n-i18n-v1a-host-core-fluent-icu-fontsel-goldens.md
-  - Deterministic parallelism policy (thread pools): tasks/TASK-0276-parallelism-v1-deterministic-threadpools-policy-contract.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "WebView baseline (offline)"
+    target: tasks/TASK-0111-ui-v19a-webviewd-sandbox-offscreen.md
+  - label: "Downloads helper baseline (saveAs)"
+    target: tasks/TASK-0112-ui-v19b-contentd-saveas-downloads.md
+  - label: "Renderer abstraction (Scene-IR + cpu2d goldens)"
+    target: tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md
+  - label: "Renderer OS wiring (windowd)"
+    target: tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md
+  - label: "L10n/font fallback (optional for text)"
+    target: tasks/TASK-0174-l10n-i18n-v1a-host-core-fluent-icu-fontsel-goldens.md
+  - label: "Deterministic parallelism policy (thread pools)"
+    target: tasks/TASK-0276-parallelism-v1-deterministic-threadpools-policy-contract.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

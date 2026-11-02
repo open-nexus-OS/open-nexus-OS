@@ -1,24 +1,40 @@
 ---
-title: TASK-0077C DSL v0.2c runtime long-session & large-data contract: emit-generation arena + subtree re-emit (pro primitives retired)
-status: Done 2026-09-21 (P0–P3: ADR-0065; generation arena in the service allocator, two regions; emission pure and enforced by a poisoning harness; durable state frees by size class; heap-16m + watermarks deleted, 4 MiB floor, 14 MB budget; `apphost: heap steady` boot-proven)
-owner: @ui @runtime
+schema: 1
+id: TASK-0077C
+title: "DSL v0.2c runtime long-session & large-data contract: emit-generation arena + subtree re-emit (pro primitives retired)"
+status: done
+status_note: "2026-09-21 (P0–P3: ADR-0065"
+owner: ["@ui", "@runtime"]
 created: 2026-01-26
 updated: 2026-07-06
-depends-on:
-  - tasks/TASK-0077-dsl-v0_2a-state-nav-i18n-core.md
-follow-up-tasks: []
+subsystem: app-platform
+started: 2026-09-20
+done: 2026-09-21
+active_days: 2
+dates_source: git-reconstructed
+depends_on: [TASK-0077]
+split_from: TASK-0077
+tracks: [TRACK-DSL-V1-DEVX]
 links:
-  - Track: tasks/TRACK-DSL-V1-DEVX.md (blessed-primitive set + "no scripting creep")
-  - NativeWidget contract: docs/dev/dsl/syntax.md
-  - Existing virtualization to promote: userspace/ui/widgets/virtual-list (nexus-virtual-list,
-    production, windowd-consumed) — promote the BEST impl, don't rebuild
-  - Widget home: userspace/ui/widgets/* (NOTE: `userspace/ui/kit/` does not exist — stale ref removed)
-  - Zero-copy data plane gate: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
-  - QuerySpec paging feeding these surfaces: tasks/TASK-0078B
-  - Scope firewall — latency questions found here belong THERE:
-    tasks/TASK-0145B-ui-interaction-latency-budget.md
-  - Scope firewall — boot time belongs THERE: tasks/TASK-0269B-boot-to-first-frame-budget.md
+  - label: Track
+    target: "tasks/TRACK-DSL-V1-DEVX.md (blessed-primitive set + \"no scripting creep\")"
+  - label: "NativeWidget contract"
+    target: docs/dev/dsl/syntax.md
+  - label: "Existing virtualization to promote"
+    target: "userspace/ui/widgets/virtual-list (nexus-virtual-list, production, windowd-consumed) — promote the BEST impl, don't rebuild"
+  - label: "Widget home"
+    target: "userspace/ui/widgets/* (NOTE: `userspace/ui/kit/` does not exist — stale ref removed)"
+  - label: "Zero-copy data plane gate"
+    target: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
+  - label: "QuerySpec paging feeding these surfaces"
+    target: tasks/TASK-0078B
+  - label: "Scope firewall — latency questions found here belong THERE"
+    target: tasks/TASK-0145B-ui-interaction-latency-budget.md
+  - label: "Scope firewall — boot time belongs THERE"
+    target: tasks/TASK-0269B-boot-to-first-frame-budget.md
 ---
+
+> Status (migrated 2026-11-02): Done 2026-09-21 (P0–P3: ADR-0065; generation arena in the service allocator, two regions; emission pure and enforced by a poisoning harness; durable state frees by size class; heap-16m + watermarks deleted, 4 MiB floor, 14 MB budget; `apphost: heap steady` boot-proven)
 
 ## End-state rewrite 2026-09-09 (binding; supersedes the pro-primitives scope below)
 

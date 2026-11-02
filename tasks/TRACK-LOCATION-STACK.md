@@ -1,16 +1,25 @@
 ---
-title: TRACK Location Stack (GPS/GNSS + fusion): locationd authority + gnssd driver, consent-gated, deterministic fixtures
-status: Draft
-owner: @runtime @ui
+schema: 1
+id: TRACK-LOCATION-STACK
+title: "Location Stack (GPS/GNSS + fusion): locationd authority + gnssd driver, consent-gated, deterministic fixtures"
+status: draft
+owner: ["@runtime", "@ui"]
 created: 2026-01-19
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Authority registry (names are binding): tasks/TRACK-AUTHORITY-NAMING.md
-  - Keystone closure plan: tasks/TRACK-KEYSTONE-GATES.md
-  - Device MMIO access model (userspace drivers): tasks/TASK-0010-device-mmio-access-model.md
-  - Sensor foundation (host-first): tasks/TASK-0258-sensor-bus-v0_9a-host-sensor-hal-accel-driver-deterministic.md
-  - Permissions/Privacy (runtime consent + indicators): tasks/TASK-0103-ui-v17a-permissions-privacyd.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Authority registry (names are binding)"
+    target: tasks/TRACK-AUTHORITY-NAMING.md
+  - label: "Keystone closure plan"
+    target: tasks/TRACK-KEYSTONE-GATES.md
+  - label: "Device MMIO access model (userspace drivers)"
+    target: tasks/TASK-0010-device-mmio-access-model.md
+  - label: "Sensor foundation (host-first)"
+    target: tasks/TASK-0258-sensor-bus-v0_9a-host-sensor-hal-accel-driver-deterministic.md
+  - label: "Permissions/Privacy (runtime consent + indicators)"
+    target: tasks/TASK-0103-ui-v17a-permissions-privacyd.md
 ---
 
 ## Goal (track-level)

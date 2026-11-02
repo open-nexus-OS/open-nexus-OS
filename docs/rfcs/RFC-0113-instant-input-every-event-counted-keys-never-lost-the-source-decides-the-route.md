@@ -1,19 +1,25 @@
+---
+schema: 1
+id: RFC-0113
+title: "Instant input — every event counted, keys never lost, the input source decides the route, the compositor owns the caret"
+status: done
+status_note: "2026-10-30 — TASK-0346, board cycles 78–79; recut: the key→present p99 on the board is the present path's, RFC-0108 / Block-4 layer 8 — see Closure"
+owners: ["@runtime", "@ui"]
+created: 2026-10-30
+updated: 2026-10-30
+subsystem: ui
+tasks: [TASK-0346]
+links:
+  - label: ADRs
+    target: "`docs/adr/0090-the-input-source-decides-the-route-windowd-orders-focus-and-keys-the-compositor-owns-the-caret.md`"
+  - label: "Related RFCs"
+    target: "RFC-0075 (the input method service), RFC-0099 (the USB host — xhcid, the HID boot class), RFC-0108 (the UX latency contract), RFC-0109 (surface layers: washes the compositor composes without a raster), RFC-0078 (settings keys and their watch)"
+---
+
 <!-- Copyright 2026 Open Nexus OS Contributors -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # RFC-0113: Instant input — every event counted, keys never lost, the input source decides the route, the compositor owns the caret
-
-- Status: Done (2026-10-30 — TASK-0346, board cycles 78–79; recut: the key→present p99 on the
-  board is the present path's, RFC-0108 / Block-4 layer 8 — see Closure)
-- Owners: @runtime @ui
-- Created: 2026-10-30
-- Last Updated: 2026-10-30
-- Links:
-  - Tasks: `tasks/TASK-0346-instant-input-keys-never-lost-the-caret-at-once-shortcuts-in-one-place.md`
-  - ADRs: `docs/adr/0090-the-input-source-decides-the-route-windowd-orders-focus-and-keys-the-compositor-owns-the-caret.md`
-  - Related RFCs: RFC-0075 (the input method service), RFC-0099 (the USB host — xhcid, the HID
-    boot class), RFC-0108 (the UX latency contract), RFC-0109 (surface layers: washes the
-    compositor composes without a raster), RFC-0078 (settings keys and their watch)
 
 ## Status at a Glance
 

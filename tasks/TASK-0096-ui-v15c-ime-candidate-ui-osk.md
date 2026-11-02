@@ -1,20 +1,31 @@
 ---
-title: TASK-0096 UI v15c: IME service (latin+pinyin stub+emoji) + candidate UI + on-screen keyboard + focus guards
-status: Superseded (2026-07-21 — replaced by the IME v2 line: TASK-0146/0147 engine+OSK, TASK-0149/0150 CJK+candidates, per RFC-0075; this umbrella predates the imed architecture)
-owner: @ui
+schema: 1
+id: TASK-0096
+title: "UI v15c: IME service (latin+pinyin stub+emoji) + candidate UI + on-screen keyboard + focus guards"
+status: superseded
+status_note: "2026-07-21 — replaced by the IME v2 line: TASK-0146/0147 engine+OSK, TASK-0149/0150 CJK+candidates, per RFC-0075; this umbrella predates the imed architecture"
+owner: ["@ui"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
+superseded_by: [TASK-0146, TASK-0149]
+tracks: [TRACK-DSL-V1-DEVX]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
-  - DSL v1 DevX track: tasks/TRACK-DSL-V1-DEVX.md
-  - Text primitives: tasks/TASK-0094-ui-v15a-text-primitives-uax-bidi-hittest.md
-  - TextField core: tasks/TASK-0095-ui-v15b-selection-caret-textfield-core.md
-  - Policy as Code (focus guards): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
-  - Config broker (ime/osk defaults): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "DSL syntax/layout convention"
+    target: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
+  - label: "Text primitives"
+    target: tasks/TASK-0094-ui-v15a-text-primitives-uax-bidi-hittest.md
+  - label: "TextField core"
+    target: tasks/TASK-0095-ui-v15b-selection-caret-textfield-core.md
+  - label: "Policy as Code (focus guards)"
+    target: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
+  - label: "Config broker (ime/osk defaults)"
+    target: tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

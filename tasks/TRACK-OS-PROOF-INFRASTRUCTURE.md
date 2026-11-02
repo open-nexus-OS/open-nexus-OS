@@ -1,15 +1,23 @@
 ---
-title: TRACK OS proof infrastructure — observability + coverage + discipline (post-Phase-6 capabilities)
-status: Draft
-owner: @runtime
+schema: 1
+id: TRACK-OS-PROOF-INFRASTRUCTURE
+title: "OS proof infrastructure — observability + coverage + discipline (post-Phase-6 capabilities)"
+status: draft
+owner: ["@runtime"]
 created: 2026-04-17
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Foundational task (delivers manifest + evidence + replay): tasks/TASK-0023B-selftest-client-production-grade-deterministic-test-architecture-refactor.md
-  - Foundational RFC: docs/rfcs/RFC-0038-selftest-client-production-grade-deterministic-test-architecture-refactor-v1.md
-  - Phase contract: docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md
-  - Testing index: docs/testing/README.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Foundational task (delivers manifest + evidence + replay)"
+    target: tasks/TASK-0023B-selftest-client-production-grade-deterministic-test-architecture-refactor.md
+  - label: "Foundational RFC"
+    target: docs/rfcs/RFC-0038-selftest-client-production-grade-deterministic-test-architecture-refactor-v1.md
+  - label: "Phase contract"
+    target: docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md
+  - label: "Testing index"
+    target: docs/testing/README.md
 ---
 
 ## Goal (track-level)

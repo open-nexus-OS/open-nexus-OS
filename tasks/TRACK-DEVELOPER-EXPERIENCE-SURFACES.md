@@ -1,20 +1,33 @@
 ---
-title: TRACK Developer Experience Surfaces (Developer Features + shell posture): consumer-simple by default, full dev mode when enabled
-status: Draft
-owner: @devx @ui @runtime
+schema: 1
+id: TRACK-DEVELOPER-EXPERIENCE-SURFACES
+title: "Developer Experience Surfaces (Developer Features + shell posture): consumer-simple by default, full dev mode when enabled"
+status: draft
+owner: ["@devx", "@ui", "@runtime"]
 created: 2026-04-07
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Dev Studio (IDE) keystone: tasks/TRACK-DEVSTUDIO-IDE.md
-  - App Store umbrella: tasks/TRACK-APP-STORE.md
-  - Zero-Copy App Platform: tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
-  - Group and Device Management: tasks/TRACK-GROUP-AND-DEVICE-MANAGEMENT.md
-  - Settings Family Mode: tasks/TRACK-SETTINGS-FAMILY-MODE.md
-  - Typed settings registry: tasks/TASK-0225-settings-v2a-host-settingsd-typed-prefs-providers.md
-  - SystemUI Settings DSL: tasks/TASK-0121-systemui-dsl-migration-phase2a-settings-notifs-host.md
-  - UI profiles / shell posture: docs/dev/ui/foundations/layout/profiles.md
-  - Security standards: docs/standards/SECURITY_STANDARDS.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Dev Studio (IDE) keystone"
+    target: tasks/TRACK-DEVSTUDIO-IDE.md
+  - label: "App Store umbrella"
+    target: tasks/TRACK-APP-STORE.md
+  - label: "Zero-Copy App Platform"
+    target: tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
+  - label: "Group and Device Management"
+    target: tasks/TRACK-GROUP-AND-DEVICE-MANAGEMENT.md
+  - label: "Settings Family Mode"
+    target: tasks/TRACK-SETTINGS-FAMILY-MODE.md
+  - label: "Typed settings registry"
+    target: tasks/TASK-0225-settings-v2a-host-settingsd-typed-prefs-providers.md
+  - label: "SystemUI Settings DSL"
+    target: tasks/TASK-0121-systemui-dsl-migration-phase2a-settings-notifs-host.md
+  - label: "UI profiles / shell posture"
+    target: docs/dev/ui/foundations/layout/profiles.md
+  - label: "Security standards"
+    target: docs/standards/SECURITY_STANDARDS.md
 ---
 
 ## Goal (track-level)

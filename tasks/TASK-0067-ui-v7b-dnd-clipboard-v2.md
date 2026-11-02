@@ -1,22 +1,40 @@
 ---
-title: TASK-0067 UI v7b: clipboardd (the one clipboard authority — text history, focus-gated reads) + `svc.clipboard` binding + windowd focus truth
-status: Done (2026-10-08 — recut with the operator: text only, drag and drop moved to TASK-0086, flavors stay TASK-0087's; RFC-0094 + ADR-0070; QEMU-proven; board cycle 1 findings fixed under TASK-0067B; board cycle 2 confirmed the clipboard rung)
-owner: @ui
+schema: 1
+id: TASK-0067
+title: "UI v7b: clipboardd (the one clipboard authority — text history, focus-gated reads) + `svc.clipboard` binding + windowd focus truth"
+status: done
+status_note: "2026-10-08 — recut with the operator: text only, drag and drop moved to TASK-0086, flavors stay TASK-0087's"
+owner: ["@ui"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: security
+started: 2026-10-07
+done: 2026-10-08
+active_days: 2
+dates_source: git-reconstructed
+follow_ups: [TASK-0067B]
+implements: [RFC-0094]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - UI v2a input routing baseline: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
-  - UI v6b app lifecycle baseline (focus): tasks/TASK-0065-ui-v6b-app-lifecycle-notifications-navigation.md
-  - Clipboard History DSL follow-up: tasks/TASK-0067B-ui-v7b-clipboard-history-dsl-overlay.md
-  - Policy as Code (clipboard guards): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
-  - Config broker (clipboard budgets): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
-  - Testing contract: scripts/qemu-test.sh
-  - Contract: docs/rfcs/RFC-0094-content-transfer-v1-clipboardd.md · Decision: docs/adr/0070-clipboardd-one-authority-focus-gated-reads-ui-in-shell-and-keyboard.md
-  - Drag and drop (moved here 2026-10-07): tasks/TASK-0086-ui-v12c-files-app-progress-dnd-share-openwith.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "UI v2a input routing baseline"
+    target: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
+  - label: "UI v6b app lifecycle baseline (focus)"
+    target: tasks/TASK-0065-ui-v6b-app-lifecycle-notifications-navigation.md
+  - label: "Policy as Code (clipboard guards)"
+    target: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
+  - label: "Config broker (clipboard budgets)"
+    target: tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
+  - label: Contract
+    target: "docs/rfcs/RFC-0094-content-transfer-v1-clipboardd.md · Decision: docs/adr/0070-clipboardd-one-authority-focus-gated-reads-ui-in-shell-and-keyboard.md"
+  - label: "Drag and drop (moved here 2026-10-07)"
+    target: tasks/TASK-0086-ui-v12c-files-app-progress-dnd-share-openwith.md
 ---
+
+> Status (migrated 2026-11-02): Done (2026-10-08 — recut with the operator: text only, drag and drop moved to TASK-0086, flavors stay TASK-0087's; RFC-0094 + ADR-0070; QEMU-proven; board cycle 1 findings fixed under TASK-0067B; board cycle 2 confirmed the clipboard rung)
 
 ## Recut 2026-10-07 — text clipboard, no drag and drop (binding; supersedes the 2026-09-09 rewrite below where they differ)
 

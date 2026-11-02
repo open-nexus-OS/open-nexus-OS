@@ -1,17 +1,32 @@
-# RFC-0019: IPC Request/Reply Correlation v1 (Nonces + Shared Reply Inbox)
+---
+schema: 1
+id: RFC-0019
+title: "IPC Request/Reply Correlation v1 (Nonces + Shared Reply Inbox)"
+status: done
+status_note: "superseded in part by RFC-0096 (TASK-0054C P2-d, 2026-09-16)"
+owners: ["@runtime"]
+created: 2026-02-05
+updated: 2026-02-06
+subsystem: storage
+tasks: [TASK-0009, TASK-0006]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md` (needs request/reply determinism for QEMU proof)"
+  - label: Tasks
+    target: "`tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md` (logd/crash-report topology baseline)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0005-kernel-ipc-capability-model.md` (CAP_MOVE + endpoint lifecycle)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md` (deterministic markers/phases)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0011-logd-journal-crash-v1.md` (crash-report semantics)"
+  - label: Engineering
+    target: "`docs/dev/platform/qemu-virtio-mmio-modern.md` (modern virtio-mmio rationale + patch option)"
+  - label: Harness
+    target: "`scripts/run-qemu-rv64.sh` (canonical QEMU invocation + virtio-mmio policy)"
+---
 
-- Status: Complete — **superseded in part by RFC-0096 (TASK-0054C P2-d, 2026-09-16)**
-- Owners: @runtime
-- Created: 2026-02-05
-- Last Updated: 2026-02-06
-- Links:
-  - Tasks: `tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md` (needs request/reply determinism for QEMU proof)
-  - Tasks: `tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md` (logd/crash-report topology baseline)
-  - Related RFCs: `docs/rfcs/RFC-0005-kernel-ipc-capability-model.md` (CAP_MOVE + endpoint lifecycle)
-  - Related RFCs: `docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md` (deterministic markers/phases)
-  - Related RFCs: `docs/rfcs/RFC-0011-logd-journal-crash-v1.md` (crash-report semantics)
-  - Engineering: `docs/dev/platform/qemu-virtio-mmio-modern.md` (modern virtio-mmio rationale + patch option)
-  - Harness: `scripts/run-qemu-rv64.sh` (canonical QEMU invocation + virtio-mmio policy)
+# RFC-0019: IPC Request/Reply Correlation v1 (Nonces + Shared Reply Inbox)
 
 ## Status at a Glance
 

@@ -1,22 +1,31 @@
 ---
-title: TASK-0102 UI v16d: Music app + Video app (gif/apng/mjpeg) + MIME wiring + OS selftests/postflight
-status: Draft
-owner: @media
+schema: 1
+id: TASK-0102
+title: "UI v16d: Music app + Video app (gif/apng/mjpeg) + MIME wiring + OS selftests/postflight"
+status: draft
+owner: ["@media"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
+tracks: [TRACK-NEXUSMEDIA-SDK, TRACK-MEDIA-APPS]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - System Delegation / System Surfaces (Open With defaults + share/export): tasks/TRACK-SYSTEM-DELEGATION.md
-  - NexusMedia SDK track (audio/video/image): tasks/TRACK-NEXUSMEDIA-SDK.md
-  - Media apps product track (quick players vs library/hubs): tasks/TRACK-MEDIA-APPS.md
-  - Media decoders: tasks/TASK-0099-ui-v16a-media-decoders.md
-  - Audiod mixer: tasks/TASK-0100-ui-v16b-audiod-mixer.md
-  - Media sessions + SystemUI controls: tasks/TASK-0101-ui-v16c-media-sessions-systemui-controls.md
-  - MIME/content foundations: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
-  - Doc picker (open): tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "System Delegation / System Surfaces (Open With defaults + share/export)"
+    target: tasks/TRACK-SYSTEM-DELEGATION.md
+  - label: "Media decoders"
+    target: tasks/TASK-0099-ui-v16a-media-decoders.md
+  - label: "Audiod mixer"
+    target: tasks/TASK-0100-ui-v16b-audiod-mixer.md
+  - label: "Media sessions + SystemUI controls"
+    target: tasks/TASK-0101-ui-v16c-media-sessions-systemui-controls.md
+  - label: "MIME/content foundations"
+    target: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
+  - label: "Doc picker (open)"
+    target: tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

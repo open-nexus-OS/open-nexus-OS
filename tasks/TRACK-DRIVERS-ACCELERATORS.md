@@ -1,28 +1,49 @@
 ---
-title: TRACK Drivers & Accelerators (GPU/NPU/VPU/Audio/Camera/ISP/Storage/Net/Sensors): contracts + gated roadmap
-status: Living
-owner: @runtime
+schema: 1
+id: TRACK-DRIVERS-ACCELERATORS
+title: "Drivers & Accelerators (GPU/NPU/VPU/Audio/Camera/ISP/Storage/Net/Sensors): contracts + gated roadmap"
+status: living
+owner: ["@runtime"]
 created: 2025-12-22
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - IPC/caps model: docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
-  - Hardware/MMIO access: tasks/TASK-0010-device-mmio-access-model.md
-  - VMO plumbing: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
-  - QoS/timers: tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
-  - Audit sink: tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
-  - UI consumer (renderer abstraction): tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md
-  - UI consumer (windowd wiring): tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md
-  - NexusGfx SDK track (consumer + future GPU backend): tasks/TRACK-NEXUSGFX-SDK.md
-  - NexusInfer SDK track (on-device ML; CPU ref + future NPU executor): tasks/TRACK-NEXUSINFER-SDK.md
-  - ADR (DriverKit ABI policy): docs/adr/0018-driverkit-abi-versioning-and-stability.md
-  - ADR (device-class driver architecture: bus-HAL + DriverKit + thin device shim): docs/adr/0039-device-class-driver-architecture.md
-  - Landed (virtio-mmio bus-HAL): source/libs/nexus-virtio — register map + init handshake + virtqueue ring + queue setup, generic over nexus_hal::Bus (net-virtio migrated; storage/rng/input/gpud boot-gated follow-ons)
-  - Extracted (DriverKit core v1): tasks/TASK-0280-gpu-and-scanout-base-contracts-driverkit-v2-gfxdevice-v2-host.md
-  - Extracted (NexusInfer interop/profile binding): tasks/TASK-0280B-nexusinfer-v1b-tensor-image-interop-profile-binding.md
-  - Extracted (DMA buffer ownership prototype): tasks/TASK-0284-userspace-dmabuffer-ownership-v1-prototype.md
-  - Extracted (NexusInfer ownership + CPU executor): tasks/TASK-0284B-nexusinfer-v1c-ownership-based-tensor-buffer-states-cpu-reference-executor.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "IPC/caps model"
+    target: docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
+  - label: "Hardware/MMIO access"
+    target: tasks/TASK-0010-device-mmio-access-model.md
+  - label: "VMO plumbing"
+    target: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
+  - label: QoS/timers
+    target: tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
+  - label: "Audit sink"
+    target: tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
+  - label: "UI consumer (renderer abstraction)"
+    target: tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md
+  - label: "UI consumer (windowd wiring)"
+    target: tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md
+  - label: "NexusGfx SDK track (consumer + future GPU backend)"
+    target: tasks/TRACK-NEXUSGFX-SDK.md
+  - label: "NexusInfer SDK track (on-device ML; CPU ref + future NPU executor)"
+    target: tasks/TRACK-NEXUSINFER-SDK.md
+  - label: "ADR (DriverKit ABI policy)"
+    target: docs/adr/0018-driverkit-abi-versioning-and-stability.md
+  - label: "ADR (device-class driver architecture"
+    target: "bus-HAL + DriverKit + thin device shim): docs/adr/0039-device-class-driver-architecture.md"
+  - label: "Landed (virtio-mmio bus-HAL)"
+    target: "source/libs/nexus-virtio — register map + init handshake + virtqueue ring + queue setup, generic over nexus_hal::Bus (net-virtio migrated; storage/rng/input/gpud boot-gated follow-ons)"
+  - label: "Extracted (DriverKit core v1)"
+    target: tasks/TASK-0280-gpu-and-scanout-base-contracts-driverkit-v2-gfxdevice-v2-host.md
+  - label: "Extracted (NexusInfer interop/profile binding)"
+    target: tasks/TASK-0280B-nexusinfer-v1b-tensor-image-interop-profile-binding.md
+  - label: "Extracted (DMA buffer ownership prototype)"
+    target: tasks/TASK-0284-userspace-dmabuffer-ownership-v1-prototype.md
+  - label: "Extracted (NexusInfer ownership + CPU executor)"
+    target: tasks/TASK-0284B-nexusinfer-v1c-ownership-based-tensor-buffer-states-cpu-reference-executor.md
 ---
+
 > **Dissolved 2026-09-21 (hardware fast track).** The GPU service candidate (CAND-DRV-010) is now
 > `tasks/TASK-0329-gpu-device-driver-img-b-series-gpud-backend-firmware-mmu-submission.md` (target
 > picture G in `tasks/IMPLEMENTATION-ORDER.md`, with 0280/0169B/0170B/0171/0215/0216 recut as the

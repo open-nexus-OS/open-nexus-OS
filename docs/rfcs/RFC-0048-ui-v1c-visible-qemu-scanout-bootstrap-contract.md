@@ -1,6 +1,15 @@
-# RFC-0048: UI v1c visible QEMU scanout bootstrap contract seed
+---
+schema: 1
+id: RFC-0048
+title: "UI v1c visible QEMU scanout bootstrap contract seed"
+status: superseded
+status_note: "by RFC-0059 Phase 6 — GPU-only architecture, fbdevd/ramfb removed"
+owners: ["@unassigned"]
+created: 2026-04-29
+superseded_by: [RFC-0059]
+---
 
-- Status: Superseded (by RFC-0059 Phase 6 — GPU-only architecture, fbdevd/ramfb removed)
+# RFC-0048: UI v1c visible QEMU scanout bootstrap contract seed
 
 > Note (2026-07 repo hygiene): the `visible-bootstrap` harness profile and the
 > `test-os-visible-pci` recipe were removed. Headless GPU-chain coverage lives in

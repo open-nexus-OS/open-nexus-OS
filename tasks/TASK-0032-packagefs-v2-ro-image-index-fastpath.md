@@ -1,29 +1,29 @@
 ---
-title: TASK-0032 packagefs v2: read-only package image + precomputed index (O(1) lookup) + host tooling (host-first, OS-gated)
-status: Done
-owner: @runtime
+schema: 1
+id: TASK-0032
+title: "packagefs v2: read-only package image + precomputed index (O(1) lookup) + host tooling (host-first, OS-gated)"
+status: done
+owner: ["@runtime"]
 created: 2025-12-22
-depends-on:
-  - TASK-0007
-  - TASK-0009
-  - TASK-0010
-follow-up-tasks:
-  - TASK-0033
-  - TASK-0286
-  - TASK-0287
-  - TASK-0290
+subsystem: storage
+done: 2026-07-17
+dates_source: git-reconstructed
+depends_on: [TASK-0007, TASK-0009, TASK-0010]
+follow_ups: [TASK-0033, TASK-0286, TASK-0287, TASK-0290]
+implements: [RFC-0041]
 links:
-  - Vision: docs/architecture/vision.md
-  - Contract seed (this task): docs/rfcs/RFC-0041-packagefs-v2-ro-image-index-fastpath-host-first-os-gated.md
-  - Packaging baseline: docs/packaging/nxb.md
-  - Production gate policy: tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md
-  - Depends-on (packaging drift fix): tasks/TASK-0007-updates-packaging-v1_1-userspace-ab-skeleton.md
-  - Depends-on (block device model): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Depends-on (MMIO access, if blk-backed on OS): tasks/TASK-0010-device-mmio-access-model.md
-  - Related (VMO plumbing): tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
-  - Related (VMO splice follow-up): tasks/TASK-0033-packagefs-v2b-vmo-splice-from-image.md
-  - Architecture baseline: docs/architecture/12-storage-vfs-packagefs.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: "Packaging baseline"
+    target: docs/packaging/nxb.md
+  - label: "Production gate policy"
+    target: tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md
+  - label: "Related (VMO plumbing)"
+    target: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
+  - label: "Architecture baseline"
+    target: docs/architecture/12-storage-vfs-packagefs.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

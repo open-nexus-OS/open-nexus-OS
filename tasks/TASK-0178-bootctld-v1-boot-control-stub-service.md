@@ -1,18 +1,27 @@
 ---
-title: TASK-0178 Boot control v1 (OS/QEMU): bootctld stub service + slot/trial state + markers (no real reboot)
-status: Superseded
-owner: @runtime
+schema: 1
+id: TASK-0178
+title: "Boot control v1 (OS/QEMU): bootctld stub service + slot/trial state + markers (no real reboot)"
+status: superseded
+owner: ["@runtime"]
 created: 2025-12-27
-depends-on: []
-follow-up-tasks: []
+subsystem: updates
+superseded_by: [TASK-0050]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Updates A/B skeleton baseline: tasks/TASK-0007-updates-packaging-v1_1-userspace-ab-skeleton.md
-  - OTA v2 state machine baseline: tasks/TASK-0036-ota-ab-v2-userspace-healthmux-rollback-softreboot.md
-  - Persistence (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Testing contract: scripts/qemu-test.sh
-  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Updates A/B skeleton baseline"
+    target: tasks/TASK-0007-updates-packaging-v1_1-userspace-ab-skeleton.md
+  - label: "OTA v2 state machine baseline"
+    target: tasks/TASK-0036-ota-ab-v2-userspace-healthmux-rollback-softreboot.md
+  - label: "Persistence (/state)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
+  - label: "Data formats rubric (JSON vs Cap'n Proto)"
+    target: docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
 ## Superseded 2026-08-18 → TASK-0050 (ADR-0055)

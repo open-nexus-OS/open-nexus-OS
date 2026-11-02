@@ -147,6 +147,8 @@ help:
     @echo "  just lint                # run clippy checks"
     @echo "  just fmt-check           # verify rustfmt formatting"
     @echo "  just arch-check          # userspace/kernel layering guard"
+    @echo "  just brief               # active milestone, this week's sprint, open work (RFC-0115)"
+    @echo "  just ledger-gate         # planning documents are canonical and follow the rules"
     @echo "  just arch-gate           # selftest-client structural gate (ADR-0027)"
     @echo "  just deny-check          # cargo-deny license/advisory check"
     @echo "  just test-all            # host tests + miri + arch-check + kernel selftests"
@@ -669,7 +671,16 @@ structure-baseline:
 # -----------------------------------------------------------------------------
 
 # Fast pre-commit gate (~3-5 min): formatting, clippy, licenses, layering, structure.
-check: fmt-check lint deny-check arch-check structure-gate build-truth init-sync slot-ssot platform-literals fixed-windows display-ssot wait-not-poll ipc-bounds payload-vmo retired-names ci-parity board-goldens firmware-provenance
+check: fmt-check lint deny-check arch-check structure-gate ledger-gate build-truth init-sync slot-ssot platform-literals fixed-windows display-ssot wait-not-poll ipc-bounds payload-vmo retired-names ci-parity board-goldens firmware-provenance
+
+# RFC-0115: every planning document (tasks, tracks, RFCs, milestones, sprints) is canonical
+# frontmatter that follows the rules; `nx ledger lint --fix` renders, `--notes` lists dangling ids.
+ledger-gate:
+    @cargo +{{toolchain}} run -q -p nx -- ledger lint
+
+# RFC-0115: what a session reads first — the active milestone, this week's sprint, open work.
+brief:
+    @cargo +{{toolchain}} run -q -p nx -- ledger brief
 
 # TASK-0329 P0: every firmware blob under resources/firmware/ is named in its README with its
 # sha256 (the hash holds) and has its LICENSE beside it — never a patched or undocumented blob.

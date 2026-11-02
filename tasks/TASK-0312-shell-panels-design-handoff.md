@@ -1,15 +1,27 @@
 ---
-title: TASK-0312 Shell panels design handoff — topbar + six drop-downs 1:1
-status: In Progress (2026-07-30) — Phase 0-5 + repair rounds 1-2 done (`just check`, `just test-host`, OS build green; 13 panel proofs); OPEN: re-boot to confirm
-owner: @ui
+schema: 1
+id: TASK-0312
+title: "Shell panels design handoff — topbar + six drop-downs 1:1"
+status: in_progress
+status_note: "(2026-07-30) — Phase 0-5 + repair rounds 1-2 done (`just check`, `just test-host`, OS build green; 13 panel proofs); OPEN: re-boot to confirm"
+owner: ["@ui"]
 created: 2026-07-30
+subsystem: ui
+started: 2026-07-30
+dates_source: git-reconstructed
 links:
-  - Design contract: userspace/apps/desktop-shell/docs/design_handoff_panels/README.md
-  - Visual truth: userspace/apps/desktop-shell/docs/design_handoff_panels/OpenNexusPanels.html
-  - Layout SSOT: docs/dev/ui/patterns/shell-launcher.md
-  - App layout convention: docs/dev/dsl/project-layout.md
-  - Prior handoff port (pattern): tasks/TASK-0311-settings-design-handoff-window.md
-  - Playbook: CLAUDE.md
+  - label: "Design contract"
+    target: userspace/apps/desktop-shell/docs/design_handoff_panels/README.md
+  - label: "Visual truth"
+    target: userspace/apps/desktop-shell/docs/design_handoff_panels/OpenNexusPanels.html
+  - label: "Layout SSOT"
+    target: docs/dev/ui/patterns/shell-launcher.md
+  - label: "App layout convention"
+    target: docs/dev/dsl/project-layout.md
+  - label: "Prior handoff port (pattern)"
+    target: tasks/TASK-0311-settings-design-handoff-window.md
+  - label: Playbook
+    target: CLAUDE.md
 ---
 
 ## Context

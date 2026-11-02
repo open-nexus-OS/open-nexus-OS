@@ -1,21 +1,28 @@
 ---
-title: TASK-0126D Chat Action Cards v0 (host-first): inline cards for track/confirm/open + provider registry + snapshot persistence + deterministic tests
-status: Draft
-owner: @ui @runtime
+schema: 1
+id: TASK-0126D
+title: "Chat Action Cards v0 (host-first): inline cards for track/confirm/open + provider registry + snapshot persistence + deterministic tests"
+status: draft
+owner: ["@ui", "@runtime"]
 created: 2026-01-28
-depends-on: []
-follow-up-tasks: []
+subsystem: messaging
+split_from: TASK-0126
+tracks: [TRACK-ADS-SAFETY-FAMILYMODE, TRACK-SYSTEM-DELEGATION, TRACK-DSL-V1-DEVX]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
-  - System Delegation track: tasks/TRACK-SYSTEM-DELEGATION.md
-  - DSL v1 DevX track: tasks/TRACK-DSL-V1-DEVX.md
-  - UI layout pipeline contract: docs/dev/ui/foundations/layout/layout-pipeline.md
-  - Action-based intents baseline: tasks/TASK-0126B-system-delegation-v1a-intent-actions-defaults-policy-host.md
-  - Chooser/defaults pattern: tasks/TASK-0127-share-v2b-chooser-ui-targets-grants.md
-  - Policy v1 (intents caps, audit): tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
-  - Scoped grants (content://): tasks/TASK-0084-ui-v12a-scoped-uri-grants.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "UI layout pipeline contract"
+    target: docs/dev/ui/foundations/layout/layout-pipeline.md
+  - label: "Action-based intents baseline"
+    target: tasks/TASK-0126B-system-delegation-v1a-intent-actions-defaults-policy-host.md
+  - label: "Chooser/defaults pattern"
+    target: tasks/TASK-0127-share-v2b-chooser-ui-targets-grants.md
+  - label: "Policy v1 (intents caps, audit)"
+    target: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
+  - label: Link
+    target: "Scoped grants (content://): tasks/TASK-0084-ui-v12a-scoped-uri-grants.md"
 ---
 
 ## Context

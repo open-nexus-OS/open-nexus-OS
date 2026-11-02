@@ -1,19 +1,23 @@
 ---
-title: TASK-0035 Delta updates v1b (system sets): nxs delta container + updated orchestration
-status: Done (P1–P4 delivered 2026-09-05)
-owner: @runtime
+schema: 1
+id: TASK-0035
+title: "Delta updates v1b (system sets): nxs delta container + updated orchestration"
+status: done
+status_note: "P1–P4 delivered 2026-09-05"
+owner: ["@runtime"]
 created: 2025-12-22
 updated: 2026-09-03
-depends-on:
-  - TASK-0034
-  - TASK-0321
-follow-up-tasks: []
+subsystem: updates
+started: 2026-09-04
+done: 2026-09-05
+active_days: 2
+dates_source: git-reconstructed
+depends_on: [TASK-0034, TASK-0321, TASK-0007, TASK-0029]
 links:
-  - Vision: docs/architecture/vision.md
-  - Depends-on (bundle deltas): tasks/TASK-0034-delta-updates-v1-bundle-nxdelta.md
-  - Depends-on (updates service): tasks/TASK-0007-updates-packaging-v1_1-userspace-ab-skeleton.md
-  - Depends-on (supply-chain policy): tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
-  - Signing policy: docs/security/signing-and-policy.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: "Signing policy"
+    target: docs/security/signing-and-policy.md
 ---
 
 ## End-state rewrite 2026-09-03 (binding; executes on TASK-0321 P3)

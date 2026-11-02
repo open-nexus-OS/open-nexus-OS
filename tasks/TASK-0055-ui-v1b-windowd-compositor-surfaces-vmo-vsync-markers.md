@@ -1,43 +1,46 @@
 ---
-title: TASK-0055 UI v1b (OS-gated): windowd compositor + surfaces/layers IPC + VMO buffers + vsync timer + markers
-status: Done
-owner: @ui
+schema: 1
+id: TASK-0055
+title: "UI v1b (OS-gated): windowd compositor + surfaces/layers IPC + VMO buffers + vsync timer + markers"
+status: done
+owner: ["@ui"]
 created: 2025-12-23
-depends-on:
-  - TASK-0054
-  - TASK-0031
-  - TASK-0013
-  - TASK-0046
-  - TASK-0047
-follow-up-tasks:
-  - TASK-0055B
-  - TASK-0055C
-  - TASK-0055D
-  - TASK-0056
-  - TASK-0056B
-  - TASK-0056C
-  - TASK-0169
-  - TASK-0170
-  - TASK-0170B
-  - TASK-0250
-  - TASK-0251
+subsystem: ui
+started: 2026-04-27
+done: 2026-04-27
+active_days: 1
+dates_source: git-reconstructed
+depends_on: [TASK-0054, TASK-0031, TASK-0013, TASK-0046, TASK-0047]
+follow_ups: [TASK-0055B, TASK-0055C, TASK-0055D, TASK-0056, TASK-0056B, TASK-0056C, TASK-0169, TASK-0170, TASK-0170B, TASK-0250, TASK-0251]
+implements: [RFC-0047]
+tracks: [TRACK-DRIVERS-ACCELERATORS]
 links:
-  - RFC: docs/rfcs/RFC-0047-ui-v1b-windowd-surface-layer-present-contract.md
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Gfx resource model: docs/architecture/graphics/nexusgfx-resource-model.md
-  - Gfx sync/lifetime model: docs/architecture/graphics/nexusgfx-sync-and-lifetime.md
-  - Gfx command/pass model: docs/architecture/graphics/nexusgfx-command-and-pass-model.md
-  - UI track dependencies: tasks/TRACK-DRIVERS-ACCELERATORS.md
-  - VMO plumbing: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
-  - QoS/timers (vsync spine): tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
-  - Config broker (ui profile): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
-  - Dev display/profile presets follow-up: tasks/TASK-0055D-ui-v1e-dev-display-profile-presets-qemu-hz.md
-  - Policy as Code (permissions): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
-  - Logging/audit sink: tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
-  - UI v1a renderer: tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md
-  - Deterministic parallelism policy (thread pools): tasks/TASK-0276-parallelism-v1-deterministic-threadpools-policy-contract.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Gfx resource model"
+    target: docs/architecture/graphics/nexusgfx-resource-model.md
+  - label: "Gfx sync/lifetime model"
+    target: docs/architecture/graphics/nexusgfx-sync-and-lifetime.md
+  - label: "Gfx command/pass model"
+    target: docs/architecture/graphics/nexusgfx-command-and-pass-model.md
+  - label: "VMO plumbing"
+    target: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
+  - label: "QoS/timers (vsync spine)"
+    target: tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
+  - label: "Config broker (ui profile)"
+    target: tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
+  - label: "Policy as Code (permissions)"
+    target: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
+  - label: "Logging/audit sink"
+    target: tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
+  - label: "UI v1a renderer"
+    target: tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md
+  - label: "Deterministic parallelism policy (thread pools)"
+    target: tasks/TASK-0276-parallelism-v1-deterministic-threadpools-policy-contract.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

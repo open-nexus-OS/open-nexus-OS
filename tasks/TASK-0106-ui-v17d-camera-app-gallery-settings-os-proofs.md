@@ -1,24 +1,35 @@
 ---
-title: TASK-0106 UI v17d: Camera app + Gallery integration + Settings privacy page + OS selftests/postflight
-status: Draft
-owner: @media
+schema: 1
+id: TASK-0106
+title: "UI v17d: Camera app + Gallery integration + Settings privacy page + OS selftests/postflight"
+status: draft
+owner: ["@media"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
+tracks: [TRACK-DSL-V1-DEVX, TRACK-MEDIA-APPS]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - DSL v1 DevX track: tasks/TRACK-DSL-V1-DEVX.md
-  - DSL app platform: tasks/TASK-0122B-dsl-app-platform-v1-shell-routing-launch-contract.md
-  - DSL app integration kit: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md
-  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
-  - Media apps product track (Photos vs TV hub): tasks/TRACK-MEDIA-APPS.md
-  - Perms/privacy substrate: tasks/TASK-0103-ui-v17a-permissions-privacyd.md
-  - Camera/mic devices: tasks/TASK-0104-ui-v17b-camerad-micd-virtual-sources.md
-  - Screen recorder + capture UI: tasks/TASK-0105-ui-v17c-screen-recorder-capture-overlay.md
-  - Thumbnailer + recents: tasks/TASK-0082-ui-v11b-thumbnailer-recents.md
-  - Files integration: tasks/TASK-0086-ui-v12c-files-app-progress-dnd-share-openwith.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "DSL app platform"
+    target: tasks/TASK-0122B-dsl-app-platform-v1-shell-routing-launch-contract.md
+  - label: "DSL app integration kit"
+    target: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md
+  - label: "DSL syntax/layout convention"
+    target: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
+  - label: "Perms/privacy substrate"
+    target: tasks/TASK-0103-ui-v17a-permissions-privacyd.md
+  - label: "Camera/mic devices"
+    target: tasks/TASK-0104-ui-v17b-camerad-micd-virtual-sources.md
+  - label: "Screen recorder + capture UI"
+    target: tasks/TASK-0105-ui-v17c-screen-recorder-capture-overlay.md
+  - label: "Thumbnailer + recents"
+    target: tasks/TASK-0082-ui-v11b-thumbnailer-recents.md
+  - label: "Files integration"
+    target: tasks/TASK-0086-ui-v12c-files-app-progress-dnd-share-openwith.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

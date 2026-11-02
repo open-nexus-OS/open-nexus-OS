@@ -4,7 +4,7 @@
 # green again; never add one without the tracking reference.
 #
 # DSoftBus family (network lanes HOLD until the joint replanning — see
-# tasks/IMPLEMENTATION-ORDER.md "Netz-Gruppe"; dsoftbusd announces no ready
+# tasks/milestones/hardware-network.md step N5; dsoftbusd announces no ready
 # marker and the single-VM QUIC probe has been red since at least 2026-08-25).
 SELFTEST: dsoftbus os connect FAIL
 SELFTEST: dsoftbus ping FAIL

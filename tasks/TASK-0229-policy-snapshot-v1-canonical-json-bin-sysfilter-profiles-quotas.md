@@ -1,18 +1,26 @@
 ---
-title: TASK-0229 Policy snapshot v1 (host-first): canonical policy → stable JSON + compact binary snapshot for OS (sysfilter profiles, quotas, sandbox)
-status: Draft
-owner: @security @runtime
+schema: 1
+id: TASK-0229
+title: "Policy snapshot v1 (host-first): canonical policy → stable JSON + compact binary snapshot for OS (sysfilter profiles, quotas, sandbox)"
+status: draft
+owner: ["@security", "@runtime"]
 created: 2025-12-29
-depends-on: []
-follow-up-tasks: []
+subsystem: kernel
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Policy as Code (unified tree + canonicalization): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
-  - Config distribution + 2PC apply: tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
-  - Kernel sysfilter (TaskProfileId + syscall allowlist): tasks/TASK-0188-kernel-sysfilter-v1-task-profiles-rate-buckets.md
-  - Sandbox profiles (userspace IPC/VFS rules): tasks/TASK-0189-sandbox-profiles-v2-sandboxd-or-policyd-distribution-ipc-vfs.md
-  - Quotas / egress (userspace enforcement): tasks/TASK-0043-security-v2-sandbox-quotas-egress-abi-audit.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Policy as Code (unified tree + canonicalization)"
+    target: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
+  - label: "Config distribution + 2PC apply"
+    target: tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
+  - label: "Kernel sysfilter (TaskProfileId + syscall allowlist)"
+    target: tasks/TASK-0188-kernel-sysfilter-v1-task-profiles-rate-buckets.md
+  - label: "Sandbox profiles (userspace IPC/VFS rules)"
+    target: tasks/TASK-0189-sandbox-profiles-v2-sandboxd-or-policyd-distribution-ipc-vfs.md
+  - label: "Quotas / egress (userspace enforcement)"
+    target: tasks/TASK-0043-security-v2-sandbox-quotas-egress-abi-audit.md
 ---
 
 ## Context

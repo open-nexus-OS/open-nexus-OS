@@ -1,21 +1,33 @@
 ---
-title: TASK-0183 Encryption-at-Rest v1b (OS/QEMU): securefsd overlay (state:/secure) + unlock/lock/change + migration + SystemUI unlock sheet + nx-secure + policy/quotas + selftests/docs
-status: Superseded
-owner: @security
+schema: 1
+id: TASK-0183
+title: "Encryption-at-Rest v1b (OS/QEMU): securefsd overlay (state:/secure) + unlock/lock/change + migration + SystemUI unlock sheet + nx-secure + policy/quotas + selftests/docs"
+status: superseded
+owner: ["@security"]
 created: 2025-12-27
-depends-on: []
-follow-up-tasks: []
+subsystem: observability
+superseded_by: [TASK-0320]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Crypto/KDF substrate (host-first): tasks/TASK-0182-encryption-at-rest-v1a-host-secure-keys-io-format-tests.md
-  - Keystore seal/unseal OS wiring: tasks/TASK-0160-identity-keystore-v1_1-os-attestd-trust-unification-selftests.md
-  - Persistence substrate (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Quotas model: tasks/TASK-0133-statefs-quotas-v1-accounting-enforcement.md
-  - Backup/Restore integration (exclusions): tasks/TASK-0162-backup-restore-v1b-os-backupd-settings-cli-selftests-docs.md
-  - Policy capability matrix: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
-  - Testing contract: scripts/qemu-test.sh
-  - Superseded by: docs/rfcs/RFC-0071-nxfs-user-data-filesystem-contract.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Crypto/KDF substrate (host-first)"
+    target: tasks/TASK-0182-encryption-at-rest-v1a-host-secure-keys-io-format-tests.md
+  - label: "Keystore seal/unseal OS wiring"
+    target: tasks/TASK-0160-identity-keystore-v1_1-os-attestd-trust-unification-selftests.md
+  - label: "Persistence substrate (/state)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Quotas model"
+    target: tasks/TASK-0133-statefs-quotas-v1-accounting-enforcement.md
+  - label: "Backup/Restore integration (exclusions)"
+    target: tasks/TASK-0162-backup-restore-v1b-os-backupd-settings-cli-selftests-docs.md
+  - label: "Policy capability matrix"
+    target: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
+  - label: "Superseded by"
+    target: docs/rfcs/RFC-0071-nxfs-user-data-filesystem-contract.md
 ---
 
 > **SUPERSEDED (2026-07-15, ADR-0043).** There will be no `securefsd` overlay; encrypted user data

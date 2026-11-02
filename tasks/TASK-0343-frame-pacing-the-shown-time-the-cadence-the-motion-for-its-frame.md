@@ -1,17 +1,30 @@
 ---
-title: TASK-0343 Frame pacing — when a frame reaches the glass, the cadence the driver holds, the motion computed for the time a frame is shown; typing's frames without pixels; the underflows timed
-status: In Progress (board cycle 62 2026-10-22 — the operator follows the scroll, typing's frames carry pixels, the underflows timed; open: the prediction lands early — 62–72 % on time while scrolling against the 90 % line; parked to layer 8's closing by the operator 2026-10-22)
-owner: @ui @gpu
+schema: 1
+id: TASK-0343
+title: "Frame pacing — when a frame reaches the glass, the cadence the driver holds, the motion computed for the time a frame is shown; typing's frames without pixels; the underflows timed"
+status: in_progress
+status_note: "board cycle 62 2026-10-22"
+owner: ["@ui", "@gpu"]
 created: 2026-10-22
-depends-on: [TASK-0342 (the frame chain: flips through the latch, the hops)]
-follow-up-tasks: [RFC-0110 Phase 1 (the frame budget judges a paced frame against its cadence's step); TASK-0335 P4's rest (the blur's dual filter); layer 8 (planes for what moves); the input's own stamp from the device (RFC-0108 Phase 1); the legacy proof cards' scene (`systemui_shell` hover/click/keyboard cards — nothing shows them where the GPU composes; the windowd clean-up map's MOVE)]
+subsystem: ui
+started: 2026-10-22
+dates_source: git-reconstructed
+depends_on: [TASK-0342]
+implements: [RFC-0110, RFC-0093]
 links:
-  - RFC: docs/rfcs/RFC-0110-frame-timing-the-shown-time-the-cadence-the-motion-for-its-frame.md
-  - RFC: docs/rfcs/RFC-0093-display-handoff-and-boot-stage-contract.md (§5 the present ack, amended)
-  - Measurement: docs/board/measurements/2026-10-22-frame-pace/README.md
-  - Together with: tasks/TASK-0335-frame-cost-fewer-textured-pixels-per-frame-glass-banded-occlusion.md (P4: a scroll frame computes no corner and no shadow) — one board cycle
-  - Before: docs/board/measurements/2026-10-22-frame-chain/README.md (cycle 61)
+  - label: RFC
+    target: "docs/rfcs/RFC-0093-display-handoff-and-boot-stage-contract.md (§5 the present ack, amended)"
+  - label: Measurement
+    target: docs/board/measurements/2026-10-22-frame-pace/README.md
+  - label: "Together with"
+    target: "tasks/TASK-0335-frame-cost-fewer-textured-pixels-per-frame-glass-banded-occlusion.md (P4: a scroll frame computes no corner and no shadow) — one board cycle"
+  - label: Before
+    target: "docs/board/measurements/2026-10-22-frame-chain/README.md (cycle 61)"
+  - label: follow-up
+    target: "RFC-0110 Phase 1 (the frame budget judges a paced frame against its cadence's step); TASK-0335 P4's rest (the blur's dual filter); layer 8 (planes for what moves); the input's own stamp from the device (RFC-0108 Phase 1); the legacy proof cards' scene (`systemui_shell` hover/click/keyboard cards — nothing shows them where the GPU composes; the windowd clean-up map's MOVE)"
 ---
+
+> Status (migrated 2026-11-02): In Progress (board cycle 62 2026-10-22 — the operator follows the scroll, typing's frames carry pixels, the underflows timed; open: the prediction lands early — 62–72 % on time while scrolling against the 90 % line; parked to layer 8's closing by the operator 2026-10-22)
 
 ## Context (cycle 61)
 

@@ -1,22 +1,34 @@
 ---
-title: TASK-0073 UI v10a (host-first): Design-System SSOT — token convergence + glass primitive + core/controls/inputs/nav/window primitives (full contract, fidelity waves) + goldens + a11y/contrast lints + HIG-grade docs
-status: Done
-owner: @ui
+schema: 1
+id: TASK-0073
+title: "UI v10a (host-first): Design-System SSOT — token convergence + glass primitive + core/controls/inputs/nav/window primitives (full contract, fidelity waves) + goldens + a11y/contrast lints + HIG-grade docs"
+status: done
+owner: ["@ui"]
 created: 2025-12-23
 updated: 2026-07-05
-depends-on: []
-follow-up-tasks:
-  - TASK-0074 (app shell + modal manager + overlays wave + SystemUI/app adoption)
+subsystem: ui
+done: 2026-07-19
+dates_source: git-reconstructed
+follow_ups: [TASK-0074]
 links:
-  - Architecture spine: docs/rfcs/RFC-0070-ui-design-system-ssot-convergence.md
-  - Component inventory (IST + promote verdict): docs/dev/ui/components/inventory.md
-  - Token reconciliation (4 sources → 1 SSOT): docs/dev/ui/foundations/visual/token-reconciliation.md
-  - Design contract (54 components / 67 interfaces): docs/dev/design_handoff_open_nexus_os/
-  - DSL emit target: tasks/TRACK-DSL-V1-DEVX.md, tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
-  - Layout/pretext baseline: docs/rfcs/RFC-0057 (nexus-layout)
-  - Scene-graph/theme baseline: docs/rfcs/RFC-0063
-  - windowd boundary: docs/rfcs/RFC-0067 (this task realizes the W6 direction)
-  - Testing contract: scripts/qemu-test.sh
+  - label: "Architecture spine"
+    target: docs/rfcs/RFC-0070-ui-design-system-ssot-convergence.md
+  - label: "Component inventory (IST + promote verdict)"
+    target: docs/dev/ui/components/inventory.md
+  - label: "Token reconciliation (4 sources → 1 SSOT)"
+    target: docs/dev/ui/foundations/visual/token-reconciliation.md
+  - label: "Design contract (54 components / 67 interfaces)"
+    target: docs/dev/design_handoff_open_nexus_os/
+  - label: "DSL emit target"
+    target: "tasks/TRACK-DSL-V1-DEVX.md, tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md"
+  - label: "Layout/pretext baseline"
+    target: "docs/rfcs/RFC-0057 (nexus-layout)"
+  - label: "Scene-graph/theme baseline"
+    target: docs/rfcs/RFC-0063
+  - label: "windowd boundary"
+    target: "docs/rfcs/RFC-0067 (this task realizes the W6 direction)"
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context (updated 2026-07-05)

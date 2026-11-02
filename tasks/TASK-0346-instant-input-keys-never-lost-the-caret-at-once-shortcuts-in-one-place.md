@@ -1,15 +1,30 @@
 ---
-title: TASK-0346 Instant input — keys never lost, the caret at once, the editing a person expects, every shortcut in one place
-status: Done (2026-10-30 — board cycles 78–79, `[PASS]` on every rung and on every act the operator did; test-all green)
-owner: @runtime @ui
+schema: 1
+id: TASK-0346
+title: "Instant input — keys never lost, the caret at once, the editing a person expects, every shortcut in one place"
+status: done
+status_note: "2026-10-30 — board cycles 78–79, `[PASS]` on every rung and on every act the operator did; test-all green"
+owner: ["@runtime", "@ui"]
 created: 2026-10-30
-depends-on: []
-follow-up-tasks: [the key→present p99 on the board (the present path — RFC-0108, Block-4 layer 8), Ctrl+Space switching the input source, a controller-side time per USB report, the next package: the address space + app heap with the compositor's restart (6g) and dynamic window slots]
+subsystem: ui
+done: 2026-10-30
+dates_source: status-text
+implements: [RFC-0113]
 links:
-  - RFC: docs/rfcs/RFC-0113-instant-input-every-event-counted-keys-never-lost-the-source-decides-the-route.md
-  - ADR: docs/adr/0090-the-input-source-decides-the-route-windowd-orders-focus-and-keys-the-compositor-owns-the-caret.md
-  - Evidence: board cycles 72–77 (`inputd: imed send FAIL` with every focused field), build/logs/board--2026-10-30T08-29-17/
-  - Queued by: tasks/TASK-0333 (the keyboard package after 6f), tasks/IMPLEMENTATION-ORDER.md row 6
+  - label: ADR
+    target: docs/adr/0090-the-input-source-decides-the-route-windowd-orders-focus-and-keys-the-compositor-owns-the-caret.md
+  - label: Evidence
+    target: "board cycles 72–77 (`inputd: imed send FAIL` with every focused field), build/logs/board--2026-10-30T08-29-17/"
+  - label: "Queued by"
+    target: "tasks/TASK-0333 (the keyboard package after 6f), tasks/milestones/hardware-network.md row 6"
+  - label: follow-up
+    target: "the key→present p99 on the board (the present path — RFC-0108, Block-4 layer 8)"
+  - label: follow-up
+    target: "Ctrl+Space switching the input source"
+  - label: follow-up
+    target: "a controller-side time per USB report"
+  - label: follow-up
+    target: "the next package: the address space + app heap with the compositor's restart (6g) and dynamic window slots"
 ---
 
 # TASK-0346 — Instant input

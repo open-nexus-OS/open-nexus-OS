@@ -1,18 +1,27 @@
 ---
-title: TASK-0331 Network proof lanes on a real network: cross-device discovery (W1), a peer for `quic-required` (W2), runner truth (W3h) — board ↔ QEMU/host
-status: Draft (seeded 2026-09-21 by the hardware fast track — `tasks/IMPLEMENTATION-ORDER.md`; rewritten to end state at its block's P0)
-owner: @runtime
+schema: 1
+id: TASK-0331
+title: "Network proof lanes on a real network: cross-device discovery (W1), a peer for `quic-required` (W2), runner truth (W3h) — board ↔ QEMU/host"
+status: draft
+status_note: "seeded 2026-09-21 by the hardware fast track — `tasks/IMPLEMENTATION-ORDER.md`; rewritten to end state at its block's P0"
+owner: ["@runtime"]
 created: 2026-09-21
-depends-on: []
-follow-up-tasks: []
+subsystem: networking
+depends_on: [TASK-0248, TASK-0249, TASK-0193]
+implements: [RFC-0014]
 links:
-  - Execution order (the lane this belongs to): tasks/IMPLEMENTATION-ORDER.md
-  - Playbook: CLAUDE.md
-  - Extracted from: tasks/TRACK-NETWORK-PROOF-LANES.md
-  - Phase contract: docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md
-  - Marker contract: source/apps/selftest-client/proof-manifest/markers/net.toml
-  - 2-VM harness: tools/os2vm.sh, docs/rfcs/RFC-0010-*.md
-  - Prerequisites: tasks/TASK-0248-*.md, tasks/TASK-0249-*.md (real NIC), tasks/TASK-0193-*.md (TLS)
+  - label: "Execution order (the lane this belongs to)"
+    target: tasks/milestones/hardware-network.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Extracted from"
+    target: tasks/TRACK-NETWORK-PROOF-LANES.md
+  - label: "Marker contract"
+    target: source/apps/selftest-client/proof-manifest/markers/net.toml
+  - label: "2-VM harness"
+    target: "tools/os2vm.sh, docs/rfcs/RFC-0010-*.md"
+  - label: Prerequisites
+    target: "tasks/TASK-0248-*.md, tasks/TASK-0249-*.md (real NIC), tasks/TASK-0193-*.md (TLS)"
 ---
 
 ## Origin

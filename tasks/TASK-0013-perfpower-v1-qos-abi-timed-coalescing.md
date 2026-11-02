@@ -1,31 +1,29 @@
 ---
-title: TASK-0013 Performance & Power v1 (userspace): QoS ABI hints + timed service (timer coalescing)
-status: Done
-owner: @runtime
+schema: 1
+id: TASK-0013
+title: "Performance & Power v1 (userspace): QoS ABI hints + timed service (timer coalescing)"
+status: done
+owner: ["@runtime"]
 created: 2025-12-22
-depends-on:
-  - TASK-0012
-  - TASK-0012B
-follow-up-tasks:
-  - TASK-0042
-  - TASK-0247
-  - TASK-0277
-  - TASK-0283
+subsystem: kernel
+started: 2026-02-12
+done: 2026-02-12
+active_days: 1
+dates_source: git-reconstructed
+depends_on: [TASK-0012, TASK-0012B]
+follow_ups: [TASK-0042, TASK-0247, TASK-0277, TASK-0283]
+implements: [RFC-0023, RFC-0022, RFC-0020]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - QoS/timed contract (this task): docs/rfcs/RFC-0023-qos-abi-timed-coalescing-contract-v1.md
-  - Depends-on (SMP baseline): tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md
-  - Depends-on (SMP hardening bridge): tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md
-  - Depends-on (SMP hardening contract): docs/rfcs/RFC-0022-kernel-smp-v1b-scheduler-hardening-contract.md
-  - Follow-up (RISC-V SMP runtime hardening): tasks/TASK-0247-bringup-rv-virt-v1_1b-os-smp-hsm-ipi-virtioblkd-packagefs-selftests.md
-  - Follow-up (SMP v2 affinity/shares): tasks/TASK-0042-smp-v2-affinity-qos-budgets-kernel-abi.md
-  - Follow-up (PerCpu ownership wrapper): tasks/TASK-0283-kernel-percpu-ownership-wrapper-v1.md
-  - Follow-up (SMP policy determinism): tasks/TASK-0277-kernel-smp-parallelism-policy-v1-deterministic.md
-  - Pre-SMP ownership/types contract (seed): docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md
-  - Pre-SMP execution/proofs: tasks/TASK-0011B-kernel-rust-idioms-pre-smp.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Pre-SMP execution/proofs"
+    target: tasks/TASK-0011B-kernel-rust-idioms-pre-smp.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
+
  
 ## Context
 

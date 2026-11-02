@@ -1,21 +1,35 @@
 ---
-title: TRACK NexusAccount (online account provider): cloud storage + backup upload + grants (local login stays local)
-status: Draft
-owner: @runtime @security @platform
+schema: 1
+id: TRACK-NEXUSACCOUNT
+title: "NexusAccount (online account provider): cloud storage + backup upload + grants (local login stays local)"
+status: draft
+owner: ["@runtime", "@security", "@platform"]
 created: 2026-01-19
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - NexusNet SDK (accounts/OAuth/grants): tasks/TRACK-NEXUSNET-SDK.md
-  - PIM Suite (Calendar + Contacts): tasks/TRACK-PIM-SUITE.md
-  - Mail app (account-backed networking): tasks/TRACK-MAIL-APP.md
-  - App Store (licensing/purchases; ecosystem): tasks/TRACK-APP-STORE.md
-  - Accounts/Identity v1.2 (local users + sessiond): tasks/TASK-0223-accounts-identity-v1_2a-host-multiuser-sessiond.md
-  - Accounts/Identity v1.2 (OS wiring + secure home): tasks/TASK-0224-accounts-identity-v1_2b-os-securefs-home-greeter-keystore.md
-  - Backup/Restore v1 (NBK + backupd; offline): tasks/TASK-0161-backup-restore-v1a-host-nbk-format-pack-verify-restore.md
-  - Backup/Restore v1 (OS/QEMU; offline): tasks/TASK-0162-backup-restore-v1b-os-backupd-settings-cli-selftests-docs.md
-  - Store v2.2 (licensing ledger + parental/payments core): tasks/TASK-0221-store-v2_2a-host-licensed-ledger-parental-payments.md
-  - TRACK NexusVideo (PeerTube client + creator economy): tasks/TRACK-NEXUSVIDEO.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "NexusNet SDK (accounts/OAuth/grants)"
+    target: tasks/TRACK-NEXUSNET-SDK.md
+  - label: "PIM Suite (Calendar + Contacts)"
+    target: tasks/TRACK-PIM-SUITE.md
+  - label: "Mail app (account-backed networking)"
+    target: tasks/TRACK-MAIL-APP.md
+  - label: "App Store (licensing/purchases; ecosystem)"
+    target: tasks/TRACK-APP-STORE.md
+  - label: "Accounts/Identity v1.2 (local users + sessiond)"
+    target: tasks/TASK-0223-accounts-identity-v1_2a-host-multiuser-sessiond.md
+  - label: "Accounts/Identity v1.2 (OS wiring + secure home)"
+    target: tasks/TASK-0224-accounts-identity-v1_2b-os-securefs-home-greeter-keystore.md
+  - label: "Backup/Restore v1 (NBK + backupd; offline)"
+    target: tasks/TASK-0161-backup-restore-v1a-host-nbk-format-pack-verify-restore.md
+  - label: "Backup/Restore v1 (OS/QEMU; offline)"
+    target: tasks/TASK-0162-backup-restore-v1b-os-backupd-settings-cli-selftests-docs.md
+  - label: "Store v2.2 (licensing ledger + parental/payments core)"
+    target: tasks/TASK-0221-store-v2_2a-host-licensed-ledger-parental-payments.md
+  - label: "TRACK NexusVideo (PeerTube client + creator economy)"
+    target: tasks/TRACK-NEXUSVIDEO.md
 ---
 
 ## Goal (track-level)

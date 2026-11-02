@@ -1,20 +1,33 @@
 ---
-title: TASK-0330 SMP v3: n harts from the FDT (boot-sized per-hart state, 64-bit CpuSet ABI, MAX_CPUS deleted) + cluster topology, per-hart PLIC/IRQ affinity, the IPC router and the address spaces out of the BKL, per-ASID shootdown
-status: Draft (recut 2026-10-06 to the end state — n harts from the FDT, not `MAX_CPUS` 4 → 8; no distributed kernel; seeded 2026-09-21 by the hardware fast track — `tasks/IMPLEMENTATION-ORDER.md`; starts after Block 3)
-owner: @kernel-team
+schema: 1
+id: TASK-0330
+title: "SMP v3: n harts from the FDT (boot-sized per-hart state, 64-bit CpuSet ABI, MAX_CPUS deleted) + cluster topology, per-hart PLIC/IRQ affinity, the IPC router and the address spaces out of the BKL, per-ASID shootdown"
+status: draft
+status_note: "recut 2026-10-06 to the end state"
+owner: ["@kernel-team"]
 created: 2026-09-21
-depends-on: []
-follow-up-tasks: []
+subsystem: kernel
+implements: [RFC-0102]
 links:
-  - Execution order (the lane this belongs to): tasks/IMPLEMENTATION-ORDER.md
-  - Playbook: CLAUDE.md
-  - Lock classes and budgets: docs/adr/0049-bkl-lockclass-and-softrt-cpu-placement.md, source/kernel/neuron/src/core/trap/budgets.rs
-  - Per-hart EDT: docs/adr/0052-per-hart-earliest-deadline-timer-and-affinity-respecting-steal.md
-  - Scheduler half: tasks/TASK-0306-ui-responsiveness-input-integrity-smp-rendezvous.md (Phase 3)
-  - IPC fastpath numbers to hold: docs/rfcs/RFC-0096-ipc-performance-contract-v2-call-reply-recv-fastpath.md
-  - Gate consumer: tasks/TRACK-TIME-AS-RESOURCE.md
-  - RFC/ADR seeds (at P0): RFC-0102 SMP lock decomposition, the cluster-aware spreading ADR and the BKL split-order ADR (from R9) at the next free numbers when seeded — 0072 and 0073 were taken meanwhile (GPU programs 2026-10-15; object lifetime / death as an event 2026-10-20)
+  - label: "Execution order (the lane this belongs to)"
+    target: tasks/milestones/hardware-network.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Lock classes and budgets"
+    target: "docs/adr/0049-bkl-lockclass-and-softrt-cpu-placement.md, source/kernel/neuron/src/core/trap/budgets.rs"
+  - label: "Per-hart EDT"
+    target: docs/adr/0052-per-hart-earliest-deadline-timer-and-affinity-respecting-steal.md
+  - label: "Scheduler half"
+    target: "tasks/TASK-0306-ui-responsiveness-input-integrity-smp-rendezvous.md (Phase 3)"
+  - label: "IPC fastpath numbers to hold"
+    target: docs/rfcs/RFC-0096-ipc-performance-contract-v2-call-reply-recv-fastpath.md
+  - label: "Gate consumer"
+    target: tasks/TRACK-TIME-AS-RESOURCE.md
+  - label: "RFC/ADR seeds (at P0)"
+    target: "RFC-0102 SMP lock decomposition, the cluster-aware spreading ADR and the BKL split-order ADR (from R9) at the next free numbers when seeded — 0072 and 0073 were taken meanwhile (GPU programs 2026-10-15; object lifetime / death as an event 2026-10-20)"
 ---
+
+> Status (migrated 2026-11-02): Draft (recut 2026-10-06 to the end state — n harts from the FDT, not `MAX_CPUS` 4 → 8; no distributed kernel; seeded 2026-09-21 by the hardware fast track — `tasks/IMPLEMENTATION-ORDER.md`; starts after Block 3)
 
 ## Origin
 

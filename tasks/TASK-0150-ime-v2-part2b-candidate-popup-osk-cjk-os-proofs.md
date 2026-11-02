@@ -1,22 +1,32 @@
 ---
-title: TASK-0150 IME v2 Part 2b (OS/QEMU): candidate strip in ime-ui + CJK OSK layouts + selftests
-status: Done (2026-07-22)
-owner: @ui
+schema: 1
+id: TASK-0150
+title: "IME v2 Part 2b (OS/QEMU): candidate strip in ime-ui + CJK OSK layouts + selftests"
+status: done
+status_note: 2026-07-22
+owner: ["@ui"]
 created: 2025-12-26
-updated: 2026-07-21 (rewritten against repo reality; candidate UI lives in the ime-ui overlay app, not windowd)
-depends-on:
-  - TASK-0147
-  - TASK-0149
-follow-up-tasks:
-  - TASK-0203 / TASK-0204 (adaptive ranking + persistence)
+updated: 2026-07-21
+subsystem: ui
+done: 2026-07-22
+dates_source: status-text
+depends_on: [TASK-0147, TASK-0149]
+follow_ups: [TASK-0203]
+implements: [RFC-0075]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Contract: docs/rfcs/RFC-0075-ime-v2-text-focus-composition-delivery.md
-  - OSK app baseline: tasks/TASK-0147-ime-text-v2-part1b-osk-focus-a11y-os-proofs.md
-  - CJK engines: tasks/TASK-0149-ime-v2-part2-cjk-engines-userdict.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "OSK app baseline"
+    target: tasks/TASK-0147-ime-text-v2-part1b-osk-focus-a11y-os-proofs.md
+  - label: "CJK engines"
+    target: tasks/TASK-0149-ime-v2-part2-cjk-engines-userdict.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
+
+> updated (migrated 2026-11-02): 2026-07-21 (rewritten against repo reality; candidate UI lives in the ime-ui overlay app, not windowd)
 
 ## Context
 

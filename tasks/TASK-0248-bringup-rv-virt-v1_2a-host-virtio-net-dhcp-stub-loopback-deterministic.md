@@ -1,15 +1,20 @@
 ---
-title: TASK-0248 RISC-V Bring-up v1.2a (host-first): virtio-net frontend core + DHCP stub + loopback + deterministic tests
-status: Draft
-owner: @kernel
+schema: 1
+id: TASK-0248
+title: "RISC-V Bring-up v1.2a (host-first): virtio-net frontend core + DHCP stub + loopback + deterministic tests"
+status: draft
+owner: ["@kernel"]
 created: 2025-12-29
-depends-on: []
-follow-up-tasks: []
+subsystem: networking
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Networking baseline (smoltcp): tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Networking baseline (smoltcp)"
+    target: tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

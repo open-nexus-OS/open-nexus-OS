@@ -1,19 +1,27 @@
 ---
-title: TASK-0084 UI v12a: scoped content:// URI grants (grantsd) + contentd enforcement (time-bound, persistable)
-status: Draft
-owner: @security
+schema: 1
+id: TASK-0084
+title: "UI v12a: scoped content:// URI grants (grantsd) + contentd enforcement (time-bound, persistable)"
+status: draft
+owner: ["@security"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: storage
+tracks: [TRACK-REMOVABLE-STORAGE]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Content providers (contentd): tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
-  - Policy as Code: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
-  - Persistence (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Removable storage track (provider + SAF grants): tasks/TRACK-REMOVABLE-STORAGE.md
-  - Testing contract: scripts/qemu-test.sh
-  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Content providers (contentd)"
+    target: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
+  - label: "Policy as Code"
+    target: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
+  - label: "Persistence (/state)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
+  - label: "Data formats rubric (JSON vs Cap'n Proto)"
+    target: docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
 ## Context

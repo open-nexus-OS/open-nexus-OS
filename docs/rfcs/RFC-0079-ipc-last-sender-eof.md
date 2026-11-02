@@ -1,13 +1,21 @@
-# RFC-0079: IPC last-sender EOF (opt-in receiver disconnect)
+---
+schema: 1
+id: RFC-0079
+title: "IPC last-sender EOF (opt-in receiver disconnect)"
+status: done
+owners: ["@kernel-ipc-team", "@runtime"]
+created: 2026-07-23
+updated: 2026-07-23
+subsystem: kernel
+tasks: [TASK-0301]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0301-ipc-last-sender-eof.md` (execution + proof)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0075-ime-v2-text-focus-composition-delivery.md` (the process-image reclaim this EOF finally triggers), `docs/adr/0001-runtime-roles-and-boundaries.md`"
+---
 
-- Status: Complete
-- Owners: @kernel-ipc-team / @runtime
-- Created: 2026-07-23
-- Last Updated: 2026-07-23
-- Links:
-  - Tasks: `tasks/TASK-0301-ipc-last-sender-eof.md` (execution + proof)
-  - Related RFCs: `docs/rfcs/RFC-0075-ime-v2-text-focus-composition-delivery.md`
-    (the process-image reclaim this EOF finally triggers), `docs/adr/0001-runtime-roles-and-boundaries.md`
+# RFC-0079: IPC last-sender EOF (opt-in receiver disconnect)
 
 ## Status at a Glance
 

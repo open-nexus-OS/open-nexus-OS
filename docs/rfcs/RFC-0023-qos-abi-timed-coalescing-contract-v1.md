@@ -1,15 +1,26 @@
-# RFC-0023: QoS ABI + timed coalescing contract v1
+---
+schema: 1
+id: RFC-0023
+title: "QoS ABI + timed coalescing contract v1"
+status: done
+status_note: v1
+owners: ["@runtime", "@kernel-team"]
+created: 2026-02-11
+updated: 2026-02-11
+subsystem: kernel
+tasks: [TASK-0013]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md` (execution + proof)"
+  - label: ADRs
+    target: "`docs/adr/0025-qemu-smoke-proof-gating.md` (QEMU proof policy)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0022-kernel-smp-v1b-scheduler-hardening-contract.md`"
+---
 
-- Status: Done (v1)
-- Owners: @runtime @kernel-team
-- Created: 2026-02-11
-- Last Updated: 2026-02-11
-- Links:
-  - Tasks: `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md` (execution + proof)
-  - ADRs: `docs/adr/0025-qemu-smoke-proof-gating.md` (QEMU proof policy)
-  - Related RFCs:
-    - `docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md`
-    - `docs/rfcs/RFC-0022-kernel-smp-v1b-scheduler-hardening-contract.md`
+# RFC-0023: QoS ABI + timed coalescing contract v1
 
 ## Status at a Glance
 

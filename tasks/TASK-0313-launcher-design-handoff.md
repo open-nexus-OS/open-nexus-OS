@@ -1,18 +1,32 @@
 ---
-title: TASK-0313 Launcher design handoff — Startmenü, Docks, Arbeitsfläche, Minimize 1:1
-status: In Progress (2026-07-30) — Track A + Track B B0-B4 done & boot-proven (357 host tests, `just check` green); OPEN: marker-contract entries
-owner: @ui
+schema: 1
+id: TASK-0313
+title: "Launcher design handoff — Startmenü, Docks, Arbeitsfläche, Minimize 1:1"
+status: in_progress
+status_note: "(2026-07-30) — Track A + Track B B0-B4 done & boot-proven (357 host tests, `just check` green); OPEN: marker-contract entries"
+owner: ["@ui"]
 created: 2026-07-30
+subsystem: ui
+started: 2026-07-30
+dates_source: git-reconstructed
+implements: [RFC-0086]
 links:
-  - Design contract: userspace/apps/desktop-shell/docs/design_handoff_launcher/LAUNCHER-SPEC.html
-  - Handoff README: userspace/apps/desktop-shell/docs/design_handoff_launcher/README.md
-  - Visual truth: userspace/apps/desktop-shell/docs/design_handoff_launcher/OpenNexusLauncher.html
-  - Layout SSOT: docs/dev/ui/patterns/shell-launcher.md
-  - Window intent model: docs/dev/ui/patterns/windowing/window-intent.md
-  - windowd cleanup map: docs/dev/ui/windowd-cleanup-map.md (dock.rs = MOVE step 5)
-  - Prior handoff port (pattern): tasks/TASK-0312-shell-panels-design-handoff.md
-  - RFC seed (Track B): docs/rfcs/RFC-0086-shell-taskbar-window-feed.md
-  - Playbook: CLAUDE.md
+  - label: "Design contract"
+    target: userspace/apps/desktop-shell/docs/design_handoff_launcher/LAUNCHER-SPEC.html
+  - label: "Handoff README"
+    target: userspace/apps/desktop-shell/docs/design_handoff_launcher/README.md
+  - label: "Visual truth"
+    target: userspace/apps/desktop-shell/docs/design_handoff_launcher/OpenNexusLauncher.html
+  - label: "Layout SSOT"
+    target: docs/dev/ui/patterns/shell-launcher.md
+  - label: "Window intent model"
+    target: docs/dev/ui/patterns/windowing/window-intent.md
+  - label: "windowd cleanup map"
+    target: "docs/dev/ui/windowd-cleanup-map.md (dock.rs = MOVE step 5)"
+  - label: "Prior handoff port (pattern)"
+    target: tasks/TASK-0312-shell-panels-design-handoff.md
+  - label: Playbook
+    target: CLAUDE.md
 ---
 
 ## Context

@@ -1,14 +1,28 @@
 ---
-title: TASK-0340 windowd rewrites no retained plane where the GPU composes — the 120 µs-a-row CPU work cycle 55 measured, gone from every frame
-status: Done (2026-10-21, board cycle 56: no retained row where the GPU composes, windowd's flush 30 → 2.2 ms median; committed in 77b30576)
-owner: @ui
+schema: 1
+id: TASK-0340
+title: "windowd rewrites no retained plane where the GPU composes — the 120 µs-a-row CPU work cycle 55 measured, gone from every frame"
+status: done
+status_note: "2026-10-21, board cycle 56: no retained row where the GPU composes, windowd's flush 30 → 2.2 ms median; committed in 77b30576"
+owner: ["@ui"]
 created: 2026-10-21
-depends-on: [TASK-0339 (the work split that measured it)]
-follow-up-tasks: [zero-copy client surfaces — the GPU samples the app's buffer, windowd copies nothing (RFC-0101 §7b extension; the 37 µs-a-row atlas copy goes with it), chat's surface VMO at launch (`vmo_ms` 0.7–0.9 s, layer 6b commit-on-touch)]
+subsystem: ui
+done: 2026-10-21
+dates_source: status-text
+depends_on: [TASK-0339]
 links:
-  - Measurement: docs/board/measurements/2026-10-21-gpu-vendor-per-pixel/README.md ("Cycle 55": `work(…)`)
-  - ADR: docs/adr/0071-screen-capture-readback-in-gpud-freeze-in-windowd-ui-in-the-shell.md (the freeze copies the frame into the retained plane — gpud's)
-  - Code: source/services/windowd/src/compositor/{gpu_context.rs,mod.rs}, source/services/windowd/src/compositor/runtime/{present.rs,desktop_surface.rs}
+  - label: Measurement
+    target: "docs/board/measurements/2026-10-21-gpu-vendor-per-pixel/README.md (\"Cycle 55\": `work(…)`)"
+  - label: ADR
+    target: "docs/adr/0071-screen-capture-readback-in-gpud-freeze-in-windowd-ui-in-the-shell.md (the freeze copies the frame into the retained plane — gpud's)"
+  - label: Code
+    target: "source/services/windowd/src/compositor/{gpu_context.rs,mod.rs}, source/services/windowd/src/compositor/runtime/{present.rs,desktop_surface.rs}"
+  - label: follow-up
+    target: "zero-copy client surfaces — the GPU samples the app's buffer"
+  - label: follow-up
+    target: "windowd copies nothing (RFC-0101 §7b extension; the 37 µs-a-row atlas copy goes with it)"
+  - label: follow-up
+    target: "chat's surface VMO at launch (`vmo_ms` 0.7–0.9 s, layer 6b commit-on-touch)"
 ---
 
 ## Context (cycle 55)

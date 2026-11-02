@@ -1,23 +1,37 @@
 ---
-title: TASK-0065B Session v1: sessiond session authority + login greeter + SystemUI shell selection
-status: Done
-owner: @ui @platform @runtime
+schema: 1
+id: TASK-0065B
+title: "Session v1: sessiond session authority + login greeter + SystemUI shell selection"
+status: done
+owner: ["@ui", "@platform", "@runtime"]
 created: 2026-04-30
 updated: 2026-07-02
-depends-on:
-  - tasks/TASK-0065-ui-v6b-app-lifecycle-notifications-navigation.md (Done — abilitymgr/bundlemgrd/execd split)
-follow-up-tasks:
-  - credential auth behind OP_LOGIN (keystored-backed) — the greeter click becomes "click → prompt → verify"
-  - lock/unlock UI (SessionState::Locked + OP_LOCK are reserved seams)
-  - session switching (docs/dev/ui/patterns/identity-and-trust/session-switching.md)
-  - multi-user avatar grid on the greeter (registry already carries N users)
-  - per-app session scoping via the app runtime (TASK-0080D)
+subsystem: sessions
+done: 2026-07-03
+dates_source: git-reconstructed
+depends_on: [TASK-0065]
+split_from: TASK-0065
 links:
-  - Shipped contract: docs/dev/ui/shell/session.md
-  - Shell config model: docs/dev/ui/foundations/layout/profiles.md + docs/adr/0035-systemui-declarative-shell-configuration.md
-  - Service split: docs/adr/0036-ability-lifecycle-vs-process-vs-registry-service-split.md
-  - Init manifest/boot stages: docs/rfcs/RFC-0069-* (§4 session-start stage)
-  - Design track (auth/lock, still design-stage): docs/dev/ui/patterns/identity-and-trust/oobe-greeter-lock.md
+  - label: "Shipped contract"
+    target: docs/dev/ui/shell/session.md
+  - label: "Shell config model"
+    target: "docs/dev/ui/foundations/layout/profiles.md + docs/adr/0035-systemui-declarative-shell-configuration.md"
+  - label: "Service split"
+    target: docs/adr/0036-ability-lifecycle-vs-process-vs-registry-service-split.md
+  - label: "Init manifest/boot stages"
+    target: "docs/rfcs/RFC-0069-* (§4 session-start stage)"
+  - label: "Design track (auth/lock, still design-stage)"
+    target: docs/dev/ui/patterns/identity-and-trust/oobe-greeter-lock.md
+  - label: follow-up
+    target: "credential auth behind OP_LOGIN (keystored-backed) — the greeter click becomes \"click → prompt → verify\""
+  - label: follow-up
+    target: "lock/unlock UI (SessionState::Locked + OP_LOCK are reserved seams)"
+  - label: follow-up
+    target: "session switching (docs/dev/ui/patterns/identity-and-trust/session-switching.md)"
+  - label: follow-up
+    target: "multi-user avatar grid on the greeter (registry already carries N users)"
+  - label: follow-up
+    target: "per-app session scoping via the app runtime (TASK-0080D)"
 ---
 
 ## Context (rewritten 2026-07-02 — the 2026-04 draft was stale)

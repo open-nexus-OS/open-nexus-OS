@@ -1,23 +1,27 @@
 ---
-title: TASK-0024 DSoftBus QUIC-v2 OS follow-up: reliability + bounded recovery + transport hardening (rebased 2026-08-14 onto verified repo reality)
-status: Draft
-owner: @runtime
+schema: 1
+id: TASK-0024
+title: "DSoftBus QUIC-v2 OS follow-up: reliability + bounded recovery + transport hardening (rebased 2026-08-14 onto verified repo reality)"
+status: draft
+owner: ["@runtime"]
 created: 2025-12-22
-depends-on:
-  - TASK-0003
-  - TASK-0020
-  - TASK-0022
-follow-up-tasks: []  # TASK-0044 superseded 2026-08-14; its real residual (pacing) folds into this task
+subsystem: distributed
+depends_on: [TASK-0003, TASK-0020, TASK-0022]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - ADR: docs/adr/0005-dsoftbus-architecture.md
-  - ADR: docs/adr/0006-device-identity-architecture.md
-  - Depends-on (DSoftBus core in OS): tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md
-  - Depends-on (OS networking UDP): tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
-  - Depends-on (mux v2): tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md
-  - Related (proof manifest + evidence + replay infra; TASK-0023B is `In Review` 2026-04-20, all six phases functionally closed, RFC-0038 is `Done` — only external CI-runner replay artifact for P6-05 remaining, see `docs/testing/replay-and-bisect.md` §7-§11): tasks/TASK-0023B-selftest-client-production-grade-deterministic-test-architecture-refactor.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: ADR
+    target: docs/adr/0005-dsoftbus-architecture.md
+  - label: ADR
+    target: docs/adr/0006-device-identity-architecture.md
+  - label: Link
+    target: "Related (proof manifest + evidence + replay infra; TASK-0023B is `In Review` 2026-04-20, all six phases functionally closed, RFC-0038 is `Done` — only external CI-runner replay artifact for P6-05 remaining, see `docs/testing/replay-and-bisect.md` §7-§11): tasks/TASK-0023B-selftest-client-production-grade-deterministic-test-architecture-refactor.md"
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
+  - label: follow-up
+    target: "[]  # TASK-0044 superseded 2026-08-14; its real residual (pacing) folds into this task"
 ---
 
 ## Short description

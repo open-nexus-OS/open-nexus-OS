@@ -1,17 +1,24 @@
 ---
-title: TASK-0135 Storage UI + nx-state: quotas/snapshots/GC controls in Settings + CLI helpers + markers/tests/docs
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0135
+title: "Storage UI + nx-state: quotas/snapshots/GC controls in Settings + CLI helpers + markers/tests/docs"
+status: draft
+owner: ["@ui"]
 created: 2025-12-25
-depends-on: []
-follow-up-tasks: []
+subsystem: storage
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - SystemUI→DSL Settings baseline: tasks/TASK-0121-systemui-dsl-migration-phase2a-settings-notifs-host.md
-  - SystemUI→DSL OS wiring: tasks/TASK-0122-systemui-dsl-migration-phase2b-os-wiring-postflight-docs.md
-  - StateFS snapshots/compaction: tasks/TASK-0134-statefs-v3-snapshots-compaction-mounts.md
-  - State quotas: tasks/TASK-0133-statefs-quotas-v1-accounting-enforcement.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "SystemUI→DSL Settings baseline"
+    target: tasks/TASK-0121-systemui-dsl-migration-phase2a-settings-notifs-host.md
+  - label: "SystemUI→DSL OS wiring"
+    target: tasks/TASK-0122-systemui-dsl-migration-phase2b-os-wiring-postflight-docs.md
+  - label: "StateFS snapshots/compaction"
+    target: tasks/TASK-0134-statefs-v3-snapshots-compaction-mounts.md
+  - label: "State quotas"
+    target: tasks/TASK-0133-statefs-quotas-v1-accounting-enforcement.md
 ---
 
 ## Context

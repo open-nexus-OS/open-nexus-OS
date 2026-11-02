@@ -1,14 +1,19 @@
 ---
-title: TASK-0345 The compositor stalls with four quadrant tiles and a modal while the GPU is overloaded — one frame a second, the pointer frozen
-status: Open (found 2026-10-23, board cycle 68; filed by the operator as its own defect, not a 6c-0 blocker)
-owner: @ui @gpu
+schema: 1
+id: TASK-0345
+title: "The compositor stalls with four quadrant tiles and a modal while the GPU is overloaded — one frame a second, the pointer frozen"
+status: draft
+status_note: "found 2026-10-23, board cycle 68; filed by the operator as its own defect, not a 6c-0 blocker"
+owner: ["@ui", "@gpu"]
 created: 2026-10-23
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
 links:
-  - Evidence: build/logs/board--2026-10-23T17-18-42/uart.log (cycle 68, build dev-a0d5fb43)
-  - Found during: tasks/TASK-0333-memory-the-efficient-one-and-the-app-lifecycle-layer-6.md (6c-0, the OS build's own flags)
-  - Measurement: docs/board/measurements/2026-10-23-os-build-flags/README.md (§ cycle 68)
+  - label: Evidence
+    target: "build/logs/board--2026-10-23T17-18-42/uart.log (cycle 68, build dev-a0d5fb43)"
+  - label: "Found during"
+    target: "tasks/TASK-0333-memory-the-efficient-one-and-the-app-lifecycle-layer-6.md (6c-0, the OS build's own flags)"
+  - label: Measurement
+    target: "docs/board/measurements/2026-10-23-os-build-flags/README.md (§ cycle 68)"
 ---
 
 ## Context (board cycle 68)

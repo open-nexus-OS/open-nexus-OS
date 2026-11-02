@@ -1,17 +1,23 @@
 ---
-title: TASK-0101 UI v16c: mediasessd (now-playing + controls) + SystemUI volume OSD + tray/lock controls + media keys
-status: Draft
-owner: @media
+schema: 1
+id: TASK-0101
+title: "UI v16c: mediasessd (now-playing + controls) + SystemUI volume OSD + tray/lock controls + media keys"
+status: draft
+owner: ["@media"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
+tracks: [TRACK-MEDIA-APPS]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Media apps product track (apps consume system-wide now playing): tasks/TRACK-MEDIA-APPS.md
-  - Audiod mixer: tasks/TASK-0100-ui-v16b-audiod-mixer.md
-  - Notifications actions baseline: tasks/TASK-0069-ui-v8a-notifications-v2-actions-inline-reply.md
-  - Policy as Code (session focus): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Audiod mixer"
+    target: tasks/TASK-0100-ui-v16b-audiod-mixer.md
+  - label: "Notifications actions baseline"
+    target: tasks/TASK-0069-ui-v8a-notifications-v2-actions-inline-reply.md
+  - label: "Policy as Code (session focus)"
+    target: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
 ---
 
 ## Context

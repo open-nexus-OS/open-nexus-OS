@@ -1,25 +1,35 @@
 ---
-title: TASK-0051B Reliability v1f: crash evidence at rest — on-device .nxcd writer + retention/GC + policy redaction
-status: Done
-owner: @reliability
+schema: 1
+id: TASK-0051B
+title: "Reliability v1f: crash evidence at rest — on-device .nxcd writer + retention/GC + policy redaction"
+status: done
+owner: ["@reliability"]
 created: 2026-08-18
 updated: 2026-08-24
-completed: 2026-08-24
-depends-on:
-  - TASK-0049 # reanimated producer chain + reason field
-  - TASK-0049C # surviving evidence records (correlation source)
-  - TASK-0048 # host pipeline: .nxcd container, nxsym, nx crash (Done)
-follow-up-tasks:
-  - TASK-0141 # export/redaction surface + notifications (rebased on this)
-  - TASK-0142 # Problem Reporter UI (rebased on this)
+subsystem: observability
+started: 2026-08-24
+done: 2026-08-24
+active_days: 1
+dates_source: git-reconstructed
+depends_on: [TASK-0049, TASK-0049C, TASK-0048]
+follow_ups: [TASK-0141, TASK-0142]
+split_from: TASK-0051
+implements: [RFC-0087]
 links:
-  - Reliability contract: docs/rfcs/RFC-0087-reliability-failure-model-v1.md (§5)
-  - Crashdumps v1: docs/rfcs/RFC-0031-crashdumps-v1-minidump-host-symbolize.md
-  - Host pipeline: docs/reliability/crashdump-v2.md (TASK-0048)
-  - Container/GC SSOT: userspace/crash/nxcd/ (container.rs, gc.rs, zst.rs)
-  - Storage split: docs/adr/0043-user-data-in-dedicated-cow-fs-statefs-stays-service-kv.md
-  - Authority registry (crash artifact = .nxcd.zst): tasks/TRACK-AUTHORITY-NAMING.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: "Reliability contract"
+    target: "docs/rfcs/RFC-0087-reliability-failure-model-v1.md (§5)"
+  - label: "Crashdumps v1"
+    target: docs/rfcs/RFC-0031-crashdumps-v1-minidump-host-symbolize.md
+  - label: "Host pipeline"
+    target: "docs/reliability/crashdump-v2.md (TASK-0048)"
+  - label: "Container/GC SSOT"
+    target: "userspace/crash/nxcd/ (container.rs, gc.rs, zst.rs)"
+  - label: "Storage split"
+    target: docs/adr/0043-user-data-in-dedicated-cow-fs-statefs-stays-service-kv.md
+  - label: "Authority registry (crash artifact = .nxcd.zst)"
+    target: tasks/TRACK-AUTHORITY-NAMING.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

@@ -1,21 +1,32 @@
 ---
-title: TASK-0153 Search v2 backend (host-first): real searchd index + analyzers + ranking + sources + CLI + deterministic tests
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0153
+title: "Search v2 backend (host-first): real searchd index + analyzers + ranking + sources + CLI + deterministic tests"
+status: draft
+owner: ["@ui"]
 created: 2025-12-26
-depends-on: []
-follow-up-tasks: []
+subsystem: messaging
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Existing search placeholder ADR: docs/adr/0010-search-architecture.md
-  - Search v9a task (baseline): tasks/TASK-0071-ui-v9a-searchd-command-palette.md
-  - Search v2 UI surface (host): tasks/TASK-0151-search-v2-ui-host-command-palette-model-a11y.md
-  - Search v2 UI execution (OS): tasks/TASK-0152-search-v2-ui-os-deeplinks-selftests-postflight-docs.md
-  - Config broker: tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
-  - Quotas model (for later OS persistence): tasks/TASK-0133-statefs-quotas-v1-accounting-enforcement.md
-  - Deterministic parallelism policy (thread pools): tasks/TASK-0276-parallelism-v1-deterministic-threadpools-policy-contract.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Existing search placeholder ADR"
+    target: docs/adr/0010-search-architecture.md
+  - label: "Search v9a task (baseline)"
+    target: tasks/TASK-0071-ui-v9a-searchd-command-palette.md
+  - label: "Search v2 UI surface (host)"
+    target: tasks/TASK-0151-search-v2-ui-host-command-palette-model-a11y.md
+  - label: "Search v2 UI execution (OS)"
+    target: tasks/TASK-0152-search-v2-ui-os-deeplinks-selftests-postflight-docs.md
+  - label: "Config broker"
+    target: tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
+  - label: "Quotas model (for later OS persistence)"
+    target: tasks/TASK-0133-statefs-quotas-v1-accounting-enforcement.md
+  - label: "Deterministic parallelism policy (thread pools)"
+    target: tasks/TASK-0276-parallelism-v1-deterministic-threadpools-policy-contract.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

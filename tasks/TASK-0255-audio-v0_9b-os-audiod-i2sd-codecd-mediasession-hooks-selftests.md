@@ -1,21 +1,31 @@
 ---
-title: TASK-0255 Audio v0.9b (OS/QEMU): audiod service + i2sd/codecd stubs + mediasessiond hooks + `nx audio` + selftests
-status: Draft
-owner: @media
+schema: 1
+id: TASK-0255
+title: "Audio v0.9b (OS/QEMU): audiod service + i2sd/codecd stubs + mediasessiond hooks + `nx audio` + selftests"
+status: draft
+owner: ["@media"]
 created: 2025-12-29
-depends-on: []
-follow-up-tasks: []
+subsystem: hardware
+tracks: [TRACK-NEXUSMEDIA-SDK]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - NexusMedia SDK track (audio/video/image): tasks/TRACK-NEXUSMEDIA-SDK.md
-  - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
-  - Audio core (host-first): tasks/TASK-0254-audio-v0_9a-host-mixer-ringbuffer-levels-deterministic.md
-  - Audiod v16b baseline: tasks/TASK-0100-ui-v16b-audiod-mixer.md
-  - Media v2.1a baseline: tasks/TASK-0217-media-v2_1a-host-audiod-deterministic-graph-mixer.md
-  - Power/idle: tasks/TASK-0236-power-v1_0a-host-governor-wakelocks-residency-standby-deterministic.md
-  - Device MMIO access: tasks/TASK-0010-device-mmio-access-model.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Authority & naming registry"
+    target: tasks/TRACK-AUTHORITY-NAMING.md
+  - label: "Audio core (host-first)"
+    target: tasks/TASK-0254-audio-v0_9a-host-mixer-ringbuffer-levels-deterministic.md
+  - label: "Audiod v16b baseline"
+    target: tasks/TASK-0100-ui-v16b-audiod-mixer.md
+  - label: "Media v2.1a baseline"
+    target: tasks/TASK-0217-media-v2_1a-host-audiod-deterministic-graph-mixer.md
+  - label: Power/idle
+    target: tasks/TASK-0236-power-v1_0a-host-governor-wakelocks-residency-standby-deterministic.md
+  - label: "Device MMIO access"
+    target: tasks/TASK-0010-device-mmio-access-model.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

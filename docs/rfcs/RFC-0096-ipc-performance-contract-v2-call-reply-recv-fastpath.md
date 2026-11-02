@@ -1,20 +1,39 @@
+---
+schema: 1
+id: RFC-0096
+title: "IPC performance contract v2 — `ipc_call` / `ipc_reply_recv` fastpath, inline tier, hard cap, budgets with numbers"
+status: done
+status_note: "2026-09-18 (TASK-0054C P0–P6). An exchange cost 208 µs and five kernel entries when this was written"
+owners: ["@kernel-team", "@runtime"]
+created: 2026-09-15
+updated: 2026-09-18
+subsystem: kernel
+tasks: [TASK-0054C]
+extends: [RFC-0026]
+amends: [RFC-0005]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0054C-ui-v1a-kernel-ipc-fastpath-control-plane-vmo-bulk.md` (execution + proof, P0–P6)"
+  - label: ADR
+    target: "`docs/adr/0064-request-reply-one-trap-per-side-direct-handoff.md` (the one decision this contract rests on)"
+  - label: Extends
+    target: "`docs/rfcs/RFC-0026-ipc-performance-optimization-contract-v1.md` (control/data-plane split as prose — this RFC makes it a kernel constant with an errno)"
+  - label: Amends
+    target: "`docs/rfcs/RFC-0005-kernel-ipc-capability-model.md` (§\"Copy-in/out now, zero/low-copy later\" — its deferral criteria are met or made moot, see §\"Relationship to RFC-0005\"; §\"Relationship to our existing IDL + filebuffer/VMO hybrid\" — the control plane is packed-LE frames, the VMO travels as the moved cap, see §\"Copies\"; `MAX_FRAME_BYTES` \"initially 512\" → `IPC_PAYLOAD_MAX = 8192`)"
+  - label: "Cites for the zero-copy line"
+    target: "`docs/adr/0038-display-wire-ssot-and-capnp-boundary.md` and `docs/adr/0051-declarative-wire-codec-nexus-wire.md` (Cap'n Proto measured and rejected for tiny frames), `docs/adr/0021-structured-data-formats-json-vs-capnp.md` (its \"applies to IPC contracts\" bullet is superseded for the OS wire by this RFC), `docs/rfcs/RFC-0072-*.md` / `docs/rfcs/RFC-0080-*.md` (the shipped VMO data plane)"
+  - label: Cites
+    target: "`docs/rfcs/RFC-0079-ipc-last-sender-eof.md` (peer death ends a wait), `docs/rfcs/RFC-0093-display-handoff-and-boot-stage-contract.md` §1 (routing v2 never parks on readiness) and §7 (waits without clocks), `docs/adr/0049-bkl-lockclass-and-softrt-cpu-placement.md` (lock class), `docs/adr/0062-boot-stage-fence-and-readiness-barriers.md` (ordering is the fence's job)"
+  - label: "Supersedes in part"
+    target: "`docs/rfcs/RFC-0019-ipc-request-reply-correlation-v1.md` (nonce correlation on a shared inbox is no longer the shape of a request/reply — a reply inbox is sequential and private; the remaining shared-inbox case is decided in TASK-0054C P2)"
+---
+
 <!-- Copyright 2026 Open Nexus OS Contributors -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # RFC-0096: IPC performance contract v2 — `ipc_call` / `ipc_reply_recv` fastpath, inline tier, hard cap, budgets with numbers
 
-- Status: **Done 2026-09-18** (TASK-0054C P0–P6). An exchange cost **208 µs** and five kernel entries when this was written; it costs **41–43 µs** and two, with one kernel heap allocation per message instead of two and none at all for the 72–93 % of messages that fit inline — and without a single scheduler change, because the one this RFC proposed was measured and withdrawn (§Amendment 2026-09-17).
-- Owners: @kernel-team @runtime
-- Created: 2026-09-15
-- Last Updated: 2026-09-18
-- Links:
-  - Tasks: `tasks/TASK-0054C-ui-v1a-kernel-ipc-fastpath-control-plane-vmo-bulk.md` (execution + proof, P0–P6)
-  - ADR: `docs/adr/0064-request-reply-one-trap-per-side-direct-handoff.md` (the one decision this contract rests on)
-  - Extends: `docs/rfcs/RFC-0026-ipc-performance-optimization-contract-v1.md` (control/data-plane split as prose — this RFC makes it a kernel constant with an errno)
-  - Amends: `docs/rfcs/RFC-0005-kernel-ipc-capability-model.md` (§"Copy-in/out now, zero/low-copy later" — its deferral criteria are met or made moot, see §"Relationship to RFC-0005"; §"Relationship to our existing IDL + filebuffer/VMO hybrid" — the control plane is packed-LE frames, the VMO travels as the moved cap, see §"Copies"; `MAX_FRAME_BYTES` "initially 512" → `IPC_PAYLOAD_MAX = 8192`)
-  - Cites for the zero-copy line: `docs/adr/0038-display-wire-ssot-and-capnp-boundary.md` and `docs/adr/0051-declarative-wire-codec-nexus-wire.md` (Cap'n Proto measured and rejected for tiny frames), `docs/adr/0021-structured-data-formats-json-vs-capnp.md` (its "applies to IPC contracts" bullet is superseded for the OS wire by this RFC), `docs/rfcs/RFC-0072-*.md` / `docs/rfcs/RFC-0080-*.md` (the shipped VMO data plane)
-  - Cites: `docs/rfcs/RFC-0079-ipc-last-sender-eof.md` (peer death ends a wait), `docs/rfcs/RFC-0093-display-handoff-and-boot-stage-contract.md` §1 (routing v2 never parks on readiness) and §7 (waits without clocks), `docs/adr/0049-bkl-lockclass-and-softrt-cpu-placement.md` (lock class), `docs/adr/0062-boot-stage-fence-and-readiness-barriers.md` (ordering is the fence's job)
-  - Supersedes in part: `docs/rfcs/RFC-0019-ipc-request-reply-correlation-v1.md` (nonce correlation on a shared inbox is no longer the shape of a request/reply — a reply inbox is sequential and private; the remaining shared-inbox case is decided in TASK-0054C P2)
+> Status (migrated 2026-11-02): **Done 2026-09-18** (TASK-0054C P0–P6). An exchange cost **208 µs** and five kernel entries when this was written; it costs **41–43 µs** and two, with one kernel heap allocation per message instead of two and none at all for the 72–93 % of messages that fit inline — and without a single scheduler change, because the one this RFC proposed was measured and withdrawn (§Amendment 2026-09-17).
 
 ## Status at a Glance
 

@@ -1,17 +1,24 @@
 ---
-title: TASK-0263 Bring-up Retrospective & Cleanup v1.0b (OS/CI): CI pipeline + SBOM/audit + security baseline + docs pass + versioning + selftests
-status: Draft
-owner: @devx
+schema: 1
+id: TASK-0263
+title: "Bring-up Retrospective & Cleanup v1.0b (OS/CI): CI pipeline + SBOM/audit + security baseline + docs pass + versioning + selftests"
+status: draft
+owner: ["@devx"]
 created: 2025-12-29
-depends-on: []
-follow-up-tasks: []
+subsystem: security
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Retro core (host-first): tasks/TASK-0262-retro-cleanup-v1_0a-host-hygiene-lints-repro-deterministic.md
-  - SBOM baseline: tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
-  - Security baseline: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Retro core (host-first)"
+    target: tasks/TASK-0262-retro-cleanup-v1_0a-host-hygiene-lints-repro-deterministic.md
+  - label: "SBOM baseline"
+    target: tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
+  - label: "Security baseline"
+    target: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

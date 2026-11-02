@@ -1,33 +1,59 @@
 ---
-title: TRACK Ads Safety + Family Mode: safe monetization without “store bounce”, child-safe defaults, and policy-gated navigation
-status: Draft
-owner: @security @ui @runtime @platform
+schema: 1
+id: TRACK-ADS-SAFETY-FAMILYMODE
+title: "Ads Safety + Family Mode: safe monetization without “store bounce”, child-safe defaults, and policy-gated navigation"
+status: draft
+owner: ["@security", "@ui", "@runtime", "@platform"]
 created: 2026-02-01
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Policy v1 (cap matrix + adapters + audit): tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
-  - Policy v1.1 (runtime prompts + Privacy Dashboard): tasks/TASK-0168-policy-v1_1-os-runtime-prompts-privacy-dashboard-cli.md
-  - System Delegation / System Surfaces (intents + user-mediated confirmation): tasks/TRACK-SYSTEM-DELEGATION.md
-  - Share v2a (intentsd + shared_policy): tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md
-  - System Delegation v1a (action intents + defaults): tasks/TASK-0126B-system-delegation-v1a-intent-actions-defaults-policy-host.md
-  - Share v2b (SystemUI chooser): tasks/TASK-0127-share-v2b-chooser-ui-targets-grants.md
-  - Share v2c (sender wiring incl. Browser/SystemUI): tasks/TASK-0128-share-v2c-app-senders-selftests-postflight-docs.md
-  - App lifecycle + SystemUI navigation: tasks/TASK-0065-ui-v6b-app-lifecycle-notifications-navigation.md
-  - Settings typed substrate: tasks/TASK-0225-settings-v2a-host-settingsd-typed-prefs-providers.md
-  - Settings UI + deeplinks: tasks/TASK-0226-settings-v2b-os-settings-ui-deeplinks-search-guides.md
-  - Security & Privacy UI (caps editor + audit viewer): tasks/TASK-0137-ui-security-privacy-settings-permissions-audit.md
-  - permsd/privacyd baseline: tasks/TASK-0103-ui-v17a-permissions-privacyd.md
-  - WebView (offline sandbox baseline): tasks/TASK-0111-ui-v19a-webviewd-sandbox-offscreen.md
-  - Browser app (offline + Open With): tasks/TASK-0113-ui-v19c-browser-app-openwith-downloads.md
-  - WebView v1.2 (history/CSP): tasks/TASK-0205-webview-v1_2a-host-history-session-csp-cookies.md
-  - WebView v1.2 (OS wiring): tasks/TASK-0206-webview-v1_2b-os-history-downloads-resume-csp-ui-recovery.md
-  - App Store (track): tasks/TRACK-APP-STORE.md
-  - Store v1a (host core): tasks/TASK-0180-store-v1a-host-storefeedd-storemgrd-ratings.md
-  - Store v1b (OS Storefront UI + policy caps): tasks/TASK-0181-store-v1b-os-storefront-ui-selftests-policy-docs.md
-  - Store v2.2a (licensed + parental controls core): tasks/TASK-0221-store-v2_2a-host-licensed-ledger-parental-payments.md
-  - Store v2.2b (purchase UX + parental UI): tasks/TASK-0222-store-v2_2b-os-purchase-flow-entitlements-guard.md
-  - Search v2 OS execution router (deeplinks/open-with): tasks/TASK-0152-search-v2-ui-os-deeplinks-selftests-postflight-docs.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Policy v1 (cap matrix + adapters + audit)"
+    target: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
+  - label: "Policy v1.1 (runtime prompts + Privacy Dashboard)"
+    target: tasks/TASK-0168-policy-v1_1-os-runtime-prompts-privacy-dashboard-cli.md
+  - label: "System Delegation / System Surfaces (intents + user-mediated confirmation)"
+    target: tasks/TRACK-SYSTEM-DELEGATION.md
+  - label: "Share v2a (intentsd + shared_policy)"
+    target: tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md
+  - label: "System Delegation v1a (action intents + defaults)"
+    target: tasks/TASK-0126B-system-delegation-v1a-intent-actions-defaults-policy-host.md
+  - label: "Share v2b (SystemUI chooser)"
+    target: tasks/TASK-0127-share-v2b-chooser-ui-targets-grants.md
+  - label: "Share v2c (sender wiring incl. Browser/SystemUI)"
+    target: tasks/TASK-0128-share-v2c-app-senders-selftests-postflight-docs.md
+  - label: "App lifecycle + SystemUI navigation"
+    target: tasks/TASK-0065-ui-v6b-app-lifecycle-notifications-navigation.md
+  - label: "Settings typed substrate"
+    target: tasks/TASK-0225-settings-v2a-host-settingsd-typed-prefs-providers.md
+  - label: "Settings UI + deeplinks"
+    target: tasks/TASK-0226-settings-v2b-os-settings-ui-deeplinks-search-guides.md
+  - label: "Security & Privacy UI (caps editor + audit viewer)"
+    target: tasks/TASK-0137-ui-security-privacy-settings-permissions-audit.md
+  - label: "permsd/privacyd baseline"
+    target: tasks/TASK-0103-ui-v17a-permissions-privacyd.md
+  - label: "WebView (offline sandbox baseline)"
+    target: tasks/TASK-0111-ui-v19a-webviewd-sandbox-offscreen.md
+  - label: "Browser app (offline + Open With)"
+    target: tasks/TASK-0113-ui-v19c-browser-app-openwith-downloads.md
+  - label: "WebView v1.2 (history/CSP)"
+    target: tasks/TASK-0205-webview-v1_2a-host-history-session-csp-cookies.md
+  - label: "WebView v1.2 (OS wiring)"
+    target: tasks/TASK-0206-webview-v1_2b-os-history-downloads-resume-csp-ui-recovery.md
+  - label: "App Store (track)"
+    target: tasks/TRACK-APP-STORE.md
+  - label: "Store v1a (host core)"
+    target: tasks/TASK-0180-store-v1a-host-storefeedd-storemgrd-ratings.md
+  - label: "Store v1b (OS Storefront UI + policy caps)"
+    target: tasks/TASK-0181-store-v1b-os-storefront-ui-selftests-policy-docs.md
+  - label: "Store v2.2a (licensed + parental controls core)"
+    target: tasks/TASK-0221-store-v2_2a-host-licensed-ledger-parental-payments.md
+  - label: "Store v2.2b (purchase UX + parental UI)"
+    target: tasks/TASK-0222-store-v2_2b-os-purchase-flow-entitlements-guard.md
+  - label: "Search v2 OS execution router (deeplinks/open-with)"
+    target: tasks/TASK-0152-search-v2-ui-os-deeplinks-selftests-postflight-docs.md
 ---
 
 ## Goal (track-level)

@@ -1,12 +1,21 @@
-# RFC-0001: Kernel Simplification (Logic-Preserving)
+---
+schema: 1
+id: RFC-0001
+title: "Kernel Simplification (Logic-Preserving)"
+status: done
+owners: ["@kernel-team", "@runtime"]
+created: 2025-10-24
+updated: 2026-02-09
+subsystem: kernel
+tasks: [TASK-0011]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0011-kernel-simplification-phase-a.md` (execution + proof)"
+  - label: "Kernel overview"
+    target: "`docs/architecture/01-neuron-kernel.md`"
+---
 
-- Status: Complete
-- Owners: @kernel-team, @runtime
-- Created: 2025-10-24
-- Last Updated: 2026-02-09
-- Links:
-  - Tasks: `tasks/TASK-0011-kernel-simplification-phase-a.md` (execution + proof)
-  - Kernel overview: `docs/architecture/01-neuron-kernel.md`
+# RFC-0001: Kernel Simplification (Logic-Preserving)
 
 ## Status at a Glance
 

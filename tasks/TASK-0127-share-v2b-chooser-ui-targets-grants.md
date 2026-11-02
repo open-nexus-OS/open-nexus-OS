@@ -1,25 +1,34 @@
 ---
-title: TASK-0127 Share v2b: SystemUI chooser overlay + first-party targets (Clipboard/Save/Notes) + grants plumbing + markers
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0127
+title: "Share v2b: SystemUI chooser overlay + first-party targets (Clipboard/Save/Notes) + grants plumbing + markers"
+status: draft
+owner: ["@ui"]
 created: 2025-12-25
-depends-on: []
-follow-up-tasks:
-  - TASK-0126B
+subsystem: ui
+follow_ups: [TASK-0126B]
+tracks: [TRACK-ADS-SAFETY-FAMILYMODE, TRACK-SYSTEM-DELEGATION]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
-  - System Delegation / System Surfaces (track): tasks/TRACK-SYSTEM-DELEGATION.md
-  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
-  - Share v2a intentsd/policy: tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md
-  - Follow-up (action-based system delegation): tasks/TASK-0126B-system-delegation-v1a-intent-actions-defaults-policy-host.md
-  - Chat transfer (default chat eligibility): tasks/TASK-0126C-chat-transfer-v1a-host-export-import-eligibility.md
-  - Grants (content://): tasks/TASK-0084-ui-v12a-scoped-uri-grants.md
-  - contentd saveAs: tasks/TASK-0112-ui-v19b-contentd-saveas-downloads.md
-  - Clipboard v3: tasks/TASK-0087-ui-v13a-clipboard-v3.md
-  - MIME defaults (chooser “always use”): tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
-  - Notes open/save integration: tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "DSL syntax/layout convention"
+    target: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
+  - label: "Share v2a intentsd/policy"
+    target: tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md
+  - label: "Chat transfer (default chat eligibility)"
+    target: tasks/TASK-0126C-chat-transfer-v1a-host-export-import-eligibility.md
+  - label: Link
+    target: "Grants (content://): tasks/TASK-0084-ui-v12a-scoped-uri-grants.md"
+  - label: "contentd saveAs"
+    target: tasks/TASK-0112-ui-v19b-contentd-saveas-downloads.md
+  - label: "Clipboard v3"
+    target: tasks/TASK-0087-ui-v13a-clipboard-v3.md
+  - label: "MIME defaults (chooser “always use”)"
+    target: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
+  - label: "Notes open/save integration"
+    target: tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
 ---
 
 ## Context

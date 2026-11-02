@@ -1,36 +1,65 @@
 ---
-title: TRACK NexusGfx SDK (Metal-like, apps + games): contracts + phased roadmap (2D/3D/compute/audio/video/cad)
-status: Living
-owner: @ui @runtime
+schema: 1
+id: TRACK-NEXUSGFX-SDK
+title: "NexusGfx SDK (Metal-like, apps + games): contracts + phased roadmap (2D/3D/compute/audio/video/cad)"
+status: living
+owner: ["@ui", "@runtime"]
 created: 2025-12-26
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Extracted (NexusGfx v1b resource/fence core): tasks/TASK-0169B-gpu-draws-gfxdevice-on-the-device-first-quad-offline-shaders.md
-  - Extracted (NexusGfx v1c windowd handoff): tasks/TASK-0170B-nexusgfx-v1c-windowd-handoff-minimal-pass-planning.md
-  - Current state (2026-05-29): Module structure established (Phase 5 of RFC-0059). 10-directory Metal-like tree, 40+ skeleton files. Existing v0 code moved into core/, resource/, command/. Backward-compatible re-exports. See RFC-0059 for full structure.
-  - Gfx compute/executor model: docs/architecture/graphics/nexusgfx-compute-and-executor-model.md
-  - Gfx resource model: docs/architecture/graphics/nexusgfx-resource-model.md
-  - Gfx sync/lifetime model: docs/architecture/graphics/nexusgfx-sync-and-lifetime.md
-  - Gfx command/pass model: docs/architecture/graphics/nexusgfx-command-and-pass-model.md
-  - Gfx compute kernel model: docs/architecture/graphics/nexusgfx-compute-kernel-model.md
-  - Gfx tile-aware design: docs/architecture/graphics/nexusgfx-tile-aware-design.md
-  - Gfx text pipeline integration: docs/architecture/graphics/nexusgfx-text-pipeline.md
-  - Gfx artifact pipeline: docs/architecture/graphics/nexusgfx-artifact-pipeline.md
-  - Gfx capability matrix: docs/architecture/graphics/nexusgfx-capability-matrix.md
-  - NexusMedia SDK track (audio/video/image): tasks/TRACK-NEXUSMEDIA-SDK.md
-  - NexusGame SDK track (games): tasks/TRACK-NEXUSGAME-SDK.md
-  - NexusNet SDK track (cloud + DSoftBus): tasks/TRACK-NEXUSNET-SDK.md
-  - Drivers & accelerators foundations: tasks/TRACK-DRIVERS-ACCELERATORS.md
-  - NexusInfer SDK (optional ML compute interop; same VMO/fence vocabulary): tasks/TRACK-NEXUSINFER-SDK.md
-  - NexusFrame (Pixelmator-class editor; reference workload): tasks/TRACK-NEXUSFRAME.md
-  - Device/MMIO access model (gate): tasks/TASK-0010-device-mmio-access-model.md
-  - Zero-copy VMOs (gate): tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
-  - QoS/timers (soft real-time spine): tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
-  - Perf tracing + gates: tasks/TASK-0143-perf-v1a-perfd-frame-trace-metrics.md
-  - Perf hooks + HUD: tasks/TASK-0144-perf-v1b-instrumentation-hud-nx-perf.md
-  - Perf regression gates: tasks/TASK-0145-perf-v1c-deterministic-gates-scenes.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Extracted (NexusGfx v1b resource/fence core)"
+    target: tasks/TASK-0169B-gpu-draws-gfxdevice-on-the-device-first-quad-offline-shaders.md
+  - label: "Extracted (NexusGfx v1c windowd handoff)"
+    target: tasks/TASK-0170B-nexusgfx-v1c-windowd-handoff-minimal-pass-planning.md
+  - label: "Current state (2026-05-29)"
+    target: "Module structure established (Phase 5 of RFC-0059). 10-directory Metal-like tree, 40+ skeleton files. Existing v0 code moved into core/, resource/, command/. Backward-compatible re-exports. See RFC-0059 for full structure."
+  - label: "Gfx compute/executor model"
+    target: docs/architecture/graphics/nexusgfx-compute-and-executor-model.md
+  - label: "Gfx resource model"
+    target: docs/architecture/graphics/nexusgfx-resource-model.md
+  - label: "Gfx sync/lifetime model"
+    target: docs/architecture/graphics/nexusgfx-sync-and-lifetime.md
+  - label: "Gfx command/pass model"
+    target: docs/architecture/graphics/nexusgfx-command-and-pass-model.md
+  - label: "Gfx compute kernel model"
+    target: docs/architecture/graphics/nexusgfx-compute-kernel-model.md
+  - label: "Gfx tile-aware design"
+    target: docs/architecture/graphics/nexusgfx-tile-aware-design.md
+  - label: "Gfx text pipeline integration"
+    target: docs/architecture/graphics/nexusgfx-text-pipeline.md
+  - label: "Gfx artifact pipeline"
+    target: docs/architecture/graphics/nexusgfx-artifact-pipeline.md
+  - label: "Gfx capability matrix"
+    target: docs/architecture/graphics/nexusgfx-capability-matrix.md
+  - label: "NexusMedia SDK track (audio/video/image)"
+    target: tasks/TRACK-NEXUSMEDIA-SDK.md
+  - label: "NexusGame SDK track (games)"
+    target: tasks/TRACK-NEXUSGAME-SDK.md
+  - label: "NexusNet SDK track (cloud + DSoftBus)"
+    target: tasks/TRACK-NEXUSNET-SDK.md
+  - label: "Drivers & accelerators foundations"
+    target: tasks/TRACK-DRIVERS-ACCELERATORS.md
+  - label: "NexusInfer SDK (optional ML compute interop; same VMO/fence vocabulary)"
+    target: tasks/TRACK-NEXUSINFER-SDK.md
+  - label: "NexusFrame (Pixelmator-class editor; reference workload)"
+    target: tasks/TRACK-NEXUSFRAME.md
+  - label: "Device/MMIO access model (gate)"
+    target: tasks/TASK-0010-device-mmio-access-model.md
+  - label: "Zero-copy VMOs (gate)"
+    target: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
+  - label: "QoS/timers (soft real-time spine)"
+    target: tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
+  - label: "Perf tracing + gates"
+    target: tasks/TASK-0143-perf-v1a-perfd-frame-trace-metrics.md
+  - label: "Perf hooks + HUD"
+    target: tasks/TASK-0144-perf-v1b-instrumentation-hud-nx-perf.md
+  - label: "Perf regression gates"
+    target: tasks/TASK-0145-perf-v1c-deterministic-gates-scenes.md
 ---
+
 > **Link 2026-09-21:** the GPU backend this SDK needs is target picture G in `tasks/IMPLEMENTATION-ORDER.md` (`TASK-0329` thin side, `TASK-0280` v2 API, 0169B/0170B/0171 driver, 0215/0216 whole desktop, `0329B` app surfaces); the SDK's app-facing phases start after G4/G5.
 
 

@@ -1,28 +1,28 @@
 ---
-title: TASK-0045 DevX: nx CLI v1 (scaffold + idl helpers + inspect + postflight runner + doctor)
-status: Done
-owner: @runtime
+schema: 1
+id: TASK-0045
+title: "DevX: nx CLI v1 (scaffold + idl helpers + inspect + postflight runner + doctor)"
+status: done
+owner: ["@runtime"]
 created: 2025-12-22
-depends-on: []
-follow-up-tasks:
-  - TASK-0046
-  - TASK-0047
-  - TASK-0048
-  - TASK-0050
-  - TASK-0163
-  - TASK-0164
-  - TASK-0165
-  - TASK-0227
-  - TASK-0230
-  - TASK-0268
+subsystem: devx
+done: 2026-07-17
+dates_source: git-reconstructed
+follow_ups: [TASK-0046, TASK-0047, TASK-0048, TASK-0050, TASK-0163, TASK-0164, TASK-0165, TASK-0227, TASK-0230, TASK-0268]
+implements: [RFC-0043]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Contract seed (this task): docs/rfcs/RFC-0043-devx-nx-cli-v1-host-first-production-floor-seed.md
-  - Existing postflights: tools/postflight-*.sh
-  - Existing IDL tool: tools/nexus-idl/
-  - Packaging tool: tools/nxb-pack/
-  - Testing contract: justfile + scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Existing postflights"
+    target: "tools/postflight-*.sh"
+  - label: "Existing IDL tool"
+    target: tools/nexus-idl/
+  - label: "Packaging tool"
+    target: tools/nxb-pack/
+  - label: "Testing contract"
+    target: "justfile + scripts/qemu-test.sh"
 ---
 
 ## Context

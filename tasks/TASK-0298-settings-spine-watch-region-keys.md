@@ -1,19 +1,31 @@
 ---
-title: TASK-0298 Settings spine: region/keymap/time keys + OP_WATCH push propagation + General-management pickers
-status: Done (2026-07-21)
-owner: @runtime
+schema: 1
+id: TASK-0298
+title: "Settings spine: region/keymap/time keys + OP_WATCH push propagation + General-management pickers"
+status: done
+status_note: 2026-07-21
+owner: ["@runtime"]
 created: 2026-07-21
-depends-on: []
-follow-up-tasks:
-  - TASK-0297 (time keys consumer), TASK-0241 (locale consumer), TASK-0147/0204 (ime keys)
+subsystem: ui
+done: 2026-07-21
+dates_source: status-text
+follow_ups: [TASK-0297]
+implements: [RFC-0078]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Contract seed: docs/rfcs/RFC-0078-settings-region-keys-watch.md (seeded by this task)
-  - Registry baseline (Done via TASK-0072): source/services/settingsd/src/registry.rs
-  - Settings v2 ledger reconciliation: tasks/TASK-0225-settings-v2a-host-settingsd-typed-prefs-providers.md
-  - Keymap tables (consumer target): tasks/TASK-0252-input-v1_0a-host-hid-touch-keymaps-repeat-accel.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Contract seed"
+    target: "docs/rfcs/RFC-0078-settings-region-keys-watch.md (seeded by this task)"
+  - label: "Registry baseline (Done via TASK-0072)"
+    target: source/services/settingsd/src/registry.rs
+  - label: "Settings v2 ledger reconciliation"
+    target: tasks/TASK-0225-settings-v2a-host-settingsd-typed-prefs-providers.md
+  - label: "Keymap tables (consumer target)"
+    target: tasks/TASK-0252-input-v1_0a-host-hid-touch-keymaps-repeat-accel.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

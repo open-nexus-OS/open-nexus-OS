@@ -1,12 +1,21 @@
-# RFC-0066: Production-grade service chain — declarative capability routing, one typed IPC client, in-process chain tests
+---
+schema: 1
+id: RFC-0066
+title: "Production-grade service chain — declarative capability routing, one typed IPC client, in-process chain tests"
+status: draft
+status_note: "plan + phase-1 implementation"
+owners: ["@runtime", "@ui"]
+created: 2026-06-22
+links:
+  - label: Motivation
+    target: "the v6b work (RFC-0065) repeatedly hit *boot-only* failures (abilitymgr crashed because init had no orchestrator arm for it; `X→bundlemgrd` needs hand-wired CAP_MOVE per client). These are **architecture smells**, not bugs."
+  - label: "Builds on"
+    target: "`source/init/nexus-init/route_table.rs` (typed routes), `userspace/nexus-ipc/reqrep.rs` (`ReplyBuffer`/`recv_match_until`/`loopback_channel`), `tools/nx` chain harness (`Contract`/`Hop`/`SimIpcBus`), `samgrd` (register/resolve)."
+  - label: ADR
+    target: "`docs/adr/0017-service-architecture.md`, `docs/adr/0036-…service-split.md`."
+---
 
-- Status: Draft (plan + phase-1 implementation)
-- Owners: @runtime @ui
-- Created: 2026-06-22
-- Links:
-  - Motivation: the v6b work (RFC-0065) repeatedly hit *boot-only* failures (abilitymgr crashed because init had no orchestrator arm for it; `X→bundlemgrd` needs hand-wired CAP_MOVE per client). These are **architecture smells**, not bugs.
-  - Builds on: `source/init/nexus-init/route_table.rs` (typed routes), `userspace/nexus-ipc/reqrep.rs` (`ReplyBuffer`/`recv_match_until`/`loopback_channel`), `tools/nx` chain harness (`Contract`/`Hop`/`SimIpcBus`), `samgrd` (register/resolve).
-  - ADR: `docs/adr/0017-service-architecture.md`, `docs/adr/0036-…service-split.md`.
+# RFC-0066: Production-grade service chain — declarative capability routing, one typed IPC client, in-process chain tests
 
 ## Problem — why we keep debugging at boot
 

@@ -1,43 +1,51 @@
 ---
-title: TASK-0031 Zero-copy VMOs v1: shared RO buffers via existing VMO syscalls + handle transfer (plumbing, host-first, OS-gated)
-status: Done
-owner: @runtime
+schema: 1
+id: TASK-0031
+title: "Zero-copy VMOs v1: shared RO buffers via existing VMO syscalls + handle transfer (plumbing, host-first, OS-gated)"
+status: done
+owner: ["@runtime"]
 created: 2025-12-22
 updated: 2026-08-18
-depends-on:
-  - TASK-0009
-  - TASK-0020
-  - TASK-0029
-follow-up-tasks:
-  - TASK-0033
-  - TASK-0054B
-  - TASK-0054C
-  - TASK-0054D
-  - TASK-0290
+subsystem: storage
+done: 2026-09-12
+dates_source: git-reconstructed
+depends_on: [TASK-0009, TASK-0020, TASK-0029]
+follow_ups: [TASK-0033, TASK-0054B, TASK-0054C, TASK-0054D, TASK-0290]
+implements: [RFC-0040]
+tracks: [TRACK-ZEROCOPY-APP-PLATFORM]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Contract seed (RFC): docs/rfcs/RFC-0040-zero-copy-vmos-v1-plumbing-host-first-os-gated.md
-  - Zero-Copy App Platform (consumer track): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
-  - UI performance philosophy: docs/dev/ui/foundations/quality/performance-philosophy.md
-  - Office Suite (consumer): tasks/TRACK-OFFICE-SUITE.md
-  - DAW (consumer): tasks/TRACK-DAW-APP.md
-  - Live Studio (consumer): tasks/TRACK-LIVE-STUDIO-APP.md
-  - Video Editor (consumer): tasks/TRACK-VIDEO-EDITOR-APP.md
-  - NexusGfx SDK (consumer): tasks/TRACK-NEXUSGFX-SDK.md
-  - NexusMedia SDK (consumer): tasks/TRACK-NEXUSMEDIA-SDK.md
-  - Service architecture (control/data plane): docs/adr/0017-service-architecture.md
-  - IPC/rights model: docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
-  - Depends-on (OS DSoftBus mux v2): tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md
-  - Depends-on (persistence/statefs): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Depends-on (supply-chain digests): tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
-  - Testing contract: scripts/qemu-test.sh
-  - Security standards: docs/standards/SECURITY_STANDARDS.md
-  - Rust standards: docs/standards/RUST_STANDARDS.md
-  - Unblocks: tasks/TRACK-DRIVERS-ACCELERATORS.md (zero-copy DMA buffers for GPU/NPU/VPU/Audio/Camera/ISP)
-  - Unblocks: tasks/TRACK-NETWORKING-DRIVERS.md (zero-copy packet buffers)
-  - Early UI/kernel perf consumer follow-up: tasks/TASK-0054B-ui-v1a-kernel-ui-perf-floor-zero-copy-qos-hardening.md
-  - UI/MM perf consumer follow-up: tasks/TASK-0054D-ui-v1a-kernel-mm-perf-floor-vmo-surface-reuse.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "UI performance philosophy"
+    target: docs/dev/ui/foundations/quality/performance-philosophy.md
+  - label: "Office Suite (consumer)"
+    target: tasks/TRACK-OFFICE-SUITE.md
+  - label: "DAW (consumer)"
+    target: tasks/TRACK-DAW-APP.md
+  - label: "Live Studio (consumer)"
+    target: tasks/TRACK-LIVE-STUDIO-APP.md
+  - label: "Video Editor (consumer)"
+    target: tasks/TRACK-VIDEO-EDITOR-APP.md
+  - label: "NexusGfx SDK (consumer)"
+    target: tasks/TRACK-NEXUSGFX-SDK.md
+  - label: "NexusMedia SDK (consumer)"
+    target: tasks/TRACK-NEXUSMEDIA-SDK.md
+  - label: "Service architecture (control/data plane)"
+    target: docs/adr/0017-service-architecture.md
+  - label: "IPC/rights model"
+    target: docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
+  - label: "Security standards"
+    target: docs/standards/SECURITY_STANDARDS.md
+  - label: "Rust standards"
+    target: docs/standards/RUST_STANDARDS.md
+  - label: Unblocks
+    target: "tasks/TRACK-DRIVERS-ACCELERATORS.md (zero-copy DMA buffers for GPU/NPU/VPU/Audio/Camera/ISP)"
+  - label: Unblocks
+    target: "tasks/TRACK-NETWORKING-DRIVERS.md (zero-copy packet buffers)"
 ---
 
 ## Context
@@ -339,4 +347,3 @@ proof manifest since. The unscheduled probe and its hand-built consumer ELF, whi
 fixed child slot (23) by convention, were deleted in TASK-0324 P4f-6. Still valid: the host proofs
 (`cargo test -p nexus-vmo`). A restored OS proof belongs on the app-child spawn path with a
 declared child slot. The ledger status is left for review.
-

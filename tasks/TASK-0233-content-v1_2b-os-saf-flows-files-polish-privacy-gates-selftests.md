@@ -1,26 +1,41 @@
 ---
-title: TASK-0233 Files/Content v1.2b (OS/QEMU): SAF picker flows (open/save/folder) + persistable grants UX + Files app polish + privacy/files gates + selftests
-status: Draft
-owner: @ui @platform
+schema: 1
+id: TASK-0233
+title: "Files/Content v1.2b (OS/QEMU): SAF picker flows (open/save/folder) + persistable grants UX + Files app polish + privacy/files gates + selftests"
+status: draft
+owner: ["@ui", "@platform"]
 created: 2025-12-29
-depends-on: []
-follow-up-tasks: []
+subsystem: storage
+tracks: [TRACK-REMOVABLE-STORAGE]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
-  - DSL app integration kit: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md
-  - Content providers (contentd): tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
-  - Document picker (open/save/open-with): tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
-  - Scoped grants (persistable): tasks/TASK-0084-ui-v12a-scoped-uri-grants.md
-  - FileOps/Trash services: tasks/TASK-0085-ui-v12b-fileops-trash-services.md
-  - Files app baseline: tasks/TASK-0086-ui-v12c-files-app-progress-dnd-share-openwith.md
-  - Recents + thumbnails: tasks/TASK-0082-ui-v11b-thumbnailer-recents.md
-  - Policy capability matrix / privacy categories: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
-  - permsd/privacyd wiring (runtime consent + indicators): tasks/TASK-0103-ui-v17a-permissions-privacyd.md
-  - /state (persistence): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Removable storage track (provider + SAF folder grants + fileops): tasks/TRACK-REMOVABLE-STORAGE.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "DSL syntax/layout convention"
+    target: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
+  - label: "DSL app integration kit"
+    target: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md
+  - label: "Content providers (contentd)"
+    target: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
+  - label: "Document picker (open/save/open-with)"
+    target: tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
+  - label: "Scoped grants (persistable)"
+    target: tasks/TASK-0084-ui-v12a-scoped-uri-grants.md
+  - label: "FileOps/Trash services"
+    target: tasks/TASK-0085-ui-v12b-fileops-trash-services.md
+  - label: "Files app baseline"
+    target: tasks/TASK-0086-ui-v12c-files-app-progress-dnd-share-openwith.md
+  - label: "Recents + thumbnails"
+    target: tasks/TASK-0082-ui-v11b-thumbnailer-recents.md
+  - label: "Policy capability matrix / privacy categories"
+    target: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
+  - label: "permsd/privacyd wiring (runtime consent + indicators)"
+    target: tasks/TASK-0103-ui-v17a-permissions-privacyd.md
+  - label: "/state (persistence)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

@@ -1,18 +1,26 @@
 ---
-title: TASK-0133 State quotas v1: per-subject accounting + deterministic enforcement (EDQUOTA/ENOSPC) + tests/markers
-status: Executed for `/state` by TASK-0043 P1/P4 (2026-09-07); `/data` (nxfs) half open (after TASK-0317)
-owner: @runtime
+schema: 1
+id: TASK-0133
+title: "State quotas v1: per-subject accounting + deterministic enforcement (EDQUOTA/ENOSPC) + tests/markers"
+status: done
+status_note: "for `/state` by TASK-0043 P1/P4 (2026-09-07); `/data` (nxfs) half open (after TASK-0317)"
+owner: ["@runtime"]
 created: 2025-12-25
-depends-on: []
-follow-up-tasks:
-  - TASK-0286
-  - TASK-0287
+subsystem: storage
+done: 2026-09-07
+dates_source: status-text
+follow_ups: [TASK-0286, TASK-0287]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Persistence substrate: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Sandbox quotas (security v2): tasks/TASK-0043-security-v2-sandbox-quotas-egress-abi-audit.md
-  - Storage error contract: tasks/TASK-0132-storage-errors-vfs-semantic-contract.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Persistence substrate"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Sandbox quotas (security v2)"
+    target: tasks/TASK-0043-security-v2-sandbox-quotas-egress-abi-audit.md
+  - label: "Storage error contract"
+    target: tasks/TASK-0132-storage-errors-vfs-semantic-contract.md
 ---
 
 > **Execution note 2026-09-03:** the `/state` half of this model is executed by

@@ -1,12 +1,23 @@
+---
+schema: 1
+id: RFC-0068
+title: "Structured-event observability — subject-grouped journal + configurable renderer"
+status: in_progress
+status_note: "(2026-06-29) — the future-proof shape of the UART observability theme"
+owners: ["@runtime"]
+created: 2026-06-29
+links:
+  - label: "Builds on"
+    target: "**ADR-0040** (unified logging policy + the pure-observer proof model — this RFC is the concrete data model behind §3/§6), RFC-0003 (unified logging), RFC-0011 (logd journal), ADR-0033 (soft-real-time spine: `nsec`/spans), ADR-0027 (selftest two-axis)."
+  - label: Code
+    target: "`source/libs/nexus-log`, `source/libs/nexus-abi` (the per-process verdict counters + `SYSCALL_BOOT_MODE`), `source/kernel/neuron/src/diag/log.rs` (kernel `GROUP` table), `source/services/logd` (`journal.rs`, `protocol.rs` — already a ring journal with `OP_APPEND`/`OP_QUERY`/`OP_STATS`), `source/apps/selftest-client`, `source/libs/nexus-proof-manifest`."
+  - label: Memory
+    target: "`uart-grid-config-expand-vision`, `fake-proof-marker-audit`."
+---
+
 # RFC-0068: Structured-event observability — subject-grouped journal + configurable renderer
 
-- Status: **In progress** (2026-06-29) — the future-proof shape of the UART observability theme. Supersedes the *grouping axis* of the per-process verdict prototype (kept as the proven UX), not its UX.
-- Owners: @runtime
-- Created: 2026-06-29
-- Links:
-  - Builds on: **ADR-0040** (unified logging policy + the pure-observer proof model — this RFC is the concrete data model behind §3/§6), RFC-0003 (unified logging), RFC-0011 (logd journal), ADR-0033 (soft-real-time spine: `nsec`/spans), ADR-0027 (selftest two-axis).
-  - Code: `source/libs/nexus-log`, `source/libs/nexus-abi` (the per-process verdict counters + `SYSCALL_BOOT_MODE`), `source/kernel/neuron/src/diag/log.rs` (kernel `GROUP` table), `source/services/logd` (`journal.rs`, `protocol.rs` — already a ring journal with `OP_APPEND`/`OP_QUERY`/`OP_STATS`), `source/apps/selftest-client`, `source/libs/nexus-proof-manifest`.
-  - Memory: `uart-grid-config-expand-vision`, `fake-proof-marker-audit`.
+> Status (migrated 2026-11-02): **In progress** (2026-06-29) — the future-proof shape of the UART observability theme. Supersedes the *grouping axis* of the per-process verdict prototype (kept as the proven UX), not its UX.
 
 ## Problem — the grouping axis is wrong for the future
 

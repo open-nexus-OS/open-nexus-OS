@@ -1,14 +1,23 @@
-# RFC-0052: Input v1.0a host-first core (HID/touch + keymaps + repeat + pointer acceleration)
+---
+schema: 1
+id: RFC-0052
+title: "Input v1.0a host-first core (HID/touch + keymaps + repeat + pointer acceleration)"
+status: done
+owners: ["@ui"]
+created: 2026-05-03
+updated: 2026-05-04
+subsystem: ui
+tasks: [TASK-0252]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0252-input-v1_0a-host-hid-touch-keymaps-repeat-accel-deterministic.md` (execution + proof)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0050-ui-v2a-present-scheduler-double-buffer-input-routing-contract.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0051-ui-v2a-visible-input-cursor-focus-click-contract.md`"
+---
 
-- Status: Done
-- Owners: @ui
-- Created: 2026-05-03
-- Last Updated: 2026-05-04
-- Links:
-  - Tasks: `tasks/TASK-0252-input-v1_0a-host-hid-touch-keymaps-repeat-accel-deterministic.md` (execution + proof)
-  - Related RFCs:
-    - `docs/rfcs/RFC-0050-ui-v2a-present-scheduler-double-buffer-input-routing-contract.md`
-    - `docs/rfcs/RFC-0051-ui-v2a-visible-input-cursor-focus-click-contract.md`
+# RFC-0052: Input v1.0a host-first core (HID/touch + keymaps + repeat + pointer acceleration)
 
 ## Status at a Glance
 

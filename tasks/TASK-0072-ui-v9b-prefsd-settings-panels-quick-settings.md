@@ -1,22 +1,36 @@
 ---
-title: TASK-0072 UI v9b: settingsd typed registry (persisted via statefsd) + Options menu + settings panel + light/dark end-to-end
-status: Done
-owner: @ui
+schema: 1
+id: TASK-0072
+title: "UI v9b: settingsd typed registry (persisted via statefsd) + Options menu + settings panel + light/dark end-to-end"
+status: done
+owner: ["@ui"]
 created: 2025-12-23
-updated: 2026-07-03 (full rewrite to IST + new scope; prefsd dropped for settingsd)
-depends-on: []
-follow-up-tasks: []
+updated: 2026-07-03
+subsystem: ui
+done: 2026-07-19
+dates_source: git-reconstructed
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Settings v2 design vocabulary: tasks/TASK-0225-settings-v2a-host-settingsd-typed-prefs-providers.md
-  - Settings v2 OS UI: tasks/TASK-0226-settings-v2b-os-settings-ui-deeplinks-search-guides.md
-  - Persistence substrate (/state, Done): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Theme tokens baseline: tasks/TASK-0063-ui-v5b-virtualized-list-theme-tokens.md
-  - WM track twin (W-track): tasks/TASK-0070-ui-v8b-wm-resize-move-shortcuts-settings-overlays.md
-  - Data formats rubric: docs/adr/0021-structured-data-formats-json-vs-capnp.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Settings v2 design vocabulary"
+    target: tasks/TASK-0225-settings-v2a-host-settingsd-typed-prefs-providers.md
+  - label: "Settings v2 OS UI"
+    target: tasks/TASK-0226-settings-v2b-os-settings-ui-deeplinks-search-guides.md
+  - label: "Persistence substrate (/state, Done)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Theme tokens baseline"
+    target: tasks/TASK-0063-ui-v5b-virtualized-list-theme-tokens.md
+  - label: "WM track twin (W-track)"
+    target: tasks/TASK-0070-ui-v8b-wm-resize-move-shortcuts-settings-overlays.md
+  - label: "Data formats rubric"
+    target: docs/adr/0021-structured-data-formats-json-vs-capnp.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
+
+> updated (migrated 2026-11-02): 2026-07-03 (full rewrite to IST + new scope; prefsd dropped for settingsd)
 
 ## Rewrite note (2026-07-03)
 

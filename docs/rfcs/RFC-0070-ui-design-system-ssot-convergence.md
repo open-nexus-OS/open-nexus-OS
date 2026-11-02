@@ -1,14 +1,27 @@
+---
+schema: 1
+id: RFC-0070
+title: "UI design-system SSOT convergence — one declarative component library, one token source, one reactive path"
+status: draft
+status_note: "(2026-07-05) — architecture spine for TASK-0073 (primitives) + TASK-0074 (app shell/modals). User decision 2026-07-05: full convergence, staged"
+owners: ["@ui", "@runtime"]
+created: 2026-07-05
+links:
+  - label: "Design contract"
+    target: "`docs/dev/design_handoff_open_nexus_os/` (54 components / 67 interfaces, tokens, 4 glass levels, motion, 7 templates, 5-surface notifications)."
+  - label: "Prep artifacts"
+    target: "`docs/dev/ui/components/inventory.md`, `docs/dev/ui/foundations/visual/token-reconciliation.md`."
+  - label: "Builds on"
+    target: "**RFC-0057** (layout engine / pretext contract — `nexus-layout(-types)`), **RFC-0063** (scene-graph GPU pipeline + theme contract), **RFC-0067** (windowd compositor-service boundary — this RFC is the \"promote AA rasterizer, slim windowd\" direction extended to the whole UI), RFC-0056 (asset/theme/cursor/text pipeline)."
+  - label: "DSL consumer"
+    target: "`tasks/TRACK-DSL-V1-DEVX.md` + `TASK-0075` (syntax/IR) — components are the DSL's emit target."
+  - label: "Code SSOT candidates"
+    target: "`userspace/ui/widgets/*`, `userspace/ui/shells/desktop`, `userspace/ui/{layout,layout-types,style,theme,theme-tokens,svg,effects}`, `userspace/nexus-gfx`, `windowd/src/{scene_graph.rs,compositor/runtime/*}`."
+---
+
 # RFC-0070: UI design-system SSOT convergence — one declarative component library, one token source, one reactive path
 
-- Status: **Draft** (2026-07-05) — architecture spine for TASK-0073 (primitives) + TASK-0074 (app shell/modals). User decision 2026-07-05: full convergence, staged; no façade — one SSOT; promote the best impl, not the incumbent; Apple production-grade, not the minimal solution.
-- Owners: @ui @runtime
-- Created: 2026-07-05
-- Links:
-  - Design contract: `docs/dev/design_handoff_open_nexus_os/` (54 components / 67 interfaces, tokens, 4 glass levels, motion, 7 templates, 5-surface notifications).
-  - Prep artifacts: `docs/dev/ui/components/inventory.md`, `docs/dev/ui/foundations/visual/token-reconciliation.md`.
-  - Builds on: **RFC-0057** (layout engine / pretext contract — `nexus-layout(-types)`), **RFC-0063** (scene-graph GPU pipeline + theme contract), **RFC-0067** (windowd compositor-service boundary — this RFC is the "promote AA rasterizer, slim windowd" direction extended to the whole UI), RFC-0056 (asset/theme/cursor/text pipeline).
-  - DSL consumer: `tasks/TRACK-DSL-V1-DEVX.md` + `TASK-0075` (syntax/IR) — components are the DSL's emit target.
-  - Code SSOT candidates: `userspace/ui/widgets/*`, `userspace/ui/shells/desktop`, `userspace/ui/{layout,layout-types,style,theme,theme-tokens,svg,effects}`, `userspace/nexus-gfx`, `windowd/src/{scene_graph.rs,compositor/runtime/*}`.
+> Status (migrated 2026-11-02): **Draft** (2026-07-05) — architecture spine for TASK-0073 (primitives) + TASK-0074 (app shell/modals). User decision 2026-07-05: full convergence, staged; no façade — one SSOT; promote the best impl, not the incumbent; Apple production-grade, not the minimal solution.
 
 ## Problem — the same UI exists three times, and a fourth is about to be added
 

@@ -1,15 +1,27 @@
+---
+schema: 1
+id: RFC-0056
+title: "UI v2b asset pipeline + theme system + cursor/text contract seed"
+status: done
+owners: ["@ui", "@runtime"]
+created: 2026-05-12
+updated: 2026-05-15
+subsystem: ui
+tasks: [TASK-0057]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md` (execution + proof)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0050-ui-v2a-present-scheduler-double-buffer-input-routing-contract.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0055-ui-v2a-embedded-reactor-runtime-floor-present-input-perf-contract.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0046-*.md`"
+---
+
 # RFC-0056: UI v2b asset pipeline + theme system + cursor/text contract seed
 
-- Status: Done
-- Last Updated: 2026-05-15 (TASK-0057 Minimal DisplayServer v0 actual state)
-- Owners: @ui @runtime
-- Created: 2026-05-12
-- Links:
-  - Tasks: `tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md` (execution + proof)
-  - Related RFCs:
-    - `docs/rfcs/RFC-0050-ui-v2a-present-scheduler-double-buffer-input-routing-contract.md`
-    - `docs/rfcs/RFC-0055-ui-v2a-embedded-reactor-runtime-floor-present-input-perf-contract.md`
-    - `docs/rfcs/RFC-0046-*.md`
+> Last Updated (migrated 2026-11-02): 2026-05-15 (TASK-0057 Minimal DisplayServer v0 actual state)
 
 ## Status at a Glance
 

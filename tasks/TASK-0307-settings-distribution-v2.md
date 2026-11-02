@@ -1,14 +1,24 @@
 ---
-title: TASK-0307 Settings distribution v2 — single authority, versioned snapshots, repaint not remount
-status: Done (2026-07-27) — all phases boot-proven; follow-ups recorded below
-owner: @runtime @ui
+schema: 1
+id: TASK-0307
+title: "Settings distribution v2 — single authority, versioned snapshots, repaint not remount"
+status: done
+status_note: "(2026-07-27) — all phases boot-proven; follow-ups recorded below"
+owner: ["@runtime", "@ui"]
 created: 2026-07-27
+subsystem: ui
+done: 2026-07-27
+dates_source: status-text
+implements: [RFC-0083]
 links:
-  - RFC: docs/rfcs/RFC-0083-settings-distribution-v2-single-authority-versioned-snapshots.md
-  - ADR: docs/adr/0053-settingsd-single-settings-authority.md
-  - Amends: docs/rfcs/RFC-0078-settings-region-keys-watch.md
-  - Evidence: build/logs/manual--2026-07-27T09-02-33/uart.log
-  - Predecessor: tasks/TASK-0306-ui-responsiveness-input-integrity-smp-rendezvous.md
+  - label: ADR
+    target: docs/adr/0053-settingsd-single-settings-authority.md
+  - label: Amends
+    target: docs/rfcs/RFC-0078-settings-region-keys-watch.md
+  - label: Evidence
+    target: build/logs/manual--2026-07-27T09-02-33/uart.log
+  - label: Predecessor
+    target: tasks/TASK-0306-ui-responsiveness-input-integrity-smp-rendezvous.md
 ---
 
 ## Context

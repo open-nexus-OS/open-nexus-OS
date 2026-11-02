@@ -1,23 +1,34 @@
 ---
-title: TASK-0181 Store v1b (OS/QEMU): Storefront UI + install/update/remove via storemgrd/bundlemgrd + ratings persistence + policy caps + selftests/docs
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0181
+title: "Store v1b (OS/QEMU): Storefront UI + install/update/remove via storemgrd/bundlemgrd + ratings persistence + policy caps + selftests/docs"
+status: draft
+owner: ["@ui"]
 created: 2025-12-27
-depends-on: []
-follow-up-tasks: []
+subsystem: security
+depends_on: [TASK-0175]
+tracks: [TRACK-ADS-SAFETY-FAMILYMODE]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
-  - Store v1a core services/tests: tasks/TASK-0180-store-v1a-host-storefeedd-storemgrd-ratings.md
-  - Packages install authority (bundlemgrd): tasks/TASK-0130-packages-v1b-bundlemgrd-install-upgrade-uninstall-trust.md
-  - Installer UI wiring (optional): tasks/TASK-0131-packages-v1c-installer-ui-openwith-launcher-integration.md
-  - Trust store unification (signatures): tasks/TASK-0160-identity-keystore-v1_1-os-attestd-trust-unification-selftests.md
-  - Policy capability matrix (apps): tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
-  - L10n/font fallback (UI prerequisites): tasks/TASK-0175-l10n-i18n-v1b-os-locale-switch-settings-cli-selftests.md
-  - Search v2 integration (optional): tasks/TASK-0152-search-v2-ui-os-deeplinks-selftests-postflight-docs.md
-  - Persistence substrate (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Store v1a core services/tests"
+    target: tasks/TASK-0180-store-v1a-host-storefeedd-storemgrd-ratings.md
+  - label: "Packages install authority (bundlemgrd)"
+    target: tasks/TASK-0130-packages-v1b-bundlemgrd-install-upgrade-uninstall-trust.md
+  - label: "Installer UI wiring (optional)"
+    target: tasks/TASK-0131-packages-v1c-installer-ui-openwith-launcher-integration.md
+  - label: "Trust store unification (signatures)"
+    target: tasks/TASK-0160-identity-keystore-v1_1-os-attestd-trust-unification-selftests.md
+  - label: "Policy capability matrix (apps)"
+    target: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
+  - label: "Search v2 integration (optional)"
+    target: tasks/TASK-0152-search-v2-ui-os-deeplinks-selftests-postflight-docs.md
+  - label: "Persistence substrate (/state)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

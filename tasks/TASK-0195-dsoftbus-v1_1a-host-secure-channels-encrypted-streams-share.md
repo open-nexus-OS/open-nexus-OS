@@ -1,19 +1,28 @@
 ---
-title: TASK-0195 DSoftBus v1.1a (host-first): Noise-secured channels + encrypted framed streams + file-share protocol (quota/resume) + deterministic tests
-status: Draft
-owner: @runtime
+schema: 1
+id: TASK-0195
+title: "DSoftBus v1.1a (host-first): Noise-secured channels + encrypted framed streams + file-share protocol (quota/resume) + deterministic tests"
+status: draft
+owner: ["@runtime"]
 created: 2025-12-27
-depends-on: []
-follow-up-tasks: []
+subsystem: distributed
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - DSoftBus v1 localSim baseline (no crypto): tasks/TASK-0157-dsoftbus-v1a-local-sim-pairing-streams-host.md
-  - DSoftBus v1 OS wiring + share demo: tasks/TASK-0158-dsoftbus-v1b-os-consent-policy-registry-share-demo-cli-selftests.md
-  - Keystore v1.1 (Ed25519 identity + seal/unseal): tasks/TASK-0159-identity-keystore-v1_1-host-keystored-lifecycle-nonexportable.md
-  - Trust store unification (allowlists/roots): tasks/TASK-0160-identity-keystore-v1_1-os-attestd-trust-unification-selftests.md
-  - Networking devnet (host-first TLS, gating): tasks/TASK-0193-networking-v1a-host-devnet-tls-fetchd-integration.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "DSoftBus v1 localSim baseline (no crypto)"
+    target: tasks/TASK-0157-dsoftbus-v1a-local-sim-pairing-streams-host.md
+  - label: "DSoftBus v1 OS wiring + share demo"
+    target: tasks/TASK-0158-dsoftbus-v1b-os-consent-policy-registry-share-demo-cli-selftests.md
+  - label: "Keystore v1.1 (Ed25519 identity + seal/unseal)"
+    target: tasks/TASK-0159-identity-keystore-v1_1-host-keystored-lifecycle-nonexportable.md
+  - label: "Trust store unification (allowlists/roots)"
+    target: tasks/TASK-0160-identity-keystore-v1_1-os-attestd-trust-unification-selftests.md
+  - label: "Networking devnet (host-first TLS, gating)"
+    target: tasks/TASK-0193-networking-v1a-host-devnet-tls-fetchd-integration.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Short description

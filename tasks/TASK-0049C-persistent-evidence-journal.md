@@ -1,20 +1,33 @@
 ---
-title: TASK-0049C Reliability v1c: persistent evidence journal — bounded logd spill to statefs
-status: Done (2026-08-20 — PR-C1 host + PR-C2 OS QEMU-proven incl. keep-blk double boot; test-all green incl. smp1; see the systemic-bugs section)
-owner: @reliability
+schema: 1
+id: TASK-0049C
+title: "Reliability v1c: persistent evidence journal — bounded logd spill to statefs"
+status: done
+status_note: "2026-08-20 — PR-C1 host + PR-C2 OS QEMU-proven incl. keep-blk double boot; test-all green incl. smp1; see the systemic-bugs section"
+owner: ["@reliability"]
 created: 2026-08-18
-depends-on:
-  - TASK-0049 # produces the events worth persisting (crash/exhaustion reasons)
-  - TASK-0026 # statefs journal v2 txn ops (Done)
-follow-up-tasks:
-  - TASK-0051B # crash dumps at rest build on surviving evidence
+subsystem: observability
+started: 2026-08-20
+done: 2026-08-20
+active_days: 1
+dates_source: git-reconstructed
+depends_on: [TASK-0049, TASK-0026]
+follow_ups: [TASK-0051B]
+split_from: TASK-0049
+implements: [RFC-0087]
 links:
-  - Reliability contract: docs/rfcs/RFC-0087-reliability-failure-model-v1.md (§5 evidence retention)
-  - logd v1: docs/rfcs/RFC-0011-logd-journal-crash-v1.md
-  - Structured events: docs/rfcs/RFC-0068-structured-event-observability-subject-grouped-journal-renderer.md
-  - statefs txn wire: userspace/statefs/src/protocol/txn.rs (TASK-0026)
-  - Retention precedent: tasks/TASK-0014-observability-v2-metrics-tracing.md (WAL/rollup/TTL on /state)
-  - Testing contract: scripts/qemu-test.sh
+  - label: "Reliability contract"
+    target: "docs/rfcs/RFC-0087-reliability-failure-model-v1.md (§5 evidence retention)"
+  - label: "logd v1"
+    target: docs/rfcs/RFC-0011-logd-journal-crash-v1.md
+  - label: "Structured events"
+    target: docs/rfcs/RFC-0068-structured-event-observability-subject-grouped-journal-renderer.md
+  - label: "statefs txn wire"
+    target: "userspace/statefs/src/protocol/txn.rs (TASK-0026)"
+  - label: "Retention precedent"
+    target: "tasks/TASK-0014-observability-v2-metrics-tracing.md (WAL/rollup/TTL on /state)"
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

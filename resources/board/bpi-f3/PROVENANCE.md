@@ -42,4 +42,4 @@ Full hashes are in `scripts/fetch-board-inputs.sh` (`PIECES`).
   the vendor's public repositories for the same release; nothing here is linked into our binaries.
 - **Not fetched:** `bootfs.ext4`, `rootfs.ext4` (the vendor OS) — we never write them.
 - Firmware for devices (GPU, WiFi) is a different matter with its own provenance gate
-  (`resources/firmware/<device>/`, hardware rule 3 in `tasks/IMPLEMENTATION-ORDER.md`).
+  (`resources/firmware/<device>/`, hardware rule 3 in `tasks/milestones/hardware-network.md`).

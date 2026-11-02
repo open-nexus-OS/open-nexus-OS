@@ -1,22 +1,28 @@
+---
+schema: 1
+id: RFC-0108
+title: "The UX latency contract — \"instant\" and \"smooth\" as numbers every lane judges"
+status: in_progress
+owners: ["@ui", "@runtime"]
+created: 2026-10-20
+updated: 2026-10-22
+subsystem: ui
+tasks: [TASK-0334, TASK-0342]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0334-ux-latency-contract-budgets-measurement-lines-gates.md` (execution + proof), `tasks/TASK-0342-the-frame-chain-one-interrupt-a-frame-hops-and-the-reference-levers.md` (§hops)"
+  - label: SSOT
+    target: "`source/libs/nexus-ux-budgets/src/lib.rs` (the budgets, the verdict rule)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0096-ipc-performance-contract-v2-call-reply-recv-fastpath.md` (the IPC budget), `docs/rfcs/RFC-0101-…` (the GPU driver's frame), `docs/rfcs/RFC-0100-…` (layer 6: the launch under 200 ms warm)"
+  - label: "Related tracks"
+    target: "`tasks/TRACK-TIME-AS-RESOURCE.md` (time as a conserved right — the display path's reservation is this contract's guarantee, later), `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` (the consumer-floor release)"
+---
+
 <!-- Copyright 2026 Open Nexus OS Contributors -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # RFC-0108: The UX latency contract — "instant" and "smooth" as numbers every lane judges
-
-- Status: In Progress
-- Owners: @ui @runtime
-- Created: 2026-10-20
-- Last Updated: 2026-10-22
-- Links:
-  - Tasks: `tasks/TASK-0334-ux-latency-contract-budgets-measurement-lines-gates.md` (execution + proof),
-    `tasks/TASK-0342-the-frame-chain-one-interrupt-a-frame-hops-and-the-reference-levers.md` (§hops)
-  - SSOT: `source/libs/nexus-ux-budgets/src/lib.rs` (the budgets, the verdict rule)
-  - Related RFCs: `docs/rfcs/RFC-0096-ipc-performance-contract-v2-call-reply-recv-fastpath.md`
-    (the IPC budget), `docs/rfcs/RFC-0101-…` (the GPU driver's frame), `docs/rfcs/RFC-0100-…`
-    (layer 6: the launch under 200 ms warm)
-  - Related tracks: `tasks/TRACK-TIME-AS-RESOURCE.md` (time as a conserved right — the display
-    path's reservation is this contract's guarantee, later), `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`
-    (the consumer-floor release)
 
 ## Status at a Glance
 

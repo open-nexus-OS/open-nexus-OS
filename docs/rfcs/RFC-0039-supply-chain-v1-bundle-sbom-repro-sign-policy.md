@@ -1,20 +1,39 @@
+---
+schema: 1
+id: RFC-0039
+title: "Supply-Chain v1 — bundle SBOM (CycloneDX) + repro metadata + signature allowlist policy (host-first, OS-gated)"
+status: done
+owners: ["@runtime", "@security"]
+created: 2026-04-21
+updated: 2026-04-22
+subsystem: security
+tasks: [TASK-0029]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md` (execution + proof)"
+  - label: "ADR (manifest format = capnp)"
+    target: "`docs/adr/0020-manifest-format-capnproto.md`"
+  - label: "ADR (canonical-vs-interop format policy)"
+    target: "`docs/adr/0021-structured-data-formats-json-vs-capnp.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md` (manifest.nxb baseline + bundle pipeline)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md` (policy authority + audit contract)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0016-device-identity-keys-v1.md` (keystored / device keys baseline)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0011-logd-journal-crash-v1.md` (audit sink contract)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0038-selftest-client-production-grade-deterministic-test-architecture-refactor-v1.md` (proof-manifest layout + evidence-bundle determinism reused here)"
+  - label: "Production-gate tier"
+    target: "`tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` (Updates/Packaging/Recovery → `production-grade`)"
+  - label: "Future RFC seeds (do not own scope here)"
+    target: "supply-chain v2 host (`TASK-0197`), v2 OS enforcement (`TASK-0198`), boot-trust closure (`TASK-0289`)"
+---
+
 # RFC-0039: Supply-Chain v1 — bundle SBOM (CycloneDX) + repro metadata + signature allowlist policy (host-first, OS-gated)
 
-- Status: Done
-- Owners: @runtime @security
-- Created: 2026-04-21
-- Last Updated: 2026-04-22 (status flip to Done; proof checklist remained green)
-- Links:
-  - Tasks: `tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md` (execution + proof)
-  - ADR (manifest format = capnp): `docs/adr/0020-manifest-format-capnproto.md`
-  - ADR (canonical-vs-interop format policy): `docs/adr/0021-structured-data-formats-json-vs-capnp.md`
-  - Related RFCs: `docs/rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md` (manifest.nxb baseline + bundle pipeline)
-  - Related RFCs: `docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md` (policy authority + audit contract)
-  - Related RFCs: `docs/rfcs/RFC-0016-device-identity-keys-v1.md` (keystored / device keys baseline)
-  - Related RFCs: `docs/rfcs/RFC-0011-logd-journal-crash-v1.md` (audit sink contract)
-  - Related RFCs: `docs/rfcs/RFC-0038-selftest-client-production-grade-deterministic-test-architecture-refactor-v1.md` (proof-manifest layout + evidence-bundle determinism reused here)
-  - Production-gate tier: `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` (Updates/Packaging/Recovery → `production-grade`)
-  - Future RFC seeds (do not own scope here): supply-chain v2 host (`TASK-0197`), v2 OS enforcement (`TASK-0198`), boot-trust closure (`TASK-0289`)
+> Last Updated (migrated 2026-11-02): 2026-04-22 (status flip to Done; proof checklist remained green)
 
 ## Status at a Glance
 

@@ -1,19 +1,28 @@
 ---
-title: TASK-0271 Thermal v0.1b (OS/QEMU): thermald service + powerd hooks + SystemUI indicators + selftests
-status: Draft
-owner: @platform
+schema: 1
+id: TASK-0271
+title: "Thermal v0.1b (OS/QEMU): thermald service + powerd hooks + SystemUI indicators + selftests"
+status: draft
+owner: ["@platform"]
 created: 2025-12-30
-depends-on: []
-follow-up-tasks: []
+subsystem: hardware
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
-  - Power/Idle: tasks/TASK-0237-power-v1_0b-os-powerd-alarmsd-standbyd-idle-hooks-selftests.md
-  - Battery: tasks/TASK-0257-battery-v0_9b-os-batteryd-powerd-hooks-systemui-selftests.md
-  - Device MMIO model (future real sensors): tasks/TASK-0010-device-mmio-access-model.md
-  - Persistence: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Authority & naming registry"
+    target: tasks/TRACK-AUTHORITY-NAMING.md
+  - label: Power/Idle
+    target: tasks/TASK-0237-power-v1_0b-os-powerd-alarmsd-standbyd-idle-hooks-selftests.md
+  - label: Battery
+    target: tasks/TASK-0257-battery-v0_9b-os-batteryd-powerd-hooks-systemui-selftests.md
+  - label: "Device MMIO model (future real sensors)"
+    target: tasks/TASK-0010-device-mmio-access-model.md
+  - label: Persistence
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

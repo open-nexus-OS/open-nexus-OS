@@ -1,10 +1,20 @@
-# RFC-0003: Unified Logging Infrastructure
+---
+schema: 1
+id: RFC-0003
+title: "Unified Logging Infrastructure"
+status: done
+status_note: "Phase 0: deterministic bring-up markers + guards; later phases deferred"
+owners: ["@runtime"]
+created: 2025-12-02
+updated: 2025-12-30
+links:
+  - label: Authors
+    target: "Runtime Team"
+  - label: "Related RFCs"
+    target: "**RFC-0011**: logd journal + crash reports v1 (Complete; extends this facade with structured log sink)"
+---
 
-- Status: Complete (Phase 0: deterministic bring-up markers + guards; later phases deferred)
-- Authors: Runtime Team
-- Last Updated: 2025-12-30
-- Related RFCs:
-  - **RFC-0011**: logd journal + crash reports v1 (Complete; extends this facade with structured log sink)
+# RFC-0003: Unified Logging Infrastructure
 
 ## Status at a Glance
 

@@ -1,19 +1,34 @@
 ---
-title: TASK-0066 UI v7a: window tiling — halves, quarters, fill, return, arrangements; edge/corner drag, zoom-button hover menu, keyboard chords, settings "Fenster"; zone state in the window feed
-status: Done (2026-10-07 — model "A" delivered and board-proven over two cycles; polish continues in the GPU lane per user decision; supersedes the 2026-09-09 halves+thirds rewrite)
-owner: @ui
+schema: 1
+id: TASK-0066
+title: "UI v7a: window tiling — halves, quarters, fill, return, arrangements; edge/corner drag, zoom-button hover menu, keyboard chords, settings \"Fenster\"; zone state in the window feed"
+status: done
+status_note: "2026-10-07 — model \"A\" delivered and board-proven over two cycles"
+owner: ["@ui"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: security
+started: 2026-10-07
+done: 2026-10-07
+active_days: 1
+dates_source: git-reconstructed
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - UI v6a WM baseline: tasks/TASK-0064-ui-v6a-window-management-scene-transitions.md
-  - UI v3a layout baseline (for future tiling): tasks/TASK-0058-ui-v3a-layout-wrapping-deterministic.md
-  - Policy as Code (WM constraints): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
-  - Config broker (WM keys): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "UI v6a WM baseline"
+    target: tasks/TASK-0064-ui-v6a-window-management-scene-transitions.md
+  - label: "UI v3a layout baseline (for future tiling)"
+    target: tasks/TASK-0058-ui-v3a-layout-wrapping-deterministic.md
+  - label: "Policy as Code (WM constraints)"
+    target: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
+  - label: "Config broker (WM keys)"
+    target: tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
+
+> Status (migrated 2026-11-02): Done (2026-10-07 — model "A" delivered and board-proven over two cycles; polish continues in the GPU lane per user decision; supersedes the 2026-09-09 halves+thirds rewrite)
 
 ## Delivered 2026-10-06 (model "A"; proof chain in the table at the end)
 

@@ -139,7 +139,8 @@ qemu.stderr, hypothesis.json) — see `docs/testing/run-logs.md`. Prune with
 
 - **Tasks (`tasks/TASK-*.md`) are the execution truth**: scope, stop
   conditions (DoD), and proof commands/markers. Start at `tasks/README.md`;
-  day-to-day status is on `tasks/STATUS-BOARD.md`.
+  day-to-day status: `just brief` (the active milestone in `tasks/milestones/`,
+  this week's sprint in `tasks/sprints/`, RFC-0115).
 - **RFCs are design seeds / contracts**: new interfaces, invariants, or wire
   contracts need an RFC *before* implementation. Process:
   [docs/rfcs/README.md](docs/rfcs/README.md).

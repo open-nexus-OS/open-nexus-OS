@@ -1,19 +1,29 @@
 ---
-title: TASK-0247 RISC-V Bring-up v1.1b (OS/QEMU): SMP (SBI HSM/IPI) + per-hart timers + virtioblkd + packagefs mount + selftests
-status: Done
-owner: @kernel
+schema: 1
+id: TASK-0247
+title: "RISC-V Bring-up v1.1b (OS/QEMU): SMP (SBI HSM/IPI) + per-hart timers + virtioblkd + packagefs mount + selftests"
+status: done
+owner: ["@kernel"]
 created: 2025-12-29
-depends-on: []
-follow-up-tasks:
-  - TASK-0288
+subsystem: kernel
+done: 2026-08-25
+dates_source: git-reconstructed
+follow_ups: [TASK-0288]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Bring-up core (host-first): tasks/TASK-0246-bringup-rv-virt-v1_1a-host-virtio-blk-image-builder-deterministic.md
-  - SMP baseline: tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md
-  - SMP hardening bridge: tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md
-  - Bring-up v1.0: tasks/TASK-0245-bringup-rv-virt-v1_0b-os-kernel-uart-plic-timer-uartd-selftests.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Bring-up core (host-first)"
+    target: tasks/TASK-0246-bringup-rv-virt-v1_1a-host-virtio-blk-image-builder-deterministic.md
+  - label: "SMP baseline"
+    target: tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md
+  - label: "SMP hardening bridge"
+    target: tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md
+  - label: "Bring-up v1.0"
+    target: tasks/TASK-0245-bringup-rv-virt-v1_0b-os-kernel-uart-plic-timer-uartd-selftests.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

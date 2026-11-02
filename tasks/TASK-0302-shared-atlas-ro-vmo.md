@@ -1,9 +1,20 @@
-# TASK-0302: Shared glyph-atlas RO VMO
+---
+schema: 1
+id: TASK-0302
+title: "Shared glyph-atlas RO VMO"
+status: done
+owner: ["@ui", "@kernel-mm-team", "@runtime"]
+created: 2026-07-23
+subsystem: ui
+done: 2026-07-23
+dates_source: git-reconstructed
+implements: [RFC-0080]
+links:
+  - label: Related
+    target: "RFC-0075 8d (the baked CJK atlas), 8e/8f (arena reclaim)"
+---
 
-- Status: Done
-- Owners: @ui / @kernel-mm-team / @runtime
-- RFC: `docs/rfcs/RFC-0080-shared-atlas-ro-vmo.md`
-- Related: RFC-0075 8d (the baked CJK atlas), 8e/8f (arena reclaim)
+# TASK-0302: Shared glyph-atlas RO VMO
 
 ## Goal / stop condition
 

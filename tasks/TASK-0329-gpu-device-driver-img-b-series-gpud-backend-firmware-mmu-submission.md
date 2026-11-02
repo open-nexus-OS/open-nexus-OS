@@ -1,19 +1,39 @@
 ---
-title: TASK-0329 GPU device online — the thin side in gpud: the published firmware, the GPU MMU with explicit VM, power through socd, the interrupt, the fence bridge (Block 4 layer 3, RFC-0101 Phase 2)
-status: Done 2026-10-13 (P0 rewrite to the end state 2026-10-13 — this file is the SSOT of Block 4 layer 3; G1 green on the board in cycle 5, `board--2026-10-13T13-46-51`; G5 = TASK-0329B stays open)
-owner: @runtime @ui
+schema: 1
+id: TASK-0329
+title: "GPU device online — the thin side in gpud: the published firmware, the GPU MMU with explicit VM, power through socd, the interrupt, the fence bridge (Block 4 layer 3, RFC-0101 Phase 2)"
+status: done
+status_note: "2026-10-13 (P0 rewrite to the end state 2026-10-13"
+owner: ["@runtime", "@ui"]
 created: 2026-09-21
-depends-on: [TASK-0280 (layer 1, the contracts ✅), TASK-0216 (layer 2, the scanout contract ✅), TASK-0245B (socd, the display set ✅), TASK-0284/0284B (`DmaBuffer`, cache maintenance ✅)]
-follow-up-tasks: [TASK-0280 G2 (the device behind `GfxDevice`), TASK-0329B G5 (app-surface import), TASK-0330 S3 (the IPC call budget on the board)]
+subsystem: hardware
+started: 2026-10-10
+done: 2026-10-13
+active_days: 1
+dates_source: git-reconstructed
+depends_on: [TASK-0280, TASK-0216, TASK-0245B]
+follow_ups: [TASK-0280, TASK-0329B, TASK-0330]
+implements: [RFC-0101]
 links:
-  - Execution order (the lane this belongs to): tasks/IMPLEMENTATION-ORDER.md "Block 4 in layers", layer 3
-  - Contract: docs/rfcs/RFC-0101-gpu-driver-split-contexts-vm-batches-fence-and-the-scanout-contract.md (Phase 2)
-  - SoC glue: docs/rfcs/RFC-0106-… (Phase 2 per-class floor, Phase 3 GPU set)
-  - Playbook: CLAUDE.md · method: .claude/skills/driver-bringup/
-  - Measurements: docs/board/measurements/2026-10-10-gpu-stock-baseline/ (G0), docs/board/measurements/2026-10-13-gpu-online/ (G1's cycles)
-  - Seam: source/libs/nexus-driverkit/src/gpu.rs (the contract types), userspace/nexus-gfx/src/backend/gpu/ (the host model), source/drivers/gpud/src/backend/gpu/ (the device)
-  - Firmware: resources/firmware/gpu/ (the published blob, its licence, its provenance; gate `scripts/check-firmware-provenance.sh`)
+  - label: "Execution order (the lane this belongs to)"
+    target: "tasks/milestones/hardware-network.md \"Block 4 in layers\", layer 3"
+  - label: Contract
+    target: "docs/rfcs/RFC-0101-gpu-driver-split-contexts-vm-batches-fence-and-the-scanout-contract.md (Phase 2)"
+  - label: "SoC glue"
+    target: "docs/rfcs/RFC-0106-… (Phase 2 per-class floor, Phase 3 GPU set)"
+  - label: Playbook
+    target: "CLAUDE.md · method: .claude/skills/driver-bringup/"
+  - label: Measurements
+    target: "docs/board/measurements/2026-10-10-gpu-stock-baseline/ (G0), docs/board/measurements/2026-10-13-gpu-online/ (G1's cycles)"
+  - label: Seam
+    target: "source/libs/nexus-driverkit/src/gpu.rs (the contract types), userspace/nexus-gfx/src/backend/gpu/ (the host model), source/drivers/gpud/src/backend/gpu/ (the device)"
+  - label: Firmware
+    target: "resources/firmware/gpu/ (the published blob, its licence, its provenance; gate `scripts/check-firmware-provenance.sh`)"
+  - label: "depends on"
+    target: "TASK-0284/0284B (`DmaBuffer`, cache maintenance ✅)"
 ---
+
+> Status (migrated 2026-11-02): Done 2026-10-13 (P0 rewrite to the end state 2026-10-13 — this file is the SSOT of Block 4 layer 3; G1 green on the board in cycle 5, `board--2026-10-13T13-46-51`; G5 = TASK-0329B stays open)
 
 ## Origin
 

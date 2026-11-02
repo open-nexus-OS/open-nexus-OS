@@ -1,20 +1,31 @@
+---
+schema: 1
+id: RFC-0060
+title: "DSoftBus Streams v2 mux/flow-control/keepalive (host-first, OS-gated)"
+status: done
+owners: ["@runtime"]
+created: 2026-03-27
+updated: 2026-04-11
+subsystem: distributed
+tasks: [TASK-0020]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md` (execution + proof; SSOT)"
+  - label: ADRs
+    target: "`docs/adr/0005-dsoftbus-architecture.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0028-dsoftbus-remote-packagefs-ro-v1.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0030-dsoftbus-remote-statefs-rw-v1.md`"
+---
+
 # RFC-0060: DSoftBus Streams v2 mux/flow-control/keepalive (host-first, OS-gated)
 
 > Formerly RFC-0033. Renumbered 2026-07 to resolve a number collision with
 > RFC-0033 (soft-real-time spine). Historical references (CHANGELOG, task
 > ledgers) to "RFC-0033" in a DSoftBus mux context mean this document.
-
-- Status: Done
-- Owners: @runtime
-- Created: 2026-03-27
-- Last Updated: 2026-04-11
-- Links:
-  - Tasks: `tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md` (execution + proof; SSOT)
-  - ADRs: `docs/adr/0005-dsoftbus-architecture.md`
-  - Related RFCs:
-    - `docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md`
-    - `docs/rfcs/RFC-0028-dsoftbus-remote-packagefs-ro-v1.md`
-    - `docs/rfcs/RFC-0030-dsoftbus-remote-statefs-rw-v1.md`
 
 ## Status at a Glance
 

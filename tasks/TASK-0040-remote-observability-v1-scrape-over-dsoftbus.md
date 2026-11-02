@@ -1,26 +1,19 @@
 ---
-title: TASK-0040 Remote observability v1: scrape logs/metrics over DSoftBus (host-first, OS-gated; VMO backfill deferred) (rebased 2026-08-14 onto shipped logd/metricsd/dsoftbus)
-status: Draft
-owner: @runtime
+schema: 1
+id: TASK-0040
+title: "Remote observability v1: scrape logs/metrics over DSoftBus (host-first, OS-gated; VMO backfill deferred) (rebased 2026-08-14 onto shipped logd/metricsd/dsoftbus)"
+status: draft
+owner: ["@runtime"]
 created: 2025-12-22
-depends-on:
-  - TASK-0003
-  - TASK-0006
-  - TASK-0014
-  - TASK-0020
-  - TASK-0030
-  - TASK-0031  # satisfied for v1: VMO backfill is an explicit non-goal (rebase 2026-08-14)
-follow-up-tasks: []
+subsystem: distributed
+depends_on: [TASK-0003, TASK-0006, TASK-0014, TASK-0020, TASK-0030, TASK-0031]
 links:
-  - Vision: docs/architecture/vision.md
-  - DSoftBus base: docs/distributed/dsoftbus-lite.md
-  - Depends-on (logd v1): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
-  - Depends-on (metrics v2): tasks/TASK-0014-observability-v2-metrics-tracing.md
-  - Depends-on (DSoftBus OS bring-up): tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
-  - Depends-on (mux v2): tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md
-  - Depends-on (ACL hardening): tasks/TASK-0030-dsoftbus-discovery-authz-hardening-mdns-ttl-acl-ratelimit.md
-  - Depends-on (VMO plumbing; optional): tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: "DSoftBus base"
+    target: docs/distributed/dsoftbus-lite.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Short description

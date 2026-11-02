@@ -1,17 +1,26 @@
+---
+schema: 1
+id: RFC-0094
+title: "Content transfer v1 — `clipboardd`, the one clipboard authority"
+status: done
+status_note: "2026-10-08 — Phases 0–2, TASK-0067/0067B, board rung `board-visual: clipboard` confirmed on the second board cycle"
+owners: ["@ui", "@runtime"]
+created: 2026-10-07
+updated: 2026-10-08
+subsystem: security
+tasks: [TASK-0067, TASK-0067B]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0067-ui-v7b-dnd-clipboard-v2.md` (the service, the gate, the wire), `tasks/TASK-0067B-ui-v7b-clipboard-history-dsl-overlay.md` (the two surfaces)"
+  - label: ADRs
+    target: "`docs/adr/0070-clipboardd-one-authority-focus-gated-reads-ui-in-shell-and-keyboard.md` (supersedes ADR-0008)"
+  - label: "Related RFCs"
+    target: "RFC-0075 (IME v2 — the `OP_INSERT` amendment), RFC-0086 (window feed — the owner sids), RFC-0093 (routing v2 — declared slots), ADR-0068 (modal semantics)"
+---
+
 # RFC-0094: Content transfer v1 — `clipboardd`, the one clipboard authority
 
-- Status: Done (2026-10-08 — Phases 0–2, TASK-0067/0067B, board rung `board-visual: clipboard`
-  confirmed on the second board cycle; Phases 3–5 belong to TASK-0087, TASK-0086 and the sync RFC)
-- Owners: @ui @runtime
-- Created: 2026-10-07
-- Last Updated: 2026-10-08
-- Links:
-  - Tasks: `tasks/TASK-0067-ui-v7b-dnd-clipboard-v2.md` (the service, the gate, the wire),
-    `tasks/TASK-0067B-ui-v7b-clipboard-history-dsl-overlay.md` (the two surfaces)
-  - ADRs: `docs/adr/0070-clipboardd-one-authority-focus-gated-reads-ui-in-shell-and-keyboard.md`
-    (supersedes ADR-0008)
-  - Related RFCs: RFC-0075 (IME v2 — the `OP_INSERT` amendment), RFC-0086 (window feed —
-    the owner sids), RFC-0093 (routing v2 — declared slots), ADR-0068 (modal semantics)
+> Status (migrated 2026-11-02): Done (2026-10-08 — Phases 0–2, TASK-0067/0067B, board rung `board-visual: clipboard` confirmed on the second board cycle; Phases 3–5 belong to TASK-0087, TASK-0086 and the sync RFC)
 
 ## Status at a Glance
 

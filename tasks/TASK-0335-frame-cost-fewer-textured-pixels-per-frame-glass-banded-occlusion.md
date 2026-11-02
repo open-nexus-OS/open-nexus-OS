@@ -1,15 +1,32 @@
 ---
-title: TASK-0335 The frame cost — fewer textured pixels per frame (the glass re-blurred in its changed band, occluded surfaces not drawn, the scene under glass drawn once), judged by RFC-0108's frame line
-status: In Progress (P4's first cuts board-proven in cycle 62; the rest — the band's clean, the blur's dual filter — parked to layer 8's closing by the operator 2026-10-22)
-owner: @gpu @ui
+schema: 1
+id: TASK-0335
+title: "The frame cost — fewer textured pixels per frame (the glass re-blurred in its changed band, occluded surfaces not drawn, the scene under glass drawn once), judged by RFC-0108's frame line"
+status: in_progress
+status_note: "P4's first cuts board-proven in cycle 62; the rest — the band's clean, the blur's dual filter — parked to layer 8's closing by the operator 2026-10-22"
+owner: ["@gpu", "@ui"]
 created: 2026-10-20
-depends-on: [TASK-0334 (RFC-0108 Phase 0 ✅), TASK-0215 (5d ✅)]
-follow-up-tasks: [TASK-0336 the window as one surface (first, after the P3 commit), TASK-0337 one window path + materials (the opaque pane P2 occludes with), then P2 + the programs here, the non-parking compositor (ADR-0075), 6c the launch without a copy]
+subsystem: ui
+started: 2026-10-21
+dates_source: git-reconstructed
+depends_on: [TASK-0334, TASK-0215]
+follow_ups: [TASK-0336, TASK-0337]
+implements: [RFC-0108, RFC-0101]
 links:
-  - RFC: docs/rfcs/RFC-0108-ux-latency-contract-instant-and-smooth-as-numbers.md (the frame budget this meets)
-  - RFC: docs/rfcs/RFC-0101-gpu-driver-split-contexts-vm-batches-fence-and-the-scanout-contract.md (§8 the planner, damage, the glass cache)
-  - Measurement: docs/board/measurements/2026-10-20-memory-lifecycle-baseline/README.md (cycle 49: the cost model)
-  - Planner: userspace/nexus-gfx/src/frame/{plan.rs, board.rs, glass.rs}; executor: source/drivers/gpud/src/backend/gpu/{desktop.rs, desktop_pass.rs, desktop_work.rs}
+  - label: RFC
+    target: "docs/rfcs/RFC-0108-ux-latency-contract-instant-and-smooth-as-numbers.md (the frame budget this meets)"
+  - label: RFC
+    target: "docs/rfcs/RFC-0101-gpu-driver-split-contexts-vm-batches-fence-and-the-scanout-contract.md (§8 the planner, damage, the glass cache)"
+  - label: Measurement
+    target: "docs/board/measurements/2026-10-20-memory-lifecycle-baseline/README.md (cycle 49: the cost model)"
+  - label: Planner
+    target: "userspace/nexus-gfx/src/frame/{plan.rs, board.rs, glass.rs}; executor: source/drivers/gpud/src/backend/gpu/{desktop.rs, desktop_pass.rs, desktop_work.rs}"
+  - label: follow-up
+    target: "then P2 + the programs here"
+  - label: follow-up
+    target: "the non-parking compositor (ADR-0075)"
+  - label: follow-up
+    target: "6c the launch without a copy"
 ---
 
 ## Context

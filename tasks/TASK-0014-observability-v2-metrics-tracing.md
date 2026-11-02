@@ -1,33 +1,27 @@
 ---
-title: TASK-0014 Observability v2 (OS): metricsd (counters/gauges/histograms) + spans exported via logd
-status: Done
-owner: @runtime
+schema: 1
+id: TASK-0014
+title: "Observability v2 (OS): metricsd (counters/gauges/histograms) + spans exported via logd"
+status: done
+owner: ["@runtime"]
 created: 2025-12-22
-depends-on:
-  - TASK-0006
-  - TASK-0009
-  - TASK-0013
-follow-up-tasks:
-  - TASK-0038
-  - TASK-0040
-  - TASK-0041
-  - TASK-0046
-  - TASK-0143
+subsystem: observability
+started: 2026-02-12
+done: 2026-02-13
+active_days: 2
+dates_source: git-reconstructed
+depends_on: [TASK-0006, TASK-0009, TASK-0013]
+follow_ups: [TASK-0038, TASK-0040, TASK-0041, TASK-0046, TASK-0143]
+implements: [RFC-0024, RFC-0019]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Seed contract: docs/rfcs/RFC-0024-observability-v2-metrics-tracing-contract-v1.md
-  - Depends-on (log sink): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
-  - Depends-on (persistence substrate): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Depends-on (timed metrics): tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
-  - IPC correlation contract: docs/rfcs/RFC-0019-ipc-request-reply-correlation-v1.md
-  - Testing contract: scripts/qemu-test.sh
-enables:
-  - TASK-0038: Tracing v2 cross-node correlation (context propagation + sampling + traced collector)
-  - TASK-0040: Remote observability v1 over DSoftBus (scrape/query pipeline over network)
-  - TASK-0041: Lock profiling v1 userspace export hooks (optional sinks into metrics/tracing)
-  - TASK-0143: Perf v1a perfd frame trace + bounded metrics export
-  - TASK-0046: Config v1 schemas/layering consume metrics/tracing policy surfaces
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
+  - label: enables
+    target: "TASK-0038: Tracing v2 cross-node correlation (context propagation + sampling + traced collector); TASK-0040: Remote observability v1 over DSoftBus (scrape/query pipeline over network); TASK-0041: Lock profiling v1 userspace export hooks (optional sinks into metrics/tracing); TASK-0143: Perf v1a perfd frame trace + bounded metrics export; TASK-0046: Config v1 schemas/layering consume metrics/tracing policy surfaces"
 ---
 
 ## Context

@@ -1,15 +1,23 @@
-# RFC-0016: Device Identity Keys v1 — virtio-rng + rngd authority + keystored keygen
+---
+schema: 1
+id: RFC-0016
+title: "Device Identity Keys v1 — virtio-rng + rngd authority + keystored keygen"
+status: done
+owners: ["@runtime", "@security"]
+created: 2026-01-26
+updated: 2026-01-27
+subsystem: security
+tasks: [TASK-0008B]
+links:
+  - label: ADRs
+    target: "`docs/adr/0006-device-identity-architecture.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md` (policy + audit baseline)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0005-kernel-ipc-capability-model.md` (capability model)"
+---
 
-- Status: Done
-- Owners: @runtime @security
-- Created: 2026-01-26
-- Last Updated: 2026-01-27
-- Links:
-  - Tasks: `tasks/TASK-0008B-device-identity-keys-v1-virtio-rng-rngd-keystored-keygen.md`
-  - ADRs: `docs/adr/0006-device-identity-architecture.md`
-  - Related RFCs:
-    - `docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md` (policy + audit baseline)
-    - `docs/rfcs/RFC-0005-kernel-ipc-capability-model.md` (capability model)
+# RFC-0016: Device Identity Keys v1 — virtio-rng + rngd authority + keystored keygen
 
 ## Status at a Glance
 

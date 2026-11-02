@@ -1,13 +1,19 @@
 ---
-title: TRACK Authority & Naming Registry (single-source-of-truth)
-status: Draft
-owner: @runtime
+schema: 1
+id: TRACK-AUTHORITY-NAMING
+title: "Authority & Naming Registry (single-source-of-truth)"
+status: draft
+owner: ["@runtime"]
 created: 2025-12-30
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Keystone gates: tasks/TRACK-KEYSTONE-GATES.md
-  - Authority decision (binding): tasks/TASK-0266-architecture-v1-authority-naming-contract.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Keystone gates"
+    target: tasks/TRACK-KEYSTONE-GATES.md
+  - label: "Authority decision (binding)"
+    target: tasks/TASK-0266-architecture-v1-authority-naming-contract.md
 ---
 
 ## Purpose

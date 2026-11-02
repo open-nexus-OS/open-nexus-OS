@@ -1,27 +1,29 @@
+---
+schema: 1
+id: RFC-0109
+title: "Surface layers — the app scrolls and hovers, the compositor composes what it declared"
+status: done
+status_note: "2026-10-22, board cycles 57–59"
+owners: ["@ui", "@runtime"]
+created: 2026-10-21
+updated: 2026-10-21
+subsystem: ui
+tasks: [TASK-0341]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0341-surface-layers-scroll-layers-and-wash-layers.md` (execution + proof)"
+  - label: ADRs
+    target: "`docs/adr/0076-the-app-scrolls-and-hovers-windowd-composes-the-declared-layers.md` (the boundary decision), `docs/adr/0075-the-compositor-never-waits-on-a-client.md` (the delivery classes the new frames ride), `docs/adr/0042-cross-process-surface-transport.md` (the surface VMO and the present)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0067-windowd-compositor-service-boundary-rasterizer-app-ui-extraction.md` (R1 material regions, R2 hover as a presentation modifier — this RFC builds both), `docs/rfcs/RFC-0101-gpu-driver-split-contexts-vm-batches-fence-and-the-scanout-contract.md` (§8: one frame producer, the planner — amended here: layers keyed by identity, a glass keyed by what lies under it), `docs/rfcs/RFC-0057-ui-v3a-layout-engine-pretext-contract.md` (scroll = place-only), `docs/rfcs/RFC-0108-ux-latency-contract-instant-and-smooth-as-numbers.md` (the budgets a scroll step and a hover are judged by)"
+  - label: Docs
+    target: "`docs/dev/ui/windowd-cleanup-map.md` (\"App-Scroll ist App-Sache\"), `docs/dev/ui/foundations/visual/materials.md` (rule 3: state is a wash layer's opacity)"
+---
+
 <!-- Copyright 2026 Open Nexus OS Contributors -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # RFC-0109: Surface layers — the app scrolls and hovers, the compositor composes what it declared
-
-- Status: Complete (2026-10-22, board cycles 57–59)
-- Owners: @ui @runtime
-- Created: 2026-10-21
-- Last Updated: 2026-10-21
-- Links:
-  - Tasks: `tasks/TASK-0341-surface-layers-scroll-layers-and-wash-layers.md` (execution + proof)
-  - ADRs: `docs/adr/0076-the-app-scrolls-and-hovers-windowd-composes-the-declared-layers.md`
-    (the boundary decision), `docs/adr/0075-the-compositor-never-waits-on-a-client.md` (the
-    delivery classes the new frames ride), `docs/adr/0042-cross-process-surface-transport.md`
-    (the surface VMO and the present)
-  - Related RFCs: `docs/rfcs/RFC-0067-windowd-compositor-service-boundary-rasterizer-app-ui-extraction.md`
-    (R1 material regions, R2 hover as a presentation modifier — this RFC builds both),
-    `docs/rfcs/RFC-0101-gpu-driver-split-contexts-vm-batches-fence-and-the-scanout-contract.md`
-    (§8: one frame producer, the planner — amended here: layers keyed by identity, a glass keyed
-    by what lies under it), `docs/rfcs/RFC-0057-ui-v3a-layout-engine-pretext-contract.md`
-    (scroll = place-only), `docs/rfcs/RFC-0108-ux-latency-contract-instant-and-smooth-as-numbers.md`
-    (the budgets a scroll step and a hover are judged by)
-  - Docs: `docs/dev/ui/windowd-cleanup-map.md` ("App-Scroll ist App-Sache"),
-    `docs/dev/ui/foundations/visual/materials.md` (rule 3: state is a wash layer's opacity)
 
 ## Status at a Glance
 

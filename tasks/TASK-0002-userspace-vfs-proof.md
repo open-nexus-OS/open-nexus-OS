@@ -1,16 +1,21 @@
 ---
-title: TASK-0002 Userspace VFS Proof
-status: Done
-owner: @runtime
+schema: 1
+id: TASK-0002
+title: "Userspace VFS Proof"
+status: done
+owner: ["@runtime"]
 created: 2025-10-24
-depends-on: []
-follow-up-tasks: []
+subsystem: storage
+done: 2026-07-17
+dates_source: git-reconstructed
+implements: [RFC-0002, RFC-0005]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - RFC: docs/rfcs/RFC-0002-process-per-service-architecture.md
-  - RFC: docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
-  - ADR: docs/adr/0017-service-architecture.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: ADR
+    target: docs/adr/0017-service-architecture.md
 ---
 
 ## Context

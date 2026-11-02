@@ -1,13 +1,28 @@
+---
+schema: 1
+id: RFC-0106
+title: "SoC glue — one owner for clocks, resets, power domains and pinmux (`socd` + `nexus-soc`)"
+status: in_progress
+status_note: "Phases 0–1 ✅; Phases 2–3 proven on the board for storage, display and USB"
+owners: ["@runtime", "@kernel-team"]
+created: 2026-09-22
+updated: 2026-10-10
+subsystem: hardware
+tasks: [TASK-0245B, TASK-0246, TASK-0251, TASK-0328, TASK-0329, TASK-0248]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0245B-board-support-v1c-soc-clock-reset-pinmux-power-from-fdt.md` (execution + proof); consumers `tasks/TASK-0246-*` (SDHCI), `TASK-0251-*` (DPU/HDMI), `TASK-0328-*` (USB), `TASK-0329-*` (GPU), `TASK-0248-*` (GMAC)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0098-board-support-contract-fdt-truth-boot-chain.md` (C3: the tree is the truth; this RFC is its SoC-glue arm), `docs/rfcs/RFC-0017-device-mmio-access-model-v1.md` (grant model; new class `device.mmio.syscon`), `docs/rfcs/RFC-0093-*` (service topology / declared slots)"
+  - label: Measurement
+    target: "`docs/board/measurements/2026-09-22-stock-system/README.md` (\"R3 measured in detail\")"
+---
+
 # RFC-0106: SoC glue — one owner for clocks, resets, power domains and pinmux (`socd` + `nexus-soc`)
 
-- Status: In Progress (Phases 0–1 ✅; Phases 2–3 proven on the board for storage, display and USB — TASK-0245B Done 2026-10-10; the GPU set and the per-class floor ✅ 2026-10-13 with G1, TASK-0329; seeded 2026-09-22 at TASK-0245B P0)
-- Owners: @runtime @kernel-team
-- Created: 2026-09-22
-- Last Updated: 2026-10-10 (Block 1 closure: the USB set ✅ on the board; open items handed to G1 — TASK-0329)
-- Links:
-  - Tasks: `tasks/TASK-0245B-board-support-v1c-soc-clock-reset-pinmux-power-from-fdt.md` (execution + proof); consumers `tasks/TASK-0246-*` (SDHCI), `TASK-0251-*` (DPU/HDMI), `TASK-0328-*` (USB), `TASK-0329-*` (GPU), `TASK-0248-*` (GMAC)
-  - Related RFCs: `docs/rfcs/RFC-0098-board-support-contract-fdt-truth-boot-chain.md` (C3: the tree is the truth; this RFC is its SoC-glue arm), `docs/rfcs/RFC-0017-device-mmio-access-model-v1.md` (grant model; new class `device.mmio.syscon`), `docs/rfcs/RFC-0093-*` (service topology / declared slots)
-  - Measurement: `docs/board/measurements/2026-09-22-stock-system/README.md` ("R3 measured in detail")
+> Status (migrated 2026-11-02): In Progress (Phases 0–1 ✅; Phases 2–3 proven on the board for storage, display and USB — TASK-0245B Done 2026-10-10; the GPU set and the per-class floor ✅ 2026-10-13 with G1, TASK-0329; seeded 2026-09-22 at TASK-0245B P0)
+>
+> Last Updated (migrated 2026-11-02): 2026-10-10 (Block 1 closure: the USB set ✅ on the board; open items handed to G1 — TASK-0329)
 
 ## Status at a Glance
 

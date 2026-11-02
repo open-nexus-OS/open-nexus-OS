@@ -1,23 +1,30 @@
 ---
-title: TASK-0023B Selftest-Client production-grade deterministic test architecture refactor + manifest/evidence/replay v1
-status: Done
-owner: @runtime
+schema: 1
+id: TASK-0023B
+title: "Selftest-Client production-grade deterministic test architecture refactor + manifest/evidence/replay v1"
+status: done
+owner: ["@runtime"]
 created: 2026-04-16
-last-updated: 2026-04-20
-depends-on:
-  - TASK-0023
-follow-up-tasks:
-  - TASK-0024
+updated: 2026-04-20
+subsystem: distributed
+started: 2026-04-19
+done: 2026-04-20
+active_days: 2
+dates_source: git-reconstructed
+depends_on: [TASK-0023]
+follow_ups: [TASK-0024]
+split_from: TASK-0023
+implements: [RFC-0038, RFC-0014]
+tracks: [TRACK-OS-PROOF-INFRASTRUCTURE]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Contract seed: docs/rfcs/RFC-0038-selftest-client-production-grade-deterministic-test-architecture-refactor-v1.md
-  - Depends-on (OS QUIC session baseline): tasks/TASK-0023-dsoftbus-quic-v2-os-enabled-gated.md
-  - Follow-up (transport hardening): tasks/TASK-0024-dsoftbus-quic-v2-reliability-os.md
-  - Testing harness: scripts/qemu-test.sh
-  - 2-VM harness: tools/os2vm.sh
-  - Phase contract: docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md
-  - Long-running infrastructure track: tasks/TRACK-OS-PROOF-INFRASTRUCTURE.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Testing harness"
+    target: scripts/qemu-test.sh
+  - label: "2-VM harness"
+    target: tools/os2vm.sh
 ---
 
 ## Short description

@@ -1,21 +1,25 @@
 ---
-title: TASK-0291 VFS ReadDir + stable errors + svc.files (FILES permission, filemanager role) + stash lists real content
-status: Done
-owner: @runtime
+schema: 1
+id: TASK-0291
+title: "VFS ReadDir + stable errors + svc.files (FILES permission, filemanager role) + stash lists real content"
+status: done
+owner: ["@runtime"]
 created: 2026-07-15
-depends-on: []
-follow-up-tasks:
-  - TASK-0292
-  - TASK-0293
-  - TASK-0294
+subsystem: storage
+done: 2026-07-19
+dates_source: git-reconstructed
+follow_ups: [TASK-0292, TASK-0293, TASK-0294]
+implements: [RFC-0072, RFC-0073]
+tracks: [TRACK-STASH-USER-DATA-FS]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Contract seed (this task, VFS surface): docs/rfcs/RFC-0072-vfs-v2-writable-providers-readdir-stable-errors.md
-  - Contract seed (this task, app surface): docs/rfcs/RFC-0073-app-files-surface-svc-files-permission-filemanager-role.md
-  - Role model: docs/dev/app-platform/privileged-roles.md
-  - Track: tasks/TRACK-STASH-USER-DATA-FS.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Role model"
+    target: docs/dev/app-platform/privileged-roles.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

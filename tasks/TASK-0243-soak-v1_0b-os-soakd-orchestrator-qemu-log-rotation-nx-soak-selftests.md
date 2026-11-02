@@ -1,17 +1,24 @@
 ---
-title: TASK-0243 Soak & Flake-Hunter v1.0b (OS/QEMU): soakd orchestrator + qemu.log rotation extension + nx-soak CLI + selftests
-status: Draft
-owner: @runtime
+schema: 1
+id: TASK-0243
+title: "Soak & Flake-Hunter v1.0b (OS/QEMU): soakd orchestrator + qemu.log rotation extension + nx-soak CLI + selftests"
+status: draft
+owner: ["@runtime"]
 created: 2025-12-29
-depends-on: []
-follow-up-tasks: []
+subsystem: observability
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Soak core (host-first): tasks/TASK-0242-soak-v1_0a-host-repro-recorder-deterministic-retry-gates.md
-  - Testing contract: scripts/qemu-test.sh
-  - State persistence (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Soak core (host-first)"
+    target: tasks/TASK-0242-soak-v1_0a-host-repro-recorder-deterministic-retry-gates.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
+  - label: "State persistence (/state)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Data formats rubric (JSON vs Cap'n Proto)"
+    target: docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
 ## Context

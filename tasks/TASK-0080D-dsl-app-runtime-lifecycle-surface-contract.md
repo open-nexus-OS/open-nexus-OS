@@ -1,26 +1,33 @@
 ---
-title: "TASK-0080D DSL App Runtime: app-host process + packaging (.nxir in .nxb) + execd spawn + cross-process surface (ADR-0042)"
-status: Done
-owner: "@ui @runtime"
+schema: 1
+id: TASK-0080D
+title: "DSL App Runtime: app-host process + packaging (.nxir in .nxb) + execd spawn + cross-process surface (ADR-0042)"
+status: done
+owner: ["@ui", "@runtime"]
 created: 2026-06-23
 updated: 2026-07-06
-depends-on:
-  - tasks/TASK-0076B-dsl-v0_1c-visible-os-mount-first-frame.md   # visible mount + the execd isolation probe
-  - tasks/TASK-0078-dsl-v0_2b-service-stubs-cli-demo.md          # svc adapters the effect host speaks
-  - tasks/TASK-0065-ui-v6b-app-lifecycle-notifications-navigation.md  # abilitymgr/bundlemgrd spine
-follow-up-tasks:
-  - tasks/TASK-0080C-systemui-dsl-bootstrap-shell-os-wiring.md   # launcher e2e consumes this runtime
-  - tasks/TASK-0079-dsl-v0_3a-aot-codegen-incremental-assets.md  # AOT ELFs ride the same payloadKind dispatch
+subsystem: app-platform
+done: 2026-07-19
+dates_source: git-reconstructed
+depends_on: [TASK-0076B, TASK-0078, TASK-0065]
+follow_ups: [TASK-0080C, TASK-0079]
+split_from: TASK-0080
+tracks: [TRACK-DSL-V1-DEVX]
 links:
-  - Track: tasks/TRACK-DSL-V1-DEVX.md
-  - Surface transport (drafted, finalize here): docs/adr/0042-cross-process-surface-transport.md
-  - Per-app surface ownership: docs/adr/0037-per-app-surface-lazy-vmo-lifecycle.md
-  - Service split: docs/adr/0036; lifecycle RFC: docs/rfcs/RFC-0065
-  - Display wire SSOT: source/libs/nexus-display-proto (ADR-0038)
-  - Packaging (EXISTS): docs/packaging/nxb.md, tools/nexus-idl/schemas/manifest.capnp,
-    tools/nxb-pack, source/services/{bundlemgrd,packagefsd}
-  - Spawn path (EXISTS, probe-gated): source/services/execd + userspace/nexus-loader
-  - Lifecycle contract page: docs/dev/dsl/runtime.md
+  - label: "Surface transport (drafted, finalize here)"
+    target: docs/adr/0042-cross-process-surface-transport.md
+  - label: "Per-app surface ownership"
+    target: docs/adr/0037-per-app-surface-lazy-vmo-lifecycle.md
+  - label: "Service split"
+    target: "docs/adr/0036; lifecycle RFC: docs/rfcs/RFC-0065"
+  - label: "Display wire SSOT"
+    target: "source/libs/nexus-display-proto (ADR-0038)"
+  - label: "Packaging (EXISTS)"
+    target: "docs/packaging/nxb.md, tools/nexus-idl/schemas/manifest.capnp, tools/nxb-pack, source/services/{bundlemgrd,packagefsd}"
+  - label: "Spawn path (EXISTS, probe-gated)"
+    target: "source/services/execd + userspace/nexus-loader"
+  - label: "Lifecycle contract page"
+    target: docs/dev/dsl/runtime.md
 ---
 
 ## Context (updated 2026-07-06)

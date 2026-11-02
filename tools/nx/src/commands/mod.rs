@@ -26,6 +26,7 @@ pub(crate) mod image_trace;
 pub(crate) mod image_volume;
 pub(crate) mod input;
 pub(crate) mod inspect;
+pub(crate) mod ledger;
 pub(crate) mod new;
 pub(crate) mod policy;
 pub(crate) mod postflight;
@@ -83,5 +84,6 @@ pub(crate) fn execute(cli: Cli, cfg: &RuntimeConfig) -> ExecResult {
         Commands::Update(args) => update::handle_update(args),
         Commands::Ui(args) => ui::handle_ui(args),
         Commands::App(args) => app::handle_app(args),
+        Commands::Ledger(args) => ledger::handle_ledger(args),
     }
 }

@@ -1,25 +1,41 @@
 ---
-title: TASK-0055D UI v1e (dev-mode): deterministic display/profile presets for QEMU (`phone/tablet/laptop/laptop-pro/convertible` + orientation + shell mode + Hz)
-status: Done
-updated: 2026-09-03
-owner: @ui @runtime
+schema: 1
+id: TASK-0055D
+title: "UI v1e (dev-mode): deterministic display/profile presets for QEMU (`phone/tablet/laptop/laptop-pro/convertible` + orientation + shell mode + Hz)"
+status: done
+owner: ["@ui", "@runtime"]
 created: 2026-03-29
-depends-on: []
-follow-up-tasks:
-  - TASK-0322
+updated: 2026-09-03
+subsystem: hardware
+started: 2026-09-03
+done: 2026-09-03
+active_days: 1
+dates_source: git-reconstructed
+follow_ups: [TASK-0322]
+split_from: TASK-0055
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - UI compositor baseline: tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md
-  - Visible scanout bootstrap: tasks/TASK-0055B-ui-v1c-visible-qemu-scanout-bootstrap.md
-  - Visible present baseline: tasks/TASK-0055C-ui-v1d-windowd-visible-present-systemui-first-frame.md
-  - DSL profile/runtime contract: tasks/TASK-0077-dsl-v0_2a-state-nav-i18n-core.md
-  - SystemUI DSL OS wiring baseline: tasks/TASK-0120-systemui-dsl-migration-phase1b-os-wiring-postflight.md
-  - Config/schema broker: tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
-  - Settings/config bridge note: tasks/TASK-0072-ui-v9b-prefsd-settings-panels-quick-settings.md
-  - UI profiles guidance: docs/dev/ui/foundations/layout/profiles.md
-  - Testing contract: scripts/qemu-test.sh
-  - Guest-side ingestion follow-up: tasks/TASK-0322-ui-dev-preset-guest-ingestion-fwcfg-settingsd-overlay.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "UI compositor baseline"
+    target: tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md
+  - label: "Visible scanout bootstrap"
+    target: tasks/TASK-0055B-ui-v1c-visible-qemu-scanout-bootstrap.md
+  - label: "Visible present baseline"
+    target: tasks/TASK-0055C-ui-v1d-windowd-visible-present-systemui-first-frame.md
+  - label: "DSL profile/runtime contract"
+    target: tasks/TASK-0077-dsl-v0_2a-state-nav-i18n-core.md
+  - label: "SystemUI DSL OS wiring baseline"
+    target: tasks/TASK-0120-systemui-dsl-migration-phase1b-os-wiring-postflight.md
+  - label: "Config/schema broker"
+    target: tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
+  - label: "Settings/config bridge note"
+    target: tasks/TASK-0072-ui-v9b-prefsd-settings-panels-quick-settings.md
+  - label: "UI profiles guidance"
+    target: docs/dev/ui/foundations/layout/profiles.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## DELIVERED 2026-09-03 (host authority + launcher plumbing; honest recuts stated)

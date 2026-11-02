@@ -1,16 +1,25 @@
 ---
-title: TRACK Production Gates (kernel + core services): release closure plan for kiosk/IoT, consumer, and hardware beta
-status: Draft
-owner: @runtime @security @storage @ui
+schema: 1
+id: TRACK-PRODUCTION-GATES-KERNEL-SERVICES
+title: "Production Gates (kernel + core services): release closure plan for kiosk/IoT, consumer, and hardware beta"
+status: draft
+owner: ["@runtime", "@security", "@storage", "@ui"]
 created: 2026-04-13
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Status board / group inventory: tasks/STATUS-BOARD.md
-  - Keystone closure plan: tasks/TRACK-KEYSTONE-GATES.md
-  - Zero-Copy App Platform: tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
-  - Networking drivers roadmap: tasks/TRACK-NETWORKING-DRIVERS.md
-  - Creative apps gate consumer: tasks/TRACK-CREATIVE-APPS.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Status board / group inventory"
+    target: tasks/SUBSYSTEMS.md
+  - label: "Keystone closure plan"
+    target: tasks/TRACK-KEYSTONE-GATES.md
+  - label: "Zero-Copy App Platform"
+    target: tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
+  - label: "Networking drivers roadmap"
+    target: tasks/TRACK-NETWORKING-DRIVERS.md
+  - label: "Creative apps gate consumer"
+    target: tasks/TRACK-CREATIVE-APPS.md
 ---
 
 ## Purpose

@@ -1,15 +1,27 @@
-# RFC-0046: UI v1a host CPU renderer + deterministic snapshots contract seed
+---
+schema: 1
+id: RFC-0046
+title: "UI v1a host CPU renderer + deterministic snapshots contract seed"
+status: done
+owners: ["@ui", "@runtime"]
+created: 2026-04-27
+updated: 2026-04-27
+subsystem: ui
+tasks: [TASK-0054]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md` (execution + proof SSOT)"
+  - label: "Related tasks"
+    target: "`tasks/TASK-0054B-ui-v1a-kernel-ui-perf-floor-zero-copy-qos-hardening.md`, `tasks/TASK-0054C-ui-v1a-kernel-ipc-fastpath-control-plane-vmo-bulk.md`, `tasks/TASK-0054D-ui-v1a-kernel-mm-perf-floor-vmo-surface-reuse.md`, `tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md`, `tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md`, `docs/rfcs/RFC-0038-selftest-client-production-grade-deterministic-test-architecture-refactor-v1.md`, `docs/rfcs/RFC-0040-zero-copy-vmos-v1-plumbing-host-first-os-gated.md`"
+  - label: Architecture
+    target: "`docs/architecture/graphics/nexusgfx-compute-and-executor-model.md`, `docs/architecture/graphics/nexusgfx-text-pipeline.md`"
+  - label: "Production gate policy"
+    target: "`tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` (Gate E: Windowing, UI & Graphics, production-floor; kernel production-grade follow-ups stay explicit)"
+---
 
-- Status: Done
-- Owners: @ui @runtime
-- Created: 2026-04-27
-- Last Updated: 2026-04-27
-- Links:
-  - Tasks: `tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md` (execution + proof SSOT)
-  - Related tasks: `tasks/TASK-0054B-ui-v1a-kernel-ui-perf-floor-zero-copy-qos-hardening.md`, `tasks/TASK-0054C-ui-v1a-kernel-ipc-fastpath-control-plane-vmo-bulk.md`, `tasks/TASK-0054D-ui-v1a-kernel-mm-perf-floor-vmo-surface-reuse.md`, `tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md`, `tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md`
-  - Related RFCs: `docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md`, `docs/rfcs/RFC-0038-selftest-client-production-grade-deterministic-test-architecture-refactor-v1.md`, `docs/rfcs/RFC-0040-zero-copy-vmos-v1-plumbing-host-first-os-gated.md`
-  - Architecture: `docs/architecture/graphics/nexusgfx-compute-and-executor-model.md`, `docs/architecture/graphics/nexusgfx-text-pipeline.md`
-  - Production gate policy: `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` (Gate E: Windowing, UI & Graphics, production-floor; kernel production-grade follow-ups stay explicit)
+# RFC-0046: UI v1a host CPU renderer + deterministic snapshots contract seed
 
 ## Status at a Glance
 

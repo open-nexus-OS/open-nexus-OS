@@ -1,18 +1,24 @@
-# RFC-0091: Policy profile v2 — schema, argument matchers, precedence, epoch-guarded wire
+---
+schema: 1
+id: RFC-0091
+title: "Policy profile v2 — schema, argument matchers, precedence, epoch-guarded wire"
+status: done
+status_note: "2026-09-08 — execution TASK-0028 P0–P3, consumers TASK-0043 / TASK-0052 delivered; the later consumers TASK-0188 / TASK-0189 / TASK-0229 build on this contract"
+owners: ["@runtime", "@security"]
+created: 2026-09-05
+updated: 2026-10-08
+subsystem: security
+tasks: [TASK-0028, TASK-0043, TASK-0052]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0028-abi-filters-v2-arg-match-learn-enforce.md` (execution + proof), `tasks/TASK-0043-security-v2-sandbox-quotas-egress-abi-audit.md` (egress = `net.connect`), `tasks/TASK-0052-security-v3-ingress-policy-ingressd-gateway.md` (ingress = `net.bind` address class)"
+  - label: "Related RFCs"
+    target: "RFC-0019 (ABI guardrails v1 — this RFC supersedes its profile wire), RFC-0072 (VFS v2 — quota codes land there, not here), RFC-0068 (verdict/markers)"
+  - label: Standards
+    target: "`docs/standards/SECURITY_STANDARDS.md` (the ONE runtime-change exception is §6 below), `docs/security/abi-filters.md` (operational doc, updated by TASK-0028 P3)"
+---
 
-- Status: Done (2026-09-08 — execution TASK-0028 P0–P3, consumers TASK-0043 / TASK-0052 delivered;
-  the later consumers TASK-0188 / TASK-0189 / TASK-0229 build on this contract)
-- Owners: @runtime @security
-- Created: 2026-09-05
-- Last Updated: 2026-10-08
-- Links:
-  - Tasks: `tasks/TASK-0028-abi-filters-v2-arg-match-learn-enforce.md` (execution + proof),
-    `tasks/TASK-0043-security-v2-sandbox-quotas-egress-abi-audit.md` (egress = `net.connect`),
-    `tasks/TASK-0052-security-v3-ingress-policy-ingressd-gateway.md` (ingress = `net.bind` address class)
-  - Related RFCs: RFC-0019 (ABI guardrails v1 — this RFC supersedes its profile wire),
-    RFC-0072 (VFS v2 — quota codes land there, not here), RFC-0068 (verdict/markers)
-  - Standards: `docs/standards/SECURITY_STANDARDS.md` (the ONE runtime-change exception is §6 below),
-    `docs/security/abi-filters.md` (operational doc, updated by TASK-0028 P3)
+# RFC-0091: Policy profile v2 — schema, argument matchers, precedence, epoch-guarded wire
 
 ## Status at a Glance
 

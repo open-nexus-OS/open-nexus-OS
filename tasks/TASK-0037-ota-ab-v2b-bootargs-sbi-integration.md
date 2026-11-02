@@ -1,14 +1,18 @@
 ---
-title: TASK-0037 OTA A/B v2b: real boot slot decided by the boot chain (delivered by TASK-0289 nxboot + measured handoff)
-status: Done (2026-09-09 — reconciled: goal delivered by TASK-0289 nxboot + measured boot handoff)
-owner: @runtime
+schema: 1
+id: TASK-0037
+title: "OTA A/B v2b: real boot slot decided by the boot chain (delivered by TASK-0289 nxboot + measured handoff)"
+status: done
+status_note: "2026-09-09 — reconciled: goal delivered by TASK-0289 nxboot + measured boot handoff"
+owner: ["@runtime"]
 created: 2025-12-22
-depends-on:
-  - TASK-0036
-follow-up-tasks: []
+subsystem: updates
+done: 2026-09-09
+dates_source: status-text
+depends_on: [TASK-0036]
 links:
-  - Vision: docs/architecture/vision.md
-  - Depends-on: tasks/TASK-0036-ota-ab-v2-userspace-healthmux-rollback-softreboot.md
+  - label: Vision
+    target: docs/architecture/vision.md
 ---
 
 ## Closure 2026-09-09 (reconciliation — Done, delivered by TASK-0289)

@@ -1,17 +1,23 @@
 ---
-title: TASK-0103 UI v17a: permissions (permsd) + privacy indicators (privacyd) with persistent grants + markers
-status: Draft
-owner: @security
+schema: 1
+id: TASK-0103
+title: "UI v17a: permissions (permsd) + privacy indicators (privacyd) with persistent grants + markers"
+status: draft
+owner: ["@security"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: security
+tracks: [TRACK-ADS-SAFETY-FAMILYMODE]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
-  - Persistence (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Policy as Code (gates): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
-  - Config broker (defaults): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Persistence (/state)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Policy as Code (gates)"
+    target: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
+  - label: "Config broker (defaults)"
+    target: tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
 ---
 
 ## Context

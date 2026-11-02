@@ -1,16 +1,25 @@
 ---
-title: TASK-0284 Userspace driver optimization v1: ownership-based DMA buffer prototype (zero-copy)
-status: Done 2026-09-24 — closed by TASK-0286 M1 P4b (absorbed 2026-09-22): `nexus_driverkit::DmaBuffer` (ownership typestate + cache maintenance at the transitions) over `nexus_abi::DmaVmo`, coherence from the device capability, user-mode Zicbom
-owner: @runtime @drivers
+schema: 1
+id: TASK-0284
+title: "Userspace driver optimization v1: ownership-based DMA buffer prototype (zero-copy)"
+status: done
+status_note: "2026-09-24 — closed by TASK-0286 M1 P4b (absorbed 2026-09-22): `nexus_driverkit::DmaBuffer` (ownership typestate + cache maintenance at the transitions) …"
+owner: ["@runtime", "@drivers"]
 created: 2026-01-09
-depends-on: []
-follow-up-tasks: []
+subsystem: kernel
+done: 2026-09-24
+dates_source: status-text
+tracks: [TRACK-DRIVERS-ACCELERATORS]
 links:
-  - Vision: docs/architecture/vision.md
-  - Drivers/accelerators track: tasks/TRACK-DRIVERS-ACCELERATORS.md
-  - Device/MMIO access: tasks/TASK-0010-device-mmio-access-model.md
-  - VMO plumbing: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: "Device/MMIO access"
+    target: tasks/TASK-0010-device-mmio-access-model.md
+  - label: "VMO plumbing"
+    target: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
 ---
+
+> Status (migrated 2026-11-02): Done 2026-09-24 — closed by TASK-0286 M1 P4b (absorbed 2026-09-22): `nexus_driverkit::DmaBuffer` (ownership typestate + cache maintenance at the transitions) over `nexus_abi::DmaVmo`, coherence from the device capability, user-mode Zicbom
 
 ## Context
 

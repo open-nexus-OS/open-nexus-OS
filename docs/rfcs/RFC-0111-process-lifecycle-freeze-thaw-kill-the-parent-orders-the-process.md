@@ -1,22 +1,27 @@
+---
+schema: 1
+id: RFC-0111
+title: "The process lifecycle — a process is its address space, its parent orders it whole (freeze, thaw, kill), the compositor tells the lifecycle authority what is seen, and a frozen receiver refuses the park"
+status: in_progress
+status_note: "Phases 0–3 built and proven on the QEMU lanes and board cycle 72b 2026-10-27; Phase 4 assessed and seeded as RFC-0112"
+owners: ["@kernel-team", "@runtime"]
+created: 2026-10-27
+updated: 2026-10-27
+subsystem: kernel
+tasks: [TASK-0333]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0333-memory-the-efficient-one-and-the-app-lifecycle-layer-6.md` (6d-0 … 6d-4)"
+  - label: ADRs
+    target: "`docs/adr/0082-…` (the kernel half: a process is its address space, orders, `Frozen`), `docs/adr/0083-…` (the lifecycle contract: windowd → abilitymgr → execd), `docs/adr/0073-…` (death is an event), `docs/adr/0056-…` (exit reasons)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0100-…` (§1 the lifetime rule the reap completes; §4 memory pressure — 6e builds on this RFC), `docs/rfcs/RFC-0079-…` (EOF, the never-park discipline), `docs/rfcs/RFC-0033-…` (nothing waits), `docs/rfcs/RFC-0045-…` (policy as code: the one permission authority §6 extends), `docs/rfcs/RFC-0108-…` (the UX budgets a frozen background buys)"
+---
+
 <!-- Copyright 2026 Open Nexus OS Contributors -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # RFC-0111: The process lifecycle — a process is its address space, its parent orders it whole (freeze, thaw, kill), the compositor tells the lifecycle authority what is seen, and a frozen receiver refuses the park
-
-- Status: In Progress (Phases 0–3 built and proven on the QEMU lanes and board cycle 72b 2026-10-27; Phase 4 assessed and seeded as RFC-0112)
-- Owners: @kernel-team (§3), @runtime (§4–§6)
-- Created: 2026-10-27
-- Last Updated: 2026-10-27
-- Links:
-  - Tasks: `tasks/TASK-0333-memory-the-efficient-one-and-the-app-lifecycle-layer-6.md` (6d-0 … 6d-4)
-  - ADRs: `docs/adr/0082-…` (the kernel half: a process is its address space, orders, `Frozen`),
-    `docs/adr/0083-…` (the lifecycle contract: windowd → abilitymgr → execd), `docs/adr/0073-…`
-    (death is an event), `docs/adr/0056-…` (exit reasons)
-  - Related RFCs: `docs/rfcs/RFC-0100-…` (§1 the lifetime rule the reap completes; §4 memory
-    pressure — 6e builds on this RFC), `docs/rfcs/RFC-0079-…` (EOF, the never-park discipline),
-    `docs/rfcs/RFC-0033-…` (nothing waits), `docs/rfcs/RFC-0045-…` (policy as code: the one
-    permission authority §6 extends), `docs/rfcs/RFC-0108-…` (the UX budgets a frozen background
-    buys)
 
 ## Status at a Glance
 

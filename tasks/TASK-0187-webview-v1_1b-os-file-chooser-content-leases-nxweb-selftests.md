@@ -1,22 +1,33 @@
 ---
-title: TASK-0187 WebView v1.1b (OS/QEMU): file chooser for input[type=file] via content:// + leases/grants + nx-web enhancements + selftests/docs
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0187
+title: "WebView v1.1b (OS/QEMU): file chooser for input[type=file] via content:// + leases/grants + nx-web enhancements + selftests/docs"
+status: draft
+owner: ["@ui"]
 created: 2025-12-27
-depends-on: []
-follow-up-tasks: []
+subsystem: storage
+tracks: [TRACK-DSL-V1-DEVX]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - DSL app integration kit: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md
-  - DSL v1 DevX track: tasks/TRACK-DSL-V1-DEVX.md
-  - WebView v1.1 host core: tasks/TASK-0186-webview-v1_1a-host-webview-core-history-find-sessionstorage-csp.md
-  - WebView Net v1 OS slice (sample app + nx-web): tasks/TASK-0177-webview-net-v1b-os-httpstubd-fetchd-downloadd-policy-selftests.md
-  - Content providers (content:// streams): tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
-  - Document picker overlay + helper API: tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
-  - Scoped URI grants (cross-subject): tasks/TASK-0084-ui-v12a-scoped-uri-grants.md
-  - Policy capability matrix: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "DSL app integration kit"
+    target: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md
+  - label: "WebView v1.1 host core"
+    target: tasks/TASK-0186-webview-v1_1a-host-webview-core-history-find-sessionstorage-csp.md
+  - label: "WebView Net v1 OS slice (sample app + nx-web)"
+    target: tasks/TASK-0177-webview-net-v1b-os-httpstubd-fetchd-downloadd-policy-selftests.md
+  - label: Link
+    target: "Content providers (content:// streams): tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md"
+  - label: "Document picker overlay + helper API"
+    target: tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
+  - label: "Scoped URI grants (cross-subject)"
+    target: tasks/TASK-0084-ui-v12a-scoped-uri-grants.md
+  - label: "Policy capability matrix"
+    target: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

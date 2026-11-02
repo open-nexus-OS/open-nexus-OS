@@ -1,22 +1,33 @@
 ---
-title: TASK-0185 Media UX v2b (OS/QEMU): tray mini-player (session switcher) + notif actions wiring + deterministic clock UI + sample publishers + selftests/docs
-status: Draft
-owner: @media
+schema: 1
+id: TASK-0185
+title: "Media UX v2b (OS/QEMU): tray mini-player (session switcher) + notif actions wiring + deterministic clock UI + sample publishers + selftests/docs"
+status: draft
+owner: ["@media"]
 created: 2025-12-27
-depends-on: []
-follow-up-tasks: []
+subsystem: media
+tracks: [TRACK-MEDIA-APPS]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Media apps product track (system-wide tray/notifications controls): tasks/TRACK-MEDIA-APPS.md
-  - Media UX v1 OS slice: tasks/TASK-0156-media-ux-v1b-os-miniplayer-lockscreen-sample-cli-selftests.md
-  - Media UX v2 core semantics: tasks/TASK-0184-media-ux-v2a-host-handoff-playerctl-deterministic-clock.md
-  - Notifications actions baseline (service+UI): tasks/TASK-0069-ui-v8a-notifications-v2-actions-inline-reply.md
-  - notifd persistence/actions (service): tasks/TASK-0123-notifications-v2b-notifd-persistence-history-unread.md
-  - Notifications SystemUI integration (actions UI): tasks/TASK-0125-notifications-v2d-systemui-headsup-redaction-badging-settings.md
-  - Perf sessions (optional): tasks/TASK-0172-perf-v2a-perfd-sessions-stats-export.md
-  - Policy caps: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Media UX v1 OS slice"
+    target: tasks/TASK-0156-media-ux-v1b-os-miniplayer-lockscreen-sample-cli-selftests.md
+  - label: "Media UX v2 core semantics"
+    target: tasks/TASK-0184-media-ux-v2a-host-handoff-playerctl-deterministic-clock.md
+  - label: "Notifications actions baseline (service+UI)"
+    target: tasks/TASK-0069-ui-v8a-notifications-v2-actions-inline-reply.md
+  - label: "notifd persistence/actions (service)"
+    target: tasks/TASK-0123-notifications-v2b-notifd-persistence-history-unread.md
+  - label: "Notifications SystemUI integration (actions UI)"
+    target: tasks/TASK-0125-notifications-v2d-systemui-headsup-redaction-badging-settings.md
+  - label: "Perf sessions (optional)"
+    target: tasks/TASK-0172-perf-v2a-perfd-sessions-stats-export.md
+  - label: "Policy caps"
+    target: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

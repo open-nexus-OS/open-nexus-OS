@@ -1,9 +1,15 @@
-# RFC-0005: Kernel IPC & Capability Model
+---
+schema: 1
+id: RFC-0005
+title: "Kernel IPC & Capability Model"
+status: done
+status_note: "contract seed; future extensions tracked in tasks"
+owners: ["@runtime", "@kernel"]
+created: 2025-12-18
+updated: 2025-12-30
+---
 
-- Status: Complete (contract seed; future extensions tracked in tasks)
-- Owners: Runtime + Kernel Team
-- Created: 2025-12-18
-- Last Updated: 2025-12-30
+# RFC-0005: Kernel IPC & Capability Model
 
 ## Status at a Glance
 

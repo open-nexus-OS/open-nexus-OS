@@ -1,32 +1,43 @@
 ---
-title: TASK-0057 UI v2b: asset pipeline + theme system + SVG/PNG/JPG + text shaping + cursor pipeline
-status: Done
-owner: @ui
+schema: 1
+id: TASK-0057
+title: "UI v2b: asset pipeline + theme system + SVG/PNG/JPG + text shaping + cursor pipeline"
+status: done
+owner: ["@ui"]
 created: 2025-12-23
-updated: 2026-05-15 (Minimal DisplayServer v0: Mocu cursor + Inter text + transient input targets)
-depends-on:
-  - TASK-0054
-  - TASK-0056
-  - TASK-0056C
-follow-up-tasks:
-  - TASK-0058
-  - TASK-0059
-  - TASK-0062
-  - TASK-0063
-  - TASK-0146
+updated: 2026-05-15
+subsystem: ui
+started: 2026-05-12
+done: 2026-05-13
+active_days: 2
+dates_source: git-reconstructed
+depends_on: [TASK-0054, TASK-0056, TASK-0056C]
+follow_ups: [TASK-0058, TASK-0059, TASK-0062, TASK-0063, TASK-0146]
+implements: [RFC-0056]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - RFC (contract seed): docs/rfcs/RFC-0056-ui-v2b-asset-theme-cursor-text-pipeline.md
-  - UI v1a renderer (baseline): tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md
-  - UI v2a (present/input baseline): tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
-  - UI v2a perf floor: tasks/TASK-0056C-ui-v2a-present-input-perf-latency-coalescing.md
-  - Cursor themes: docs/dev/ui/foundations/visual/cursor-themes.md
-  - Colors/tokens: docs/dev/ui/foundations/visual/colors.md
-  - Materials: docs/dev/ui/foundations/visual/materials.md
-  - Freedesktop icon spec: https://specifications.freedesktop.org/icon-theme-spec/
-  - Reference: docs/architecture/graphics/display-output-service-chain.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "UI v1a renderer (baseline)"
+    target: tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md
+  - label: "UI v2a (present/input baseline)"
+    target: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
+  - label: "UI v2a perf floor"
+    target: tasks/TASK-0056C-ui-v2a-present-input-perf-latency-coalescing.md
+  - label: "Cursor themes"
+    target: docs/dev/ui/foundations/visual/cursor-themes.md
+  - label: Colors/tokens
+    target: docs/dev/ui/foundations/visual/colors.md
+  - label: Materials
+    target: docs/dev/ui/foundations/visual/materials.md
+  - label: "Freedesktop icon spec"
+    target: "https://specifications.freedesktop.org/icon-theme-spec/"
+  - label: Reference
+    target: docs/architecture/graphics/display-output-service-chain.md
 ---
+
+> updated (migrated 2026-11-02): 2026-05-15 (Minimal DisplayServer v0: Mocu cursor + Inter text + transient input targets)
 
 ## Context
 

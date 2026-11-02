@@ -1,24 +1,31 @@
+---
+schema: 1
+id: RFC-0112
+title: "A service's death is a re-resolve for its clients — the compositor's restart brings the desktop back with every app's band as a ghost until its next present"
+status: in_progress
+status_note: "seeded 2026-10-27 from TASK-0333 6d-4's assessment; amended 2026-10-31 from the code map of TASK-0348"
+owners: ["@runtime", "@reliability", "@ui"]
+created: 2026-10-27
+updated: 2026-11-02
+subsystem: ui
+tasks: [TASK-0348, TASK-0333]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0348-zero-copy-surfaces-a-compositor-without-fixed-tables-and-its-restart.md` (Phase 6), `tasks/TASK-0333-memory-the-efficient-one-and-the-app-lifecycle-layer-6.md` (6d-4, 6g)"
+  - label: Link
+    target: "RFC-0114 (surfaces are shared buffers — why the screen can survive with the apps' own pixels)"
+  - label: ADRs
+    target: "`docs/adr/0057-service-restart-capability-re-resolve.md` (the pinched pilot: re-mint the owner-bound request endpoint, re-distribute, STALE on the route table), `docs/adr/0073-…` (death is an event), `docs/adr/0075-…` (the compositor never waits on a client), `docs/adr/0083-…` (the lifecycle contract the restart must keep)"
+  - label: RFCs
+    target: "RFC-0079 (EOF: a client learns of a server's death on its receive), RFC-0086 (the window feed), RFC-0111 (the lifecycle)"
+---
+
 <!-- Copyright 2026 Open Nexus OS Contributors -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # RFC-0112: A service's death is a re-resolve for its clients — the compositor's restart brings the desktop back with every app's band as a ghost until its next present
 
-- Status: In Progress (seeded 2026-10-27 from TASK-0333 6d-4's assessment; amended 2026-10-31
-  from the code map of TASK-0348 — built as TASK-0348's Phase 6, after zero-copy surfaces;
-  Phases 1–2 built and QEMU-proven 2026-11-02, Phase 3 next)
-- Owners: @runtime @reliability @ui
-- Created: 2026-10-27
-- Last Updated: 2026-11-02
-- Links:
-  - Tasks: `tasks/TASK-0348-zero-copy-surfaces-a-compositor-without-fixed-tables-and-its-restart.md`
-    (Phase 6), `tasks/TASK-0333-memory-the-efficient-one-and-the-app-lifecycle-layer-6.md` (6d-4, 6g)
-  - RFC-0114 (surfaces are shared buffers — why the screen can survive with the apps' own pixels)
-  - ADRs: `docs/adr/0057-service-restart-capability-re-resolve.md` (the pinched pilot: re-mint
-    the owner-bound request endpoint, re-distribute, STALE on the route table),
-    `docs/adr/0073-…` (death is an event), `docs/adr/0075-…` (the compositor never waits on a
-    client), `docs/adr/0083-…` (the lifecycle contract the restart must keep)
-  - RFCs: RFC-0079 (EOF: a client learns of a server's death on its receive), RFC-0086 (the
-    window feed), RFC-0111 (the lifecycle)
+> Status (migrated 2026-11-02): In Progress (seeded 2026-10-27 from TASK-0333 6d-4's assessment; amended 2026-10-31 from the code map of TASK-0348 — built as TASK-0348's Phase 6, after zero-copy surfaces; Phases 1–2 built and QEMU-proven 2026-11-02, Phase 3 next)
 
 ## Status at a Glance
 

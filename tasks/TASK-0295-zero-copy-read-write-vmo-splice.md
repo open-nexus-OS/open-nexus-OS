@@ -1,21 +1,31 @@
 ---
-title: TASK-0295 Zero-copy storage data plane: VMO splice reads (packagefs + nxfs) + VMO-backed writes + inline cap enforcement
-status: Done
-owner: @runtime
+schema: 1
+id: TASK-0295
+title: "Zero-copy storage data plane: VMO splice reads (packagefs + nxfs) + VMO-backed writes + inline cap enforcement"
+status: done
+owner: ["@runtime"]
 created: 2026-07-15
-depends-on:
-  - TASK-0293
-follow-up-tasks: []
+subsystem: storage
+done: 2026-09-19
+dates_source: git-reconstructed
+depends_on: [TASK-0293]
+implements: [RFC-0072, RFC-0071]
+tracks: [TRACK-STASH-USER-DATA-FS]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Contract seed (this task): docs/rfcs/RFC-0072-vfs-v2-writable-providers-readdir-stable-errors.md (Phase 3)
-  - Data-plane substrate: docs/rfcs/RFC-0040-zero-copy-vmos-v1-plumbing-host-first-os-gated.md
-  - Store contract (INLINE_IO_MAX rule): docs/rfcs/RFC-0071-nxfs-user-data-filesystem-contract.md
-  - Supersedes: tasks/TASK-0033-packagefs-v2b-vmo-splice-from-image.md
-  - Kernel production closure (soft dependency): tasks/TASK-0290 (VMO sealing)
-  - Track: tasks/TRACK-STASH-USER-DATA-FS.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Contract seed (this task)"
+    target: "docs/rfcs/RFC-0072-vfs-v2-writable-providers-readdir-stable-errors.md (Phase 3)"
+  - label: "Data-plane substrate"
+    target: docs/rfcs/RFC-0040-zero-copy-vmos-v1-plumbing-host-first-os-gated.md
+  - label: Supersedes
+    target: tasks/TASK-0033-packagefs-v2b-vmo-splice-from-image.md
+  - label: "Kernel production closure (soft dependency)"
+    target: "tasks/TASK-0290 (VMO sealing)"
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

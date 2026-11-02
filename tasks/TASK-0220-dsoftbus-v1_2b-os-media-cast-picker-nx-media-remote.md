@@ -1,19 +1,27 @@
 ---
-title: TASK-0220 DSoftBus v1.2b (OS/QEMU): Media Remote cast/transfer/group UI (SystemUI) + nx-media remote CLI + selftests/docs (loopback default)
-status: Draft
-owner: @media
+schema: 1
+id: TASK-0220
+title: "DSoftBus v1.2b (OS/QEMU): Media Remote cast/transfer/group UI (SystemUI) + nx-media remote CLI + selftests/docs (loopback default)"
+status: draft
+owner: ["@media"]
 created: 2025-12-27
-depends-on: []
-follow-up-tasks: []
+subsystem: distributed
+tracks: [TRACK-MEDIA-APPS]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Media apps product track (TV casting + system-wide controls): tasks/TRACK-MEDIA-APPS.md
-  - DSoftBus v1.1 OS wiring (busdir/rpcmux/health): tasks/TASK-0212-dsoftbus-v1_1d-os-busdir-ui-selftests.md
-  - DSoftBus v1.2 host core (media remote + mediacast): tasks/TASK-0219-dsoftbus-v1_2a-host-media-remote-proto-cast.md
-  - Media UX v2.1 OS baseline (mini-player + nx-media): tasks/TASK-0218-media-v2_1b-os-focus-ducking-miniplayer-nx-media.md
-  - DSoftBus UDP devnet gating (must remain gated): tasks/TASK-0196-dsoftbus-v1_1b-devnet-udp-discovery-gated.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "DSoftBus v1.1 OS wiring (busdir/rpcmux/health)"
+    target: tasks/TASK-0212-dsoftbus-v1_1d-os-busdir-ui-selftests.md
+  - label: "DSoftBus v1.2 host core (media remote + mediacast)"
+    target: tasks/TASK-0219-dsoftbus-v1_2a-host-media-remote-proto-cast.md
+  - label: "Media UX v2.1 OS baseline (mini-player + nx-media)"
+    target: tasks/TASK-0218-media-v2_1b-os-focus-ducking-miniplayer-nx-media.md
+  - label: "DSoftBus UDP devnet gating (must remain gated)"
+    target: tasks/TASK-0196-dsoftbus-v1_1b-devnet-udp-discovery-gated.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Short description

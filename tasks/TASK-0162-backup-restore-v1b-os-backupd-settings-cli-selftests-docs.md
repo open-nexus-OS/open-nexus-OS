@@ -1,21 +1,32 @@
 ---
-title: TASK-0162 Backup/Restore v1b (OS/QEMU): backupd service + device-bound wrapping + policy caps + Settings/CLI + selftests/postflight + docs
-status: Draft
-owner: @runtime
+schema: 1
+id: TASK-0162
+title: "Backup/Restore v1b (OS/QEMU): backupd service + device-bound wrapping + policy caps + Settings/CLI + selftests/postflight + docs"
+status: draft
+owner: ["@runtime"]
 created: 2025-12-26
-depends-on: []
-follow-up-tasks: []
+subsystem: security
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - NBK v1 engine (host-first): tasks/TASK-0161-backup-restore-v1a-host-nbk-format-pack-verify-restore.md
-  - Persistence substrate (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Prefs substrate: tasks/TASK-0072-ui-v9b-prefsd-settings-panels-quick-settings.md
-  - Policy grants substrate: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
-  - Recents substrate (optional): tasks/TASK-0082-ui-v11b-thumbnailer-recents.md
-  - Search v2 backend (optional index backup): tasks/TASK-0154-search-v2-backend-os-persistence-selftests-postflight-docs.md
-  - Keystore v1.1 OS wiring (seal/unseal): tasks/TASK-0160-identity-keystore-v1_1-os-attestd-trust-unification-selftests.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "NBK v1 engine (host-first)"
+    target: tasks/TASK-0161-backup-restore-v1a-host-nbk-format-pack-verify-restore.md
+  - label: "Persistence substrate (/state)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Prefs substrate"
+    target: tasks/TASK-0072-ui-v9b-prefsd-settings-panels-quick-settings.md
+  - label: "Policy grants substrate"
+    target: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
+  - label: "Recents substrate (optional)"
+    target: tasks/TASK-0082-ui-v11b-thumbnailer-recents.md
+  - label: "Search v2 backend (optional index backup)"
+    target: tasks/TASK-0154-search-v2-backend-os-persistence-selftests-postflight-docs.md
+  - label: "Keystore v1.1 OS wiring (seal/unseal)"
+    target: tasks/TASK-0160-identity-keystore-v1_1-os-attestd-trust-unification-selftests.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

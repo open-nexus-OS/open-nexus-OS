@@ -1,15 +1,23 @@
 ---
-title: TRACK Puzzle game app: touch-first, UI-heavy, accessibility-forward reference game (deterministic)
-status: Draft
-owner: @ui
+schema: 1
+id: TRACK-PUZZLE-APP
+title: "Puzzle game app: touch-first, UI-heavy, accessibility-forward reference game (deterministic)"
+status: draft
+owner: ["@ui"]
 created: 2026-01-19
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Reference Games umbrella: tasks/TRACK-REFERENCE-GAMES.md
-  - NexusGame SDK (foundation): tasks/TRACK-NEXUSGAME-SDK.md
-  - NexusGfx SDK (render/present): tasks/TRACK-NEXUSGFX-SDK.md
-  - Accessibility wiring (Settings + app hardening): tasks/TASK-0118-ui-v20e-accessibility-settings-app-wiring-os-proofs.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Reference Games umbrella"
+    target: tasks/TRACK-REFERENCE-GAMES.md
+  - label: "NexusGame SDK (foundation)"
+    target: tasks/TRACK-NEXUSGAME-SDK.md
+  - label: "NexusGfx SDK (render/present)"
+    target: tasks/TRACK-NEXUSGFX-SDK.md
+  - label: "Accessibility wiring (Settings + app hardening)"
+    target: tasks/TASK-0118-ui-v20e-accessibility-settings-app-wiring-os-proofs.md
 ---
 
 ## Goal (track-level)

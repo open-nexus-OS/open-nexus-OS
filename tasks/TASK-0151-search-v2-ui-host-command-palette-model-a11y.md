@@ -1,20 +1,30 @@
 ---
-title: TASK-0151 Search v2 UI (host-first): command-palette overlay + chip model + keyboard nav + a11y + deterministic tests
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0151
+title: "Search v2 UI (host-first): command-palette overlay + chip model + keyboard nav + a11y + deterministic tests"
+status: draft
+owner: ["@ui"]
 created: 2025-12-26
-depends-on: []
-follow-up-tasks: []
+subsystem: text
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
-  - Search backend (searchd v9a): tasks/TASK-0071-ui-v9a-searchd-command-palette.md
-  - Search v2 backend (real engine): tasks/TASK-0153-search-v2-backend-host-index-ranking-analyzers-sources.md
-  - Shortcuts/overlays baseline: tasks/TASK-0070-ui-v8b-wm-resize-move-shortcuts-settings-overlays.md
-  - Recents substrate: tasks/TASK-0082-ui-v11b-thumbnailer-recents.md
-  - A11y baseline: tasks/TASK-0114-ui-v20a-a11yd-tree-actions-focusnav.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "DSL syntax/layout convention"
+    target: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
+  - label: "Search backend (searchd v9a)"
+    target: tasks/TASK-0071-ui-v9a-searchd-command-palette.md
+  - label: "Search v2 backend (real engine)"
+    target: tasks/TASK-0153-search-v2-backend-host-index-ranking-analyzers-sources.md
+  - label: "Shortcuts/overlays baseline"
+    target: tasks/TASK-0070-ui-v8b-wm-resize-move-shortcuts-settings-overlays.md
+  - label: "Recents substrate"
+    target: tasks/TASK-0082-ui-v11b-thumbnailer-recents.md
+  - label: "A11y baseline"
+    target: tasks/TASK-0114-ui-v20a-a11yd-tree-actions-focusnav.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

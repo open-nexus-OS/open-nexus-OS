@@ -1,14 +1,25 @@
-# RFC-0045: Policy as Code v1 (unified policy tree + evaluator + explain/dry-run + learn→enforce + `nx policy`) host-first, OS-gated contract seed
+---
+schema: 1
+id: RFC-0045
+title: "Policy as Code v1 (unified policy tree + evaluator + explain/dry-run + learn→enforce + `nx policy`) host-first, OS-gated contract seed"
+status: done
+owners: ["@runtime", "@security", "@tools-team"]
+created: 2026-04-26
+updated: 2026-04-26
+subsystem: security
+tasks: [TASK-0047]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0047-policy-as-code-v1-unified-engine.md` (execution + proof)"
+  - label: ADRs
+    target: "`docs/adr/0014-policy-architecture.md`, `docs/adr/0017-service-architecture.md`, `docs/adr/0021-structured-data-formats-json-vs-capnp.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md`, `docs/rfcs/RFC-0032-abi-syscall-guardrails-v2-userland-kernel-untouched.md`, `docs/rfcs/RFC-0043-devx-nx-cli-v1-host-first-production-floor-seed.md`, `docs/rfcs/RFC-0044-config-v1-configd-schema-layering-2pc-host-first-os-gated.md`"
+  - label: "Production gate policy"
+    target: "`tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` (Gate B: Security, Policy & Identity, production-grade)"
+---
 
-- Status: Done
-- Owners: @runtime @security @tools-team
-- Created: 2026-04-26
-- Last Updated: 2026-04-26
-- Links:
-  - Tasks: `tasks/TASK-0047-policy-as-code-v1-unified-engine.md` (execution + proof)
-  - ADRs: `docs/adr/0014-policy-architecture.md`, `docs/adr/0017-service-architecture.md`, `docs/adr/0021-structured-data-formats-json-vs-capnp.md`
-  - Related RFCs: `docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md`, `docs/rfcs/RFC-0032-abi-syscall-guardrails-v2-userland-kernel-untouched.md`, `docs/rfcs/RFC-0043-devx-nx-cli-v1-host-first-production-floor-seed.md`, `docs/rfcs/RFC-0044-config-v1-configd-schema-layering-2pc-host-first-os-gated.md`
-  - Production gate policy: `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` (Gate B: Security, Policy & Identity, production-grade)
+# RFC-0045: Policy as Code v1 (unified policy tree + evaluator + explain/dry-run + learn→enforce + `nx policy`) host-first, OS-gated contract seed
 
 ## Status at a Glance
 

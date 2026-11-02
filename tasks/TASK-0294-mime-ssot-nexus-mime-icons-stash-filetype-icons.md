@@ -1,19 +1,27 @@
 ---
-title: TASK-0294 Mime SSOT wiring + nexus-mime-icons bake + stash file-type icons
-status: Done
-owner: @runtime
+schema: 1
+id: TASK-0294
+title: "Mime SSOT wiring + nexus-mime-icons bake + stash file-type icons"
+status: done
+owner: ["@runtime"]
 created: 2026-07-15
-depends-on:
-  - TASK-0291
-follow-up-tasks: []
+subsystem: storage
+done: 2026-07-19
+dates_source: git-reconstructed
+depends_on: [TASK-0291]
+implements: [RFC-0073]
+tracks: [TRACK-STASH-USER-DATA-FS]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Contract seed (this task): docs/rfcs/RFC-0073-app-files-surface-svc-files-permission-filemanager-role.md
-  - Mime SSOT data: resources/mimetypes/mimetypes.toml (+ resources/mimetypes/README.md)
-  - Pattern to follow: userspace/ui/app-icons/build.rs (manifest-scanned SVG bake)
-  - Track: tasks/TRACK-STASH-USER-DATA-FS.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Mime SSOT data"
+    target: "resources/mimetypes/mimetypes.toml (+ resources/mimetypes/README.md)"
+  - label: "Pattern to follow"
+    target: "userspace/ui/app-icons/build.rs (manifest-scanned SVG bake)"
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

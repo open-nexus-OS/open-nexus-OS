@@ -1,40 +1,73 @@
 ---
-title: TRACK System Delegation (System Surfaces): replace “super-app” with secure, capability-gated system APIs (chat/contacts/share/compose/maps) + defaults + chooser
-status: Draft
-owner: @runtime @ui @apps
+schema: 1
+id: TRACK-SYSTEM-DELEGATION
+title: "System Delegation (System Surfaces): replace “super-app” with secure, capability-gated system APIs (chat/contacts/share/compose/maps) + defaults + chooser"
+status: draft
+owner: ["@runtime", "@ui", "@apps"]
 created: 2026-01-28
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
-  - Service architecture: docs/adr/0017-service-architecture.md
-  - Policy v1 capability matrix + audit + foreground: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
-  - MIME defaults + content:// providers: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
-  - Open With / picker (delegation baseline): tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
-  - Share v2 intents (registry/dispatch): tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md
-  - Share v2 chooser + targets: tasks/TASK-0127-share-v2b-chooser-ui-targets-grants.md
-  - Share v2 senders + OS selftests: tasks/TASK-0128-share-v2c-app-senders-selftests-postflight-docs.md
-  - Scoped URI grants: tasks/TASK-0084-ui-v12a-scoped-uri-grants.md
-  - Policy scoped grants v1.1: tasks/TASK-0167-policy-v1_1-host-scoped-grants-expiry-enumeration.md
-  - Fediverse suite (NexusChat/NexusSocial): tasks/TRACK-NEXUSSOCIAL.md
-  - Office suite (Open With + share/export surfaces): tasks/TRACK-OFFICE-SUITE.md
-  - Game SDK (invites + chat delegation): tasks/TRACK-NEXUSGAME-SDK.md
-  - PIM suite (Contacts/Calendar surfaces): tasks/TRACK-PIM-SUITE.md
-  - Maps app: tasks/TRACK-MAPS-APP.md
-  - Notes app (share target): tasks/TRACK-NOTES-APP.md
-  - Mail app (compose + attachments): tasks/TRACK-MAIL-APP.md
-  - Feeds app (share/open in browser): tasks/TRACK-FEEDS-APP.md
-  - Podcasts app (share/open-with): tasks/TRACK-PODCASTS-APP.md
-  - Media apps (share/edit/cast): tasks/TRACK-MEDIA-APPS.md
-  - Video editor (edit-in + export/share): tasks/TRACK-VIDEO-EDITOR-APP.md
-  - NexusFrame (edit-in + export/share): tasks/TRACK-NEXUSFRAME.md
-  - NexusVideo (share/send via chat): tasks/TRACK-NEXUSVIDEO.md
-  - Recipes (import target): tasks/TRACK-RECIPES-APP.md
-  - Core utilities (voice memos share): tasks/TRACK-CORE-UTILITIES.md
-  - App Store (avoid super-app anti-pattern): tasks/TRACK-APP-STORE.md
-  - Creative apps (import/export/share primitives): tasks/TRACK-CREATIVE-APPS.md
-  - DSoftBus share/discovery (optional targets later): tasks/TASK-0158-dsoftbus-v1b-os-consent-policy-registry-share-demo-cli-selftests.md
-  - Chat inline action cards v0 (track/confirm/open): tasks/TASK-0126D-chat-action-cards-v0-host-inline-track-confirm-open.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Ads Safety + Family Mode (track)"
+    target: tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
+  - label: "Service architecture"
+    target: docs/adr/0017-service-architecture.md
+  - label: "Policy v1 capability matrix + audit + foreground"
+    target: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
+  - label: Link
+    target: "MIME defaults + content:// providers: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md"
+  - label: "Open With / picker (delegation baseline)"
+    target: tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
+  - label: "Share v2 intents (registry/dispatch)"
+    target: tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md
+  - label: "Share v2 chooser + targets"
+    target: tasks/TASK-0127-share-v2b-chooser-ui-targets-grants.md
+  - label: "Share v2 senders + OS selftests"
+    target: tasks/TASK-0128-share-v2c-app-senders-selftests-postflight-docs.md
+  - label: "Scoped URI grants"
+    target: tasks/TASK-0084-ui-v12a-scoped-uri-grants.md
+  - label: "Policy scoped grants v1.1"
+    target: tasks/TASK-0167-policy-v1_1-host-scoped-grants-expiry-enumeration.md
+  - label: "Fediverse suite (NexusChat/NexusSocial)"
+    target: tasks/TRACK-NEXUSSOCIAL.md
+  - label: "Office suite (Open With + share/export surfaces)"
+    target: tasks/TRACK-OFFICE-SUITE.md
+  - label: "Game SDK (invites + chat delegation)"
+    target: tasks/TRACK-NEXUSGAME-SDK.md
+  - label: "PIM suite (Contacts/Calendar surfaces)"
+    target: tasks/TRACK-PIM-SUITE.md
+  - label: "Maps app"
+    target: tasks/TRACK-MAPS-APP.md
+  - label: "Notes app (share target)"
+    target: tasks/TRACK-NOTES-APP.md
+  - label: "Mail app (compose + attachments)"
+    target: tasks/TRACK-MAIL-APP.md
+  - label: "Feeds app (share/open in browser)"
+    target: tasks/TRACK-FEEDS-APP.md
+  - label: "Podcasts app (share/open-with)"
+    target: tasks/TRACK-PODCASTS-APP.md
+  - label: "Media apps (share/edit/cast)"
+    target: tasks/TRACK-MEDIA-APPS.md
+  - label: "Video editor (edit-in + export/share)"
+    target: tasks/TRACK-VIDEO-EDITOR-APP.md
+  - label: "NexusFrame (edit-in + export/share)"
+    target: tasks/TRACK-NEXUSFRAME.md
+  - label: "NexusVideo (share/send via chat)"
+    target: tasks/TRACK-NEXUSVIDEO.md
+  - label: "Recipes (import target)"
+    target: tasks/TRACK-RECIPES-APP.md
+  - label: "Core utilities (voice memos share)"
+    target: tasks/TRACK-CORE-UTILITIES.md
+  - label: "App Store (avoid super-app anti-pattern)"
+    target: tasks/TRACK-APP-STORE.md
+  - label: "Creative apps (import/export/share primitives)"
+    target: tasks/TRACK-CREATIVE-APPS.md
+  - label: "DSoftBus share/discovery (optional targets later)"
+    target: tasks/TASK-0158-dsoftbus-v1b-os-consent-policy-registry-share-demo-cli-selftests.md
+  - label: "Chat inline action cards v0 (track/confirm/open)"
+    target: tasks/TASK-0126D-chat-action-cards-v0-host-inline-track-confirm-open.md
 ---
 
 ## Goal (track-level)

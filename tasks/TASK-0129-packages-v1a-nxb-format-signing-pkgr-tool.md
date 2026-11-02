@@ -1,20 +1,25 @@
 ---
-title: TASK-0129 Packages v1a: NXB v1 format alignment (manifest.nxb) + pkgr tool (build/sign/verify/inspect) + host tests
-status: Draft
-owner: @runtime
+schema: 1
+id: TASK-0129
+title: "Packages v1a: NXB v1 format alignment (manifest.nxb) + pkgr tool (build/sign/verify/inspect) + host tests"
+status: draft
+owner: ["@runtime"]
 created: 2025-12-25
-depends-on: []
-follow-up-tasks:
-  - TASK-0130
-  - TASK-0238
-  - TASK-0289
+subsystem: updates
+follow_ups: [TASK-0130, TASK-0238, TASK-0289]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Packaging baseline + manifest.nxb contract: docs/packaging/nxb.md
-  - Packaging drift decision: tasks/TASK-0007-updates-packaging-v1_1-userspace-ab-skeleton.md
-  - Supply chain signing policy direction: tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
-  - DevX nx CLI (tool aggregation): tasks/TASK-0045-devx-nx-cli-v1.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Packaging baseline + manifest.nxb contract"
+    target: docs/packaging/nxb.md
+  - label: "Packaging drift decision"
+    target: tasks/TASK-0007-updates-packaging-v1_1-userspace-ab-skeleton.md
+  - label: "Supply chain signing policy direction"
+    target: tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
+  - label: "DevX nx CLI (tool aggregation)"
+    target: tasks/TASK-0045-devx-nx-cli-v1.md
 ---
 
 ## Context

@@ -1,18 +1,32 @@
+---
+schema: 1
+id: RFC-0007
+title: "DSoftBus OS Transport v1 (UDP discovery + TCP sessions over sockets facade)"
+status: done
+status_note: "Phase 0 ✅, Phase 1 bring-up ✅"
+owners: ["@runtime"]
+created: 2026-01-01
+updated: 2026-01-10
+subsystem: distributed
+tasks: [TASK-0003]
+links:
+  - label: "Follow-up Noise handshake"
+    target: "`tasks/TASK-0003B-dsoftbus-noise-xk-os.md`"
+  - label: ADR
+    target: "`docs/adr/0005-dsoftbus-architecture.md`"
+  - label: Docs
+    target: "`docs/distributed/dsoftbus-lite.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0006-userspace-networking-v1.md` (sockets facade)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0005-kernel-ipc-capability-model.md` (extension policy + identity binding rules)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0008-dsoftbus-noise-xk-v1.md` (Noise XK handshake + identity binding contract)"
+---
+
 # RFC-0007: DSoftBus OS Transport v1 (UDP discovery + TCP sessions over sockets facade)
 
-- Status: Complete (Phase 0 ✅, Phase 1 bring-up ✅)
-- Owners: @runtime
-- Created: 2026-01-01
-- Last Updated: 2026-01-10 (aligned to TASK-0004 proof gates; follow-on subnet contract deferred to a new RFC seed)
-- Links:
-  - Tasks (execution + proof): `tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md`
-  - Follow-up Noise handshake: `tasks/TASK-0003B-dsoftbus-noise-xk-os.md`
-  - ADR: `docs/adr/0005-dsoftbus-architecture.md`
-  - Docs: `docs/distributed/dsoftbus-lite.md`
-  - Related RFCs:
-    - `docs/rfcs/RFC-0006-userspace-networking-v1.md` (sockets facade)
-    - `docs/rfcs/RFC-0005-kernel-ipc-capability-model.md` (extension policy + identity binding rules)
-    - `docs/rfcs/RFC-0008-dsoftbus-noise-xk-v1.md` (Noise XK handshake + identity binding contract)
+> Last Updated (migrated 2026-11-02): 2026-01-10 (aligned to TASK-0004 proof gates; follow-on subnet contract deferred to a new RFC seed)
 
 ## Status at a Glance
 

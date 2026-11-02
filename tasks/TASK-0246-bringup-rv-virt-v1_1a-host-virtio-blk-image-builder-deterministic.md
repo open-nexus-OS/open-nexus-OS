@@ -1,25 +1,38 @@
 ---
-title: TASK-0246 Block driver on hardware: SDHCI/eMMC at `BlockDevice`, and `virtioblkd` becomes `blkd` — the one block owner with a backend chosen by the device it is granted
-status: Done 2026-10-10 (Block 1 closure — P6 proven on the board: the loader reads the eMMC at HS52 on 8 bits, blkd drives it at HS400ES (`mode=hs400es bus=8 sectors=30535680`), the GPT and the system volume mount over it in every boot since 2026-09-27; ADR-0067 Accepted, RFC-0098 Phase 3 ✅, the storage page names the one block owner. Moved: the throughput line → TASK-0269B P0, policyd's dead block comment and an OS-cfg clippy gate → TRACK-REPO-HYGIENE-FOLLOWUPS §12/§13; was "In Progress (P5 done 2026-09-26 — the `ci-os-sdhci` lane in `test-all`: QEMU boots from `sdhci-pci` + `emmc` alone and runs the whole ladder over the SDHCI backend; next 0246B P2 — the board path, then P6 on the board after B1.6; 0246B P1 done 2026-09-25 — nxboot reads the boot disk through the SDHCI core; P4c done 2026-09-25 — socd in the core plane before the disk grant, on declared slots; blkd brings its node up (and on the K1 learns its `io` clock) before touching the controller; P4 complete; P4b done 2026-09-25 — the boot disk from `/chosen/nexus,boot-disk`, the grant by the disk's kind, the backend by the granted device; P4a done 2026-09-25 — `virtioblkd` became `blkd`, its partition gate host-proven, the old name gated; P3 done 2026-09-25 — the PCI ECAM device source, `init: devices from pci ok`; P2 done 2026-09-25 — the SDHCI core, host-proven against a behavioural controller + eMMC model; P1 done 2026-09-24 — a device's DMA reach is kernel truth, `vmo_runs` answers in its bus addresses; P0 done 2026-09-24 — measured on the board, upstream and in QEMU; recut to the end state below; was recut 2026-09-22 as Block 1 B1.5 of the hardware fast track, originally "RISC-V Bring-up v1.1a: virtio-blk frontend core + packagefs image builder", whose subjects shipped as TASK-0314 and TASK-0260)
-owner: @runtime @kernel-team
+schema: 1
+id: TASK-0246
+title: "Block driver on hardware: SDHCI/eMMC at `BlockDevice`, and `virtioblkd` becomes `blkd` — the one block owner with a backend chosen by the device it is granted"
+status: done
+status_note: "2026-10-10 (Block 1 closure"
+owner: ["@runtime", "@kernel-team"]
 created: 2025-12-29
 updated: 2026-10-10
-depends-on:
-  - tasks/TASK-0245-bringup-rv-virt-v1_0b-os-kernel-uart-plic-timer-uartd-selftests.md
-  - tasks/TASK-0245B-board-support-v1c-soc-clock-reset-pinmux-power-from-fdt.md
-  - tasks/TASK-0286-kernel-memory-accounting-v1-rss-pressure-snapshots.md
-follow-up-tasks:
-  - tasks/TASK-0246B-nxboot-sdhci-disk-reader.md
-  - tasks/TASK-0248-bringup-rv-virt-v1_2a-host-virtio-net-dhcp-stub-loopback-deterministic.md
+subsystem: storage
+started: 2026-09-24
+done: 2026-10-10
+active_days: 3
+dates_source: git-reconstructed
+depends_on: [TASK-0245, TASK-0245B, TASK-0286]
+follow_ups: [TASK-0246B, TASK-0248]
+implements: [RFC-0098]
 links:
-  - Decision: docs/adr/0067-one-block-owner-backend-selected-by-fdt.md (amended 2026-09-24)
-  - Contract: docs/rfcs/RFC-0098-board-support-contract-fdt-truth-boot-chain.md (C3 PCI source, C4 coherence + DMA reach, C5 — all amended 2026-09-24, Phase 3)
-  - The owner (renamed in P4a): docs/adr/0044-single-blk-device-gpt-partitions-block-layer.md, source/services/blkd
-  - The trait this implements: userspace/storage/src/lib.rs (`BlockDevice`); layout SSOT userspace/storage/src/layout.rs
-  - Measurements: docs/board/measurements/2026-09-24-emmc-sdhci/README.md (this P0), docs/board/measurements/2026-09-22-stock-system/README.md ("Storage", "DMA coherence")
-  - Reused: `nexus_driverkit::DmaBuffer` over `nexus_abi::DmaVmo` (TASK-0286 P4b), `socd` (RFC-0106), `vmo_runs` (TASK-0286 P4a)
-  - Playbook: CLAUDE.md
+  - label: Decision
+    target: "docs/adr/0067-one-block-owner-backend-selected-by-fdt.md (amended 2026-09-24)"
+  - label: Contract
+    target: "docs/rfcs/RFC-0098-board-support-contract-fdt-truth-boot-chain.md (C3 PCI source, C4 coherence + DMA reach, C5 — all amended 2026-09-24, Phase 3)"
+  - label: "The owner (renamed in P4a)"
+    target: "docs/adr/0044-single-blk-device-gpt-partitions-block-layer.md, source/services/blkd"
+  - label: "The trait this implements"
+    target: "userspace/storage/src/lib.rs (`BlockDevice`); layout SSOT userspace/storage/src/layout.rs"
+  - label: Measurements
+    target: "docs/board/measurements/2026-09-24-emmc-sdhci/README.md (this P0), docs/board/measurements/2026-09-22-stock-system/README.md (\"Storage\", \"DMA coherence\")"
+  - label: Reused
+    target: "`nexus_driverkit::DmaBuffer` over `nexus_abi::DmaVmo` (TASK-0286 P4b), `socd` (RFC-0106), `vmo_runs` (TASK-0286 P4a)"
+  - label: Playbook
+    target: CLAUDE.md
 ---
+
+> Status (migrated 2026-11-02): Done 2026-10-10 (Block 1 closure — P6 proven on the board: the loader reads the eMMC at HS52 on 8 bits, blkd drives it at HS400ES (`mode=hs400es bus=8 sectors=30535680`), the GPT and the system volume mount over it in every boot since 2026-09-27; ADR-0067 Accepted, RFC-0098 Phase 3 ✅, the storage page names the one block owner. Moved: the throughput line → TASK-0269B P0, policyd's dead block comment and an OS-cfg clippy gate → TRACK-REPO-HYGIENE-FOLLOWUPS §12/§13; was "In Progress (P5 done 2026-09-26 — the `ci-os-sdhci` lane in `test-all`: QEMU boots from `sdhci-pci` + `emmc` alone and runs the whole ladder over the SDHCI backend; next 0246B P2 — the board path, then P6 on the board after B1.6; 0246B P1 done 2026-09-25 — nxboot reads the boot disk through the SDHCI core; P4c done 2026-09-25 — socd in the core plane before the disk grant, on declared slots; blkd brings its node up (and on the K1 learns its `io` clock) before touching the controller; P4 complete; P4b done 2026-09-25 — the boot disk from `/chosen/nexus,boot-disk`, the grant by the disk's kind, the backend by the granted device; P4a done 2026-09-25 — `virtioblkd` became `blkd`, its partition gate host-proven, the old name gated; P3 done 2026-09-25 — the PCI ECAM device source, `init: devices from pci ok`; P2 done 2026-09-25 — the SDHCI core, host-proven against a behavioural controller + eMMC model; P1 done 2026-09-24 — a device's DMA reach is kernel truth, `vmo_runs` answers in its bus addresses; P0 done 2026-09-24 — measured on the board, upstream and in QEMU; recut to the end state below; was recut 2026-09-22 as Block 1 B1.5 of the hardware fast track, originally "RISC-V Bring-up v1.1a: virtio-blk frontend core + packagefs image builder", whose subjects shipped as TASK-0314 and TASK-0260)
 
 ## History
 

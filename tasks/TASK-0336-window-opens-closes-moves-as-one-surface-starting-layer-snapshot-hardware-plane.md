@@ -1,16 +1,32 @@
 ---
-title: TASK-0336 A window opens, closes and moves as ONE surface — the starting layer at the tap, the snapshot on close and drag, the dragged window on a display-controller plane, glass blurred at rest
-status: In Progress (P0–P3 built 2026-10-21, board cycles 52–53 read; the frame throttle cycle 53 found is TASK-0338's; P4 at its measurement)
-owner: @ui @gpu
+schema: 1
+id: TASK-0336
+title: "A window opens, closes and moves as ONE surface — the starting layer at the tap, the snapshot on close and drag, the dragged window on a display-controller plane, glass blurred at rest"
+status: in_progress
+status_note: "P0–P3 built 2026-10-21, board cycles 52–53 read; the frame throttle cycle 53 found is TASK-0338's; P4 at its measurement"
+owner: ["@ui", "@gpu"]
 created: 2026-10-21
-depends-on: [TASK-0335 (P3 ✅ cycle 51), TASK-0333 (6a ✅ — a death is an event)]
-follow-up-tasks: [TASK-0337 one window path + materials, TASK-0335 P2 occlusion, the non-parking compositor (ADR-0075), 6c the launch without a copy]
+subsystem: ui
+started: 2026-10-21
+dates_source: git-reconstructed
+depends_on: [TASK-0335, TASK-0333]
+follow_ups: [TASK-0337, TASK-0335]
+implements: [RFC-0101, RFC-0108]
 links:
-  - RFC: docs/rfcs/RFC-0101-gpu-driver-split-contexts-vm-batches-fence-and-the-scanout-contract.md (§8: the planner; the snapshot source and the plane bind are its extension)
-  - RFC: docs/rfcs/RFC-0108-ux-latency-contract-instant-and-smooth-as-numbers.md (the budgets this meets)
-  - Measurement: docs/board/measurements/2026-10-21-gpu-vendor-per-pixel/README.md ("Cycle 51": the open sequence, the drag window, the stock controller's planes)
-  - Standard: docs/dev/ui/foundations/visual/materials.md (rule 4, blur at rest)
-  - Code today: source/services/windowd/src/compositor/runtime/transitions.rs (the transform on the live layers), source/drivers/gpud/src/backend/dc/{controller.rs,cursor.rs} (the pointer's plane: the mechanism)
+  - label: RFC
+    target: "docs/rfcs/RFC-0101-gpu-driver-split-contexts-vm-batches-fence-and-the-scanout-contract.md (§8: the planner; the snapshot source and the plane bind are its extension)"
+  - label: RFC
+    target: "docs/rfcs/RFC-0108-ux-latency-contract-instant-and-smooth-as-numbers.md (the budgets this meets)"
+  - label: Measurement
+    target: "docs/board/measurements/2026-10-21-gpu-vendor-per-pixel/README.md (\"Cycle 51\": the open sequence, the drag window, the stock controller's planes)"
+  - label: Standard
+    target: "docs/dev/ui/foundations/visual/materials.md (rule 4, blur at rest)"
+  - label: "Code today"
+    target: "source/services/windowd/src/compositor/runtime/transitions.rs (the transform on the live layers), source/drivers/gpud/src/backend/dc/{controller.rs,cursor.rs} (the pointer's plane: the mechanism)"
+  - label: follow-up
+    target: "the non-parking compositor (ADR-0075)"
+  - label: follow-up
+    target: "6c the launch without a copy"
 ---
 
 ## Context (cycle 51, read line by line)
@@ -144,4 +160,3 @@ drag; `windowd: ux input ok` during drag.
   present NACKs were a ring without a free plane — gpud drew every transition tick and drag step
   (`OP_SET_LAYER_TRANSFORM`) as a frame of its own beside windowd's two in flight; each NACK
   forced a full-screen recompose. Fixed by TASK-0338 (one frame producer), cycle 54.
-

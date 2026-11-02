@@ -1,15 +1,28 @@
 ---
-title: TASK-0338 One frame producer — the display ring holds only presents; a window's move, a transition tick and a scroll ride in windowd's present, inside its budget
-status: Done (2026-10-21, board cycle 54: 0 present NACKs; committed in 984a977c)
-owner: @ui @gpu
+schema: 1
+id: TASK-0338
+title: "One frame producer — the display ring holds only presents; a window's move, a transition tick and a scroll ride in windowd's present, inside its budget"
+status: done
+status_note: "2026-10-21, board cycle 54: 0 present NACKs; committed in 984a977c"
+owner: ["@ui", "@gpu"]
 created: 2026-10-21
-depends-on: [TASK-0336 (the transform carried in every present), TASK-0335 (the planner's damage)]
-follow-up-tasks: [the non-parking compositor (ADR-0075), TASK-0336 P4 (the dragged window on a plane)]
+subsystem: ui
+done: 2026-10-21
+dates_source: status-text
+depends_on: [TASK-0336, TASK-0335]
+follow_ups: [TASK-0336]
+implements: [RFC-0101, RFC-0108]
 links:
-  - RFC: docs/rfcs/RFC-0101-gpu-driver-split-contexts-vm-batches-fence-and-the-scanout-contract.md (§8: the ring, the present's ack as the frame clock)
-  - RFC: docs/rfcs/RFC-0108-ux-latency-contract-instant-and-smooth-as-numbers.md (the budgets this unblocks)
-  - Measurement: docs/board/measurements/2026-10-21-gpu-vendor-per-pixel/README.md ("Cycle 53": the ring overflow)
-  - Code: source/services/windowd/src/compositor/runtime/{present.rs,transitions.rs,intent.rs,input_scroll.rs,anim.rs,scene.rs}, source/drivers/gpud/src/{service.rs,present_chain.rs,backend/dc/present.rs}, userspace/nexus-gfx/src/frame/layers.rs
+  - label: RFC
+    target: "docs/rfcs/RFC-0101-gpu-driver-split-contexts-vm-batches-fence-and-the-scanout-contract.md (§8: the ring, the present's ack as the frame clock)"
+  - label: RFC
+    target: "docs/rfcs/RFC-0108-ux-latency-contract-instant-and-smooth-as-numbers.md (the budgets this unblocks)"
+  - label: Measurement
+    target: "docs/board/measurements/2026-10-21-gpu-vendor-per-pixel/README.md (\"Cycle 53\": the ring overflow)"
+  - label: Code
+    target: "source/services/windowd/src/compositor/runtime/{present.rs,transitions.rs,intent.rs,input_scroll.rs,anim.rs,scene.rs}, source/drivers/gpud/src/{service.rs,present_chain.rs,backend/dc/present.rs}, userspace/nexus-gfx/src/frame/layers.rs"
+  - label: follow-up
+    target: "the non-parking compositor (ADR-0075)"
 ---
 
 ## Context (cycle 53, read from the log)

@@ -1,21 +1,32 @@
 ---
-title: TASK-0199 Windowing/Compositor v2a (host-first): damage regions + occlusion culling + input regions hit-test + deterministic screencap/thumb + goldens
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0199
+title: "Windowing/Compositor v2a (host-first): damage regions + occlusion culling + input regions hit-test + deterministic screencap/thumb + goldens"
+status: draft
+owner: ["@ui"]
 created: 2025-12-27
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - ADR: docs/adr/0022-modern-image-formats-avif-webp.md
-  - Renderer abstraction (Scene-IR + cpu2d goldens): tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md
-  - windowd↔renderer OS wiring: tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md
-  - Present scheduler + input routing baseline: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
-  - Tiled compositor/occlusion deluxe: tasks/TASK-0060-ui-v4a-tiled-compositor-clipstack-atlases-perf.md
-  - WM controller baseline: tasks/TASK-0064-ui-v6a-window-management-scene-transitions.md
-  - Screenshot/share baseline: tasks/TASK-0068-ui-v7c-screenshot-screencap-share-sheet.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: ADR
+    target: docs/adr/0022-modern-image-formats-avif-webp.md
+  - label: "Renderer abstraction (Scene-IR + cpu2d goldens)"
+    target: tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md
+  - label: "windowd↔renderer OS wiring"
+    target: tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md
+  - label: "Present scheduler + input routing baseline"
+    target: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
+  - label: "Tiled compositor/occlusion deluxe"
+    target: tasks/TASK-0060-ui-v4a-tiled-compositor-clipstack-atlases-perf.md
+  - label: "WM controller baseline"
+    target: tasks/TASK-0064-ui-v6a-window-management-scene-transitions.md
+  - label: "Screenshot/share baseline"
+    target: tasks/TASK-0068-ui-v7c-screenshot-screencap-share-sheet.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

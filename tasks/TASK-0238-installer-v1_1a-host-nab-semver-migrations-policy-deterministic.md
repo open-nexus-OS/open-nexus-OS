@@ -1,18 +1,23 @@
 ---
-title: TASK-0238 Installer v1.1a (host-first): NXB format (SemVer, migrations, policy checks) + deterministic tests
-status: Draft
-owner: @runtime
+schema: 1
+id: TASK-0238
+title: "Installer v1.1a (host-first): NXB format (SemVer, migrations, policy checks) + deterministic tests"
+status: draft
+owner: ["@runtime"]
 created: 2025-12-29
-depends-on: []
-follow-up-tasks:
-  - TASK-0239
-  - TASK-0289
+subsystem: security
+follow_ups: [TASK-0239, TASK-0289]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - NXB format baseline: tasks/TASK-0129-packages-v1a-nxb-format-signing-pkgr-tool.md
-  - Packaging contract (manifest.nxb): tasks/TASK-0007-updates-packaging-v1_1-userspace-ab-skeleton.md
-  - Supply-chain signing: tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "NXB format baseline"
+    target: tasks/TASK-0129-packages-v1a-nxb-format-signing-pkgr-tool.md
+  - label: "Packaging contract (manifest.nxb)"
+    target: tasks/TASK-0007-updates-packaging-v1_1-userspace-ab-skeleton.md
+  - label: "Supply-chain signing"
+    target: tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
 ---
 
 ## Context

@@ -1,17 +1,25 @@
 ---
-title: TASK-0264 Storage Write-Path v1.0a (host-first): durable I/O + atomic operations + fsync barriers + crash-recovery + deterministic tests
-status: Superseded
-owner: @platform
+schema: 1
+id: TASK-0264
+title: "Storage Write-Path v1.0a (host-first): durable I/O + atomic operations + fsync barriers + crash-recovery + deterministic tests"
+status: superseded
+owner: ["@platform"]
 created: 2025-12-29
-depends-on: []
-follow-up-tasks: []
+subsystem: observability
+superseded_by: [TASK-0292, TASK-0316]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Content provider foundations: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
-  - Content quotas: tasks/TASK-0232-content-v1_2a-host-content-quotas-versions-naming-nx-content.md
-  - Persistence: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Content provider foundations"
+    target: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
+  - label: "Content quotas"
+    target: tasks/TASK-0232-content-v1_2a-host-content-quotas-versions-naming-nx-content.md
+  - label: Persistence
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

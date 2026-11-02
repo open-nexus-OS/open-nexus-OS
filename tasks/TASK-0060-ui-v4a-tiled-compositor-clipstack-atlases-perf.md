@@ -1,23 +1,37 @@
 ---
-title: TASK-0060 UI v4a: tiled compositor + occlusion + clip stack + atlases/caches + perf/pacing metrics
-status: Done
-owner: @ui
+schema: 1
+id: TASK-0060
+title: "UI v4a: tiled compositor + occlusion + clip stack + atlases/caches + perf/pacing metrics"
+status: done
+owner: ["@ui"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: observability
+done: 2026-07-19
+dates_source: git-reconstructed
+follow_ups: [TASK-0060B]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - UI v3b baseline (clip/scroll/effects): tasks/TASK-0059-ui-v3b-clip-scroll-effects-ime-textinput.md
-  - UI v2a baseline (present scheduler): tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
-  - UI v2b baseline (shaping/svg): tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
-  - Glass material guidance: docs/dev/ui/foundations/visual/materials.md
-  - Glass compositor follow-up: tasks/TASK-0060B-ui-v4b-glass-materials-backdrop-cache-degrade.md
-  - Drivers/Accelerators contracts: tasks/TRACK-DRIVERS-ACCELERATORS.md
-  - Config broker (budgets): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
-  - Policy as Code (limits): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
-  - Deterministic parallelism policy (thread pools): tasks/TASK-0276-parallelism-v1-deterministic-threadpools-policy-contract.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "UI v3b baseline (clip/scroll/effects)"
+    target: tasks/TASK-0059-ui-v3b-clip-scroll-effects-ime-textinput.md
+  - label: "UI v2a baseline (present scheduler)"
+    target: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
+  - label: "UI v2b baseline (shaping/svg)"
+    target: tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
+  - label: "Glass material guidance"
+    target: docs/dev/ui/foundations/visual/materials.md
+  - label: "Drivers/Accelerators contracts"
+    target: tasks/TRACK-DRIVERS-ACCELERATORS.md
+  - label: "Config broker (budgets)"
+    target: tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
+  - label: "Policy as Code (limits)"
+    target: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
+  - label: "Deterministic parallelism policy (thread pools)"
+    target: tasks/TASK-0276-parallelism-v1-deterministic-threadpools-policy-contract.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

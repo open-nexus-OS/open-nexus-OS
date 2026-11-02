@@ -1,25 +1,38 @@
 ---
-title: TASK-0146 IME v2 Part 1a (host-first): ime-core dead/compose engine + DSL focused-field model + imed/display-proto wire codecs
-status: Done (2026-07-21)
-owner: @ui
+schema: 1
+id: TASK-0146
+title: "IME v2 Part 1a (host-first): ime-core dead/compose engine + DSL focused-field model + imed/display-proto wire codecs"
+status: done
+status_note: 2026-07-21
+owner: ["@ui"]
 created: 2025-12-26
-updated: 2026-07-21 (rewritten against repo reality; architecture per RFC-0075)
-depends-on:
-  - TASK-0059
-  - TASK-0252
-  - TASK-0296
-follow-up-tasks:
-  - TASK-0147 (OS wiring: typing lands in apps + OSK)
+updated: 2026-07-21
+subsystem: ui
+done: 2026-07-21
+dates_source: status-text
+depends_on: [TASK-0059, TASK-0252, TASK-0296]
+follow_ups: [TASK-0147]
+implements: [RFC-0075]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Contract seed: docs/rfcs/RFC-0075-ime-v2-text-focus-composition-delivery.md (seeded by this task)
-  - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
-  - Keymap tables (Done, reused): tasks/TASK-0252-input-v1_0a-host-hid-touch-keymaps-repeat-accel.md
-  - IME/text-input plumbing baseline (Done): tasks/TASK-0059-ui-v3b-clip-scroll-effects-ime-textinput.md
-  - Wire codec pattern: docs/adr/0051-declarative-wire-codec-nexus-wire.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Contract seed"
+    target: "docs/rfcs/RFC-0075-ime-v2-text-focus-composition-delivery.md (seeded by this task)"
+  - label: "Authority & naming registry"
+    target: tasks/TRACK-AUTHORITY-NAMING.md
+  - label: "Keymap tables (Done, reused)"
+    target: tasks/TASK-0252-input-v1_0a-host-hid-touch-keymaps-repeat-accel.md
+  - label: "IME/text-input plumbing baseline (Done)"
+    target: tasks/TASK-0059-ui-v3b-clip-scroll-effects-ime-textinput.md
+  - label: "Wire codec pattern"
+    target: docs/adr/0051-declarative-wire-codec-nexus-wire.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
+
+> updated (migrated 2026-11-02): 2026-07-21 (rewritten against repo reality; architecture per RFC-0075)
 
 ## Context
 

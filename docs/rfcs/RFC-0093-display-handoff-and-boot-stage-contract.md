@@ -1,18 +1,31 @@
+---
+schema: 1
+id: RFC-0093
+title: "Display handoff and boot-stage contract — routing v2, readiness verbs, stage fence, ONE slot topology, handoff v2"
+status: done
+status_note: "Phase 1 seed 2026-09-09; execution TASK-0324 P2–P9, complete 2026-09-15"
+owners: ["@runtime", "@gpu", "@ui"]
+created: 2026-09-09
+updated: 2026-09-09
+subsystem: ui
+tasks: [TASK-0324]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0324-display-handoff-deterministic-by-construction.md` (execution + proof, P0–P9)"
+  - label: ADR
+    target: "`docs/adr/0062-boot-stage-fence-and-readiness-barriers.md` (the one synchronization decision this contract rests on)"
+  - label: RFCs
+    target: "`docs/rfcs/RFC-0069-init-declarative-service-manifest-slot-discipline-boot-stages.md` (the manifest spine; §4 \"boot stages\" is implemented here), `docs/rfcs/RFC-0066-production-grade-service-chain-declarative-routing-typed-ipc-inprocess-tests.md` (declarative routes), `docs/rfcs/RFC-0013-boot-gates-readiness-spawn-resource-v1.md` (init markers A1–A4), `docs/rfcs/RFC-0074-display-mode-authority-fwcfg.md` (display-mode SSOT), `docs/rfcs/RFC-0068-structured-event-observability-subject-grouped-journal-renderer.md` (UART folding)"
+  - label: ADRs
+    target: "`docs/adr/0041-never-black-boot-splash-atomic-desktop-reveal.md` (atomic desktop reveal — kept, mechanism replaced), `docs/adr/0050-display-mode-authority.md` (display-mode authority — the query chain is retired), `docs/adr/0057-service-restart-capability-re-resolve.md` (`STATUS_STALE`), `docs/adr/0052-per-hart-earliest-deadline-timer-and-affinity-respecting-steal.md` (kernel timeline fence)"
+  - label: Docs
+    target: "`docs/testing/os-markers.md` \"Display truth\", `docs/architecture/09-nexus-init.md`, `docs/architecture/06-boot-and-bringup.md`"
+---
+
 <!-- Copyright 2026 Open Nexus OS Contributors -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # RFC-0093: Display handoff and boot-stage contract — routing v2, readiness verbs, stage fence, ONE slot topology, handoff v2
-
-- Status: Done (Phase 1 seed 2026-09-09; execution TASK-0324 P2–P9, complete 2026-09-15)
-- Owners: @runtime @gpu @ui
-- Created: 2026-09-09
-- Last Updated: 2026-09-09
-- Links:
-  - Tasks: `tasks/TASK-0324-display-handoff-deterministic-by-construction.md` (execution + proof, P0–P9)
-  - ADR: `docs/adr/0062-boot-stage-fence-and-readiness-barriers.md` (the one synchronization decision this contract rests on)
-  - RFCs: `docs/rfcs/RFC-0069-init-declarative-service-manifest-slot-discipline-boot-stages.md` (the manifest spine; §4 "boot stages" is implemented here), `docs/rfcs/RFC-0066-production-grade-service-chain-declarative-routing-typed-ipc-inprocess-tests.md` (declarative routes), `docs/rfcs/RFC-0013-boot-gates-readiness-spawn-resource-v1.md` (init markers A1–A4), `docs/rfcs/RFC-0074-display-mode-authority-fwcfg.md` (display-mode SSOT), `docs/rfcs/RFC-0068-structured-event-observability-subject-grouped-journal-renderer.md` (UART folding)
-  - ADRs: `docs/adr/0041-never-black-boot-splash-atomic-desktop-reveal.md` (atomic desktop reveal — kept, mechanism replaced), `docs/adr/0050-display-mode-authority.md` (display-mode authority — the query chain is retired), `docs/adr/0057-service-restart-capability-re-resolve.md` (`STATUS_STALE`), `docs/adr/0052-per-hart-earliest-deadline-timer-and-affinity-respecting-steal.md` (kernel timeline fence)
-  - Docs: `docs/testing/os-markers.md` "Display truth", `docs/architecture/09-nexus-init.md`, `docs/architecture/06-boot-and-bringup.md`
 
 ## Status at a Glance
 

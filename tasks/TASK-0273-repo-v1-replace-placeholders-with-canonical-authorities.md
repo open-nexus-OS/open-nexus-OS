@@ -1,16 +1,22 @@
 ---
-title: TASK-0273 Repo v1: replace placeholders with canonical authorities (no parallel daemons)
-status: Draft
-owner: @runtime
+schema: 1
+id: TASK-0273
+title: "Repo v1: replace placeholders with canonical authorities (no parallel daemons)"
+status: draft
+owner: ["@runtime"]
 created: 2025-12-30
-depends-on: []
-follow-up-tasks: []
+subsystem: devx
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
-  - Keystone gates: tasks/TRACK-KEYSTONE-GATES.md
-  - Authority decision (binding): tasks/TASK-0266-architecture-v1-authority-naming-contract.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Authority & naming registry"
+    target: tasks/TRACK-AUTHORITY-NAMING.md
+  - label: "Keystone gates"
+    target: tasks/TRACK-KEYSTONE-GATES.md
+  - label: "Authority decision (binding)"
+    target: tasks/TASK-0266-architecture-v1-authority-naming-contract.md
 ---
 
 ## Context

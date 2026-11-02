@@ -1,11 +1,15 @@
 ---
+schema: 1
+id: TRACK-OPEN-POINTS-2026-07
 title: "TRACK: Offene Punkte (Stand 2026-07-07) — Sammel-Ledger vor Phase 7"
-status: Active
-owner: "@ui @runtime"
+status: active
+owner: ["@ui", "@runtime"]
 created: 2026-07-07
 links:
-  - Masterplan-Track: tasks/TRACK-DSL-V1-DEVX.md
-  - App-Plattform-Anatomie (Diskussionsergebnis): tasks/TASK-0209-app-platform-anatomy.md
+  - label: Masterplan-Track
+    target: tasks/TRACK-DSL-V1-DEVX.md
+  - label: "App-Plattform-Anatomie (Diskussionsergebnis)"
+    target: tasks/TASK-0209-app-platform-anatomy.md
 ---
 
 # Offene Punkte — vollständiger Stand vor Phase 7

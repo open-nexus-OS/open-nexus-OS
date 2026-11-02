@@ -1,21 +1,31 @@
 ---
-title: TASK-0110 UI v18d: OOBE + Greeter/Login + Accounts app + SystemUI session wiring + OS selftests/postflight
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0110
+title: "UI v18d: OOBE + Greeter/Login + Accounts app + SystemUI session wiring + OS selftests/postflight"
+status: draft
+owner: ["@ui"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: sessions
+tracks: [TRACK-DSL-V1-DEVX]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - DSL v1 DevX track: tasks/TRACK-DSL-V1-DEVX.md
-  - DSL app platform: tasks/TASK-0122B-dsl-app-platform-v1-shell-routing-launch-contract.md
-  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
-  - Identity: tasks/TASK-0107-ui-v18a-identityd-users-sessions.md
-  - Keychain: tasks/TASK-0108-ui-v18b-keymintd-keystore-keychain.md
-  - Lock screen: tasks/TASK-0109-ui-v18c-lockd-lockscreen-autolock.md
-  - Prefs (idle timeout knob optional): tasks/TASK-0072-ui-v9b-prefsd-settings-panels-quick-settings.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "DSL app platform"
+    target: tasks/TASK-0122B-dsl-app-platform-v1-shell-routing-launch-contract.md
+  - label: "DSL syntax/layout convention"
+    target: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
+  - label: Identity
+    target: tasks/TASK-0107-ui-v18a-identityd-users-sessions.md
+  - label: Keychain
+    target: tasks/TASK-0108-ui-v18b-keymintd-keystore-keychain.md
+  - label: "Lock screen"
+    target: tasks/TASK-0109-ui-v18c-lockd-lockscreen-autolock.md
+  - label: "Prefs (idle timeout knob optional)"
+    target: tasks/TASK-0072-ui-v9b-prefsd-settings-panels-quick-settings.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

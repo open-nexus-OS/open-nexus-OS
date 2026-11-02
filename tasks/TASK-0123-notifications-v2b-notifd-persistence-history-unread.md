@@ -1,18 +1,26 @@
 ---
-title: TASK-0123 Notifications v2b (service): notifd channels/actions/visibility + persistence/history + unread/badging + host tests
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0123
+title: "Notifications v2b (service): notifd channels/actions/visibility + persistence/history + unread/badging + host tests"
+status: draft
+owner: ["@ui"]
 created: 2025-12-25
-depends-on: []
-follow-up-tasks: []
+subsystem: messaging
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Notifications v2 minimal: tasks/TASK-0069-ui-v8a-notifications-v2-actions-inline-reply.md
-  - Persistence substrate: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Policy as Code (quotas/limits): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
-  - Logging/audit sink: tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
-  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Notifications v2 minimal"
+    target: tasks/TASK-0069-ui-v8a-notifications-v2-actions-inline-reply.md
+  - label: "Persistence substrate"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Policy as Code (quotas/limits)"
+    target: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
+  - label: "Logging/audit sink"
+    target: tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
+  - label: "Data formats rubric (JSON vs Cap'n Proto)"
+    target: docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
 ## Context

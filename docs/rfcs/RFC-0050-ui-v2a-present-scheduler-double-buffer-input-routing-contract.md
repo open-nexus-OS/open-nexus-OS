@@ -1,16 +1,27 @@
-# RFC-0050: UI v2a present scheduler + double-buffer + input routing contract
+---
+schema: 1
+id: RFC-0050
+title: "UI v2a present scheduler + double-buffer + input routing contract"
+status: done
+owners: ["@ui"]
+created: 2026-04-30
+updated: 2026-04-30
+subsystem: ui
+tasks: [TASK-0056]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md` (execution + proof)"
+  - label: ADRs
+    target: "`docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0047-ui-v1b-windowd-surface-layer-present-contract.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0049-ui-v1d-windowd-visible-present-systemui-first-frame-contract.md`"
+---
 
-- Status: Done
-- Owners: @ui
-- Created: 2026-04-30
-- Last Updated: 2026-04-30
-- Links:
-  - Tasks: `tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md` (execution + proof)
-  - ADRs: `docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md`
-  - Related RFCs:
-    - `docs/rfcs/RFC-0047-ui-v1b-windowd-surface-layer-present-contract.md`
-    - `docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md`
-    - `docs/rfcs/RFC-0049-ui-v1d-windowd-visible-present-systemui-first-frame-contract.md`
+# RFC-0050: UI v2a present scheduler + double-buffer + input routing contract
 
 ## Status at a Glance
 

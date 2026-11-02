@@ -1,20 +1,32 @@
 ---
-title: TASK-0297 Time v1 (OS/QEMU): goldfish rtcd + timed walltime + tz-lite + live clock + timezone Settings
-status: Done (2026-07-21)
-owner: @runtime
+schema: 1
+id: TASK-0297
+title: "Time v1 (OS/QEMU): goldfish rtcd + timed walltime + tz-lite + live clock + timezone Settings"
+status: done
+status_note: 2026-07-21
+owner: ["@runtime"]
 created: 2026-07-21
-depends-on:
-  - TASK-0298
-follow-up-tasks:
-  - TASK-0299 (SNTP time-syncd, seed)
+subsystem: hardware
+done: 2026-07-21
+dates_source: status-text
+depends_on: [TASK-0298]
+follow_ups: [TASK-0299]
+implements: [RFC-0076]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Contract seed: docs/rfcs/RFC-0076-wallclock-v1-rtcd-timed-tz.md (seeded by this task)
-  - Settings spine (time.zone/time.format keys): tasks/TASK-0298-settings-spine-watch-region-keys.md
-  - Region push (consumer): tasks/TASK-0241-i18n-v2-os-runtime-locale-switch-region-push-settings.md
-  - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Contract seed"
+    target: "docs/rfcs/RFC-0076-wallclock-v1-rtcd-timed-tz.md (seeded by this task)"
+  - label: "Settings spine (time.zone/time.format keys)"
+    target: tasks/TASK-0298-settings-spine-watch-region-keys.md
+  - label: "Region push (consumer)"
+    target: tasks/TASK-0241-i18n-v2-os-runtime-locale-switch-region-push-settings.md
+  - label: "Authority & naming registry"
+    target: tasks/TRACK-AUTHORITY-NAMING.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

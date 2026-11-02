@@ -1,22 +1,36 @@
 ---
-title: TASK-0052 Security v3 (Ingress): default-deny inbound policy + ingressd userspace gateway + service exposure contract
-status: Done (2026-09-08 — P0–P3 delivered; follow-ups TASK-0323)
-owner: @security
+schema: 1
+id: TASK-0052
+title: "Security v3 (Ingress): default-deny inbound policy + ingressd userspace gateway + service exposure contract"
+status: done
+status_note: "2026-09-08 — P0–P3 delivered; follow-ups TASK-0323"
+owner: ["@security"]
 created: 2025-12-23
-depends-on:
-  - TASK-0046 # configd (Done — satisfied)
-  - TASK-0047 # policyd / Policy-as-Code (Done — satisfied)
-follow-up-tasks: []
+subsystem: networking
+started: 2026-09-08
+done: 2026-09-08
+active_days: 1
+dates_source: git-reconstructed
+depends_on: [TASK-0046, TASK-0047]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Policy as Code: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
-  - Config broker (certs/rates): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
-  - Networking substrate: tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
-  - DSoftBus hardening (future): tasks/TASK-0030-dsoftbus-discovery-authz-hardening-mdns-ttl-acl-ratelimit.md
-  - Sandboxing + egress rules: tasks/TASK-0043-security-v2-sandbox-quotas-egress-abi-audit.md
-  - DevX CLI: tasks/TASK-0045-devx-nx-cli-v1.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Policy as Code"
+    target: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
+  - label: "Config broker (certs/rates)"
+    target: tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
+  - label: "Networking substrate"
+    target: tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
+  - label: "DSoftBus hardening (future)"
+    target: tasks/TASK-0030-dsoftbus-discovery-authz-hardening-mdns-ttl-acl-ratelimit.md
+  - label: "Sandboxing + egress rules"
+    target: tasks/TASK-0043-security-v2-sandbox-quotas-egress-abi-audit.md
+  - label: "DevX CLI"
+    target: tasks/TASK-0045-devx-nx-cli-v1.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## End-state rewrite 2026-09-03 (binding; supersedes older sections where they differ)

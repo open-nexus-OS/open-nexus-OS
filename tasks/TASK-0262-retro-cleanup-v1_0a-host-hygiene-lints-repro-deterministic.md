@@ -1,16 +1,22 @@
 ---
-title: TASK-0262 Bring-up Retrospective & Cleanup v1.0a (host-first): repo hygiene + lints + repro checks + schema consolidation + deterministic tests
-status: Draft
-owner: @devx
+schema: 1
+id: TASK-0262
+title: "Bring-up Retrospective & Cleanup v1.0a (host-first): repo hygiene + lints + repro checks + schema consolidation + deterministic tests"
+status: draft
+owner: ["@devx"]
 created: 2025-12-29
-depends-on: []
-follow-up-tasks: []
+subsystem: devx
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - SBOM baseline: tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
-  - SDK CI gates: tasks/TASK-0165-sdk-v1-part2a-devtools-lints-pack-sign-ci.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "SBOM baseline"
+    target: tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
+  - label: "SDK CI gates"
+    target: tasks/TASK-0165-sdk-v1-part2a-devtools-lints-pack-sign-ci.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

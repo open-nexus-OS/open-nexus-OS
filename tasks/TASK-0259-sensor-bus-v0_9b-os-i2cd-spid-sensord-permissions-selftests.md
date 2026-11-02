@@ -1,18 +1,26 @@
 ---
-title: TASK-0259 Sensor-Bus v0.9b (OS/QEMU): i2cd/spid bus services + sensord aggregator + permissions/indicators + `nx sensor` + selftests
-status: Draft
-owner: @runtime
+schema: 1
+id: TASK-0259
+title: "Sensor-Bus v0.9b (OS/QEMU): i2cd/spid bus services + sensord aggregator + permissions/indicators + `nx sensor` + selftests"
+status: draft
+owner: ["@runtime"]
 created: 2025-12-29
-depends-on: []
-follow-up-tasks: []
+subsystem: security
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
-  - Sensor core (host-first): tasks/TASK-0258-sensor-bus-v0_9a-host-sensor-hal-accel-driver-deterministic.md
-  - Device MMIO access: tasks/TASK-0010-device-mmio-access-model.md
-  - Privacy dashboard: tasks/TASK-0168-policy-v1_1-os-runtime-prompts-privacy-dashboard-cli.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Authority & naming registry"
+    target: tasks/TRACK-AUTHORITY-NAMING.md
+  - label: "Sensor core (host-first)"
+    target: tasks/TASK-0258-sensor-bus-v0_9a-host-sensor-hal-accel-driver-deterministic.md
+  - label: "Device MMIO access"
+    target: tasks/TASK-0010-device-mmio-access-model.md
+  - label: "Privacy dashboard"
+    target: tasks/TASK-0168-policy-v1_1-os-runtime-prompts-privacy-dashboard-cli.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

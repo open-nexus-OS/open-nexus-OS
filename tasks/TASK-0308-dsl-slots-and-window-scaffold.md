@@ -1,13 +1,22 @@
 ---
-title: TASK-0308 DSL slots + WinAppWindow scaffold + Stash design parity
-status: In progress (2026-07-28) — Phases 0-7 + 9 done; Phase 8 (docs/tooling parity) open
-owner: @ui @runtime
+schema: 1
+id: TASK-0308
+title: "DSL slots + WinAppWindow scaffold + Stash design parity"
+status: in_progress
+status_note: "(2026-07-28) — Phases 0-7 + 9 done; Phase 8 (docs/tooling parity) open"
+owner: ["@ui", "@runtime"]
 created: 2026-07-27
+subsystem: app-platform
+started: 2026-07-29
+dates_source: git-reconstructed
+implements: [RFC-0084]
 links:
-  - RFC: docs/rfcs/RFC-0084-dsl-slots-component-content-regions.md
-  - Design: userspace/apps/stash/docs/design_handoff_files_window/
-  - Predecessor: tasks/TASK-0307-settings-distribution-v2.md
-  - Related: tasks/TASK-0291-vfs-readdir-svc-files-stash-real-listing.md
+  - label: Design
+    target: userspace/apps/stash/docs/design_handoff_files_window/
+  - label: Predecessor
+    target: tasks/TASK-0307-settings-distribution-v2.md
+  - label: Related
+    target: tasks/TASK-0291-vfs-readdir-svc-files-stash-real-listing.md
 ---
 
 ## Context

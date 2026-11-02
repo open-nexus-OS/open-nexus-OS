@@ -1,15 +1,20 @@
 ---
-title: TASK-0258 Sensor-Bus v0.9a (host-first): sensor HAL + accelerometer driver + deterministic tests
-status: Draft
-owner: @runtime
+schema: 1
+id: TASK-0258
+title: "Sensor-Bus v0.9a (host-first): sensor HAL + accelerometer driver + deterministic tests"
+status: draft
+owner: ["@runtime"]
 created: 2025-12-29
-depends-on: []
-follow-up-tasks: []
+subsystem: hardware
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Device MMIO access: tasks/TASK-0010-device-mmio-access-model.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Device MMIO access"
+    target: tasks/TASK-0010-device-mmio-access-model.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

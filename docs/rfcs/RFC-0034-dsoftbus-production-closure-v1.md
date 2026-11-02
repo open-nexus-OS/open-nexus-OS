@@ -1,16 +1,25 @@
-# RFC-0034: DSoftBus production closure v1 (legacy TASK-0001..0020)
+---
+schema: 1
+id: RFC-0034
+title: "DSoftBus production closure v1 (legacy TASK-0001..0020)"
+status: done
+owners: ["@runtime"]
+created: 2026-04-10
+updated: 2026-04-11
+links:
+  - label: "Execution SSOT"
+    target: "`tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0028-dsoftbus-remote-packagefs-ro-v1.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0030-dsoftbus-remote-statefs-rw-v1.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0060-dsoftbus-streams-v2-mux-flow-control-keepalive.md`"
+---
 
-- Status: Done
-- Owners: @runtime
-- Created: 2026-04-10
-- Last Updated: 2026-04-11
-- Links:
-  - Execution SSOT: `tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md`
-  - Related RFCs:
-    - `docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md`
-    - `docs/rfcs/RFC-0028-dsoftbus-remote-packagefs-ro-v1.md`
-    - `docs/rfcs/RFC-0030-dsoftbus-remote-statefs-rw-v1.md`
-    - `docs/rfcs/RFC-0060-dsoftbus-streams-v2-mux-flow-control-keepalive.md`
+# RFC-0034: DSoftBus production closure v1 (legacy TASK-0001..0020)
 
 ## Status at a Glance
 

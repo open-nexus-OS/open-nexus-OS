@@ -116,6 +116,7 @@ impl Cli {
             Commands::App(args) => match &args.action {
                 AppAction::Compile(a) => a.json,
             },
+            Commands::Ledger(_) => false,
         }
     }
 }
@@ -140,6 +141,8 @@ pub(crate) enum Commands {
     Ui(UiArgs),
     /// App bundle authoring for the system volume (TASK-0321 P5).
     App(AppArgs),
+    /// Planning state: milestones, sprints, tasks, tracks, RFCs (RFC-0115).
+    Ledger(crate::cli_ledger::LedgerArgs),
 }
 
 /// `nx recovery token …` — `.nxra` break-glass tokens (RFC-0088).

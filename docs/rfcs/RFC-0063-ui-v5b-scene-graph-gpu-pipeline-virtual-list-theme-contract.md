@@ -1,19 +1,38 @@
+---
+schema: 1
+id: RFC-0063
+title: "UI v5b — Scene Graph GPU Pipeline + Virtual List + Theme Tokens Contract"
+status: done
+owners: ["@ui", "@runtime"]
+created: 2026-06-10
+updated: 2026-06-22
+subsystem: ui
+tasks: [TASK-0063]
+depends_on: [RFC-0059]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0063-ui-v5b-virtualized-list-theme-tokens.md` (execution + proof — SSOT for stop conditions)"
+  - label: "Depends on"
+    target: "`docs/rfcs/RFC-0059-ui-v5a-animation-nexusgfx-sdk-gpu-driver-contract.md` (animation engine + GPU CB pipeline)"
+  - label: Related
+    target: "`docs/rfcs/RFC-0057-ui-v3a-layout-engine-pretext-contract.md` (pretext layout — reused by virtual list)"
+  - label: Related
+    target: "`docs/rfcs/RFC-0058-ui-v3b-clip-scroll-effects-ime-contract.md` (scroll baseline)"
+  - label: Related
+    target: "`docs/rfcs/RFC-0062-kernel-timer-capability.md` (pacing timer infrastructure)"
+  - label: Architecture
+    target: "`docs/architecture/hardening-plan.md` (GPU pipeline hardening — Phases A1–A4 + C)"
+  - label: "Perf matrix"
+    target: "`docs/dev/perf/PLATFORM-CLASS-UI-PERFORMANCE-OPTIMIZATIONS-QEMU-MATRIX.md`"
+  - label: "Virtual list"
+    target: "`docs/dev/ui/collections/widgets/virtual-list.md`"
+  - label: "Lazy loading"
+    target: "`docs/dev/ui/collections/lazy-loading.md`"
+---
+
 # RFC-0063: UI v5b — Scene Graph GPU Pipeline + Virtual List + Theme Tokens Contract
 
-- Status: Complete
-- Owners: @ui @runtime
-- Created: 2026-06-10
-- Last Updated: 2026-06-22 (complete: Phase 0/1/2/3 done — virgl GPU pipeline + soft-real-time pacing landed; contract locked)
-- Links:
-  - Tasks: `tasks/TASK-0063-ui-v5b-virtualized-list-theme-tokens.md` (execution + proof — SSOT for stop conditions)
-  - Depends on: `docs/rfcs/RFC-0059-ui-v5a-animation-nexusgfx-sdk-gpu-driver-contract.md` (animation engine + GPU CB pipeline)
-  - Related: `docs/rfcs/RFC-0057-ui-v3a-layout-engine-pretext-contract.md` (pretext layout — reused by virtual list)
-  - Related: `docs/rfcs/RFC-0058-ui-v3b-clip-scroll-effects-ime-contract.md` (scroll baseline)
-  - Related: `docs/rfcs/RFC-0062-kernel-timer-capability.md` (pacing timer infrastructure)
-  - Architecture: `docs/architecture/hardening-plan.md` (GPU pipeline hardening — Phases A1–A4 + C)
-  - Perf matrix: `docs/dev/perf/PLATFORM-CLASS-UI-PERFORMANCE-OPTIMIZATIONS-QEMU-MATRIX.md`
-  - Virtual list: `docs/dev/ui/collections/widgets/virtual-list.md`
-  - Lazy loading: `docs/dev/ui/collections/lazy-loading.md`
+> Last Updated (migrated 2026-11-02): 2026-06-22 (complete: Phase 0/1/2/3 done — virgl GPU pipeline + soft-real-time pacing landed; contract locked)
 
 ## Status at a Glance
 

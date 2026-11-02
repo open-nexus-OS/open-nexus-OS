@@ -1,16 +1,20 @@
 ---
-title: TASK-0323 Ingress gateway follow-ups: UDP data plane, facade listener-close op, TLS/mTLS termination slot
-status: Draft
-owner: @security
+schema: 1
+id: TASK-0323
+title: "Ingress gateway follow-ups: UDP data plane, facade listener-close op, TLS/mTLS termination slot"
+status: draft
+owner: ["@security"]
 created: 2026-09-08
-depends-on:
-  - TASK-0052 # ingressd Layer A/B (Done 2026-09-08)
-follow-up-tasks: []
+subsystem: security
+depends_on: [TASK-0052]
+implements: [RFC-0092]
 links:
-  - RFC: docs/rfcs/RFC-0092-service-exposure-contract-ingress-policy-ingressd.md
-  - ADR: docs/adr/0061-exposure-intent-instead-of-free-binds.md
-  - Ingress overview: docs/security/ingress.md
-  - Parent: tasks/TASK-0052-security-v3-ingress-policy-ingressd-gateway.md
+  - label: ADR
+    target: docs/adr/0061-exposure-intent-instead-of-free-binds.md
+  - label: "Ingress overview"
+    target: docs/security/ingress.md
+  - label: Parent
+    target: tasks/TASK-0052-security-v3-ingress-policy-ingressd-gateway.md
 ---
 
 # TASK-0323: Ingress gateway follow-ups (RFC-0092 open items)

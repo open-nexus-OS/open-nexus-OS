@@ -1,15 +1,23 @@
 ---
-title: TRACK Reference Games (Arcade + Pinball + Puzzle): first-party games proving NexusGame SDK end-to-end
-status: Draft
-owner: @ui @runtime
+schema: 1
+id: TRACK-REFERENCE-GAMES
+title: "Reference Games (Arcade + Pinball + Puzzle): first-party games proving NexusGame SDK end-to-end"
+status: draft
+owner: ["@ui", "@runtime"]
 created: 2026-01-19
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - NexusGame SDK (foundation): tasks/TRACK-NEXUSGAME-SDK.md
-  - Arcade (microgames bundle): tasks/TRACK-ARCADE-APP.md
-  - Pinball (physics + pacing showcase): tasks/TRACK-PINBALL-APP.md
-  - Puzzle (UI-heavy + touch showcase): tasks/TRACK-PUZZLE-APP.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "NexusGame SDK (foundation)"
+    target: tasks/TRACK-NEXUSGAME-SDK.md
+  - label: "Arcade (microgames bundle)"
+    target: tasks/TRACK-ARCADE-APP.md
+  - label: "Pinball (physics + pacing showcase)"
+    target: tasks/TRACK-PINBALL-APP.md
+  - label: "Puzzle (UI-heavy + touch showcase)"
+    target: tasks/TRACK-PUZZLE-APP.md
 ---
 
 ## Goal (track-level)

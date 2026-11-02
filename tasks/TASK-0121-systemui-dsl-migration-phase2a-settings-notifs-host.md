@@ -1,20 +1,32 @@
 ---
-title: TASK-0121 SystemUI→DSL Migration Phase 2a: Settings core pages + Notifications Center (read-only) + bridge extensions + host tests
-status: Done
-owner: @ui
+schema: 1
+id: TASK-0121
+title: "SystemUI→DSL Migration Phase 2a: Settings core pages + Notifications Center (read-only) + bridge extensions + host tests"
+status: done
+owner: ["@ui"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
+done: 2026-07-19
+dates_source: git-reconstructed
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Phase 1a (Launcher+QS DSL pages): tasks/TASK-0119-systemui-dsl-migration-phase1a-launcher-qs-host.md
-  - Phase 1b (OS wiring): tasks/TASK-0120-systemui-dsl-migration-phase1b-os-wiring-postflight.md
-  - DSL interpreter baseline: tasks/TASK-0076-dsl-v0_1b-interpreter-snapshots-os-demo.md
-  - UI layout pipeline contract: docs/dev/ui/foundations/layout/layout-pipeline.md
-  - Settings substrate (typed prefs): tasks/TASK-0225-settings-v2a-host-settingsd-typed-prefs-providers.md
-  - Notifications v2 baseline: tasks/TASK-0069-ui-v8a-notifications-v2-actions-inline-reply.md
-  - A11y suite baseline: tasks/TASK-0114-ui-v20a-a11yd-tree-actions-focusnav.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Phase 1a (Launcher+QS DSL pages)"
+    target: tasks/TASK-0119-systemui-dsl-migration-phase1a-launcher-qs-host.md
+  - label: "Phase 1b (OS wiring)"
+    target: tasks/TASK-0120-systemui-dsl-migration-phase1b-os-wiring-postflight.md
+  - label: "DSL interpreter baseline"
+    target: tasks/TASK-0076-dsl-v0_1b-interpreter-snapshots-os-demo.md
+  - label: "UI layout pipeline contract"
+    target: docs/dev/ui/foundations/layout/layout-pipeline.md
+  - label: "Settings substrate (typed prefs)"
+    target: tasks/TASK-0225-settings-v2a-host-settingsd-typed-prefs-providers.md
+  - label: "Notifications v2 baseline"
+    target: tasks/TASK-0069-ui-v8a-notifications-v2-actions-inline-reply.md
+  - label: "A11y suite baseline"
+    target: tasks/TASK-0114-ui-v20a-a11yd-tree-actions-focusnav.md
 ---
 
 ## Context

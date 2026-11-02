@@ -1,20 +1,30 @@
 ---
-title: TASK-0159 Identity/Keystore v1.1 (host-first): keystored key lifecycle + non-exportable ops + typed client + deterministic tests
-status: Draft
-owner: @security
+schema: 1
+id: TASK-0159
+title: "Identity/Keystore v1.1 (host-first): keystored key lifecycle + non-exportable ops + typed client + deterministic tests"
+status: draft
+owner: ["@security"]
 created: 2025-12-26
-depends-on: []
-follow-up-tasks: []
+subsystem: sessions
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Existing keystored service: source/services/keystored/
-  - Device keys baseline: tasks/TASK-0008B-device-identity-keys-v1-virtio-rng-rngd-keystored-keygen.md
-  - Keymint/keychain (per-user vault): tasks/TASK-0108-ui-v18b-keymintd-keystore-keychain.md
-  - Persistence substrate (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Quotas v1: tasks/TASK-0133-statefs-quotas-v1-accounting-enforcement.md
-  - Supply-chain/trust direction: tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Existing keystored service"
+    target: source/services/keystored/
+  - label: "Device keys baseline"
+    target: tasks/TASK-0008B-device-identity-keys-v1-virtio-rng-rngd-keystored-keygen.md
+  - label: "Keymint/keychain (per-user vault)"
+    target: tasks/TASK-0108-ui-v18b-keymintd-keystore-keychain.md
+  - label: "Persistence substrate (/state)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Quotas v1"
+    target: tasks/TASK-0133-statefs-quotas-v1-accounting-enforcement.md
+  - label: "Supply-chain/trust direction"
+    target: tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

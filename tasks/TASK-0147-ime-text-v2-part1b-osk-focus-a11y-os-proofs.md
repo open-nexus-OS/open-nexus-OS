@@ -1,24 +1,36 @@
 ---
-title: TASK-0147 IME v2 Part 1b (OS/QEMU): imed service real + typing lands in apps + OSK overlay app (ime-ui)
-status: Done (2026-07-22 — Part 1 live-proven 2026-07-21, Part 2 OSK boot- + live-proven 2026-07-22)
-owner: @ui
+schema: 1
+id: TASK-0147
+title: "IME v2 Part 1b (OS/QEMU): imed service real + typing lands in apps + OSK overlay app (ime-ui)"
+status: done
+status_note: "2026-07-22 — Part 1 live-proven 2026-07-21, Part 2 OSK boot- + live-proven 2026-07-22"
+owner: ["@ui"]
 created: 2025-12-26
-updated: 2026-07-21 (rewritten against repo reality; architecture per RFC-0075)
-depends-on:
-  - TASK-0146
-  - TASK-0253
-follow-up-tasks:
-  - TASK-0149 / TASK-0150 (CJK + candidate UI)
+updated: 2026-07-21
+subsystem: ui
+done: 2026-07-22
+dates_source: status-text
+depends_on: [TASK-0146, TASK-0253]
+follow_ups: [TASK-0149]
+implements: [RFC-0075]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Contract: docs/rfcs/RFC-0075-ime-v2-text-focus-composition-delivery.md
-  - Host foundation: tasks/TASK-0146-ime-text-v2-part1a-imed-keymaps-host.md
-  - Live input chain (Done): tasks/TASK-0253-input-v1_0b-os-hidraw-touch-inputd-windowd-ime-nx.md
-  - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
-  - Settings keymap key (consumer): tasks/TASK-0298-settings-spine-watch-region-keys.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Host foundation"
+    target: tasks/TASK-0146-ime-text-v2-part1a-imed-keymaps-host.md
+  - label: "Live input chain (Done)"
+    target: tasks/TASK-0253-input-v1_0b-os-hidraw-touch-inputd-windowd-ime-nx.md
+  - label: "Authority & naming registry"
+    target: tasks/TRACK-AUTHORITY-NAMING.md
+  - label: "Settings keymap key (consumer)"
+    target: tasks/TASK-0298-settings-spine-watch-region-keys.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
+
+> updated (migrated 2026-11-02): 2026-07-21 (rewritten against repo reality; architecture per RFC-0075)
 
 ## Context
 

@@ -1,19 +1,28 @@
 ---
-title: TASK-0165 SDK v1 Part 2a (host-first): nx sdk dev-tools + templates + manifest lints + pack/sign workflow + CI gates
-status: Draft
-owner: @devx
+schema: 1
+id: TASK-0165
+title: "SDK v1 Part 2a (host-first): nx sdk dev-tools + templates + manifest lints + pack/sign workflow + CI gates"
+status: draft
+owner: ["@devx"]
 created: 2025-12-26
-depends-on: []
-follow-up-tasks: []
+subsystem: app-platform
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - SDK v1 Part 1a gates: tasks/TASK-0163-sdk-v1-part1a-idl-freeze-codegen-wire-gates.md
-  - SDK v1 Part 1b clients/templates: tasks/TASK-0164-sdk-v1-part1b-nx-sdk-templates-client-stubs.md
-  - DevX nx CLI v1 (canonical CLI): tasks/TASK-0045-devx-nx-cli-v1.md
-  - Packages v1 tooling (pkgr, manifest.nxb): tasks/TASK-0129-packages-v1a-nxb-format-signing-pkgr-tool.md
-  - Identity/Keystore v1.1 tooling (nx key): tasks/TASK-0159-identity-keystore-v1_1-host-keystored-lifecycle-nonexportable.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "SDK v1 Part 1a gates"
+    target: tasks/TASK-0163-sdk-v1-part1a-idl-freeze-codegen-wire-gates.md
+  - label: "SDK v1 Part 1b clients/templates"
+    target: tasks/TASK-0164-sdk-v1-part1b-nx-sdk-templates-client-stubs.md
+  - label: "DevX nx CLI v1 (canonical CLI)"
+    target: tasks/TASK-0045-devx-nx-cli-v1.md
+  - label: "Packages v1 tooling (pkgr, manifest.nxb)"
+    target: tasks/TASK-0129-packages-v1a-nxb-format-signing-pkgr-tool.md
+  - label: "Identity/Keystore v1.1 tooling (nx key)"
+    target: tasks/TASK-0159-identity-keystore-v1_1-host-keystored-lifecycle-nonexportable.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

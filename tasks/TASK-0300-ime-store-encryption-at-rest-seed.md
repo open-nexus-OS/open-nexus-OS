@@ -1,17 +1,24 @@
 ---
-title: TASK-0300 IME personalization store encryption-at-rest (seed)
-status: Draft (seed — not scheduled)
-owner: @ui
+schema: 1
+id: TASK-0300
+title: "IME personalization store encryption-at-rest (seed)"
+status: draft
+status_note: "seed — not scheduled"
+owner: ["@ui"]
 created: 2026-07-21
-depends-on:
-  - TASK-0204
-follow-up-tasks: []
+subsystem: text
+depends_on: [TASK-0204]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Store baseline: tasks/TASK-0204-ime-v2_1b-os-statefs-personal-dict-ui-cli-selftests.md
-  - Encryption-at-rest host groundwork: tasks/TASK-0182-encryption-at-rest-v1a-host-secure-keys-io-format-tests.md
-  - Superseded securefsd plan: tasks/TASK-0183-encryption-at-rest-v1b-os-securefsd-unlock-ui-migration-cli-selftests.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Store baseline"
+    target: tasks/TASK-0204-ime-v2_1b-os-statefs-personal-dict-ui-cli-selftests.md
+  - label: "Encryption-at-rest host groundwork"
+    target: tasks/TASK-0182-encryption-at-rest-v1a-host-secure-keys-io-format-tests.md
+  - label: "Superseded securefsd plan"
+    target: tasks/TASK-0183-encryption-at-rest-v1b-os-securefsd-unlock-ui-migration-cli-selftests.md
 ---
 
 ## Context (seed)

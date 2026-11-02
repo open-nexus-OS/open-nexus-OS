@@ -1,19 +1,31 @@
 ---
-title: TRACK Podcasts app: offline downloads + queue + provider-ready (reference app for NexusMedia + NexusNet)
-status: Draft
-owner: @media @ui
+schema: 1
+id: TRACK-PODCASTS-APP
+title: "Podcasts app: offline downloads + queue + provider-ready (reference app for NexusMedia + NexusNet)"
+status: draft
+owner: ["@media", "@ui"]
 created: 2026-01-19
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - System Delegation / System Surfaces (share/open-with, send via chat): tasks/TRACK-SYSTEM-DELEGATION.md
-  - Media Apps umbrella (shared UX + sessions): tasks/TRACK-MEDIA-APPS.md
-  - NexusMedia SDK (decode/playback): tasks/TRACK-NEXUSMEDIA-SDK.md
-  - NexusNet SDK (HTTP/providers): tasks/TRACK-NEXUSNET-SDK.md
-  - Media sessions + SystemUI controls umbrella: tasks/TASK-0101-ui-v16c-media-sessions-systemui-controls.md
-  - Media UX v2.1 (focus/ducking/per-app volume): tasks/TASK-0218-media-v2_1b-os-focus-ducking-miniplayer-nx-media.md
-  - Downloads helper (saveAs): tasks/TASK-0112-ui-v19b-contentd-saveas-downloads.md
-  - Files app integration: tasks/TASK-0086-ui-v12c-files-app-progress-dnd-share-openwith.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "System Delegation / System Surfaces (share/open-with, send via chat)"
+    target: tasks/TRACK-SYSTEM-DELEGATION.md
+  - label: "Media Apps umbrella (shared UX + sessions)"
+    target: tasks/TRACK-MEDIA-APPS.md
+  - label: "NexusMedia SDK (decode/playback)"
+    target: tasks/TRACK-NEXUSMEDIA-SDK.md
+  - label: "NexusNet SDK (HTTP/providers)"
+    target: tasks/TRACK-NEXUSNET-SDK.md
+  - label: "Media sessions + SystemUI controls umbrella"
+    target: tasks/TASK-0101-ui-v16c-media-sessions-systemui-controls.md
+  - label: "Media UX v2.1 (focus/ducking/per-app volume)"
+    target: tasks/TASK-0218-media-v2_1b-os-focus-ducking-miniplayer-nx-media.md
+  - label: "Downloads helper (saveAs)"
+    target: tasks/TASK-0112-ui-v19b-contentd-saveas-downloads.md
+  - label: "Files app integration"
+    target: tasks/TASK-0086-ui-v12c-files-app-progress-dnd-share-openwith.md
 ---
 
 ## Goal (track-level)

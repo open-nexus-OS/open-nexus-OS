@@ -1,16 +1,22 @@
-# RFC-0081: Process reaper — non-blocking service-driven zombie reclaim
+---
+schema: 1
+id: RFC-0081
+title: "Process reaper — non-blocking service-driven zombie reclaim"
+status: done
+status_note: "boot-proven 2026-07-24; execution TASK-0303; thread teardown deferred to TASK-0304"
+owners: ["@kernel-team", "@runtime"]
+created: 2026-07-23
+updated: 2026-07-23
+subsystem: kernel
+tasks: [TASK-0303, TASK-0304]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0303-process-reaper-service-driven-zombie-reclaim.md` (execution + proof), `tasks/TASK-0304-thread-teardown-shared-as-refcount-lifecycle.md` (deferred thread-teardown)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0079-ipc-last-sender-eof.md` (apps self-exit on window close — the event this RFC reclaims), RFC-0075 8f (process-image arena reclaim on exit)"
+---
 
-- Status: Done (boot-proven 2026-07-24; execution TASK-0303; thread teardown deferred to TASK-0304)
-- Owners: @kernel-team / @runtime
-- Created: 2026-07-23
-- Last Updated: 2026-07-23
-- Links:
-  - Tasks: `tasks/TASK-0303-process-reaper-service-driven-zombie-reclaim.md`
-    (execution + proof), `tasks/TASK-0304-thread-teardown-shared-as-refcount-lifecycle.md`
-    (deferred thread-teardown)
-  - Related RFCs: `docs/rfcs/RFC-0079-ipc-last-sender-eof.md` (apps self-exit on
-    window close — the event this RFC reclaims), RFC-0075 8f (process-image
-    arena reclaim on exit)
+# RFC-0081: Process reaper — non-blocking service-driven zombie reclaim
 
 ## Status at a Glance
 

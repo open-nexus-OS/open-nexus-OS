@@ -1,20 +1,29 @@
 ---
-title: TASK-0218 Media UX v2.1b (OS/QEMU): focus/ducking policies + per-app volume/mute + mini-player + nx-media + fixtures + selftests/docs (deterministic audio stub)
-status: Draft
-owner: @media
+schema: 1
+id: TASK-0218
+title: "Media UX v2.1b (OS/QEMU): focus/ducking policies + per-app volume/mute + mini-player + nx-media + fixtures + selftests/docs (deterministic audio stub)"
+status: draft
+owner: ["@media"]
 created: 2025-12-27
-depends-on: []
-follow-up-tasks: []
+subsystem: media
+tracks: [TRACK-MEDIA-APPS]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Media apps product track (system-wide media focus/controls): tasks/TRACK-MEDIA-APPS.md
-  - Audiod v2.1 host engine: tasks/TASK-0217-media-v2_1a-host-audiod-deterministic-graph-mixer.md
-  - Media UX v2 core semantics: tasks/TASK-0184-media-ux-v2a-host-handoff-playerctl-deterministic-clock.md
-  - Media UX v2 OS mini-player baseline: tasks/TASK-0185-media-ux-v2b-os-miniplayer-session-switch-notifs-selftests.md
-  - Persistence substrate (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Policy caps baseline: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Audiod v2.1 host engine"
+    target: tasks/TASK-0217-media-v2_1a-host-audiod-deterministic-graph-mixer.md
+  - label: "Media UX v2 core semantics"
+    target: tasks/TASK-0184-media-ux-v2a-host-handoff-playerctl-deterministic-clock.md
+  - label: "Media UX v2 OS mini-player baseline"
+    target: tasks/TASK-0185-media-ux-v2b-os-miniplayer-session-switch-notifs-selftests.md
+  - label: "Persistence substrate (/state)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Policy caps baseline"
+    target: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

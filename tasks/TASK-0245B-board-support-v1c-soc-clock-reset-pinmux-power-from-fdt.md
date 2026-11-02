@@ -1,23 +1,37 @@
 ---
-title: TASK-0245B Board support v1c: `nexus-soc` + `socd` — clock gates, resets, pinmux and power domains from the FDT syscon nodes, ONE owner for every board driver
-status: Done 2026-10-10 (Block 1 closure — P0–P2 + P3's display and USB sets proven on the board: the eMMC, the display controller + encoder with their pads, the USB controller + both PHYs + the hub's power, all through socd; the literal gate carries the six syscon windows. Moved: the GPU set + the per-class floor → G1 (TASK-0329), the encoder's DDC pads → G (EDID, TASK-0216), the gmac pads → N2a (TASK-0248B), drive/schmitt tables + pins 98..103 → measured with their first consumer; was "In Progress (P0–P1 done, P2 built 2026-09-22 …)")
-owner: @runtime @kernel-team
+schema: 1
+id: TASK-0245B
+title: "Board support v1c: `nexus-soc` + `socd` — clock gates, resets, pinmux and power domains from the FDT syscon nodes, ONE owner for every board driver"
+status: done
+status_note: "2026-10-10 (Block 1 closure"
+owner: ["@runtime", "@kernel-team"]
 created: 2026-09-22
 updated: 2026-10-10
-depends-on:
-  - tasks/TASK-0244-bringup-rv-virt-v1_0a-host-dtb-sbi-shim-deterministic.md
-  - tasks/TASK-0245-bringup-rv-virt-v1_0b-os-kernel-uart-plic-timer-uartd-selftests.md
-follow-up-tasks:
-  - tasks/TASK-0246-* (SDHCI/eMMC: the first consumer)
-  - tasks/TASK-0251-* (DPU/HDMI), tasks/TASK-0328-* (USB), tasks/TASK-0329-* (GPU), tasks/TASK-0248-* (GMAC)
+subsystem: hardware
+started: 2026-09-22
+done: 2026-10-10
+active_days: 2
+dates_source: git-reconstructed
+depends_on: [TASK-0244, TASK-0245]
+follow_ups: [TASK-0246, TASK-0251]
+split_from: TASK-0245
+implements: [RFC-0106, RFC-0098]
 links:
-  - Contract: docs/rfcs/RFC-0106-soc-glue-one-owner-clocks-resets-power-pinmux.md (seeded at P0)
-  - Board contract: docs/rfcs/RFC-0098-board-support-contract-fdt-truth-boot-chain.md (C3, Phase 1)
-  - Execution order: tasks/IMPLEMENTATION-ORDER.md (Block 1 B1.3)
-  - Measurement: docs/board/measurements/2026-09-22-stock-system/README.md ("R3 measured in detail": `clk_summary.txt`, `regmap-apmu.txt`, `regmap-mpmu.txt`, `regmap-ciu.txt`)
-  - Grant model: docs/rfcs/RFC-0017-device-mmio-access-model-v1.md (new class `device.mmio.syscon`)
-  - Playbook: CLAUDE.md
+  - label: Contract
+    target: "docs/rfcs/RFC-0106-soc-glue-one-owner-clocks-resets-power-pinmux.md (seeded at P0)"
+  - label: "Board contract"
+    target: "docs/rfcs/RFC-0098-board-support-contract-fdt-truth-boot-chain.md (C3, Phase 1)"
+  - label: "Execution order"
+    target: "tasks/milestones/hardware-network.md (Block 1 B1.3)"
+  - label: Measurement
+    target: "docs/board/measurements/2026-09-22-stock-system/README.md (\"R3 measured in detail\": `clk_summary.txt`, `regmap-apmu.txt`, `regmap-mpmu.txt`, `regmap-ciu.txt`)"
+  - label: "Grant model"
+    target: "docs/rfcs/RFC-0017-device-mmio-access-model-v1.md (new class `device.mmio.syscon`)"
+  - label: Playbook
+    target: CLAUDE.md
 ---
+
+> Status (migrated 2026-11-02): Done 2026-10-10 (Block 1 closure — P0–P2 + P3's display and USB sets proven on the board: the eMMC, the display controller + encoder with their pads, the USB controller + both PHYs + the hub's power, all through socd; the literal gate carries the six syscon windows. Moved: the GPU set + the per-class floor → G1 (TASK-0329), the encoder's DDC pads → G (EDID, TASK-0216), the gmac pads → N2a (TASK-0248B), drive/schmitt tables + pins 98..103 → measured with their first consumer; was "In Progress (P0–P1 done, P2 built 2026-09-22 …)")
 
 ## History
 

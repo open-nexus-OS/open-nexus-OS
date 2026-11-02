@@ -1,15 +1,29 @@
 ---
-title: TASK-0334 The UX latency contract — budgets SSOT, measurement lines with a verdict, the lines on every ladder (package 0 before the compositor)
-status: Done (2026-10-20, board cycle 49 — RFC-0108 Phase 0)
-owner: @ui @runtime
+schema: 1
+id: TASK-0334
+title: "The UX latency contract — budgets SSOT, measurement lines with a verdict, the lines on every ladder (package 0 before the compositor)"
+status: done
+status_note: "2026-10-20, board cycle 49 — RFC-0108 Phase 0"
+owner: ["@ui", "@runtime"]
 created: 2026-10-20
-depends-on: [TASK-0333 (6a ✅ 2026-10-20)]
-follow-up-tasks: [the non-parking compositor (ADR-0075), the frame cost with glass (gpud), 6c the launch without a copy]
+subsystem: ui
+done: 2026-10-20
+dates_source: status-text
+depends_on: [TASK-0333]
+implements: [RFC-0108]
 links:
-  - RFC: docs/rfcs/RFC-0108-ux-latency-contract-instant-and-smooth-as-numbers.md
-  - SSOT: source/libs/nexus-ux-budgets/src/lib.rs
-  - Measurement: docs/board/measurements/2026-10-20-memory-lifecycle-baseline/README.md (cycles 47/48: the numbers that had no verdict)
-  - Standard: docs/testing/os-markers.md ("Measurement lines and UX budgets")
+  - label: SSOT
+    target: source/libs/nexus-ux-budgets/src/lib.rs
+  - label: Measurement
+    target: "docs/board/measurements/2026-10-20-memory-lifecycle-baseline/README.md (cycles 47/48: the numbers that had no verdict)"
+  - label: Standard
+    target: "docs/testing/os-markers.md (\"Measurement lines and UX budgets\")"
+  - label: follow-up
+    target: "the non-parking compositor (ADR-0075)"
+  - label: follow-up
+    target: "the frame cost with glass (gpud)"
+  - label: follow-up
+    target: "6c the launch without a copy"
 ---
 
 ## Context

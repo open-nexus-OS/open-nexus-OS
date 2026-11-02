@@ -1,27 +1,27 @@
 ---
-title: TASK-0039 Sandboxing v1 (userspace): per-subject VFS namespaces + CapFd rights + manifest permissions (host-first, OS-gated)
-status: Done
-owner: @runtime
+schema: 1
+id: TASK-0039
+title: "Sandboxing v1 (userspace): per-subject VFS namespaces + CapFd rights + manifest permissions (host-first, OS-gated)"
+status: done
+owner: ["@runtime"]
 created: 2025-12-22
-depends-on:
-  - TASK-0006
-  - TASK-0008
-  - TASK-0019
-  - TASK-0028
-follow-up-tasks:
-  - TASK-0043
-  - TASK-0189
+subsystem: security
+done: 2026-07-17
+dates_source: git-reconstructed
+depends_on: [TASK-0006, TASK-0008, TASK-0019, TASK-0028]
+follow_ups: [TASK-0043, TASK-0189]
+implements: [RFC-0042]
 links:
-  - Vision: docs/architecture/vision.md
-  - Contract seed (this task): docs/rfcs/RFC-0042-sandboxing-v1-vfs-namespaces-capfd-manifest-permissions-host-first-os-gated.md
-  - Playbook: CLAUDE.md
-  - IPC/caps model: docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
-  - VFS today: source/services/vfsd/src/os_lite.rs
-  - Depends-on (policy authority): tasks/TASK-0008-security-hardening-v1-nexus-sel-audit-device-keys.md
-  - Depends-on (ABI guardrails): tasks/TASK-0019-security-v2-userland-abi-syscall-filters.md
-  - Depends-on (ABI arg matching, optional): tasks/TASK-0028-abi-filters-v2-arg-match-learn-enforce.md
-  - Depends-on (audit sink): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "IPC/caps model"
+    target: docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
+  - label: "VFS today"
+    target: source/services/vfsd/src/os_lite.rs
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

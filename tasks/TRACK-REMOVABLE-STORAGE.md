@@ -1,21 +1,35 @@
 ---
-title: TRACK Removable Storage (USB/SD/external disks): contracts + gated roadmap for content providers + SAF + formatting
-status: Living
-owner: @runtime @platform
+schema: 1
+id: TRACK-REMOVABLE-STORAGE
+title: "Removable Storage (USB/SD/external disks): contracts + gated roadmap for content providers + SAF + formatting"
+status: living
+owner: ["@runtime", "@platform"]
 created: 2026-01-27
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Policy flow: docs/architecture/11-policyd-and-policy-flow.md
-  - Content providers (pathless streams): tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
-  - Doc picker (SAF flows): tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
-  - Scoped grants (persistable): tasks/TASK-0084-ui-v12a-scoped-uri-grants.md
-  - FileOps/Trash backbone: tasks/TASK-0085-ui-v12b-fileops-trash-services.md
-  - Files/SAF polish + privacy gates: tasks/TASK-0233-content-v1_2b-os-saf-flows-files-polish-privacy-gates-selftests.md
-  - Persistence (/state authority): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Device access model (MMIO caps): tasks/TASK-0010-device-mmio-access-model.md
-  - DriverKit ABI policy: docs/adr/0018-driverkit-abi-versioning-and-stability.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Policy flow"
+    target: docs/architecture/11-policyd-and-policy-flow.md
+  - label: "Content providers (pathless streams)"
+    target: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
+  - label: "Doc picker (SAF flows)"
+    target: tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
+  - label: "Scoped grants (persistable)"
+    target: tasks/TASK-0084-ui-v12a-scoped-uri-grants.md
+  - label: "FileOps/Trash backbone"
+    target: tasks/TASK-0085-ui-v12b-fileops-trash-services.md
+  - label: "Files/SAF polish + privacy gates"
+    target: tasks/TASK-0233-content-v1_2b-os-saf-flows-files-polish-privacy-gates-selftests.md
+  - label: "Persistence (/state authority)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Device access model (MMIO caps)"
+    target: tasks/TASK-0010-device-mmio-access-model.md
+  - label: "DriverKit ABI policy"
+    target: docs/adr/0018-driverkit-abi-versioning-and-stability.md
 ---
+
 > **Link 2026-09-21:** CAND-REM-030 (xHCI + MSC + SCSI) was extracted as `tasks/TASK-0328-usb-host-stack-v1-xhci-hub-enumeration-class-clients.md` (Block 2 of `tasks/IMPLEMENTATION-ORDER.md`: host stack + HID first; mass storage returns here as a class client after Block 2).
 
 

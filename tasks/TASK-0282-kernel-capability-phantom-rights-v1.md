@@ -1,16 +1,19 @@
 ---
-title: TASK-0282 Kernel Rust idioms v1d: phantom types for capability rights (compile-time checks)
-status: Draft
-owner: @kernel-team
+schema: 1
+id: TASK-0282
+title: "Kernel Rust idioms v1d: phantom types for capability rights (compile-time checks)"
+status: draft
+owner: ["@kernel-team"]
 created: 2026-01-09
-depends-on:
-  - TASK-0011B
-follow-up-tasks: []
+subsystem: kernel
+depends_on: [TASK-0011B]
 links:
-  - Vision: docs/architecture/vision.md
-  - IPC/cap model baseline: docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
-  - Depends-on (Rust idioms baseline): tasks/TASK-0011B-kernel-rust-idioms-pre-smp.md
-  - Related: tasks/TASK-0267-kernel-ipc-v1-framed-channels-capability-transfer.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: "IPC/cap model baseline"
+    target: docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
+  - label: Related
+    target: tasks/TASK-0267-kernel-ipc-v1-framed-channels-capability-transfer.md
 ---
 
 ## Context

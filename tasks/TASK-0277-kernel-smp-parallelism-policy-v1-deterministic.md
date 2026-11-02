@@ -1,17 +1,26 @@
 ---
-title: TASK-0277 Kernel SMP/Parallelism Policy v1 (deterministic, auditable)
-status: Done
-owner: @kernel-team
+schema: 1
+id: TASK-0277
+title: "Kernel SMP/Parallelism Policy v1 (deterministic, auditable)"
+status: done
+owner: ["@kernel-team"]
 created: 2025-12-30
-depends-on: []
-follow-up-tasks: []
+subsystem: kernel
+done: 2026-07-19
+dates_source: git-reconstructed
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Kernel SMP bring-up: tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md
-  - RISC-V HSM/IPI + per-hart timers (extension): tasks/TASK-0247-bringup-rv-virt-v1_1b-os-smp-hsm-ipi-virtioblkd-packagefs-selftests.md
-  - Kernel IPC/caps baseline: docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
-  - Keystone gates: tasks/TRACK-KEYSTONE-GATES.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Kernel SMP bring-up"
+    target: tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md
+  - label: "RISC-V HSM/IPI + per-hart timers (extension)"
+    target: tasks/TASK-0247-bringup-rv-virt-v1_1b-os-smp-hsm-ipi-virtioblkd-packagefs-selftests.md
+  - label: "Kernel IPC/caps baseline"
+    target: docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
+  - label: "Keystone gates"
+    target: tasks/TRACK-KEYSTONE-GATES.md
 ---
 
 ## Context

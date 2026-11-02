@@ -1,17 +1,24 @@
 ---
-title: TASK-0231 Security fuzz gates v1b (host-first): deterministic corpus tests for Cap’n Proto/RPC boundaries + settings + NUB tar path safety (offline)
-status: Draft
-owner: @security
+schema: 1
+id: TASK-0231
+title: "Security fuzz gates v1b (host-first): deterministic corpus tests for Cap’n Proto/RPC boundaries + settings + NUB tar path safety (offline)"
+status: draft
+owner: ["@security"]
 created: 2025-12-29
-depends-on: []
-follow-up-tasks: []
+subsystem: distributed
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Fuzzing v1 (cargo-fuzz smoke): tasks/TASK-0190-fuzzing-v1-deterministic-harness-pack-html-css-png-ttf-nxb.md
-  - Settings v2 (parser surface): tasks/TASK-0225-settings-v2a-host-settingsd-typed-prefs-providers.md
-  - Packaging NXB parser surface: tasks/TASK-0129-packages-v1a-nxb-format-signing-pkgr-tool.md
-  - RPC/Mux boundaries (if present): tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Fuzzing v1 (cargo-fuzz smoke)"
+    target: tasks/TASK-0190-fuzzing-v1-deterministic-harness-pack-html-css-png-ttf-nxb.md
+  - label: "Settings v2 (parser surface)"
+    target: tasks/TASK-0225-settings-v2a-host-settingsd-typed-prefs-providers.md
+  - label: "Packaging NXB parser surface"
+    target: tasks/TASK-0129-packages-v1a-nxb-format-signing-pkgr-tool.md
+  - label: "RPC/Mux boundaries (if present)"
+    target: tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md
 ---
 
 ## Context

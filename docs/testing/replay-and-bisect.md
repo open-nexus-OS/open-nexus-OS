@@ -278,4 +278,4 @@ When the CI run lands, the closure flip is exactly:
 - archive `.cursor/replay-ci.json` + `.cursor/replay-ci.log`
 - update `tasks/TASK-0023B-...md` P6-05 line: drop `⚠ external CI-runner artifact pending`, mark `✅ done`
 - tick the Phase-6 checkbox in `docs/rfcs/RFC-0038-...md`
-- mirror status in `tasks/STATUS-BOARD.md`, `tasks/IMPLEMENTATION-ORDER.md`, `.cursor/{current_state,handoff/current,next_task_prep}.md`
+- mirror status with `nx ledger phase TASK-0023B …` (RFC-0115; the board and the order are derived)

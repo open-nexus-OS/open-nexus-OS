@@ -1,20 +1,28 @@
 ---
-title: TASK-0269B Boot gates v1b — boot to FIRST FRAME is a measured budget, not a feeling
-status: Draft (seeded 2026-09-20 from TASK-0077C's scope firewall) — the app launch budget (stages `SELFTEST: launch stage (spawn_us= entry_us= create_us= present_us=)`, a warm restart under 200 ms) is Block 4 layer 6a/6e's under tasks/TASK-0333 (2026-10-19); the boot → first frame row stays here
-owner: @ui @runtime @kernel
+schema: 1
+id: TASK-0269B
+title: "Boot gates v1b — boot to FIRST FRAME is a measured budget, not a feeling"
+status: draft
+status_note: "(seeded 2026-09-20 from TASK-0077C's scope firewall)"
+owner: ["@ui", "@runtime", "@kernel"]
 created: 2026-09-20
-depends-on:
-  - tasks/TASK-0269-boot-gates-v1-readiness-spawn-resource.md
-follow-up-tasks: []
+subsystem: kernel
+depends_on: [TASK-0269]
+split_from: TASK-0269
 links:
-  - Parent (Done): tasks/TASK-0269 — readiness CONTRACT, spawn failure reasons, leak sentinel.
-    It proved the boot reaches its markers; it never claimed how LONG that takes.
-  - Sibling budget (the interaction half): tasks/TASK-0145B-ui-interaction-latency-budget.md
-  - Memory half of the same measurement: tasks/TASK-0077C-dsl-v0_2c-runtime-long-session-large-data-contract.md
-  - Stage ordering this must not fight: docs/adr/0062-boot-stage-fence-and-readiness-barriers.md
-  - Earlier reveal work (reveal 4.47 s → 0.65 s, and what it did NOT cover):
-    memory `boot-qos-interactive-flip-learnings`, `boot-splash-reveal-open-tasks`
+  - label: "Parent (Done)"
+    target: "tasks/TASK-0269 — readiness CONTRACT, spawn failure reasons, leak sentinel. It proved the boot reaches its markers; it never claimed how LONG that takes."
+  - label: "Sibling budget (the interaction half)"
+    target: tasks/TASK-0145B-ui-interaction-latency-budget.md
+  - label: "Memory half of the same measurement"
+    target: tasks/TASK-0077C-dsl-v0_2c-runtime-long-session-large-data-contract.md
+  - label: "Stage ordering this must not fight"
+    target: docs/adr/0062-boot-stage-fence-and-readiness-barriers.md
+  - label: "Earlier reveal work (reveal 4.47 s → 0.65 s, and what it did NOT cover)"
+    target: "memory `boot-qos-interactive-flip-learnings`, `boot-splash-reveal-open-tasks`"
 ---
+
+> Status (migrated 2026-11-02): Draft (seeded 2026-09-20 from TASK-0077C's scope firewall) — the app launch budget (stages `SELFTEST: launch stage (spawn_us= entry_us= create_us= present_us=)`, a warm restart under 200 ms) is Block 4 layer 6a/6e's under tasks/TASK-0333 (2026-10-19); the boot → first frame row stays here
 
 ## Why a B variant rather than a new subject
 

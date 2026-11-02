@@ -1,20 +1,31 @@
 ---
-title: TASK-0265 Storage Write-Path v1.0b (OS/QEMU): contentd extension + Files app tweaks + `nx io` + selftests
-status: Superseded
-owner: @platform
+schema: 1
+id: TASK-0265
+title: "Storage Write-Path v1.0b (OS/QEMU): contentd extension + Files app tweaks + `nx io` + selftests"
+status: superseded
+owner: ["@platform"]
 created: 2025-12-29
-depends-on: []
-follow-up-tasks: []
+subsystem: storage
+superseded_by: [TASK-0316, TASK-0317]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
-  - Storage core (host-first): tasks/TASK-0264-storage-writepath-v1_0a-host-durable-io-atomic-fsync-deterministic.md
-  - Content provider foundations: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
-  - Content quotas: tasks/TASK-0232-content-v1_2a-host-content-quotas-versions-naming-nx-content.md
-  - Files app: tasks/TASK-0086-ui-v12c-files-app-progress-dnd-share-openwith.md
-  - Persistence: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Authority & naming registry"
+    target: tasks/TRACK-AUTHORITY-NAMING.md
+  - label: "Storage core (host-first)"
+    target: tasks/TASK-0264-storage-writepath-v1_0a-host-durable-io-atomic-fsync-deterministic.md
+  - label: "Content provider foundations"
+    target: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
+  - label: "Content quotas"
+    target: tasks/TASK-0232-content-v1_2a-host-content-quotas-versions-naming-nx-content.md
+  - label: "Files app"
+    target: tasks/TASK-0086-ui-v12c-files-app-progress-dnd-share-openwith.md
+  - label: Persistence
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

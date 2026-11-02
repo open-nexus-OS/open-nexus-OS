@@ -1,12 +1,21 @@
-# RFC-0049: UI v1d windowd visible present + SystemUI first-frame contract seed
+---
+schema: 1
+id: RFC-0049
+title: "UI v1d windowd visible present + SystemUI first-frame contract seed"
+status: done
+owners: ["@ui", "@runtime"]
+created: 2026-04-30
+updated: 2026-04-30
+subsystem: ui
+tasks: [TASK-0055C]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0055C-ui-v1d-windowd-visible-present-systemui-first-frame.md` (execution + proof SSOT)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0047-ui-v1b-windowd-surface-layer-present-contract.md`, `docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md`"
+---
 
-- Status: Done
-- Owners: @ui @runtime
-- Created: 2026-04-30
-- Last Updated: 2026-04-30
-- Links:
-  - Tasks: `tasks/TASK-0055C-ui-v1d-windowd-visible-present-systemui-first-frame.md` (execution + proof SSOT)
-  - Related RFCs: `docs/rfcs/RFC-0047-ui-v1b-windowd-surface-layer-present-contract.md`, `docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md`
+# RFC-0049: UI v1d windowd visible present + SystemUI first-frame contract seed
 
 ## Status at a Glance
 

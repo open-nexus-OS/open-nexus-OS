@@ -1,15 +1,33 @@
 ---
-title: TASK-0341 Surface layers — every `.scroll(...)` is a scroll layer the compositor moves, every hover a wash layer; the app owns both behaviours, windowd composes
-status: Done (2026-10-22, board cycles 57–59)
-owner: @ui
+schema: 1
+id: TASK-0341
+title: "Surface layers — every `.scroll(...)` is a scroll layer the compositor moves, every hover a wash layer; the app owns both behaviours, windowd composes"
+status: done
+status_note: "2026-10-22, board cycles 57–59"
+owner: ["@ui"]
 created: 2026-10-21
-depends-on: [TASK-0340 (the frame without the retained-plane rewrite), TASK-0339 (the compositor never waits on a client)]
-follow-up-tasks: [a QEMU rung that wheels over a scroll layer and judges `frames(moved=)` / `copy_rows=`; the collections package — List/Grid emit and lay out only the items a band's valid range shows (+ prefetch), anchors by key, prepared-text extents (RFC-0057), QuerySpec paging on the band's range, flex wrap; motion as layer properties (hover grow, press dip, declared animations — the raster NodeAnim goes); zero-copy client surfaces (G5); a top layer for a non-modal box over a scroll layer]
+subsystem: ui
+done: 2026-10-22
+dates_source: status-text
+depends_on: [TASK-0340, TASK-0339]
+implements: [RFC-0109]
 links:
-  - RFC: docs/rfcs/RFC-0109-surface-layers-the-app-scrolls-and-hovers-the-compositor-composes.md
-  - ADR: docs/adr/0076-the-app-scrolls-and-hovers-windowd-composes-the-declared-layers.md
-  - Measurement: docs/board/measurements/2026-10-21-gpu-vendor-per-pixel/README.md ("Cycle 56")
-  - Boundary: docs/dev/ui/windowd-cleanup-map.md (input boundary), docs/dev/ui/foundations/visual/materials.md (rule 3)
+  - label: ADR
+    target: docs/adr/0076-the-app-scrolls-and-hovers-windowd-composes-the-declared-layers.md
+  - label: Measurement
+    target: "docs/board/measurements/2026-10-21-gpu-vendor-per-pixel/README.md (\"Cycle 56\")"
+  - label: Boundary
+    target: "docs/dev/ui/windowd-cleanup-map.md (input boundary), docs/dev/ui/foundations/visual/materials.md (rule 3)"
+  - label: follow-up
+    target: "a QEMU rung that wheels over a scroll layer and judges `frames(moved=)` / `copy_rows=`; the collections package — List/Grid emit and lay out only the items a band's valid range shows (+ prefetch)"
+  - label: follow-up
+    target: "anchors by key"
+  - label: follow-up
+    target: "prepared-text extents (RFC-0057)"
+  - label: follow-up
+    target: "QuerySpec paging on the band's range"
+  - label: follow-up
+    target: "flex wrap; motion as layer properties (hover grow, press dip, declared animations — the raster NodeAnim goes); zero-copy client surfaces (G5); a top layer for a non-modal box over a scroll layer"
 ---
 
 ## Context (cycle 56)

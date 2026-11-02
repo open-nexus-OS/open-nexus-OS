@@ -1,16 +1,37 @@
 ---
-title: TASK-0339 The compositor never waits on a client — non-blocking delivery, a bounded per-client outbox, the kernel's writable signal, and windowd's own work measured
-status: Done (2026-10-21, board cycle 55: no park on a client, windowd's own work measured; committed in f35ad587)
-owner: @ui @kernel-team
+schema: 1
+id: TASK-0339
+title: "The compositor never waits on a client — non-blocking delivery, a bounded per-client outbox, the kernel's writable signal, and windowd's own work measured"
+status: done
+status_note: "2026-10-21, board cycle 55: no park on a client, windowd's own work measured; committed in f35ad587"
+owner: ["@ui", "@kernel-team"]
 created: 2026-10-21
-depends-on: [TASK-0338 (one frame producer — cycle 54), TASK-0333 6a (a send to a dead client is `PeerClosed`)]
-follow-up-tasks: [app-host never waits on windowd (the other half of the plan's 6d line), the lifecycle authority's answer to a hung app (6d/6e), settingsd's pushes on an outbox, the atlas copy without syscalls per row (by cycle 55's `work(copy_` numbers)]
+subsystem: ui
+started: 2026-10-21
+done: 2026-10-21
+active_days: 1
+dates_source: git-reconstructed
+depends_on: [TASK-0338, TASK-0333]
+implements: [RFC-0033, RFC-0108]
 links:
-  - ADR: docs/adr/0075-the-compositor-never-waits-on-a-client.md
-  - RFC: docs/rfcs/RFC-0033-soft-real-time-spine-waitset-fence-driverkit.md (amendment: the writable member)
-  - RFC: docs/rfcs/RFC-0108-ux-latency-contract-instant-and-smooth-as-numbers.md (the input budget)
-  - Measurement: docs/board/measurements/2026-10-21-gpu-vendor-per-pixel/README.md ("Cycle 54")
-  - Code: source/services/windowd/src/{client_outbox.rs,client_surface.rs}, source/services/windowd/src/compositor/runtime/client_send.rs, source/kernel/neuron/src/{waitset.rs,ipc/eof.rs,syscall/api/sync_objects.rs,selftest/lifetime.rs}
+  - label: ADR
+    target: docs/adr/0075-the-compositor-never-waits-on-a-client.md
+  - label: RFC
+    target: "docs/rfcs/RFC-0033-soft-real-time-spine-waitset-fence-driverkit.md (amendment: the writable member)"
+  - label: RFC
+    target: "docs/rfcs/RFC-0108-ux-latency-contract-instant-and-smooth-as-numbers.md (the input budget)"
+  - label: Measurement
+    target: "docs/board/measurements/2026-10-21-gpu-vendor-per-pixel/README.md (\"Cycle 54\")"
+  - label: Code
+    target: "source/services/windowd/src/{client_outbox.rs,client_surface.rs}, source/services/windowd/src/compositor/runtime/client_send.rs, source/kernel/neuron/src/{waitset.rs,ipc/eof.rs,syscall/api/sync_objects.rs,selftest/lifetime.rs}"
+  - label: follow-up
+    target: "app-host never waits on windowd (the other half of the plan's 6d line)"
+  - label: follow-up
+    target: "the lifecycle authority's answer to a hung app (6d/6e)"
+  - label: follow-up
+    target: "settingsd's pushes on an outbox"
+  - label: follow-up
+    target: "the atlas copy without syscalls per row (by cycle 55's `work(copy_` numbers)"
 ---
 
 ## Context (cycle 54)

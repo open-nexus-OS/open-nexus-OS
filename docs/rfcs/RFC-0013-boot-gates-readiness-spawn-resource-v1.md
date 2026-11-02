@@ -1,23 +1,37 @@
+---
+schema: 1
+id: RFC-0013
+title: "Boot gates v1 — readiness contract + spawn failure reasons + resource/leak sentinel"
+status: done
+status_note: "readiness is now the `@ready` verb on the control channel and `init: up <svc>` is printed only after it (RFC-0093 §2, TASK-0324 P2)"
+owners: ["@runtime", "@kernel-team", "@tools-team"]
+created: 2026-01-16
+updated: 2026-09-15
+subsystem: kernel
+tasks: [TASK-0269]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0269-boot-gates-v1-readiness-spawn-resource.md` (execution + proof)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0003-unified-logging.md` (deterministic markers, no fake success)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0005-kernel-ipc-capability-model.md` (quotas, leak-free failure paths, IPC selftests)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0009-no-std-dependency-hygiene-v1.md` (OS build hygiene gates)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0011-logd-journal-crash-v1.md` (logd readiness marker contract)"
+  - label: "Testing methodology"
+    target: "`docs/testing/README.md`"
+  - label: "QEMU marker contract"
+    target: "`scripts/qemu-test.sh`"
+---
+
 <!-- Copyright 2026 Open Nexus OS Contributors -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # RFC-0013: Boot gates v1 — readiness contract + spawn failure reasons + resource/leak sentinel
 
-- Status: Complete — readiness is now the `@ready` verb on the control channel and `init: up <svc>`
-  is printed only after it (RFC-0093 §2, TASK-0324 P2); stage ordering is the boot-stage fence
-  (RFC-0093 §3). The spawn-failure reasons and the resource/leak sentinel of this RFC stand.
-- Owners: @runtime, @kernel-team, @tools-team
-- Created: 2026-01-16
-- Last Updated: 2026-09-15
-- Links:
-  - Tasks: `tasks/TASK-0269-boot-gates-v1-readiness-spawn-resource.md` (execution + proof)
-  - Related RFCs:
-    - `docs/rfcs/RFC-0003-unified-logging.md` (deterministic markers, no fake success)
-    - `docs/rfcs/RFC-0005-kernel-ipc-capability-model.md` (quotas, leak-free failure paths, IPC selftests)
-    - `docs/rfcs/RFC-0009-no-std-dependency-hygiene-v1.md` (OS build hygiene gates)
-    - `docs/rfcs/RFC-0011-logd-journal-crash-v1.md` (logd readiness marker contract)
-  - Testing methodology: `docs/testing/README.md`
-  - QEMU marker contract: `scripts/qemu-test.sh`
+> Status (migrated 2026-11-02): Complete — readiness is now the `@ready` verb on the control channel and `init: up <svc>` is printed only after it (RFC-0093 §2, TASK-0324 P2); stage ordering is the boot-stage fence (RFC-0093 §3). The spawn-failure reasons and the resource/leak sentinel of this RFC stand.
 
 ## Status at a Glance
 

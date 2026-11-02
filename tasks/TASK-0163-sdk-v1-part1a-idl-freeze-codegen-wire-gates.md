@@ -1,17 +1,24 @@
 ---
-title: TASK-0163 SDK v1 Part 1a (host-first): freeze Cap'n Proto IDLs + deterministic codegen + SemVer/wire gates
-status: Draft
-owner: @devx
+schema: 1
+id: TASK-0163
+title: "SDK v1 Part 1a (host-first): freeze Cap'n Proto IDLs + deterministic codegen + SemVer/wire gates"
+status: draft
+owner: ["@devx"]
 created: 2025-12-26
-depends-on: []
-follow-up-tasks: []
+subsystem: app-platform
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - DevX nx CLI v1: tasks/TASK-0045-devx-nx-cli-v1.md
-  - Existing schemas: tools/nexus-idl/schemas/
-  - Existing runtime generator: userspace/nexus-idl-runtime/
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "DevX nx CLI v1"
+    target: tasks/TASK-0045-devx-nx-cli-v1.md
+  - label: "Existing schemas"
+    target: tools/nexus-idl/schemas/
+  - label: "Existing runtime generator"
+    target: userspace/nexus-idl-runtime/
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

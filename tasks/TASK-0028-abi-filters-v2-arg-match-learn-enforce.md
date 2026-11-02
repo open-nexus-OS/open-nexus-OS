@@ -1,20 +1,24 @@
 ---
-title: TASK-0028 ABI filters v2: argument matchers + learn→enforce + policy generator (host-first, OS-gated)
-status: Done (P0–P3 delivered 2026-09-05..07; follow-ups listed)
-owner: @runtime
+schema: 1
+id: TASK-0028
+title: "ABI filters v2: argument matchers + learn→enforce + policy generator (host-first, OS-gated)"
+status: done
+status_note: "P0–P3 delivered 2026-09-05..07; follow-ups listed"
+owner: ["@runtime"]
 created: 2025-12-22
-depends-on:
-  - TASK-0006
-  - TASK-0008
-  - TASK-0019
-follow-up-tasks: []
+subsystem: security
+started: 2026-09-05
+done: 2026-09-05
+active_days: 1
+dates_source: git-reconstructed
+depends_on: [TASK-0006, TASK-0008, TASK-0019]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Depends-on (ABI filter v1 dispatcher): tasks/TASK-0019-security-v2-userland-abi-syscall-filters.md
-  - Depends-on (audit/learn sink): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
-  - Depends-on (policy authority): tasks/TASK-0008-security-hardening-v1-nexus-sel-audit-device-keys.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## End-state rewrite 2026-09-03 (binding; supersedes older sections where they differ)

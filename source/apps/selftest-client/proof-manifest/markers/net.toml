@@ -111,7 +111,7 @@ phase = "net"
 
 # TASK-0324 P7: dsoftbusd used to sit in a 10 000-yield slot probe at Idle QoS for the whole
 # smp1 run and printed nothing after init's wiring. With the probe gone it runs its single-VM
-# session path, which has no real peer (network family HOLD, tasks/IMPLEMENTATION-ORDER.md
+# session path, which has no real peer (network family HOLD, tasks/milestones/hardware-network.md
 # "Netz-Gruppe"): this is that path's known red, tolerated via config/fail-marker-allow.txt
 # like the two SELFTEST dsoftbus FAILs — tracked, never hidden.
 [marker."dsoftbusd: single-vm session held (proof boot, network family HOLD)"]

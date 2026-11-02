@@ -1,16 +1,27 @@
-# RFC-0055: UI v2a embedded reactor/runtime floor + present/input perf contract seed
+---
+schema: 1
+id: RFC-0055
+title: "UI v2a embedded reactor/runtime floor + present/input perf contract seed"
+status: done
+owners: ["@ui", "@runtime"]
+created: 2026-05-10
+updated: 2026-05-12
+subsystem: ui
+tasks: [TASK-0056C]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0056C-ui-v2a-present-input-perf-latency-coalescing.md` (execution + proof)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0050-ui-v2a-present-scheduler-double-buffer-input-routing-contract.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0051-ui-v2a-visible-input-cursor-focus-click-contract.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0053-input-v1_0b-os-qemu-live-input-hidrawd-touchd-inputd-contract.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0054-input-v1_0c-os-qemu-virtio-input-driver-layer-contract.md`"
+---
 
-- Status: Done
-- Owners: @ui @runtime
-- Created: 2026-05-10
-- Last Updated: 2026-05-12
-- Links:
-  - Tasks: `tasks/TASK-0056C-ui-v2a-present-input-perf-latency-coalescing.md` (execution + proof)
-  - Related RFCs:
-    - `docs/rfcs/RFC-0050-ui-v2a-present-scheduler-double-buffer-input-routing-contract.md`
-    - `docs/rfcs/RFC-0051-ui-v2a-visible-input-cursor-focus-click-contract.md`
-    - `docs/rfcs/RFC-0053-input-v1_0b-os-qemu-live-input-hidrawd-touchd-inputd-contract.md`
-    - `docs/rfcs/RFC-0054-input-v1_0c-os-qemu-virtio-input-driver-layer-contract.md`
+# RFC-0055: UI v2a embedded reactor/runtime floor + present/input perf contract seed
 
 ## Status at a Glance
 

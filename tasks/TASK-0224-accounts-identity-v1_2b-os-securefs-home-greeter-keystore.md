@@ -1,21 +1,32 @@
 ---
-title: TASK-0224 Accounts/Identity v1.2b (OS/QEMU): sessiond orchestration + SecureFS-backed per-user home mount + per-user keystore unlock + Greeter/OOBE/Lock wiring + selftests/docs
-status: Draft
-owner: @security
+schema: 1
+id: TASK-0224
+title: "Accounts/Identity v1.2b (OS/QEMU): sessiond orchestration + SecureFS-backed per-user home mount + per-user keystore unlock + Greeter/OOBE/Lock wiring + selftests/docs"
+status: draft
+owner: ["@security"]
 created: 2025-12-27
-depends-on: []
-follow-up-tasks: []
+subsystem: sessions
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Accounts/Identity v1.2 host semantics: tasks/TASK-0223-accounts-identity-v1_2a-host-multiuser-sessiond.md
-  - SecureFS overlay baseline (encryption-at-rest): tasks/TASK-0183-encryption-at-rest-v1b-os-securefsd-unlock-ui-migration-cli-selftests.md
-  - Keystore v1.1 OS wiring (seal/unseal + trust unification): tasks/TASK-0160-identity-keystore-v1_1-os-attestd-trust-unification-selftests.md
-  - Identity baseline: tasks/TASK-0107-ui-v18a-identityd-users-sessions.md
-  - Lock baseline: tasks/TASK-0109-ui-v18c-lockd-lockscreen-autolock.md
-  - OOBE/Greeter baseline: tasks/TASK-0110-ui-v18d-oobe-greeter-accounts-systemui-os-proofs.md
-  - Persistence substrate (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Accounts/Identity v1.2 host semantics"
+    target: tasks/TASK-0223-accounts-identity-v1_2a-host-multiuser-sessiond.md
+  - label: "SecureFS overlay baseline (encryption-at-rest)"
+    target: tasks/TASK-0183-encryption-at-rest-v1b-os-securefsd-unlock-ui-migration-cli-selftests.md
+  - label: "Keystore v1.1 OS wiring (seal/unseal + trust unification)"
+    target: tasks/TASK-0160-identity-keystore-v1_1-os-attestd-trust-unification-selftests.md
+  - label: "Identity baseline"
+    target: tasks/TASK-0107-ui-v18a-identityd-users-sessions.md
+  - label: "Lock baseline"
+    target: tasks/TASK-0109-ui-v18c-lockd-lockscreen-autolock.md
+  - label: "OOBE/Greeter baseline"
+    target: tasks/TASK-0110-ui-v18d-oobe-greeter-accounts-systemui-os-proofs.md
+  - label: "Persistence substrate (/state)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

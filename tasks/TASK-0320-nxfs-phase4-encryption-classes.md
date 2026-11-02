@@ -1,19 +1,26 @@
 ---
-title: TASK-0320 nxfs Phase 4: encryption classes (per-extent XChaCha20-Poly1305, keystored HKDF hierarchy) (RFC-0071 P4)
-status: Draft
-owner: @runtime
+schema: 1
+id: TASK-0320
+title: "nxfs Phase 4: encryption classes (per-extent XChaCha20-Poly1305, keystored HKDF hierarchy) (RFC-0071 P4)"
+status: draft
+owner: ["@runtime"]
 created: 2026-08-14
-depends-on:
-  - TASK-0319
-follow-up-tasks: []
+subsystem: storage
+depends_on: [TASK-0319]
+implements: [RFC-0071]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Contract (Phase 4, fixed since 2026-07-15): docs/rfcs/RFC-0071-nxfs-user-data-filesystem-contract.md
-  - Key material: docs/rfcs/RFC-0016-device-identity-keys-v1.md (keystored)
-  - Supersedes (UX pieces absorbed): tasks/TASK-0182 / tasks/TASK-0183 (securefsd overlay — already Superseded by RFC-0071)
-  - statefs sibling (record encryption, separate store): tasks/TASK-0027-statefs-v2b-encryption-at-rest.md
-  - Ladder: tasks/TRACK-STASH-USER-DATA-FS.md (replaces milestone 7 "seed-when-ready")
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Key material"
+    target: "docs/rfcs/RFC-0016-device-identity-keys-v1.md (keystored)"
+  - label: "Supersedes (UX pieces absorbed)"
+    target: "tasks/TASK-0182 / tasks/TASK-0183 (securefsd overlay — already Superseded by RFC-0071)"
+  - label: "statefs sibling (record encryption, separate store)"
+    target: tasks/TASK-0027-statefs-v2b-encryption-at-rest.md
+  - label: Ladder
+    target: "tasks/TRACK-STASH-USER-DATA-FS.md (replaces milestone 7 \"seed-when-ready\")"
 ---
 
 ## Context

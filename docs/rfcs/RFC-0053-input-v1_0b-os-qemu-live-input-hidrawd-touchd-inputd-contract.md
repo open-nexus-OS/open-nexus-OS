@@ -1,16 +1,27 @@
-# RFC-0053: Input v1.0b OS/QEMU live-input path (`hidrawd` + `touchd` + `inputd`)
+---
+schema: 1
+id: RFC-0053
+title: "Input v1.0b OS/QEMU live-input path (`hidrawd` + `touchd` + `inputd`)"
+status: done
+owners: ["@ui"]
+created: 2026-05-04
+updated: 2026-05-11
+subsystem: ui
+tasks: [TASK-0253]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0253-input-v1_0b-os-hidrawd-touchd-inputd-ime-hooks-selftests.md` (execution + proof)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0050-ui-v2a-present-scheduler-double-buffer-input-routing-contract.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0051-ui-v2a-visible-input-cursor-focus-click-contract.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0052-input-v1_0a-host-hid-touch-keymaps-repeat-accel-contract.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0054-input-v1_0c-os-qemu-virtio-input-driver-layer-contract.md`"
+---
 
-- Status: Done
-- Owners: @ui
-- Created: 2026-05-04
-- Last Updated: 2026-05-11
-- Links:
-  - Tasks: `tasks/TASK-0253-input-v1_0b-os-hidrawd-touchd-inputd-ime-hooks-selftests.md` (execution + proof)
-  - Related RFCs:
-    - `docs/rfcs/RFC-0050-ui-v2a-present-scheduler-double-buffer-input-routing-contract.md`
-    - `docs/rfcs/RFC-0051-ui-v2a-visible-input-cursor-focus-click-contract.md`
-    - `docs/rfcs/RFC-0052-input-v1_0a-host-hid-touch-keymaps-repeat-accel-contract.md`
-    - `docs/rfcs/RFC-0054-input-v1_0c-os-qemu-virtio-input-driver-layer-contract.md`
+# RFC-0053: Input v1.0b OS/QEMU live-input path (`hidrawd` + `touchd` + `inputd`)
 
 ## Status at a Glance
 

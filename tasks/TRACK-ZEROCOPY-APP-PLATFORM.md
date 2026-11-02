@@ -1,24 +1,41 @@
 ---
-title: TRACK Zero-Copy App Platform (apps): RichContent + OpLog autosave + sync + connectors + UI primitives (deterministic, policy-gated)
-status: Living
-owner: @runtime @ui @storage
+schema: 1
+id: TRACK-ZEROCOPY-APP-PLATFORM
+title: "Zero-Copy App Platform (apps): RichContent + OpLog autosave + sync + connectors + UI primitives (deterministic, policy-gated)"
+status: living
+owner: ["@runtime", "@ui", "@storage"]
 created: 2026-01-19
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Service architecture (hybrid control/data plane): docs/adr/0017-service-architecture.md
-  - IPC runtime architecture: docs/adr/0003-ipc-runtime-architecture.md
-  - UI performance philosophy: docs/dev/ui/foundations/quality/performance-philosophy.md
-  - Zero-copy VMOs plumbing: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
-  - DSL service stubs (svc.*): tasks/TASK-0078-dsl-v0_2b-service-stubs-cli-demo.md
-  - Clipboard v3 (budgets + negotiation): tasks/TASK-0087-ui-v13a-clipboard-v3.md
-  - DSL query objects (QuerySpec IR): tasks/TASK-0274-dsl-v0_2c-db-query-objects-builder-defaults-paging-deterministic.md
-  - NexusNet SDK (REST/GraphQL/sync shape): tasks/TRACK-NEXUSNET-SDK.md
-  - NexusInfer SDK (on-device ML; hybrid control/data plane): tasks/TRACK-NEXUSINFER-SDK.md
-  - App Store (distribution + publishing keystone): tasks/TRACK-APP-STORE.md
-  - Dev Studio IDE (developer workflow keystone): tasks/TRACK-DEVSTUDIO-IDE.md
-  - Richtext widget/app baseline: tasks/TASK-0098-ui-v15e-richtext-widget-app.md
-  - NexusFrame (reference creative app consumer): tasks/TRACK-NEXUSFRAME.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Service architecture (hybrid control/data plane)"
+    target: docs/adr/0017-service-architecture.md
+  - label: "IPC runtime architecture"
+    target: docs/adr/0003-ipc-runtime-architecture.md
+  - label: "UI performance philosophy"
+    target: docs/dev/ui/foundations/quality/performance-philosophy.md
+  - label: "Zero-copy VMOs plumbing"
+    target: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
+  - label: "DSL service stubs (svc.*)"
+    target: tasks/TASK-0078-dsl-v0_2b-service-stubs-cli-demo.md
+  - label: "Clipboard v3 (budgets + negotiation)"
+    target: tasks/TASK-0087-ui-v13a-clipboard-v3.md
+  - label: "DSL query objects (QuerySpec IR)"
+    target: tasks/TASK-0274-dsl-v0_2c-db-query-objects-builder-defaults-paging-deterministic.md
+  - label: "NexusNet SDK (REST/GraphQL/sync shape)"
+    target: tasks/TRACK-NEXUSNET-SDK.md
+  - label: "NexusInfer SDK (on-device ML; hybrid control/data plane)"
+    target: tasks/TRACK-NEXUSINFER-SDK.md
+  - label: "App Store (distribution + publishing keystone)"
+    target: tasks/TRACK-APP-STORE.md
+  - label: "Dev Studio IDE (developer workflow keystone)"
+    target: tasks/TRACK-DEVSTUDIO-IDE.md
+  - label: "Richtext widget/app baseline"
+    target: tasks/TASK-0098-ui-v15e-richtext-widget-app.md
+  - label: "NexusFrame (reference creative app consumer)"
+    target: tasks/TRACK-NEXUSFRAME.md
 ---
 
 ## Goal (track-level)

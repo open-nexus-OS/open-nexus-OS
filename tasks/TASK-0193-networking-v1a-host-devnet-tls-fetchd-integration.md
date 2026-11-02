@@ -1,17 +1,24 @@
 ---
-title: TASK-0193 Networking v1a (host-first): devnet flag + resolverd hosts + rustls TLS validate/pinning + fetchd real backend + tlstestd + deterministic tests/docs
-status: Draft
-owner: @networking
+schema: 1
+id: TASK-0193
+title: "Networking v1a (host-first): devnet flag + resolverd hosts + rustls TLS validate/pinning + fetchd real backend + tlstestd + deterministic tests/docs"
+status: draft
+owner: ["@networking"]
 created: 2025-12-27
-depends-on: []
-follow-up-tasks: []
+subsystem: networking
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - WebView Net v1 fetch path (fetchd/httpstubd): tasks/TASK-0177-webview-net-v1b-os-httpstubd-fetchd-downloadd-policy-selftests.md
-  - Trust store unification (keys/roots): tasks/TASK-0160-identity-keystore-v1_1-os-attestd-trust-unification-selftests.md
-  - Network basics offline daemons (hosts/DNS direction): tasks/TASK-0138-network-basics-v1a-offline-controlplane-daemons.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "WebView Net v1 fetch path (fetchd/httpstubd)"
+    target: tasks/TASK-0177-webview-net-v1b-os-httpstubd-fetchd-downloadd-policy-selftests.md
+  - label: "Trust store unification (keys/roots)"
+    target: tasks/TASK-0160-identity-keystore-v1_1-os-attestd-trust-unification-selftests.md
+  - label: "Network basics offline daemons (hosts/DNS direction)"
+    target: tasks/TASK-0138-network-basics-v1a-offline-controlplane-daemons.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

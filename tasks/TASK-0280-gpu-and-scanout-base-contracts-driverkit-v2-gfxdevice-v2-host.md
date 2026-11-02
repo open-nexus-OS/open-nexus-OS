@@ -1,27 +1,29 @@
 ---
-title: TASK-0280 Block 4 layer 1 — the base: the GPU and scanout contracts as host-tested types (driver-kit v2, GfxDevice v2, the one timeline, the plane ring)
-status: Done 2026-10-12 (P0–P5; recut the same day from "DriverKit v1 core contracts" of 2026-01-09 — the v1 ring, budgets, QoS and DmaBuffer are delivered in `nexus-driverkit` by RFC-0033 Phase 3 and TASK-0286 P4b; this ledger is the layer-1 SSOT)
-owner: @gpu @runtime @drivers
+schema: 1
+id: TASK-0280
+title: "Block 4 layer 1 — the base: the GPU and scanout contracts as host-tested types (driver-kit v2, GfxDevice v2, the one timeline, the plane ring)"
+status: done
+status_note: "2026-10-12 (P0–P5; recut the same day from \"DriverKit v1 core contracts\" of 2026-01-09"
+owner: ["@gpu", "@runtime", "@drivers"]
 created: 2026-01-09
-depends-on:
-  - TASK-0286
-  - TASK-0329
-follow-up-tasks:
-  - TASK-0216
-  - TASK-0329
-  - TASK-0169B
-  - TASK-0170B
-  - TASK-0171
-  - TASK-0215
+subsystem: hardware
+done: 2026-10-12
+dates_source: status-text
+depends_on: [TASK-0286, TASK-0329]
+follow_ups: [TASK-0216, TASK-0329, TASK-0169B, TASK-0170B, TASK-0171, TASK-0215]
+implements: [RFC-0101, RFC-0033, RFC-0067]
 links:
-  - RFC: docs/rfcs/RFC-0101-gpu-driver-split-contexts-vm-batches-fence-and-the-scanout-contract.md
-  - RFC (fence, driver-kit): docs/rfcs/RFC-0033-soft-real-time-spine-waitset-fence-driverkit.md
-  - RFC (compositor boundary): docs/rfcs/RFC-0067-windowd-compositor-boundary.md
-  - ADR: docs/adr/0018-driverkit-abi-versioning-and-stability.md
-  - Order: tasks/IMPLEMENTATION-ORDER.md ("Block 4 in layers", layer 1)
-  - Measurements: docs/board/measurements/2026-10-10-mgs-baseline/README.md, docs/board/measurements/2026-10-10-gpu-stock-baseline/README.md
-  - Playbook: CLAUDE.md
+  - label: ADR
+    target: docs/adr/0018-driverkit-abi-versioning-and-stability.md
+  - label: Order
+    target: "tasks/milestones/hardware-network.md (\"Block 4 in layers\", layer 1)"
+  - label: Measurements
+    target: "docs/board/measurements/2026-10-10-mgs-baseline/README.md, docs/board/measurements/2026-10-10-gpu-stock-baseline/README.md"
+  - label: Playbook
+    target: CLAUDE.md
 ---
+
+> Status (migrated 2026-11-02): Done 2026-10-12 (P0–P5; recut the same day from "DriverKit v1 core contracts" of 2026-01-09 — the v1 ring, budgets, QoS and DmaBuffer are delivered in `nexus-driverkit` by RFC-0033 Phase 3 and TASK-0286 P4b; this ledger is the layer-1 SSOT)
 
 ## Context
 

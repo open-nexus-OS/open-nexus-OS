@@ -1,10 +1,20 @@
-# TASK-0301: IPC last-sender EOF + app self-exit on window close
+---
+schema: 1
+id: TASK-0301
+title: "IPC last-sender EOF + app self-exit on window close"
+status: done
+owner: ["@kernel-ipc-team", "@runtime"]
+created: 2026-07-23
+subsystem: kernel
+done: 2026-07-23
+dates_source: git-reconstructed
+implements: [RFC-0079]
+links:
+  - label: Related
+    target: "RFC-0075 8f (process-image arena reclaim — this task makes it fire for parked GUI apps)"
+---
 
-- Status: Done
-- Owners: @kernel-ipc-team / @runtime
-- RFC: `docs/rfcs/RFC-0079-ipc-last-sender-eof.md`
-- Related: RFC-0075 8f (process-image arena reclaim — this task makes it fire
-  for parked GUI apps)
+# TASK-0301: IPC last-sender EOF + app self-exit on window close
 
 ## Goal / stop condition
 

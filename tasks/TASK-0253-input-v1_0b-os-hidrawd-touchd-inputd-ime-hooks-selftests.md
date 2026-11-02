@@ -1,29 +1,41 @@
 ---
-title: TASK-0253 Input v1.0b (OS/QEMU): hidrawd + touchd + inputd + windowd/IME hooks + `nx input` + selftests
-status: Done
-owner: @ui
+schema: 1
+id: TASK-0253
+title: "Input v1.0b (OS/QEMU): hidrawd + touchd + inputd + windowd/IME hooks + `nx input` + selftests"
+status: done
+owner: ["@ui"]
 created: 2025-12-29
-depends-on:
-  - TASK-0252
-follow-up-tasks:
-  - Kernel/runtime service-scale closure for init-lite multi-service proofs
-  - TASK-0056C
-  - TASK-0146
-  - TASK-0147
+subsystem: ui
+done: 2026-07-17
+dates_source: git-reconstructed
+depends_on: [TASK-0252]
+follow_ups: [TASK-0056C, TASK-0146, TASK-0147]
+implements: [RFC-0053, RFC-0054]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
-  - Production gates: tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md
-  - Queue/quality context: tasks/IMPLEMENTATION-ORDER.md
-  - RFC (contract seed): docs/rfcs/RFC-0053-input-v1_0b-os-qemu-live-input-hidrawd-touchd-inputd-contract.md
-  - Live driver-layer RFC: docs/rfcs/RFC-0054-input-v1_0c-os-qemu-virtio-input-driver-layer-contract.md
-  - Input core (host-first): tasks/TASK-0252-input-v1_0a-host-hid-touch-keymaps-repeat-accel-deterministic.md
-  - Visible input baseline: tasks/TASK-0056B-ui-v2a-visible-input-cursor-focus-click.md
-  - Later IME consumer: tasks/TASK-0146-ime-text-v2-part1a-imed-keymaps-host.md
-  - Input routing baseline: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
-  - Device MMIO access: tasks/TASK-0010-device-mmio-access-model.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Authority & naming registry"
+    target: tasks/TRACK-AUTHORITY-NAMING.md
+  - label: "Production gates"
+    target: tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md
+  - label: "Queue/quality context"
+    target: tasks/milestones/hardware-network.md
+  - label: "Input core (host-first)"
+    target: tasks/TASK-0252-input-v1_0a-host-hid-touch-keymaps-repeat-accel-deterministic.md
+  - label: "Visible input baseline"
+    target: tasks/TASK-0056B-ui-v2a-visible-input-cursor-focus-click.md
+  - label: "Later IME consumer"
+    target: tasks/TASK-0146-ime-text-v2-part1a-imed-keymaps-host.md
+  - label: "Input routing baseline"
+    target: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
+  - label: "Device MMIO access"
+    target: tasks/TASK-0010-device-mmio-access-model.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
+  - label: follow-up
+    target: "Kernel/runtime service-scale closure for init-lite multi-service proofs"
 ---
 
 ## Context

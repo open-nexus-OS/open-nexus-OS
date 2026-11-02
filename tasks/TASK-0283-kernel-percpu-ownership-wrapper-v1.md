@@ -1,16 +1,24 @@
 ---
-title: TASK-0283 Kernel SMP prep v1: per-CPU ownership wrapper (`PerCpu<T>`) and `!Send` enforcement
-status: Done
-owner: @kernel-team
+schema: 1
+id: TASK-0283
+title: "Kernel SMP prep v1: per-CPU ownership wrapper (`PerCpu<T>`) and `!Send` enforcement"
+status: done
+owner: ["@kernel-team"]
 created: 2026-01-09
-depends-on: []
-follow-up-tasks: []
+subsystem: kernel
+done: 2026-07-19
+dates_source: git-reconstructed
 links:
-  - Vision: docs/architecture/vision.md
-  - Rust SMP model: docs/architecture/16-rust-concurrency-model.md
-  - SMP baseline: tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md
-  - SMP hardening bridge: tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md
-  - SMP parallelism policy: tasks/TASK-0277-kernel-smp-parallelism-policy-v1-deterministic.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: "Rust SMP model"
+    target: docs/architecture/16-rust-concurrency-model.md
+  - label: "SMP baseline"
+    target: tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md
+  - label: "SMP hardening bridge"
+    target: tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md
+  - label: "SMP parallelism policy"
+    target: tasks/TASK-0277-kernel-smp-parallelism-policy-v1-deterministic.md
 ---
 
 ## Context

@@ -1,19 +1,27 @@
 ---
-title: TASK-0137 Security & Privacy UI v1: permissions matrix editor + audit viewer + installer approvals wiring (DSL, host-first, OS-gated)
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0137
+title: "Security & Privacy UI v1: permissions matrix editor + audit viewer + installer approvals wiring (DSL, host-first, OS-gated)"
+status: draft
+owner: ["@ui"]
 created: 2025-12-25
-depends-on: []
-follow-up-tasks: []
+subsystem: security
+tracks: [TRACK-ADS-SAFETY-FAMILYMODE]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
-  - Policy capability matrix: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
-  - SystemUI→DSL Settings baseline: tasks/TASK-0121-systemui-dsl-migration-phase2a-settings-notifs-host.md
-  - SystemUI→DSL OS wiring: tasks/TASK-0122-systemui-dsl-migration-phase2b-os-wiring-postflight-docs.md
-  - Installer UI baseline: tasks/TASK-0131-packages-v1c-installer-ui-openwith-launcher-integration.md
-  - Runtime perms/privacy indicators: tasks/TASK-0103-ui-v17a-permissions-privacyd.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Policy capability matrix"
+    target: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
+  - label: "SystemUI→DSL Settings baseline"
+    target: tasks/TASK-0121-systemui-dsl-migration-phase2a-settings-notifs-host.md
+  - label: "SystemUI→DSL OS wiring"
+    target: tasks/TASK-0122-systemui-dsl-migration-phase2b-os-wiring-postflight-docs.md
+  - label: "Installer UI baseline"
+    target: tasks/TASK-0131-packages-v1c-installer-ui-openwith-launcher-integration.md
+  - label: "Runtime perms/privacy indicators"
+    target: tasks/TASK-0103-ui-v17a-permissions-privacyd.md
 ---
 
 ## Context

@@ -1,15 +1,24 @@
 ---
-title: TASK-0325 Proof lanes declare their resource envelope, never die silently, and CI owns the full ladder's verdict
-status: Done
-owner: @tools-team @runtime
+schema: 1
+id: TASK-0325
+title: "Proof lanes declare their resource envelope, never die silently, and CI owns the full ladder's verdict"
+status: done
+owner: ["@tools-team", "@runtime"]
 created: 2026-09-11
-depends-on: []
-follow-up-tasks: []
+subsystem: devx
+started: 2026-09-11
+done: 2026-09-11
+active_days: 1
+dates_source: git-reconstructed
 links:
-  - ADR: docs/adr/0063-proof-lane-resource-envelope-and-authority.md
-  - Harness: scripts/qemu-test.sh, source/apps/selftest-client/proof-manifest/profiles/harness.toml
-  - Logs: docs/testing/run-logs.md, docs/testing/README.md
-  - Trigger: tasks/TASK-0324-display-handoff-deterministic-by-construction.md (P4e-2 proof set, killed 4x)
+  - label: ADR
+    target: docs/adr/0063-proof-lane-resource-envelope-and-authority.md
+  - label: Harness
+    target: "scripts/qemu-test.sh, source/apps/selftest-client/proof-manifest/profiles/harness.toml"
+  - label: Logs
+    target: "docs/testing/run-logs.md, docs/testing/README.md"
+  - label: Trigger
+    target: "tasks/TASK-0324-display-handoff-deterministic-by-construction.md (P4e-2 proof set, killed 4x)"
 ---
 
 # TASK-0325: A proof lane accounts for its own resources and always leaves a witness

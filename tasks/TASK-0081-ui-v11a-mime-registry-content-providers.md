@@ -1,21 +1,31 @@
 ---
-title: TASK-0081 UI v11a: MIME registry (mimed) + content provider API (contentd) with stream handles (no paths)
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0081
+title: "UI v11a: MIME registry (mimed) + content provider API (contentd) with stream handles (no paths)"
+status: draft
+owner: ["@ui"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: storage
+tracks: [TRACK-REMOVABLE-STORAGE]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - ADR: docs/adr/0022-modern-image-formats-avif-webp.md
-  - VFS substrate: tasks/TASK-0002-userspace-vfs-proof.md
-  - Persistence (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Removable storage track (USB/SD/external disks as provider): tasks/TRACK-REMOVABLE-STORAGE.md
-  - Policy as Code: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
-  - Config broker: tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
-  - UI v6b app launch (Open With later): tasks/TASK-0065-ui-v6b-app-lifecycle-notifications-navigation.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: ADR
+    target: docs/adr/0022-modern-image-formats-avif-webp.md
+  - label: "VFS substrate"
+    target: tasks/TASK-0002-userspace-vfs-proof.md
+  - label: "Persistence (/state)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Policy as Code"
+    target: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
+  - label: "Config broker"
+    target: tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
+  - label: "UI v6b app launch (Open With later)"
+    target: tasks/TASK-0065-ui-v6b-app-lifecycle-notifications-navigation.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

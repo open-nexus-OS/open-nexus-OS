@@ -1,22 +1,28 @@
 ---
-title: TASK-0042 SMP v2: affinity hints + QoS CPU budgets (requires kernel ABI + execd wiring)
-status: Done
-owner: @kernel-team @runtime
+schema: 1
+id: TASK-0042
+title: "SMP v2: affinity hints + QoS CPU budgets (requires kernel ABI + execd wiring)"
+status: done
+owner: ["@kernel-team", "@runtime"]
 created: 2025-12-22
-depends-on: []
-follow-up-tasks:
-  - TASK-0247
+subsystem: kernel
+done: 2026-07-19
+dates_source: git-reconstructed
+follow_ups: [TASK-0247, TASK-0054B, TASK-0056C]
+tracks: [TRACK-DRIVERS-ACCELERATORS]
 links:
-  - Vision: docs/architecture/vision.md
-  - SMP baseline: tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md
-  - SMP hardening bridge: tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md
-  - QoS baseline: tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
-  - Follow-up (RISC-V SMP runtime hardening): tasks/TASK-0247-bringup-rv-virt-v1_1b-os-smp-hsm-ipi-virtioblkd-packagefs-selftests.md
-  - Drivers track (alignment): tasks/TRACK-DRIVERS-ACCELERATORS.md
-  - Early UI/kernel perf floor follow-up: tasks/TASK-0054B-ui-v1a-kernel-ui-perf-floor-zero-copy-qos-hardening.md
-  - Present/input perf consumer follow-up: tasks/TASK-0056C-ui-v2a-present-input-perf-latency-coalescing.md
-  - Testing contract: scripts/qemu-test.sh
-  - Unblocks: tasks/TRACK-DRIVERS-ACCELERATORS.md (QoS-aware driver scheduling, CPU affinity for latency-sensitive devices)
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: "SMP baseline"
+    target: tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md
+  - label: "SMP hardening bridge"
+    target: tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md
+  - label: "QoS baseline"
+    target: tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
+  - label: Unblocks
+    target: "tasks/TRACK-DRIVERS-ACCELERATORS.md (QoS-aware driver scheduling, CPU affinity for latency-sensitive devices)"
 ---
 
 ## Context

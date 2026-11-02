@@ -1,22 +1,37 @@
 ---
-title: TASK-0235 Ability/Lifecycle v1.1b (OS/QEMU): appmgrd extension + samgr hooks + FG/BG policies (CPU budget/timer slack) + kill reasons plumbing + nx-ability CLI + selftests
-status: Draft — absorbed into Block 4 layer 6d under tasks/TASK-0333 (2026-10-19): FG/BG policies become the lifecycle bands `memd` reads; no appmgrd extension — abilitymgr stays the lifecycle owner (ADR-0036)
-owner: @runtime
+schema: 1
+id: TASK-0235
+title: "Ability/Lifecycle v1.1b (OS/QEMU): appmgrd extension + samgr hooks + FG/BG policies (CPU budget/timer slack) + kill reasons plumbing + nx-ability CLI + selftests"
+status: superseded
+status_note: "absorbed into Block 4 layer 6d under tasks/TASK-0333 (2026-10-19): FG/BG policies become the lifecycle bands `memd` reads; no appmgrd extension"
+owner: ["@runtime"]
 created: 2025-12-29
-depends-on: []
-follow-up-tasks: []
+subsystem: sessions
+superseded_by: [TASK-0333]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Ability lifecycle core (host-first): tasks/TASK-0234-ability-v1_1a-host-lifecycle-state-backoff-killreasons-deterministic.md
-  - App lifecycle baseline (appmgrd): tasks/TASK-0065-ui-v6b-app-lifecycle-notifications-navigation.md
-  - Execd (spawner authority): tasks/TASK-0001-runtime-roles-and-boundaries.md
-  - Intent routing (intentsd): tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md
-  - QoS/timer slack baseline: tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
-  - OOM watchdog (kill integration): tasks/TASK-0228-oomd-v1-deterministic-watchdog-cooperative-memstat-samgr-kill.md
-  - Policy capability matrix (foreground guards): tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Ability lifecycle core (host-first)"
+    target: tasks/TASK-0234-ability-v1_1a-host-lifecycle-state-backoff-killreasons-deterministic.md
+  - label: "App lifecycle baseline (appmgrd)"
+    target: tasks/TASK-0065-ui-v6b-app-lifecycle-notifications-navigation.md
+  - label: "Execd (spawner authority)"
+    target: tasks/TASK-0001-runtime-roles-and-boundaries.md
+  - label: "Intent routing (intentsd)"
+    target: tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md
+  - label: "QoS/timer slack baseline"
+    target: tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
+  - label: "OOM watchdog (kill integration)"
+    target: tasks/TASK-0228-oomd-v1-deterministic-watchdog-cooperative-memstat-samgr-kill.md
+  - label: "Policy capability matrix (foreground guards)"
+    target: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
+
+> Status (migrated 2026-11-02): Draft — absorbed into Block 4 layer 6d under tasks/TASK-0333 (2026-10-19): FG/BG policies become the lifecycle bands `memd` reads; no appmgrd extension — abilitymgr stays the lifecycle owner (ADR-0036)
 
 ## Rebase note 2026-08-18 (reliability-lane recut)
 

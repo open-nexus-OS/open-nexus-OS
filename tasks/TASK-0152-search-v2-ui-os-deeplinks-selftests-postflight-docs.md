@@ -1,25 +1,39 @@
 ---
-title: TASK-0152 Search v2 UI (OS/QEMU): deep-link router + intents/open-with + selftests/postflight + docs (+ perf gate wiring)
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0152
+title: "Search v2 UI (OS/QEMU): deep-link router + intents/open-with + selftests/postflight + docs (+ perf gate wiring)"
+status: draft
+owner: ["@ui"]
 created: 2025-12-26
-depends-on: []
-follow-up-tasks: []
+subsystem: observability
+tracks: [TRACK-ADS-SAFETY-FAMILYMODE]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
-  - Search v2 UI host slice: tasks/TASK-0151-search-v2-ui-host-command-palette-model-a11y.md
-  - Search backend (searchd): tasks/TASK-0071-ui-v9a-searchd-command-palette.md
-  - Search v2 backend (OS wiring): tasks/TASK-0154-search-v2-backend-os-persistence-selftests-postflight-docs.md
-  - App lifecycle/launching: tasks/TASK-0065-ui-v6b-app-lifecycle-notifications-navigation.md
-  - MIME/Open-With substrate: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
-  - Recents substrate: tasks/TASK-0082-ui-v11b-thumbnailer-recents.md
-  - Intents v2 (share/dispatch): tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md
-  - Policy (capability matrix): tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
-  - Perf tracer + hooks (gated): tasks/TASK-0143-perf-v1a-perfd-frame-trace-metrics.md
-  - Perf instrumentation (gated): tasks/TASK-0144-perf-v1b-instrumentation-hud-nx-perf.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Search v2 UI host slice"
+    target: tasks/TASK-0151-search-v2-ui-host-command-palette-model-a11y.md
+  - label: "Search backend (searchd)"
+    target: tasks/TASK-0071-ui-v9a-searchd-command-palette.md
+  - label: "Search v2 backend (OS wiring)"
+    target: tasks/TASK-0154-search-v2-backend-os-persistence-selftests-postflight-docs.md
+  - label: "App lifecycle/launching"
+    target: tasks/TASK-0065-ui-v6b-app-lifecycle-notifications-navigation.md
+  - label: "MIME/Open-With substrate"
+    target: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
+  - label: "Recents substrate"
+    target: tasks/TASK-0082-ui-v11b-thumbnailer-recents.md
+  - label: "Intents v2 (share/dispatch)"
+    target: tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md
+  - label: "Policy (capability matrix)"
+    target: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
+  - label: "Perf tracer + hooks (gated)"
+    target: tasks/TASK-0143-perf-v1a-perfd-frame-trace-metrics.md
+  - label: "Perf instrumentation (gated)"
+    target: tasks/TASK-0144-perf-v1b-instrumentation-hud-nx-perf.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

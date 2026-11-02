@@ -1,16 +1,22 @@
 ---
-title: TASK-0266 Architecture v1: authority & naming contract (single source of truth, no drift)
-status: Draft
-owner: @runtime
+schema: 1
+id: TASK-0266
+title: "Architecture v1: authority & naming contract (single source of truth, no drift)"
+status: draft
+owner: ["@runtime"]
 created: 2025-12-30
-depends-on: []
-follow-up-tasks: []
+subsystem: devx
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
-  - Keystone gates: tasks/TRACK-KEYSTONE-GATES.md
-  - DevX CLI base (`nx`): tasks/TASK-0045-devx-nx-cli-v1.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Authority & naming registry"
+    target: tasks/TRACK-AUTHORITY-NAMING.md
+  - label: "Keystone gates"
+    target: tasks/TRACK-KEYSTONE-GATES.md
+  - label: "DevX CLI base (`nx`)"
+    target: tasks/TASK-0045-devx-nx-cli-v1.md
 ---
 
 ## Context

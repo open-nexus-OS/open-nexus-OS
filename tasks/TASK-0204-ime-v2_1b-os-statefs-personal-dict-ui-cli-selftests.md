@@ -1,23 +1,34 @@
 ---
-title: TASK-0204 IME v2.1b (OS/QEMU): personalization store on statefsd (state:/ime) + Settings toggle/forget + selftests
-status: Done (2026-07-24 — statefs persist + live train/rank + `ime.personalization` toggle; "forget words" UI = noted follow-up)
-owner: @ui
+schema: 1
+id: TASK-0204
+title: "IME v2.1b (OS/QEMU): personalization store on statefsd (state:/ime) + Settings toggle/forget + selftests"
+status: done
+status_note: "2026-07-24 — statefs persist + live train/rank + `ime.personalization` toggle; \"forget words\" UI = noted follow-up"
+owner: ["@ui"]
 created: 2025-12-27
-updated: 2026-07-21 (rewritten: retargeted securefsd → statefsd; securefsd does not exist, TASK-0183 Superseded; encryption-at-rest = TASK-0300 seed)
-depends-on:
-  - TASK-0203
-  - TASK-0009
-follow-up-tasks:
-  - TASK-0300 (encryption-at-rest for state:/ime, seed)
+updated: 2026-07-21
+subsystem: storage
+done: 2026-07-24
+dates_source: status-text
+depends_on: [TASK-0203, TASK-0009]
+follow_ups: [TASK-0300]
+implements: [RFC-0075]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Contract: docs/rfcs/RFC-0075-ime-v2-text-focus-composition-delivery.md
-  - Host ranking core: tasks/TASK-0203-ime-v2_1a-host-adaptive-ranking-training-export.md
-  - Persistence substrate (Done): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Settings spine (toggle key): tasks/TASK-0298-settings-spine-watch-region-keys.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Host ranking core"
+    target: tasks/TASK-0203-ime-v2_1a-host-adaptive-ranking-training-export.md
+  - label: "Persistence substrate (Done)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Settings spine (toggle key)"
+    target: tasks/TASK-0298-settings-spine-watch-region-keys.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
+
+> updated (migrated 2026-11-02): 2026-07-21 (rewritten: retargeted securefsd → statefsd; securefsd does not exist, TASK-0183 Superseded; encryption-at-rest = TASK-0300 seed)
 
 ## Context
 

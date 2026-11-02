@@ -1,18 +1,27 @@
 ---
-title: TASK-0148 Text stack v1 (deterministic): bidi/line-break contract + shaping integration for editing
-status: Deferred (2026-07-21 — IME v2 Latin+CJK (RFC-0075) needs no bidi/line-break substrate; revisit when an RTL locale ships. Explicit non-goal in the IME v2 ledgers.)
-owner: @ui
+schema: 1
+id: TASK-0148
+title: "Text stack v1 (deterministic): bidi/line-break contract + shaping integration for editing"
+status: deferred
+status_note: "2026-07-21 — IME v2 Latin+CJK (RFC-0075) needs no bidi/line-break substrate; revisit when an RTL locale ships. Explicit non-goal in the IME v2 ledgers."
+owner: ["@ui"]
 created: 2025-12-26
-depends-on: []
-follow-up-tasks: []
+subsystem: text
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Shaping baseline (HarfBuzz): tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
-  - Text primitives baseline (UAX): tasks/TASK-0094-ui-v15a-text-primitives-uax-bidi-hittest.md
-  - IME v2 Part 1: tasks/TASK-0146-ime-text-v2-part1a-imed-keymaps-host.md
-  - IME v2 Part 2 engines: tasks/TASK-0149-ime-v2-part2-cjk-engines-userdict.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Shaping baseline (HarfBuzz)"
+    target: tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
+  - label: "Text primitives baseline (UAX)"
+    target: tasks/TASK-0094-ui-v15a-text-primitives-uax-bidi-hittest.md
+  - label: "IME v2 Part 1"
+    target: tasks/TASK-0146-ime-text-v2-part1a-imed-keymaps-host.md
+  - label: "IME v2 Part 2 engines"
+    target: tasks/TASK-0149-ime-v2-part2-cjk-engines-userdict.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

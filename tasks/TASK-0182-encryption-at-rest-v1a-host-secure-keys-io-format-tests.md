@@ -1,20 +1,31 @@
 ---
-title: TASK-0182 Encryption-at-Rest v1a (host-first): secure-keys (Argon2id) + secure-io (XChaCha20-Poly1305) + file format + tamper detection + deterministic tests
-status: Superseded
-owner: @security
+schema: 1
+id: TASK-0182
+title: "Encryption-at-Rest v1a (host-first): secure-keys (Argon2id) + secure-io (XChaCha20-Poly1305) + file format + tamper detection + deterministic tests"
+status: superseded
+owner: ["@security"]
 created: 2025-12-27
-depends-on: []
-follow-up-tasks: []
+subsystem: security
+superseded_by: [TASK-0320]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Keystore seal/unseal capability (host-first): tasks/TASK-0159-identity-keystore-v1_1-host-keystored-lifecycle-nonexportable.md
-  - Keystore OS wiring (/state + caps): tasks/TASK-0160-identity-keystore-v1_1-os-attestd-trust-unification-selftests.md
-  - StateFS encryption-at-rest (lower layer, optional): tasks/TASK-0027-statefs-v2b-encryption-at-rest.md
-  - Persistence substrate (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Quotas model (storage): tasks/TASK-0133-statefs-quotas-v1-accounting-enforcement.md
-  - Testing contract: scripts/qemu-test.sh
-  - Superseded by: docs/rfcs/RFC-0071-nxfs-user-data-filesystem-contract.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Keystore seal/unseal capability (host-first)"
+    target: tasks/TASK-0159-identity-keystore-v1_1-host-keystored-lifecycle-nonexportable.md
+  - label: "Keystore OS wiring (/state + caps)"
+    target: tasks/TASK-0160-identity-keystore-v1_1-os-attestd-trust-unification-selftests.md
+  - label: "StateFS encryption-at-rest (lower layer, optional)"
+    target: tasks/TASK-0027-statefs-v2b-encryption-at-rest.md
+  - label: "Persistence substrate (/state)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Quotas model (storage)"
+    target: tasks/TASK-0133-statefs-quotas-v1-accounting-enforcement.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
+  - label: "Superseded by"
+    target: docs/rfcs/RFC-0071-nxfs-user-data-filesystem-contract.md
 ---
 
 > **SUPERSEDED (2026-07-15, ADR-0043).** Encrypted user data is a native **nxfs encryption class**

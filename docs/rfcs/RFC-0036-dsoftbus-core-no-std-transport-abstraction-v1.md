@@ -1,17 +1,27 @@
-# RFC-0036: DSoftBus core no_std transport abstraction v1
+---
+schema: 1
+id: RFC-0036
+title: "DSoftBus core no_std transport abstraction v1"
+status: done
+owners: ["@runtime"]
+created: 2026-04-14
+updated: 2026-04-15
+links:
+  - label: "Execution SSOT"
+    target: "`tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md`"
+  - label: "Program gate track"
+    target: "`tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`"
+  - label: "Status board"
+    target: "`tasks/SUBSYSTEMS.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0060-dsoftbus-streams-v2-mux-flow-control-keepalive.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0035-dsoftbus-quic-v1-host-first-os-scaffold.md`"
+---
 
-- Status: Complete
-- Owners: @runtime
-- Created: 2026-04-14
-- Last Updated: 2026-04-15
-- Links:
-  - Execution SSOT: `tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md`
-  - Program gate track: `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`
-  - Status board: `tasks/STATUS-BOARD.md`
-  - Related RFCs:
-    - `docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md`
-    - `docs/rfcs/RFC-0060-dsoftbus-streams-v2-mux-flow-control-keepalive.md`
-    - `docs/rfcs/RFC-0035-dsoftbus-quic-v1-host-first-os-scaffold.md`
+# RFC-0036: DSoftBus core no_std transport abstraction v1
 
 ## Status at a Glance
 

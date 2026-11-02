@@ -1,19 +1,25 @@
 ---
-title: TASK-0080 DSL v0.3b (partly OS-gated): perf benches (AOT vs interp) + cold-start budget breakdown + AOT demo launch + CI perf gates
-status: Done
-owner: @ui @runtime
+schema: 1
+id: TASK-0080
+title: "DSL v0.3b (partly OS-gated): perf benches (AOT vs interp) + cold-start budget breakdown + AOT demo launch + CI perf gates"
+status: done
+owner: ["@ui", "@runtime"]
 created: 2025-12-23
 updated: 2026-07-06
-depends-on:
-  - tasks/TASK-0079-dsl-v0_3a-aot-codegen-incremental-assets.md
-  - tasks/TASK-0080C-systemui-dsl-bootstrap-shell-os-wiring.md
-follow-up-tasks: []
+subsystem: observability
+done: 2026-09-09
+dates_source: git-reconstructed
+depends_on: [TASK-0079, TASK-0080C]
+tracks: [TRACK-DSL-V1-DEVX]
 links:
-  - Track: tasks/TRACK-DSL-V1-DEVX.md
-  - Perf contract this task fills with numbers: docs/dev/dsl/perf.md
-  - Launch pipeline being measured: tasks/TASK-0080D (app-host), docs/adr/0042-cross-process-surface-transport.md
-  - Metrics substrate: source/services/metricsd (RFC-0024); markers via scripts/qemu-test.sh
-  - Bench home: tools/bench/ (exists)
+  - label: "Perf contract this task fills with numbers"
+    target: docs/dev/dsl/perf.md
+  - label: "Launch pipeline being measured"
+    target: "tasks/TASK-0080D (app-host), docs/adr/0042-cross-process-surface-transport.md"
+  - label: "Metrics substrate"
+    target: "source/services/metricsd (RFC-0024); markers via scripts/qemu-test.sh"
+  - label: "Bench home"
+    target: "tools/bench/ (exists)"
 ---
 
 ## Context (updated 2026-07-06)

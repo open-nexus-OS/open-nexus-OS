@@ -1,18 +1,26 @@
 ---
-title: TASK-0126C Chat Transfer v1a (host-first): portable export/import contract + deterministic tests + default-chat eligibility metadata
-status: Draft
-owner: @runtime @ui
+schema: 1
+id: TASK-0126C
+title: "Chat Transfer v1a (host-first): portable export/import contract + deterministic tests + default-chat eligibility metadata"
+status: draft
+owner: ["@runtime", "@ui"]
 created: 2026-01-28
-depends-on: []
-follow-up-tasks: []
+subsystem: messaging
+split_from: TASK-0126
+tracks: [TRACK-SYSTEM-DELEGATION]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - System Delegation track (default-chat eligibility): tasks/TRACK-SYSTEM-DELEGATION.md
-  - Intents (action routing baseline): tasks/TASK-0126B-system-delegation-v1a-intent-actions-defaults-policy-host.md
-  - Share v2 (content:// + chooser pattern): tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md, tasks/TASK-0127-share-v2b-chooser-ui-targets-grants.md
-  - Scoped grants: tasks/TASK-0084-ui-v12a-scoped-uri-grants.md
-  - Backup bundles (NBK v1): tasks/TASK-0161-backup-restore-v1a-host-nbk-format-pack-verify-restore.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Intents (action routing baseline)"
+    target: tasks/TASK-0126B-system-delegation-v1a-intent-actions-defaults-policy-host.md
+  - label: Link
+    target: "Share v2 (content:// + chooser pattern): tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md, tasks/TASK-0127-share-v2b-chooser-ui-targets-grants.md"
+  - label: "Scoped grants"
+    target: tasks/TASK-0084-ui-v12a-scoped-uri-grants.md
+  - label: "Backup bundles (NBK v1)"
+    target: tasks/TASK-0161-backup-restore-v1a-host-nbk-format-pack-verify-restore.md
 ---
 
 ## Context

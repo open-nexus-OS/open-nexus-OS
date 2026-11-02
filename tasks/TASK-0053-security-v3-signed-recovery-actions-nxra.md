@@ -1,26 +1,33 @@
 ---
-title: TASK-0053 Security v3 (Recovery): signed Recovery Action tokens (.nxra) + replay protection — enforced on the recovery ops surface
-status: Done
-owner: @security
+schema: 1
+id: TASK-0053
+title: "Security v3 (Recovery): signed Recovery Action tokens (.nxra) + replay protection — enforced on the recovery ops surface"
+status: done
+owner: ["@security"]
 created: 2025-12-23
 updated: 2026-08-24
-completed: 2026-08-24
-depends-on:
-  - TASK-0008B # keystored / device keys (Done — satisfied)
-  - TASK-0009 # statefs / /state (Done — satisfied)
-  - TASK-0047 # Policy-as-Code (Done — satisfied)
-  - TASK-0051 # recovery ops surface (enforcement point)
-follow-up-tasks: []
+subsystem: updates
+done: 2026-08-24
+dates_source: recorded
+depends_on: [TASK-0008B, TASK-0009, TASK-0047, TASK-0051]
+implements: [RFC-0087]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Reliability contract: docs/rfcs/RFC-0087-reliability-failure-model-v1.md
-  - Ops surface (enforcement point): tasks/TASK-0051-recovery-operations-surface.md
-  - Boot targets: tasks/TASK-0050-system-reset-boot-targets-bootctld.md
-  - Policy as Code (trust + gating): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
-  - Keystore / device keys: tasks/TASK-0008B-device-identity-keys-v1-virtio-rng-rngd-keystored-keygen.md
-  - DevX CLI: tasks/TASK-0045-devx-nx-cli-v1.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Ops surface (enforcement point)"
+    target: tasks/TASK-0051-recovery-operations-surface.md
+  - label: "Boot targets"
+    target: tasks/TASK-0050-system-reset-boot-targets-bootctld.md
+  - label: "Policy as Code (trust + gating)"
+    target: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
+  - label: "Keystore / device keys"
+    target: tasks/TASK-0008B-device-identity-keys-v1-virtio-rng-rngd-keystored-keygen.md
+  - label: "DevX CLI"
+    target: tasks/TASK-0045-devx-nx-cli-v1.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Rewrite 2026-08-18 (enforcement point changed; format work unchanged)

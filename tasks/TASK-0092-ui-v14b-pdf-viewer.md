@@ -1,22 +1,33 @@
 ---
-title: TASK-0092 UI v14b: PDF Viewer app (preview raster pages) + zoom/pan/nav + find-in-doc + share/export + Open With
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0092
+title: "UI v14b: PDF Viewer app (preview raster pages) + zoom/pan/nav + find-in-doc + share/export + Open With"
+status: draft
+owner: ["@ui"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
+tracks: [TRACK-DSL-V1-DEVX]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - DSL app platform: tasks/TASK-0122B-dsl-app-platform-v1-shell-routing-launch-contract.md
-  - DSL app integration kit: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md
-  - DSL v1 DevX track: tasks/TRACK-DSL-V1-DEVX.md
-  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
-  - Document access (picker/open-with): tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
-  - MIME/content foundations: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
-  - Thumbnailer (page thumbs cache): tasks/TASK-0082-ui-v11b-thumbnailer-recents.md
-  - Print preview text-map substrate: tasks/TASK-0091-ui-v14a-printd-textmap-find-helper.md
-  - Share sheet (optional): tasks/TASK-0068-ui-v7c-screenshot-screencap-share-sheet.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "DSL app platform"
+    target: tasks/TASK-0122B-dsl-app-platform-v1-shell-routing-launch-contract.md
+  - label: "DSL app integration kit"
+    target: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md
+  - label: "DSL syntax/layout convention"
+    target: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
+  - label: "Document access (picker/open-with)"
+    target: tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
+  - label: "MIME/content foundations"
+    target: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
+  - label: "Thumbnailer (page thumbs cache)"
+    target: tasks/TASK-0082-ui-v11b-thumbnailer-recents.md
+  - label: "Print preview text-map substrate"
+    target: tasks/TASK-0091-ui-v14a-printd-textmap-find-helper.md
+  - label: "Share sheet (optional)"
+    target: tasks/TASK-0068-ui-v7c-screenshot-screencap-share-sheet.md
 ---
 
 ## Context

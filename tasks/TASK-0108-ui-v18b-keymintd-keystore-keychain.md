@@ -1,17 +1,24 @@
 ---
-title: TASK-0108 UI v18b: keymintd (software) + keystore encrypted vault + nexus-keychain client (per-user, per-app)
-status: Draft
-owner: @security
+schema: 1
+id: TASK-0108
+title: "UI v18b: keymintd (software) + keystore encrypted vault + nexus-keychain client (per-user, per-app)"
+status: draft
+owner: ["@security"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: security
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Identity sessions: tasks/TASK-0107-ui-v18a-identityd-users-sessions.md
-  - Device keys baseline: tasks/TASK-0008B-device-identity-keys-v1-virtio-rng-rngd-keystored-keygen.md
-  - Persistence (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Policy as Code (namespace guards): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Identity sessions"
+    target: tasks/TASK-0107-ui-v18a-identityd-users-sessions.md
+  - label: "Device keys baseline"
+    target: tasks/TASK-0008B-device-identity-keys-v1-virtio-rng-rngd-keystored-keygen.md
+  - label: "Persistence (/state)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Policy as Code (namespace guards)"
+    target: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
 ---
 
 ## Context

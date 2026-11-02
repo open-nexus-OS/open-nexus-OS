@@ -1,25 +1,40 @@
 ---
-title: TASK-0154 Search v2 backend (OS/QEMU): service wiring + OS sources + optional persistence + selftests/postflight + docs
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0154
+title: "Search v2 backend (OS/QEMU): service wiring + OS sources + optional persistence + selftests/postflight + docs"
+status: draft
+owner: ["@ui"]
 created: 2025-12-26
-depends-on: []
-follow-up-tasks: []
+subsystem: messaging
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Search v2 backend host slice: tasks/TASK-0153-search-v2-backend-host-index-ranking-analyzers-sources.md
-  - Search v2 UI execution: tasks/TASK-0152-search-v2-ui-os-deeplinks-selftests-postflight-docs.md
-  - Search backend baseline: tasks/TASK-0071-ui-v9a-searchd-command-palette.md
-  - Recents substrate: tasks/TASK-0082-ui-v11b-thumbnailer-recents.md
-  - MIME/content substrate (files): tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
-  - Packages/apps list substrate: tasks/TASK-0130-packages-v1b-bundlemgrd-install-upgrade-uninstall-trust.md
-  - Store v1 feed/service (optional source): tasks/TASK-0180-store-v1a-host-storefeedd-storemgrd-ratings.md
-  - Persistence substrate (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Quotas v1: tasks/TASK-0133-statefs-quotas-v1-accounting-enforcement.md
-  - Policy caps: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
-  - Config broker: tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Search v2 backend host slice"
+    target: tasks/TASK-0153-search-v2-backend-host-index-ranking-analyzers-sources.md
+  - label: "Search v2 UI execution"
+    target: tasks/TASK-0152-search-v2-ui-os-deeplinks-selftests-postflight-docs.md
+  - label: "Search backend baseline"
+    target: tasks/TASK-0071-ui-v9a-searchd-command-palette.md
+  - label: "Recents substrate"
+    target: tasks/TASK-0082-ui-v11b-thumbnailer-recents.md
+  - label: "MIME/content substrate (files)"
+    target: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
+  - label: "Packages/apps list substrate"
+    target: tasks/TASK-0130-packages-v1b-bundlemgrd-install-upgrade-uninstall-trust.md
+  - label: "Store v1 feed/service (optional source)"
+    target: tasks/TASK-0180-store-v1a-host-storefeedd-storemgrd-ratings.md
+  - label: "Persistence substrate (/state)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Quotas v1"
+    target: tasks/TASK-0133-statefs-quotas-v1-accounting-enforcement.md
+  - label: "Policy caps"
+    target: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
+  - label: "Config broker"
+    target: tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

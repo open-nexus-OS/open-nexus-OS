@@ -1,21 +1,34 @@
 ---
-title: TASK-0290 Kernel zero-copy closure v1b: VMO sealing rights + write-map denial + reuse truth
-status: Draft — M5, executed as Block 4 layer 6e under tasks/TASK-0333 (2026-10-19): purgeable VMOs + seals (atlas bands, glass cache, blur cache); the frame-arena input below is 6b's (commit on touch)
-owner: @runtime @kernel-team @ui
+schema: 1
+id: TASK-0290
+title: "Kernel zero-copy closure v1b: VMO sealing rights + write-map denial + reuse truth"
+status: superseded
+status_note: "M5, executed as Block 4 layer 6e under tasks/TASK-0333 (2026-10-19): purgeable VMOs + seals (atlas bands, glass cache, blur cache)"
+owner: ["@runtime", "@kernel-team", "@ui"]
 created: 2026-04-13
-depends-on:
-  - TASK-0031
-follow-up-tasks: []
+subsystem: kernel
+depends_on: [TASK-0031]
+superseded_by: [TASK-0333]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Zero-copy VMO plumbing baseline: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
-  - UI/kernel perf floor: tasks/TASK-0054B-ui-v1a-kernel-ui-perf-floor-zero-copy-qos-hardening.md
-  - IPC fastpath floor: tasks/TASK-0054C-ui-v1a-kernel-ipc-fastpath-control-plane-vmo-bulk.md
-  - MM reuse floor: tasks/TASK-0054D-ui-v1a-kernel-mm-perf-floor-vmo-surface-reuse.md
-  - Driver optimization prototype: tasks/TASK-0284-userspace-dmabuffer-ownership-v1-prototype.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Zero-copy VMO plumbing baseline"
+    target: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
+  - label: "UI/kernel perf floor"
+    target: tasks/TASK-0054B-ui-v1a-kernel-ui-perf-floor-zero-copy-qos-hardening.md
+  - label: "IPC fastpath floor"
+    target: tasks/TASK-0054C-ui-v1a-kernel-ipc-fastpath-control-plane-vmo-bulk.md
+  - label: "MM reuse floor"
+    target: tasks/TASK-0054D-ui-v1a-kernel-mm-perf-floor-vmo-surface-reuse.md
+  - label: "Driver optimization prototype"
+    target: tasks/TASK-0284-userspace-dmabuffer-ownership-v1-prototype.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
+
+> Status (migrated 2026-11-02): Draft — M5, executed as Block 4 layer 6e under tasks/TASK-0333 (2026-10-19): purgeable VMOs + seals (atlas bands, glass cache, blur cache); the frame-arena input below is 6b's (commit on touch)
 
 ## Context
 

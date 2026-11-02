@@ -1,21 +1,28 @@
 ---
-title: TASK-0003 Networking step 1 (OS): virtio-net + smoltcp + DSoftBus local TCP/UDP
-status: Done (Track A/B complete; Noise XK follow-up in TASK-0003B)
-owner: @runtime
+schema: 1
+id: TASK-0003
+title: "Networking step 1 (OS): virtio-net + smoltcp + DSoftBus local TCP/UDP"
+status: done
+status_note: "Track A/B complete; Noise XK follow-up in TASK-0003B"
+owner: ["@runtime"]
 created: 2025-12-22
-depends-on: []
-follow-up-tasks:
-  - TASK-0003B
+subsystem: distributed
+done: 2026-07-17
+dates_source: git-reconstructed
+follow_ups: [TASK-0003B]
+implements: [RFC-0006, RFC-0007]
+tracks: [TRACK-NEXUSNET-SDK]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - NexusNet SDK track (cloud + DSoftBus): tasks/TRACK-NEXUSNET-SDK.md
-  - ADR: docs/adr/0005-dsoftbus-architecture.md
-  - Docs: docs/distributed/dsoftbus-lite.md
-  - RFC (seed): docs/rfcs/RFC-0006-userspace-networking-v1.md
-  - RFC (seed): docs/rfcs/RFC-0007-dsoftbus-os-transport-v1.md
-  - Testing contract: scripts/qemu-test.sh
-  - Follow-up (Noise XK auth): tasks/TASK-0003B-dsoftbus-noise-xk-os.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: ADR
+    target: docs/adr/0005-dsoftbus-architecture.md
+  - label: Docs
+    target: docs/distributed/dsoftbus-lite.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

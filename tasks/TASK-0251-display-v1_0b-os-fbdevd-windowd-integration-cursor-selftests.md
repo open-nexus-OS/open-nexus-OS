@@ -1,23 +1,34 @@
 ---
-title: TASK-0251 Display v1.0b (OS/board): the display controller + HDMI driver in gpud, the display mode's one authority is gpud (EDID on the board, virtio display-info on QEMU), syscall 50 and the fw_cfg path deleted — the first picture
-status: Done 2026-10-10 (Block 1 closure, D5 — the desktop at 1920x1080@60 on the board with USB input: the ladder 46/46, six of seven operator rungs on the gate boot, the clipboard rung accepted by the operator from its 2026-10-08 confirmation (see Closure); P2b EDID, step 3b's layer composite and findings 3/5/6/7 → the GPU lane (TASK-0216), finding 8 → TASK-0145B, finding 4's rest → TASK-0269B; was "In Progress (P2a step 3a ✅ 2026-10-04 on the board — the picture at 1080p: an anti-aliased painter, line icons as strokes, the damage grid at the layout, a Lanczos wallpaper bake, the `visible-2d` lane; open findings noted for their topics; operator priority: USB input (Block 2) before step 3b and P2b EDID; P2a step 2 ✅ 2026-10-04 windowd's desktop through the controller; P2a step 1 ✅ 2026-10-03 first light; P1 done 2026-09-30 — the mode authority is gpud; recut 2026-09-22 to the end state — Block 1 B1.7 of the hardware fast track; was "fbdevd service + windowd simplefb integration + cursor + splash", Draft since 2025-12-29)
-owner: @ui @runtime
+schema: 1
+id: TASK-0251
+title: "Display v1.0b (OS/board): the display controller + HDMI driver in gpud, the display mode's one authority is gpud (EDID on the board, virtio display-info on QEMU), syscall 50 and the fw_cfg path deleted — the first picture"
+status: done
+status_note: "2026-10-10 (Block 1 closure, D5"
+owner: ["@ui", "@runtime"]
 created: 2025-12-29
 updated: 2026-10-10
-depends-on:
-  - tasks/TASK-0250-display-v1_0a-host-simplefb-compositor-backend-deterministic.md
-  - tasks/TASK-0245B-board-support-v1c-soc-clock-reset-pinmux-power-from-fdt.md
-  - tasks/TASK-0286-kernel-memory-accounting-v1-rss-pressure-snapshots.md
-  - tasks/TASK-0260B-nxboot-as-fit-payload-chosen-node.md
-follow-up-tasks:
-  - tasks/TASK-0327B-board-proof-lane-serial-ladder-profiles.md
+subsystem: hardware
+started: 2026-09-30
+done: 2026-10-10
+active_days: 2
+dates_source: git-reconstructed
+depends_on: [TASK-0250, TASK-0245B, TASK-0286, TASK-0260B]
+follow_ups: [TASK-0327B]
+implements: [RFC-0098, RFC-0074]
 links:
-  - Contract: docs/rfcs/RFC-0098-board-support-contract-fdt-truth-boot-chain.md (C7, Phase 5); amends docs/rfcs/RFC-0074-display-mode-authority-fwcfg.md + docs/adr/0050-display-mode-authority.md
-  - Host half: tasks/TASK-0250-display-v1_0a-host-simplefb-compositor-backend-deterministic.md
-  - gpud: source/drivers/gpud/src/backend/ (`mod.rs` `VirtioGpuBackend`, `lifecycle.rs` IRQ bind, `attach.rs`, `present.rs`, `display_mode.rs`, `scanout_policy.rs`); windowd `display_backend.rs`
-  - Measurement: docs/board/measurements/2026-09-22-stock-system/README.md ("Display")
-  - Playbook: CLAUDE.md
+  - label: Contract
+    target: "docs/rfcs/RFC-0098-board-support-contract-fdt-truth-boot-chain.md (C7, Phase 5); amends docs/rfcs/RFC-0074-display-mode-authority-fwcfg.md + docs/adr/0050-display-mode-authority.md"
+  - label: "Host half"
+    target: tasks/TASK-0250-display-v1_0a-host-simplefb-compositor-backend-deterministic.md
+  - label: gpud
+    target: "source/drivers/gpud/src/backend/ (`mod.rs` `VirtioGpuBackend`, `lifecycle.rs` IRQ bind, `attach.rs`, `present.rs`, `display_mode.rs`, `scanout_policy.rs`); windowd `display_backend.rs`"
+  - label: Measurement
+    target: "docs/board/measurements/2026-09-22-stock-system/README.md (\"Display\")"
+  - label: Playbook
+    target: CLAUDE.md
 ---
+
+> Status (migrated 2026-11-02): Done 2026-10-10 (Block 1 closure, D5 — the desktop at 1920x1080@60 on the board with USB input: the ladder 46/46, six of seven operator rungs on the gate boot, the clipboard rung accepted by the operator from its 2026-10-08 confirmation (see Closure); P2b EDID, step 3b's layer composite and findings 3/5/6/7 → the GPU lane (TASK-0216), finding 8 → TASK-0145B, finding 4's rest → TASK-0269B; was "In Progress (P2a step 3a ✅ 2026-10-04 on the board — the picture at 1080p: an anti-aliased painter, line icons as strokes, the damage grid at the layout, a Lanczos wallpaper bake, the `visible-2d` lane; open findings noted for their topics; operator priority: USB input (Block 2) before step 3b and P2b EDID; P2a step 2 ✅ 2026-10-04 windowd's desktop through the controller; P2a step 1 ✅ 2026-10-03 first light; P1 done 2026-09-30 — the mode authority is gpud; recut 2026-09-22 to the end state — Block 1 B1.7 of the hardware fast track; was "fbdevd service + windowd simplefb integration + cursor + splash", Draft since 2025-12-29)
 
 ## History
 

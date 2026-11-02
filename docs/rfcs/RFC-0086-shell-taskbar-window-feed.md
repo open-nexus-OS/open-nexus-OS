@@ -1,14 +1,24 @@
-# RFC-0086: Shell taskbar window feed & taskbar verbs
+---
+schema: 1
+id: RFC-0086
+title: "Shell taskbar window feed & taskbar verbs"
+status: in_progress
+status_note: "Phases 0–2 implemented + boot-proven 2026-07-30; marker-contract entries open"
+owners: ["@ui", "@runtime"]
+created: 2026-07-30
+updated: 2026-07-30
+subsystem: ui
+tasks: [TASK-0313]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0313-launcher-design-handoff.md` (Track B, execution + proof)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0083-settings-distribution-v2-single-authority-versioned-snapshots.md` (retained latest-wins delivery doctrine)"
+  - label: "Related docs"
+    target: "`docs/dev/ui/patterns/windowing/window-intent.md`, `docs/dev/ui/windowd-cleanup-map.md` (dock.rs = MOVE step 5)"
+---
 
-- Status: In Progress (Phases 0–2 implemented + boot-proven 2026-07-30;
-  marker-contract entries open)
-- Owners: @ui @runtime
-- Created: 2026-07-30
-- Last Updated: 2026-07-30
-- Links:
-  - Tasks: `tasks/TASK-0313-launcher-design-handoff.md` (Track B, execution + proof)
-  - Related RFCs: `docs/rfcs/RFC-0083-settings-distribution-v2-single-authority-versioned-snapshots.md` (retained latest-wins delivery doctrine)
-  - Related docs: `docs/dev/ui/patterns/windowing/window-intent.md`, `docs/dev/ui/windowd-cleanup-map.md` (dock.rs = MOVE step 5)
+# RFC-0086: Shell taskbar window feed & taskbar verbs
 
 ## Status at a Glance
 

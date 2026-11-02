@@ -1,21 +1,32 @@
 ---
-title: TASK-0228 OOM watchdog v1 (OS): deterministic memory watchdog (`oomd`) with cooperative memstat + samgr/execd kill + selftests
-status: Superseded — `memd` (one memory authority: bands from abilitymgr, pressure from the kernel, kills through execd) is born in Block 4 layer 6e under tasks/TASK-0333 (2026-10-19), its journal in 6f
-owner: @runtime @reliability
+schema: 1
+id: TASK-0228
+title: "OOM watchdog v1 (OS): deterministic memory watchdog (`oomd`) with cooperative memstat + samgr/execd kill + selftests"
+status: superseded
+status_note: "`memd` (one memory authority: bands from abilitymgr"
+owner: ["@runtime", "@reliability"]
 created: 2025-12-29
-depends-on: []
-follow-up-tasks:
-  - TASK-0286
-  - TASK-0287
+subsystem: kernel
+follow_ups: [TASK-0286, TASK-0287]
+superseded_by: [TASK-0333]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Boot gates (readiness/spawn reasons/resource sentinels): docs/rfcs/RFC-0013-boot-gates-readiness-spawn-resource-v1.md
-  - Observability (logd): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
-  - Execd (spawner/supervision): tasks/TASK-0001-runtime-roles-and-boundaries.md
-  - Crash pipeline (optional correlation): tasks/TASK-0049-fault-exhaustion-truth-proof-reanimation.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Boot gates (readiness/spawn reasons/resource sentinels)"
+    target: docs/rfcs/RFC-0013-boot-gates-readiness-spawn-resource-v1.md
+  - label: "Observability (logd)"
+    target: tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
+  - label: "Execd (spawner/supervision)"
+    target: tasks/TASK-0001-runtime-roles-and-boundaries.md
+  - label: "Crash pipeline (optional correlation)"
+    target: tasks/TASK-0049-fault-exhaustion-truth-proof-reanimation.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
+
+> Status (migrated 2026-11-02): Superseded — `memd` (one memory authority: bands from abilitymgr, pressure from the kernel, kills through execd) is born in Block 4 layer 6e under tasks/TASK-0333 (2026-10-19), its journal in 6f
 
 ## Rebase note 2026-08-18 (reliability-lane recut)
 

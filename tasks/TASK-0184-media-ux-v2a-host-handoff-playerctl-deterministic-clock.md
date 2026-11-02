@@ -1,17 +1,24 @@
 ---
-title: TASK-0184 Media UX v2a (host-first): mediasessd multi-session + deterministic playback clock + handoff policy + playerctl client + tests
-status: Draft
-owner: @media
+schema: 1
+id: TASK-0184
+title: "Media UX v2a (host-first): mediasessd multi-session + deterministic playback clock + handoff policy + playerctl client + tests"
+status: draft
+owner: ["@media"]
 created: 2025-12-27
-depends-on: []
-follow-up-tasks: []
+subsystem: media
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Media UX v1 core: tasks/TASK-0155-media-ux-v1a-host-mediasessd-focus-nowplaying-artcache.md
-  - Notifications actions baseline (for later wiring): tasks/TASK-0069-ui-v8a-notifications-v2-actions-inline-reply.md
-  - Perf sessions (optional): tasks/TASK-0172-perf-v2a-perfd-sessions-stats-export.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Media UX v1 core"
+    target: tasks/TASK-0155-media-ux-v1a-host-mediasessd-focus-nowplaying-artcache.md
+  - label: "Notifications actions baseline (for later wiring)"
+    target: tasks/TASK-0069-ui-v8a-notifications-v2-actions-inline-reply.md
+  - label: "Perf sessions (optional)"
+    target: tasks/TASK-0172-perf-v2a-perfd-sessions-stats-export.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

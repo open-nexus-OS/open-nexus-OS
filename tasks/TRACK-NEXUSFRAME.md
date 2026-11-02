@@ -1,28 +1,49 @@
 ---
-title: TRACK NexusFrame (Pixelmator-class): fast photo/design editor (layers, masks, non-destructive), deterministic, capability-gated
-status: Draft
-owner: @apps @ui
+schema: 1
+id: TRACK-NEXUSFRAME
+title: "NexusFrame (Pixelmator-class): fast photo/design editor (layers, masks, non-destructive), deterministic, capability-gated"
+status: draft
+owner: ["@apps", "@ui"]
 created: 2026-01-19
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - System Delegation / System Surfaces (“Edit in Frame”, export/share): tasks/TRACK-SYSTEM-DELEGATION.md
-  - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
-  - Creative apps foundation (gates mindset): tasks/TRACK-CREATIVE-APPS.md
-  - Zero-Copy App Platform (autosave/recovery patterns): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
-  - NexusGfx SDK (render/compute contracts): tasks/TRACK-NEXUSGFX-SDK.md
-  - Gfx resource model: docs/architecture/graphics/nexusgfx-resource-model.md
-  - Gfx compute/executor model: docs/architecture/graphics/nexusgfx-compute-and-executor-model.md
-  - Gfx artifact pipeline: docs/architecture/graphics/nexusgfx-artifact-pipeline.md
-  - Drivers & accelerators (GPU/device-class direction): tasks/TRACK-DRIVERS-ACCELERATORS.md
-  - NexusInfer SDK (on-device ML runtime): tasks/TRACK-NEXUSINFER-SDK.md
-  - Zero-copy VMOs (bulk buffers): tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
-  - windowd compositor/present spine: tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md
-  - Renderer abstraction (host-first): tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md
-  - Renderer wiring (OS/QEMU): tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md
-  - Content/URIs + picker + grants: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md, tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md, tasks/TASK-0084-ui-v12a-scoped-uri-grants.md
-  - Files app integration (share/open-with): tasks/TASK-0086-ui-v12c-files-app-progress-dnd-share-openwith.md
-  - Share/Intents (optional “Edit in Frame” offers): tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md, tasks/TASK-0127-share-v2b-chooser-ui-targets-grants.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "System Delegation / System Surfaces (“Edit in Frame”, export/share)"
+    target: tasks/TRACK-SYSTEM-DELEGATION.md
+  - label: "Authority & naming registry"
+    target: tasks/TRACK-AUTHORITY-NAMING.md
+  - label: "Creative apps foundation (gates mindset)"
+    target: tasks/TRACK-CREATIVE-APPS.md
+  - label: "Zero-Copy App Platform (autosave/recovery patterns)"
+    target: tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
+  - label: "NexusGfx SDK (render/compute contracts)"
+    target: tasks/TRACK-NEXUSGFX-SDK.md
+  - label: "Gfx resource model"
+    target: docs/architecture/graphics/nexusgfx-resource-model.md
+  - label: "Gfx compute/executor model"
+    target: docs/architecture/graphics/nexusgfx-compute-and-executor-model.md
+  - label: "Gfx artifact pipeline"
+    target: docs/architecture/graphics/nexusgfx-artifact-pipeline.md
+  - label: "Drivers & accelerators (GPU/device-class direction)"
+    target: tasks/TRACK-DRIVERS-ACCELERATORS.md
+  - label: "NexusInfer SDK (on-device ML runtime)"
+    target: tasks/TRACK-NEXUSINFER-SDK.md
+  - label: "Zero-copy VMOs (bulk buffers)"
+    target: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
+  - label: "windowd compositor/present spine"
+    target: tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md
+  - label: "Renderer abstraction (host-first)"
+    target: tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md
+  - label: "Renderer wiring (OS/QEMU)"
+    target: tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md
+  - label: "Content/URIs + picker + grants"
+    target: "tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md, tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md, tasks/TASK-0084-ui-v12a-scoped-uri-grants.md"
+  - label: "Files app integration (share/open-with)"
+    target: tasks/TASK-0086-ui-v12c-files-app-progress-dnd-share-openwith.md
+  - label: "Share/Intents (optional “Edit in Frame” offers)"
+    target: "tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md, tasks/TASK-0127-share-v2b-chooser-ui-targets-grants.md"
 ---
 
 ## Goal (track-level)

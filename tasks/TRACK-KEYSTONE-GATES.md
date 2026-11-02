@@ -1,13 +1,19 @@
 ---
-title: TRACK Keystone Gates (closure plan for a coherent OS)
-status: Draft
-owner: @runtime
+schema: 1
+id: TRACK-KEYSTONE-GATES
+title: "Keystone Gates (closure plan for a coherent OS)"
+status: draft
+owner: ["@runtime"]
 created: 2025-12-30
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
-  - NexusInfer SDK (hybrid IPC + VMO data plane for future ML): tasks/TRACK-NEXUSINFER-SDK.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Authority & naming registry"
+    target: tasks/TRACK-AUTHORITY-NAMING.md
+  - label: "NexusInfer SDK (hybrid IPC + VMO data plane for future ML)"
+    target: tasks/TRACK-NEXUSINFER-SDK.md
 ---
 
 ## Purpose

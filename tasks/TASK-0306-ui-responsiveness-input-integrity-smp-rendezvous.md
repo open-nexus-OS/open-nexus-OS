@@ -1,13 +1,23 @@
 ---
-title: TASK-0306 UI responsiveness — input integrity, SMP rendezvous, BKL hold reduction
-status: In Progress (2026-07-26) — Phase 1 done, Phase 2 partial, Phase 3 open
-owner: @ui @kernel
+schema: 1
+id: TASK-0306
+title: "UI responsiveness — input integrity, SMP rendezvous, BKL hold reduction"
+status: in_progress
+status_note: "(2026-07-26) — Phase 1 done, Phase 2 partial, Phase 3 open"
+owner: ["@ui", "@kernel"]
 created: 2026-07-26
+subsystem: kernel
+started: 2026-07-26
+dates_source: git-reconstructed
 links:
-  - Evidence: build/logs/manual--2026-07-26T17-50-26/uart.log
-  - Soft-real-time spine: docs/rfcs/RFC-0033 (phases 1+2 done)
-  - Compositor boundary: docs/rfcs/RFC-0067-windowd-compositor-service-boundary-*.md
-  - Playbook: CLAUDE.md
+  - label: Evidence
+    target: build/logs/manual--2026-07-26T17-50-26/uart.log
+  - label: "Soft-real-time spine"
+    target: "docs/rfcs/RFC-0033 (phases 1+2 done)"
+  - label: "Compositor boundary"
+    target: "docs/rfcs/RFC-0067-windowd-compositor-service-boundary-*.md"
+  - label: Playbook
+    target: CLAUDE.md
 ---
 
 ## Context

@@ -1,34 +1,44 @@
 ---
-title: TASK-0029 Supply-Chain v1: bundle SBOM (CycloneDX) + repro metadata + signature allowlist policy (host-first, OS-gated)
-status: Done
-owner: @runtime @security
+schema: 1
+id: TASK-0029
+title: "Supply-Chain v1: bundle SBOM (CycloneDX) + repro metadata + signature allowlist policy (host-first, OS-gated)"
+status: done
+owner: ["@runtime", "@security"]
 created: 2025-12-22
 updated: 2026-04-22
-depends-on:
-  - TASK-0006
-  - TASK-0007
-  - TASK-0008B
-follow-up-tasks:
-  - TASK-0197
-  - TASK-0198
-  - TASK-0289
+subsystem: security
+started: 2026-04-21
+done: 2026-04-22
+active_days: 2
+dates_source: git-reconstructed
+depends_on: [TASK-0006, TASK-0007, TASK-0008B]
+follow_ups: [TASK-0197, TASK-0198, TASK-0289]
+implements: [RFC-0039]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Contract seed (RFC): docs/rfcs/RFC-0039-supply-chain-v1-bundle-sbom-repro-sign-policy.md
-  - Depends-on (manifest.nxb baseline, Done): tasks/TASK-0007-updates-packaging-v1_1-userspace-ab-skeleton.md
-  - Depends-on (device identity/keys, Done): tasks/TASK-0008B-device-identity-keys-v1-virtio-rng-rngd-keystored-keygen.md
-  - Depends-on (audit sink, Done): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
-  - ADR (manifest format = capnp): docs/adr/0020-manifest-format-capnproto.md
-  - ADR (canonical-vs-interop format policy): docs/adr/0021-structured-data-formats-json-vs-capnp.md
-  - Policy baseline: docs/security/signing-and-policy.md
-  - Packaging docs: docs/packaging/nxb.md
-  - System-set packaging: docs/packaging/system-set.md
-  - Keystored capnp schema (to extend): tools/nexus-idl/schemas/keystored.capnp
-  - Production-gate tier (Updates/Packaging/Recovery → production-grade): tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md
-  - Testing contract: scripts/qemu-test.sh
-  - Standards (security): docs/standards/SECURITY_STANDARDS.md
-  - Standards (debug discipline / deterministic markers): .cursor/rules/12-debug-discipline.mdc
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "ADR (manifest format = capnp)"
+    target: docs/adr/0020-manifest-format-capnproto.md
+  - label: "ADR (canonical-vs-interop format policy)"
+    target: docs/adr/0021-structured-data-formats-json-vs-capnp.md
+  - label: "Policy baseline"
+    target: docs/security/signing-and-policy.md
+  - label: "Packaging docs"
+    target: docs/packaging/nxb.md
+  - label: "System-set packaging"
+    target: docs/packaging/system-set.md
+  - label: "Keystored capnp schema (to extend)"
+    target: tools/nexus-idl/schemas/keystored.capnp
+  - label: "Production-gate tier (Updates/Packaging/Recovery → production-grade)"
+    target: tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
+  - label: "Standards (security)"
+    target: docs/standards/SECURITY_STANDARDS.md
+  - label: "Standards (debug discipline / deterministic markers)"
+    target: ".cursor/rules/12-debug-discipline.mdc"
 ---
 
 ## Context

@@ -1,22 +1,29 @@
 ---
-title: TASK-0078B QuerySpec v1: typed query values + canonical hash + keyset paging + the pure-Rust engine (nexus-query/queryd)
-status: Done
-owner: @ui @runtime
+schema: 1
+id: TASK-0078B
+title: "QuerySpec v1: typed query values + canonical hash + keyset paging + the pure-Rust engine (nexus-query/queryd)"
+status: done
+owner: ["@ui", "@runtime"]
 created: 2026-04-03
 updated: 2026-07-06
-depends-on:
-  - tasks/TASK-0078-dsl-v0_2b-service-stubs-cli-demo.md
-follow-up-tasks:
-  - tasks/TASK-0274-dsl-v0_2c-db-query-objects-builder-defaults-paging-deterministic.md
-  - tasks/TASK-0275-ui-v5c-lazy-data-loading-virtual-list-paging-contract.md
+subsystem: app-platform
+done: 2026-07-19
+dates_source: git-reconstructed
+depends_on: [TASK-0078]
+follow_ups: [TASK-0274, TASK-0275]
+split_from: TASK-0078
+tracks: [TRACK-DSL-V1-DEVX]
 links:
-  - Track: tasks/TRACK-DSL-V1-DEVX.md
-  - Query contract: docs/dev/dsl/db-queries.md
-  - Persistence substrate the engine sits on: source/services/statefsd (journaled KV over
-    virtio-blk, ADR-0023/RFC-0018)
-  - Permission gate: source/services/abilitymgr (KNOWN_PERMISSIONS + fail-closed)
-  - Consumers: tasks/TASK-0083 (document picker), TASK-0086 (files), master-detail demo (0078)
-  - Testing contract: scripts/qemu-test.sh
+  - label: "Query contract"
+    target: docs/dev/dsl/db-queries.md
+  - label: "Persistence substrate the engine sits on"
+    target: "source/services/statefsd (journaled KV over virtio-blk, ADR-0023/RFC-0018)"
+  - label: "Permission gate"
+    target: "source/services/abilitymgr (KNOWN_PERMISSIONS + fail-closed)"
+  - label: Consumers
+    target: "tasks/TASK-0083 (document picker), TASK-0086 (files), master-detail demo (0078)"
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context (updated 2026-07-06)

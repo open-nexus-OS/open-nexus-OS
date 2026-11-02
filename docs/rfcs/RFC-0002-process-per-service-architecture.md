@@ -1,9 +1,15 @@
-# RFC-0002: Process-Per-Service Architecture
+---
+schema: 1
+id: RFC-0002
+title: "Process-Per-Service Architecture"
+status: done
+status_note: "Phase 0 complete; later phases ongoing/deferred"
+owners: ["@runtime", "@kernel"]
+created: 2025-10-24
+updated: 2025-12-18
+---
 
-- Status: Complete (Phase 0 complete; later phases ongoing/deferred)
-- Owners: Runtime + Kernel Team
-- Created: 2025-10-24
-- Last Updated: 2025-12-18
+# RFC-0002: Process-Per-Service Architecture
 
 ## Status at a Glance
 

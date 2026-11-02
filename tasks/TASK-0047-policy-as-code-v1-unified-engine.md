@@ -1,37 +1,45 @@
 ---
-title: TASK-0047 Policy as Code v1: unified policy tree + evaluator + explain/dry-run + learn→enforce (+ nx policy)
-status: Done
-owner: @runtime
+schema: 1
+id: TASK-0047
+title: "Policy as Code v1: unified policy tree + evaluator + explain/dry-run + learn→enforce (+ nx policy)"
+status: done
+owner: ["@runtime"]
 created: 2025-12-22
-depends-on:
-  - TASK-0006
-  - TASK-0046
-follow-up-tasks:
-  - TASK-0043
-  - TASK-0136
-  - TASK-0189
-  - TASK-0229
-  - TASK-0230
-  - TASK-0266
+subsystem: security
+done: 2026-07-17
+dates_source: git-reconstructed
+depends_on: [TASK-0006, TASK-0046]
+follow_ups: [TASK-0043, TASK-0136, TASK-0189, TASK-0229, TASK-0230, TASK-0266]
+implements: [RFC-0045, RFC-0044]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - RFC: docs/rfcs/RFC-0045-policy-as-code-v1-unified-policy-tree-evaluator-explain-dry-run-learn-enforce-nx-policy.md
-  - Production gates: tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md
-  - Depends-on (config system): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
-  - Depends-on (config contract): docs/rfcs/RFC-0044-config-v1-configd-schema-layering-2pc-host-first-os-gated.md
-  - Depends-on (audit sink): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
-  - Policy architecture baseline: docs/adr/0014-policy-architecture.md
-  - Service architecture: docs/adr/0017-service-architecture.md
-  - Structured formats: docs/adr/0021-structured-data-formats-json-vs-capnp.md
-  - Existing policy service: source/services/policyd/
-  - ABI filters v2: tasks/TASK-0028-abi-filters-v2-arg-match-learn-enforce.md
-  - DSoftBus ACL hardening: tasks/TASK-0030-dsoftbus-discovery-authz-hardening-mdns-ttl-acl-ratelimit.md
-  - Sandboxing v1: tasks/TASK-0039-sandboxing-v1-vfs-namespaces-capfd-manifest.md
-  - Sandbox quotas/egress: tasks/TASK-0043-security-v2-sandbox-quotas-egress-abi-audit.md
-  - Supply-chain policy: tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
-  - DevX CLI: tasks/TASK-0045-devx-nx-cli-v1.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Production gates"
+    target: tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md
+  - label: "Policy architecture baseline"
+    target: docs/adr/0014-policy-architecture.md
+  - label: "Service architecture"
+    target: docs/adr/0017-service-architecture.md
+  - label: "Structured formats"
+    target: docs/adr/0021-structured-data-formats-json-vs-capnp.md
+  - label: "Existing policy service"
+    target: source/services/policyd/
+  - label: "ABI filters v2"
+    target: tasks/TASK-0028-abi-filters-v2-arg-match-learn-enforce.md
+  - label: "DSoftBus ACL hardening"
+    target: tasks/TASK-0030-dsoftbus-discovery-authz-hardening-mdns-ttl-acl-ratelimit.md
+  - label: "Sandboxing v1"
+    target: tasks/TASK-0039-sandboxing-v1-vfs-namespaces-capfd-manifest.md
+  - label: "Sandbox quotas/egress"
+    target: tasks/TASK-0043-security-v2-sandbox-quotas-egress-abi-audit.md
+  - label: "Supply-chain policy"
+    target: tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
+  - label: "DevX CLI"
+    target: tasks/TASK-0045-devx-nx-cli-v1.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

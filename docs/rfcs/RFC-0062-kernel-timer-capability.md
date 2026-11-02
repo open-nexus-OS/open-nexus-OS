@@ -1,12 +1,20 @@
-# RFC-0062: Kernel Timer Capability — Deterministic Tick Source for Service Pacing
+---
+schema: 1
+id: RFC-0062
+title: "Kernel Timer Capability — Deterministic Tick Source for Service Pacing"
+status: draft
+owners: ["@kernel", "@runtime", "@ui"]
+created: 2026-06-06
+links:
+  - label: Analysis
+    target: "`docs/dev/perf/KERNEL-TIMER-CAPABILITY-ANALYSIS.md`"
+  - label: "Phase 7 dependency"
+    target: "`docs/rfcs/RFC-0059-ui-v5a-animation-nexusgfx-sdk-gpu-driver-contract.md`"
+  - label: "Present feedback"
+    target: "`docs/rfcs/RFC-0059-...` §Phase 6d"
+---
 
-- Status: Draft
-- Owners: @kernel @runtime @ui
-- Created: 2026-06-06
-- Links:
-  - Analysis: `docs/dev/perf/KERNEL-TIMER-CAPABILITY-ANALYSIS.md`
-  - Phase 7 dependency: `docs/rfcs/RFC-0059-ui-v5a-animation-nexusgfx-sdk-gpu-driver-contract.md`
-  - Present feedback: `docs/rfcs/RFC-0059-...` §Phase 6d
+# RFC-0062: Kernel Timer Capability — Deterministic Tick Source for Service Pacing
 
 ## Status at a Glance
 

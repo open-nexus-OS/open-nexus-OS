@@ -1,17 +1,24 @@
 ---
-title: TASK-0188 Kernel sysfilter v1 (NEURON): per-task syscall allowlist + rate buckets + profile IDs (true enforcement)
-status: Draft
-owner: @runtime
+schema: 1
+id: TASK-0188
+title: "Kernel sysfilter v1 (NEURON): per-task syscall allowlist + rate buckets + profile IDs (true enforcement)"
+status: draft
+owner: ["@runtime"]
 created: 2025-12-27
-depends-on: []
-follow-up-tasks: []
+subsystem: kernel
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Kernel IPC/cap model: docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
-  - Userland syscall guardrails (not a boundary): tasks/TASK-0019-security-v2-userland-abi-syscall-filters.md
-  - Kernel ABI/syscalls work (related): tasks/TASK-0042-smp-v2-affinity-qos-budgets-kernel-abi.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Kernel IPC/cap model"
+    target: docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
+  - label: "Userland syscall guardrails (not a boundary)"
+    target: tasks/TASK-0019-security-v2-userland-abi-syscall-filters.md
+  - label: "Kernel ABI/syscalls work (related)"
+    target: tasks/TASK-0042-smp-v2-affinity-qos-budgets-kernel-abi.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

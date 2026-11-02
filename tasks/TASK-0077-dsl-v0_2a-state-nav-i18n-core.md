@@ -1,21 +1,24 @@
 ---
-title: TASK-0077 DSL v0.2a: stores/effects scheduling + routes/navigation + i18n + device-env/profile overrides (host)
-status: Done
-owner: @ui @runtime
+schema: 1
+id: TASK-0077
+title: "DSL v0.2a: stores/effects scheduling + routes/navigation + i18n + device-env/profile overrides (host)"
+status: done
+owner: ["@ui", "@runtime"]
 created: 2025-12-23
 updated: 2026-07-06
-depends-on:
-  - tasks/TASK-0076-dsl-v0_1b-interpreter-snapshots-os-demo.md
-follow-up-tasks:
-  - tasks/TASK-0077B-dsl-v0_2a-devx-ergonomics-local-state-env-async-recipes.md
-  - tasks/TASK-0077C-dsl-v0_2c-runtime-long-session-large-data-contract.md
-  - tasks/TASK-0078-dsl-v0_2b-service-stubs-cli-demo.md
+subsystem: text
+done: 2026-09-09
+dates_source: git-reconstructed
+depends_on: [TASK-0076]
+follow_ups: [TASK-0077B, TASK-0077C, TASK-0078]
+tracks: [TRACK-DSL-V1-DEVX]
 links:
-  - Track: tasks/TRACK-DSL-V1-DEVX.md
-  - Language reference: docs/dev/dsl/{grammar,state,navigation,i18n,profiles}.md
-  - Device-env SSOT (EXISTS, ADR-0035): source/services/systemui/manifests/{products,profiles,shells}/
-    + source/services/systemui/src/{registry,product,profile,shell}.rs
-  - Data formats rubric: docs/adr/0021-structured-data-formats-json-vs-capnp.md
+  - label: "Language reference"
+    target: "docs/dev/dsl/{grammar,state,navigation,i18n,profiles}.md"
+  - label: "Device-env SSOT (EXISTS, ADR-0035)"
+    target: "source/services/systemui/manifests/{products,profiles,shells}/ + source/services/systemui/src/{registry,product,profile,shell}.rs"
+  - label: "Data formats rubric"
+    target: docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
 ## Context (updated 2026-07-06)

@@ -1,20 +1,33 @@
 ---
-title: TRACK Group and Device Management (family + school + enterprise + fleet + kiosk): one policy/config/enrollment substrate across people and devices
-status: Draft
-owner: @platform @security @runtime
+schema: 1
+id: TRACK-GROUP-AND-DEVICE-MANAGEMENT
+title: "Group and Device Management (family + school + enterprise + fleet + kiosk): one policy/config/enrollment substrate across people and devices"
+status: draft
+owner: ["@platform", "@security", "@runtime"]
 created: 2026-04-07
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Policy as Code: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
-  - Config & Schema v1: tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
-  - Policy capability matrix: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
-  - Policy scoped grants v1.1: tasks/TASK-0167-policy-v1_1-host-scoped-grants-expiry-enumeration.md
-  - NexusAccount (optional cloud/group bootstrap): tasks/TRACK-NEXUSACCOUNT.md
-  - Store parental/licensing core: tasks/TASK-0221-store-v2_2a-host-licensed-ledger-parental-payments.md
-  - Store parental/licensing OS wiring: tasks/TASK-0222-store-v2_2b-os-purchase-flow-entitlements-guard.md
-  - Accounts/Identity v1.2: tasks/TASK-0223-accounts-identity-v1_2a-host-multiuser-sessiond.md
-  - Settings Family Mode UI: tasks/TRACK-SETTINGS-FAMILY-MODE.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Policy as Code"
+    target: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
+  - label: "Config & Schema v1"
+    target: tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
+  - label: "Policy capability matrix"
+    target: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
+  - label: "Policy scoped grants v1.1"
+    target: tasks/TASK-0167-policy-v1_1-host-scoped-grants-expiry-enumeration.md
+  - label: "NexusAccount (optional cloud/group bootstrap)"
+    target: tasks/TRACK-NEXUSACCOUNT.md
+  - label: "Store parental/licensing core"
+    target: tasks/TASK-0221-store-v2_2a-host-licensed-ledger-parental-payments.md
+  - label: "Store parental/licensing OS wiring"
+    target: tasks/TASK-0222-store-v2_2b-os-purchase-flow-entitlements-guard.md
+  - label: "Accounts/Identity v1.2"
+    target: tasks/TASK-0223-accounts-identity-v1_2a-host-multiuser-sessiond.md
+  - label: "Settings Family Mode UI"
+    target: tasks/TRACK-SETTINGS-FAMILY-MODE.md
 ---
 
 ## Goal (track-level)

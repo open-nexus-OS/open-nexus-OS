@@ -1,18 +1,26 @@
 ---
-title: TASK-0186 WebView v1.1a (host-first): CSP-Strict sanitizer + webview-core (history/find/session storage) + deterministic tests/goldens
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0186
+title: "WebView v1.1a (host-first): CSP-Strict sanitizer + webview-core (history/find/session storage) + deterministic tests/goldens"
+status: draft
+owner: ["@ui"]
 created: 2025-12-27
-depends-on: []
-follow-up-tasks: []
+subsystem: storage
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - WebView Net v1 host slice (sanitizer/render baseline): tasks/TASK-0176-webview-net-v1a-host-sanitizer-webview-sceneir-goldens.md
-  - WebView baseline service (find/text extraction direction): tasks/TASK-0111-ui-v19a-webviewd-sandbox-offscreen.md
-  - Renderer abstraction (Scene-IR snapshots): tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md
-  - Policy/webpolicy (fixtures-only fetch): tasks/TASK-0177-webview-net-v1b-os-httpstubd-fetchd-downloadd-policy-selftests.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "WebView Net v1 host slice (sanitizer/render baseline)"
+    target: tasks/TASK-0176-webview-net-v1a-host-sanitizer-webview-sceneir-goldens.md
+  - label: "WebView baseline service (find/text extraction direction)"
+    target: tasks/TASK-0111-ui-v19a-webviewd-sandbox-offscreen.md
+  - label: "Renderer abstraction (Scene-IR snapshots)"
+    target: tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md
+  - label: "Policy/webpolicy (fixtures-only fetch)"
+    target: tasks/TASK-0177-webview-net-v1b-os-httpstubd-fetchd-downloadd-policy-selftests.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

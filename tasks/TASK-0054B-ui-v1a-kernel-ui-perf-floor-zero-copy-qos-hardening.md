@@ -1,23 +1,37 @@
 ---
-title: TASK-0054B UI v1a extension: kernel/UI perf floor (delivered by 0042/0277/0283/0288 + init affinity; counters → TASK-0290)
-status: Done (2026-09-09 — reconciled: perf floor delivered by 0042/0277/0283/0288 + init affinity; counters remain with TASK-0290)
-owner: @kernel-team @runtime @ui
+schema: 1
+id: TASK-0054B
+title: "UI v1a extension: kernel/UI perf floor (delivered by 0042/0277/0283/0288 + init affinity; counters → TASK-0290)"
+status: done
+status_note: "2026-09-09 — reconciled: perf floor delivered by 0042/0277/0283/0288 + init affinity; counters remain with TASK-0290"
+owner: ["@kernel-team", "@runtime", "@ui"]
 created: 2026-03-29
-depends-on: []
-follow-up-tasks:
-  - TASK-0288
-  - TASK-0290
+subsystem: kernel
+done: 2026-09-09
+dates_source: status-text
+follow_ups: [TASK-0288, TASK-0290]
+split_from: TASK-0054
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - UI v1a host renderer baseline: tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md
-  - VMO plumbing baseline: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
-  - UI performance philosophy: docs/dev/ui/foundations/quality/performance-philosophy.md
-  - SMP v2 controls baseline: tasks/TASK-0042-smp-v2-affinity-qos-budgets-kernel-abi.md
-  - SMP/parallelism policy: tasks/TASK-0277-kernel-smp-parallelism-policy-v1-deterministic.md
-  - Per-CPU ownership wrapper: tasks/TASK-0283-kernel-percpu-ownership-wrapper-v1.md
-  - Zero-copy app platform: tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "UI v1a host renderer baseline"
+    target: tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md
+  - label: "VMO plumbing baseline"
+    target: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
+  - label: "UI performance philosophy"
+    target: docs/dev/ui/foundations/quality/performance-philosophy.md
+  - label: "SMP v2 controls baseline"
+    target: tasks/TASK-0042-smp-v2-affinity-qos-budgets-kernel-abi.md
+  - label: "SMP/parallelism policy"
+    target: tasks/TASK-0277-kernel-smp-parallelism-policy-v1-deterministic.md
+  - label: "Per-CPU ownership wrapper"
+    target: tasks/TASK-0283-kernel-percpu-ownership-wrapper-v1.md
+  - label: "Zero-copy app platform"
+    target: tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Closure 2026-09-09 (reconciliation — Done, delivered by the SMP lane)

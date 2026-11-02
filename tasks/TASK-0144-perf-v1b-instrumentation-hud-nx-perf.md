@@ -1,19 +1,28 @@
 ---
-title: TASK-0144 Perf v1b: frame pacing hooks (windowd/renderer/ui/DSL/webview) + Perf HUD + nx perf CLI + markers
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0144
+title: "Perf v1b: frame pacing hooks (windowd/renderer/ui/DSL/webview) + Perf HUD + nx perf CLI + markers"
+status: draft
+owner: ["@ui"]
 created: 2025-12-25
-depends-on: []
-follow-up-tasks: []
+subsystem: observability
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - perfd tracer: tasks/TASK-0143-perf-v1a-perfd-frame-trace-metrics.md
-  - UI performance philosophy: docs/dev/ui/foundations/quality/performance-philosophy.md
-  - SystemUI→DSL baseline: tasks/TASK-0120-systemui-dsl-migration-phase1b-os-wiring-postflight.md
-  - Renderer baseline: tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md
-  - windowd compositor baseline: tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md
-  - webviewd baseline: tasks/TASK-0111-ui-v19a-webviewd-sandbox-offscreen.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "perfd tracer"
+    target: tasks/TASK-0143-perf-v1a-perfd-frame-trace-metrics.md
+  - label: "UI performance philosophy"
+    target: docs/dev/ui/foundations/quality/performance-philosophy.md
+  - label: "SystemUI→DSL baseline"
+    target: tasks/TASK-0120-systemui-dsl-migration-phase1b-os-wiring-postflight.md
+  - label: "Renderer baseline"
+    target: tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md
+  - label: "windowd compositor baseline"
+    target: tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md
+  - label: "webviewd baseline"
+    target: tasks/TASK-0111-ui-v19a-webviewd-sandbox-offscreen.md
 ---
 
 ## Context

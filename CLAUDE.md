@@ -20,7 +20,8 @@ development, QEMU-last proof.
 - `source/libs/` — shared libraries (nexus-abi, nexus-ipc, nexus-gfx, …)
 - `userspace/` — host-compatible libraries and domain logic
 - `tools/nx/` — DSL compiler/CLI + integration chain tests
-- `tasks/` — task ledgers (execution truth) · `docs/rfcs/` — design contracts
+- `tasks/` — planning as data (RFC-0115): `milestones/` (the order), `sprints/` (the week),
+  `TASK-*` ledgers (execution truth), `SUBSYSTEMS.md` · `docs/rfcs/` — design contracts
 - `docs/adr/` — architecture decisions · `docs/architecture/` — deep dives
 
 ## Build & verify
@@ -32,6 +33,7 @@ just test-all     # full gate: check + tests + miri + kernel + QEMU SMP
 just test-os      # QEMU selftest ladder (default profile=headless)
 just start        # build + launch interactive OS (visible virgl window)
 just dep-gate     # RFC-0009: forbidden-crate scan of the OS graph
+just brief        # RFC-0115: active milestone, this week's sprint, open work (also at session start)
 just help         # full task catalog
 ```
 
@@ -136,17 +138,23 @@ English; prefer modular files (~600 LOC) over monoliths.
 
 ## Workflow
 
-1. Read the task ledger (`tasks/TASK-*.md`) and its linked RFC/ADR contracts;
-   stay inside the task's touched paths.
+1. Orient with `just brief` / `nx ledger show <ID>` (compact; read a ledger body only for the
+   decisions you need) and the linked RFC/ADR contracts; stay inside the task's touched paths.
+   **Planning state is written only through `nx ledger`** (phase, set, step, goal, plan) — never
+   by editing frontmatter or prose progress by hand; `just ledger-gate` (in `just check`)
+   enforces the format. Before a task starts: the `plan-package` skill (goal with a number,
+   named consumer, estimate from history, phases as user stories with measurable gates).
+   A task `in_progress` belongs to the building session; drafts, milestones and sprints may
+   change in parallel from the planning conversation (Section 9).
 2. New syscall/service API/wire format/protocol → RFC seed first
-   (`docs/rfcs/RFC-TEMPLATE.md`, next free number, update the RFC index).
+   (`docs/rfcs/RFC-TEMPLATE.md`, next free number; the index is derived: `nx ledger list --kind rfc`).
 3. Host-first: prove logic with host tests, then confirm in QEMU. Pick the
    smallest honest proof set; state target behavior → proof → regression
    signal.
 4. Bounded debugging: form hypotheses, check `docs/testing/README.md`
    troubleshooting first, no endless retry chains.
-5. Docs sweep before "done": task ledger status, RFC status, CHANGELOG,
-   affected `docs/**`.
+5. Docs sweep before "done": phases and status via `nx ledger`, RFC status, CHANGELOG,
+   affected `docs/**`. Progress reports use `nx ledger table` (counted, never estimated).
 
 ## Read more
 
@@ -154,7 +162,8 @@ English; prefer modular files (~600 LOC) over monoliths.
 - `docs/architecture/README.md` — architecture entry point + reading order
 - `docs/testing/README.md` — test layers, QEMU profiles, marker ladder
 - `docs/standards/` — Rust/build/security/documentation standards
-- `.claude/skills/` — code-quality + architecture-review (design gate) + boot-proof + verify workflows
+- `.claude/skills/` — plan-package (RFC-0115 planning ritual) + code-quality + architecture-review
+  (design gate) + boot-proof + verify workflows
 - `.claude/skills/driver-bringup/` — driver / board / SoC-block bring-up playbook: measure on the
   stock system → hypotheses with a decision criterion → gate → code → gate → sharpen (recipes,
   gate library, traps, ledger template)

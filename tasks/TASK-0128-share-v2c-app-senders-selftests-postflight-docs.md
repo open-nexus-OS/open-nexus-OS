@@ -1,18 +1,25 @@
 ---
-title: TASK-0128 Share v2c: sender-side wiring (Files/Text/Images/Markdown/PDF/Browser/SystemUI) + OS selftests + postflight + docs
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0128
+title: "Share v2c: sender-side wiring (Files/Text/Images/Markdown/PDF/Browser/SystemUI) + OS selftests + postflight + docs"
+status: draft
+owner: ["@ui"]
 created: 2025-12-25
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
+tracks: [TRACK-ADS-SAFETY-FAMILYMODE]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
-  - Share v2a intentsd/policy: tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md
-  - Share v2b chooser/targets/grants: tasks/TASK-0127-share-v2b-chooser-ui-targets-grants.md
-  - Files app share baseline: tasks/TASK-0086-ui-v12c-files-app-progress-dnd-share-openwith.md
-  - Grants (content://): tasks/TASK-0084-ui-v12a-scoped-uri-grants.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Share v2a intentsd/policy"
+    target: tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md
+  - label: "Share v2b chooser/targets/grants"
+    target: tasks/TASK-0127-share-v2b-chooser-ui-targets-grants.md
+  - label: "Files app share baseline"
+    target: tasks/TASK-0086-ui-v12c-files-app-progress-dnd-share-openwith.md
+  - label: Link
+    target: "Grants (content://): tasks/TASK-0084-ui-v12a-scoped-uri-grants.md"
 ---
 
 ## Context

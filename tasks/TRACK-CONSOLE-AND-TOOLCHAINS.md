@@ -1,25 +1,43 @@
 ---
-title: TRACK Console and Toolchains (secure shell + runtimes + tools + local services): real developer power without Unix ambient authority
-status: Draft
-owner: @devx @runtime @security
+schema: 1
+id: TRACK-CONSOLE-AND-TOOLCHAINS
+title: "Console and Toolchains (secure shell + runtimes + tools + local services): real developer power without Unix ambient authority"
+status: draft
+owner: ["@devx", "@runtime", "@security"]
 created: 2026-04-07
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Dev Studio (IDE) keystone: tasks/TRACK-DEVSTUDIO-IDE.md
-  - App Store umbrella: tasks/TRACK-APP-STORE.md
-  - Zero-Copy App Platform: tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
-  - Group and Device Management: tasks/TRACK-GROUP-AND-DEVICE-MANAGEMENT.md
-  - Settings Family Mode: tasks/TRACK-SETTINGS-FAMILY-MODE.md
-  - Packages install authority: tasks/TASK-0130-packages-v1b-bundlemgrd-install-upgrade-uninstall-trust.md
-  - Installer v1.1 direction: tasks/TASK-0239-installer-v1_1b-os-pkgr-atomic-ab-bundlemgr-registry-licensed-selftests.md
-  - Typed settings registry: tasks/TASK-0225-settings-v2a-host-settingsd-typed-prefs-providers.md
-  - Service architecture: docs/adr/0017-service-architecture.md
-  - bundlemgrd onboarding: docs/architecture/15-bundlemgrd.md
-  - samgrd onboarding: docs/architecture/14-samgrd-service-manager.md
-  - Security standards: docs/standards/SECURITY_STANDARDS.md
-  - Build standards: docs/standards/BUILD_STANDARDS.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Dev Studio (IDE) keystone"
+    target: tasks/TRACK-DEVSTUDIO-IDE.md
+  - label: "App Store umbrella"
+    target: tasks/TRACK-APP-STORE.md
+  - label: "Zero-Copy App Platform"
+    target: tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
+  - label: "Group and Device Management"
+    target: tasks/TRACK-GROUP-AND-DEVICE-MANAGEMENT.md
+  - label: "Settings Family Mode"
+    target: tasks/TRACK-SETTINGS-FAMILY-MODE.md
+  - label: "Packages install authority"
+    target: tasks/TASK-0130-packages-v1b-bundlemgrd-install-upgrade-uninstall-trust.md
+  - label: "Installer v1.1 direction"
+    target: tasks/TASK-0239-installer-v1_1b-os-pkgr-atomic-ab-bundlemgr-registry-licensed-selftests.md
+  - label: "Typed settings registry"
+    target: tasks/TASK-0225-settings-v2a-host-settingsd-typed-prefs-providers.md
+  - label: "Service architecture"
+    target: docs/adr/0017-service-architecture.md
+  - label: "bundlemgrd onboarding"
+    target: docs/architecture/15-bundlemgrd.md
+  - label: "samgrd onboarding"
+    target: docs/architecture/14-samgrd-service-manager.md
+  - label: "Security standards"
+    target: docs/standards/SECURITY_STANDARDS.md
+  - label: "Build standards"
+    target: docs/standards/BUILD_STANDARDS.md
 ---
+
 > **Link 2026-09-21:** managed runtimes and tools ride on the `std` target + component runtime of `tasks/TASK-0332-std-target-libc-cpp-toolchain-port-riscv64gc-unknown-nexus.md` (target picture W in `tasks/IMPLEMENTATION-ORDER.md`). Host developer tooling for the board is `TASK-0327`, not this track.
 
 

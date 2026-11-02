@@ -1,25 +1,29 @@
 ---
-title: TASK-0080B SystemUI DSL bootstrap shell + login greeter (host-first): desktop + launcher grid + greeter pages in .nx
-status: Done
-owner: @ui
+schema: 1
+id: TASK-0080B
+title: "SystemUI DSL bootstrap shell + login greeter (host-first): desktop + launcher grid + greeter pages in .nx"
+status: done
+owner: ["@ui"]
 created: 2026-03-28
 updated: 2026-07-06
-depends-on:
-  - tasks/TASK-0076B-dsl-v0_1c-visible-os-mount-first-frame.md
-  - tasks/TASK-0077-dsl-v0_2a-state-nav-i18n-core.md
-  - tasks/TASK-0078-dsl-v0_2b-service-stubs-cli-demo.md
-follow-up-tasks:
-  - tasks/TASK-0080C-systemui-dsl-bootstrap-shell-os-wiring.md
-  - tasks/TASK-0119-systemui-dsl-migration-phase1a-launcher-qs-host.md
+subsystem: ui
+done: 2026-07-19
+dates_source: git-reconstructed
+depends_on: [TASK-0076B, TASK-0077, TASK-0078]
+follow_ups: [TASK-0080C, TASK-0119]
+split_from: TASK-0080
+tracks: [TRACK-DSL-V1-DEVX]
 links:
-  - Track: tasks/TRACK-DSL-V1-DEVX.md
-  - Shell registry the shell plugs into (EXISTS, ADR-0035): source/services/systemui/manifests/
-    (shell.toml `dsl_root` + features + [first_frame]; product selects profile/shell/theme)
-  - App registry feeding the launcher (EXISTS): source/services/bundlemgrd (ENUMERATE → AppRecord)
-  - Launch authority (EXISTS): source/services/abilitymgr (launch_with_caps, fail-closed)
-  - Session/login authority the greeter renders for (EXISTS, TASK-0065B): source/services/sessiond
-    + contract docs/dev/ui/shell/session.md
-  - Design kit consumed: userspace/ui/widgets/* (TASK-0073) via the DSL widget registry
+  - label: "Shell registry the shell plugs into (EXISTS, ADR-0035)"
+    target: "source/services/systemui/manifests/ (shell.toml `dsl_root` + features + [first_frame]; product selects profile/shell/theme)"
+  - label: "App registry feeding the launcher (EXISTS)"
+    target: "source/services/bundlemgrd (ENUMERATE → AppRecord)"
+  - label: "Launch authority (EXISTS)"
+    target: "source/services/abilitymgr (launch_with_caps, fail-closed)"
+  - label: "Session/login authority the greeter renders for (EXISTS, TASK-0065B)"
+    target: "source/services/sessiond + contract docs/dev/ui/shell/session.md"
+  - label: "Design kit consumed"
+    target: "userspace/ui/widgets/* (TASK-0073) via the DSL widget registry"
 ---
 
 ## Context (updated 2026-07-06)

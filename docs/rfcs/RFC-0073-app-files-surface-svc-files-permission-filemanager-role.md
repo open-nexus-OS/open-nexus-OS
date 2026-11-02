@@ -1,15 +1,30 @@
+---
+schema: 1
+id: RFC-0073
+title: "App files surface — `svc.files.*`, `nexus.permission.FILES`, the `filemanager` role, and the mime SSOT — contract seed"
+status: draft
+status_note: "(2026-07-15) — user decision 2026-07-15: stash ships as the privileged `filemanager` role (direct broad access)"
+owners: ["@runtime"]
+created: 2026-07-15
+updated: 2026-07-15
+subsystem: storage
+tasks: [TASK-0291, TASK-0293, TASK-0294]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0291-vfs-readdir-svc-files-stash-real-listing.md` (P1), `tasks/TASK-0293-nxfsd-os-bringup-gpt-mount-data-keepblk.md` (P2 writes), `tasks/TASK-0294-mime-ssot-nexus-mime-icons-stash-filetype-icons.md` (mime/icons)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0072-vfs-v2-writable-providers-readdir-stable-errors.md` (the VFS surface underneath), `docs/rfcs/RFC-0071-nxfs-user-data-filesystem-contract.md` (the `/data` store), `docs/rfcs/RFC-0042-sandboxing-v1-vfs-namespaces-capfd-manifest-permissions-host-first-os-gated.md` (mediation machinery), `docs/rfcs/RFC-0065-ui-v6b-app-lifecycle-registry-notifications-navigation-contract.md` (manifest/launch authority)"
+  - label: "Role model"
+    target: "`docs/dev/app-platform/privileged-roles.md` (`bundle_type = filemanager` (`FILES`) — planned row becomes real here)"
+  - label: "Mime SSOT"
+    target: "`resources/mimetypes/mimetypes.toml` + `resources/mimetypes/README.md`"
+  - label: Track
+    target: "`tasks/TRACK-STASH-USER-DATA-FS.md`"
+---
+
 # RFC-0073: App files surface — `svc.files.*`, `nexus.permission.FILES`, the `filemanager` role, and the mime SSOT — contract seed
 
-- Status: Draft (2026-07-15) — user decision 2026-07-15: stash ships as the privileged `filemanager` role (direct broad access); sandboxed apps get mediated pickers later (existing plan, TASK-0083/0084).
-- Owners: @runtime
-- Created: 2026-07-15
-- Last Updated: 2026-07-15
-- Links:
-  - Tasks: `tasks/TASK-0291-vfs-readdir-svc-files-stash-real-listing.md` (P1), `tasks/TASK-0293-nxfsd-os-bringup-gpt-mount-data-keepblk.md` (P2 writes), `tasks/TASK-0294-mime-ssot-nexus-mime-icons-stash-filetype-icons.md` (mime/icons)
-  - Related RFCs: `docs/rfcs/RFC-0072-vfs-v2-writable-providers-readdir-stable-errors.md` (the VFS surface underneath), `docs/rfcs/RFC-0071-nxfs-user-data-filesystem-contract.md` (the `/data` store), `docs/rfcs/RFC-0042-sandboxing-v1-vfs-namespaces-capfd-manifest-permissions-host-first-os-gated.md` (mediation machinery), `docs/rfcs/RFC-0065-ui-v6b-app-lifecycle-registry-notifications-navigation-contract.md` (manifest/launch authority)
-  - Role model: `docs/dev/app-platform/privileged-roles.md` (`bundle_type = filemanager` (`FILES`) — planned row becomes real here)
-  - Mime SSOT: `resources/mimetypes/mimetypes.toml` + `resources/mimetypes/README.md`
-  - Track: `tasks/TRACK-STASH-USER-DATA-FS.md`
+> Status (migrated 2026-11-02): Draft (2026-07-15) — user decision 2026-07-15: stash ships as the privileged `filemanager` role (direct broad access); sandboxed apps get mediated pickers later (existing plan, TASK-0083/0084).
 
 ## Status at a Glance
 

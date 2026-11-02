@@ -1,21 +1,30 @@
 ---
-title: TASK-0287 Kernel memory pressure v1: watermarks + hard limits + canonical OOM handoff
-status: Draft — M4, executed as Block 4 layer 6e under tasks/TASK-0333 (2026-10-19): accounting incl. GPU memory charged to the client, four levels as fractions of the FDT's free total, told to `memd` by an endpoint notification (RFC-0100 §3)
-owner: @runtime @kernel-team @reliability
+schema: 1
+id: TASK-0287
+title: "Kernel memory pressure v1: watermarks + hard limits + canonical OOM handoff"
+status: superseded
+status_note: "M4, executed as Block 4 layer 6e under tasks/TASK-0333 (2026-10-19): accounting incl"
+owner: ["@runtime", "@kernel-team", "@reliability"]
 created: 2026-04-13
-depends-on:
-  - TASK-0228
-  - TASK-0269
-  - TASK-0286
-follow-up-tasks: []
+subsystem: kernel
+depends_on: [TASK-0228, TASK-0269, TASK-0286]
+superseded_by: [TASK-0333]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - OOM watchdog v1 (cooperative baseline): tasks/TASK-0228-oomd-v1-deterministic-watchdog-cooperative-memstat-samgr-kill.md
-  - Ability/app kill reason propagation: tasks/TASK-0235-ability-v1_1b-os-appmgrd-extension-samgr-hooks-fgbg-policies-selftests.md
-  - Boot/resource gates: docs/rfcs/RFC-0013-boot-gates-readiness-spawn-resource-v1.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "OOM watchdog v1 (cooperative baseline)"
+    target: tasks/TASK-0228-oomd-v1-deterministic-watchdog-cooperative-memstat-samgr-kill.md
+  - label: "Ability/app kill reason propagation"
+    target: tasks/TASK-0235-ability-v1_1b-os-appmgrd-extension-samgr-hooks-fgbg-policies-selftests.md
+  - label: "Boot/resource gates"
+    target: docs/rfcs/RFC-0013-boot-gates-readiness-spawn-resource-v1.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
+
+> Status (migrated 2026-11-02): Draft — M4, executed as Block 4 layer 6e under tasks/TASK-0333 (2026-10-19): accounting incl. GPU memory charged to the client, four levels as fractions of the FDT's free total, told to `memd` by an endpoint notification (RFC-0100 §3)
 
 ## Context
 

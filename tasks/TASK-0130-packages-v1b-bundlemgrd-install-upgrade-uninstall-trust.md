@@ -1,23 +1,32 @@
 ---
-title: TASK-0130 Packages v1b: bundlemgrd install/upgrade/uninstall for third-party apps + trust policy + registry wiring + tests/markers
-status: Done
-owner: @runtime
+schema: 1
+id: TASK-0130
+title: "Packages v1b: bundlemgrd install/upgrade/uninstall for third-party apps + trust policy + registry wiring + tests/markers"
+status: done
+owner: ["@runtime"]
 created: 2025-12-25
-depends-on: []
-follow-up-tasks:
-  - TASK-0238
-  - TASK-0239
-  - TASK-0289
+subsystem: security
+done: 2026-07-19
+dates_source: git-reconstructed
+follow_ups: [TASK-0238, TASK-0239, TASK-0289]
+tracks: [TRACK-ADS-SAFETY-FAMILYMODE]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
-  - NXB format/tooling: tasks/TASK-0129-packages-v1a-nxb-format-signing-pkgr-tool.md
-  - State persistence (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Supply-chain sign policy: tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
-  - MIME registry: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
-  - App lifecycle/launch: tasks/TASK-0065-ui-v6b-app-lifecycle-notifications-navigation.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "NXB format/tooling"
+    target: tasks/TASK-0129-packages-v1a-nxb-format-signing-pkgr-tool.md
+  - label: "State persistence (/state)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Supply-chain sign policy"
+    target: tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
+  - label: "MIME registry"
+    target: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
+  - label: "App lifecycle/launch"
+    target: tasks/TASK-0065-ui-v6b-app-lifecycle-notifications-navigation.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

@@ -1,36 +1,61 @@
+---
+schema: 1
+id: RFC-0089
+title: "OTA v2 — Component Manifest (`.nxs` v2), A/B Boot Images, `nxboot` First-Stage Loader, Boot Selection Block"
+status: draft
+status_note: "contract seed for the Updates/OTA lane"
+owners: ["@runtime", "@security", "@tools-team"]
+created: 2026-08-25
+updated: 2026-09-05
+links:
+  - label: "Tasks (execution + proof, in lane order)"
+    target: "`tasks/TASK-0198-supply-chain-v2b-os-enforcement-store-updater-bundlemgrd.md` (Phase 1: device trust anchor)"
+  - label: "Tasks (execution + proof, in lane order)"
+    target: "`tasks/TASK-0036-ota-ab-v2-userspace-healthmux-rollback-softreboot.md` (health-commit v2 + BSB projection)"
+  - label: "Tasks (execution + proof, in lane order)"
+    target: "`tasks/TASK-0314-virtio-blk-driver-v2-multisector-queue-irq.md` (block substrate)"
+  - label: "Tasks (execution + proof, in lane order)"
+    target: "`tasks/TASK-0260-provisioning-recovery-v1_0a-host-image-builder-flasher-protocol-deterministic.md` (`nx image`)"
+  - label: "Tasks (execution + proof, in lane order)"
+    target: "`tasks/TASK-0315-block-topology-consolidation-gpt-virtioblkd-sole-owner.md` (single GPT disk)"
+  - label: "Tasks (execution + proof, in lane order)"
+    target: "`tasks/TASK-0289-boot-trust-floor-v1-verified-boot-rollback-measurement.md` (`nxboot` + boot trust floor)"
+  - label: "Tasks (execution + proof, in lane order)"
+    target: "`tasks/TASK-0179-updated-v2-offline-feed-delta-health-rollback.md` (apply engine v2 + crown proof)"
+  - label: "Tasks (execution + proof, in lane order)"
+    target: "`tasks/TASK-0140-updates-v1-ui-cli-settings-offline.md` (UI/CLI surfaces)"
+  - label: "Tasks (execution + proof, in lane order)"
+    target: "`tasks/TASK-0034-delta-updates-v1-bundle-nxdelta.md` + `tasks/TASK-0035-delta-updates-v1b-system-set-nxs.md` (delta components)"
+  - label: "`tasks/TASK-0321-ota-phase-b-verified-system-volume-bundle-set.md` (Phase B"
+    target: "verified system volume + bundle sets, §12)"
+  - label: ADRs
+    target: "`docs/adr/0058-boot-selection-block-dual-actor-discipline.md` (BSB write matrix)"
+  - label: ADRs
+    target: "`docs/adr/0059-first-stage-boot-chain-nxboot-handoff.md` (loader position + measured-boot handoff ABI)"
+  - label: ADRs
+    target: "`docs/adr/0060-verified-system-volume-bundlemgrd-verifier-init-spawner.md` (Phase B: system-volume trust tier, verifier + spawner split)"
+  - label: ADRs
+    target: "`docs/adr/0055-bootctld-single-boot-state-authority.md` (record ownership — unchanged)"
+  - label: ADRs
+    target: "`docs/adr/0044-single-blk-device-gpt-partitions-block-layer.md` (block topology — executed by TASK-0315)"
+  - label: ADRs
+    target: "`docs/adr/0043-user-data-in-dedicated-cow-fs-statefs-stays-service-kv.md` (staging must not live in `/state`)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md` (superseded in part — see Scope)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0087-reliability-failure-model-v1.md` (§4 boot targets — untouched, cross-referenced)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0088-nxra-signed-recovery-action-tokens.md` (break-glass — untouched, composes)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0039-supply-chain-v1-bundle-sbom-repro-sign-policy.md` (bundle-scoped signing baseline)"
+---
+
 <!-- Copyright 2026 Open Nexus OS Contributors -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # RFC-0089: OTA v2 — Component Manifest (`.nxs` v2), A/B Boot Images, `nxboot` First-Stage Loader, Boot Selection Block
 
-- Status: Draft (contract seed for the Updates/OTA lane)
-- Owners: @runtime @security @tools-team
-- Created: 2026-08-25
-- Last Updated: 2026-09-05 (Phase B executed: TASK-0321 Done, TASK-0035 Done — kind 4, NXSJ resume, reuse index)
-- Links:
-  - Tasks (execution + proof, in lane order):
-    - `tasks/TASK-0198-supply-chain-v2b-os-enforcement-store-updater-bundlemgrd.md` (Phase 1: device trust anchor)
-    - `tasks/TASK-0036-ota-ab-v2-userspace-healthmux-rollback-softreboot.md` (health-commit v2 + BSB projection)
-    - `tasks/TASK-0314-virtio-blk-driver-v2-multisector-queue-irq.md` (block substrate)
-    - `tasks/TASK-0260-provisioning-recovery-v1_0a-host-image-builder-flasher-protocol-deterministic.md` (`nx image`)
-    - `tasks/TASK-0315-block-topology-consolidation-gpt-virtioblkd-sole-owner.md` (single GPT disk)
-    - `tasks/TASK-0289-boot-trust-floor-v1-verified-boot-rollback-measurement.md` (`nxboot` + boot trust floor)
-    - `tasks/TASK-0179-updated-v2-offline-feed-delta-health-rollback.md` (apply engine v2 + crown proof)
-    - `tasks/TASK-0140-updates-v1-ui-cli-settings-offline.md` (UI/CLI surfaces)
-    - `tasks/TASK-0034-delta-updates-v1-bundle-nxdelta.md` + `tasks/TASK-0035-delta-updates-v1b-system-set-nxs.md` (delta components)
-    - `tasks/TASK-0321-ota-phase-b-verified-system-volume-bundle-set.md` (Phase B: verified system volume + bundle sets, §12)
-  - ADRs:
-    - `docs/adr/0058-boot-selection-block-dual-actor-discipline.md` (BSB write matrix)
-    - `docs/adr/0059-first-stage-boot-chain-nxboot-handoff.md` (loader position + measured-boot handoff ABI)
-    - `docs/adr/0060-verified-system-volume-bundlemgrd-verifier-init-spawner.md` (Phase B: system-volume trust tier, verifier + spawner split)
-    - `docs/adr/0055-bootctld-single-boot-state-authority.md` (record ownership — unchanged)
-    - `docs/adr/0044-single-blk-device-gpt-partitions-block-layer.md` (block topology — executed by TASK-0315)
-    - `docs/adr/0043-user-data-in-dedicated-cow-fs-statefs-stays-service-kv.md` (staging must not live in `/state`)
-  - Related RFCs:
-    - `docs/rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md` (superseded in part — see Scope)
-    - `docs/rfcs/RFC-0087-reliability-failure-model-v1.md` (§4 boot targets — untouched, cross-referenced)
-    - `docs/rfcs/RFC-0088-nxra-signed-recovery-action-tokens.md` (break-glass — untouched, composes)
-    - `docs/rfcs/RFC-0039-supply-chain-v1-bundle-sbom-repro-sign-policy.md` (bundle-scoped signing baseline)
+> Last Updated (migrated 2026-11-02): 2026-09-05 (Phase B executed: TASK-0321 Done, TASK-0035 Done — kind 4, NXSJ resume, reuse index)
 
 ## Status at a Glance
 

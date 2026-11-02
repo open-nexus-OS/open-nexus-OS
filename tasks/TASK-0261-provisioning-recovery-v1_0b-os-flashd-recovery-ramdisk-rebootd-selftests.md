@@ -1,20 +1,32 @@
 ---
-title: TASK-0261 Provisioning/Recovery v1.0b (OS/QEMU): flashd service + recovery ramdisk + rebootd + virtio-serial + selftests
-status: Draft — PARKED 2026-09-22 (hardware fast track): the flasher protocol is fastboot over the boot-ROM download mode (TASK-0327); a device-side flashd returns as a recovery-target fastboot gadget once the USB stack (TASK-0328) has gadget mode
-owner: @reliability
+schema: 1
+id: TASK-0261
+title: "Provisioning/Recovery v1.0b (OS/QEMU): flashd service + recovery ramdisk + rebootd + virtio-serial + selftests"
+status: draft
+status_note: "PARKED 2026-09-22 (hardware fast track): the flasher protocol is fastboot over the boot-ROM download mode (TASK-0327)"
+owner: ["@reliability"]
 created: 2025-12-29
-depends-on: []
-follow-up-tasks: []
+subsystem: updates
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
-  - Provisioning core (host-first): tasks/TASK-0260-provisioning-recovery-v1_0a-host-image-builder-flasher-protocol-deterministic.md
-  - Recovery baseline: tasks/TASK-0050-system-reset-boot-targets-bootctld.md
-  - Recovery tools: tasks/TASK-0051-recovery-operations-surface.md
-  - Persistence: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Authority & naming registry"
+    target: tasks/TRACK-AUTHORITY-NAMING.md
+  - label: "Provisioning core (host-first)"
+    target: tasks/TASK-0260-provisioning-recovery-v1_0a-host-image-builder-flasher-protocol-deterministic.md
+  - label: "Recovery baseline"
+    target: tasks/TASK-0050-system-reset-boot-targets-bootctld.md
+  - label: "Recovery tools"
+    target: tasks/TASK-0051-recovery-operations-surface.md
+  - label: Persistence
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
+
+> Status (migrated 2026-11-02): Draft — PARKED 2026-09-22 (hardware fast track): the flasher protocol is fastboot over the boot-ROM download mode (TASK-0327); a device-side flashd returns as a recovery-target fastboot gadget once the USB stack (TASK-0328) has gadget mode
 
 ## Context
 

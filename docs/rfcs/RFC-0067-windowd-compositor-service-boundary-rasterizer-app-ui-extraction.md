@@ -1,13 +1,25 @@
+---
+schema: 1
+id: RFC-0067
+title: "windowd — clean compositor-service boundary (rasterizer → NexusGfx, app/shell UI → userspace)"
+status: done
+status_note: "(2026-06-25) — windowd is a layer-compositor service"
+owners: ["@ui", "@runtime"]
+created: 2026-06-24
+links:
+  - label: Motivation
+    target: "`source/services/windowd` has grown to ~22k LOC and conflates three concerns — a display-server **service**, an inline **2D rasterizer**, and **app/shell UI content**. The service is no longer cleanly debuggable."
+  - label: "Builds on / aligns with"
+    target: "`tasks/TASK-0169` + `tasks/TASK-0170` (renderer abstraction: Scene-IR + Backend trait + cpu2d), `tasks/TASK-0170B` (NexusGfx windowd handoff), `tasks/TRACK-NEXUSGFX-SDK.md`, RFC-0059 (NexusGfx SDK structure), RFC-0063/0064/0065 (the UI stack this slims down)."
+  - label: "Reuse anchors (already windowd deps)"
+    target: "`userspace/nexus-gfx` (`command/buffer.rs`, `backend/cpu_mock.rs`), `userspace/ui/sdf`, `userspace/ui/effects`, `userspace/ui/shells/desktop`, `userspace/ui/widgets/virtual_list`, `userspace/apps/search` (`search-app`)."
+  - label: ADR
+    target: "this RFC folds the service-boundary decision (no separate ADR per the owner's request)."
+---
+
 # RFC-0067: windowd — clean compositor-service boundary (rasterizer → NexusGfx, app/shell UI → userspace)
 
-- Status: **Done** (2026-06-25) — windowd is a layer-compositor service; the inline CPU shadow, the demo content, and the CPU base-scene bake are gone. See **Outcome** below for what shipped and the small deferred residue.
-- Owners: @ui @runtime
-- Created: 2026-06-24
-- Links:
-  - Motivation: `source/services/windowd` has grown to ~22k LOC and conflates three concerns — a display-server **service**, an inline **2D rasterizer**, and **app/shell UI content**. The service is no longer cleanly debuggable.
-  - Builds on / aligns with: `tasks/TASK-0169` + `tasks/TASK-0170` (renderer abstraction: Scene-IR + Backend trait + cpu2d), `tasks/TASK-0170B` (NexusGfx windowd handoff), `tasks/TRACK-NEXUSGFX-SDK.md`, RFC-0059 (NexusGfx SDK structure), RFC-0063/0064/0065 (the UI stack this slims down).
-  - Reuse anchors (already windowd deps): `userspace/nexus-gfx` (`command/buffer.rs`, `backend/cpu_mock.rs`), `userspace/ui/sdf`, `userspace/ui/effects`, `userspace/ui/shells/desktop`, `userspace/ui/widgets/virtual_list`, `userspace/apps/search` (`search-app`).
-  - ADR: this RFC folds the service-boundary decision (no separate ADR per the owner's request).
+> Status (migrated 2026-11-02): **Done** (2026-06-25) — windowd is a layer-compositor service; the inline CPU shadow, the demo content, and the CPU base-scene bake are gone. See **Outcome** below for what shipped and the small deferred residue.
 
 ## Problem — why windowd is hard to debug
 

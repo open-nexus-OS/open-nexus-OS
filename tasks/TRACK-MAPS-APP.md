@@ -1,25 +1,43 @@
 ---
-title: TRACK Maps App (Organic Maps-class): fast offline/online maps + search + routing + 3D navigation (OSM-based, deterministic, policy-gated)
-status: Draft
-owner: @apps @ui @runtime
+schema: 1
+id: TRACK-MAPS-APP
+title: "Maps App (Organic Maps-class): fast offline/online maps + search + routing + 3D navigation (OSM-based, deterministic, policy-gated)"
+status: draft
+owner: ["@apps", "@ui", "@runtime"]
 created: 2026-01-19
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - System Delegation / System Surfaces (pick-location + navigation intents): tasks/TRACK-SYSTEM-DELEGATION.md
-  - UI layout pipeline contract: docs/dev/ui/foundations/layout/layout-pipeline.md
-  - Authority registry (names are binding): tasks/TRACK-AUTHORITY-NAMING.md
-  - Keystone closure plan: tasks/TRACK-KEYSTONE-GATES.md
-  - NexusGfx SDK (render/compute contracts): tasks/TRACK-NEXUSGFX-SDK.md
-  - Zero-copy data plane (VMOs): tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
-  - NexusNet SDK (bounded networking): tasks/TRACK-NEXUSNET-SDK.md
-  - DSL query objects (offline search/result views): tasks/TASK-0274-dsl-v0_2c-db-query-objects-builder-defaults-paging-deterministic.md
-  - Content/URIs (pathless) + picker + grants: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md, tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md, tasks/TASK-0084-ui-v12a-scoped-uri-grants.md
-  - Content quotas/versions (offline packs): tasks/TASK-0232-content-v1_2a-host-content-quotas-versions-naming-nx-content.md
-  - Packages / signed bundles (offline regions): tasks/TASK-0129-packages-v1a-nxb-format-signing-pkgr-tool.md, tasks/TASK-0130-packages-v1b-bundlemgrd-install-upgrade-uninstall-trust.md
-  - Permissions/Privacy (runtime consent + indicators): tasks/TASK-0103-ui-v17a-permissions-privacyd.md
-  - Sensor foundation (host-first): tasks/TASK-0258-sensor-bus-v0_9a-host-sensor-hal-accel-driver-deterministic.md
-  - Location stack (this track's dependency): tasks/TRACK-LOCATION-STACK.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "System Delegation / System Surfaces (pick-location + navigation intents)"
+    target: tasks/TRACK-SYSTEM-DELEGATION.md
+  - label: "UI layout pipeline contract"
+    target: docs/dev/ui/foundations/layout/layout-pipeline.md
+  - label: "Authority registry (names are binding)"
+    target: tasks/TRACK-AUTHORITY-NAMING.md
+  - label: "Keystone closure plan"
+    target: tasks/TRACK-KEYSTONE-GATES.md
+  - label: "NexusGfx SDK (render/compute contracts)"
+    target: tasks/TRACK-NEXUSGFX-SDK.md
+  - label: "Zero-copy data plane (VMOs)"
+    target: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
+  - label: "NexusNet SDK (bounded networking)"
+    target: tasks/TRACK-NEXUSNET-SDK.md
+  - label: "DSL query objects (offline search/result views)"
+    target: tasks/TASK-0274-dsl-v0_2c-db-query-objects-builder-defaults-paging-deterministic.md
+  - label: "Content/URIs (pathless) + picker + grants"
+    target: "tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md, tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md, tasks/TASK-0084-ui-v12a-scoped-uri-grants.md"
+  - label: "Content quotas/versions (offline packs)"
+    target: tasks/TASK-0232-content-v1_2a-host-content-quotas-versions-naming-nx-content.md
+  - label: "Packages / signed bundles (offline regions)"
+    target: "tasks/TASK-0129-packages-v1a-nxb-format-signing-pkgr-tool.md, tasks/TASK-0130-packages-v1b-bundlemgrd-install-upgrade-uninstall-trust.md"
+  - label: "Permissions/Privacy (runtime consent + indicators)"
+    target: tasks/TASK-0103-ui-v17a-permissions-privacyd.md
+  - label: "Sensor foundation (host-first)"
+    target: tasks/TASK-0258-sensor-bus-v0_9a-host-sensor-hal-accel-driver-deterministic.md
+  - label: "Location stack (this track's dependency)"
+    target: tasks/TRACK-LOCATION-STACK.md
 ---
 
 ## Goal (track-level)

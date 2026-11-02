@@ -1,30 +1,47 @@
 ---
-title: TASK-0206 WebView v1.2b (OS/QEMU): persistent history + session restore + downloadd pause/resume (devnet-gated) + content:// leases + CSP report viewer + selftests/docs
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0206
+title: "WebView v1.2b (OS/QEMU): persistent history + session restore + downloadd pause/resume (devnet-gated) + content:// leases + CSP report viewer + selftests/docs"
+status: draft
+owner: ["@ui"]
 created: 2025-12-27
-depends-on: []
-follow-up-tasks: []
+subsystem: networking
+tracks: [TRACK-DSL-V1-DEVX, TRACK-ADS-SAFETY-FAMILYMODE]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - DSL query posture: docs/dev/dsl/db-queries.md
-  - DSL state tiers: docs/dev/dsl/state.md
-  - UI lazy loading posture: docs/dev/ui/collections/lazy-loading.md
-  - WebView usage posture: docs/dev/ui/blessed-surfaces/webview.md
-  - DSL v1 DevX track: tasks/TRACK-DSL-V1-DEVX.md
-  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
-  - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
-  - WebView v1.2 host substrate: tasks/TASK-0205-webview-v1_2a-host-history-session-csp-cookies.md
-  - QuerySpec v1 foundation: tasks/TASK-0078B-dsl-v0_2b-queryspec-v1-foundation-service-gated-paging-hash.md
-  - QuerySpec v2 hardening: tasks/TASK-0274-dsl-v0_2c-db-query-objects-builder-defaults-paging-deterministic.md
-  - WebView v1.1 OS wiring (file chooser/leases): tasks/TASK-0187-webview-v1_1b-os-file-chooser-content-leases-nxweb-selftests.md
-  - WebView Net v1 OS services (httpstubd/fetchd/downloadd): tasks/TASK-0177-webview-net-v1b-os-httpstubd-fetchd-downloadd-policy-selftests.md
-  - Devnet real HTTP(S) (OS-gated): tasks/TASK-0194-networking-v1b-os-devnet-gated-real-connect.md
-  - Persistence substrate (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Policy cap matrix baseline: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
-  - Testing contract: scripts/qemu-test.sh
-  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "DSL query posture"
+    target: docs/dev/dsl/db-queries.md
+  - label: "DSL state tiers"
+    target: docs/dev/dsl/state.md
+  - label: "UI lazy loading posture"
+    target: docs/dev/ui/collections/lazy-loading.md
+  - label: "WebView usage posture"
+    target: docs/dev/ui/blessed-surfaces/webview.md
+  - label: "DSL syntax/layout convention"
+    target: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
+  - label: "WebView v1.2 host substrate"
+    target: tasks/TASK-0205-webview-v1_2a-host-history-session-csp-cookies.md
+  - label: "QuerySpec v1 foundation"
+    target: tasks/TASK-0078B-dsl-v0_2b-queryspec-v1-foundation-service-gated-paging-hash.md
+  - label: "QuerySpec v2 hardening"
+    target: tasks/TASK-0274-dsl-v0_2c-db-query-objects-builder-defaults-paging-deterministic.md
+  - label: "WebView v1.1 OS wiring (file chooser/leases)"
+    target: tasks/TASK-0187-webview-v1_1b-os-file-chooser-content-leases-nxweb-selftests.md
+  - label: "WebView Net v1 OS services (httpstubd/fetchd/downloadd)"
+    target: tasks/TASK-0177-webview-net-v1b-os-httpstubd-fetchd-downloadd-policy-selftests.md
+  - label: "Devnet real HTTP(S) (OS-gated)"
+    target: tasks/TASK-0194-networking-v1b-os-devnet-gated-real-connect.md
+  - label: "Persistence substrate (/state)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Policy cap matrix baseline"
+    target: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
+  - label: "Data formats rubric (JSON vs Cap'n Proto)"
+    target: docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
 ## Context

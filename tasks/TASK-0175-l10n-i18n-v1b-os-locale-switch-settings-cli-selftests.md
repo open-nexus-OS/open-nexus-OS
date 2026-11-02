@@ -1,22 +1,36 @@
 ---
-title: TASK-0175 L10n/i18n v1b (OS/QEMU): runtime locale switching + Settings Language/Region + nx-l10n + RTL toggle + CJK font fallbacks + selftests/docs
-status: Superseded (2026-07-21 — replaced by TASK-0241 (runtime locale switch via OP_SURFACE_REGION push, no l10nd/Fluent) per RFC-0077)
-owner: @ui
+schema: 1
+id: TASK-0175
+title: "L10n/i18n v1b (OS/QEMU): runtime locale switching + Settings Language/Region + nx-l10n + RTL toggle + CJK font fallbacks + selftests/docs"
+status: superseded
+status_note: "2026-07-21 — replaced by TASK-0241 (runtime locale switch via OP_SURFACE_REGION push, no l10nd/Fluent) per RFC-0077"
+owner: ["@ui"]
 created: 2025-12-27
-depends-on: []
-follow-up-tasks: []
+subsystem: text
+superseded_by: [TASK-0241]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - L10n core + fontsel: tasks/TASK-0174-l10n-i18n-v1a-host-core-fluent-icu-fontsel-goldens.md
-  - Renderer/windowd OS wiring: tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md
-  - Search v2 UI (i18n consumer): tasks/TASK-0151-search-v2-ui-host-command-palette-model-a11y.md
-  - Media UX v1 (i18n consumer): tasks/TASK-0156-media-ux-v1b-os-miniplayer-lockscreen-sample-cli-selftests.md
-  - SystemUI Settings DSL baseline: tasks/TASK-0121-systemui-dsl-migration-phase2a-settings-notifs-host.md
-  - Prefs substrate: tasks/TASK-0072-ui-v9b-prefsd-settings-panels-quick-settings.md
-  - Policy v1.1 caps (optional): tasks/TASK-0167-policy-v1_1-host-scoped-grants-expiry-enumeration.md
-  - Testing contract: scripts/qemu-test.sh
-  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "L10n core + fontsel"
+    target: tasks/TASK-0174-l10n-i18n-v1a-host-core-fluent-icu-fontsel-goldens.md
+  - label: "Renderer/windowd OS wiring"
+    target: tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md
+  - label: "Search v2 UI (i18n consumer)"
+    target: tasks/TASK-0151-search-v2-ui-host-command-palette-model-a11y.md
+  - label: "Media UX v1 (i18n consumer)"
+    target: tasks/TASK-0156-media-ux-v1b-os-miniplayer-lockscreen-sample-cli-selftests.md
+  - label: "SystemUI Settings DSL baseline"
+    target: tasks/TASK-0121-systemui-dsl-migration-phase2a-settings-notifs-host.md
+  - label: "Prefs substrate"
+    target: tasks/TASK-0072-ui-v9b-prefsd-settings-panels-quick-settings.md
+  - label: "Policy v1.1 caps (optional)"
+    target: tasks/TASK-0167-policy-v1_1-host-scoped-grants-expiry-enumeration.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
+  - label: "Data formats rubric (JSON vs Cap'n Proto)"
+    target: docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
 ## Context

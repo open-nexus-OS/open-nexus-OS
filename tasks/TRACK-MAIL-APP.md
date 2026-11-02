@@ -1,18 +1,29 @@
 ---
-title: TRACK Mail app (IMAP/SMTP): offline-first, attachment-safe, account-grant based reference app
-status: Draft
-owner: @ui @security @runtime
+schema: 1
+id: TRACK-MAIL-APP
+title: "Mail app (IMAP/SMTP): offline-first, attachment-safe, account-grant based reference app"
+status: draft
+owner: ["@ui", "@security", "@runtime"]
 created: 2026-01-19
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - System Delegation / System Surfaces (compose + attachment open/save): tasks/TRACK-SYSTEM-DELEGATION.md
-  - NexusAccount (identity + online grants): tasks/TRACK-NEXUSACCOUNT.md
-  - NexusNet SDK (network/OAuth/providers): tasks/TRACK-NEXUSNET-SDK.md
-  - Zero-Copy App Platform (content/grants/saveAs): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
-  - Files app (Open With / save/export): tasks/TASK-0086-ui-v12c-files-app-progress-dnd-share-openwith.md
-  - Share v2 / Intents (registry + dispatch): tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md
-  - Share v2 (targets + senders + selftests): tasks/TASK-0128-share-v2c-app-senders-selftests-postflight-docs.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "System Delegation / System Surfaces (compose + attachment open/save)"
+    target: tasks/TRACK-SYSTEM-DELEGATION.md
+  - label: "NexusAccount (identity + online grants)"
+    target: tasks/TRACK-NEXUSACCOUNT.md
+  - label: "NexusNet SDK (network/OAuth/providers)"
+    target: tasks/TRACK-NEXUSNET-SDK.md
+  - label: "Zero-Copy App Platform (content/grants/saveAs)"
+    target: tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
+  - label: "Files app (Open With / save/export)"
+    target: tasks/TASK-0086-ui-v12c-files-app-progress-dnd-share-openwith.md
+  - label: "Share v2 / Intents (registry + dispatch)"
+    target: tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md
+  - label: "Share v2 (targets + senders + selftests)"
+    target: tasks/TASK-0128-share-v2c-app-senders-selftests-postflight-docs.md
 ---
 
 ## Goal (track-level)

@@ -1,24 +1,32 @@
 ---
-title: TASK-0027 StateFS v2b: record encryption for statefs values (rescoped 2026-07-15 — user-data encryption moved to RFC-0071/nxfs)
-status: Done
-owner: @runtime
+schema: 1
+id: TASK-0027
+title: "StateFS v2b: record encryption for statefs values (rescoped 2026-07-15 — user-data encryption moved to RFC-0071/nxfs)"
+status: done
+owner: ["@runtime"]
 created: 2025-12-22
-depends-on:
-  - TASK-0006
-  - TASK-0008B
-  - TASK-0009
-  - TASK-0025
-  - TASK-0026
-follow-up-tasks: []
+subsystem: security
+started: 2026-08-18
+done: 2026-08-18
+active_days: 1
+dates_source: git-reconstructed
+depends_on: [TASK-0006, TASK-0008B, TASK-0009, TASK-0025, TASK-0026]
+tracks: [TRACK-STASH-USER-DATA-FS]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Shipped substrate (v1, Complete): docs/rfcs/RFC-0018-statefs-journal-format-v1.md
-  - Key hierarchy + user-data encryption (authoritative): docs/rfcs/RFC-0071-nxfs-user-data-filesystem-contract.md
-  - Architecture split: docs/adr/0043-user-data-in-dedicated-cow-fs-statefs-stays-service-kv.md
-  - Device keys / entropy: tasks/TASK-0008B-device-identity-keys-v1-virtio-rng-rngd-keystored-keygen.md
-  - Track: tasks/TRACK-STASH-USER-DATA-FS.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Shipped substrate (v1, Complete)"
+    target: docs/rfcs/RFC-0018-statefs-journal-format-v1.md
+  - label: "Key hierarchy + user-data encryption (authoritative)"
+    target: docs/rfcs/RFC-0071-nxfs-user-data-filesystem-contract.md
+  - label: "Architecture split"
+    target: docs/adr/0043-user-data-in-dedicated-cow-fs-statefs-stays-service-kv.md
+  - label: "Device keys / entropy"
+    target: tasks/TASK-0008B-device-identity-keys-v1-virtio-rng-rngd-keystored-keygen.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context (rescoped 2026-07-15)

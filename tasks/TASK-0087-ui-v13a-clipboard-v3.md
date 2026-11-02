@@ -1,18 +1,26 @@
 ---
-title: TASK-0087 UI v13a: Clipboard v3 (html/rtf/image) + negotiation + budgets + markers
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0087
+title: "UI v13a: Clipboard v3 (html/rtf/image) + negotiation + budgets + markers"
+status: draft
+owner: ["@ui"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Zero-Copy App Platform (clipboard canonical interchange): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
-  - Office Suite (copy/paste across Word/Sheets/Slides): tasks/TRACK-OFFICE-SUITE.md
-  - Clipboard v2 baseline: tasks/TASK-0067-ui-v7b-dnd-clipboard-v2.md
-  - Policy as Code (clipboard guards): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
-  - Config broker (budgets): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Zero-Copy App Platform (clipboard canonical interchange)"
+    target: tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
+  - label: "Office Suite (copy/paste across Word/Sheets/Slides)"
+    target: tasks/TRACK-OFFICE-SUITE.md
+  - label: "Clipboard v2 baseline"
+    target: tasks/TASK-0067-ui-v7b-dnd-clipboard-v2.md
+  - label: "Policy as Code (clipboard guards)"
+    target: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
+  - label: "Config broker (budgets)"
+    target: tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
 ---
 
 ## Context

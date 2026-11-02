@@ -1,20 +1,30 @@
 ---
-title: TASK-0208 Windowing/Compositor v2.1b (OS/QEMU): swapchain surfaces (VMO) + acquire/release timeline fences + vsync domains + HiDPI v1 + timings overlay + nx-win + selftests/docs
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0208
+title: "Windowing/Compositor v2.1b (OS/QEMU): swapchain surfaces (VMO) + acquire/release timeline fences + vsync domains + HiDPI v1 + timings overlay + nx-win + selftests/docs"
+status: draft
+owner: ["@ui"]
 created: 2025-12-27
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Windowing v2 host substrate: tasks/TASK-0207-windowing-v2_1a-host-surfacecore-swapchain-fences-hidpi.md
-  - Windowing/Compositor v2 OS integration: tasks/TASK-0200-windowing-compositor-v2b-os-wm-lite-alt-tab-screencapd.md
-  - Present scheduler + input routing baseline: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
-  - windowd compositor surfaces baseline (VMO): tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md
-  - Renderer/windowd wiring baseline: tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md
-  - Driver contracts (future GPU): tasks/TRACK-DRIVERS-ACCELERATORS.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Windowing v2 host substrate"
+    target: tasks/TASK-0207-windowing-v2_1a-host-surfacecore-swapchain-fences-hidpi.md
+  - label: "Windowing/Compositor v2 OS integration"
+    target: tasks/TASK-0200-windowing-compositor-v2b-os-wm-lite-alt-tab-screencapd.md
+  - label: "Present scheduler + input routing baseline"
+    target: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
+  - label: "windowd compositor surfaces baseline (VMO)"
+    target: tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md
+  - label: "Renderer/windowd wiring baseline"
+    target: tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md
+  - label: "Driver contracts (future GPU)"
+    target: tasks/TRACK-DRIVERS-ACCELERATORS.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

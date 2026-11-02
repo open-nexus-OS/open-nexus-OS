@@ -1,27 +1,47 @@
 ---
-title: TRACK Video Editor App (Instagram Edits-class): timeline NLE + effects + export, NexusMedia/NexusGfx-backed (deterministic, policy-gated)
-status: Draft
-owner: @media @ui
+schema: 1
+id: TRACK-VIDEO-EDITOR-APP
+title: "Video Editor App (Instagram Edits-class): timeline NLE + effects + export, NexusMedia/NexusGfx-backed (deterministic, policy-gated)"
+status: draft
+owner: ["@media", "@ui"]
 created: 2026-01-19
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - System Delegation / System Surfaces (Edit-in target + export/share via intents): tasks/TRACK-SYSTEM-DELEGATION.md
-  - Authority registry (names are binding): tasks/TRACK-AUTHORITY-NAMING.md
-  - Keystone closure plan: tasks/TRACK-KEYSTONE-GATES.md
-  - NexusMedia SDK (audio/video/image contracts): tasks/TRACK-NEXUSMEDIA-SDK.md
-  - NexusGfx SDK (render/compute contracts): tasks/TRACK-NEXUSGFX-SDK.md
-  - Gfx resource model: docs/architecture/graphics/nexusgfx-resource-model.md
-  - Gfx sync/lifetime model: docs/architecture/graphics/nexusgfx-sync-and-lifetime.md
-  - Gfx artifact pipeline: docs/architecture/graphics/nexusgfx-artifact-pipeline.md
-  - Drivers & accelerators (GPU/VPU/audio/camera contracts): tasks/TRACK-DRIVERS-ACCELERATORS.md
-  - NexusInfer SDK (on-device ML runtime): tasks/TRACK-NEXUSINFER-SDK.md
-  - Zero-copy data plane (VMOs): tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
-  - windowd present spine (OS/QEMU): tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md
-  - Renderer abstraction (host + OS wiring): tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md
-  - Renderer abstraction OS wiring: tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md
-  - Media decoders v1 (host-first): tasks/TASK-0099-ui-v16a-media-decoders.md
-  - Media sessions/system surfaces: tasks/TASK-0101-ui-v16c-media-sessions-systemui-controls.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "System Delegation / System Surfaces (Edit-in target + export/share via intents)"
+    target: tasks/TRACK-SYSTEM-DELEGATION.md
+  - label: "Authority registry (names are binding)"
+    target: tasks/TRACK-AUTHORITY-NAMING.md
+  - label: "Keystone closure plan"
+    target: tasks/TRACK-KEYSTONE-GATES.md
+  - label: "NexusMedia SDK (audio/video/image contracts)"
+    target: tasks/TRACK-NEXUSMEDIA-SDK.md
+  - label: "NexusGfx SDK (render/compute contracts)"
+    target: tasks/TRACK-NEXUSGFX-SDK.md
+  - label: "Gfx resource model"
+    target: docs/architecture/graphics/nexusgfx-resource-model.md
+  - label: "Gfx sync/lifetime model"
+    target: docs/architecture/graphics/nexusgfx-sync-and-lifetime.md
+  - label: "Gfx artifact pipeline"
+    target: docs/architecture/graphics/nexusgfx-artifact-pipeline.md
+  - label: "Drivers & accelerators (GPU/VPU/audio/camera contracts)"
+    target: tasks/TRACK-DRIVERS-ACCELERATORS.md
+  - label: "NexusInfer SDK (on-device ML runtime)"
+    target: tasks/TRACK-NEXUSINFER-SDK.md
+  - label: "Zero-copy data plane (VMOs)"
+    target: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
+  - label: "windowd present spine (OS/QEMU)"
+    target: tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md
+  - label: "Renderer abstraction (host + OS wiring)"
+    target: tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md
+  - label: "Renderer abstraction OS wiring"
+    target: tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md
+  - label: "Media decoders v1 (host-first)"
+    target: tasks/TASK-0099-ui-v16a-media-decoders.md
+  - label: "Media sessions/system surfaces"
+    target: tasks/TASK-0101-ui-v16c-media-sessions-systemui-controls.md
 ---
 
 ## Goal (track-level)

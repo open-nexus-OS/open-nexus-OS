@@ -1,20 +1,30 @@
 ---
-title: TASK-0192 Privacy v2b (OS/QEMU): policy usage telemetry pipeline + privacy dashboard v2 (timeline/stats/revoke/export) + nx-privacy + selftests/docs
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0192
+title: "Privacy v2b (OS/QEMU): policy usage telemetry pipeline + privacy dashboard v2 (timeline/stats/revoke/export) + nx-privacy + selftests/docs"
+status: draft
+owner: ["@ui"]
 created: 2025-12-27
-depends-on: []
-follow-up-tasks: []
+subsystem: security
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Privacy v2 host-first telemetry/export: tasks/TASK-0191-privacy-v2a-host-policy-usage-events-telemetry-export.md
-  - Policy v1.1 OS UI owner (Privacy Dashboard baseline): tasks/TASK-0168-policy-v1_1-os-runtime-prompts-privacy-dashboard-cli.md
-  - Policy v1.1 core semantics: tasks/TASK-0167-policy-v1_1-host-scoped-grants-expiry-enumeration.md
-  - Audit sink direction (logd): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
-  - Persistence substrate (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Policy caps/adapters: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Privacy v2 host-first telemetry/export"
+    target: tasks/TASK-0191-privacy-v2a-host-policy-usage-events-telemetry-export.md
+  - label: "Policy v1.1 OS UI owner (Privacy Dashboard baseline)"
+    target: tasks/TASK-0168-policy-v1_1-os-runtime-prompts-privacy-dashboard-cli.md
+  - label: "Policy v1.1 core semantics"
+    target: tasks/TASK-0167-policy-v1_1-host-scoped-grants-expiry-enumeration.md
+  - label: "Audit sink direction (logd)"
+    target: tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
+  - label: "Persistence substrate (/state)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Policy caps/adapters"
+    target: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

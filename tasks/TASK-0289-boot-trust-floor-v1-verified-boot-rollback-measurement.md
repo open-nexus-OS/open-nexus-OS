@@ -1,21 +1,32 @@
 ---
-title: TASK-0289 Boot trust floor v1: nxboot first-stage loader + boot flip (Phase A) and backstop proofs + measured surface (Phase B)
-status: Done 2026-08-31 — Phase A (loader + flip) 2026-08-30, Phase B (measured surface + three backstop lanes) 2026-08-31; all gated in test-all
-owner: @security @runtime @updates
+schema: 1
+id: TASK-0289
+title: "Boot trust floor v1: nxboot first-stage loader + boot flip (Phase A) and backstop proofs + measured surface (Phase B)"
+status: done
+status_note: "2026-08-31 — Phase A (loader + flip) 2026-08-30, Phase B (measured surface + three backstop lanes) 2026-08-31; all gated in test-all"
+owner: ["@security", "@runtime", "@updates"]
 created: 2026-04-13
 updated: 2026-08-31
-depends-on:
-  - TASK-0315   # single GPT disk with bsb/boot-a/boot-b (Phase A substrate)
-  - TASK-0260   # nx image writes the factory disk + signed NXBDs
-  - TASK-0179   # Phase B backstop proofs run against the real apply engine
-follow-up-tasks: []
-kernel-touch: yes
+subsystem: updates
+started: 2026-08-30
+done: 2026-08-31
+active_days: 1
+dates_source: git-reconstructed
+depends_on: [TASK-0315, TASK-0260, TASK-0179]
+implements: [RFC-0089]
 links:
-  - Contract: docs/rfcs/RFC-0089-ota-v2-component-manifest-ab-boot-images-nxboot-bsb.md (§5 NXBD, §7 loader, §10 anti-downgrade)
-  - Boot-chain ADR (this task executes it): docs/adr/0059-first-stage-boot-chain-nxboot-handoff.md
-  - BSB actor discipline: docs/adr/0058-boot-selection-block-dual-actor-discipline.md
-  - Authority: docs/adr/0055-bootctld-single-boot-state-authority.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Contract
+    target: "docs/rfcs/RFC-0089-ota-v2-component-manifest-ab-boot-images-nxboot-bsb.md (§5 NXBD, §7 loader, §10 anti-downgrade)"
+  - label: "Boot-chain ADR (this task executes it)"
+    target: docs/adr/0059-first-stage-boot-chain-nxboot-handoff.md
+  - label: "BSB actor discipline"
+    target: docs/adr/0058-boot-selection-block-dual-actor-discipline.md
+  - label: Authority
+    target: docs/adr/0055-bootctld-single-boot-state-authority.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
+  - label: kernel-touch
+    target: "yes"
 ---
 
 ## REWRITE 2026-08-25 (RFC-0089 lane recut — supersedes the whole pre-rewrite body)

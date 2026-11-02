@@ -1,18 +1,26 @@
 ---
-title: TASK-0213 Search v2.1a (host-first): semantic-lite vectors + tags extraction + query expansion + hybrid BM25+cos rerank + explain + deterministic tests
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0213
+title: "Search v2.1a (host-first): semantic-lite vectors + tags extraction + query expansion + hybrid BM25+cos rerank + explain + deterministic tests"
+status: draft
+owner: ["@ui"]
 created: 2025-12-27
-depends-on: []
-follow-up-tasks: []
+subsystem: messaging
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Search v2 backend baseline: tasks/TASK-0153-search-v2-backend-host-index-ranking-analyzers-sources.md
-  - Search v2 OS persistence + selftests: tasks/TASK-0154-search-v2-backend-os-persistence-selftests-postflight-docs.md
-  - Search v2 UI surface: tasks/TASK-0151-search-v2-ui-host-command-palette-model-a11y.md
-  - Future optional on-device semantic ML (out of scope for v2.1; do not conflate): tasks/TRACK-NEXUSINFER-SDK.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Search v2 backend baseline"
+    target: tasks/TASK-0153-search-v2-backend-host-index-ranking-analyzers-sources.md
+  - label: "Search v2 OS persistence + selftests"
+    target: tasks/TASK-0154-search-v2-backend-os-persistence-selftests-postflight-docs.md
+  - label: "Search v2 UI surface"
+    target: tasks/TASK-0151-search-v2-ui-host-command-palette-model-a11y.md
+  - label: "Future optional on-device semantic ML (out of scope for v2.1; do not conflate)"
+    target: tasks/TRACK-NEXUSINFER-SDK.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

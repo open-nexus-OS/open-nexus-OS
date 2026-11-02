@@ -1,14 +1,21 @@
 ---
-title: TRACK Weather app: location-gated forecasts + cache-first UX (reference app for NexusNet + Location)
-status: Draft
-owner: @ui
+schema: 1
+id: TRACK-WEATHER-APP
+title: "Weather app: location-gated forecasts + cache-first UX (reference app for NexusNet + Location)"
+status: draft
+owner: ["@ui"]
 created: 2026-01-19
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Location stack (locationd + consent): tasks/TRACK-LOCATION-STACK.md
-  - NexusNet SDK (HTTP/providers): tasks/TRACK-NEXUSNET-SDK.md
-  - Zero-Copy App Platform (caches/export): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Location stack (locationd + consent)"
+    target: tasks/TRACK-LOCATION-STACK.md
+  - label: "NexusNet SDK (HTTP/providers)"
+    target: tasks/TRACK-NEXUSNET-SDK.md
+  - label: "Zero-Copy App Platform (caches/export)"
+    target: tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
 ---
 
 ## Goal (track-level)

@@ -1,16 +1,30 @@
 ---
-title: TASK-0305 Greeter design handoff — type ramp v2, on-glass tokens, glass paint primitives
-status: In Progress (2026-07-26) — host + visible-boot proven (dark); light theme + error state not visually proven
-owner: @ui
+schema: 1
+id: TASK-0305
+title: "Greeter design handoff — type ramp v2, on-glass tokens, glass paint primitives"
+status: in_progress
+status_note: "(2026-07-26) — host + visible-boot proven (dark); light theme + error state not visually proven"
+owner: ["@ui"]
 created: 2026-07-26
+subsystem: ui
+started: 2026-07-26
+dates_source: git-reconstructed
+implements: [RFC-0082]
 links:
-  - Contract seed: docs/rfcs/RFC-0082-type-ramp-v2-on-glass-surface-tokens.md (seeded by this task)
-  - Design contract: userspace/apps/greeter/docs/design_handoff_os_login/README.md
-  - Token SSOT: docs/rfcs/RFC-0070-ui-design-system-ssot-convergence.md
-  - Shared atlas (size budget): docs/rfcs/RFC-0080-shared-atlas-ro-vmo.md
-  - Session authority (unchanged): docs/dev/ui/shell/session.md
-  - Token gap list: docs/dev/ui/design-token-audit.md
-  - Playbook: CLAUDE.md
+  - label: "Contract seed"
+    target: "docs/rfcs/RFC-0082-type-ramp-v2-on-glass-surface-tokens.md (seeded by this task)"
+  - label: "Design contract"
+    target: userspace/apps/greeter/docs/design_handoff_os_login/README.md
+  - label: "Token SSOT"
+    target: docs/rfcs/RFC-0070-ui-design-system-ssot-convergence.md
+  - label: "Shared atlas (size budget)"
+    target: docs/rfcs/RFC-0080-shared-atlas-ro-vmo.md
+  - label: "Session authority (unchanged)"
+    target: docs/dev/ui/shell/session.md
+  - label: "Token gap list"
+    target: docs/dev/ui/design-token-audit.md
+  - label: Playbook
+    target: CLAUDE.md
 ---
 
 ## Context

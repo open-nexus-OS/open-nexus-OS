@@ -8,7 +8,7 @@
 # has no driver) — keystored gets no key material, so every authenticated statefs put and the
 # tamper/rollback denials built on it fail. Found by tasks/TASK-0327B P4 (H0), measured
 # 2026-09-29 (board-boot-2026-09-29T12-28-44). Tracked: the SoC's TRNG as rngd's board source,
-# lane N3 in tasks/IMPLEMENTATION-ORDER.md ("input from Block 1").
+# step N3 in tasks/milestones/hardware-network.md.
 SELFTEST: rng entropy FAIL
 SELFTEST: device key pubkey FAIL
 SELFTEST: device key persist FAIL
@@ -34,8 +34,8 @@ apphost: ux launch FAIL
 # The board's RTC (`rtc@d4010000`, `spacemit,k1-rtc`) has no driver yet, so the wall-clock
 # proof has no source. Found by tasks/TASK-0327B P4 (H0), measured 2026-09-29
 # (board--2026-09-29T18-26-58 — whole once the console was line-atomic; torn and invisible to
-# the gate before). Tracked: the board's RTC as timed's second source, lane N4 in
-# tasks/IMPLEMENTATION-ORDER.md ("input from Block 1").
+# the gate before). Tracked: the board's RTC as timed's second source, step N4 in
+# tasks/milestones/hardware-network.md.
 SELFTEST: walltime rtc FAIL
 #
 # The kernel lock's budget: red on every board boot that printed the verdict (26 archived
@@ -72,6 +72,6 @@ SELFTEST: walltime rtc FAIL
 # (2026-10-19) with its cause measured: a pass's fragment job starts 12 ms after its geometry
 # job in windowd's context (`gpud: gpu pass trace`) — four passes for the scene, one for the
 # hover frame (12.3 ms); carried to Block 4 layer 8 with its levers in tasks/TASK-0215 (5d),
-# tasks/IMPLEMENTATION-ORDER.md and docs/board/measurements/2026-10-13-gpu-render-queue/.
+# tasks/milestones/hardware-network.md (step L8.2) and docs/board/measurements/2026-10-13-gpu-render-queue/.
 # Remove this line once `gpud: gpu gate scene ok (` is the board's.
 gpud: FAIL gpu gate scene (

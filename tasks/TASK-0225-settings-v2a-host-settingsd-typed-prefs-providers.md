@@ -1,19 +1,27 @@
 ---
-title: TASK-0225 Settings v2a (host-first): settingsd typed preferences registry + deterministic storage + provider “apply” hooks + tests
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0225
+title: "Settings v2a (host-first): settingsd typed preferences registry + deterministic storage + provider “apply” hooks + tests"
+status: draft
+owner: ["@ui"]
 created: 2025-12-29
-depends-on: []
-follow-up-tasks: []
+subsystem: storage
+tracks: [TRACK-ADS-SAFETY-FAMILYMODE]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
-  - Config broker (2PC reload for selected keys): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
-  - Policy authority + audit direction: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
-  - Policy v1.1 grant semantics (modes/expiry): tasks/TASK-0167-policy-v1_1-host-scoped-grants-expiry-enumeration.md
-  - SystemUI Settings pages (DSL): tasks/TASK-0121-systemui-dsl-migration-phase2a-settings-notifs-host.md
-  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Config broker (2PC reload for selected keys)"
+    target: tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
+  - label: "Policy authority + audit direction"
+    target: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
+  - label: "Policy v1.1 grant semantics (modes/expiry)"
+    target: tasks/TASK-0167-policy-v1_1-host-scoped-grants-expiry-enumeration.md
+  - label: "SystemUI Settings pages (DSL)"
+    target: tasks/TASK-0121-systemui-dsl-migration-phase2a-settings-notifs-host.md
+  - label: "Data formats rubric (JSON vs Cap'n Proto)"
+    target: docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
 > **Reconciliation note (2026-07-21):** the core of this plan already shipped —

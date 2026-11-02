@@ -1,35 +1,63 @@
 ---
-title: TRACK NexusInfer SDK (on-device ML): runtime + CPU reference path + future NPU — zero-copy, policy-gated, QEMU-testable
-status: Living
-owner: @runtime @ui
+schema: 1
+id: TRACK-NEXUSINFER-SDK
+title: "NexusInfer SDK (on-device ML): runtime + CPU reference path + future NPU — zero-copy, policy-gated, QEMU-testable"
+status: living
+owner: ["@runtime", "@ui"]
 created: 2026-04-10
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Extracted (NexusInfer v1b interop/profile binding): tasks/TASK-0280B-nexusinfer-v1b-tensor-image-interop-profile-binding.md
-  - Extracted (NexusInfer v1c ownership + CPU reference executor): tasks/TASK-0284B-nexusinfer-v1c-ownership-based-tensor-buffer-states-cpu-reference-executor.md
-  - Techniques catalog: docs/architecture/inference/nexusinfer-techniques.md
-  - Runtime profile vocabulary: docs/architecture/inference/nexusinfer-runtime-profiles.md
-  - Rust ownership/type design: docs/architecture/inference/nexusinfer-rust-design.md
-  - Gfx compute/executor model: docs/architecture/graphics/nexusgfx-compute-and-executor-model.md
-  - Gfx resource model: docs/architecture/graphics/nexusgfx-resource-model.md
-  - Gfx sync/lifetime model: docs/architecture/graphics/nexusgfx-sync-and-lifetime.md
-  - Gfx capability matrix: docs/architecture/graphics/nexusgfx-capability-matrix.md
-  - IPC hybrid (control Cap'n Proto + data VMO): docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
-  - Service architecture (data plane): docs/adr/0017-service-architecture.md
-  - Drivers & accelerators (NPU device-class; submit/fence/budgets): tasks/TRACK-DRIVERS-ACCELERATORS.md
-  - DriverKit core v1: tasks/TASK-0280-gpu-and-scanout-base-contracts-driverkit-v2-gfxdevice-v2-host.md
-  - DMA buffer ownership prototype: tasks/TASK-0284-userspace-dmabuffer-ownership-v1-prototype.md
-  - Zero-copy VMOs: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
-  - QoS/timers: tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
-  - Device MMIO access: tasks/TASK-0010-device-mmio-access-model.md
-  - Deterministic parallelism: tasks/TASK-0276-parallelism-v1-deterministic-threadpools-policy-contract.md
-  - Policy / capability matrix direction: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
-  - NexusGfx SDK (compute/present consumers): tasks/TRACK-NEXUSGFX-SDK.md
-  - NexusMedia SDK (audio/video/image ML consumers): tasks/TRACK-NEXUSMEDIA-SDK.md
-  - NexusGame SDK (realtime ML-assisted features): tasks/TRACK-NEXUSGAME-SDK.md
-  - Search v2 lexical baseline (no ML in v2.1): tasks/TASK-0153-search-v2-backend-host-index-ranking-analyzers-sources.md
-  - Search v2.1 semantic-lite (deterministic, no embeddings): tasks/TASK-0213-search-v2_1a-host-semvec-tags-expansion-hybrid.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Extracted (NexusInfer v1b interop/profile binding)"
+    target: tasks/TASK-0280B-nexusinfer-v1b-tensor-image-interop-profile-binding.md
+  - label: "Extracted (NexusInfer v1c ownership + CPU reference executor)"
+    target: tasks/TASK-0284B-nexusinfer-v1c-ownership-based-tensor-buffer-states-cpu-reference-executor.md
+  - label: "Techniques catalog"
+    target: docs/architecture/inference/nexusinfer-techniques.md
+  - label: "Runtime profile vocabulary"
+    target: docs/architecture/inference/nexusinfer-runtime-profiles.md
+  - label: "Rust ownership/type design"
+    target: docs/architecture/inference/nexusinfer-rust-design.md
+  - label: "Gfx compute/executor model"
+    target: docs/architecture/graphics/nexusgfx-compute-and-executor-model.md
+  - label: "Gfx resource model"
+    target: docs/architecture/graphics/nexusgfx-resource-model.md
+  - label: "Gfx sync/lifetime model"
+    target: docs/architecture/graphics/nexusgfx-sync-and-lifetime.md
+  - label: "Gfx capability matrix"
+    target: docs/architecture/graphics/nexusgfx-capability-matrix.md
+  - label: "IPC hybrid (control Cap'n Proto + data VMO)"
+    target: docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
+  - label: "Service architecture (data plane)"
+    target: docs/adr/0017-service-architecture.md
+  - label: "Drivers & accelerators (NPU device-class; submit/fence/budgets)"
+    target: tasks/TRACK-DRIVERS-ACCELERATORS.md
+  - label: "DriverKit core v1"
+    target: tasks/TASK-0280-gpu-and-scanout-base-contracts-driverkit-v2-gfxdevice-v2-host.md
+  - label: "DMA buffer ownership prototype"
+    target: tasks/TASK-0284-userspace-dmabuffer-ownership-v1-prototype.md
+  - label: "Zero-copy VMOs"
+    target: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
+  - label: QoS/timers
+    target: tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
+  - label: "Device MMIO access"
+    target: tasks/TASK-0010-device-mmio-access-model.md
+  - label: "Deterministic parallelism"
+    target: tasks/TASK-0276-parallelism-v1-deterministic-threadpools-policy-contract.md
+  - label: "Policy / capability matrix direction"
+    target: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
+  - label: "NexusGfx SDK (compute/present consumers)"
+    target: tasks/TRACK-NEXUSGFX-SDK.md
+  - label: "NexusMedia SDK (audio/video/image ML consumers)"
+    target: tasks/TRACK-NEXUSMEDIA-SDK.md
+  - label: "NexusGame SDK (realtime ML-assisted features)"
+    target: tasks/TRACK-NEXUSGAME-SDK.md
+  - label: "Search v2 lexical baseline (no ML in v2.1)"
+    target: tasks/TASK-0153-search-v2-backend-host-index-ranking-analyzers-sources.md
+  - label: "Search v2.1 semantic-lite (deterministic, no embeddings)"
+    target: tasks/TASK-0213-search-v2_1a-host-semvec-tags-expansion-hybrid.md
 ---
 
 ## Goal (track-level)

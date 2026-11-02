@@ -1,17 +1,25 @@
+---
+schema: 1
+id: RFC-0074
+title: "Display-mode authority — compositor owns the mode, sourced from fw_cfg"
+status: superseded
+status_note: "in its authority statement (2026-09-30) by RFC-0098 C7"
+owners: ["@runtime", "@kernel-team"]
+created: 2026-07-20
+updated: 2026-07-20
+superseded_by: [RFC-0098]
+links:
+  - label: Tasks
+    target: "`tasks/` (execution + proof, TBD)"
+  - label: ADRs
+    target: "`docs/adr/0050-display-mode-authority.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0067-windowd-compositor-boundary.md`"
+---
+
 # RFC-0074: Display-mode authority — compositor owns the mode, sourced from fw_cfg
 
-- Status: Superseded in its authority statement (2026-09-30) by RFC-0098 C7 — the display mode
-  is gpud's (it reads the lane's request from its own tree slot, applies the one policy and
-  grants the mode with the framebuffer it owns, RFC-0093 §5 v3); the kernel relay (syscall 50)
-  is deleted. What stays from here: the request is race-free and wins over a device report;
-  fw_cfg is the lane's transport of that request to nxboot. Originally: Draft
-- Owners: @runtime / @kernel-team
-- Created: 2026-07-20
-- Last Updated: 2026-07-20
-- Links:
-  - Tasks: `tasks/` (execution + proof, TBD)
-  - ADRs: `docs/adr/0050-display-mode-authority.md`
-  - Related RFCs: `docs/rfcs/RFC-0067-windowd-compositor-boundary.md`
+> Status (migrated 2026-11-02): Superseded in its authority statement (2026-09-30) by RFC-0098 C7 — the display mode is gpud's (it reads the lane's request from its own tree slot, applies the one policy and grants the mode with the framebuffer it owns, RFC-0093 §5 v3); the kernel relay (syscall 50) is deleted. What stays from here: the request is race-free and wins over a device report; fw_cfg is the lane's transport of that request to nxboot. Originally: Draft
 
 ## Status at a Glance
 

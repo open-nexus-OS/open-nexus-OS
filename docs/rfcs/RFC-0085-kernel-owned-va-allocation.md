@@ -1,15 +1,24 @@
-# RFC-0085: Kernel-owned VA allocation — the kernel picks addresses, userspace receives them
+---
+schema: 1
+id: RFC-0085
+title: "Kernel-owned VA allocation — the kernel picks addresses, userspace receives them"
+status: done
+status_note: TASK-0310
+owners: ["@kernel-mm-team", "@ui"]
+created: 2026-07-28
+updated: 2026-07-28
+subsystem: kernel
+tasks: [TASK-0310]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0310-kernel-owned-va-allocation.md` (execution + proof)"
+  - label: ADRs
+    target: "`docs/adr/0054-map-errors-keep-their-identity-across-the-abi.md`"
+  - label: Related
+    target: "`docs/rfcs/RFC-0080-shared-atlas-ro-vmo.md` (VmoRo aliases), `tasks/TASK-0309-gpud-framebuffer-vmo-map-ordering-hazard.md` (the investigation that forced this)"
+---
 
-- Status: Done (TASK-0310)
-- Owners: @kernel-mm-team @ui
-- Created: 2026-07-28
-- Last Updated: 2026-07-28
-- Links:
-  - Tasks: `tasks/TASK-0310-kernel-owned-va-allocation.md` (execution + proof)
-  - ADRs: `docs/adr/0054-map-errors-keep-their-identity-across-the-abi.md`
-  - Related: `docs/rfcs/RFC-0080-shared-atlas-ro-vmo.md` (VmoRo aliases),
-    `tasks/TASK-0309-gpud-framebuffer-vmo-map-ordering-hazard.md` (the
-    investigation that forced this)
+# RFC-0085: Kernel-owned VA allocation — the kernel picks addresses, userspace receives them
 
 ## Status at a Glance
 

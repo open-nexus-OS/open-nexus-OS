@@ -1,26 +1,31 @@
 ---
-title: TASK-0025 StateFS write-path hardening: authenticity envelopes + anti-rollback + budgets (rebased 2026-07-15 onto shipped statefs v1)
-status: Done
-owner: @runtime
+schema: 1
+id: TASK-0025
+title: "StateFS write-path hardening: authenticity envelopes + anti-rollback + budgets (rebased 2026-07-15 onto shipped statefs v1)"
+status: done
+owner: ["@runtime"]
 created: 2025-12-22
-depends-on:
-  - TASK-0006
-  - TASK-0008
-  - TASK-0009
-  - TASK-0019
-follow-up-tasks:
-  - TASK-0027
-  - TASK-0132
-  - TASK-0133
-  - TASK-0289
+subsystem: storage
+started: 2026-08-15
+done: 2026-08-15
+active_days: 1
+dates_source: git-reconstructed
+depends_on: [TASK-0006, TASK-0008, TASK-0009, TASK-0019]
+follow_ups: [TASK-0027, TASK-0132, TASK-0133, TASK-0289]
+tracks: [TRACK-STASH-USER-DATA-FS]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Shipped substrate (v1, Complete): docs/rfcs/RFC-0018-statefs-journal-format-v1.md
-  - Architecture split: docs/adr/0043-user-data-in-dedicated-cow-fs-statefs-stays-service-kv.md
-  - Current-state doc: docs/storage/statefs.md
-  - Track: tasks/TRACK-STASH-USER-DATA-FS.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Shipped substrate (v1, Complete)"
+    target: docs/rfcs/RFC-0018-statefs-journal-format-v1.md
+  - label: "Architecture split"
+    target: docs/adr/0043-user-data-in-dedicated-cow-fs-statefs-stays-service-kv.md
+  - label: "Current-state doc"
+    target: docs/storage/statefs.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context (rebased 2026-07-15)

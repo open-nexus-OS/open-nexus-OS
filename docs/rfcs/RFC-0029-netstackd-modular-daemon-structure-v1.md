@@ -1,17 +1,29 @@
-# RFC-0029: Netstackd modular daemon structure v1
+---
+schema: 1
+id: RFC-0029
+title: "Netstackd modular daemon structure v1"
+status: done
+owners: ["@runtime"]
+created: 2026-03-24
+updated: 2026-03-24
+subsystem: networking
+tasks: [TASK-0016B]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0016B-netstackd-refactor-v1-modular-os-daemon-structure.md` (execution + proof)"
+  - label: ADRs
+    target: "`docs/adr/0005-dsoftbus-architecture.md`"
+  - label: ADRs
+    target: "`docs/adr/0026-network-address-profiles-and-validation.md`"
+  - label: "Architecture SSOT"
+    target: "`docs/architecture/network-address-matrix.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0006-userspace-networking-v1.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0017-device-mmio-access-model-v1.md`"
+---
 
-- Status: Complete
-- Owners: @runtime
-- Created: 2026-03-24
-- Last Updated: 2026-03-24
-- Links:
-  - Tasks: `tasks/TASK-0016B-netstackd-refactor-v1-modular-os-daemon-structure.md` (execution + proof)
-  - ADRs: `docs/adr/0005-dsoftbus-architecture.md`
-  - ADRs: `docs/adr/0026-network-address-profiles-and-validation.md`
-  - Architecture SSOT: `docs/architecture/network-address-matrix.md`
-  - Related RFCs:
-    - `docs/rfcs/RFC-0006-userspace-networking-v1.md`
-    - `docs/rfcs/RFC-0017-device-mmio-access-model-v1.md`
+# RFC-0029: Netstackd modular daemon structure v1
 
 ## Status at a Glance
 

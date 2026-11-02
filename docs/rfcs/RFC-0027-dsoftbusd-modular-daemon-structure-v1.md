@@ -1,29 +1,39 @@
-# RFC-0027: DSoftBusd modular daemon structure v1
+---
+schema: 1
+id: RFC-0027
+title: "DSoftBusd modular daemon structure v1"
+status: done
+owners: ["@runtime"]
+created: 2026-03-12
+updated: 2026-03-12
+subsystem: distributed
+tasks: [TASK-0015]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0015-dsoftbusd-refactor-v1-modular-os-daemon-structure.md` (execution + proof)"
+  - label: "Follow-on tasks"
+    target: "`tasks/TASK-0016-dsoftbus-remote-packagefs-ro.md`"
+  - label: "Follow-on tasks"
+    target: "`tasks/TASK-0017-dsoftbus-remote-statefs-rw.md`"
+  - label: "Follow-on tasks"
+    target: "`tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md`"
+  - label: "Follow-on tasks"
+    target: "`tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md`"
+  - label: "Follow-on tasks"
+    target: "`tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md`"
+  - label: ADRs
+    target: "`docs/adr/0005-dsoftbus-architecture.md`"
+  - label: "Testing guide"
+    target: "`docs/testing/README.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0007-dsoftbus-os-transport-v1.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0008-dsoftbus-noise-xk-v1.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0010-dsoftbus-cross-vm-harness-v1.md`"
+---
 
-- Status: Completed
-- Owners: @runtime
-- Created: 2026-03-12
-- Last Updated: 2026-03-12
-- Links:
-  - Tasks: `tasks/TASK-0015-dsoftbusd-refactor-v1-modular-os-daemon-structure.md` (execution + proof)
-  - Task dependencies:
-    - `tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md`
-    - `tasks/TASK-0003B-dsoftbus-noise-xk-os.md`
-    - `tasks/TASK-0003C-dsoftbus-udp-discovery-os.md`
-    - `tasks/TASK-0004-networking-dhcp-icmp-dsoftbus-dual-node.md`
-    - `tasks/TASK-0005-networking-cross-vm-dsoftbus-remote-proxy.md`
-  - Follow-on tasks:
-    - `tasks/TASK-0016-dsoftbus-remote-packagefs-ro.md`
-    - `tasks/TASK-0017-dsoftbus-remote-statefs-rw.md`
-    - `tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md`
-    - `tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md`
-    - `tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md`
-  - ADRs: `docs/adr/0005-dsoftbus-architecture.md`
-  - Testing guide: `docs/testing/README.md`
-  - Related RFCs:
-    - `docs/rfcs/RFC-0007-dsoftbus-os-transport-v1.md`
-    - `docs/rfcs/RFC-0008-dsoftbus-noise-xk-v1.md`
-    - `docs/rfcs/RFC-0010-dsoftbus-cross-vm-harness-v1.md`
+# RFC-0027: DSoftBusd modular daemon structure v1
 
 ## Status at a Glance
 

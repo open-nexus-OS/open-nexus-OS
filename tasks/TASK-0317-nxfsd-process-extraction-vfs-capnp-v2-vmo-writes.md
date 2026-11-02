@@ -1,20 +1,26 @@
 ---
-title: TASK-0317 nxfsd process extraction + vfs.capnp v2 write surface + VMO write path (one authority per store, RFC-0072 Phase 2 closed)
-status: Draft
-owner: @runtime
+schema: 1
+id: TASK-0317
+title: "nxfsd process extraction + vfs.capnp v2 write surface + VMO write path (one authority per store, RFC-0072 Phase 2 closed)"
+status: draft
+owner: ["@runtime"]
 created: 2026-08-14
-depends-on:
-  - TASK-0315
-  - TASK-0316
-follow-up-tasks: []
+subsystem: storage
+depends_on: [TASK-0315, TASK-0316]
+implements: [RFC-0072]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Store split (decision 4, "one authority per store"): docs/adr/0043-user-data-in-dedicated-cow-fs-statefs-stays-service-kv.md
-  - Surface contract (Phase 2 + Phase 3 write half): docs/rfcs/RFC-0072-vfs-v2-writable-providers-readdir-stable-errors.md
-  - Data plane: docs/rfcs/RFC-0040-zero-copy-vmos-v1-plumbing-host-first-os-gated.md · predecessor tasks/TASK-0295 (read splice; writes explicitly deferred there)
-  - Kernel seal closure (soft dependency): tasks/TASK-0290-kernel-zero-copy-closure-v1b-vmo-seals-reuse-truth.md
-  - Ladder: tasks/TRACK-STASH-USER-DATA-FS.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Store split (decision 4, \"one authority per store\")"
+    target: docs/adr/0043-user-data-in-dedicated-cow-fs-statefs-stays-service-kv.md
+  - label: "Data plane"
+    target: "docs/rfcs/RFC-0040-zero-copy-vmos-v1-plumbing-host-first-os-gated.md · predecessor tasks/TASK-0295 (read splice; writes explicitly deferred there)"
+  - label: "Kernel seal closure (soft dependency)"
+    target: tasks/TASK-0290-kernel-zero-copy-closure-v1b-vmo-seals-reuse-truth.md
+  - label: Ladder
+    target: tasks/TRACK-STASH-USER-DATA-FS.md
 ---
 
 ## Context

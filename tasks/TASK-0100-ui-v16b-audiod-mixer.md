@@ -1,16 +1,21 @@
 ---
-title: TASK-0100 UI v16b: audiod software mixer (per-app streams, volume/mute, focus) + test sink + markers
-status: Draft
-owner: @media
+schema: 1
+id: TASK-0100
+title: "UI v16b: audiod software mixer (per-app streams, volume/mute, focus) + test sink + markers"
+status: draft
+owner: ["@media"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
+follow_ups: [TASK-0100B]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Audio focus policy (future): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
-  - Persistence (optional capture ring): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Audio Mixer DSL UI follow-up: tasks/TASK-0100B-ui-v16b-audio-mixer-dsl-app-systemui-surface.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Audio focus policy (future)"
+    target: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
+  - label: "Persistence (optional capture ring)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
 ---
 
 ## Context

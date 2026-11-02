@@ -1,16 +1,23 @@
 ---
-title: TASK-0095 UI v15b: selection/caret engine (textedit_core) + TextField rebase + context menu + markers
-status: Draft (keyboard core delivered early under TASK-0067B on 2026-10-07 — see "Delivered ahead"; the rest of this ledger is open)
-owner: @ui
+schema: 1
+id: TASK-0095
+title: "UI v15b: selection/caret engine (textedit_core) + TextField rebase + context menu + markers"
+status: draft
+status_note: "keyboard core delivered early under TASK-0067B on 2026-10-07 — see \"Delivered ahead\"; the rest of this ledger is open"
+owner: ["@ui"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Text primitives: tasks/TASK-0094-ui-v15a-text-primitives-uax-bidi-hittest.md
-  - IME/Text-input baseline (v3b): tasks/TASK-0059-ui-v3b-clip-scroll-effects-ime-textinput.md
-  - Clipboard v3: tasks/TASK-0087-ui-v13a-clipboard-v3.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Text primitives"
+    target: tasks/TASK-0094-ui-v15a-text-primitives-uax-bidi-hittest.md
+  - label: "IME/Text-input baseline (v3b)"
+    target: tasks/TASK-0059-ui-v3b-clip-scroll-effects-ime-textinput.md
+  - label: "Clipboard v3"
+    target: tasks/TASK-0087-ui-v13a-clipboard-v3.md
 ---
 
 ## Delivered ahead (2026-10-07, under TASK-0067B — the clipboard's board round)

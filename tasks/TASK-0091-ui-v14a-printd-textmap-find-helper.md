@@ -1,15 +1,20 @@
 ---
-title: TASK-0091 UI v14a: printd preview text-map option + find/highlight helper (find-in-page substrate)
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0091
+title: "UI v14a: printd preview text-map option + find/highlight helper (find-in-page substrate)"
+status: draft
+owner: ["@ui"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Print pipeline baseline: tasks/TASK-0088-ui-v13b-print-to-pdf-printd-preview.md
-  - Shaping baseline: tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Print pipeline baseline"
+    target: tasks/TASK-0088-ui-v13b-print-to-pdf-printd-preview.md
+  - label: "Shaping baseline"
+    target: tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
 ---
 
 ## Context

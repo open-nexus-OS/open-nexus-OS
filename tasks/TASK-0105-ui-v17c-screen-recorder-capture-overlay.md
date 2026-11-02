@@ -1,21 +1,31 @@
 ---
-title: TASK-0105 UI v17c: screen recorder (recorderd) via screencapd + capture overlay + privacy chips + NXC container
-status: Draft
-owner: @media
+schema: 1
+id: TASK-0105
+title: "UI v17c: screen recorder (recorderd) via screencapd + capture overlay + privacy chips + NXC container"
+status: draft
+owner: ["@media"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
+tracks: [TRACK-DSL-V1-DEVX]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
-  - DSL v1 DevX track: tasks/TRACK-DSL-V1-DEVX.md
-  - Perms/privacy substrate: tasks/TASK-0103-ui-v17a-permissions-privacyd.md
-  - Screen capture substrate: tasks/TASK-0068-ui-v7c-screenshot-screencap-share-sheet.md
-  - Mic input: tasks/TASK-0104-ui-v17b-camerad-micd-virtual-sources.md
-  - Media decoders (optional): tasks/TASK-0099-ui-v16a-media-decoders.md
-  - Share sheet (after stop): tasks/TASK-0068-ui-v7c-screenshot-screencap-share-sheet.md
-  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "DSL syntax/layout convention"
+    target: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
+  - label: "Perms/privacy substrate"
+    target: tasks/TASK-0103-ui-v17a-permissions-privacyd.md
+  - label: "Screen capture substrate"
+    target: tasks/TASK-0068-ui-v7c-screenshot-screencap-share-sheet.md
+  - label: "Mic input"
+    target: tasks/TASK-0104-ui-v17b-camerad-micd-virtual-sources.md
+  - label: "Media decoders (optional)"
+    target: tasks/TASK-0099-ui-v16a-media-decoders.md
+  - label: "Share sheet (after stop)"
+    target: tasks/TASK-0068-ui-v7c-screenshot-screencap-share-sheet.md
+  - label: "Data formats rubric (JSON vs Cap'n Proto)"
+    target: docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
 ## Context

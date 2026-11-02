@@ -1,23 +1,30 @@
 ---
-title: TASK-0051 Reliability v1e: recovery operations surface — statefsd fsck op + bootctld slot/target ops + nx diagnose (one bundle)
-status: Done
-owner: @reliability
+schema: 1
+id: TASK-0051
+title: "Reliability v1e: recovery operations surface — statefsd fsck op + bootctld slot/target ops + nx diagnose (one bundle)"
+status: done
+owner: ["@reliability"]
 created: 2025-12-23
 updated: 2026-08-24
-completed: 2026-08-24
-depends-on:
-  - TASK-0026 # fsck engine (Done — exposed here, NOT rebuilt)
-  - TASK-0050 # bootctld + targets (ops act on its record/graph)
-  - TASK-0049C # persistent evidence (diagnose reads it)
-follow-up-tasks:
-  - TASK-0053 # .nxra tokens gate the mutating ops
+subsystem: updates
+started: 2026-08-24
+done: 2026-08-24
+active_days: 1
+dates_source: git-reconstructed
+depends_on: [TASK-0026, TASK-0050, TASK-0049C]
+follow_ups: [TASK-0053]
+implements: [RFC-0087]
 links:
-  - Reliability contract: docs/rfcs/RFC-0087-reliability-failure-model-v1.md
-  - Boot-state authority: docs/adr/0055-bootctld-single-boot-state-authority.md
-  - fsck engine (SSOT): userspace/statefs/src/fsck.rs + tools/fsck-statefs/
-  - Keystone Gate 6 (nx = only diagnostics CLI): tasks/TRACK-KEYSTONE-GATES.md
-  - Diag-bundle sibling (host pipeline): tasks/TASK-0227-diagnostics-v1-bugreport-bundles-nx-diagnose-offline-deterministic.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: "Boot-state authority"
+    target: docs/adr/0055-bootctld-single-boot-state-authority.md
+  - label: "fsck engine (SSOT)"
+    target: "userspace/statefs/src/fsck.rs + tools/fsck-statefs/"
+  - label: "Keystone Gate 6 (nx = only diagnostics CLI)"
+    target: tasks/TRACK-KEYSTONE-GATES.md
+  - label: "Diag-bundle sibling (host pipeline)"
+    target: tasks/TASK-0227-diagnostics-v1-bugreport-bundles-nx-diagnose-offline-deterministic.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Rewrite 2026-08-18 (was: "Recovery v1b: safe tools + recovery-sh built-ins + nx recovery CLI")

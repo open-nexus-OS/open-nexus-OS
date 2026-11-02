@@ -1,20 +1,30 @@
 ---
-title: TASK-0194 Networking v1b (OS/QEMU, gated): devnet-enabled TCP/TLS plumbing + fetchd real backend + trust store + selftests/docs
-status: Draft
-owner: @networking
+schema: 1
+id: TASK-0194
+title: "Networking v1b (OS/QEMU, gated): devnet-enabled TCP/TLS plumbing + fetchd real backend + trust store + selftests/docs"
+status: draft
+owner: ["@networking"]
 created: 2025-12-27
-depends-on: []
-follow-up-tasks: []
+subsystem: networking
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Networking step 1 (virtio-net + smoltcp): tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
-  - Device MMIO access model (kernel work): tasks/TASK-0010-device-mmio-access-model.md
-  - WebView Net v1 OS slice (fetchd/httpstubd): tasks/TASK-0177-webview-net-v1b-os-httpstubd-fetchd-downloadd-policy-selftests.md
-  - Networking v1 host devnet slice: tasks/TASK-0193-networking-v1a-host-devnet-tls-fetchd-integration.md
-  - Trust store unification: tasks/TASK-0160-identity-keystore-v1_1-os-attestd-trust-unification-selftests.md
-  - Persistence substrate (/state trust/custom roots): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Networking step 1 (virtio-net + smoltcp)"
+    target: tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
+  - label: "Device MMIO access model (kernel work)"
+    target: tasks/TASK-0010-device-mmio-access-model.md
+  - label: "WebView Net v1 OS slice (fetchd/httpstubd)"
+    target: tasks/TASK-0177-webview-net-v1b-os-httpstubd-fetchd-downloadd-policy-selftests.md
+  - label: "Networking v1 host devnet slice"
+    target: tasks/TASK-0193-networking-v1a-host-devnet-tls-fetchd-integration.md
+  - label: "Trust store unification"
+    target: tasks/TASK-0160-identity-keystore-v1_1-os-attestd-trust-unification-selftests.md
+  - label: "Persistence substrate (/state trust/custom roots)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

@@ -1,18 +1,29 @@
 ---
-title: TRACK Feeds app (RSS/Atom): offline reading + share to Notes (reference app for NexusNet + ZeroCopy)
-status: Draft
-owner: @ui
+schema: 1
+id: TRACK-FEEDS-APP
+title: "Feeds app (RSS/Atom): offline reading + share to Notes (reference app for NexusNet + ZeroCopy)"
+status: draft
+owner: ["@ui"]
 created: 2026-01-19
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - System Delegation / System Surfaces (share to Notes, open in Browser): tasks/TRACK-SYSTEM-DELEGATION.md
-  - UI layout pipeline contract: docs/dev/ui/foundations/layout/layout-pipeline.md
-  - NexusNet SDK (HTTP/providers): tasks/TRACK-NEXUSNET-SDK.md
-  - Zero-Copy App Platform (content/grants/share): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
-  - DSL query objects (cache/list views): tasks/TASK-0274-dsl-v0_2c-db-query-objects-builder-defaults-paging-deterministic.md
-  - Notes (share target): tasks/TRACK-NOTES-APP.md
-  - Share v2 / Intents (registry + dispatch): tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "System Delegation / System Surfaces (share to Notes, open in Browser)"
+    target: tasks/TRACK-SYSTEM-DELEGATION.md
+  - label: "UI layout pipeline contract"
+    target: docs/dev/ui/foundations/layout/layout-pipeline.md
+  - label: "NexusNet SDK (HTTP/providers)"
+    target: tasks/TRACK-NEXUSNET-SDK.md
+  - label: "Zero-Copy App Platform (content/grants/share)"
+    target: tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
+  - label: "DSL query objects (cache/list views)"
+    target: tasks/TASK-0274-dsl-v0_2c-db-query-objects-builder-defaults-paging-deterministic.md
+  - label: "Notes (share target)"
+    target: tasks/TRACK-NOTES-APP.md
+  - label: "Share v2 / Intents (registry + dispatch)"
+    target: tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md
 ---
 
 ## Goal (track-level)

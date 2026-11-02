@@ -1,31 +1,43 @@
 ---
-title: TASK-0056C UI v2a extension: embedded reactor/runtime floor + present/input perf polish (input-to-frame latency + event coalescing + short-circuit compose)
-status: Done
-owner: @ui @runtime
+schema: 1
+id: TASK-0056C
+title: "UI v2a extension: embedded reactor/runtime floor + present/input perf polish (input-to-frame latency + event coalescing + short-circuit compose)"
+status: done
+owner: ["@ui", "@runtime"]
 created: 2026-03-29
 updated: 2026-05-12
-depends-on:
-  - TASK-0056
-  - TASK-0056B
-  - TASK-0253
-follow-up-tasks:
-  - TASK-0059
-  - TASK-0062
-  - TASK-0063
-  - TASK-0064
+subsystem: ui
+started: 2026-05-12
+done: 2026-05-12
+active_days: 1
+dates_source: git-reconstructed
+depends_on: [TASK-0056, TASK-0056B, TASK-0253]
+follow_ups: [TASK-0059, TASK-0062, TASK-0063, TASK-0064]
+split_from: TASK-0056
+implements: [RFC-0055]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Security standards: docs/standards/SECURITY_STANDARDS.md
-  - RFC (contract seed): docs/rfcs/RFC-0055-ui-v2a-embedded-reactor-runtime-floor-present-input-perf-contract.md
-  - UI v2a baseline: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
-  - Visible input bridge: tasks/TASK-0056B-ui-v2a-visible-input-cursor-focus-click.md
-  - Input host core carry-in: tasks/TASK-0252-input-v1_0a-host-hid-touch-keymaps-repeat-accel-deterministic.md
-  - Live QEMU input carry-in: tasks/TASK-0253-input-v1_0b-os-hidrawd-touchd-inputd-ime-hooks-selftests.md
-  - UI perf floor baseline: tasks/TASK-0054B-ui-v1a-kernel-ui-perf-floor-zero-copy-qos-hardening.md
-  - Kernel IPC fastpath: tasks/TASK-0054C-ui-v1a-kernel-ipc-fastpath-control-plane-vmo-bulk.md
-  - Kernel MM perf floor: tasks/TASK-0054D-ui-v1a-kernel-mm-perf-floor-vmo-surface-reuse.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Security standards"
+    target: docs/standards/SECURITY_STANDARDS.md
+  - label: "UI v2a baseline"
+    target: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
+  - label: "Visible input bridge"
+    target: tasks/TASK-0056B-ui-v2a-visible-input-cursor-focus-click.md
+  - label: "Input host core carry-in"
+    target: tasks/TASK-0252-input-v1_0a-host-hid-touch-keymaps-repeat-accel-deterministic.md
+  - label: "Live QEMU input carry-in"
+    target: tasks/TASK-0253-input-v1_0b-os-hidrawd-touchd-inputd-ime-hooks-selftests.md
+  - label: "UI perf floor baseline"
+    target: tasks/TASK-0054B-ui-v1a-kernel-ui-perf-floor-zero-copy-qos-hardening.md
+  - label: "Kernel IPC fastpath"
+    target: tasks/TASK-0054C-ui-v1a-kernel-ipc-fastpath-control-plane-vmo-bulk.md
+  - label: "Kernel MM perf floor"
+    target: tasks/TASK-0054D-ui-v1a-kernel-mm-perf-floor-vmo-surface-reuse.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

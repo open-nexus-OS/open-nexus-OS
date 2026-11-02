@@ -1,26 +1,32 @@
 ---
-title: TASK-0049 Reliability v1a: fault & exhaustion truth — exit reasons in the kernel ABI + first exhaustion events + crash-proof reanimation
-status: Done
-owner: @reliability
+schema: 1
+id: TASK-0049
+title: "Reliability v1a: fault & exhaustion truth — exit reasons in the kernel ABI + first exhaustion events + crash-proof reanimation"
+status: done
+owner: ["@reliability"]
 created: 2025-12-23
 updated: 2026-08-20
-completed: 2026-08-20
-depends-on:
-  - TASK-0006 # logd (Done — crash envelope sink)
-  - TASK-0018 # crashdumps v1 (Done — but OS proof retired; reanimated HERE)
-  - TASK-0026 # statefs journal v2 (Done — evidence substrate for 0049C)
-follow-up-tasks:
-  - TASK-0049B # supervision consumes the exit reason
-  - TASK-0049C # persistent evidence journal
-  - TASK-0051B # crash evidence at rest (former scope of this ledger)
+subsystem: observability
+started: 2026-08-19
+done: 2026-08-20
+active_days: 1
+dates_source: git-reconstructed
+depends_on: [TASK-0006, TASK-0018, TASK-0026]
+follow_ups: [TASK-0049B, TASK-0049C, TASK-0051B]
+implements: [RFC-0087]
 links:
-  - Reliability contract: docs/rfcs/RFC-0087-reliability-failure-model-v1.md
-  - Exit-reason decision: docs/adr/0056-task-exit-reason-kernel-abi.md
-  - Crash envelope: docs/rfcs/RFC-0011-logd-journal-crash-v1.md
-  - Crashdumps v1: docs/rfcs/RFC-0031-crashdumps-v1-minidump-host-symbolize.md
-  - Reaper mechanics: docs/rfcs/RFC-0081-process-reaper-nonblocking-reclaim.md
-  - Open point #102: tasks/TRACK-OPEN-POINTS-2026-07.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: "Exit-reason decision"
+    target: docs/adr/0056-task-exit-reason-kernel-abi.md
+  - label: "Crash envelope"
+    target: docs/rfcs/RFC-0011-logd-journal-crash-v1.md
+  - label: "Crashdumps v1"
+    target: docs/rfcs/RFC-0031-crashdumps-v1-minidump-host-symbolize.md
+  - label: "Reaper mechanics"
+    target: docs/rfcs/RFC-0081-process-reaper-nonblocking-reclaim.md
+  - label: "Open point #102"
+    target: tasks/TRACK-OPEN-POINTS-2026-07.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Rewrite 2026-08-18 (was: "Crashdump v2b: crashd ingestion + retention + correlation")

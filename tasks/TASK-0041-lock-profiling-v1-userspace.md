@@ -1,15 +1,20 @@
 ---
-title: TASK-0041 Lock profiling v1: contention/hold-time visibility (delivered as kernel lock budgets, ADR-0049)
-status: Done (2026-09-09 — reconciled: visibility goal delivered by kernel lock budgets, ADR-0049)
-owner: @runtime
+schema: 1
+id: TASK-0041
+title: "Lock profiling v1: contention/hold-time visibility (delivered as kernel lock budgets, ADR-0049)"
+status: done
+status_note: "2026-09-09 — reconciled: visibility goal delivered by kernel lock budgets, ADR-0049"
+owner: ["@runtime"]
 created: 2025-12-22
-depends-on:
-  - TASK-0014
-follow-up-tasks: []
+subsystem: observability
+done: 2026-09-09
+dates_source: status-text
+depends_on: [TASK-0014]
 links:
-  - Vision: docs/architecture/vision.md
-  - Depends-on (metrics/tracing sinks, optional): tasks/TASK-0014-observability-v2-metrics-tracing.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Closure 2026-09-09 (reconciliation — Done, delivered one layer down)

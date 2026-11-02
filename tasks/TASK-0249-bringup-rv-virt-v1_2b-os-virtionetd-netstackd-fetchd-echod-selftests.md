@@ -1,17 +1,24 @@
 ---
-title: TASK-0249 RISC-V Bring-up v1.2b (OS/QEMU): virtionetd + netstackd + fetchd + echod + TAP setup + selftests
-status: Draft
-owner: @kernel
+schema: 1
+id: TASK-0249
+title: "RISC-V Bring-up v1.2b (OS/QEMU): virtionetd + netstackd + fetchd + echod + TAP setup + selftests"
+status: draft
+owner: ["@kernel"]
 created: 2025-12-29
-depends-on: []
-follow-up-tasks: []
+subsystem: networking
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Bring-up core (host-first): tasks/TASK-0248-bringup-rv-virt-v1_2a-host-virtio-net-dhcp-stub-loopback-deterministic.md
-  - Networking baseline (smoltcp): tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
-  - Device MMIO access: tasks/TASK-0010-device-mmio-access-model.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Bring-up core (host-first)"
+    target: tasks/TASK-0248-bringup-rv-virt-v1_2a-host-virtio-net-dhcp-stub-loopback-deterministic.md
+  - label: "Networking baseline (smoltcp)"
+    target: tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
+  - label: "Device MMIO access"
+    target: tasks/TASK-0010-device-mmio-access-model.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

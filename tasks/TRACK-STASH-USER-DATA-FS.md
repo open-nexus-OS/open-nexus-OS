@@ -1,16 +1,25 @@
 ---
-title: TRACK Stash + user-data filesystem: production-grade storage ladder (vfs v2 → nxfs → zero-copy → CoW/encryption)
-status: Living
-owner: @runtime
+schema: 1
+id: TRACK-STASH-USER-DATA-FS
+title: "Stash + user-data filesystem: production-grade storage ladder (vfs v2 → nxfs → zero-copy → CoW/encryption)"
+status: living
+owner: ["@runtime"]
 created: 2026-07-15
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Contract seeds: docs/rfcs/RFC-0071-nxfs-user-data-filesystem-contract.md, docs/rfcs/RFC-0072-vfs-v2-writable-providers-readdir-stable-errors.md, docs/rfcs/RFC-0073-app-files-surface-svc-files-permission-filemanager-role.md
-  - Decisions: docs/adr/0043-user-data-in-dedicated-cow-fs-statefs-stays-service-kv.md, docs/adr/0044-single-blk-device-gpt-partitions-block-layer.md
-  - statefs hardening (parallel lane): tasks/TASK-0025-statefs-write-path-hardening-integrity-atomic-budgets-audit.md, tasks/TASK-0026-statefs-v2a-2pc-compaction-fsck.md, tasks/TASK-0027-statefs-v2b-encryption-at-rest.md
-  - Role model: docs/dev/app-platform/privileged-roles.md
-  - Related track: tasks/TRACK-REMOVABLE-STORAGE.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Contract seeds"
+    target: "docs/rfcs/RFC-0071-nxfs-user-data-filesystem-contract.md, docs/rfcs/RFC-0072-vfs-v2-writable-providers-readdir-stable-errors.md, docs/rfcs/RFC-0073-app-files-surface-svc-files-permission-filemanager-role.md"
+  - label: Decisions
+    target: "docs/adr/0043-user-data-in-dedicated-cow-fs-statefs-stays-service-kv.md, docs/adr/0044-single-blk-device-gpt-partitions-block-layer.md"
+  - label: "statefs hardening (parallel lane)"
+    target: "tasks/TASK-0025-statefs-write-path-hardening-integrity-atomic-budgets-audit.md, tasks/TASK-0026-statefs-v2a-2pc-compaction-fsck.md, tasks/TASK-0027-statefs-v2b-encryption-at-rest.md"
+  - label: "Role model"
+    target: docs/dev/app-platform/privileged-roles.md
+  - label: "Related track"
+    target: tasks/TRACK-REMOVABLE-STORAGE.md
 ---
 
 ## Goal (track-level)

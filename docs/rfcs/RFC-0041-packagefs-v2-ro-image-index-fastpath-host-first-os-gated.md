@@ -1,14 +1,25 @@
-# RFC-0041: PackageFS v2 read-only image + precomputed index fastpath (host-first, OS-gated)
+---
+schema: 1
+id: RFC-0041
+title: "PackageFS v2 read-only image + precomputed index fastpath (host-first, OS-gated)"
+status: done
+owners: ["@runtime", "@storage", "@security"]
+created: 2026-04-23
+updated: 2026-04-23
+subsystem: storage
+tasks: [TASK-0032]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0032-packagefs-v2-ro-image-index-fastpath.md` (execution + proof)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0028-dsoftbus-remote-packagefs-ro-v1.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0040-zero-copy-vmos-v1-plumbing-host-first-os-gated.md`"
+  - label: "Production gate policy"
+    target: "`tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`"
+---
 
-- Status: Done
-- Owners: @runtime @storage @security
-- Created: 2026-04-23
-- Last Updated: 2026-04-23
-- Links:
-  - Tasks: `tasks/TASK-0032-packagefs-v2-ro-image-index-fastpath.md` (execution + proof)
-  - Related RFCs: `docs/rfcs/RFC-0028-dsoftbus-remote-packagefs-ro-v1.md`
-  - Related RFCs: `docs/rfcs/RFC-0040-zero-copy-vmos-v1-plumbing-host-first-os-gated.md`
-  - Production gate policy: `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`
+# RFC-0041: PackageFS v2 read-only image + precomputed index fastpath (host-first, OS-gated)
 
 ## Status at a Glance
 

@@ -1,20 +1,35 @@
 ---
-title: TASK-0244 Board support v1a (host-first): `nexus-fdt` — the flattened device tree is the one hardware truth
-status: Done 2026-09-22 (P0–P3: `nexus-fdt` + the board's own tree + both goldens host-tested; nxboot copies the tree into headroom, writes `/chosen/nexus,*` and hands the copy over; the kernel maps and parses it and prints what it read — `KSELFTEST: platform from fdt ok (… chosen.slot=a chosen.display=1280x800)` boot-proven, required in every profile. Recut 2026-09-22 from "Hardware Bring-up (RISC-V virt) v1.0a: DTB parser + SBI shim", Draft since 2025-12-29 with no code)
-owner: @kernel-team @runtime
+schema: 1
+id: TASK-0244
+title: "Board support v1a (host-first): `nexus-fdt` — the flattened device tree is the one hardware truth"
+status: done
+status_note: "2026-09-22 (P0–P3: `nexus-fdt` + the board's own tree + both goldens host-tested"
+owner: ["@kernel-team", "@runtime"]
 created: 2025-12-29
 updated: 2026-09-22
-depends-on: []
-follow-up-tasks:
-  - tasks/TASK-0245-bringup-rv-virt-v1_0b-os-kernel-uart-plic-timer-uartd-selftests.md
+subsystem: hardware
+started: 2026-09-22
+done: 2026-09-22
+active_days: 1
+dates_source: git-reconstructed
+follow_ups: [TASK-0245]
+implements: [RFC-0098]
 links:
-  - Contract: docs/rfcs/RFC-0098-board-support-contract-fdt-truth-boot-chain.md (C1–C3, Phase 0)
-  - Execution order: tasks/IMPLEMENTATION-ORDER.md (Block 1)
-  - Measurement this is built on: docs/board/measurements/2026-09-22-stock-system/README.md
-  - Board page: docs/board/bpi-f3.md
-  - Consumers: source/boot/nxboot (a1 pass-through + `/chosen`), source/kernel/neuron/src/core/kmain.rs, source/init/nexus-init/src/bootstrap/helpers.rs (device discovery)
-  - Playbook: CLAUDE.md
+  - label: Contract
+    target: "docs/rfcs/RFC-0098-board-support-contract-fdt-truth-boot-chain.md (C1–C3, Phase 0)"
+  - label: "Execution order"
+    target: "tasks/milestones/hardware-network.md (Block 1)"
+  - label: "Measurement this is built on"
+    target: docs/board/measurements/2026-09-22-stock-system/README.md
+  - label: "Board page"
+    target: docs/board/bpi-f3.md
+  - label: Consumers
+    target: "source/boot/nxboot (a1 pass-through + `/chosen`), source/kernel/neuron/src/core/kmain.rs, source/init/nexus-init/src/bootstrap/helpers.rs (device discovery)"
+  - label: Playbook
+    target: CLAUDE.md
 ---
+
+> Status (migrated 2026-11-02): Done 2026-09-22 (P0–P3: `nexus-fdt` + the board's own tree + both goldens host-tested; nxboot copies the tree into headroom, writes `/chosen/nexus,*` and hands the copy over; the kernel maps and parses it and prints what it read — `KSELFTEST: platform from fdt ok (… chosen.slot=a chosen.display=1280x800)` boot-proven, required in every profile. Recut 2026-09-22 from "Hardware Bring-up (RISC-V virt) v1.0a: DTB parser + SBI shim", Draft since 2025-12-29 with no code)
 
 ## History
 

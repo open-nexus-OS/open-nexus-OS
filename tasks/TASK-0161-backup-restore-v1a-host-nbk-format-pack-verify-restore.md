@@ -1,17 +1,24 @@
 ---
-title: TASK-0161 Backup/Restore v1a (host-first): NBK v1 deterministic bundle format + pack/verify/restore engine + retention/quota + tests
-status: Draft
-owner: @runtime
+schema: 1
+id: TASK-0161
+title: "Backup/Restore v1a (host-first): NBK v1 deterministic bundle format + pack/verify/restore engine + retention/quota + tests"
+status: draft
+owner: ["@runtime"]
 created: 2025-12-26
-depends-on: []
-follow-up-tasks: []
+subsystem: storage
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Persistence substrate (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Identity/Keystore v1.1 (seal/unseal API): tasks/TASK-0159-identity-keystore-v1_1-host-keystored-lifecycle-nonexportable.md
-  - Search v2 backend (optional index backup): tasks/TASK-0153-search-v2-backend-host-index-ranking-analyzers-sources.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Persistence substrate (/state)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Identity/Keystore v1.1 (seal/unseal API)"
+    target: tasks/TASK-0159-identity-keystore-v1_1-host-keystored-lifecycle-nonexportable.md
+  - label: "Search v2 backend (optional index backup)"
+    target: tasks/TASK-0153-search-v2-backend-host-index-ranking-analyzers-sources.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

@@ -1,21 +1,34 @@
 ---
-title: TASK-0240 i18n v2a (host-first): locale-pack compiler in nx build + PackLocaleSource + deterministic goldens
-status: Done (2026-07-21)
-owner: @runtime
+schema: 1
+id: TASK-0240
+title: "i18n v2a (host-first): locale-pack compiler in nx build + PackLocaleSource + deterministic goldens"
+status: done
+status_note: 2026-07-21
+owner: ["@runtime"]
 created: 2025-12-29
-updated: 2026-07-21 (DONE — host layer landed; naming deltas: pack magic `NXL1` index-aligned inline in the `NXLC` payload container (no `locales/*.nxlp` sidecar files), runtime source = `Catalog::from_indexed_pack` + `CatalogOverBaked` (no separate `PackLocaleSource` type). Originally rewritten: replaces both old i18n families — no Fluent/ICU4X (ex 0174/0175), packs ride the existing DSL catalog; architecture per RFC-0077)
-depends-on:
-  - TASK-0077
-follow-up-tasks:
-  - TASK-0241 (OS runtime switch + region push + Settings language picker)
+updated: 2026-07-21
+subsystem: text
+done: 2026-07-21
+dates_source: status-text
+depends_on: [TASK-0077]
+follow_ups: [TASK-0241]
+implements: [RFC-0077]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Contract seed: docs/rfcs/RFC-0077-i18n-v2-locale-packs-runtime-switch.md (seeded by this task)
-  - DSL i18n core (Done): tasks/TASK-0077-dsl-v0_2a-state-nav-i18n-core.md
-  - Superseded heavy line: tasks/TASK-0174-l10n-i18n-v1a-host-core-fluent-icu-fontsel-goldens.md
-  - Data formats rubric: docs/adr/0021-structured-data-formats-json-vs-capnp.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Contract seed"
+    target: "docs/rfcs/RFC-0077-i18n-v2-locale-packs-runtime-switch.md (seeded by this task)"
+  - label: "DSL i18n core (Done)"
+    target: tasks/TASK-0077-dsl-v0_2a-state-nav-i18n-core.md
+  - label: "Superseded heavy line"
+    target: tasks/TASK-0174-l10n-i18n-v1a-host-core-fluent-icu-fontsel-goldens.md
+  - label: "Data formats rubric"
+    target: docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
+
+> updated (migrated 2026-11-02): 2026-07-21 (DONE — host layer landed; naming deltas: pack magic `NXL1` index-aligned inline in the `NXLC` payload container (no `locales/*.nxlp` sidecar files), runtime source = `Catalog::from_indexed_pack` + `CatalogOverBaked` (no separate `PackLocaleSource` type). Originally rewritten: replaces both old i18n families — no Fluent/ICU4X (ex 0174/0175), packs ride the existing DSL catalog; architecture per RFC-0077)
 
 ## Context
 

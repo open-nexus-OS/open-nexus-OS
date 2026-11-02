@@ -1,24 +1,29 @@
 ---
-title: TASK-0006 Observability v1 (OS): logd journal + nexus-log client sink + execd crash reports
-status: Done
-owner: @runtime
+schema: 1
+id: TASK-0006
+title: "Observability v1 (OS): logd journal + nexus-log client sink + execd crash reports"
+status: done
+owner: ["@runtime"]
 created: 2025-12-22
 updated: 2026-01-14
-completed: 2026-01-14
-depends-on: []
-follow-up-tasks:
-  - TASK-0014
-  - TASK-0018
-  - TASK-0040
-  - TASK-0141
+subsystem: observability
+done: 2026-01-14
+dates_source: recorded
+follow_ups: [TASK-0014, TASK-0018, TASK-0040, TASK-0141]
+implements: [RFC-0003]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - RFC: docs/rfcs/RFC-0003-unified-logging.md
-  - IDL schema: tools/nexus-idl/schemas/log.capnp
-  - Testing contract: scripts/qemu-test.sh
-  - Rust standards (newtypes, must-use): docs/standards/RUST_STANDARDS.md
-  - Security standards (error discipline): docs/standards/SECURITY_STANDARDS.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "IDL schema"
+    target: tools/nexus-idl/schemas/log.capnp
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
+  - label: "Rust standards (newtypes, must-use)"
+    target: docs/standards/RUST_STANDARDS.md
+  - label: "Security standards (error discipline)"
+    target: docs/standards/SECURITY_STANDARDS.md
 ---
 
 ## Context

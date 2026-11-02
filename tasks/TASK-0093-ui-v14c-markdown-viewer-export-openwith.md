@@ -1,22 +1,33 @@
 ---
-title: TASK-0093 UI v14c: Markdown viewer + find-in-page + export-to-PDF + nx md export + Open With wiring
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0093
+title: "UI v14c: Markdown viewer + find-in-page + export-to-PDF + nx md export + Open With wiring"
+status: draft
+owner: ["@ui"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
+tracks: [TRACK-DSL-V1-DEVX]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - System Delegation / System Surfaces (Open With + export/share): tasks/TRACK-SYSTEM-DELEGATION.md
-  - DSL app platform: tasks/TASK-0122B-dsl-app-platform-v1-shell-routing-launch-contract.md
-  - DSL app integration kit: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md
-  - DSL v1 DevX track: tasks/TRACK-DSL-V1-DEVX.md
-  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
-  - Document access (picker/content): tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
-  - MIME/content foundations: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
-  - Print pipeline: tasks/TASK-0088-ui-v13b-print-to-pdf-printd-preview.md
-  - Searchd (optional discoverability): tasks/TASK-0071-ui-v9a-searchd-command-palette.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "System Delegation / System Surfaces (Open With + export/share)"
+    target: tasks/TRACK-SYSTEM-DELEGATION.md
+  - label: "DSL app platform"
+    target: tasks/TASK-0122B-dsl-app-platform-v1-shell-routing-launch-contract.md
+  - label: "DSL app integration kit"
+    target: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md
+  - label: "DSL syntax/layout convention"
+    target: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
+  - label: "Document access (picker/content)"
+    target: tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
+  - label: "MIME/content foundations"
+    target: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
+  - label: "Print pipeline"
+    target: tasks/TASK-0088-ui-v13b-print-to-pdf-printd-preview.md
+  - label: "Searchd (optional discoverability)"
+    target: tasks/TASK-0071-ui-v9a-searchd-command-palette.md
 ---
 
 ## Context

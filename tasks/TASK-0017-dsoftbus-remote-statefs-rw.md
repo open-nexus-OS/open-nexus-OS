@@ -1,34 +1,33 @@
 ---
-title: TASK-0017 DSoftBus Remote-FS v1: Remote StateFS proxy (RW, ACL) over authenticated streams
-status: Done
-owner: @runtime
+schema: 1
+id: TASK-0017
+title: "DSoftBus Remote-FS v1: Remote StateFS proxy (RW, ACL) over authenticated streams"
+status: done
+owner: ["@runtime"]
 created: 2025-12-22
-depends-on:
-  - TASK-0005
-  - TASK-0006
-  - TASK-0008
-  - TASK-0009
-  - TASK-0015
-follow-up-tasks: []
+subsystem: distributed
+done: 2026-07-17
+dates_source: git-reconstructed
+depends_on: [TASK-0005, TASK-0006, TASK-0008, TASK-0009, TASK-0015]
+follow_ups: [TASK-0020, TASK-0021, TASK-0022]
+implements: [RFC-0030, RFC-0027]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - ADR: docs/adr/0005-dsoftbus-architecture.md
-  - RFC (remote statefs RW contract): docs/rfcs/RFC-0030-dsoftbus-remote-statefs-rw-v1.md
-  - RFC (modular daemon boundary): docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md
-  - Depends-on (modularization base): tasks/TASK-0015-dsoftbusd-refactor-v1-modular-os-daemon-structure.md
-  - Depends-on (DSoftBus OS streams): tasks/TASK-0005-networking-cross-vm-dsoftbus-remote-proxy.md
-  - Depends-on (statefs): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Depends-on (audit sink): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
-  - Depends-on (policy/audit semantics): tasks/TASK-0008-security-hardening-v1-nexus-sel-audit-device-keys.md
-  - Related (netstackd modular baseline): tasks/TASK-0016B-netstackd-refactor-v1-modular-os-daemon-structure.md
-  - Follow-on (mux/flow-control): tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md
-  - Follow-on (QUIC transport): tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md
-  - Follow-on (core abstraction): tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md
-  - Testing methodology: docs/testing/README.md
-  - Testing distributed debug guide: docs/testing/network-distributed-debugging.md
-  - Testing contract: scripts/qemu-test.sh
-  - Testing contract (2-VM): tools/os2vm.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: ADR
+    target: docs/adr/0005-dsoftbus-architecture.md
+  - label: "Related (netstackd modular baseline)"
+    target: tasks/TASK-0016B-netstackd-refactor-v1-modular-os-daemon-structure.md
+  - label: "Testing methodology"
+    target: docs/testing/README.md
+  - label: "Testing distributed debug guide"
+    target: docs/testing/network-distributed-debugging.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
+  - label: "Testing contract (2-VM)"
+    target: tools/os2vm.sh
 ---
 
 ## Context

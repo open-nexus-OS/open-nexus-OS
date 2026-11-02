@@ -1,18 +1,26 @@
 ---
-title: TASK-0134 StateFS v3: named snapshots + read-only mounts + log compaction/GC (extends v2a) + tests/markers
-status: Draft
-owner: @runtime
+schema: 1
+id: TASK-0134
+title: "StateFS v3: named snapshots + read-only mounts + log compaction/GC (extends v2a) + tests/markers"
+status: draft
+owner: ["@runtime"]
 created: 2025-12-25
-depends-on: []
-follow-up-tasks: []
+subsystem: storage
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - StateFS v1 (KV substrate): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - StateFS v2a (2PC+compaction+fsck): tasks/TASK-0026-statefs-v2a-2pc-compaction-fsck.md
-  - Write-path hardening: tasks/TASK-0025-statefs-write-path-hardening-integrity-atomic-budgets-audit.md
-  - Storage error contract: tasks/TASK-0132-storage-errors-vfs-semantic-contract.md
-  - User-data snapshots (authoritative): docs/rfcs/RFC-0071-nxfs-user-data-filesystem-contract.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "StateFS v1 (KV substrate)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "StateFS v2a (2PC+compaction+fsck)"
+    target: tasks/TASK-0026-statefs-v2a-2pc-compaction-fsck.md
+  - label: "Write-path hardening"
+    target: tasks/TASK-0025-statefs-write-path-hardening-integrity-atomic-budgets-audit.md
+  - label: "Storage error contract"
+    target: tasks/TASK-0132-storage-errors-vfs-semantic-contract.md
+  - label: "User-data snapshots (authoritative)"
+    target: docs/rfcs/RFC-0071-nxfs-user-data-filesystem-contract.md
 ---
 
 > **SCOPE NOTE (2026-07-15).** Snapshot/clone semantics for **user data** are owned by nxfs

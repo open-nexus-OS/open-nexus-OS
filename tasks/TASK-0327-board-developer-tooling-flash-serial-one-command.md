@@ -1,19 +1,33 @@
 ---
-title: TASK-0327 Board developer tooling: one command installs the flash/serial tools on Ubuntu, Arch and Fedora + `just board-*`
-status: Done 2026-10-10 (Block 1 closure — T0, T1, T2 Done 2026-09-21, T3 = TASK-0327B (`[PASS] board-headless` 2026-09-29, `board-visible` with Block 1), T4 the driver bring-up playbook 2026-09-30; the board flashed, logged and judged with `just board-*` on every cycle since. Two DoD runs need hardware the desk does not have — a fresh box per family, a USB-UART adapter for `board-serial` — moved to TRACK-REPO-HYGIENE-FOLLOWUPS §15; was "In Progress (T0, T1, T2 Done 2026-09-21 …; T3 = TASK-0327B waits for a booting board, Block 1)")
-owner: @devx @runtime
+schema: 1
+id: TASK-0327
+title: "Board developer tooling: one command installs the flash/serial tools on Ubuntu, Arch and Fedora + `just board-*`"
+status: done
+status_note: "2026-10-10 (Block 1 closure"
+owner: ["@devx", "@runtime"]
 created: 2026-09-21
-depends-on: []
-follow-up-tasks:
-  - tasks/TASK-0327B-board-proof-lane-serial-ladder-profiles.md
+subsystem: devx
+started: 2026-09-21
+done: 2026-10-10
+active_days: 1
+dates_source: git-reconstructed
+follow_ups: [TASK-0327B]
 links:
-  - Execution order (Block 0 of the hardware fast track): tasks/IMPLEMENTATION-ORDER.md
-  - Playbook: CLAUDE.md
-  - Setup spine this extends: Makefile (`initial-setup`, `doctor`), scripts/install-deps.sh, scripts/check-deps.sh, scripts/fetch-inputs.sh
-  - The ADR anchor every setup script cites: docs/architecture/02-selftest-and-ci.md
-  - Board notes (written by T2): docs/board/bpi-f3.md
-  - Consumers: tasks/TASK-0260-provisioning-recovery-v1_0a-flashd-host-image-builder-flasher-protocol-deterministic.md (fastboot becomes THE flasher protocol at Block 1), tasks/TASK-0244-bringup-rv-virt-v1_0a-host-dtb-sbi-shim-deterministic.md (Block 1 starts on a box this task prepared)
+  - label: "Execution order (Block 0 of the hardware fast track)"
+    target: tasks/milestones/hardware-network.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Setup spine this extends"
+    target: "Makefile (`initial-setup`, `doctor`), scripts/install-deps.sh, scripts/check-deps.sh, scripts/fetch-inputs.sh"
+  - label: "The ADR anchor every setup script cites"
+    target: docs/architecture/02-selftest-and-ci.md
+  - label: "Board notes (written by T2)"
+    target: docs/board/bpi-f3.md
+  - label: Consumers
+    target: "tasks/TASK-0260-provisioning-recovery-v1_0a-flashd-host-image-builder-flasher-protocol-deterministic.md (fastboot becomes THE flasher protocol at Block 1), tasks/TASK-0244-bringup-rv-virt-v1_0a-host-dtb-sbi-shim-deterministic.md (Block 1 starts on a box this task prepared)"
 ---
+
+> Status (migrated 2026-11-02): Done 2026-10-10 (Block 1 closure — T0, T1, T2 Done 2026-09-21, T3 = TASK-0327B (`[PASS] board-headless` 2026-09-29, `board-visible` with Block 1), T4 the driver bring-up playbook 2026-09-30; the board flashed, logged and judged with `just board-*` on every cycle since. Two DoD runs need hardware the desk does not have — a fresh box per family, a USB-UART adapter for `board-serial` — moved to TRACK-REPO-HYGIENE-FOLLOWUPS §15; was "In Progress (T0, T1, T2 Done 2026-09-21 …; T3 = TASK-0327B waits for a booting board, Block 1)")
 
 ## Origin
 

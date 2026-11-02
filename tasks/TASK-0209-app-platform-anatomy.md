@@ -1,21 +1,31 @@
 ---
-title: "TASK-0209 App-Plattform-Anatomie: App-Layout (i18n/assets/native), Boot-TOML (Login/Shell), SDK-Kuratierung, Companion-Services, App-Exports, Widget-Libraries"
-status: Draft
-owner: "@ui @runtime"
+schema: 1
+id: TASK-0209
+title: "App-Plattform-Anatomie: App-Layout (i18n/assets/native), Boot-TOML (Login/Shell), SDK-Kuratierung, Companion-Services, App-Exports, Widget-Libraries"
+status: draft
+owner: ["@ui", "@runtime"]
 created: 2026-07-07
-renumbered: 2026-09-21 — was the second file claiming TASK-0081 (the MIME-registry ledger keeps the number); moved to the free 0209 by the hardware fast track's Block 0 hygiene step
-depends-on:
-  - tasks/TASK-0080D-dsl-app-runtime-lifecycle-surface-contract.md   # App-Runtime-Prozess + Transport
-  - tasks/TASK-0080B-systemui-dsl-bootstrap-shell-launcher-host.md   # Shell/Greeter in DSL
+subsystem: app-platform
+depends_on: [TASK-0080D, TASK-0080B]
 links:
-  - Diskussions-/Entscheidungsprotokoll: ~/.claude/plans/sprightly-wobbling-grove.md (2026-07-07)
-  - Offene-Punkte-Index: tasks/TRACK-OPEN-POINTS-2026-07.md
-  - App-Layout heute: docs/dev/dsl/project-layout.md
-  - Manifest-Schema: tools/nexus-idl/schemas/manifest.capnp (v2.1)
-  - Service-Surface-SSOT-Muster: tools/nexus-idl/schemas/dsl_services.capnp
-  - systemui-Registry (Boot-TOML-Träger): source/services/systemui/manifests/ (ADR-0035)
-  - Lifecycle-Authority: docs/rfcs/RFC-0065, docs/adr/0036
-  - Design-Contract (Widget-Maßstab): docs/dev/design_handoff_open_nexus_os/
+  - label: Diskussions-/Entscheidungsprotokoll
+    target: "~/.claude/plans/sprightly-wobbling-grove.md (2026-07-07)"
+  - label: Offene-Punkte-Index
+    target: tasks/TRACK-OPEN-POINTS-2026-07.md
+  - label: "App-Layout heute"
+    target: docs/dev/dsl/project-layout.md
+  - label: Manifest-Schema
+    target: "tools/nexus-idl/schemas/manifest.capnp (v2.1)"
+  - label: Service-Surface-SSOT-Muster
+    target: tools/nexus-idl/schemas/dsl_services.capnp
+  - label: "systemui-Registry (Boot-TOML-Träger)"
+    target: "source/services/systemui/manifests/ (ADR-0035)"
+  - label: Lifecycle-Authority
+    target: "docs/rfcs/RFC-0065, docs/adr/0036"
+  - label: "Design-Contract (Widget-Maßstab)"
+    target: docs/dev/design_handoff_open_nexus_os/
+  - label: renumbered
+    target: "2026-09-21 — was the second file claiming TASK-0081 (the MIME-registry ledger keeps the number); moved to the free 0209 by the hardware fast track's Block 0 hygiene step"
 ---
 
 ## Context (Entscheidungen vom 2026-07-07, User-approved)

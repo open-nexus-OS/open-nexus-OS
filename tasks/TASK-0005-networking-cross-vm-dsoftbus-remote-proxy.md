@@ -1,25 +1,24 @@
 ---
-title: TASK-0005 Networking step 3 (OS): cross-VM DSoftBus sessions + remote proxy (samgr/bundlemgr) + 2-VM harness (opt-in)
-status: Done
-owner: @runtime
+schema: 1
+id: TASK-0005
+title: "Networking step 3 (OS): cross-VM DSoftBus sessions + remote proxy (samgr/bundlemgr) + 2-VM harness (opt-in)"
+status: done
+owner: ["@runtime"]
 created: 2025-12-22
 updated: 2026-01-13
-depends-on:
-  - TASK-0004
-follow-up-tasks: []
+subsystem: distributed
+done: 2026-08-14
+dates_source: git-reconstructed
+depends_on: [TASK-0004]
+follow_ups: [TASK-0022, TASK-0024, TASK-0020, TASK-0021]
+implements: [RFC-0005, RFC-0007, RFC-0008, RFC-0009]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Depends-on: tasks/TASK-0004-networking-dhcp-icmp-dsoftbus-dual-node.md
-  - Follow-on: tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md
-  - Follow-on: tasks/TASK-0024-dsoftbus-quic-v2-reliability-os.md
-  - Follow-on: tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md
-  - Follow-on: tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md
-  - ADR: docs/adr/0005-dsoftbus-architecture.md
-  - RFC: docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
-  - RFC: docs/rfcs/RFC-0007-dsoftbus-os-transport-v1.md
-  - RFC: docs/rfcs/RFC-0008-dsoftbus-noise-xk-v1.md
-  - RFC: docs/rfcs/RFC-0009-no-std-dependency-hygiene-v1.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: ADR
+    target: docs/adr/0005-dsoftbus-architecture.md
 ---
 
 ## Context

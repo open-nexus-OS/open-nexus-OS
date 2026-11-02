@@ -1,21 +1,37 @@
 ---
-title: TASK-0059 UI v3b: clipping/scroll layers + precise damage + CPU effects (blur/shadow) + IME/text-input stub
-status: Done
-owner: @ui
+schema: 1
+id: TASK-0059
+title: "UI v3b: clipping/scroll layers + precise damage + CPU effects (blur/shadow) + IME/text-input stub"
+status: done
+owner: ["@ui"]
 created: 2025-12-23
-updated: 2026-05-22 (Phases 0–7 complete. ShadowArena + per-box caching + zero-alloc blur in production. `os_lite.rs` (4860 lines) → `compositor/` (18 focused files). All tests green, no functional change.)
-depends-on: [TASK-0058]
-follow-up-tasks: [TASK-0060B]
+updated: 2026-05-22
+subsystem: ui
+started: 2026-05-18
+done: 2026-05-20
+active_days: 3
+dates_source: git-reconstructed
+depends_on: [TASK-0058]
+follow_ups: [TASK-0060B]
+implements: [RFC-0058]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - **RFC seed (SSOT contract)**: docs/rfcs/RFC-0058-ui-v3b-clip-scroll-effects-ime-contract.md
-  - **ADR-0030**: docs/adr/0030-layout-engine-deterministic-pretext.md
-  - UI v3a layout: tasks/TASK-0058-ui-v3a-layout-wrapping-deterministic.md
-  - Layout pipeline: docs/dev/ui/foundations/layout/layout-pipeline.md
-  - Architecture: docs/architecture/graphics/display-output-service-chain.md
-  - Testing: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "**ADR-0030**"
+    target: docs/adr/0030-layout-engine-deterministic-pretext.md
+  - label: "UI v3a layout"
+    target: tasks/TASK-0058-ui-v3a-layout-wrapping-deterministic.md
+  - label: "Layout pipeline"
+    target: docs/dev/ui/foundations/layout/layout-pipeline.md
+  - label: Architecture
+    target: docs/architecture/graphics/display-output-service-chain.md
+  - label: Testing
+    target: scripts/qemu-test.sh
 ---
+
+> updated (migrated 2026-11-02): 2026-05-22 (Phases 0–7 complete. ShadowArena + per-box caching + zero-alloc blur in production. `os_lite.rs` (4860 lines) → `compositor/` (18 focused files). All tests green, no functional change.)
 
 ## Context
 

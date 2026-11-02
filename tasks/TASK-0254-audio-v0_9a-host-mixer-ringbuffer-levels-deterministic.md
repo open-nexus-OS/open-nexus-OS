@@ -1,17 +1,23 @@
 ---
-title: TASK-0254 Audio v0.9a (host-first): mixer + ringbuffer + levels + deterministic tests
-status: Draft
-owner: @media
+schema: 1
+id: TASK-0254
+title: "Audio v0.9a (host-first): mixer + ringbuffer + levels + deterministic tests"
+status: draft
+owner: ["@media"]
 created: 2025-12-29
-depends-on: []
-follow-up-tasks: []
+subsystem: media
+tracks: [TRACK-NEXUSMEDIA-SDK]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - NexusMedia SDK track (audio/video/image): tasks/TRACK-NEXUSMEDIA-SDK.md
-  - Audiod v16b baseline: tasks/TASK-0100-ui-v16b-audiod-mixer.md
-  - Media v2.1a baseline: tasks/TASK-0217-media-v2_1a-host-audiod-deterministic-graph-mixer.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Audiod v16b baseline"
+    target: tasks/TASK-0100-ui-v16b-audiod-mixer.md
+  - label: "Media v2.1a baseline"
+    target: tasks/TASK-0217-media-v2_1a-host-audiod-deterministic-graph-mixer.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

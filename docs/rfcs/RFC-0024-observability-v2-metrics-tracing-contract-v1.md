@@ -1,17 +1,29 @@
-# RFC-0024: Observability v2 local contract - metricsd + tracing export via logd
+---
+schema: 1
+id: RFC-0024
+title: "Observability v2 local contract - metricsd + tracing export via logd"
+status: done
+owners: ["@runtime"]
+created: 2026-02-11
+updated: 2026-02-13
+subsystem: observability
+tasks: [TASK-0014]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0014-observability-v2-metrics-tracing.md` (execution + proof)"
+  - label: ADRs
+    target: "`docs/adr/0025-qemu-smoke-proof-gating.md` (deterministic QEMU proof policy)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0011-logd-journal-crash-v1.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0019-ipc-request-reply-correlation-v1.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0023-qos-abi-timed-coalescing-contract-v1.md`"
+---
 
-- Status: Done
-- Owners: @runtime
-- Created: 2026-02-11
-- Last Updated: 2026-02-13
-- Links:
-  - Tasks: `tasks/TASK-0014-observability-v2-metrics-tracing.md` (execution + proof)
-  - ADRs: `docs/adr/0025-qemu-smoke-proof-gating.md` (deterministic QEMU proof policy)
-  - Related RFCs:
-    - `docs/rfcs/RFC-0011-logd-journal-crash-v1.md`
-    - `docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md`
-    - `docs/rfcs/RFC-0019-ipc-request-reply-correlation-v1.md`
-    - `docs/rfcs/RFC-0023-qos-abi-timed-coalescing-contract-v1.md`
+# RFC-0024: Observability v2 local contract - metricsd + tracing export via logd
 
 ## Status at a Glance
 

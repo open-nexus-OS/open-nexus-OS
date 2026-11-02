@@ -1,20 +1,29 @@
 ---
-title: TASK-0131 Packages v1c: Installer UI + Files/Open-With integration + Launcher refresh + OS proofs + docs/postflight
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0131
+title: "Packages v1c: Installer UI + Files/Open-With integration + Launcher refresh + OS proofs + docs/postflight"
+status: draft
+owner: ["@ui"]
 created: 2025-12-25
-depends-on: []
-follow-up-tasks: []
+subsystem: updates
+tracks: [TRACK-ADS-SAFETY-FAMILYMODE]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
-  - bundlemgrd install pipeline: tasks/TASK-0130-packages-v1b-bundlemgrd-install-upgrade-uninstall-trust.md
-  - Installer v1.1 (atomic A/B, migrations, entitlements): tasks/TASK-0238-installer-v1_1a-host-nab-semver-migrations-policy-deterministic.md, tasks/TASK-0239-installer-v1_1b-os-pkgr-atomic-ab-bundlemgr-registry-licensed-selftests.md
-  - MIME/Open-With + picker: tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
-  - Files app integration: tasks/TASK-0086-ui-v12c-files-app-progress-dnd-share-openwith.md
-  - SystemUI→DSL migration: tasks/TASK-0119-systemui-dsl-migration-phase1a-launcher-qs-host.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "bundlemgrd install pipeline"
+    target: tasks/TASK-0130-packages-v1b-bundlemgrd-install-upgrade-uninstall-trust.md
+  - label: "Installer v1.1 (atomic A/B, migrations, entitlements)"
+    target: "tasks/TASK-0238-installer-v1_1a-host-nab-semver-migrations-policy-deterministic.md, tasks/TASK-0239-installer-v1_1b-os-pkgr-atomic-ab-bundlemgr-registry-licensed-selftests.md"
+  - label: "MIME/Open-With + picker"
+    target: tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
+  - label: "Files app integration"
+    target: tasks/TASK-0086-ui-v12c-files-app-progress-dnd-share-openwith.md
+  - label: "SystemUI→DSL migration"
+    target: tasks/TASK-0119-systemui-dsl-migration-phase1a-launcher-qs-host.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

@@ -1,17 +1,24 @@
 ---
-title: TASK-0191 Privacy v2a (host-first): structured policy usage events + deterministic aggregation (timeline/stats) + NDAP export + tests
-status: Draft
-owner: @security
+schema: 1
+id: TASK-0191
+title: "Privacy v2a (host-first): structured policy usage events + deterministic aggregation (timeline/stats) + NDAP export + tests"
+status: draft
+owner: ["@security"]
 created: 2025-12-27
-depends-on: []
-follow-up-tasks: []
+subsystem: security
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Policy v1.1 core semantics + audit direction: tasks/TASK-0167-policy-v1_1-host-scoped-grants-expiry-enumeration.md
-  - Privacy Dashboard v1.1 (OS UI owner): tasks/TASK-0168-policy-v1_1-os-runtime-prompts-privacy-dashboard-cli.md
-  - Policy audit sink direction (logd): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
-  - Persistence substrate (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Policy v1.1 core semantics + audit direction"
+    target: tasks/TASK-0167-policy-v1_1-host-scoped-grants-expiry-enumeration.md
+  - label: "Privacy Dashboard v1.1 (OS UI owner)"
+    target: tasks/TASK-0168-policy-v1_1-os-runtime-prompts-privacy-dashboard-cli.md
+  - label: "Policy audit sink direction (logd)"
+    target: tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
+  - label: "Persistence substrate (/state)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
 ---
 
 ## Context

@@ -1,28 +1,49 @@
 ---
-title: TRACK Fediverse Apps (NexusSocial + NexusMoments + NexusChat + NexusForum): complete Fediverse suite with first-party UX (no inofficial bridges)
-status: Draft
-owner: @apps @ui
+schema: 1
+id: TRACK-NEXUSSOCIAL
+title: "Fediverse Apps (NexusSocial + NexusMoments + NexusChat + NexusForum): complete Fediverse suite with first-party UX (no inofficial bridges)"
+status: draft
+owner: ["@apps", "@ui"]
 created: 2026-01-19
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - UI layout pipeline contract: docs/dev/ui/foundations/layout/layout-pipeline.md
-  - System Delegation / System Surfaces (avoid per-app chat/compose reimplementation): tasks/TRACK-SYSTEM-DELEGATION.md
-  - NexusNet SDK (network/OAuth surfaces): tasks/TRACK-NEXUSNET-SDK.md
-  - Zero-Copy App Platform (UI primitives/caching patterns): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
-  - DSL query objects (timeline/cache views): tasks/TASK-0274-dsl-v0_2c-db-query-objects-builder-defaults-paging-deterministic.md
-  - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
-  - Video Editor app (shared editor offer): tasks/TRACK-VIDEO-EDITOR-APP.md
-  - NexusVideo (PeerTube client; long-form + creator economy): tasks/TRACK-NEXUSVIDEO.md
-  - Recipes app (recipe attachment import target): tasks/TRACK-RECIPES-APP.md
-  - Intents/share (targets + chooser): tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md, tasks/TASK-0127-share-v2b-chooser-ui-targets-grants.md
-  - Scoped URI grants (content://): tasks/TASK-0084-ui-v12a-scoped-uri-grants.md
-  - Document picker + Open With: tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
-  - Accounts/Identity v1.2 (multi-user + sessiond + keystore binding): tasks/TASK-0223-accounts-identity-v1_2a-host-multiuser-sessiond.md
-  - Accounts/Identity v1.2 (OS wiring + secure home): tasks/TASK-0224-accounts-identity-v1_2b-os-securefs-home-greeter-keystore.md
-  - Backup/Restore v1 (NBK + backupd): tasks/TASK-0161-backup-restore-v1a-host-nbk-format-pack-verify-restore.md
-  - Backup/Restore v1 (OS/QEMU): tasks/TASK-0162-backup-restore-v1b-os-backupd-settings-cli-selftests-docs.md
-  - TRACK NexusAccount (online account provider + cloud storage/sync): tasks/TRACK-NEXUSACCOUNT.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "UI layout pipeline contract"
+    target: docs/dev/ui/foundations/layout/layout-pipeline.md
+  - label: Link
+    target: "System Delegation / System Surfaces (avoid per-app chat/compose reimplementation): tasks/TRACK-SYSTEM-DELEGATION.md"
+  - label: "NexusNet SDK (network/OAuth surfaces)"
+    target: tasks/TRACK-NEXUSNET-SDK.md
+  - label: "Zero-Copy App Platform (UI primitives/caching patterns)"
+    target: tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
+  - label: "DSL query objects (timeline/cache views)"
+    target: tasks/TASK-0274-dsl-v0_2c-db-query-objects-builder-defaults-paging-deterministic.md
+  - label: "Authority & naming registry"
+    target: tasks/TRACK-AUTHORITY-NAMING.md
+  - label: "Video Editor app (shared editor offer)"
+    target: tasks/TRACK-VIDEO-EDITOR-APP.md
+  - label: "NexusVideo (PeerTube client; long-form + creator economy)"
+    target: tasks/TRACK-NEXUSVIDEO.md
+  - label: "Recipes app (recipe attachment import target)"
+    target: tasks/TRACK-RECIPES-APP.md
+  - label: "Intents/share (targets + chooser)"
+    target: "tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md, tasks/TASK-0127-share-v2b-chooser-ui-targets-grants.md"
+  - label: Link
+    target: "Scoped URI grants (content://): tasks/TASK-0084-ui-v12a-scoped-uri-grants.md"
+  - label: "Document picker + Open With"
+    target: tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
+  - label: "Accounts/Identity v1.2 (multi-user + sessiond + keystore binding)"
+    target: tasks/TASK-0223-accounts-identity-v1_2a-host-multiuser-sessiond.md
+  - label: "Accounts/Identity v1.2 (OS wiring + secure home)"
+    target: tasks/TASK-0224-accounts-identity-v1_2b-os-securefs-home-greeter-keystore.md
+  - label: "Backup/Restore v1 (NBK + backupd)"
+    target: tasks/TASK-0161-backup-restore-v1a-host-nbk-format-pack-verify-restore.md
+  - label: "Backup/Restore v1 (OS/QEMU)"
+    target: tasks/TASK-0162-backup-restore-v1b-os-backupd-settings-cli-selftests-docs.md
+  - label: "TRACK NexusAccount (online account provider + cloud storage/sync)"
+    target: tasks/TRACK-NEXUSACCOUNT.md
 ---
 
 ## Goal (track-level)

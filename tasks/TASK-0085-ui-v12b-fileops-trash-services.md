@@ -1,18 +1,25 @@
 ---
-title: TASK-0085 UI v12b: file operations manager (fileopsd) + per-app Trash/Restore (trashd) + progress streams
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0085
+title: "UI v12b: file operations manager (fileopsd) + per-app Trash/Restore (trashd) + progress streams"
+status: draft
+owner: ["@ui"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
+tracks: [TRACK-REMOVABLE-STORAGE]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Content providers: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
-  - Scoped grants: tasks/TASK-0084-ui-v12a-scoped-uri-grants.md
-  - Persistence (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Policy as Code: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
-  - Removable storage track (copy/move to USB/SD via streams): tasks/TRACK-REMOVABLE-STORAGE.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Content providers"
+    target: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
+  - label: "Scoped grants"
+    target: tasks/TASK-0084-ui-v12a-scoped-uri-grants.md
+  - label: "Persistence (/state)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Policy as Code"
+    target: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
 ---
 
 ## Context

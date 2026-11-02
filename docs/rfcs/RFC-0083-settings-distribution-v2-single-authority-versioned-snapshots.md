@@ -1,15 +1,24 @@
-# RFC-0083: Settings distribution v2 — single authority, versioned snapshots, repaint not remount
+---
+schema: 1
+id: RFC-0083
+title: "Settings distribution v2 — single authority, versioned snapshots, repaint not remount"
+status: done
+status_note: "2026-07-27 — all phases boot-proven, driven-tap interactive proof in TASK-0307 §P6; follow-ups recorded there"
+owners: ["@runtime"]
+created: 2026-07-27
+updated: 2026-07-27
+subsystem: ui
+tasks: [TASK-0307]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0307-settings-distribution-v2.md` (execution + proof)"
+  - label: ADRs
+    target: "`docs/adr/0053-settingsd-single-settings-authority.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0078-settings-region-keys-watch.md` (amended by this RFC), `docs/rfcs/RFC-0077-i18n-v2-locale-packs-runtime-switch.md`, `docs/rfcs/RFC-0076-wallclock-v1-rtcd-timed-tz.md`"
+---
 
-- Status: Complete (2026-07-27 — all phases boot-proven, driven-tap interactive proof in TASK-0307 §P6; follow-ups recorded there)
-- Owners: @runtime
-- Created: 2026-07-27
-- Last Updated: 2026-07-27
-- Links:
-  - Tasks: `tasks/TASK-0307-settings-distribution-v2.md` (execution + proof)
-  - ADRs: `docs/adr/0053-settingsd-single-settings-authority.md`
-  - Related RFCs: `docs/rfcs/RFC-0078-settings-region-keys-watch.md` (amended by this RFC),
-    `docs/rfcs/RFC-0077-i18n-v2-locale-packs-runtime-switch.md`,
-    `docs/rfcs/RFC-0076-wallclock-v1-rtcd-timed-tz.md`
+# RFC-0083: Settings distribution v2 — single authority, versioned snapshots, repaint not remount
 
 ## Status at a Glance
 

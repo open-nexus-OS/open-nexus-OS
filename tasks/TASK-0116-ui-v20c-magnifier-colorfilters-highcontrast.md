@@ -1,16 +1,22 @@
 ---
-title: TASK-0116 UI v20c: magnifier (lens/fullscreen) + color filters + high-contrast mode + prefs + tests
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0116
+title: "UI v20c: magnifier (lens/fullscreen) + color filters + high-contrast mode + prefs + tests"
+status: draft
+owner: ["@ui"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - UI v4a compositor baseline (post-process hooks): tasks/TASK-0060-ui-v4a-tiled-compositor-clipstack-atlases-perf.md
-  - Theme tokens baseline: tasks/TASK-0063-ui-v5b-virtualized-list-theme-tokens.md
-  - Prefs store: tasks/TASK-0072-ui-v9b-prefsd-settings-panels-quick-settings.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "UI v4a compositor baseline (post-process hooks)"
+    target: tasks/TASK-0060-ui-v4a-tiled-compositor-clipstack-atlases-perf.md
+  - label: "Theme tokens baseline"
+    target: tasks/TASK-0063-ui-v5b-virtualized-list-theme-tokens.md
+  - label: "Prefs store"
+    target: tasks/TASK-0072-ui-v9b-prefsd-settings-panels-quick-settings.md
 ---
 
 ## Context

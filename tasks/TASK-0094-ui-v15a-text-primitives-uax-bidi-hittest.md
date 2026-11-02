@@ -1,16 +1,22 @@
 ---
-title: TASK-0094 UI v15a: text primitives upgrade (UAX#14/#29 + bidi UAX#9) + hit-testing + markers
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0094
+title: "UI v15a: text primitives upgrade (UAX#14/#29 + bidi UAX#9) + hit-testing + markers"
+status: draft
+owner: ["@ui"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - UI v2b shaping baseline: tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
-  - UI v3a wrapping baseline: tasks/TASK-0058-ui-v3a-layout-wrapping-deterministic.md
-  - A11y baseline: tasks/TASK-0061-ui-v4b-gestures-a11y-semantics.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "UI v2b shaping baseline"
+    target: tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
+  - label: "UI v3a wrapping baseline"
+    target: tasks/TASK-0058-ui-v3a-layout-wrapping-deterministic.md
+  - label: "A11y baseline"
+    target: tasks/TASK-0061-ui-v4b-gestures-a11y-semantics.md
 ---
 
 ## Context

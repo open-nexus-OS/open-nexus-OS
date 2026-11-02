@@ -1,39 +1,29 @@
 ---
-title: TASK-0009 Persistence v1 (OS): userspace block device + statefs journal for /state (device keys + bootctl)
-status: Done
-owner: @runtime
+schema: 1
+id: TASK-0009
+title: "Persistence v1 (OS): userspace block device + statefs journal for /state (device keys + bootctl)"
+status: done
+owner: ["@runtime"]
 created: 2025-12-22
 updated: 2026-02-06
-depends-on:
-  - TASK-0006
-  - TASK-0008B
-  - TASK-0010
-follow-up-tasks:
-  - TASK-0018
-  - TASK-0025
-  - TASK-0026
-  - TASK-0027
-  - TASK-0031
-  - TASK-0034
-  - TASK-0051
-  - TASK-0130
-  - TASK-0132
-  - TASK-0133
-  - TASK-0134
-  - TASK-0241
-  - TASK-0243
-  - TASK-0289
+subsystem: storage
+started: 2026-01-27
+done: 2026-02-09
+active_days: 4
+dates_source: git-reconstructed
+depends_on: [TASK-0006, TASK-0008B, TASK-0010]
+follow_ups: [TASK-0018, TASK-0025, TASK-0026, TASK-0027, TASK-0031, TASK-0034, TASK-0051, TASK-0130, TASK-0132, TASK-0133, TASK-0134, TASK-0241, TASK-0243, TASK-0289]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Depends-on (device keys): tasks/TASK-0008B-device-identity-keys-v1-virtio-rng-rngd-keystored-keygen.md
-  - Depends-on (MMIO mapping primitive): tasks/TASK-0010-device-mmio-access-model.md
-  - Depends-on (audit sink): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
-  - Storage docs: docs/storage/vfs.md
-  - Testing contract: scripts/qemu-test.sh
-enables:
-  - TASK-0034: Delta updates v1.1 (persistent bootctl + resume checkpoints)
-  - TASK-0007 v1.1: Persistent A/B updates (moved to TASK-0034)
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Storage docs"
+    target: docs/storage/vfs.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
+  - label: enables
+    target: "TASK-0034: Delta updates v1.1 (persistent bootctl + resume checkpoints); TASK-0007 v1.1: Persistent A/B updates (moved to TASK-0034)"
 ---
 
 ## Current Status (2026-02-06)

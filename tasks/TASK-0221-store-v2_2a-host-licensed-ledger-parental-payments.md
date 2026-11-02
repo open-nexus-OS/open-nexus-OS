@@ -1,18 +1,25 @@
 ---
-title: TASK-0221 Store v2.2a (host-first): offline licensing (NLT) + sandbox payments + purchase ledger + trials/refunds/revocations + parental controls + deterministic tests
-status: Draft
-owner: @platform
+schema: 1
+id: TASK-0221
+title: "Store v2.2a (host-first): offline licensing (NLT) + sandbox payments + purchase ledger + trials/refunds/revocations + parental controls + deterministic tests"
+status: draft
+owner: ["@platform"]
 created: 2025-12-27
-depends-on: []
-follow-up-tasks: []
+subsystem: security
+tracks: [TRACK-ADS-SAFETY-FAMILYMODE]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
-  - Store v1 host baseline: tasks/TASK-0180-store-v1a-host-storefeedd-storemgrd-ratings.md
-  - Supply-chain hardening v2 (sigchain/trust primitives): tasks/TASK-0197-supply-chain-v2a-host-sigchain-translog-sbom-provenance.md
-  - Trust store unification: tasks/TASK-0160-identity-keystore-v1_1-os-attestd-trust-unification-selftests.md
-  - Persistence substrate (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Store v1 host baseline"
+    target: tasks/TASK-0180-store-v1a-host-storefeedd-storemgrd-ratings.md
+  - label: "Supply-chain hardening v2 (sigchain/trust primitives)"
+    target: tasks/TASK-0197-supply-chain-v2a-host-sigchain-translog-sbom-provenance.md
+  - label: "Trust store unification"
+    target: tasks/TASK-0160-identity-keystore-v1_1-os-attestd-trust-unification-selftests.md
+  - label: "Persistence substrate (/state)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
 ---
 
 ## Context

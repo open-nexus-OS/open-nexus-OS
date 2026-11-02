@@ -1,24 +1,29 @@
 ---
-title: TASK-0033 packagefs v2b: zero-copy `pkg:/` reads — VMO pass-through from bundlemgrd + ONE payload-VMO header codec
-status: Done 2026-09-18 (reviewed + built end-state; residual of the TASK-0295 supersession discharged)
-owner: @runtime
+schema: 1
+id: TASK-0033
+title: "packagefs v2b: zero-copy `pkg:/` reads — VMO pass-through from bundlemgrd + ONE payload-VMO header codec"
+status: done
+status_note: "2026-09-18 (reviewed + built end-state; residual of the TASK-0295 supersession discharged)"
+owner: ["@runtime"]
 created: 2025-12-22
-depends-on:
-  - TASK-0028
-  - TASK-0031
-  - TASK-0032
-follow-up-tasks: []
+subsystem: storage
+started: 2026-09-18
+done: 2026-09-18
+active_days: 1
+dates_source: git-reconstructed
+depends_on: [TASK-0028, TASK-0031, TASK-0032]
+implements: [RFC-0097, RFC-0072]
 links:
-  - Vision: docs/architecture/vision.md
-  - Depends-on (package image v2): tasks/TASK-0032-packagefs-v2-ro-image-index-fastpath.md
-  - Depends-on (VMO plumbing): tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
-  - Depends-on (ABI filter policies): tasks/TASK-0028-abi-filters-v2-arg-match-learn-enforce.md
-  - Testing contract: scripts/qemu-test.sh
-  - Contract (this task): docs/rfcs/RFC-0097-payload-vmo-header-v2-pkg-passthrough.md
-  - Contract (VFS surface): docs/rfcs/RFC-0072-vfs-v2-writable-providers-readdir-stable-errors.md
-  - VFS splice landed here: tasks/TASK-0295-zero-copy-read-write-vmo-splice.md
-  - Digest-checked file VMOs land here: tasks/TASK-0321-ota-phase-b-verified-system-volume-bundle-set.md
-  - Transport cap + E2BIG: tasks/TASK-0054C-ui-v1a-kernel-ipc-fastpath-control-plane-vmo-bulk.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
+  - label: "VFS splice landed here"
+    target: tasks/TASK-0295-zero-copy-read-write-vmo-splice.md
+  - label: "Digest-checked file VMOs land here"
+    target: tasks/TASK-0321-ota-phase-b-verified-system-volume-bundle-set.md
+  - label: "Transport cap + E2BIG"
+    target: tasks/TASK-0054C-ui-v1a-kernel-ipc-fastpath-control-plane-vmo-bulk.md
 ---
 
 ## End-state rewrite 2026-09-18 (binding; supersedes the 2026-09-09 rewrite and the 2026-07-15 supersession note below)

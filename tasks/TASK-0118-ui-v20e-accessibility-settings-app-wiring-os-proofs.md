@@ -1,23 +1,35 @@
 ---
-title: TASK-0118 UI v20e: accessibility settings pages + app wiring hardening + OS selftests/postflight/docs
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0118
+title: "UI v20e: accessibility settings pages + app wiring hardening + OS selftests/postflight/docs"
+status: draft
+owner: ["@ui"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
+tracks: [TRACK-DSL-V1-DEVX]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
-  - DSL v1 DevX track: tasks/TRACK-DSL-V1-DEVX.md
-  - Canonical Settings DSL tree: tasks/TASK-0121-systemui-dsl-migration-phase2a-settings-notifs-host.md
-  - Canonical Settings OS mount: tasks/TASK-0122-systemui-dsl-migration-phase2b-os-wiring-postflight-docs.md
-  - A11y daemon + focus: tasks/TASK-0114-ui-v20a-a11yd-tree-actions-focusnav.md
-  - Screen reader: tasks/TASK-0115-ui-v20b-screen-reader-ttsd-earcons.md
-  - Magnifier/filters/HC: tasks/TASK-0116-ui-v20c-magnifier-colorfilters-highcontrast.md
-  - Captions: tasks/TASK-0117-ui-v20d-captions-subtitles.md
-  - Prefs store: tasks/TASK-0072-ui-v9b-prefsd-settings-panels-quick-settings.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "DSL syntax/layout convention"
+    target: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
+  - label: "Canonical Settings DSL tree"
+    target: tasks/TASK-0121-systemui-dsl-migration-phase2a-settings-notifs-host.md
+  - label: "Canonical Settings OS mount"
+    target: tasks/TASK-0122-systemui-dsl-migration-phase2b-os-wiring-postflight-docs.md
+  - label: "A11y daemon + focus"
+    target: tasks/TASK-0114-ui-v20a-a11yd-tree-actions-focusnav.md
+  - label: "Screen reader"
+    target: tasks/TASK-0115-ui-v20b-screen-reader-ttsd-earcons.md
+  - label: Magnifier/filters/HC
+    target: tasks/TASK-0116-ui-v20c-magnifier-colorfilters-highcontrast.md
+  - label: Captions
+    target: tasks/TASK-0117-ui-v20d-captions-subtitles.md
+  - label: "Prefs store"
+    target: tasks/TASK-0072-ui-v9b-prefsd-settings-panels-quick-settings.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

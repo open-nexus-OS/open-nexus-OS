@@ -1,14 +1,23 @@
 ---
-title: TASK-0326 gpud's GL capability is decided when GL is first NEEDED, not at a point in start-up
-status: Done 2026-09-19
-owner: @gpu
+schema: 1
+id: TASK-0326
+title: "gpud's GL capability is decided when GL is first NEEDED, not at a point in start-up"
+status: done
+status_note: 2026-09-19
+owner: ["@gpu"]
 created: 2026-09-19
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
+started: 2026-09-19
+done: 2026-09-19
+active_days: 1
+dates_source: git-reconstructed
 links:
-  - Policy this extends: tasks/TASK-0324-display-handoff-deterministic-by-construction.md (P0, scanout policy)
-  - Race-free display mode: docs/rfcs/RFC-0074-display-mode-authority-fwcfg.md
-  - Stage ordering: docs/adr/0062-boot-stage-fence-and-readiness-barriers.md
+  - label: "Policy this extends"
+    target: "tasks/TASK-0324-display-handoff-deterministic-by-construction.md (P0, scanout policy)"
+  - label: "Race-free display mode"
+    target: docs/rfcs/RFC-0074-display-mode-authority-fwcfg.md
+  - label: "Stage ordering"
+    target: docs/adr/0062-boot-stage-fence-and-readiness-barriers.md
 ---
 
 ## The defect (measured 2026-09-19)

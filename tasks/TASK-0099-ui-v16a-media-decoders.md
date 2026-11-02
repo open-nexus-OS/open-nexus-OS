@@ -1,16 +1,21 @@
 ---
-title: TASK-0099 UI v16a: media decoders (WAV/Vorbis + GIF/APNG/MJPEG) for QEMU-safe CPU playback/rendering
-status: Draft
-owner: @media
+schema: 1
+id: TASK-0099
+title: "UI v16a: media decoders (WAV/Vorbis + GIF/APNG/MJPEG) for QEMU-safe CPU playback/rendering"
+status: draft
+owner: ["@media"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
+tracks: [TRACK-NEXUSMEDIA-SDK]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - NexusMedia SDK track (audio/video/image): tasks/TRACK-NEXUSMEDIA-SDK.md
-  - UI renderer baseline: tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md
-  - SVG pipeline (for APNG/GIF frame blit patterns): tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "UI renderer baseline"
+    target: tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md
+  - label: "SVG pipeline (for APNG/GIF frame blit patterns)"
+    target: tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
 ---
 
 ## Context

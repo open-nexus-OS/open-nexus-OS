@@ -1,20 +1,35 @@
 ---
-title: TASK-0064 UI v6a: window management v1 — Chat-Window mit Drag, Title-Bar, Z-Order
-status: Done
-owner: @ui
+schema: 1
+id: TASK-0064
+title: "UI v6a: window management v1 — Chat-Window mit Drag, Title-Bar, Z-Order"
+status: done
+owner: ["@ui"]
 created: 2025-12-23
-updated: 2026-06-22 (closed: ShellWindow N-window WM — chat is a window instance with title-bar/X/drag/z-order; markers + host tests green, boot-verified over virgl)
-depends-on: [TASK-0063]
-follow-up-tasks: [TASK-0064B]
+updated: 2026-06-22
+subsystem: ui
+started: 2026-06-12
+done: 2026-06-12
+active_days: 1
+dates_source: git-reconstructed
+depends_on: [TASK-0063]
+follow_ups: [TASK-0064B]
+implements: [RFC-0064]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - RFC (design contract): docs/rfcs/RFC-0064-ui-v6a-window-management-chat-window-contract.md
-  - UI v5b baseline (scene graph): tasks/TASK-0063-ui-v5b-virtualized-list-theme-tokens.md
-  - UI v5a baseline (animation): tasks/TASK-0062-ui-v5a-reactive-runtime-animation-transitions.md
-  - UI v2a baseline (present/input): tasks/TASK-0056C-ui-v2a-present-input-perf-latency-coalescing.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "UI v5b baseline (scene graph)"
+    target: tasks/TASK-0063-ui-v5b-virtualized-list-theme-tokens.md
+  - label: "UI v5a baseline (animation)"
+    target: tasks/TASK-0062-ui-v5a-reactive-runtime-animation-transitions.md
+  - label: "UI v2a baseline (present/input)"
+    target: tasks/TASK-0056C-ui-v2a-present-input-perf-latency-coalescing.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
+
+> updated (migrated 2026-11-02): 2026-06-22 (closed: ShellWindow N-window WM — chat is a window instance with title-bar/X/drag/z-order; markers + host tests green, boot-verified over virgl)
 
 ## Closure (2026-06-22) — ist-zustand
 

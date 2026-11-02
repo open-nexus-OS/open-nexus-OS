@@ -1,8 +1,18 @@
-# RFC-0004: Loader Safety & Shared-Page Guards
+---
+schema: 1
+id: RFC-0004
+title: "Loader Safety & Shared-Page Guards"
+status: done
+status_note: "Security Floor + Diagnostics; deferred enhancements out of scope"
+owners: ["@runtime"]
+created: 2025-12-02
+updated: 2025-12-30
+links:
+  - label: Authors
+    target: "Runtime Team"
+---
 
-- Status: Complete (Security Floor + Diagnostics; deferred enhancements out of scope)
-- Authors: Runtime Team
-- Last Updated: 2025-12-30
+# RFC-0004: Loader Safety & Shared-Page Guards
 
 ## Status at a Glance
 

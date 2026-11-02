@@ -1,12 +1,22 @@
-# RFC-0044: Config v1 (`configd` + schemas + layering + 2PC + `nx config`) host-first, OS-gated contract seed
+---
+schema: 1
+id: RFC-0044
+title: "Config v1 (`configd` + schemas + layering + 2PC + `nx config`) host-first, OS-gated contract seed"
+status: done
+owners: ["@platform"]
+created: 2026-04-24
+links:
+  - label: Area
+    target: "Config / Control Plane / Security"
+  - label: "Execution SSOT"
+    target: "`tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md`"
+  - label: Supersedes
+    target: none
+  - label: Superseded-by
+    target: none
+---
 
-Status: Done
-Owner: Platform Team
-Created: 2026-04-24
-Area: Config / Control Plane / Security
-Execution SSOT: `tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md`
-Supersedes: none
-Superseded-by: none
+# RFC-0044: Config v1 (`configd` + schemas + layering + 2PC + `nx config`) host-first, OS-gated contract seed
 
 ## Summary
 

@@ -1,15 +1,30 @@
 ---
-title: TASK-0344 An app's program reads bounded per operation; a failed frame never resets the frame on screen — the keyboard and the hangs
-status: Done 2026-10-22 (board cycle 63: no runtime `ERR`, no app crash, `abandoned=0`, the chat's heap flat while typing — `carve=0/0`, `heap steady`, no `alloc-fail`)
-owner: @runtime @ui
+schema: 1
+id: TASK-0344
+title: "An app's program reads bounded per operation; a failed frame never resets the frame on screen — the keyboard and the hangs"
+status: done
+status_note: "2026-10-22 (board cycle 63: no runtime `ERR`, no app crash, `abandoned=0`, the chat's heap flat while typing — `carve=0/0`, `heap steady`, no `alloc-fail`)"
+owner: ["@runtime", "@ui"]
 created: 2026-10-22
-depends-on: [TASK-0077C (the generation arena, ADR-0065)]
-follow-up-tasks: [layer 8's closing (the operator 2026-10-22): the latency of a large CPU re-raster — the shell's control center 0.65 s, the theme switch 0.74 s, a tap into a text field 0.46 s (cycle 63); the frame arena's spill itself (memory lane, 6b); the allocator's free lists default-on for every service (TASK-0333 6b)]
+subsystem: app-platform
+done: 2026-10-22
+dates_source: status-text
+depends_on: [TASK-0077C]
 links:
-  - ADR: docs/adr/0065-app-host-frame-phase-allocates-from-a-generation-arena.md (amended: a failed frame is abandoned)
-  - Measurement: docs/board/measurements/2026-10-22-program-reads/README.md (cycle 63's decision lines)
-  - Cause: docs/board/measurements/2026-10-22-frame-pace/README.md (§ the keyboard and the hangs)
-  - Before: tasks/TASK-0077C-dsl-v0_2c-runtime-long-session-large-data-contract.md (the `Malformed` defect recorded there)
+  - label: ADR
+    target: "docs/adr/0065-app-host-frame-phase-allocates-from-a-generation-arena.md (amended: a failed frame is abandoned)"
+  - label: Measurement
+    target: "docs/board/measurements/2026-10-22-program-reads/README.md (cycle 63's decision lines)"
+  - label: Cause
+    target: "docs/board/measurements/2026-10-22-frame-pace/README.md (§ the keyboard and the hangs)"
+  - label: Before
+    target: "tasks/TASK-0077C-dsl-v0_2c-runtime-long-session-large-data-contract.md (the `Malformed` defect recorded there)"
+  - label: follow-up
+    target: "layer 8's closing (the operator 2026-10-22): the latency of a large CPU re-raster — the shell's control center 0.65 s"
+  - label: follow-up
+    target: "the theme switch 0.74 s"
+  - label: follow-up
+    target: "a tap into a text field 0.46 s (cycle 63); the frame arena's spill itself (memory lane, 6b); the allocator's free lists default-on for every service (TASK-0333 6b)"
 ---
 
 ## Context (board cycle 62)

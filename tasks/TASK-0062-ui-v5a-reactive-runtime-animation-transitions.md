@@ -1,20 +1,32 @@
 ---
-title: TASK-0062 UI v5a: Deterministic Animation + NexusGfx 2D Pipeline + GPU Driver Contract
-status: Done
-owner: @ui @runtime
+schema: 1
+id: TASK-0062
+title: "UI v5a: Deterministic Animation + NexusGfx 2D Pipeline + GPU Driver Contract"
+status: done
+owner: ["@ui", "@runtime"]
 created: 2025-12-23
-updated: 2026-06-10 (TASK-0062 closed; RFC-0059 Complete; all phases proven; CHANGELOG synced)
-depends-on: [TASK-0059]
-follow-up-tasks: [TASK-0063, TASK-0064]
+updated: 2026-06-10
+subsystem: ui
+started: 2026-05-22
+done: 2026-06-10
+active_days: 3
+dates_source: git-reconstructed
+depends_on: [TASK-0059]
+follow_ups: [TASK-0063, TASK-0064]
+implements: [RFC-0059]
+tracks: [TRACK-NEXUSGFX-SDK, TRACK-DRIVERS-ACCELERATORS]
 links:
-  - **RFC (SSOT contract)**: docs/rfcs/RFC-0059-ui-v5a-animation-nexusgfx-sdk-gpu-driver-contract.md
-  - Compositor baseline: tasks/TASK-0059-ui-v3b-clip-scroll-effects-ime-textinput.md
-  - Gfx track: tasks/TRACK-NEXUSGFX-SDK.md
-  - Driver track: tasks/TRACK-DRIVERS-ACCELERATORS.md
-  - Gfx architecture: docs/architecture/graphics/nexusgfx-command-and-pass-model.md
-  - Device/MMIO model: tasks/TASK-0010-device-mmio-access-model.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: "Compositor baseline"
+    target: tasks/TASK-0059-ui-v3b-clip-scroll-effects-ime-textinput.md
+  - label: "Gfx architecture"
+    target: docs/architecture/graphics/nexusgfx-command-and-pass-model.md
+  - label: "Device/MMIO model"
+    target: tasks/TASK-0010-device-mmio-access-model.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
+
+> updated (migrated 2026-11-02): 2026-06-10 (TASK-0062 closed; RFC-0059 Complete; all phases proven; CHANGELOG synced)
 
 ## Context
 

@@ -1,16 +1,22 @@
 ---
-title: TASK-0272 Thermal v0.1a (host-first): deterministic thermal model + thresholds + throttle requests
-status: Draft
-owner: @platform
+schema: 1
+id: TASK-0272
+title: "Thermal v0.1a (host-first): deterministic thermal model + thresholds + throttle requests"
+status: draft
+owner: ["@platform"]
 created: 2025-12-30
-depends-on: []
-follow-up-tasks: []
+subsystem: hardware
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
-  - Thermal OS wiring: tasks/TASK-0271-thermal-v0_1b-os-thermald-powerd-hooks-systemui-selftests.md
-  - Power/Idle host core: tasks/TASK-0236-power-v1_0a-host-governor-wakelocks-residency-standby-deterministic.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Authority & naming registry"
+    target: tasks/TRACK-AUTHORITY-NAMING.md
+  - label: "Thermal OS wiring"
+    target: tasks/TASK-0271-thermal-v0_1b-os-thermald-powerd-hooks-systemui-selftests.md
+  - label: "Power/Idle host core"
+    target: tasks/TASK-0236-power-v1_0a-host-governor-wakelocks-residency-standby-deterministic.md
 ---
 
 ## Context

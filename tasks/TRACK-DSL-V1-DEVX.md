@@ -1,25 +1,43 @@
 ---
-title: TRACK DSL v1 DevX: declarative-framework ergonomics + pro capability via bounded primitives (no unbounded scripting power)
-status: Living
-owner: @ui @runtime
+schema: 1
+id: TRACK-DSL-V1-DEVX
+title: "DSL v1 DevX: declarative-framework ergonomics + pro capability via bounded primitives (no unbounded scripting power)"
+status: living
+owner: ["@ui", "@runtime"]
 created: 2026-01-26
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Keystone map (SDK + hard apps): docs/dev/platform/keystone-map.md
-  - UI layout pipeline contract: docs/dev/ui/foundations/layout/layout-pipeline.md
-  - DSL v0.1a foundations: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
-  - DSL v0.1b interpreter + snapshots: tasks/TASK-0076-dsl-v0_1b-interpreter-snapshots-os-demo.md
-  - DSL v0.2a stores/nav/i18n core: tasks/TASK-0077-dsl-v0_2a-state-nav-i18n-core.md
-  - DSL v0.2b svc.* stubs + demo: tasks/TASK-0078-dsl-v0_2b-service-stubs-cli-demo.md
-  - QuerySpec v1 foundation: tasks/TASK-0078B-dsl-v0_2b-queryspec-v1-foundation-service-gated-paging-hash.md
-  - QuerySpec v2 hardening: tasks/TASK-0274-dsl-v0_2c-db-query-objects-builder-defaults-paging-deterministic.md
-  - QuerySpec v3 lazy data surfaces: tasks/TASK-0275-ui-v5c-lazy-data-loading-virtual-list-paging-contract.md
-  - DSL v0.3a AOT/codegen (retired by decision 2026-09-09): tasks/TASK-0079-dsl-v0_3a-aot-codegen-incremental-assets.md
-  - DSL app runtime + lifecycle/surface contract: tasks/TASK-0080D-dsl-app-runtime-lifecycle-surface-contract.md
-  - UI design system primitives: tasks/TASK-0073-ui-v10a-design-system-primitives-goldens.md
-  - Zero-copy app platform (pro workloads): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
-  - Zero-copy VMOs (keystone data plane): tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Keystone map (SDK + hard apps)"
+    target: docs/dev/platform/keystone-map.md
+  - label: "UI layout pipeline contract"
+    target: docs/dev/ui/foundations/layout/layout-pipeline.md
+  - label: "DSL v0.1a foundations"
+    target: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
+  - label: "DSL v0.1b interpreter + snapshots"
+    target: tasks/TASK-0076-dsl-v0_1b-interpreter-snapshots-os-demo.md
+  - label: "DSL v0.2a stores/nav/i18n core"
+    target: tasks/TASK-0077-dsl-v0_2a-state-nav-i18n-core.md
+  - label: "DSL v0.2b svc.* stubs + demo"
+    target: tasks/TASK-0078-dsl-v0_2b-service-stubs-cli-demo.md
+  - label: "QuerySpec v1 foundation"
+    target: tasks/TASK-0078B-dsl-v0_2b-queryspec-v1-foundation-service-gated-paging-hash.md
+  - label: "QuerySpec v2 hardening"
+    target: tasks/TASK-0274-dsl-v0_2c-db-query-objects-builder-defaults-paging-deterministic.md
+  - label: "QuerySpec v3 lazy data surfaces"
+    target: tasks/TASK-0275-ui-v5c-lazy-data-loading-virtual-list-paging-contract.md
+  - label: "DSL v0.3a AOT/codegen (retired by decision 2026-09-09)"
+    target: tasks/TASK-0079-dsl-v0_3a-aot-codegen-incremental-assets.md
+  - label: "DSL app runtime + lifecycle/surface contract"
+    target: tasks/TASK-0080D-dsl-app-runtime-lifecycle-surface-contract.md
+  - label: "UI design system primitives"
+    target: tasks/TASK-0073-ui-v10a-design-system-primitives-goldens.md
+  - label: "Zero-copy app platform (pro workloads)"
+    target: tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
+  - label: "Zero-copy VMOs (keystone data plane)"
+    target: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
 ---
 
 ## STATUS (2026-07-06): masterplan approved — fixed decisions

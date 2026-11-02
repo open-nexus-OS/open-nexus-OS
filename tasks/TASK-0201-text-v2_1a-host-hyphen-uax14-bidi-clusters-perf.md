@@ -1,17 +1,24 @@
 ---
-title: TASK-0201 Text v2.1a (host-first): hyphenation (EN/DE) + UAX#14 line breaks + UAX#9 bidi runs + grapheme/emoji clusters + deterministic perf benchmarks
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0201
+title: "Text v2.1a (host-first): hyphenation (EN/DE) + UAX#14 line breaks + UAX#9 bidi runs + grapheme/emoji clusters + deterministic perf benchmarks"
+status: draft
+owner: ["@ui"]
 created: 2025-12-27
-depends-on: []
-follow-up-tasks: []
+subsystem: observability
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Text primitives (UAX#14/#29 + bidi UAX#9 + hit-test): tasks/TASK-0094-ui-v15a-text-primitives-uax-bidi-hittest.md
-  - Text stack integration contract (bidi/breaks/shaping): tasks/TASK-0148-textshape-v1-deterministic-bidi-breaks-shaping-contract.md
-  - Shaping baseline (HarfBuzz host-first): tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
-  - Renderer abstraction goldens (consumer): tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Text primitives (UAX#14/#29 + bidi UAX#9 + hit-test)"
+    target: tasks/TASK-0094-ui-v15a-text-primitives-uax-bidi-hittest.md
+  - label: "Text stack integration contract (bidi/breaks/shaping)"
+    target: tasks/TASK-0148-textshape-v1-deterministic-bidi-breaks-shaping-contract.md
+  - label: "Shaping baseline (HarfBuzz host-first)"
+    target: tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
+  - label: "Renderer abstraction goldens (consumer)"
+    target: tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md
 ---
 
 ## Context

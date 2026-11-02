@@ -1,16 +1,24 @@
 ---
-title: TASK-0048 Crashdump v2a (host-first): nxsym build-id index + .nxcd format + nx crash CLI + deterministic tests
-status: Done
-owner: @reliability
+schema: 1
+id: TASK-0048
+title: "Crashdump v2a (host-first): nxsym build-id index + .nxcd format + nx crash CLI + deterministic tests"
+status: done
+owner: ["@reliability"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: observability
+done: 2026-08-15
+dates_source: git-reconstructed
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Crashdumps v1 (baseline): tasks/TASK-0018-crashdumps-v1-minidump-host-symbolize.md
-  - DevX CLI: tasks/TASK-0045-devx-nx-cli-v1.md
-  - Packaging drift note: tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Crashdumps v1 (baseline)"
+    target: tasks/TASK-0018-crashdumps-v1-minidump-host-symbolize.md
+  - label: "DevX CLI"
+    target: tasks/TASK-0045-devx-nx-cli-v1.md
+  - label: "Packaging drift note"
+    target: tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
 ---
 
 ## Context

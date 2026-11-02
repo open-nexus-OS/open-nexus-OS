@@ -1,22 +1,34 @@
 ---
-title: TASK-0170B NexusGfx v1c (OS/QEMU-gated): windowd handoff + minimal pass planning + present completion alignment
-status: Draft
-owner: @ui @runtime
+schema: 1
+id: TASK-0170B
+title: "NexusGfx v1c (OS/QEMU-gated): windowd handoff + minimal pass planning + present completion alignment"
+status: draft
+owner: ["@ui", "@runtime"]
 created: 2026-04-10
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
+split_from: TASK-0170
+tracks: [TRACK-NEXUSGFX-SDK]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - NexusGfx track: tasks/TRACK-NEXUSGFX-SDK.md
-  - Renderer abstraction host slice: tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md
-  - Renderer abstraction OS wiring baseline: tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md
-  - UI compositor baseline: tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md
-  - DriverKit core contracts: tasks/TASK-0280-gpu-and-scanout-base-contracts-driverkit-v2-gfxdevice-v2-host.md
-  - NexusGfx v1b resource/fence core: tasks/TASK-0169B-gpu-draws-gfxdevice-on-the-device-first-quad-offline-shaders.md
-  - Gfx command/pass model: docs/architecture/graphics/nexusgfx-command-and-pass-model.md
-  - Gfx sync/lifetime model: docs/architecture/graphics/nexusgfx-sync-and-lifetime.md
-  - Gfx tile-aware design: docs/architecture/graphics/nexusgfx-tile-aware-design.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Renderer abstraction host slice"
+    target: tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md
+  - label: "Renderer abstraction OS wiring baseline"
+    target: tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md
+  - label: "UI compositor baseline"
+    target: tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md
+  - label: "DriverKit core contracts"
+    target: tasks/TASK-0280-gpu-and-scanout-base-contracts-driverkit-v2-gfxdevice-v2-host.md
+  - label: "NexusGfx v1b resource/fence core"
+    target: tasks/TASK-0169B-gpu-draws-gfxdevice-on-the-device-first-quad-offline-shaders.md
+  - label: "Gfx command/pass model"
+    target: docs/architecture/graphics/nexusgfx-command-and-pass-model.md
+  - label: "Gfx sync/lifetime model"
+    target: docs/architecture/graphics/nexusgfx-sync-and-lifetime.md
+  - label: "Gfx tile-aware design"
+    target: docs/architecture/graphics/nexusgfx-tile-aware-design.md
 ---
 
 ## Context

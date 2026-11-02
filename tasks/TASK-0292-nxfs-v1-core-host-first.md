@@ -1,19 +1,28 @@
 ---
-title: TASK-0292 nxfs v1 core (host-first): on-disk format P1 + transactions + checksums + replay + fsck-nxfs + crash-injection determinism
-status: Done
-owner: @runtime
+schema: 1
+id: TASK-0292
+title: "nxfs v1 core (host-first): on-disk format P1 + transactions + checksums + replay + fsck-nxfs + crash-injection determinism"
+status: done
+owner: ["@runtime"]
 created: 2026-07-15
-depends-on:
-  - TASK-0291
-follow-up-tasks:
-  - TASK-0293
+subsystem: storage
+started: 2026-07-15
+done: 2026-07-15
+active_days: 1
+dates_source: git-reconstructed
+depends_on: [TASK-0291]
+follow_ups: [TASK-0293]
+implements: [RFC-0071]
+tracks: [TRACK-STASH-USER-DATA-FS]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Contract seed (this task): docs/rfcs/RFC-0071-nxfs-user-data-filesystem-contract.md
-  - Architecture split: docs/adr/0043-user-data-in-dedicated-cow-fs-statefs-stays-service-kv.md
-  - Track: tasks/TRACK-STASH-USER-DATA-FS.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Architecture split"
+    target: docs/adr/0043-user-data-in-dedicated-cow-fs-statefs-stays-service-kv.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

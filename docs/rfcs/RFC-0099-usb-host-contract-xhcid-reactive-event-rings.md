@@ -1,18 +1,26 @@
-# RFC-0099: USB host contract — `xhcid` owns the controller, a reactive event-ring driver, class services as its clients
+---
+schema: 1
+id: RFC-0099
+title: "USB host contract — `xhcid` owns the controller, a reactive event-ring driver, class services as its clients"
+status: done
+status_note: "2026-10-06 — Phases 0–3, TASK-0328 U0–U3 + TASK-0253B; the measurements it rests on are archived"
+owners: ["@runtime"]
+created: 2026-10-04
+updated: 2026-10-08
+subsystem: hardware
+tasks: [TASK-0328, TASK-0253B]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0328-usb-host-stack-v1-xhci-hub-enumeration-class-clients.md` (execution + proof, U0–U3), `tasks/TASK-0253B-hid-ingress-hidsource-usb-and-virtio.md` (the HID class client, U2)"
+  - label: ADRs
+    target: "`docs/adr/0039-device-class-driver-architecture.md` (layering; amended for USB as a bus service)"
+  - label: "Related RFCs"
+    target: "`RFC-0017` (device MMIO access model), `RFC-0098` (the FDT is the one hardware truth; DMA reach C4), `RFC-0106` (socd — the one owner of SoC glue), `RFC-0096` (IPC contract v2), `RFC-0052` (input v1.0a host HID contract)"
+  - label: Measurements
+    target: "`docs/board/measurements/2026-10-04-usb-topology/`, `docs/board/measurements/2026-10-04-usb-boot-protocol/`"
+---
 
-- Status: Done (2026-10-06 — Phases 0–3, TASK-0328 U0–U3 + TASK-0253B; the measurements it rests on are archived)
-- Owners: @runtime
-- Created: 2026-10-04
-- Last Updated: 2026-10-08
-- Links:
-  - Tasks: `tasks/TASK-0328-usb-host-stack-v1-xhci-hub-enumeration-class-clients.md` (execution + proof,
-    U0–U3), `tasks/TASK-0253B-hid-ingress-hidsource-usb-and-virtio.md` (the HID class client, U2)
-  - ADRs: `docs/adr/0039-device-class-driver-architecture.md` (layering; amended for USB as a bus service)
-  - Related RFCs: `RFC-0017` (device MMIO access model), `RFC-0098` (the FDT is the one hardware truth;
-    DMA reach C4), `RFC-0106` (socd — the one owner of SoC glue), `RFC-0096` (IPC contract v2),
-    `RFC-0052` (input v1.0a host HID contract)
-  - Measurements: `docs/board/measurements/2026-10-04-usb-topology/`,
-    `docs/board/measurements/2026-10-04-usb-boot-protocol/`
+# RFC-0099: USB host contract — `xhcid` owns the controller, a reactive event-ring driver, class services as its clients
 
 ## Status at a Glance
 

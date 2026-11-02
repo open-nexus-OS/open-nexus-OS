@@ -1,20 +1,30 @@
 ---
-title: TASK-0223 Accounts/Identity v1.2a (host-first): multi-user identity + lockout policy + session manager (login/lock/switch) semantics + deterministic tests
-status: Draft
-owner: @security
+schema: 1
+id: TASK-0223
+title: "Accounts/Identity v1.2a (host-first): multi-user identity + lockout policy + session manager (login/lock/switch) semantics + deterministic tests"
+status: draft
+owner: ["@security"]
 created: 2025-12-27
-depends-on: []
-follow-up-tasks: []
+subsystem: sessions
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Identity baseline (users + auth + sessions): tasks/TASK-0107-ui-v18a-identityd-users-sessions.md
-  - Lock state baseline: tasks/TASK-0109-ui-v18c-lockd-lockscreen-autolock.md
-  - OOBE/Greeter baseline: tasks/TASK-0110-ui-v18d-oobe-greeter-accounts-systemui-os-proofs.md
-  - SecureFS overlay baseline (OS-gated): tasks/TASK-0183-encryption-at-rest-v1b-os-securefsd-unlock-ui-migration-cli-selftests.md
-  - Keystored v1.1 lifecycle/non-exportable ops: tasks/TASK-0159-identity-keystore-v1_1-host-keystored-lifecycle-nonexportable.md
-  - Persistence substrate (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Identity baseline (users + auth + sessions)"
+    target: tasks/TASK-0107-ui-v18a-identityd-users-sessions.md
+  - label: "Lock state baseline"
+    target: tasks/TASK-0109-ui-v18c-lockd-lockscreen-autolock.md
+  - label: "OOBE/Greeter baseline"
+    target: tasks/TASK-0110-ui-v18d-oobe-greeter-accounts-systemui-os-proofs.md
+  - label: "SecureFS overlay baseline (OS-gated)"
+    target: tasks/TASK-0183-encryption-at-rest-v1b-os-securefsd-unlock-ui-migration-cli-selftests.md
+  - label: "Keystored v1.1 lifecycle/non-exportable ops"
+    target: tasks/TASK-0159-identity-keystore-v1_1-host-keystored-lifecycle-nonexportable.md
+  - label: "Persistence substrate (/state)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Data formats rubric (JSON vs Cap'n Proto)"
+    target: docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
 ## Context

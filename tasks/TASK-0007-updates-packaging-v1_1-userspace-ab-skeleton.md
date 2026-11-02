@@ -1,38 +1,49 @@
 ---
-
-title: TASK-0007 Updates & Packaging v1.0 (OS): userspace-only A/B skeleton (non-persistent) + manifest.nxb unification
-status: Done
-owner: @runtime
+schema: 1
+id: TASK-0007
+title: "Updates & Packaging v1.0 (OS): userspace-only A/B skeleton (non-persistent) + manifest.nxb unification"
+status: done
+owner: ["@runtime"]
 created: 2025-12-22
 updated: 2026-01-22
-depends-on: []
-follow-up-tasks:
-  - TASK-0034
-  - TASK-0037
-  - TASK-0198
-  - TASK-0239
-  - TASK-0289
+subsystem: updates
+done: 2026-07-17
+dates_source: git-reconstructed
+follow_ups: [TASK-0034, TASK-0037, TASK-0198, TASK-0239, TASK-0289]
+implements: [RFC-0012]
 links:
-
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Testing contract: scripts/qemu-test.sh
-  - Packaging docs: docs/packaging/nxb.md
-  - Signing policy: docs/security/signing-and-policy.md
-  - ADR: docs/adr/0020-manifest-format-capnproto.md
-  - ADR: docs/adr/0009-bundle-manager-architecture.md
-  - Rust standards: docs/standards/RUST_STANDARDS.md
-  - Security standards: docs/standards/SECURITY_STANDARDS.md
-  - RFC: docs/rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md
-
-
-  - TASK-0034: Delta updates v1 + v1.1 features (digest/size fields, persistence integration)
-  - TASK-0035: Delta updates v1b (system-set level)
-  - TASK-0037: OTA A/B v2 (bootloader/SBI integration for real reboot)
-  - TASK-0140: Updates v1 UI/CLI (Settings UI + nx update command)
-  - TASK-0179: Updated v2 (offline feed, delta, health, rollback refinements)
-  - TASK-0178: Bootctld v1 (boot control stub service for A/B coordination)
-  - TASK-0009: Persistence v1 (enables persistent bootctl, unblocks TASK-0034)
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
+  - label: "Packaging docs"
+    target: docs/packaging/nxb.md
+  - label: "Signing policy"
+    target: docs/security/signing-and-policy.md
+  - label: ADR
+    target: docs/adr/0020-manifest-format-capnproto.md
+  - label: ADR
+    target: docs/adr/0009-bundle-manager-architecture.md
+  - label: "Rust standards"
+    target: docs/standards/RUST_STANDARDS.md
+  - label: "Security standards"
+    target: docs/standards/SECURITY_STANDARDS.md
+  - label: TASK-0034
+    target: "Delta updates v1 + v1.1 features (digest/size fields, persistence integration)"
+  - label: TASK-0035
+    target: "Delta updates v1b (system-set level)"
+  - label: TASK-0037
+    target: "OTA A/B v2 (bootloader/SBI integration for real reboot)"
+  - label: TASK-0140
+    target: "Updates v1 UI/CLI (Settings UI + nx update command)"
+  - label: TASK-0179
+    target: "Updated v2 (offline feed, delta, health, rollback refinements)"
+  - label: TASK-0178
+    target: "Bootctld v1 (boot control stub service for A/B coordination)"
+  - label: TASK-0009
+    target: "Persistence v1 (enables persistent bootctl, unblocks TASK-0034)"
 ---
 
 ## Context

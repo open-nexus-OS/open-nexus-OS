@@ -1,27 +1,29 @@
 ---
-title: TASK-0016 DSoftBus Remote-FS v1: Remote PackageFS proxy (read-only) over authenticated streams
-status: Done
-owner: @runtime
+schema: 1
+id: TASK-0016
+title: "DSoftBus Remote-FS v1: Remote PackageFS proxy (read-only) over authenticated streams"
+status: done
+owner: ["@runtime"]
 created: 2025-12-22
-depends-on:
-  - TASK-0005
-  - TASK-0015
-follow-up-tasks: []
+subsystem: distributed
+done: 2026-07-17
+dates_source: git-reconstructed
+depends_on: [TASK-0005, TASK-0015]
+follow_ups: [TASK-0017, TASK-0020, TASK-0021, TASK-0022]
+implements: [RFC-0028, RFC-0027]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - ADR: docs/adr/0005-dsoftbus-architecture.md
-  - RFC (remote packagefs contract): docs/rfcs/RFC-0028-dsoftbus-remote-packagefs-ro-v1.md
-  - RFC (modular daemon boundary): docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md
-  - Depends-on (modularization base): tasks/TASK-0015-dsoftbusd-refactor-v1-modular-os-daemon-structure.md
-  - Depends-on (DSoftBus OS streams): tasks/TASK-0005-networking-cross-vm-dsoftbus-remote-proxy.md
-  - Follow-on (remote mutable state): tasks/TASK-0017-dsoftbus-remote-statefs-rw.md
-  - Follow-on (mux/backpressure): tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md
-  - Follow-on (transport evolution): tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md
-  - Follow-on (core/backend split): tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md
-  - Testing methodology: docs/testing/README.md
-  - Testing contract: scripts/qemu-test.sh
-  - Testing contract (2-VM): tools/os2vm.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: ADR
+    target: docs/adr/0005-dsoftbus-architecture.md
+  - label: "Testing methodology"
+    target: docs/testing/README.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
+  - label: "Testing contract (2-VM)"
+    target: tools/os2vm.sh
 ---
 
 ## Context

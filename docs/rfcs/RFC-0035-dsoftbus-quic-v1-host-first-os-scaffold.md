@@ -1,18 +1,29 @@
-# RFC-0035: DSoftBus QUIC v1 host-first scaffold contract
+---
+schema: 1
+id: RFC-0035
+title: "DSoftBus QUIC v1 host-first scaffold contract"
+status: done
+owners: ["@runtime"]
+created: 2026-04-10
+updated: 2026-04-14
+links:
+  - label: "Execution SSOT"
+    target: "`tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md`"
+  - label: "Program gate track"
+    target: "`tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`"
+  - label: "Status board"
+    target: "`tasks/SUBSYSTEMS.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0007-dsoftbus-os-transport-v1.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0060-dsoftbus-streams-v2-mux-flow-control-keepalive.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0034-dsoftbus-production-closure-v1.md`"
+---
 
-- Status: Done
-- Owners: @runtime
-- Created: 2026-04-10
-- Last Updated: 2026-04-14
-- Links:
-  - Execution SSOT: `tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md`
-  - Program gate track: `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`
-  - Status board: `tasks/STATUS-BOARD.md`
-  - Related RFCs:
-    - `docs/rfcs/RFC-0007-dsoftbus-os-transport-v1.md`
-    - `docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md`
-    - `docs/rfcs/RFC-0060-dsoftbus-streams-v2-mux-flow-control-keepalive.md`
-    - `docs/rfcs/RFC-0034-dsoftbus-production-closure-v1.md`
+# RFC-0035: DSoftBus QUIC v1 host-first scaffold contract
 
 ## Status at a Glance
 

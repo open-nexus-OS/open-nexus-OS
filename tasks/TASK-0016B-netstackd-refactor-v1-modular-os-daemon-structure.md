@@ -1,28 +1,36 @@
 ---
-title: TASK-0016B Netstackd refactor v1: modular OS daemon structure + loop/idiom hardening
-status: Done
-owner: @runtime
+schema: 1
+id: TASK-0016B
+title: "Netstackd refactor v1: modular OS daemon structure + loop/idiom hardening"
+status: done
+owner: ["@runtime"]
 created: 2026-03-24
-depends-on:
-  - TASK-0003
-  - TASK-0010
-follow-up-tasks: []
+subsystem: networking
+done: 2026-07-17
+dates_source: git-reconstructed
+depends_on: [TASK-0003, TASK-0010]
+follow_ups: [TASK-0194, TASK-0196]
+split_from: TASK-0016
+implements: [RFC-0029, RFC-0006]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - RFC: docs/rfcs/RFC-0029-netstackd-modular-daemon-structure-v1.md
-  - ADR: docs/adr/0005-dsoftbus-architecture.md
-  - ADR: docs/adr/0026-network-address-profiles-and-validation.md
-  - Architecture SSOT: docs/architecture/network-address-matrix.md
-  - RFC (userspace networking contract): docs/rfcs/RFC-0006-userspace-networking-v1.md
-  - Depends-on: tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
-  - Depends-on: tasks/TASK-0010-device-mmio-access-model.md
-  - Related: tasks/TASK-0249-bringup-rv-virt-v1_2b-os-virtionetd-netstackd-fetchd-echod-selftests.md
-  - Follow-on: tasks/TASK-0194-networking-v1b-os-devnet-gated-real-connect.md
-  - Follow-on: tasks/TASK-0196-dsoftbus-v1_1b-devnet-udp-discovery-gated.md
-  - Testing methodology: docs/testing/README.md
-  - Testing contract: scripts/qemu-test.sh
-  - Testing contract (2-VM): tools/os2vm.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: ADR
+    target: docs/adr/0005-dsoftbus-architecture.md
+  - label: ADR
+    target: docs/adr/0026-network-address-profiles-and-validation.md
+  - label: "Architecture SSOT"
+    target: docs/architecture/network-address-matrix.md
+  - label: Related
+    target: tasks/TASK-0249-bringup-rv-virt-v1_2b-os-virtionetd-netstackd-fetchd-echod-selftests.md
+  - label: "Testing methodology"
+    target: docs/testing/README.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
+  - label: "Testing contract (2-VM)"
+    target: tools/os2vm.sh
 ---
 
 ## Context

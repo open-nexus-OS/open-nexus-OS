@@ -1,17 +1,24 @@
 ---
-title: TASK-0143 Perf v1a (host-first): perfd frame pacing tracer + Chrome Trace export + bounded metrics
-status: Draft
-owner: @reliability
+schema: 1
+id: TASK-0143
+title: "Perf v1a (host-first): perfd frame pacing tracer + Chrome Trace export + bounded metrics"
+status: draft
+owner: ["@reliability"]
 created: 2025-12-25
-depends-on: []
-follow-up-tasks: []
+subsystem: observability
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Metrics/tracing foundations: tasks/TASK-0014-observability-v2-metrics-tracing.md
-  - UI performance philosophy: docs/dev/ui/foundations/quality/performance-philosophy.md
-  - Persistence (/state for trace export): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Storage error semantics (for file export errors): tasks/TASK-0132-storage-errors-vfs-semantic-contract.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Metrics/tracing foundations"
+    target: tasks/TASK-0014-observability-v2-metrics-tracing.md
+  - label: "UI performance philosophy"
+    target: docs/dev/ui/foundations/quality/performance-philosophy.md
+  - label: "Persistence (/state for trace export)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Storage error semantics (for file export errors)"
+    target: tasks/TASK-0132-storage-errors-vfs-semantic-contract.md
 ---
 
 ## Context

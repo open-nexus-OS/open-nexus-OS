@@ -1,16 +1,25 @@
 ---
+schema: 1
+id: TRACK-NETWORK-PROOF-LANES
 title: "TRACK: network proof lanes — `just ci-network` is red (dsoftbus cross-device + profile/runner wiring)"
-status: Active
-owner: "@runtime"
+status: active
+owner: ["@runtime"]
 created: 2026-08-05
 links:
-  - Playbook: CLAUDE.md
-  - Testing index: docs/testing/README.md
-  - Phase contract: docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md
-  - Cross-VM task (marked Done, see W1): tasks/TASK-0005-networking-cross-vm-dsoftbus-remote-proxy.md
-  - Marker contract: source/apps/selftest-client/proof-manifest/markers/net.toml
-  - Profile manifest: source/apps/selftest-client/proof-manifest/profiles/harness.toml
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Testing index"
+    target: docs/testing/README.md
+  - label: "Phase contract"
+    target: docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md
+  - label: "Cross-VM task (marked Done, see W1)"
+    target: tasks/TASK-0005-networking-cross-vm-dsoftbus-remote-proxy.md
+  - label: "Marker contract"
+    target: source/apps/selftest-client/proof-manifest/markers/net.toml
+  - label: "Profile manifest"
+    target: source/apps/selftest-client/proof-manifest/profiles/harness.toml
 ---
+
 > **Dissolved 2026-09-21 (hardware fast track).** W1/W2/W3h are now
 > `tasks/TASK-0331-network-proof-lanes-on-a-real-network-discovery-quic-runner-truth.md` (package N5
 > in `tasks/IMPLEMENTATION-ORDER.md`): with the board on a real network (N1/N2) the missing peer

@@ -1,17 +1,28 @@
 ---
-title: TASK-0324 Display handoff deterministic by construction — build truth, pixel proof, one wiring structure, readiness barriers, handoff contract v2
-status: Done
-owner: @runtime @gpu @ui
+schema: 1
+id: TASK-0324
+title: "Display handoff deterministic by construction — build truth, pixel proof, one wiring structure, readiness barriers, handoff contract v2"
+status: done
+owner: ["@runtime", "@gpu", "@ui"]
 created: 2026-09-09
-depends-on:
-  - TASK-0321 # system volume (gpud/windowd/inputd/hidrawd boot from the volume)
-follow-up-tasks: []
+subsystem: ui
+started: 2026-09-09
+done: 2026-09-15
+active_days: 6
+dates_source: git-reconstructed
+depends_on: [TASK-0321]
+implements: [RFC-0093]
 links:
-  - Plan (approved 2026-09-09): the session plan file; mirrored in the packages below
-  - RFC: docs/rfcs/RFC-0093-display-handoff-and-boot-stage-contract.md (P1)
-  - ADR: docs/adr/0062-boot-stage-fence-and-readiness-barriers.md (P1)
-  - Markers: docs/testing/os-markers.md "Display truth"
-  - Related: RFC-0069 (boot stages, §4 Stage field), ADR-0041 (never-black reveal), ADR-0050 (display mode authority), ADR-0057 (STATUS_STALE), RFC-0068 (UART folding)
+  - label: "Plan (approved 2026-09-09)"
+    target: "the session plan file; mirrored in the packages below"
+  - label: RFC
+    target: "docs/rfcs/RFC-0093-display-handoff-and-boot-stage-contract.md (P1)"
+  - label: ADR
+    target: "docs/adr/0062-boot-stage-fence-and-readiness-barriers.md (P1)"
+  - label: Markers
+    target: "docs/testing/os-markers.md \"Display truth\""
+  - label: Related
+    target: "RFC-0069 (boot stages, §4 Stage field), ADR-0041 (never-black reveal), ADR-0050 (display mode authority), ADR-0057 (STATUS_STALE), RFC-0068 (UART folding)"
 ---
 
 # TASK-0324: Display handoff deterministic by construction

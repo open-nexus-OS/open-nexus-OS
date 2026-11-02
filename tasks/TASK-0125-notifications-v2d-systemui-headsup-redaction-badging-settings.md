@@ -1,20 +1,30 @@
 ---
-title: TASK-0125 Notifications v2d (SystemUI): heads-up + actions/reply UI + lock-screen redaction wiring + history/badging + tests/markers/docs
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0125
+title: "Notifications v2d (SystemUI): heads-up + actions/reply UI + lock-screen redaction wiring + history/badging + tests/markers/docs"
+status: draft
+owner: ["@ui"]
 created: 2025-12-25
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
-  - Notifications v2 minimal: tasks/TASK-0069-ui-v8a-notifications-v2-actions-inline-reply.md
-  - notifd persistence/unread: tasks/TASK-0123-notifications-v2b-notifd-persistence-history-unread.md
-  - dndd policy: tasks/TASK-0124-notifications-v2c-dndd-modes-schedules-policy.md
-  - Lock screen + redaction baseline: tasks/TASK-0109-ui-v18c-lockd-lockscreen-autolock.md
-  - SystemUI→DSL migration (Notif Center in DSL): tasks/TASK-0121-systemui-dsl-migration-phase2a-settings-notifs-host.md
-  - SystemUI→DSL OS wiring: tasks/TASK-0122-systemui-dsl-migration-phase2b-os-wiring-postflight-docs.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "DSL syntax/layout convention"
+    target: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
+  - label: "Notifications v2 minimal"
+    target: tasks/TASK-0069-ui-v8a-notifications-v2-actions-inline-reply.md
+  - label: "notifd persistence/unread"
+    target: tasks/TASK-0123-notifications-v2b-notifd-persistence-history-unread.md
+  - label: "dndd policy"
+    target: tasks/TASK-0124-notifications-v2c-dndd-modes-schedules-policy.md
+  - label: "Lock screen + redaction baseline"
+    target: tasks/TASK-0109-ui-v18c-lockd-lockscreen-autolock.md
+  - label: "SystemUI→DSL migration (Notif Center in DSL)"
+    target: tasks/TASK-0121-systemui-dsl-migration-phase2a-settings-notifs-host.md
+  - label: "SystemUI→DSL OS wiring"
+    target: tasks/TASK-0122-systemui-dsl-migration-phase2b-os-wiring-postflight-docs.md
 ---
 
 ## Context

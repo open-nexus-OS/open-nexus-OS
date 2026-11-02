@@ -1,20 +1,28 @@
 ---
-title: TASK-0315 Block topology consolidation: one GPT device + virtioblkd as sole queue owner (ADR-0044 end state, staging retired)
-status: Done
-completed: 2026-08-25
-owner: @runtime
+schema: 1
+id: TASK-0315
+title: "Block topology consolidation: one GPT device + virtioblkd as sole queue owner (ADR-0044 end state, staging retired)"
+status: done
+owner: ["@runtime"]
 created: 2026-08-14
-depends-on:
-  - TASK-0314
-follow-up-tasks:
-  - TASK-0317
+subsystem: storage
+done: 2026-08-25
+dates_source: recorded
+depends_on: [TASK-0314]
+follow_ups: [TASK-0317]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Contract (this task executes it): docs/adr/0044-single-blk-device-gpt-partitions-block-layer.md
-  - Store split: docs/adr/0043-user-data-in-dedicated-cow-fs-statefs-stays-service-kv.md
-  - Substrate (built, unwired): userspace/storage/src/gpt.rs + userspace/storage/src/blockproto.rs
-  - Ladder: tasks/TRACK-STASH-USER-DATA-FS.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Contract (this task executes it)"
+    target: docs/adr/0044-single-blk-device-gpt-partitions-block-layer.md
+  - label: "Store split"
+    target: docs/adr/0043-user-data-in-dedicated-cow-fs-statefs-stays-service-kv.md
+  - label: "Substrate (built, unwired)"
+    target: "userspace/storage/src/gpt.rs + userspace/storage/src/blockproto.rs"
+  - label: Ladder
+    target: tasks/TRACK-STASH-USER-DATA-FS.md
 ---
 
 ## DELIVERED 2026-08-25 (test-all pending final gate; OTA-lane package 5)

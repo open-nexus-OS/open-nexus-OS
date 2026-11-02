@@ -1,24 +1,23 @@
 ---
-title: TASK-0018 Crashdumps & Symbolization v1 (OS): deterministic in-process minidumps + host symbolization + /state export
-status: Done
-owner: @runtime
+schema: 1
+id: TASK-0018
+title: "Crashdumps & Symbolization v1 (OS): deterministic in-process minidumps + host symbolization + /state export"
+status: done
+owner: ["@runtime"]
 created: 2025-12-22
-depends-on:
-  - TASK-0006
-  - TASK-0009
-follow-up-tasks:
-  - TASK-0048
-  - TASK-0049
-  - TASK-0141
-  - TASK-0142
-  - TASK-0227
+subsystem: observability
+done: 2026-07-17
+dates_source: git-reconstructed
+depends_on: [TASK-0006, TASK-0009]
+follow_ups: [TASK-0048, TASK-0049, TASK-0141, TASK-0142, TASK-0227]
+implements: [RFC-0031]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - RFC: docs/rfcs/RFC-0031-crashdumps-v1-minidump-host-symbolize.md
-  - Depends-on (log sink): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
-  - Depends-on (persistence): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

@@ -1,25 +1,40 @@
 ---
-title: TASK-0050 Reliability v1d: system reset (SBI SRST) + boot targets — bootctld as the single boot-state authority
-status: Done (2026-08-24 — PR-1..5 QEMU-proven: relocated authority, real SBI reset, policy-gated targets, three-boot recovery cycle; test-all green incl. ci-os-reset; see DoD reconciliation)
-owner: @reliability @runtime
+schema: 1
+id: TASK-0050
+title: "Reliability v1d: system reset (SBI SRST) + boot targets — bootctld as the single boot-state authority"
+status: done
+status_note: "2026-08-24 — PR-1..5 QEMU-proven: relocated authority, real SBI reset, policy-gated targets, three-boot recovery cycle"
+owner: ["@reliability", "@runtime"]
 created: 2025-12-23
 updated: 2026-08-18
-depends-on:
-  - TASK-0009 # statefs (Done — record substrate)
-  - TASK-0007 # A/B skeleton (Done — slot machine this task relocates)
-follow-up-tasks:
-  - TASK-0051 # recovery operations surface on top of targets
-  - TASK-0050B # deferred bringup console
+subsystem: updates
+started: 2026-08-24
+done: 2026-08-24
+active_days: 1
+dates_source: git-reconstructed
+depends_on: [TASK-0009, TASK-0007]
+follow_ups: [TASK-0051, TASK-0050B]
+implements: [RFC-0087]
 links:
-  - Boot-state decision: docs/adr/0055-bootctld-single-boot-state-authority.md
-  - Reliability contract: docs/rfcs/RFC-0087-reliability-failure-model-v1.md (§4 boot targets)
-  - Init manifest/stages: docs/rfcs/RFC-0069-init-declarative-service-manifest-slot-discipline-boot-stages.md
-  - Slot machine origin: docs/rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md
-  - Authority registry: tasks/TRACK-AUTHORITY-NAMING.md
-  - OTA v2 residual (client): tasks/TASK-0036-ota-ab-v2-userspace-healthmux-rollback-softreboot.md
-  - Boot trust floor (builds on this record): tasks/TASK-0289-boot-trust-floor-v1-verified-boot-rollback-measurement.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: "Boot-state decision"
+    target: docs/adr/0055-bootctld-single-boot-state-authority.md
+  - label: "Reliability contract"
+    target: "docs/rfcs/RFC-0087-reliability-failure-model-v1.md (§4 boot targets)"
+  - label: "Init manifest/stages"
+    target: docs/rfcs/RFC-0069-init-declarative-service-manifest-slot-discipline-boot-stages.md
+  - label: "Slot machine origin"
+    target: docs/rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md
+  - label: "Authority registry"
+    target: tasks/TRACK-AUTHORITY-NAMING.md
+  - label: "OTA v2 residual (client)"
+    target: tasks/TASK-0036-ota-ab-v2-userspace-healthmux-rollback-softreboot.md
+  - label: "Boot trust floor (builds on this record)"
+    target: tasks/TASK-0289-boot-trust-floor-v1-verified-boot-rollback-measurement.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
+
+> Status (migrated 2026-11-02): Done (2026-08-24 — PR-1..5 QEMU-proven: relocated authority, real SBI reset, policy-gated targets, three-boot recovery cycle; test-all green incl. ci-os-reset; see DoD reconciliation)
 
 ## Rewrite 2026-08-18 (was: "Recovery v1a: boot target + recovery-init + recovery-sh + diag")
 

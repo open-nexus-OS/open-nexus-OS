@@ -1,15 +1,27 @@
-# RFC-0033: Soft-real-time spine — waitset + timeline fence + DriverKit submit
+---
+schema: 1
+id: RFC-0033
+title: "Soft-real-time spine — waitset + timeline fence + DriverKit submit"
+status: proposed
+status_note: v1
+owners: ["@kernel-team", "@runtime", "@ui"]
+created: 2026-06-16
+subsystem: kernel
+tasks: [TASK-0013, TASK-0280]
+links:
+  - label: Tracks
+    target: "`tasks/TRACK-NEXUSGFX-SDK.md`, `tasks/TRACK-DRIVERS-ACCELERATORS.md`"
+  - label: Tasks
+    target: "`tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md` (QoS/`timed`, **implemented**), `tasks/TASK-0280-gpu-and-scanout-base-contracts-driverkit-v2-gfxdevice-v2-host.md` (DriverKit core — recut 2026-10-12 as RFC-0101's Phase 0)"
+  - label: "Builds on"
+    target: "`docs/rfcs/RFC-0023-qos-abi-timed-coalescing-contract-v1.md` (timer objects + QoS exist)"
+  - label: Consumes
+    target: "`docs/adr/0032-gpu-command-ring-and-pipelined-present.md` (gpud ring = the submit prototype)"
+  - label: "ADR (to add on acceptance)"
+    target: "`docs/adr/0033-soft-real-time-spine.md`"
+---
 
-- Status: Proposed (v1)
-- Owners: @kernel-team @runtime @ui
-- Created: 2026-06-16
-- Links:
-  - Tracks: `tasks/TRACK-NEXUSGFX-SDK.md`, `tasks/TRACK-DRIVERS-ACCELERATORS.md`
-  - Tasks: `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md` (QoS/`timed`, **implemented**),
-    `tasks/TASK-0280-gpu-and-scanout-base-contracts-driverkit-v2-gfxdevice-v2-host.md` (DriverKit core — recut 2026-10-12 as RFC-0101's Phase 0)
-  - Builds on: `docs/rfcs/RFC-0023-qos-abi-timed-coalescing-contract-v1.md` (timer objects + QoS exist)
-  - Consumes: `docs/adr/0032-gpu-command-ring-and-pipelined-present.md` (gpud ring = the submit prototype)
-  - ADR (to add on acceptance): `docs/adr/0033-soft-real-time-spine.md`
+# RFC-0033: Soft-real-time spine — waitset + timeline fence + DriverKit submit
 
 ## Status at a glance
 

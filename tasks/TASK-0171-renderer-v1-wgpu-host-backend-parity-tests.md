@@ -1,18 +1,26 @@
 ---
-title: TASK-0171 Renderer v1 (host-only): wgpu backend (feature-gated) + offscreen targets + parity vs cpu2d (SSIM/tolerances) + tools/docs
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0171
+title: "Renderer v1 (host-only): wgpu backend (feature-gated) + offscreen targets + parity vs cpu2d (SSIM/tolerances) + tools/docs"
+status: draft
+owner: ["@ui"]
 created: 2025-12-26
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Driver/accelerator contracts (GPU later): tasks/TRACK-DRIVERS-ACCELERATORS.md
-  - Renderer Abstraction v1a (Scene-IR + cpu2d): tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md
-  - Renderer Abstraction v1b (windowd wiring): tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md
-  - Text shaping baseline: tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
-  - Perf tracer (optional): tasks/TASK-0143-perf-v1a-perfd-frame-trace-metrics.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Driver/accelerator contracts (GPU later)"
+    target: tasks/TRACK-DRIVERS-ACCELERATORS.md
+  - label: "Renderer Abstraction v1a (Scene-IR + cpu2d)"
+    target: tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md
+  - label: "Renderer Abstraction v1b (windowd wiring)"
+    target: tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md
+  - label: "Text shaping baseline"
+    target: tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
+  - label: "Perf tracer (optional)"
+    target: tasks/TASK-0143-perf-v1a-perfd-frame-trace-metrics.md
 ---
 
 ## Context

@@ -1,17 +1,24 @@
 ---
-title: TASK-0115 UI v20b: screen reader (readerd) + TTS stub (ttsd) + earcons via audiod + prefs
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0115
+title: "UI v20b: screen reader (readerd) + TTS stub (ttsd) + earcons via audiod + prefs"
+status: draft
+owner: ["@ui"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - A11y tree/actions baseline: tasks/TASK-0114-ui-v20a-a11yd-tree-actions-focusnav.md
-  - Audiod mixer: tasks/TASK-0100-ui-v16b-audiod-mixer.md
-  - Prefs store: tasks/TASK-0072-ui-v9b-prefsd-settings-panels-quick-settings.md
-  - Policy as Code (reader enable): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "A11y tree/actions baseline"
+    target: tasks/TASK-0114-ui-v20a-a11yd-tree-actions-focusnav.md
+  - label: "Audiod mixer"
+    target: tasks/TASK-0100-ui-v16b-audiod-mixer.md
+  - label: "Prefs store"
+    target: tasks/TASK-0072-ui-v9b-prefsd-settings-panels-quick-settings.md
+  - label: "Policy as Code (reader enable)"
+    target: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
 ---
 
 ## Context

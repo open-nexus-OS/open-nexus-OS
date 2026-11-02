@@ -1,20 +1,30 @@
 ---
-title: TASK-0252 Input v1.0a (host-first): HID/touch event core + keymaps + key repeat + pointer acceleration + deterministic tests
-status: Done
-owner: @ui
+schema: 1
+id: TASK-0252
+title: "Input v1.0a (host-first): HID/touch event core + keymaps + key repeat + pointer acceleration + deterministic tests"
+status: done
+owner: ["@ui"]
 created: 2025-12-29
-depends-on:
-  - TASK-0056B
-follow-up-tasks: []
+subsystem: ui
+done: 2026-07-17
+dates_source: git-reconstructed
+depends_on: [TASK-0056B]
+implements: [RFC-0052]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - RFC (contract seed): docs/rfcs/RFC-0052-input-v1_0a-host-hid-touch-keymaps-repeat-accel-contract.md
-  - Production gates: tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md
-  - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
-  - Visible input baseline: tasks/TASK-0056B-ui-v2a-visible-input-cursor-focus-click.md
-  - Later IME consumer: tasks/TASK-0146-ime-text-v2-part1a-imed-keymaps-host.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Production gates"
+    target: tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md
+  - label: "Authority & naming registry"
+    target: tasks/TRACK-AUTHORITY-NAMING.md
+  - label: "Visible input baseline"
+    target: tasks/TASK-0056B-ui-v2a-visible-input-cursor-focus-click.md
+  - label: "Later IME consumer"
+    target: tasks/TASK-0146-ime-text-v2-part1a-imed-keymaps-host.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

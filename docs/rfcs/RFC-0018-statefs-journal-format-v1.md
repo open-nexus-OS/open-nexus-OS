@@ -1,16 +1,30 @@
-# RFC-0018: StateFS Journal Format v1
+---
+schema: 1
+id: RFC-0018
+title: "StateFS Journal Format v1"
+status: done
+status_note: "v1 contract implemented; host + QEMU proofs green"
+owners: ["@runtime"]
+created: 2026-02-02
+updated: 2026-02-06
+subsystem: storage
+tasks: [TASK-0009]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md` (execution + proof)"
+  - label: ADRs
+    target: "`docs/adr/0023-statefs-persistence-architecture.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0017-device-mmio-access-model-v1.md` (MMIO access for virtio-blk)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0005-kernel-ipc-capability-model.md` (capability-gated access)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md` (policy enforcement)"
+  - label: Engineering
+    target: "`docs/dev/platform/qemu-virtio-mmio-modern.md` (force modern virtio-mmio in QEMU)"
+---
 
-- Status: Complete (v1 contract implemented; host + QEMU proofs green)
-- Owners: @runtime
-- Created: 2026-02-02
-- Last Updated: 2026-02-06
-- Links:
-  - Tasks: `tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md` (execution + proof)
-  - ADRs: `docs/adr/0023-statefs-persistence-architecture.md`
-  - Related RFCs: `docs/rfcs/RFC-0017-device-mmio-access-model-v1.md` (MMIO access for virtio-blk)
-  - Related RFCs: `docs/rfcs/RFC-0005-kernel-ipc-capability-model.md` (capability-gated access)
-  - Related RFCs: `docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md` (policy enforcement)
-  - Engineering: `docs/dev/platform/qemu-virtio-mmio-modern.md` (force modern virtio-mmio in QEMU)
+# RFC-0018: StateFS Journal Format v1
 
 ## Status at a Glance
 

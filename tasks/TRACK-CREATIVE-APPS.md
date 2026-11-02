@@ -1,23 +1,39 @@
 ---
-title: TRACK Creative Apps (Procreate / SketchUp / Shapr3D class): gate-closed graphics + input + zero-copy foundation, deterministic proofs
-status: Living
-owner: @ui @runtime
+schema: 1
+id: TRACK-CREATIVE-APPS
+title: "Creative Apps (Procreate / SketchUp / Shapr3D class): gate-closed graphics + input + zero-copy foundation, deterministic proofs"
+status: living
+owner: ["@ui", "@runtime"]
 created: 2026-01-19
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - System Delegation / System Surfaces (import/export/share/open-with primitives): tasks/TRACK-SYSTEM-DELEGATION.md
-  - Authority registry (names are binding): tasks/TRACK-AUTHORITY-NAMING.md
-  - Keystone closure plan: tasks/TRACK-KEYSTONE-GATES.md
-  - Drivers & accelerators (GPU/NPU/VPU contracts): tasks/TRACK-DRIVERS-ACCELERATORS.md
-  - NexusGfx SDK (Metal-like, CAD-ready): tasks/TRACK-NEXUSGFX-SDK.md
-  - NexusInfer SDK (on-device ML runtime): tasks/TRACK-NEXUSINFER-SDK.md
-  - Gfx capability matrix: docs/architecture/graphics/nexusgfx-capability-matrix.md
-  - Gfx compute kernel model: docs/architecture/graphics/nexusgfx-compute-kernel-model.md
-  - NexusGame SDK (realtime loop/input replay): tasks/TRACK-NEXUSGAME-SDK.md
-  - Zero-Copy App Platform (OpLog/autosave/connectors/UI primitives): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
-  - Media stack (image/video/audio decoders + sessions): tasks/TRACK-MEDIA-APPS.md
-  - NexusFrame (Pixelmator-class photo/design editor): tasks/TRACK-NEXUSFRAME.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "System Delegation / System Surfaces (import/export/share/open-with primitives)"
+    target: tasks/TRACK-SYSTEM-DELEGATION.md
+  - label: "Authority registry (names are binding)"
+    target: tasks/TRACK-AUTHORITY-NAMING.md
+  - label: "Keystone closure plan"
+    target: tasks/TRACK-KEYSTONE-GATES.md
+  - label: "Drivers & accelerators (GPU/NPU/VPU contracts)"
+    target: tasks/TRACK-DRIVERS-ACCELERATORS.md
+  - label: "NexusGfx SDK (Metal-like, CAD-ready)"
+    target: tasks/TRACK-NEXUSGFX-SDK.md
+  - label: "NexusInfer SDK (on-device ML runtime)"
+    target: tasks/TRACK-NEXUSINFER-SDK.md
+  - label: "Gfx capability matrix"
+    target: docs/architecture/graphics/nexusgfx-capability-matrix.md
+  - label: "Gfx compute kernel model"
+    target: docs/architecture/graphics/nexusgfx-compute-kernel-model.md
+  - label: "NexusGame SDK (realtime loop/input replay)"
+    target: tasks/TRACK-NEXUSGAME-SDK.md
+  - label: "Zero-Copy App Platform (OpLog/autosave/connectors/UI primitives)"
+    target: tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
+  - label: "Media stack (image/video/audio decoders + sessions)"
+    target: tasks/TRACK-MEDIA-APPS.md
+  - label: "NexusFrame (Pixelmator-class photo/design editor)"
+    target: tasks/TRACK-NEXUSFRAME.md
 ---
 
 ## Goal (track-level)

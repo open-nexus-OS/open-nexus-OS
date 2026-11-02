@@ -1,21 +1,36 @@
 ---
-title: TASK-0049B Reliability v1b: service supervision — declarative tiers + restart/backoff/crash-loop + capability re-resolve
-status: Done (2026-08-20 — B1/B2/B3a/B3b/B3c QEMU-proven incl. keep-blk double boot + smp1; test-all green; see DoD reconciliation)
-owner: @reliability @runtime
+schema: 1
+id: TASK-0049B
+title: "Reliability v1b: service supervision — declarative tiers + restart/backoff/crash-loop + capability re-resolve"
+status: done
+status_note: "2026-08-20 — B1/B2/B3a/B3b/B3c QEMU-proven incl. keep-blk double boot + smp1; test-all green; see DoD reconciliation"
+owner: ["@reliability", "@runtime"]
 created: 2026-08-18
-depends-on:
-  - TASK-0049 # exit reasons (decision basis — no heuristics)
-follow-up-tasks: []
+subsystem: observability
+started: 2026-08-20
+done: 2026-08-20
+active_days: 1
+dates_source: git-reconstructed
+depends_on: [TASK-0049]
+split_from: TASK-0049
+implements: [RFC-0087]
 links:
-  - Reliability contract: docs/rfcs/RFC-0087-reliability-failure-model-v1.md
-  - Restart/re-resolve decision: docs/adr/0057-service-restart-capability-re-resolve.md
-  - Init manifest: docs/rfcs/RFC-0069-init-declarative-service-manifest-slot-discipline-boot-stages.md
-  - PeerClosed signal: docs/rfcs/RFC-0079-ipc-last-sender-eof.md
-  - Declarative routes / typed client: docs/rfcs/RFC-0066-production-grade-service-chain-declarative-routing-typed-ipc-inprocess-tests.md
-  - Resource sentinel: docs/rfcs/RFC-0013-boot-gates-readiness-spawn-resource-v1.md
-  - Standing detectors doctrine: docs/adr/0048-userspace-runtime-integrity-detectors.md
-  - Lifecycle state machine (app-side sibling): tasks/TASK-0234-ability-v1_1a-host-lifecycle-state-backoff-killreasons-deterministic.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: "Restart/re-resolve decision"
+    target: docs/adr/0057-service-restart-capability-re-resolve.md
+  - label: "Init manifest"
+    target: docs/rfcs/RFC-0069-init-declarative-service-manifest-slot-discipline-boot-stages.md
+  - label: "PeerClosed signal"
+    target: docs/rfcs/RFC-0079-ipc-last-sender-eof.md
+  - label: "Declarative routes / typed client"
+    target: docs/rfcs/RFC-0066-production-grade-service-chain-declarative-routing-typed-ipc-inprocess-tests.md
+  - label: "Resource sentinel"
+    target: docs/rfcs/RFC-0013-boot-gates-readiness-spawn-resource-v1.md
+  - label: "Standing detectors doctrine"
+    target: docs/adr/0048-userspace-runtime-integrity-detectors.md
+  - label: "Lifecycle state machine (app-side sibling)"
+    target: tasks/TASK-0234-ability-v1_1a-host-lifecycle-state-backoff-killreasons-deterministic.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

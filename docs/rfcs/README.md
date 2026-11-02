@@ -1,342 +1,38 @@
-# RFC Process
+# RFC process
 
-1. Title your RFC `RFC-XXXX-short-title.md` with an incrementing number.
-2. Describe the problem statement and constraints up front.
-3. Outline the proposed design, alternatives, and validation strategy.
-4. Document risks, mitigations, and test coverage expectations.
-5. Submit a pull request and request subsystem maintainer reviews.
+An RFC is a **contract**: an interface, a wire format, an invariant, an architecture decision
+that several tasks rely on. It is not a backlog and does not track progress.
 
-## Authority model (prevent drift)
+1. Take the next free number: `nx ledger list --kind rfc | tail -1`.
+2. Copy `RFC-TEMPLATE.md` to `RFC-NNNN-<short-title>.md`; fill the frontmatter (RFC-0115) and the
+   contract. `just ledger-gate` checks the frontmatter.
+3. Link the task(s) that build and prove it (`tasks:`); the tasks carry phases, proof and status.
+4. When the contract changes, amend the RFC and name the task that proves the change.
 
-We keep three document types with clear roles:
+**The index is derived**, never written by hand: `nx ledger list --kind rfc` (or
+`--status in_progress`), and the RFCs view in Section 9.
 
-- **Tasks (`tasks/TASK-*.md`) are the execution truth**
-  - They define **concrete work**, **stop conditions**, and **proof** (QEMU markers and/or `cargo test`).
-  - They are updated as reality changes (new blockers, corrected scope, revised proof signals).
-  - They must remain honest: no “fake success” markers; determinism rules apply.
+## Authority model
 
-- **RFCs (`docs/rfcs/RFC-*.md`) are design seeds / contracts**
-  - They define **architecture decisions**, **interfaces/contracts**, and **what “stable” means** (if applicable).
-  - They must not grow into a backlog tracker; link to tasks for implementation and evidence.
-  - **Scope rule (keep RFCs “100% done”)**:
-    - Each RFC should be scoped so it can realistically reach **Status: Complete** as soon as its
-      corresponding task slice(s) are done and proven.
-    - If a follow-on task needs new behavior beyond the existing RFC scope, create a **new RFC**
-      (a new “contract seed”) instead of extending an old RFC into a multi-phase backlog.
-    - When we intentionally defer a capability (e.g. “real subnet discovery”), the current RFC must
-      state that it is **out of scope** and that a **new RFC** will define the next contract when scheduled.
-  - If a contract changes, update the RFC *and* link to the task/PR that proves it.
+- **Tasks (`tasks/TASK-*.md`) are the execution truth:** scope, phases, stop conditions, proof.
+- **RFCs are contracts:** what the interface is, what must hold, what "stable" means. Each RFC is
+  scoped so it can reach `done` once its tasks are proven; a follow-on that needs new behaviour
+  gets a **new RFC** instead of growing an old one into a multi-phase backlog. A deferred
+  capability is stated as out of scope, with the note that a new RFC will define it.
+- **ADRs (`docs/adr/`) are narrow decisions:** one decision, one rationale.
+- **Milestones and sprints (`tasks/milestones/`, `tasks/sprints/`)** are the order and the week.
 
-- **ADRs (`docs/adr/*.md`) are narrow decision records**
-  - Use ADRs for “one decision, one rationale” when a change is too granular or too cross-cutting to
-    live inside a single RFC without causing churn.
+**Contradictions:** on architecture or contract the RFC wins and the task is updated; on progress,
+plan or proof signals the task wins and the RFC changes only if the contract did.
 
-### Contradictions rule
+## Status
 
-- If a task and an RFC disagree on **architecture/contract**, treat the **RFC as authoritative** and update the task.
-- If they disagree on **progress/plan/proof signals**, treat the **task as authoritative** and update the RFC only if the *contract* changed.
-
-### “Contract seed” rule for follow-on tasks
-
-- Follow-on tasks MUST NOT silently expand old RFC scopes.
-- If a follow-on task requires new contracts, add a new RFC (or ADR if it’s a narrow decision),
-  link it from the new task, and keep the previous RFC marked **Complete**.
-
-## RFC template (required structure)
-
-Use the template when creating new RFCs:
-
-- `docs/rfcs/RFC-TEMPLATE.md`
-
-Hard requirements (agents should keep these current):
-
-- **Status at a Glance** section near the top (phase-level progress).
-- **Implementation Checklist** section at the end — **tracks implementation progress only**, not document quality.
-  - Each phase should have a checkbox with proof command.
-  - Checklists must reflect actual repo state (tests pass / markers appear).
-  - Do NOT use checklists to track "is the RFC well-written" — that's review, not tracking.
+`draft` → `proposed` → `accepted` → `in_progress` (being built) → `done` (contract defined and its
+proof gates green), or `superseded` with `superseded_by`. `status_note` is one line; history goes
+to the body or to git.
 
 ## Security-relevant RFCs
 
-RFCs touching crypto, auth, identity, capabilities, or sensitive data MUST include:
-
-1. **Threat model**: What attacks are relevant?
-2. **Security invariants**: What MUST always hold?
-3. **DON'T DO list**: Explicit prohibitions
-4. **Proof strategy**: How security is verified (negative tests, hardening markers)
-
-See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
-
-**Security RFCs in this repo:**
-
-- RFC-0005: Kernel IPC & Capability Model (capability-based security)
-- RFC-0008: DSoftBus Noise XK v1 (authentication + identity binding)
-- RFC-0009: no_std Dependency Hygiene v1 (build security)
-- RFC-0015: Policy Authority & Audit Baseline v1 (policy engine + audit trail)
-- RFC-0017: Device MMIO Access Model v1 (capability-gated device access)
-- RFC-0022: Kernel SMP v1b scheduler/SMP hardening contract (bounded queues + trap/IPI + CPU-ID path)
-- RFC-0023: QoS ABI + timed coalescing contract v1 (authorization + bounded timer policy)
-- RFC-0024: Observability v2 local contract (bounded metrics/tracing export via logd)
-- RFC-0025: IPC liveness hardening v1 (bounded retry/correlation + deterministic timeout contract)
-- RFC-0026: IPC performance optimization v1 (deterministic control-plane reuse + zero-copy-aligned data paths)
-- RFC-0030: DSoftBus remote statefs RW v1 (authenticated RW + ACL + audit contract)
-- RFC-0031: Crashdumps v1 (bounded artifacts + fail-closed crash metadata publish contract)
-- RFC-0032: ABI syscall guardrails v2 (userland guardrail + authenticated profile distribution boundary)
-- RFC-0033: Soft-real-time spine — waitset + timeline fence + DriverKit submit (kernel sync primitives + driver submit path)
-- RFC-0034: DSoftBus production closure v1 (legacy `TASK-0001..0020` production gates + hardening mapping)
-- RFC-0035: DSoftBus QUIC v1 host-first scaffold contract (transport selection + fail-closed downgrade semantics + deterministic fallback markers)
-- RFC-0036: DSoftBus core no_std transport abstraction v1 (no_std core boundary + transport abstraction + zero-copy-first and Rust safety discipline)
-- RFC-0037: DSoftBus QUIC v2 OS enablement contract (real OS session markers + fail-closed reject/bounds evidence)
-- RFC-0038: Selftest-client production-grade deterministic test architecture refactor v1 (deterministic proof infrastructure contract seed + minimal main requirement)
-- RFC-0039: Supply-Chain v1 — bundle SBOM (CycloneDX) + repro metadata + signature allowlist policy (single-authority allowlist + deny-by-default install-time enforcement + deterministic deny markers)
-- RFC-0045: Policy as Code v1 (single-authority unified policy tree + authenticated lifecycle + bounded explain/learn + `nx policy`) (Done)
-- RFC-0046: UI v1a host CPU renderer + deterministic snapshots (Done; bounded renderer inputs + golden update gating + fake-marker prohibition)
-- RFC-0047: UI v1b windowd surface/layer/present contract seed (Done; TASK-0055 Done)
-- RFC-0048: UI v1c visible QEMU scanout bootstrap contract seed (Done; TASK-0055B Done)
-- RFC-0049: UI v1d windowd visible present + SystemUI first-frame contract seed (Done; TASK-0055C execution SSOT)
-- RFC-0050: UI v2a present scheduler + double-buffer + input routing contract (Done; TASK-0056 execution closure complete, next follow-up is `TASK-0056B`)
-- RFC-0051: UI v2a visible input (cursor + hover + focus + click) contract seed (Done; TASK-0056B closure proofs + quality gates green, live QEMU input intentionally follows in `TASK-0252`/`TASK-0253`)
-- RFC-0052: Input v1.0a host-first core (HID/touch + keymaps + repeat + pointer acceleration) contract seed (Done; host core crates + `input_v1_0_host` proof package landed and closure gates are green; live marker closure remains delegated to `TASK-0253`)
-- RFC-0053: Input v1.0b OS/QEMU live-input path (`hidrawd` + `touchd` + `inputd`) contract seed (Done; execution SSOT `TASK-0253` is Done, focused proofs and full broad closure gates are green)
-- RFC-0054: Input v1.0c OS/QEMU virtio-input driver layer (`virtio-input` -> `hidrawd`) contract seed (Done; driver ownership, cooperative polling, explicit ingress/adapter truth, and negative-test coverage are landed for the real live-QEMU path)
-- RFC-0055: UI v2a embedded reactor/runtime floor + present/input perf contract seed (Complete; execution SSOT `TASK-0056C` is Done with all phases and quality gates green)
-- RFC-0056: UI v2b asset pipeline + theme system + cursor/text contract seed (Done; TASK-0057 Minimal DisplayServer v0 delivered — Mocu cursor, Inter proof text, JPEG wallpaper, transient input targets, observer-only QEMU evidence, just test-all green)
-- RFC-0057: UI v3a layout engine (Done; TASK-0058 production-grade, 31 tests)
-- RFC-0058: UI v3b clip/scroll/effects + IME contract seed (Complete; TASK-0059 Done)
-- RFC-0059: UI v5a animation + NexusGfx SDK + GPU driver contract (Complete; TASK-0062 Done, phases 0-6e proven)
-- RFC-0060: DSoftBus streams v2 mux/flow-control/keepalive (authenticated mux + bounded credits/state transitions; formerly RFC-0033)
-- RFC-0061: Selftest Observer + nexus-init Module Refactoring (Complete; 8 bootstrap modules, os_payload.rs 3903→404 lines, observer scaffolding, contract tests)
-- RFC-0040: Zero-Copy VMOs v1 plumbing contract seed (typed handle ownership contract + capability transfer discipline + host-first and OS-gated deterministic proof baseline)
-- RFC-0041: PackageFS v2 read-only image + precomputed index fastpath contract seed (bounded mount validation + deterministic reject paths + host-first/OS-gated proofs)
-- RFC-0042: Sandboxing v1 userspace confinement contract seed (namespace confinement + CapFd authenticity/replay reject + manifest permission bootstrap)
-- RFC-0071: nxfs user-data filesystem contract seed (integrity fail-closed + AEAD encryption classes via keystored/HKDF + no-silent-reformat + honest no-sealed-storage limitation)
-- RFC-0073: App files surface contract seed (FILES permission ceiling-gated to the filemanager role + fail-closed route provisioning + vfsd namespace mediation)
-- RFC-0074: Display-mode authority seed (compositor OWNS the mode; fw_cfg `display-mode` SSOT + kernel-derived `SYSCALL_BOOT_DISPLAY_MODE`; gpud commands it, GET_DISPLAY_INFO demoted to validated capability — kills the GTK window-realize race)
-- RFC-0088: `.nxra` signed recovery action tokens (Ed25519 break-glass on the recovery ops surface; build-time-baked trust anchor + consume-before-act replay high-water mark + fail-closed no-clock windows; standing-capability-or-token model that never weakens standing paths)
-- RFC-0089: OTA v2 — component manifest (`.nxs` v2) + A/B boot images + `nxboot` first-stage loader + boot selection block (end-to-end OTA contract; supersedes RFC-0012 in part; bundle-set granularity = Phase B, normative since 2026-09-03: pkgimg v3 system volume + signed NXSV descriptor verified by bundlemgrd, kinds 2/4/6, `commit_set`, op-aware gates — ADR-0060, execution TASK-0321 → TASK-0035)
-- RFC-0090: `.nxdelta` v1 boot-image delta stream format (`boot-image-delta` component kind 3; signature-bound delta payload + O(1) base binding to the loader-verified active NXBD + unchanged digest/readback/NXBD-last tail; stored ADDs in v1, zstd reserved behind RFC-0009 D4)
-- RFC-0091: Policy profile v2 — ONE schema for ABI argument filters, egress and ingress (`statefs` prefix + payload, `net.bind` port range + address class, `net.connect` CIDR + ports, `limits`), longest-specific-match with deny-beats-allow precedence, additive wire v2 with a monotone per-subject epoch, bounded learn records + `nx policy learn-gen`, and the ONE authenticated epoch-guarded runtime transition (`OP_SET_ABI_MODE`) — execution TASK-0028, consumers TASK-0043/0052/0189/0229
-- RFC-0092: Service Exposure Contract — default-deny inbound: only the `ingressd` gateway binds non-loopback, exposures are declared intents (`[[expose]]`: port/proto/CIDR allow-list/token-bucket rate/TLS slot/loopback backend), identity-bound registration, accept-side CIDR + rate enforcement, forwarding to loopback, TLS/mTLS as a named slot (Done 2026-09-08 — execution TASK-0052 P0–P3, ADR-0061)
-  - docs/rfcs/RFC-0092-service-exposure-contract-ingress-policy-ingressd.md
-- RFC-0093: Display handoff & boot-stage contract — routing v2 (nonce mandatory, asks parked only on an unresolvable target — never on readiness, §1 amendment 2026-09-09 — fail-closed policy), readiness verbs `@ready`/`@stage`, ONE kernel stage fence (Platform < DisplayReady < SessionStart < ShellVisible, WAIT-only cap to children), ONE slot topology crate for init/services/app children, windowd↔gpud handoff v2 (attach ack with mode + content rect, `OP_REVEAL`/`STATUS_REVEALED`, seq acks, display mode only from `boot_display_mode()`), pixel proof as display gate (Done 2026-09-15 — execution TASK-0324 P2–P9, ADR-0062)
-  - docs/rfcs/RFC-0093-display-handoff-and-boot-stage-contract.md
-- RFC-0096: IPC performance contract v2 — `ipc_call` / `ipc_reply_recv` (ONE trap per side, commit point + completion by the peer, direct handoff rule, no deadline argument), inline tier `IPC_SHORT_MAX = 32` (measured 2026-09-16, P3a) with zero kernel heap, hard cap `IPC_PAYLOAD_MAX = 8192` → `E2BIG`, budgets as printed numbers under `smp1` + icount, ONE client exchange + ONE server loop in userspace with every pairing / deadline / drain form deleted and gated; extends RFC-0026, amends RFC-0005's deferral paragraph (Done 2026-09-18 — TASK-0054C P0–P6, ADR-0064)
-  - docs/rfcs/RFC-0096-ipc-performance-contract-v2-call-reply-recv-fastpath.md
-- RFC-0097: Payload-VMO header v2 + `pkg:/` pass-through — ONE payload-VMO header codec (`NXVR`, 16 B, RFC-0072 status space; the private `NXPL` three-value space is deleted), and `pkg:/` reads become a CAP_MOVE pass-through vfsd → packagefsd → bundlemgrd where bundlemgrd is the only byte writer and the only writer of a success header, only after the entry digest verifies. Security-relevant because it fixes who may claim integrity on a shared VMO, and because the copying path it replaces makes 22 of the system volume's 115 entries unreadable and fatal to packagefsd (`E2BIG` on the reply, or `alloc_error` on a 384 KiB never-freeing heap) — measured 2026-09-18 (Done 2026-09-18 — TASK-0033 P0–P3)
-  - docs/rfcs/RFC-0097-payload-vmo-header-v2-pkg-passthrough.md
-
-## Index
-
-- RFC-0001: Kernel Simplification (Logic-Preserving)
-- RFC-0090: `.nxdelta` v1 — boot-image delta stream format: the normative execution of RFC-0089 §11's reserved seam. Deltas are `.nxs` v2 COMPONENT KINDS (kind 3 `boot-image-delta`), never a new container: the component's `size`/`sha256` describe the DELTA STREAM (so the manifest signature binds the payload before any decoder runs), the target truth rides the verbatim signed NXBD in `kindData`, and reconstruction (COPY from the ACTIVE slot's bytes + stored ADD literals) flows through the untouched digest/readback/NXBD-last tail. Base substitution is closed in O(1): the stream's `base_sha256` must equal the loader-verified ACTIVE NXBD's `image_sha256` (reject `delta-base` before any write). Bounded streaming decoder (record caps, offset bounds, output == target_size ⇒ else `delta-format`), deterministic emission (`nx image ota --delta-from`: 4096-byte rollsum index + SHA confirm, greedy scan, COPY coalescing — make twice ⇒ identical bytes), resume = RFC-0089 §8 idempotent restage (no checkpoint files in v1), zstd RESERVED as algo 1 behind an RFC-0009 D4 decision (Done — execution TASK-0034)
-  - docs/rfcs/RFC-0090-nxdelta-boot-image-delta-stream-format.md
-  - docs/rfcs/RFC-0001-kernel-simplification.md
-- RFC-0091: Policy profile v2 — schema, argument matchers, precedence, epoch-guarded wire: the contract seed every enforcement point (statefsd, the netstackd facade, the selftest) evaluates identically. Bounded literal matchers only (no regex), deny by default, deny beats allow on equal specificity, longest specific match first (documented change from v1 first-match-wins), profile wire v2 (20-byte header with epoch + flags, 16-byte rule records + port ranges + prefix bytes, `MAX_RULES` 24, `MAX_PROFILE_BYTES` 1024, v1 still decodes), monotone per-subject epoch (stale ⇒ `STATUS_STALE`), learn records to logd (dedup set 64, 8/s bucket) that NEVER bypass a deny, `nx policy learn-gen` skeletons, and `OP_SET_ABI_MODE` as the single authenticated, epoch-guarded, audited, non-persistent runtime transition (the `SECURITY_STANDARDS` exception). Reject vocabulary + `test_reject_*` names are part of the contract (Done 2026-09-08 — execution TASK-0028 P1–P3; egress/ingress seams TASK-0043/0052)
-  - docs/rfcs/RFC-0091-policy-profile-v2-schema-wire-argument-matchers.md
-- RFC-0002: Process-Per-Service Architecture
-  - docs/rfcs/RFC-0002-process-per-service-architecture.md
-- RFC-0003: Unified Logging Infrastructure
-  - docs/rfcs/RFC-0003-unified-logging.md
-- RFC-0004: Loader Safety & Shared-Page Guards
-  - docs/rfcs/RFC-0004-safe-loader-guards.md
-- RFC-0005: Kernel IPC & Capability Model
-  - docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
-- RFC-0006: Userspace Networking v1 (virtio-net + smoltcp + sockets facade)
-  - docs/rfcs/RFC-0006-userspace-networking-v1.md
-- RFC-0007: DSoftBus OS Transport v1 (UDP discovery + TCP sessions over sockets facade)
-  - docs/rfcs/RFC-0007-dsoftbus-os-transport-v1.md
-- RFC-0008: DSoftBus Noise XK v1 (no_std handshake + identity binding)
-  - docs/rfcs/RFC-0008-dsoftbus-noise-xk-v1.md
-- RFC-0009: no_std Dependency Hygiene v1
-  - docs/rfcs/RFC-0009-no-std-dependency-hygiene-v1.md
-- RFC-0010: DSoftBus Cross-VM Harness v1
-  - docs/rfcs/RFC-0010-dsoftbus-cross-vm-harness-v1.md
-- RFC-0011: logd journal + crash reports v1
-  - docs/rfcs/RFC-0011-logd-journal-crash-v1.md
-- RFC-0012: Updates & Packaging v1.0 — System-Set (.nxs) + userspace-only A/B skeleton (non-persistent)
-  - docs/rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md
-- RFC-0013: Boot gates v1 — readiness contract + spawn failure reasons + resource/leak sentinel
-  - docs/rfcs/RFC-0013-boot-gates-readiness-spawn-resource-v1.md
-- RFC-0014: Testing contracts v1 — host-first service contract tests + phased QEMU smoke gates
-  - docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md
-- RFC-0015: Policy Authority & Audit Baseline v1 — policy engine + audit trail + policy-gated ops
-  - docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md
-- RFC-0016: Device Identity Keys v1 — virtio-rng + rngd authority + keystored keygen
-  - docs/rfcs/RFC-0016-device-identity-keys-v1.md
-- RFC-0017: Device MMIO Access Model v1 — capability-gated MMIO + init-controlled distribution
-  - docs/rfcs/RFC-0017-device-mmio-access-model-v1.md
-- RFC-0018: StateFS Journal Format v1 — journaled KV store for /state persistence
-  - docs/rfcs/RFC-0018-statefs-journal-format-v1.md
-- RFC-0019: IPC Request/Reply Correlation v1 — nonce correlation + shared inbox determinism (mechanism superseded by RFC-0096: the contract is one `call_matching` predicate, `nexus_ipc::reqrep` is deleted)
-  - docs/rfcs/RFC-0019-ipc-request-reply-correlation-v1.md
-- RFC-0020: Kernel ownership + Rust idioms pre-SMP v1 (logic-preserving)
-  - docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md
-- RFC-0021: Kernel SMP v1 contract — per-CPU runqueues + IPI resched (Complete)
-  - docs/rfcs/RFC-0021-kernel-smp-v1-percpu-runqueues-ipi-contract.md
-- RFC-0022: Kernel SMP v1b hardening contract — bounded scheduler queues + trap/IPI hardening + CPU-ID fast-path/fallback (Complete)
-  - docs/rfcs/RFC-0022-kernel-smp-v1b-scheduler-hardening-contract.md
-- RFC-0023: QoS ABI + timed coalescing contract v1 (Complete)
-  - docs/rfcs/RFC-0023-qos-abi-timed-coalescing-contract-v1.md
-- RFC-0024: Observability v2 local contract - metricsd + tracing export via logd (Complete)
-  - docs/rfcs/RFC-0024-observability-v2-metrics-tracing-contract-v1.md
-- RFC-0025: IPC liveness hardening v1 - bounded retry/correlation + deterministic timeout contract (Complete)
-  - docs/rfcs/RFC-0025-ipc-liveness-hardening-bounded-retry-contract-v1.md
-- RFC-0026: IPC performance optimization v1 - deterministic control-plane reuse + zero-copy-aligned data paths (Complete)
-  - docs/rfcs/RFC-0026-ipc-performance-optimization-contract-v1.md
-- RFC-0027: DSoftBusd modular daemon structure v1 (Complete)
-  - docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md
-- RFC-0028: DSoftBus remote packagefs RO v1 (Complete)
-  - docs/rfcs/RFC-0028-dsoftbus-remote-packagefs-ro-v1.md
-- RFC-0029: Netstackd modular daemon structure v1 (Complete)
-  - docs/rfcs/RFC-0029-netstackd-modular-daemon-structure-v1.md
-- RFC-0030: DSoftBus remote statefs RW v1 (Complete)
-  - docs/rfcs/RFC-0030-dsoftbus-remote-statefs-rw-v1.md
-- RFC-0031: Crashdumps v1 - deterministic in-process minidumps + host symbolization (Complete)
-  - docs/rfcs/RFC-0031-crashdumps-v1-minidump-host-symbolize.md
-- RFC-0032: ABI syscall guardrails v2 - userland guardrail (Complete; policyd-only profile authority with deterministic proof closure)
-  - docs/rfcs/RFC-0032-abi-syscall-guardrails-v2-userland-kernel-untouched.md
-- RFC-0033: Soft-real-time spine — waitset + timeline fence + DriverKit submit (Proposed; Phase 1+2 QEMU-proven, see TRACK-NEXUSGFX-SDK)
-  - docs/rfcs/RFC-0033-soft-real-time-spine-waitset-fence-driverkit.md
-- RFC-0034: DSoftBus production closure v1 - legacy `TASK-0001..0020` closure contract (Done; obligations extracted/proven under TASK-0020, no >0020 scope)
-  - docs/rfcs/RFC-0034-dsoftbus-production-closure-v1.md
-- RFC-0035: DSoftBus QUIC v1 host-first scaffold contract (Done; `TASK-0021` closure proofs synced with explicit `TASK-0022` boundary)
-  - docs/rfcs/RFC-0035-dsoftbus-quic-v1-host-first-os-scaffold.md
-- RFC-0036: DSoftBus core no_std transport abstraction v1 (Complete; `TASK-0022` is Done)
-  - docs/rfcs/RFC-0036-dsoftbus-core-no-std-transport-abstraction-v1.md
-- RFC-0037: DSoftBus QUIC v2 OS enablement gated contract (Complete; `TASK-0023` now proves real OS QUIC session path and QUIC-required marker contract)
-  - docs/rfcs/RFC-0037-dsoftbus-quic-v2-os-enabled-gated.md
-- RFC-0038: Selftest-client production-grade deterministic test architecture refactor v1 (Done 2026-04-20; `TASK-0023B` is `In Review` with all six phases functionally closed — proof-manifest SSOT + schema-v2 split, signed evidence bundles, replay/diff/bisect tooling with bounded budgets, cross-host determinism allowlist; one environmental closure step remaining for P6-05: external CI-runner replay artifact, see `docs/testing/replay-and-bisect.md` §7-§11)
-  - docs/rfcs/RFC-0038-selftest-client-production-grade-deterministic-test-architecture-refactor-v1.md
-- RFC-0039: Supply-Chain v1 — bundle SBOM (CycloneDX JSON per ADR-0021) + repro metadata + single-authority publisher/key allowlist (Done; proof checklist complete and green; execution task `TASK-0029` is `Done`; v2/v3 boundaries unchanged: `TASK-0197`/`TASK-0198`/`TASK-0289`)
-  - docs/rfcs/RFC-0039-supply-chain-v1-bundle-sbom-repro-sign-policy.md
-- RFC-0040: Zero-Copy VMOs v1 plumbing — host-first, OS-gated contract seed (Done; Phase 0/1 proofs green, kernel production closure explicitly delegated to `TASK-0290`)
-  - docs/rfcs/RFC-0040-zero-copy-vmos-v1-plumbing-host-first-os-gated.md
-- RFC-0041: PackageFS v2 read-only image + precomputed index fastpath — host-first, OS-gated contract seed (Done; execution SSOT `TASK-0032` is Done with host+OS proof gates)
-  - docs/rfcs/RFC-0041-packagefs-v2-ro-image-index-fastpath-host-first-os-gated.md
-- RFC-0042: Sandboxing v1 userspace confinement (VFS namespaces + CapFd + manifest permissions) — host-first, OS-gated contract seed (Done; execution SSOT `TASK-0039` is Done)
-  - docs/rfcs/RFC-0042-sandboxing-v1-vfs-namespaces-capfd-manifest-permissions-host-first-os-gated.md
-- RFC-0043: DevX nx CLI v1 (host-first, production-floor) — single entrypoint contract seed (Done; execution SSOT `TASK-0045` is Done)
-  - docs/rfcs/RFC-0043-devx-nx-cli-v1-host-first-production-floor-seed.md
-- RFC-0044: Config v1 (`configd` + schemas + layering + 2PC + `nx config`) — host-first, OS-gated contract seed (Done; host proof floor green, OS marker closure delegated to downstream follow-ups; execution SSOT `TASK-0046` is Done)
-  - docs/rfcs/RFC-0044-config-v1-configd-schema-layering-2pc-host-first-os-gated.md
-- RFC-0045: Policy as Code v1 (unified policy tree + evaluator + explain/dry-run + learn→enforce + `nx policy`) — host-first, OS-gated contract seed (Done; host proof floor green, OS marker closure intentionally unclaimed)
-  - docs/rfcs/RFC-0045-policy-as-code-v1-unified-policy-tree-evaluator-explain-dry-run-learn-enforce-nx-policy.md
-- RFC-0046: UI v1a host CPU renderer + deterministic snapshots — host-first contract seed (Done; TASK-0054 Done with host proofs green and no OS/QEMU marker claims)
-  - docs/rfcs/RFC-0046-ui-v1a-host-cpu-renderer-snapshots-contract.md
-- RFC-0047: UI v1b windowd surface/layer/present contract seed (Done; TASK-0055 Done)
-  - docs/rfcs/RFC-0047-ui-v1b-windowd-surface-layer-present-contract.md
-- RFC-0048: UI v1c visible QEMU scanout bootstrap contract seed (Done; TASK-0055B Done)
-  - docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md
-- RFC-0049: UI v1d windowd visible present + SystemUI first-frame contract seed (Done; TASK-0055C execution SSOT)
-  - docs/rfcs/RFC-0049-ui-v1d-windowd-visible-present-systemui-first-frame-contract.md
-- RFC-0050: UI v2a present scheduler + double-buffer + input routing contract (Done; TASK-0056 execution closure complete, next follow-up is `TASK-0056B`)
-  - docs/rfcs/RFC-0050-ui-v2a-present-scheduler-double-buffer-input-routing-contract.md
-- RFC-0051: UI v2a visible input (cursor + hover + focus + click) contract seed (Done; TASK-0056B closure proofs + quality gates green, live QEMU input intentionally follows in `TASK-0252`/`TASK-0253`)
-  - docs/rfcs/RFC-0051-ui-v2a-visible-input-cursor-focus-click-contract.md
-- RFC-0052: Input v1.0a host-first core (HID/touch + keymaps + repeat + pointer acceleration) contract seed (Done; host proof package and closure gates are green, execution SSOT `TASK-0252`)
-  - docs/rfcs/RFC-0052-input-v1_0a-host-hid-touch-keymaps-repeat-accel-contract.md
-- RFC-0053: Input v1.0b OS/QEMU live-input path (`hidrawd` + `touchd` + `inputd`) contract seed (Done; execution SSOT `TASK-0253` is Done, focused proofs and full broad closure gates are green)
-  - docs/rfcs/RFC-0053-input-v1_0b-os-qemu-live-input-hidrawd-touchd-inputd-contract.md
-- RFC-0054: Input v1.0c OS/QEMU virtio-input driver layer (`virtio-input` -> `hidrawd`) contract seed (Done; execution SSOT stays `TASK-0253`, and the minimal driver layer plus MMIO ownership contract are now landed and verified)
-  - docs/rfcs/RFC-0054-input-v1_0c-os-qemu-virtio-input-driver-layer-contract.md
-- RFC-0055: UI v2a embedded reactor/runtime floor + present/input perf contract seed (Complete; execution SSOT `TASK-0056C` is Done with all phases and quality gates green)
-  - docs/rfcs/RFC-0055-ui-v2a-embedded-reactor-runtime-floor-present-input-perf-contract.md
-- RFC-0056: UI v2b asset pipeline + theme system + cursor/text contract seed (Done; TASK-0057 Minimal DisplayServer v0 delivered — Mocu cursor, Inter proof text, JPEG wallpaper, transient input targets, observer-only QEMU evidence, just test-all green)
-  - docs/rfcs/RFC-0056-ui-v2b-asset-pipeline-theme-system-cursor-text-contract.md
-- RFC-0057: UI v3a layout engine (Done; TASK-0058 production-grade, 31 tests)
-  - docs/rfcs/RFC-0057-ui-v3a-layout-engine-pretext-contract.md
-- RFC-0058: UI v3b clip/scroll/effects + IME contract seed (Complete; TASK-0059 Done)
-  - docs/rfcs/RFC-0058-ui-v3b-clip-scroll-effects-ime-contract.md
-- RFC-0059: UI v5a animation + NexusGfx SDK + GPU driver contract (Complete; TASK-0062 Done, phases 0-6e proven)
-  - docs/rfcs/RFC-0059-ui-v5a-animation-nexusgfx-sdk-gpu-driver-contract.md
-- RFC-0060: DSoftBus streams v2 mux/flow-control/keepalive - host-first contract seed (Done; formerly RFC-0033, renumbered 2026-07; TASK-0020 closure proofs green including single-VM/2-VM/perf/soak/release-evidence)
-  - docs/rfcs/RFC-0060-dsoftbus-streams-v2-mux-flow-control-keepalive.md
-- RFC-0061: Selftest Observer + nexus-init Module Refactoring (Complete; 8 bootstrap modules, os_payload.rs 3903→404 lines, observer scaffolding, contract tests)
-  - docs/rfcs/RFC-0061-selftest-observer-init-refactoring.md
-- RFC-0062: Kernel timer capability — host-first timer infrastructure contract (Complete; kernel timer API + capability model locked)
-  - docs/rfcs/RFC-0062-kernel-timer-capability.md
-- RFC-0063: UI v5b — Scene Graph GPU Pipeline + Virtual List + Theme Tokens Contract (Complete; Phase 0/1/2/3 done — virgl GPU pipeline + soft-real-time pacing landed; TASK-0063 Done)
-  - docs/rfcs/RFC-0063-ui-v5b-scene-graph-gpu-pipeline-virtual-list-theme-contract.md
-- RFC-0064: UI v6a — Window Management v1 (Chat-Window + Drag) Contract (Complete; ShellWindow N-window WM, chat instance + title-bar/X/drag/z-order, TASK-0064 Done)
-  - docs/rfcs/RFC-0064-ui-v6a-window-management-chat-window-contract.md
-- RFC-0065: UI v6b — App Lifecycle + App Registry + Notifications + Navigation Contract (Done 2026-06-23 — abilitymgr lifecycle broker + manifest-caps launch authority + bundlemgrd registry generated from real manifests + chat/search as real bundles; service split per ADR-0036; SSOT was TASK-0065; spawned-process/per-app-surface runtime → TASK-0080D)
-  - docs/rfcs/RFC-0065-ui-v6b-app-lifecycle-registry-notifications-navigation-contract.md
-- RFC-0067: windowd — clean compositor-service boundary (Draft 2026-06-24; gated multi-phase — retire windowd's inline 2D rasterizer into NexusGfx cpu2d, extract app/shell UI to userspace/apps + userspace/ui, collapse parallel scene models; P0 = this RFC + safety net, P5 = full backend seam last; aligns TASK-0169/0170/0170B)
-  - docs/rfcs/RFC-0067-windowd-compositor-service-boundary-rasterizer-app-ui-extraction.md
-- RFC-0068: Structured-event observability — subject-grouped journal + configurable renderer (In progress 2026-06-29 — the future-proof shape of the UART verdict grid: group by SUBJECT not emitter, structured Events {ts,level,subject,name,status} in Spans, logd as the SSOT journal, UART as a configurable renderer, structured anti-fake-proof status; supersedes the per-process verdict grouping axis, keeps its UX; P1 shared nexus-event verdict-math crate DONE, P2 kernel+nexus-abi fold into it)
-  - docs/rfcs/RFC-0068-structured-event-observability-subject-grouped-journal-renderer.md
-- RFC-0069: Declarative service manifest for init — tiers, generic wiring, cap-slot discipline, boot stages (Done 2026-09-15 — TASK-0324 P4–P8, RFC-0093 carries the contract; seeded 2026-07-02)
-  - docs/rfcs/RFC-0069-init-declarative-service-manifest-slot-discipline-boot-stages.md
-- RFC-0070: UI design-system SSOT convergence — one declarative component library, one token source, one reactive path (Draft 2026-07-05)
-  - docs/rfcs/RFC-0070-ui-design-system-ssot-convergence.md
-- RFC-0071: nxfs — user-data filesystem (container/volumes, transactional CoW track, integrity, encryption classes) contract seed (Draft 2026-07-15 — the `/data` store; supersedes securefsd TASK-0182/0183; track tasks/TRACK-STASH-USER-DATA-FS.md)
-  - docs/rfcs/RFC-0071-nxfs-user-data-filesystem-contract.md
-- RFC-0072: VFS v2 — ReadDir, writable providers, stable storage error SSOT contract seed (Draft 2026-07-15 — absorbs TASK-0132's vfs error slice; execution TASK-0291/0293/0295); amendment 2026-09-07: `EDQUOTA` (statefs 12 / VFS 14) + per-subject `/state` quota contract (TASK-0043 P0/P1, model TASK-0133)
-  - docs/rfcs/RFC-0072-vfs-v2-writable-providers-readdir-stable-errors.md
-- RFC-0073: App files surface — `svc.files.*`, `nexus.permission.FILES`, filemanager role, mime SSOT contract seed (Draft 2026-07-15 — stash becomes the first filemanager; pickers stay deferred to TASK-0083/0084)
-  - docs/rfcs/RFC-0073-app-files-surface-svc-files-permission-filemanager-role.md
-- RFC-0074: Display-mode authority — the compositor OWNS the visible mode and commands it onto the scanout; configured via QEMU `fw_cfg opt/org.open-nexus/display-mode`, kernel-derived through `SYSCALL_BOOT_DISPLAY_MODE (50)`; `GET_DISPLAY_INFO` demoted to validated capability data (Draft 2026-07-20 — fixes the GTK window-realize race that latched 640×507; ADR-0050)
-  - docs/rfcs/RFC-0074-display-mode-authority-fwcfg.md
-- RFC-0075: IME v2 — text focus, composition and delivery contract: two-level focus model, imed wire (`'I','E'`), display-proto `OP_SURFACE_TEXT`/`OP_SURFACE_TEXT_FOCUS`, OSK/candidates as `ime-ui` overlay app, adaptive ranking + statefs personalization + `ime.personalization` toggle/forget, typed-text security invariants (Complete 2026-07-24 — all phases 0–4 + 8b/8c/8d proven; supersedes the RFC-0058 stub contract; execution TASK-0146/0147/0149/0150/0203/0204)
-  - docs/rfcs/RFC-0075-ime-v2-text-focus-composition-delivery.md
-- RFC-0076: Wall-clock v1 — goldfish `rtcd` (MMIO 0x101000, dtb-verified) anchors `timed` (walltime = RTC epoch + monotonic delta, UTC only, `OP_GET_WALLTIME`); tz conversion client-side via `tz-lite` (zone table = `time.zone` validator SSOT); never fake time (Done 2026-07-21 — execution TASK-0297; NTP = TASK-0299 seed)
-  - docs/rfcs/RFC-0076-wallclock-v1-rtcd-timed-tz.md
-- RFC-0077: i18n v2 — index-aligned locale packs (`NXL1`) + payload container (`NXLC`) + region-driven runtime locale switch (`OP_SURFACE_REGION` locale → catalog swap → reemit); no l10nd/Fluent/ICU4X (Done, all phases proven 2026-07-21 — execution TASK-0240/0241 Done)
-  - docs/rfcs/RFC-0077-i18n-v2-locale-packs-runtime-switch.md
-- RFC-0078: Settings spine — region/input/time key schema (`region.country`, `input.keymap`, `time.zone`, `time.format`, `ime.personalization`) + bounded `OP_WATCH`/`OP_EVENT` change propagation; non-secret charter (Done 2026-07-21 — execution TASK-0298; consumers TASK-0147/0204/0241/0297)
-  - docs/rfcs/RFC-0078-settings-region-keys-watch.md
-- RFC-0079: IPC last-sender EOF — opt-in receiver disconnect (`IPC_SYS_EOF` recv flag + `PeerClosed`); an endpoint that HAD a sender and now has none returns EOF (monotonic `had_sender` latch + all-tables SEND-cap scan, fail-safe), letting a closed-window app-host self-exit so its image returns to the arena (RFC-0075 8f loop closed). NOT a cross-task kill (Draft 2026-07-23 — execution TASK-0301)
-  - docs/rfcs/RFC-0079-ipc-last-sender-eof.md
-- RFC-0080: Shared glyph-atlas RO VMO — the ~4.25 MB baked atlas is ONE shared read-only mapping (execd owns + RO-clone-grants it per app-host at a fixed slot; `sys_map` maps it RO). Kill per-instance duplication; the RO-only VMO right (`VmoRo`, `vmo_share_readonly` SYSCALL 51, kernel-enforced WRITE|EXEC strip) hardens it against a compromised runtime (Done 2026-07-23 — execution TASK-0302)
-  - docs/rfcs/RFC-0080-shared-atlas-ro-vmo.md
-- RFC-0081: Process reaper — non-blocking service-driven zombie reclaim. `SYSCALL_WAIT_NOHANG (52)` + `nexus-abi::wait_nohang`; execd becomes reaper-of-record, sweeping its exited children each serve-loop iteration so a closed-window app-host's address space (heap-backed page tables) is reclaimed with no client waiting — closes the RFC-0079 self-exit → RFC-0075 8f reclaim loop and removes the `ALLOC-FAIL` bridge. Thread-teardown deferred to TASK-0304 (Done 2026-07-24 — execution TASK-0303; thread teardown deferred to TASK-0304)
-  - docs/rfcs/RFC-0081-process-reaper-nonblocking-reclaim.md
-- RFC-0082: Type ramp v2 + on-glass surface tokens — the baked atlas gains a (size, weight) ladder with a per-face charset budget (`Full` ≤ 16px, `Latin`, `Digits`), so `.textSize`/`.fontWeight` stop collapsing to 13/16px Regular; plus semantic roles for content on glass/wallpaper (`onGlass*`, `glassIcon/Placeholder/Focus/Fill`, `wallpaperTint/Vignette`, `textShadow*`) and the paint primitives they need (`.textShadow`, `.bgFade`, glass hairline, inset top-shine). CJK above 16px falls back to the 16px `Full` face — bounded and documented, not accidental (Draft 2026-07-26 — execution TASK-0305)
-  - docs/rfcs/RFC-0082-type-ramp-v2-on-glass-surface-tokens.md
-- RFC-0083: Settings distribution v2 — settingsd becomes the ONE authority for all settings (theme/accent/shell-mode included); writes flow app→settingsd, notifications settingsd→windowd→surfaces as a versioned idempotent presentation snapshot (`OP_SURFACE_SETTINGS 26`); settings changes are repaints (`reemit`), never remounts (`@effect on Load` no longer re-runs on profile switch — `ProfileEvent::Changed` is the data-reload hook); reply-before-persist + async coalesced persistence in settingsd; watch registration burst + server-side resync heal (amends RFC-0078); retires OP 16/17/23 and the CONTROL theme/accent/profile writes (Draft 2026-07-27 — execution TASK-0307)
-  - docs/rfcs/RFC-0083-settings-distribution-v2-single-authority-versioned-snapshots.md
-- RFC-0084: DSL slots v1 — a `Component` may declare named content regions (`slot content`), place them with `Slot content`, and a callsite fills them with a second brace block. Two normative laws: a slot body is lexically part of the CALLER (`$props`/`$state`/locals/`.key()` resolve in the caller's frame, enforced by a checker rule and a caller-locals snapshot at emit), and a bound slot SPLICES its N nodes at the placeholder's real tree position (never a wrapper — that would reset the flex context and break `.grow`/`.width` on the receiving region). Unlocks a `WinAppWindow` scaffold whose sidebar/content/properties regions are transparent by default, so the panel background is a per-region opt-in the app developer makes. IR v1.5 (`Component.slots`, `ViewNode.slot`, `SlotRef`, `ComponentRef.slots`, `SlotArg`); closes two pre-existing fail-open holes on the same path (component refs silently dropping children+modifiers; `ComponentRef.component` never bounds-checked). Forwarding, typed/required/default slots and per-instance component state are explicit non-goals (Draft 2026-07-27 — execution TASK-0308)
-  - docs/rfcs/RFC-0084-dsl-slots-component-content-regions.md
-- RFC-0085: Kernel-owned VA allocation (VMAR-lite) — the kernel picks the virtual address for a mapping, records the region, and returns the VA; userspace stops hardcoding addresses. `vm_map`/`vm_unmap`/`mmio_map_auto` (syscalls 53/54/55) map whole ranges in ONE call into a managed window `[0x5000_0000, 0x8000_0000)` with first-fit, phase-aware allocation (interior 2 MiB superpage promotion, ABI-invariant); a real unmap exists for the first time (exact-region, one TLB shootdown per call); per-AS region table (64 slots, pure host-proven `va_space` module) makes overlaps refusable BEFORE the page table and gives `vmo_destroy` an EBUSY guard. Kills gpud's two hand-carved never-freeing VA arenas, six copies of `0x2000_e000`, and the 12 000-syscall framebuffer map loop the TASK-0309 Heisenbug lived in. Widens `AbiError` (OutOfMemory/NoSpace/NotFound/Busy — dissolving the 12/28→SpawnFailed decode collapse) under the ADR-0054 no-wildcard rule. Delivers the first GATED mm KSELFTEST markers (Done 2026-07-28 — proofs in TASK-0310; syscalls 4/27 retired)
-  - docs/rfcs/RFC-0085-kernel-owned-va-allocation.md
-- RFC-0088: `.nxra` signed recovery action tokens — audited, bounded break-glass on the TASK-0051 recovery ops surface: one fixed-layout 136-byte Ed25519-signed token authorizes exactly ONE mutating recovery action (slot-switch/target-set/fsck-repair/reset) for a sender that standing policy would deny; the standing paths (updated's OTA ladder, admin-capable subjects) run untouched — additive, never weakening. Trust anchor = build-time-baked key list (`policies/nxra-trust.toml`; exactly as strong as image integrity, hardware root lands with TASK-0289); replay protection = per-(verifier, key) monotone high-water mark (bounded by construction, no nonce GC — consume-before-act, a burned token is re-mintable, never a brick); time windows are optional and REJECTED fail-closed (`no-clock`) where no trusted wall clock exists (the recovery graph runs no timed). Stable reject reasons feed audit + markers verbatim (Done 2026-08-24 — execution TASK-0053; bootctld enforcement + proof chain gated)
-  - docs/rfcs/RFC-0088-nxra-signed-recovery-action-tokens.md
-- RFC-0087: Reliability & Failure Model v1 — the missing contract between "a process dies" and "the system recovers". Fixes the failure vocabulary (exit reasons `clean|error|fault{cause}|panic|kill{by}` per ADR-0056; exhaustion-is-an-event: every budget/arena/quota has a defined exhausted moment that emits an event — silent fallbacks are fake-green-class violations; degradation is a legal, visible state), the supervision contract (policy lives in the declarative ServiceSpec topology — nexus-init owns policy, execd stays mechanics; criticality tiers critical-boot/critical-session/standard; backoff + persistent crash-loop caps decided on real exit reasons; restart = derivation from declared topology, no rights drift — N restarts ⇒ resources ≤ before the first; supervision path has right-of-way per ADR-0049/0052, future conserved-right upgrade delegated to TRACK-TIME-AS-RESOURCE), degradation contracts for critical services, boot targets `normal|recovery|safe` as declarative stage graphs selected via the bootctld record (ADR-0055, one-shot next_boot, SBI SRST as only transition), and bounded evidence retention (logd→statefs spill, `.nxcd.zst` at rest). Adopts S3K conservation principles as contract properties while rejecting slice scheduling (Complete 2026-08-24 — all seven lane tasks Done; supervision storm, evidence double boot, three-boot reset cycle, fsck ops, crash-at-rest and nxra chains gated in test-all)
-  - docs/rfcs/RFC-0087-reliability-failure-model-v1.md
-- RFC-0089: OTA v2 — the end-to-end update contract the repo never had: one signed component manifest (`.nxs` v2, capnp; v1 component kind `boot-image`, reserved kinds `bundle`/`boot-image-delta`/`bundle-delta`/`rotation-record`) verified against a DEVICE trust anchor (build-baked publisher set — closes the live hole where signatures were checked against a key read from the archive itself; a verifier's "invalid" is final), path-based staging (replaces the 8 KiB inline stage cap) into real A/B boot-image partitions on the single ADR-0044 GPT disk, NXBD 512-byte signed boot descriptors written LAST (torn stage = invalid slot, never half-bootable), a Boot Selection Block projection (ADR-0058: bootctld = runtime authority, loader = boot-time actuator, double-block power-cut atomic) read by the `nxboot` first-stage loader (ADR-0059: verify signature + digest + rollback floor BEFORE any OS code; loud fallback; measured-boot handoff page), triple-enforced anti-downgrade (stage-time, commit-time floor raise, boot-time backstop), health-commit v2 (quorum + wall-clock deadline in record v3), and the Phase B seam: bundle-set granularity later changes component population only — loader/NXBD/BSB/transport/trust stay untouched (Draft 2026-08-25 — lane execution 0198P1→0036→0314/0315→0260→0289→0179→0140→0034/0035)
-  - docs/rfcs/RFC-0089-ota-v2-component-manifest-ab-boot-images-nxboot-bsb.md
-- RFC-0086: Shell taskbar window feed & taskbar verbs — minimize goes to the SHELL taskbar/dock, the compositor's legacy dock dies. Identity keystone: execd spawns app-hosts via `exec_v2` with kernel-attributed service names `app:<bundle_id>` (execd is the only naming authority; the prefix forbids boot-service impersonation), making windowd's existing `owner_sid` capture real and closing the spoofable `CONTROL_WIN_*` value-byte follow-up. Two append-only envelope ops: `OP_SURFACE_WINDOWS 27` (windowd → desktop surface: owner_sid + minimized/focused flags per window, retained latest-wins, ≤41 bytes) and `OP_SURFACE_TASKBAR 28` (shell → windowd: ACTIVATE = restore-or-raise by target sid, gated on `sender_sid == desktop_owner_sid`, sid 0 always refused). windowd stays app-agnostic — the sid↔app-id join happens in the shell's app-host via `service_id_from_name`; minimize animation retargets to the taskbar band centre (Draft 2026-07-30 — execution TASK-0313 Track B)
-  - docs/rfcs/RFC-0086-shell-taskbar-window-feed.md
-- RFC-0093: Display handoff & boot-stage contract (routing v2 + `@ready`/`@stage` + stage fence + ONE slot topology + handoff v2 + pixel-proof gate; Done 2026-09-15 — TASK-0324 P0–P9, ADR-0062)
-- RFC-0094: Content transfer v1 — `clipboardd`, the ONE clipboard authority: text items in a bounded newest-first history (16, fixed storage), writes held by the route (`nexus.permission.CLIPBOARD`), reads gated by kernel identity against the owners windowd pushes (`OP_FOCUS`: focused window, shell, keyboard), the history for the shell and the keyboard only; list filtered AT the service; every item carries `seq`, writer sid and origin device for the later flavor (TASK-0087), drag-and-drop (TASK-0086) and sync phases; imed gains `OP_INSERT` on the OSK endpoint and editing actions for copy/cut/paste in text fields (RFC-0075 amendments) (Done 2026-10-08 — Phases 0–2, TASK-0067/0067B, ADR-0070; flavors, DnD and sync open in their tasks)
-  - docs/rfcs/RFC-0094-content-transfer-v1-clipboardd.md
-- RFC-0095: Screen capture v1 — ONE readback authority (gpud `OP_READBACK`: the GL front RT through a backed copy, the CPU display plane), the freeze in windowd (the grabbed frame as the base layer, windows hidden, the cursor live, bounded, screencapd's sid only, refused at the greeter), screencapd (the frozen frame in a VMO allocated once, crop, pointer, PNG pulled into one nxfs transaction by vfsd's new `OP_ARM_VMO` + `OP_WRITE_VMO`), Print / Shift+Print / Alt+Print via inputd's capture fact, the DSL drag gesture (lazy: the newest position once per frame), the shell's screenshot UI (Done 2026-10-09 — Phases 0–3, TASK-0068, ADR-0071, board rung `board-visual: screenshot`; recording is Phase 4 / TASK-0105)
-  - docs/rfcs/RFC-0095-screen-capture-v1-readback-freeze-shell-ui.md
-- RFC-0096: IPC performance contract v2 (`ipc_call` / `ipc_reply_recv` one trap per side + direct handoff + inline tier + `E2BIG` cap + budgets with numbers; Done 2026-09-18 — TASK-0054C P0–P6, ADR-0064)
-- RFC-0097: Payload-VMO header v2 + `pkg:/` pass-through (ONE header codec `NXVR`, `NXPL` deleted; `pkg:/` reads as a CAP_MOVE pass-through with bundlemgrd the only byte writer and the only digest authority; Done 2026-09-18 — TASK-0033 P0–P3)
-- RFC-0098: Board support contract — the FDT is the one hardware truth (nxboot owns `/chosen/nexus,*`, the kernel and init read only the FDT, no platform literal in code), the platform HAL/memory/storage/display derive from it, the boot chain on hardware is vendor SPL → OpenSBI → nxboot as the FIT payload (ADR-0066), one block owner with an FDT-selected backend (ADR-0067), display-mode authority moves to gpud (amends RFC-0074); Done 2026-10-10 — Block 1 of the hardware fast track (TASK-0244/0245/0245B/0286/0246/0246B/0260/0260B/0250/0251), every phase proven on QEMU and on the board; the EDID read over DDC moved to the GPU lane (C7 amended 2026-10-10)
-  - docs/rfcs/RFC-0098-board-support-contract-fdt-truth-boot-chain.md
-- RFC-0099: USB host contract — `xhcid` is the ONE owner of a USB host controller and class services (HID now) are its IPC clients (ADR-0039 amended: USB as a bus service); a reactive driver: one waitset (IRQ, clients, a one-shot timer), the event ring drained per interrupt, interrupt-IN TRBs pre-queued so the controller schedules the bus and the CPU sleeps, no polling in steady state; a shared DMA region with explicit publish/observe for rings and contexts on non-coherent machines; enumeration through hubs with the transaction-translator fields; HID boot protocol as measured on the desk's devices (Done 2026-10-06 — Phase 0 ✅; Phase 1 ✅ 2026-10-05: xhcid + nexus-usb on QEMU, the `usb` lane; Phase 2 ✅ 2026-10-05: the HID class — §5 amended (push channel, replay, owed vs fire-and-forget delivery), hidrawd's sources, the `usb-visible` lane; Phase 3 ✅ 2026-10-06: the board — §6 (socd glue, both PHYs, the SuperSpeed PHY's inverted-polarity reset, eight TRBs per pipe), `[PASS] board-visible` with the desk's keyboard and mouse in cycle 20 of 20; TASK-0328, TASK-0253B)
-  - docs/rfcs/RFC-0099-usb-host-contract-xhcid-reactive-event-rings.md
-- RFC-0100: The memory object model v2 — a VMO dies with its last capability, pages committed on touch (the user fault populates), copy-on-write, one file-backed VMO per bundle file shared read-only, ONE pool with the GPU (GPU buffers are ordinary pages charged to their client; only scan-out planes contiguous and eager), accounting per process incl. GPU memory, four pressure levels from the machine's own size told as an event, purgeable VMOs and seals, backing stages purge → compress → swap → kill (Complete 2026-10-30 — seeded 2026-10-19 at Block 4 layer 6; §1 object lifetime ✅ 2026-10-20 for every kernel object, ADR-0073; TASK-0333 6a, 6b, 6c, 6e ✅; 6f-0 ✅ the page codec, 6f-1 ✅ 2026-10-28 the pool — a frozen app squeezed on its parent's order, ADR-0087; 6f-2 ✅ 2026-10-28 the swap stage — sealed records on memd's `swap` partition, a touch parks until the page is back, ADR-0088; 6f-3 ✅ 2026-10-30 memd's journal + the `lowmem` lane — a real level kills, the kill is recorded, the app comes back; ADR-0089)
-  - docs/rfcs/RFC-0100-memory-object-model-v2-commit-on-touch-unified-gpu-memory-pressure.md
-- RFC-0101: The GPU driver split and the scanout contract — a context per client with its own GPU address space (isolation by the GPU MMU, never by parsing), queue kinds render/compute/transfer declared and refused by name, buffers as VMOs bound with a cache mode by type, one batch per kernel crossing, the kernel's timeline fence as the one sync primitive, GPU code as client data with a declared target, capabilities queryable; and the scanout contract between compositor and display: a ring of planes flipped at the vertical blank, the vertical blank as the frame clock, damage per plane (buffer age), the pointer as the controller's own plane whole at every border (In Progress — Phase 0 ✅ 2026-10-12: `nexus_driverkit::gpu`, `nexus_gfx::sync::timeline`, `nexus_gfx::backend::v2` with the mock device and the 18-test reject matrix, TASK-0280; Phase 1 ✅ 2026-10-12: the ring of three planes on the board's controller, the vertical-blank interrupt as the frame clock, the flip inside the blank, the deferred ack, the pointer plane whole at every border — `[PASS] board-visible` 49 rungs with `front=0`, TASK-0216; Phase 2 ✅ 2026-10-13 — the device online on the board: the published firmware started, one address space bound and flushed, a null job's completion bridged to the kernel fence at 131 µs against the stock 640 µs, TASK-0329; Phase 3 ✅ 2026-10-13 — the GPU draws: the open driver's two transfer jobs for this core captured on the host as the scene bundle (§8c), `GfxDevice` on the device, the first quad into a plane of the ring — `gpu fill ok (ns_per_px=0.8)` against the stock 1.8, `gpu quad ok (samples=4/4)`, `[PASS] board-visible` 57 rungs, TASK-0169B; Phase 4 ⏳ layer 5 in four steps, TASK-0215: 4a ✅ 2026-10-14 — the render queue on the board, the kernel side's objects (render context, free lists, dataset) built by the device, `gpu render ok (samples=4/4)`, 58 rungs; 4b ✅ 2026-10-14 — dynamic geometry, every per-draw word written by the device, every pass in fresh memory, the render-target data alternating, `gpu quads ok (n=3 samples=3/3)`; 4c–4d pending; §8 amended 2026-10-22 — the flip through the controller's latch, written when drawn and taken at the next frame boundary, and the interrupt words as the vendor header names them, TASK-0342)
-  - docs/rfcs/RFC-0101-gpu-driver-split-contexts-vm-batches-fence-and-the-scanout-contract.md
-- RFC-0106: SoC glue — ONE owner (`socd`) for clock gates, resets, power domains and pinmux, built from the host-tested `nexus-soc` library; consumers ask for their node by path over the `soc` protocol, the tree binds them the standard way, QEMU virt (no providers) gets an honest `NotNeeded`; measured 2026-09-22: shared APMU registers make a per-driver library a cross-service race (In Progress — TASK-0245B Done 2026-10-10: storage, display and USB through socd on the board; the GPU set and the per-class floor `soc.glue.<class>` land with G1, TASK-0329; amended 2026-10-05 for TASK-0328 U3: glue words, the GPIO block as a provider, a node's supply lines driven and settled by socd)
-  - docs/rfcs/RFC-0106-soc-glue-one-owner-clocks-resets-power-pinmux.md
-- RFC-0107: The boot trace — the console text of each boot kept on the boot disk (a `trace` partition of eight 1 MiB slots: the loader's region, then the OS region), read on the host from an image or from the board's stock system and judged by the proof manifest like a `uart.log`; the board's marker ladder without a serial adapter (In Progress — Phases 0–2 ✅ 2026-09-28: the loader's and the kernel console's text in every QEMU lane's trace, `nx image trace`, `just board-log`; Phase 3 after the board's DRAM measurement; TASK-0327B)
-  - docs/rfcs/RFC-0107-boot-trace-console-markers-on-the-boot-disk.md
-- RFC-0108: The UX latency contract — "instant" and "smooth" as numbers every lane judges: one SSOT of budgets (`nexus-ux-budgets`: a frame 16.7 ms, an input's wait 50/100 ms, a launch 300 ms/1 s, a tap's feedback 100 ms), one line shape with one verdict (`<svc>: ux <name> ok|warn|FAIL (…)`), the lines on the board ladder, red named by the allow-list with its tracking reference; §hops (amended 2026-10-22): where a chain's time goes, one unjudged line shape `<svc>: hops <chain> (<from>><to>=<avg_us>/<max_us>/<count> …)` (In Progress — Phase 0 2026-10-20; TASK-0334; §hops TASK-0342)
-  - docs/rfcs/RFC-0108-ux-latency-contract-instant-and-smooth-as-numbers.md
-- RFC-0109: Surface layers — the app scrolls and hovers, the compositor composes what it declared: a client surface is a base layer plus a store (rows below it) holding each scroll layer's virtual band (a viewport, an axis, a ring of strips, a valid range) and each wash layer's patch; the structure (`OP_SURFACE_TREE`) takes effect with the next present, the motion (`OP_SURFACE_MOTION`: offsets, wash rects and opacities) at once; the planner keys layers by identity and a glass by what lies under it; one scroll physics per `.scroll(...)` container in the app, no physics and no hover decision in windowd; the store placed as its own atlas region, `NO_STORE` when there is no room (Complete — 2026-10-22, board cycles 57–59: hover and scroll without an app raster beyond the band's edge, no refused frame; the 16.7 ms frame is the frame chain's; TASK-0341, ADR-0076; amends RFC-0101 §8)
-  - docs/rfcs/RFC-0109-surface-layers-the-app-scrolls-and-hovers-the-compositor-composes.md
-- RFC-0110: Frame timing — when a frame reaches the glass, the cadence the driver holds, the motion computed for the time a frame is shown: gpud's present ack carries the frame boundary its flip was taken at (the scan line counter), the refresh period and the cadence it holds (a frame drawn before its slot held to the boundary before it; the cadence from the second longest of eight draws); windowd predicts when its next present is shown, names it in the frame pulse and judges each landing (`windowd: frame pace (`); the app's scroll and animations advance to that time (In Progress — built 2026-10-22, board cycle 62 next; TASK-0343; amends RFC-0093 §5)
-  - docs/rfcs/RFC-0110-frame-timing-the-shown-time-the-cadence-the-motion-for-its-frame.md
-- RFC-0111: The process lifecycle — a process is its address space and its parent orders it whole: `task_suspend`/`task_resume`/`task_kill` of a child (parentage the authority, `killable` set by the spawner at `exec_vmo`), a leader's exit takes its threads and the reap frees the space, a frozen task is never dispatched (an order for a task on another hart is a pending mark plus a resched IPI, executed at its trap entry), and a send that would park on a frozen receiver is refused with `Frozen` (`EDEADLK`) while what fits the queue is delivered on the thaw; the compositor states what is seen, the lifecycle authority decides (`Background` → `Suspended` after a constant grace; the first input on a frozen band is the wake), the service launcher executes and reaps (an ordered kill is never a crash); one permission authority (policyd) holds every app grant, published by the bundle manager from the verified volume and asked by the launchers, `background` among them, deny-by-default (In Progress — kernel half, lifecycle contract and permission authority built 2026-10-27, the compositor's restart rung open; TASK-0333 6d; ADR-0082, ADR-0083, ADR-0084)
-  - docs/rfcs/RFC-0111-process-lifecycle-freeze-thaw-kill-the-parent-orders-the-process.md
-- RFC-0112: A service's death is a re-resolve for its clients — the compositor's restart: a dead capability's slot is re-pinned with `REPLACE_DEAD` (never a live one), init re-pins every declared `→ windowd` slot of the fleet in one loop and execd its children's; an EOF without `OP_SURFACE_CLOSED` is the compositor's death, execd hands each app a fresh SEND on its own channel (`OP_COMPOSITOR_BACK`), app-host re-attaches; gpud keeps the last frame and every surface object, the new windowd adopts them as ghost windows with the apps' own pixels until each re-attaches; singleton roles launch once (In Progress — seeded 2026-10-27, amended 2026-10-31 and 2026-11-02; Phases 1–2 built and QEMU-proven 2026-11-02 (the many-windows lane restarts the compositor over twelve windows), Phase 3 (ghosts) next; built as TASK-0348 Phase 6; ADR-0057, ADR-0073, ADR-0083, RFC-0114)
-  - docs/rfcs/RFC-0112-a-services-death-is-a-re-resolve-for-its-clients-the-compositors-restart.md
-- RFC-0113: Instant input — every input event carries a sequence number and a timestamp to the field that applies it, every hop counts it; keys are never dropped and never merged (backpressure, not loss), pointer motion is batched per frame with every sample kept; the input source decides the route (a layout in inputd, a composition language through the input method as a filter behind windowd), windowd orders focus and keys; the caret is a compositor layer the app declares; one shortcut registry, matched in inputd and listed in the settings app's shortcuts window; delivery classes `frame` (default, with every sample) and `stream` (declared, refused) (Done — 2026-10-30, TASK-0346, board cycles 78–79; ADR-0090 Accepted; the board's key→present p99 moved to the present path, RFC-0108)
-  - docs/rfcs/RFC-0113-instant-input-every-event-counted-keys-never-lost-the-source-decides-the-route.md
-- RFC-0114: Surfaces are shared buffers — gpud allocates every app surface for its owner (one GPU-reachable object, two slots of the RFC-0109 layout at a 256-byte stride), the app draws into a slot, cleans what it drew (`vmo_clean`, syscall 74) and presents; the present ack is the release (the other slot read by no frame in flight, gpud reports retirement); windowd composes by reference (a layer's `source` and slot, the source's generation, a slot flip never a backdrop change) and copies nothing; its tables grow with the windows (stable `u16` window keys on every wire, no eviction of a live client) (In Progress — seeded 2026-10-31, TASK-0348; Phases 1–5 QEMU-proven 2026-11-02, the restart's ghosts next; ADR-0092; supersedes ADR-0042 for app surfaces)
-  - docs/rfcs/RFC-0114-surfaces-are-shared-buffers-the-app-draws-where-the-gpu-reads-the-compositor-composes-by-reference.md
+An RFC touching crypto, authentication, identity, capabilities, untrusted input or sensitive data
+carries a threat model, its security invariants, a DON'T-DO list and its proof strategy
+(`test_reject_*`, hardening markers). See `docs/standards/SECURITY_STANDARDS.md`.

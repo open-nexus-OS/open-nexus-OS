@@ -1,28 +1,49 @@
 ---
-title: TRACK Media Apps (Photos + Music + Videos): library-first, streaming-ready, cloud-integrated (first-party reference apps)
-status: Living
-owner: @media @ui
+schema: 1
+id: TRACK-MEDIA-APPS
+title: "Media Apps (Photos + Music + Videos): library-first, streaming-ready, cloud-integrated (first-party reference apps)"
+status: living
+owner: ["@media", "@ui"]
 created: 2026-01-19
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - System Delegation / System Surfaces (share/edit/cast as intents, not per-app stacks): tasks/TRACK-SYSTEM-DELEGATION.md
-  - Zero-Copy App Platform (foundation): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
-  - NexusMedia SDK (decoders/playback): tasks/TRACK-NEXUSMEDIA-SDK.md
-  - NexusNet SDK (cloud + streaming APIs): tasks/TRACK-NEXUSNET-SDK.md
-  - Podcasts app (offline downloads + queue): tasks/TRACK-PODCASTS-APP.md
-  - Service architecture (hybrid control/data plane): docs/adr/0017-service-architecture.md
-  - Media sessions + SystemUI controls umbrella: tasks/TASK-0101-ui-v16c-media-sessions-systemui-controls.md
-  - Media UX v1 (host core): tasks/TASK-0155-media-ux-v1a-host-mediasessd-focus-nowplaying-artcache.md
-  - Media UX v1 (OS/QEMU mini-player + lockscreen): tasks/TASK-0156-media-ux-v1b-os-miniplayer-lockscreen-sample-cli-selftests.md
-  - Media UX v2 (OS/QEMU session switcher + notif actions): tasks/TASK-0185-media-ux-v2b-os-miniplayer-session-switch-notifs-selftests.md
-  - Media UX v2.1 (OS/QEMU focus/ducking + per-app volume + mini-player): tasks/TASK-0218-media-v2_1b-os-focus-ducking-miniplayer-nx-media.md
-  - DSoftBus media cast picker + remote controls: tasks/TASK-0220-dsoftbus-v1_2b-os-media-cast-picker-nx-media-remote.md
-  - Image Viewer baseline: tasks/TASK-0090-ui-v13d-image-viewer-export-print.md
-  - Media decoders: tasks/TASK-0099-ui-v16a-media-decoders.md
-  - Music/Video player apps: tasks/TASK-0102-ui-v16d-music-video-apps-os-proofs.md
-  - Camera + Gallery (capture only): tasks/TASK-0106-ui-v17d-camera-app-gallery-settings-os-proofs.md
-  - MIME/content foundations: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: Link
+    target: "System Delegation / System Surfaces (share/edit/cast as intents, not per-app stacks): tasks/TRACK-SYSTEM-DELEGATION.md"
+  - label: "Zero-Copy App Platform (foundation)"
+    target: tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
+  - label: "NexusMedia SDK (decoders/playback)"
+    target: tasks/TRACK-NEXUSMEDIA-SDK.md
+  - label: "NexusNet SDK (cloud + streaming APIs)"
+    target: tasks/TRACK-NEXUSNET-SDK.md
+  - label: "Podcasts app (offline downloads + queue)"
+    target: tasks/TRACK-PODCASTS-APP.md
+  - label: "Service architecture (hybrid control/data plane)"
+    target: docs/adr/0017-service-architecture.md
+  - label: "Media sessions + SystemUI controls umbrella"
+    target: tasks/TASK-0101-ui-v16c-media-sessions-systemui-controls.md
+  - label: "Media UX v1 (host core)"
+    target: tasks/TASK-0155-media-ux-v1a-host-mediasessd-focus-nowplaying-artcache.md
+  - label: "Media UX v1 (OS/QEMU mini-player + lockscreen)"
+    target: tasks/TASK-0156-media-ux-v1b-os-miniplayer-lockscreen-sample-cli-selftests.md
+  - label: "Media UX v2 (OS/QEMU session switcher + notif actions)"
+    target: tasks/TASK-0185-media-ux-v2b-os-miniplayer-session-switch-notifs-selftests.md
+  - label: "Media UX v2.1 (OS/QEMU focus/ducking + per-app volume + mini-player)"
+    target: tasks/TASK-0218-media-v2_1b-os-focus-ducking-miniplayer-nx-media.md
+  - label: "DSoftBus media cast picker + remote controls"
+    target: tasks/TASK-0220-dsoftbus-v1_2b-os-media-cast-picker-nx-media-remote.md
+  - label: "Image Viewer baseline"
+    target: tasks/TASK-0090-ui-v13d-image-viewer-export-print.md
+  - label: "Media decoders"
+    target: tasks/TASK-0099-ui-v16a-media-decoders.md
+  - label: "Music/Video player apps"
+    target: tasks/TASK-0102-ui-v16d-music-video-apps-os-proofs.md
+  - label: "Camera + Gallery (capture only)"
+    target: tasks/TASK-0106-ui-v17d-camera-app-gallery-settings-os-proofs.md
+  - label: "MIME/content foundations"
+    target: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
 ---
 
 ## Goal (track-level)

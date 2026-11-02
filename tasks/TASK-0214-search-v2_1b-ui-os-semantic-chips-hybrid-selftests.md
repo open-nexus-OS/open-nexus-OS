@@ -1,19 +1,28 @@
 ---
-title: TASK-0214 Search v2.1b (UI+OS/QEMU): palette semantic chips + query expansion toggle + hybrid explain view + schema + selftests/docs
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0214
+title: "Search v2.1b (UI+OS/QEMU): palette semantic chips + query expansion toggle + hybrid explain view + schema + selftests/docs"
+status: draft
+owner: ["@ui"]
 created: 2025-12-27
-depends-on: []
-follow-up-tasks: []
+subsystem: messaging
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Search v2 UI host overlay: tasks/TASK-0151-search-v2-ui-host-command-palette-model-a11y.md
-  - Search v2 UI OS wiring: tasks/TASK-0152-search-v2-ui-os-deeplinks-selftests-postflight-docs.md
-  - Search v2.1 host backend: tasks/TASK-0213-search-v2_1a-host-semvec-tags-expansion-hybrid.md
-  - Search v2 backend OS wiring/persistence: tasks/TASK-0154-search-v2-backend-os-persistence-selftests-postflight-docs.md
-  - Policy caps baseline: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Search v2 UI host overlay"
+    target: tasks/TASK-0151-search-v2-ui-host-command-palette-model-a11y.md
+  - label: "Search v2 UI OS wiring"
+    target: tasks/TASK-0152-search-v2-ui-os-deeplinks-selftests-postflight-docs.md
+  - label: "Search v2.1 host backend"
+    target: tasks/TASK-0213-search-v2_1a-host-semvec-tags-expansion-hybrid.md
+  - label: "Search v2 backend OS wiring/persistence"
+    target: tasks/TASK-0154-search-v2-backend-os-persistence-selftests-postflight-docs.md
+  - label: "Policy caps baseline"
+    target: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

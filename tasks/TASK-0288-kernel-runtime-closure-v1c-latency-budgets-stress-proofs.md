@@ -1,24 +1,33 @@
 ---
-title: TASK-0288 Kernel runtime closure v1c: SMP/timer/IPI latency budgets + deterministic stress proofs
-status: Done
-owner: @runtime @kernel-team
+schema: 1
+id: TASK-0288
+title: "Kernel runtime closure v1c: SMP/timer/IPI latency budgets + deterministic stress proofs"
+status: done
+owner: ["@runtime", "@kernel-team"]
 created: 2026-04-13
-depends-on:
-  - TASK-0012B
-  - TASK-0247
-  - TASK-0277
-  - TASK-0283
-follow-up-tasks: []
+subsystem: kernel
+done: 2026-07-19
+dates_source: git-reconstructed
+depends_on: [TASK-0012B, TASK-0247, TASK-0277, TASK-0283]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - SMP v1 baseline: tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md
-  - SMP hardening bridge: tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md
-  - RISC-V SMP/timer extension: tasks/TASK-0247-bringup-rv-virt-v1_1b-os-smp-hsm-ipi-virtioblkd-packagefs-selftests.md
-  - SMP policy determinism: tasks/TASK-0277-kernel-smp-parallelism-policy-v1-deterministic.md
-  - Per-CPU ownership wrapper: tasks/TASK-0283-kernel-percpu-ownership-wrapper-v1.md
-  - UI/kernel perf floor consumer: tasks/TASK-0054B-ui-v1a-kernel-ui-perf-floor-zero-copy-qos-hardening.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "SMP v1 baseline"
+    target: tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md
+  - label: "SMP hardening bridge"
+    target: tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md
+  - label: "RISC-V SMP/timer extension"
+    target: tasks/TASK-0247-bringup-rv-virt-v1_1b-os-smp-hsm-ipi-virtioblkd-packagefs-selftests.md
+  - label: "SMP policy determinism"
+    target: tasks/TASK-0277-kernel-smp-parallelism-policy-v1-deterministic.md
+  - label: "Per-CPU ownership wrapper"
+    target: tasks/TASK-0283-kernel-percpu-ownership-wrapper-v1.md
+  - label: "UI/kernel perf floor consumer"
+    target: tasks/TASK-0054B-ui-v1a-kernel-ui-perf-floor-zero-copy-qos-hardening.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

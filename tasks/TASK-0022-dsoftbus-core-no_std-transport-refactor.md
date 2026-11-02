@@ -1,31 +1,38 @@
 ---
-title: TASK-0022 DSoftBus core refactor: no_std-compatible core + transport abstraction (unblocks OS backends)
-status: Done
-owner: @runtime
+schema: 1
+id: TASK-0022
+title: "DSoftBus core refactor: no_std-compatible core + transport abstraction (unblocks OS backends)"
+status: done
+owner: ["@runtime"]
 created: 2025-12-22
-depends-on:
-  - TASK-0015
-  - TASK-0021
-follow-up-tasks:
-  - TASK-0023
-  - TASK-0044
+subsystem: distributed
+done: 2026-07-17
+dates_source: git-reconstructed
+depends_on: [TASK-0015, TASK-0021]
+follow_ups: [TASK-0023, TASK-0044]
+implements: [RFC-0036, RFC-0027, RFC-0035]
+tracks: [TRACK-PRODUCTION-GATES-KERNEL-SERVICES]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - ADR: docs/adr/0005-dsoftbus-architecture.md
-  - RFC (seed contract): docs/rfcs/RFC-0036-dsoftbus-core-no-std-transport-abstraction-v1.md
-  - Production gate track: tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md
-  - RFC (modular daemon boundary): docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md
-  - RFC (host QUIC scaffold baseline): docs/rfcs/RFC-0035-dsoftbus-quic-v1-host-first-os-scaffold.md
-  - DSoftBus overview: docs/distributed/dsoftbus-lite.md
-  - Depends-on (modularization base): tasks/TASK-0015-dsoftbusd-refactor-v1-modular-os-daemon-structure.md
-  - Related baseline: tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
-  - Related baseline: tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md
-  - Related baseline (Done): tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md
-  - Unblocks: tasks/TASK-0023-dsoftbus-quic-v2-os-enabled-gated.md
-  - Testing methodology: docs/testing/README.md
-  - Testing contract: scripts/qemu-test.sh
-  - Testing contract (2-VM): tools/os2vm.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: ADR
+    target: docs/adr/0005-dsoftbus-architecture.md
+  - label: "DSoftBus overview"
+    target: docs/distributed/dsoftbus-lite.md
+  - label: "Related baseline"
+    target: tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
+  - label: "Related baseline"
+    target: tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md
+  - label: "Related baseline (Done)"
+    target: tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md
+  - label: "Testing methodology"
+    target: docs/testing/README.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
+  - label: "Testing contract (2-VM)"
+    target: tools/os2vm.sh
 ---
 
 ## Short description

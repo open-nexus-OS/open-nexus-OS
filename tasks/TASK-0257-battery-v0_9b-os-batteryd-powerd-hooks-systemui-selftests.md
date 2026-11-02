@@ -1,21 +1,32 @@
 ---
-title: TASK-0257 Battery v0.9b (OS/QEMU): batteryd service + powerd hooks + SystemUI battery indicator + `nx battery` + selftests
-status: Draft
-owner: @runtime
+schema: 1
+id: TASK-0257
+title: "Battery v0.9b (OS/QEMU): batteryd service + powerd hooks + SystemUI battery indicator + `nx battery` + selftests"
+status: draft
+owner: ["@runtime"]
 created: 2025-12-29
-depends-on: []
-follow-up-tasks: []
+subsystem: hardware
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
-  - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
-  - Battery core (host-first): tasks/TASK-0256-battery-v0_9a-host-fuel-gauge-model-charger-deterministic.md
-  - Power/idle baseline: tasks/TASK-0236-power-v1_0a-host-governor-wakelocks-residency-standby-deterministic.md
-  - Power/idle OS: tasks/TASK-0237-power-v1_0b-os-powerd-alarmsd-standbyd-idle-hooks-selftests.md
-  - Device MMIO access: tasks/TASK-0010-device-mmio-access-model.md
-  - Testing contract: scripts/qemu-test.sh
-  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "DSL syntax/layout convention"
+    target: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
+  - label: "Authority & naming registry"
+    target: tasks/TRACK-AUTHORITY-NAMING.md
+  - label: "Battery core (host-first)"
+    target: tasks/TASK-0256-battery-v0_9a-host-fuel-gauge-model-charger-deterministic.md
+  - label: "Power/idle baseline"
+    target: tasks/TASK-0236-power-v1_0a-host-governor-wakelocks-residency-standby-deterministic.md
+  - label: "Power/idle OS"
+    target: tasks/TASK-0237-power-v1_0b-os-powerd-alarmsd-standbyd-idle-hooks-selftests.md
+  - label: "Device MMIO access"
+    target: tasks/TASK-0010-device-mmio-access-model.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
+  - label: "Data formats rubric (JSON vs Cap'n Proto)"
+    target: docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
 ## Context

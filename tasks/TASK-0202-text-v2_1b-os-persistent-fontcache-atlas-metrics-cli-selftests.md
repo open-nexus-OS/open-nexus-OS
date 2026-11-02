@@ -1,21 +1,32 @@
 ---
-title: TASK-0202 Text v2.1b (OS/QEMU): persistent font/glyph cache under /state + renderer atlas upload/damage hooks + text metrics overlay + nx-text CLI + selftests/docs
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0202
+title: "Text v2.1b (OS/QEMU): persistent font/glyph cache under /state + renderer atlas upload/damage hooks + text metrics overlay + nx-text CLI + selftests/docs"
+status: draft
+owner: ["@ui"]
 created: 2025-12-27
-depends-on: []
-follow-up-tasks: []
+subsystem: observability
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Text v2.1 host substrate: tasks/TASK-0201-text-v2_1a-host-hyphen-uax14-bidi-clusters-perf.md
-  - Persistence substrate (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Shaping baseline (glyph cache in RAM): tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
-  - Compositor atlases/caches (deluxe): tasks/TASK-0060-ui-v4a-tiled-compositor-clipstack-atlases-perf.md
-  - Font fallback selection (fontsel): tasks/TASK-0174-l10n-i18n-v1a-host-core-fluent-icu-fontsel-goldens.md
-  - Renderer/windowd OS wiring: tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md
-  - Policy caps baseline: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Text v2.1 host substrate"
+    target: tasks/TASK-0201-text-v2_1a-host-hyphen-uax14-bidi-clusters-perf.md
+  - label: "Persistence substrate (/state)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Shaping baseline (glyph cache in RAM)"
+    target: tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
+  - label: "Compositor atlases/caches (deluxe)"
+    target: tasks/TASK-0060-ui-v4a-tiled-compositor-clipstack-atlases-perf.md
+  - label: "Font fallback selection (fontsel)"
+    target: tasks/TASK-0174-l10n-i18n-v1a-host-core-fluent-icu-fontsel-goldens.md
+  - label: "Renderer/windowd OS wiring"
+    target: tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md
+  - label: "Policy caps baseline"
+    target: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

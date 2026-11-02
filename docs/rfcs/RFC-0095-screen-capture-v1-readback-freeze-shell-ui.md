@@ -1,19 +1,26 @@
+---
+schema: 1
+id: RFC-0095
+title: "Screen capture v1 — one readback authority, a frozen frame, the shell's screenshot UI"
+status: done
+status_note: "2026-10-09 — Phases 0–3, TASK-0068"
+owners: ["@ui", "@runtime"]
+created: 2026-10-08
+updated: 2026-10-09
+subsystem: security
+tasks: [TASK-0068]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0068-ui-v7c-screenshot-screencap-share-sheet.md` (execution + proof)"
+  - label: ADRs
+    target: "`docs/adr/0071-screen-capture-readback-in-gpud-freeze-in-windowd-ui-in-the-shell.md`"
+  - label: "Related RFCs"
+    target: "RFC-0093 (display handoff — the probe-RT readback this generalizes), RFC-0053 (the visible state — the capture key fact, amended), RFC-0072 (VFS v2 — the binary write op, amended), RFC-0086 (window feed), RFC-0094 (clipboardd — image items are TASK-0087's), ADR-0068 (modal semantics), ADR-0069 (key chords via inputd)"
+---
+
 # RFC-0095: Screen capture v1 — one readback authority, a frozen frame, the shell's screenshot UI
 
-- Status: Done (2026-10-09 — Phases 0–3, TASK-0068; QEMU: Print → drag → shutter on
-  `usb-visible`, the readback probe on every visible lane; board `dev-f94c6744`: the tool, a
-  moved and corner-resized selection, Window mode → `saved (kind=window …)`, the toast —
-  `board-visual: screenshot`; Phase 4 belongs to TASK-0105)
-- Owners: @ui @runtime
-- Created: 2026-10-08
-- Last Updated: 2026-10-09
-- Links:
-  - Tasks: `tasks/TASK-0068-ui-v7c-screenshot-screencap-share-sheet.md` (execution + proof)
-  - ADRs: `docs/adr/0071-screen-capture-readback-in-gpud-freeze-in-windowd-ui-in-the-shell.md`
-  - Related RFCs: RFC-0093 (display handoff — the probe-RT readback this generalizes),
-    RFC-0053 (the visible state — the capture key fact, amended), RFC-0072 (VFS v2 — the
-    binary write op, amended), RFC-0086 (window feed), RFC-0094 (clipboardd — image items are
-    TASK-0087's), ADR-0068 (modal semantics), ADR-0069 (key chords via inputd)
+> Status (migrated 2026-11-02): Done (2026-10-09 — Phases 0–3, TASK-0068; QEMU: Print → drag → shutter on `usb-visible`, the readback probe on every visible lane; board `dev-f94c6744`: the tool, a moved and corner-resized selection, Window mode → `saved (kind=window …)`, the toast — `board-visual: screenshot`; Phase 4 belongs to TASK-0105)
 
 ## Status at a Glance
 

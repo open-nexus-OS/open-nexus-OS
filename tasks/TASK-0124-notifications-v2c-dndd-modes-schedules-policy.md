@@ -1,17 +1,24 @@
 ---
-title: TASK-0124 Notifications v2c (policy): dndd modes/schedules + notifd integration rules + tests/markers
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0124
+title: "Notifications v2c (policy): dndd modes/schedules + notifd integration rules + tests/markers"
+status: draft
+owner: ["@ui"]
 created: 2025-12-25
-depends-on: []
-follow-up-tasks: []
+subsystem: security
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - notifd persistence/unread: tasks/TASK-0123-notifications-v2b-notifd-persistence-history-unread.md
-  - Notifications v2 minimal: tasks/TASK-0069-ui-v8a-notifications-v2-actions-inline-reply.md
-  - Prefs store (user-configurable DND): tasks/TASK-0072-ui-v9b-prefsd-settings-panels-quick-settings.md
-  - Logging/audit sink: tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "notifd persistence/unread"
+    target: tasks/TASK-0123-notifications-v2b-notifd-persistence-history-unread.md
+  - label: "Notifications v2 minimal"
+    target: tasks/TASK-0069-ui-v8a-notifications-v2-actions-inline-reply.md
+  - label: "Prefs store (user-configurable DND)"
+    target: tasks/TASK-0072-ui-v9b-prefsd-settings-panels-quick-settings.md
+  - label: "Logging/audit sink"
+    target: tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
 ---
 
 ## Context

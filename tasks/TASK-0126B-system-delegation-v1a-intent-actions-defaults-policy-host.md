@@ -1,21 +1,32 @@
 ---
-title: TASK-0126B System Delegation v1a (host-first): action-based intents (chat/contacts/compose/maps) + per-action defaults + deterministic routing + policy hooks
-status: Draft
-owner: @runtime @ui
+schema: 1
+id: TASK-0126B
+title: "System Delegation v1a (host-first): action-based intents (chat/contacts/compose/maps) + per-action defaults + deterministic routing + policy hooks"
+status: draft
+owner: ["@runtime", "@ui"]
 created: 2026-01-28
-depends-on: []
-follow-up-tasks: []
+subsystem: sessions
+split_from: TASK-0126
+tracks: [TRACK-ADS-SAFETY-FAMILYMODE]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
-  - Share v2 intents baseline: tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md
-  - Chooser + defaults (MIME): tasks/TASK-0127-share-v2b-chooser-ui-targets-grants.md
-  - MIME defaults registry: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
-  - Policy v1 capability matrix + intents adapter: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
-  - Scoped grants + content://: tasks/TASK-0084-ui-v12a-scoped-uri-grants.md
-  - Chat transfer (default eligibility): tasks/TASK-0126C-chat-transfer-v1a-host-export-import-eligibility.md
-  - Chat inline action cards (track/confirm/open): tasks/TASK-0126D-chat-action-cards-v0-host-inline-track-confirm-open.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Share v2 intents baseline"
+    target: tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md
+  - label: "Chooser + defaults (MIME)"
+    target: tasks/TASK-0127-share-v2b-chooser-ui-targets-grants.md
+  - label: "MIME defaults registry"
+    target: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
+  - label: "Policy v1 capability matrix + intents adapter"
+    target: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
+  - label: Link
+    target: "Scoped grants + content://: tasks/TASK-0084-ui-v12a-scoped-uri-grants.md"
+  - label: "Chat transfer (default eligibility)"
+    target: tasks/TASK-0126C-chat-transfer-v1a-host-export-import-eligibility.md
+  - label: "Chat inline action cards (track/confirm/open)"
+    target: tasks/TASK-0126D-chat-action-cards-v0-host-inline-track-confirm-open.md
 ---
 
 ## Context

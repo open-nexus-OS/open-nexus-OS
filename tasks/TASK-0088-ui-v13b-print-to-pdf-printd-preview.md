@@ -1,19 +1,28 @@
 ---
-title: TASK-0088 UI v13b: Print-to-PDF pipeline (pdfgen + printd) + preview UI (Print to PDF only) + markers
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0088
+title: "UI v13b: Print-to-PDF pipeline (pdfgen + printd) + preview UI (Print to PDF only) + markers"
+status: draft
+owner: ["@ui"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
-  - DSL app integration kit: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md
-  - Shaping/SVG baseline: tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
-  - Doc picker/save destination: tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
-  - Persistence (/state spool): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Policy as Code (print guards): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "DSL syntax/layout convention"
+    target: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
+  - label: "DSL app integration kit"
+    target: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md
+  - label: "Shaping/SVG baseline"
+    target: tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
+  - label: "Doc picker/save destination"
+    target: tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
+  - label: "Persistence (/state spool)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Policy as Code (print guards)"
+    target: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
 ---
 
 ## Context

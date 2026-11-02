@@ -1,19 +1,31 @@
 ---
-title: TRACK Settings Family Mode (guardians + members + purchase approvals + restrictions): simple household management without server setup
-status: Draft
-owner: @ui @platform @security
+schema: 1
+id: TRACK-SETTINGS-FAMILY-MODE
+title: "Settings Family Mode (guardians + members + purchase approvals + restrictions): simple household management without server setup"
+status: draft
+owner: ["@ui", "@platform", "@security"]
 created: 2026-04-07
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Group and Device Management substrate: tasks/TRACK-GROUP-AND-DEVICE-MANAGEMENT.md
-  - NexusAccount (optional account bootstrap): tasks/TRACK-NEXUSACCOUNT.md
-  - Settings typed registry: tasks/TASK-0225-settings-v2a-host-settingsd-typed-prefs-providers.md
-  - Settings OS/UI wiring: tasks/TASK-0226-settings-v2b-os-settings-ui-deeplinks-search-guides.md
-  - Policy capability matrix: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
-  - Policy scoped grants v1.1: tasks/TASK-0167-policy-v1_1-host-scoped-grants-expiry-enumeration.md
-  - Store parental/payments core: tasks/TASK-0221-store-v2_2a-host-licensed-ledger-parental-payments.md
-  - Store parental/payments OS wiring: tasks/TASK-0222-store-v2_2b-os-purchase-flow-entitlements-guard.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Group and Device Management substrate"
+    target: tasks/TRACK-GROUP-AND-DEVICE-MANAGEMENT.md
+  - label: "NexusAccount (optional account bootstrap)"
+    target: tasks/TRACK-NEXUSACCOUNT.md
+  - label: "Settings typed registry"
+    target: tasks/TASK-0225-settings-v2a-host-settingsd-typed-prefs-providers.md
+  - label: "Settings OS/UI wiring"
+    target: tasks/TASK-0226-settings-v2b-os-settings-ui-deeplinks-search-guides.md
+  - label: "Policy capability matrix"
+    target: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
+  - label: "Policy scoped grants v1.1"
+    target: tasks/TASK-0167-policy-v1_1-host-scoped-grants-expiry-enumeration.md
+  - label: "Store parental/payments core"
+    target: tasks/TASK-0221-store-v2_2a-host-licensed-ledger-parental-payments.md
+  - label: "Store parental/payments OS wiring"
+    target: tasks/TASK-0222-store-v2_2b-os-purchase-flow-entitlements-guard.md
 ---
 
 ## Goal (track-level)

@@ -1,16 +1,22 @@
 ---
-title: TASK-0256 Battery v0.9a (host-first): fuel-gauge model + charger state + thresholds + deterministic tests
-status: Draft
-owner: @runtime
+schema: 1
+id: TASK-0256
+title: "Battery v0.9a (host-first): fuel-gauge model + charger state + thresholds + deterministic tests"
+status: draft
+owner: ["@runtime"]
 created: 2025-12-29
-depends-on: []
-follow-up-tasks: []
+subsystem: hardware
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Power/idle baseline: tasks/TASK-0236-power-v1_0a-host-governor-wakelocks-residency-standby-deterministic.md
-  - Testing contract: scripts/qemu-test.sh
-  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Power/idle baseline"
+    target: tasks/TASK-0236-power-v1_0a-host-governor-wakelocks-residency-standby-deterministic.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
+  - label: "Data formats rubric (JSON vs Cap'n Proto)"
+    target: docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
 ## Context

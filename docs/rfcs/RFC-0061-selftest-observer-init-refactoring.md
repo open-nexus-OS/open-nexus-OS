@@ -1,9 +1,17 @@
-# RFC-0061: Selftest Observer + nexus-init Module Refactoring
+---
+schema: 1
+id: RFC-0061
+title: "Selftest Observer + nexus-init Module Refactoring"
+status: done
+owners: ["@unassigned"]
+created: 2026-05-29
+updated: 2026-05-31
+links:
+  - label: "Depends on"
+    target: "RFC-0059 (UI v5a Animation + NexusGfx SDK), TASK-0062 (Capability Architecture)"
+---
 
-**Status:** Complete
-**Created:** 2026-05-29
-**Updated:** 2026-05-31
-**Depends on:** RFC-0059 (UI v5a Animation + NexusGfx SDK), TASK-0062 (Capability Architecture)
+# RFC-0061: Selftest Observer + nexus-init Module Refactoring
 
 ## Summary
 

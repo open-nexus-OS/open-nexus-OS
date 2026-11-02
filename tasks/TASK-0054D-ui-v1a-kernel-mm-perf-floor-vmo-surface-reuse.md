@@ -1,20 +1,33 @@
 ---
-title: TASK-0054D UI v1a extension: kernel MM perf floor (delivered by RFC-0085 (0310) + shared RO atlas VMO (0302); counters → TASK-0290)
-status: Done (2026-09-09 — reconciled: mapping floor delivered by RFC-0085 (0310) + shared RO atlas VMO (0302); counters remain with TASK-0290)
-owner: @kernel-mm-team @runtime @ui
+schema: 1
+id: TASK-0054D
+title: "UI v1a extension: kernel MM perf floor (delivered by RFC-0085 (0310) + shared RO atlas VMO (0302); counters → TASK-0290)"
+status: done
+status_note: "2026-09-09 — reconciled: mapping floor delivered by RFC-0085 (0310) + shared RO atlas VMO (0302); counters remain with TASK-0290"
+owner: ["@kernel-mm-team", "@runtime", "@ui"]
 created: 2026-03-29
-depends-on: []
-follow-up-tasks:
-  - TASK-0290
+subsystem: kernel
+done: 2026-09-09
+dates_source: status-text
+follow_ups: [TASK-0290]
+split_from: TASK-0054
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Address-space and mapping security floor: docs/rfcs/RFC-0004-safe-loader-guards.md
-  - VMO plumbing baseline: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
-  - UI performance philosophy: docs/dev/ui/foundations/quality/performance-philosophy.md
-  - UI perf floor baseline: tasks/TASK-0054B-ui-v1a-kernel-ui-perf-floor-zero-copy-qos-hardening.md
-  - UI present/input consumer baseline: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Address-space and mapping security floor"
+    target: docs/rfcs/RFC-0004-safe-loader-guards.md
+  - label: "VMO plumbing baseline"
+    target: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
+  - label: "UI performance philosophy"
+    target: docs/dev/ui/foundations/quality/performance-philosophy.md
+  - label: "UI perf floor baseline"
+    target: tasks/TASK-0054B-ui-v1a-kernel-ui-perf-floor-zero-copy-qos-hardening.md
+  - label: "UI present/input consumer baseline"
+    target: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Closure 2026-09-09 (reconciliation — Done, delivered by RFC-0085 + RFC-0080)

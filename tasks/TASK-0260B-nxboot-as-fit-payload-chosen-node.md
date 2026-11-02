@@ -1,22 +1,34 @@
 ---
-title: TASK-0260B nxboot is the FIT payload on the board — `/chosen/nexus,*` written by nxboot, fw_cfg read only there, one image for QEMU and the board
-status: Done (P0 recut, P1 the FIT and P2 the first eMMC boot ✅ 2026-09-27; **P3 ✅ 2026-09-29 — the board boots our chain into a living userspace**: `init: ready`, blkd on the SDHCI, the OS trace on the eMMC, the fleet `ready`; verified with the board's own tree, four harts and the LED ladder; four QEMU-hidden causes fixed from the tree — see P3; seeded 2026-09-22 at Block 1 P0 as the B part of TASK-0260)
-owner: @reliability @runtime
+schema: 1
+id: TASK-0260B
+title: "nxboot is the FIT payload on the board — `/chosen/nexus,*` written by nxboot, fw_cfg read only there, one image for QEMU and the board"
+status: done
+status_note: "P0 recut, P1 the FIT and P2 the first eMMC boot ✅ 2026-09-27; P3 ✅ 2026-09-29"
+owner: ["@reliability", "@runtime"]
 created: 2026-09-22
-depends-on:
-  - tasks/TASK-0260-provisioning-recovery-v1_0a-host-image-builder-flasher-protocol-deterministic.md
-  - tasks/TASK-0246B-nxboot-sdhci-disk-reader.md
-  - tasks/TASK-0245-bringup-rv-virt-v1_0b-os-kernel-uart-plic-timer-uartd-selftests.md
-follow-up-tasks:
-  - tasks/TASK-0251-display-v1_0b-os-fbdevd-windowd-integration-cursor-selftests.md
-  - tasks/TASK-0327B-board-proof-lane-serial-ladder-profiles.md
+subsystem: hardware
+started: 2026-09-27
+done: 2026-09-27
+active_days: 1
+dates_source: git-reconstructed
+depends_on: [TASK-0260, TASK-0246B, TASK-0245]
+follow_ups: [TASK-0251, TASK-0327B]
+split_from: TASK-0260
+implements: [RFC-0098]
 links:
-  - Decision: docs/adr/0066-boot-chain-on-hardware-nxboot-as-fit-payload.md
-  - Contract: docs/rfcs/RFC-0098-board-support-contract-fdt-truth-boot-chain.md (C1, C2, C6, Phase 4)
-  - nxboot: source/boot/nxboot (ADR-0059, RFC-0089); tools: scripts/build-fit.sh (new), scripts/board-flash.sh (TASK-0327)
-  - Measurement: docs/board/measurements/2026-09-22-stock-system/README.md ("Boot flow"), resources/board/bpi-f3/PROVENANCE.md (FIT facts: OpenSBI at 0x0, payload at 0x0020_0000, `fdt_1 = k1-x_deb1`), docs/board/measurements/2026-09-26-boot-medium/README.md (TASK-0260 P0: the SPL finds `opensbi`/`uboot` through the GPT and selects a FIT configuration by name)
-  - Playbook: CLAUDE.md
+  - label: Decision
+    target: docs/adr/0066-boot-chain-on-hardware-nxboot-as-fit-payload.md
+  - label: Contract
+    target: "docs/rfcs/RFC-0098-board-support-contract-fdt-truth-boot-chain.md (C1, C2, C6, Phase 4)"
+  - label: nxboot
+    target: "source/boot/nxboot (ADR-0059, RFC-0089); tools: scripts/build-fit.sh (new), scripts/board-flash.sh (TASK-0327)"
+  - label: Measurement
+    target: "docs/board/measurements/2026-09-22-stock-system/README.md (\"Boot flow\"), resources/board/bpi-f3/PROVENANCE.md (FIT facts: OpenSBI at 0x0, payload at 0x0020_0000, `fdt_1 = k1-x_deb1`), docs/board/measurements/2026-09-26-boot-medium/README.md (TASK-0260 P0: the SPL finds `opensbi`/`uboot` through the GPT and selects a FIT configuration by name)"
+  - label: Playbook
+    target: CLAUDE.md
 ---
+
+> Status (migrated 2026-11-02): Done (P0 recut, P1 the FIT and P2 the first eMMC boot ✅ 2026-09-27; **P3 ✅ 2026-09-29 — the board boots our chain into a living userspace**: `init: ready`, blkd on the SDHCI, the OS trace on the eMMC, the fleet `ready`; verified with the board's own tree, four harts and the LED ladder; four QEMU-hidden causes fixed from the tree — see P3; seeded 2026-09-22 at Block 1 P0 as the B part of TASK-0260)
 
 ## RECUT 2026-09-27 — P0: the FIT measured, the payload's footprint, the first board attempt read from the trace
 

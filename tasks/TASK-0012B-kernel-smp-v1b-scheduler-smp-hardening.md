@@ -1,28 +1,33 @@
 ---
-title: TASK-0012B Kernel SMP v1b: scheduler + SMP hardening (bounded queues, trap/IPI contract, CPU-ID fast path)
-status: Done
-owner: @kernel-team
+schema: 1
+id: TASK-0012B
+title: "Kernel SMP v1b: scheduler + SMP hardening (bounded queues, trap/IPI contract, CPU-ID fast path)"
+status: done
+owner: ["@kernel-team"]
 created: 2026-02-10
-depends-on: []
-follow-up-tasks:
-  - TASK-0013
-  - TASK-0042
-  - TASK-0247
-  - TASK-0283
+subsystem: kernel
+started: 2026-02-10
+done: 2026-02-11
+active_days: 2
+dates_source: git-reconstructed
+follow_ups: [TASK-0013, TASK-0042, TASK-0247, TASK-0283]
+split_from: TASK-0012
+implements: [RFC-0021, RFC-0022]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - SMP baseline: tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md
-  - SMP v1 contract: docs/rfcs/RFC-0021-kernel-smp-v1-percpu-runqueues-ipi-contract.md
-  - SMP v1b hardening contract (this task): docs/rfcs/RFC-0022-kernel-smp-v1b-scheduler-hardening-contract.md
-  - Rust SMP model: docs/architecture/16-rust-concurrency-model.md
-  - Kernel overview: docs/architecture/01-neuron-kernel.md
-  - SMP policy: tasks/TASK-0277-kernel-smp-parallelism-policy-v1-deterministic.md
-  - Follow-up (QoS/timed): tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
-  - Follow-up (affinity/shares): tasks/TASK-0042-smp-v2-affinity-qos-budgets-kernel-abi.md
-  - Follow-up (RISC-V extension): tasks/TASK-0247-bringup-rv-virt-v1_1b-os-smp-hsm-ipi-virtioblkd-packagefs-selftests.md
-  - Follow-up (PerCpu wrapper): tasks/TASK-0283-kernel-percpu-ownership-wrapper-v1.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "SMP baseline"
+    target: tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md
+  - label: "Rust SMP model"
+    target: docs/architecture/16-rust-concurrency-model.md
+  - label: "Kernel overview"
+    target: docs/architecture/01-neuron-kernel.md
+  - label: "SMP policy"
+    target: tasks/TASK-0277-kernel-smp-parallelism-policy-v1-deterministic.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

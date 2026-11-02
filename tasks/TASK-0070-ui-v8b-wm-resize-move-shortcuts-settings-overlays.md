@@ -1,20 +1,31 @@
 ---
-title: TASK-0070 UI v8b: real window management (z/focus, drag-edge snap, header buttons + dock, backdrop correctness, edge resize + cursor shapes) + rendering quality (runtime text, SVG seams) + scroll unification
-status: Done
-owner: @ui
+schema: 1
+id: TASK-0070
+title: "UI v8b: real window management (z/focus, drag-edge snap, header buttons + dock, backdrop correctness, edge resize + cursor shapes) + rendering quality (runtime text, SVG seams) + scroll unification"
+status: done
+owner: ["@ui"]
 created: 2025-12-23
-updated: 2026-07-03 (full rewrite to IST + new scope)
-depends-on: []
-follow-up-tasks: []
+updated: 2026-07-03
+subsystem: ui
+done: 2026-08-14
+dates_source: git-reconstructed
+implements: [RFC-0057]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - UI v6a WM baseline: tasks/TASK-0064-ui-v6a-window-management-scene-transitions.md
-  - Layout engine contract: docs/rfcs/RFC-0057-ui-v3a-layout-engine-pretext-contract.md
-  - Compositor boundary: docs/rfcs/RFC-0067-windowd-compositor-service-boundary.md
-  - Settings track (S-track twin): tasks/TASK-0072-ui-v9b-prefsd-settings-panels-quick-settings.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "UI v6a WM baseline"
+    target: tasks/TASK-0064-ui-v6a-window-management-scene-transitions.md
+  - label: "Compositor boundary"
+    target: docs/rfcs/RFC-0067-windowd-compositor-service-boundary.md
+  - label: "Settings track (S-track twin)"
+    target: tasks/TASK-0072-ui-v9b-prefsd-settings-panels-quick-settings.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
+
+> updated (migrated 2026-11-02): 2026-07-03 (full rewrite to IST + new scope)
 
 ## Rewrite note (2026-07-03)
 

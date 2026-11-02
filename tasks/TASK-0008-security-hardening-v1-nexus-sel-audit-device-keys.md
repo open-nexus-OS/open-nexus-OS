@@ -1,37 +1,25 @@
 ---
-title: TASK-0008 Security hardening v1 (OS): policy engine (nexus-sel), audit trail, policy-gated operations (no device key entropy)
-status: Done
-owner: @runtime
+schema: 1
+id: TASK-0008
+title: "Security hardening v1 (OS): policy engine (nexus-sel), audit trail, policy-gated operations (no device key entropy)"
+status: done
+owner: ["@runtime"]
 created: 2025-12-22
-completed: 2026-01-25
-depends-on:
-  - TASK-0006
-follow-up-tasks:
-  - TASK-0008B
-  - TASK-0009
-  - TASK-0017
-  - TASK-0019
-  - TASK-0188
-  - TASK-0025
-  - TASK-0027
-  - TASK-0028
-  - TASK-0029
-  - TASK-0039
-  - TASK-0043
-  - TASK-0053
-  - TASK-0108
-  - TASK-0136
-  - TASK-0137
-  - TASK-0159
-  - TASK-0160
-  - TASK-0289
+subsystem: security
+started: 2026-01-25
+done: 2026-01-25
+active_days: 1
+dates_source: git-reconstructed
+depends_on: [TASK-0006]
+follow_ups: [TASK-0008B, TASK-0009, TASK-0017, TASK-0019, TASK-0188, TASK-0025, TASK-0027, TASK-0028, TASK-0029, TASK-0039, TASK-0043, TASK-0053, TASK-0108, TASK-0136, TASK-0137, TASK-0159, TASK-0160, TASK-0289]
+implements: [RFC-0015, RFC-0005]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - RFC (seed contract): docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md
-  - RFC (capability model): docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
-  - Depends-on (audit sink): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
-  - Existing policy baseline: recipes/policy/base.toml
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Existing policy baseline"
+    target: recipes/policy/base.toml
 ---
 
 ## Context

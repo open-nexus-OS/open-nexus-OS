@@ -1,20 +1,26 @@
 ---
-title: TASK-0269 Boot gates v1 (OS/QEMU): readiness contract + spawn failure reasons + resource/leak sentinel
-status: Done
-owner: @runtime @kernel-team @tools-team
+schema: 1
+id: TASK-0269
+title: "Boot gates v1 (OS/QEMU): readiness contract + spawn failure reasons + resource/leak sentinel"
+status: done
+owner: ["@runtime", "@kernel-team", "@tools-team"]
 created: 2026-01-16
-depends-on: []
-follow-up-tasks:
-  - tasks/TASK-0269B-boot-to-first-frame-budget.md  # TASK-0269B — the TIME dimension this ledger never claimed (boot → first frame), seeded 2026-09-20
+subsystem: kernel
+done: 2026-09-20
+dates_source: git-reconstructed
+follow_ups: [TASK-0269B]
+implements: [RFC-0013, RFC-0005, RFC-0011]
 links:
-  - RFC: docs/rfcs/RFC-0013-boot-gates-readiness-spawn-resource-v1.md
-  - Logging discipline: docs/rfcs/RFC-0003-unified-logging.md
-  - IPC/caps contract: docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
-  - OS dependency hygiene: docs/rfcs/RFC-0009-no-std-dependency-hygiene-v1.md
-  - logd readiness contract: docs/rfcs/RFC-0011-logd-journal-crash-v1.md
-  - Testing methodology: docs/testing/README.md
-  - QEMU marker contract: scripts/qemu-test.sh
-  - Related: tasks/TASK-0228-oomd-v1-deterministic-watchdog-cooperative-memstat-samgr-kill.md
+  - label: "Logging discipline"
+    target: docs/rfcs/RFC-0003-unified-logging.md
+  - label: "OS dependency hygiene"
+    target: docs/rfcs/RFC-0009-no-std-dependency-hygiene-v1.md
+  - label: "Testing methodology"
+    target: docs/testing/README.md
+  - label: "QEMU marker contract"
+    target: scripts/qemu-test.sh
+  - label: Related
+    target: tasks/TASK-0228-oomd-v1-deterministic-watchdog-cooperative-memstat-samgr-kill.md
 ---
 
 ## Context

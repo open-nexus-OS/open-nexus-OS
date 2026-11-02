@@ -1,15 +1,28 @@
+---
+schema: 1
+id: RFC-0059
+title: "Deterministic Animation Runtime + NexusGfx 2D Pipeline + GPU Driver Contract"
+status: done
+owners: ["@ui", "@runtime"]
+created: 2026-05-22
+updated: 2026-06-05
+subsystem: ui
+tasks: [TASK-0062]
+depends_on: [RFC-0058]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0062-ui-v5a-reactive-runtime-animation-transitions.md` (execution + proof)"
+  - label: "Gfx architecture"
+    target: "`docs/architecture/graphics/nexusgfx-command-and-pass-model.md`, `docs/architecture/graphics/nexusgfx-resource-model.md`, `docs/architecture/graphics/nexusgfx-tile-aware-design.md`"
+  - label: "Gfx track"
+    target: "`tasks/TRACK-NEXUSGFX-SDK.md`, Driver track: `tasks/TRACK-DRIVERS-ACCELERATORS.md`"
+  - label: "Performance target matrix"
+    target: "`docs/dev/perf/PLATFORM-CLASS-UI-PERFORMANCE-OPTIMIZATIONS-QEMU-MATRIX.md`"
+---
+
 # RFC-0059: Deterministic Animation Runtime + NexusGfx 2D Pipeline + GPU Driver Contract
 
-- Status: Complete
-- Owners: @ui @runtime
-- Created: 2026-05-22
-- Last Updated: 2026-06-05 (Phase 6c-7 closure criteria hardened: deterministic pacing + measurable smoothness gates)
-- Links:
-  - Tasks: `tasks/TASK-0062-ui-v5a-reactive-runtime-animation-transitions.md` (execution + proof)
-  - Depends on: `docs/rfcs/RFC-0058-ui-v3b-clip-scroll-effects-ime-contract.md`
-  - Gfx architecture: `docs/architecture/graphics/nexusgfx-command-and-pass-model.md`, `docs/architecture/graphics/nexusgfx-resource-model.md`, `docs/architecture/graphics/nexusgfx-tile-aware-design.md`
-  - Gfx track: `tasks/TRACK-NEXUSGFX-SDK.md`, Driver track: `tasks/TRACK-DRIVERS-ACCELERATORS.md`
-  - Performance target matrix: `docs/dev/perf/PLATFORM-CLASS-UI-PERFORMANCE-OPTIMIZATIONS-QEMU-MATRIX.md`
+> Last Updated (migrated 2026-11-02): 2026-06-05 (Phase 6c-7 closure criteria hardened: deterministic pacing + measurable smoothness gates)
 
 ## Status at a Glance
 

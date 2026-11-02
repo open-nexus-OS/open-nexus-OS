@@ -1,25 +1,43 @@
 ---
-title: TRACK App Store (Storefront + publishing): discovery, install, updates, licensing, and review/policy (ecosystem keystone)
-status: Draft
-owner: @platform @ui @security
+schema: 1
+id: TRACK-APP-STORE
+title: "App Store (Storefront + publishing): discovery, install, updates, licensing, and review/policy (ecosystem keystone)"
+status: draft
+owner: ["@platform", "@ui", "@security"]
 created: 2026-01-19
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
-  - System Delegation / System Surfaces (no “store inside another app” anti-pattern): tasks/TRACK-SYSTEM-DELEGATION.md
-  - DevX nx CLI (scaffold/pack/sign/inspect): tasks/TASK-0045-devx-nx-cli-v1.md
-  - Packaging toolchain (bundle authoring/signing): tasks/TASK-0129-packages-v1a-nxb-format-signing-pkgr-tool.md
-  - Packages install authority (bundlemgrd): tasks/TASK-0130-packages-v1b-bundlemgrd-install-upgrade-uninstall-trust.md
-  - Store v1a (host core): tasks/TASK-0180-store-v1a-host-storefeedd-storemgrd-ratings.md
-  - Store v1b (OS Storefront UI): tasks/TASK-0181-store-v1b-os-storefront-ui-selftests-policy-docs.md
-  - Store v2.2 (licensing/payments core): tasks/TASK-0221-store-v2_2a-host-licensed-ledger-parental-payments.md
-  - Store v2.2 (purchase flow/entitlements guard): tasks/TASK-0222-store-v2_2b-os-purchase-flow-entitlements-guard.md
-  - Supply chain enforcement (store/updater/bundlemgrd): tasks/TASK-0198-supply-chain-v2b-os-enforcement-store-updater-bundlemgrd.md
-  - Updates/packaging (A/B skeleton): tasks/TASK-0007-updates-packaging-v1_1-userspace-ab-skeleton.md
-  - Updates v2 (offline feed delta/health/rollback): tasks/TASK-0179-updated-v2-offline-feed-delta-health-rollback.md
-  - NexusAccount (optional account/grants): tasks/TRACK-NEXUSACCOUNT.md
-  - Zero-Copy App Platform (intents/grants/open-with): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Ads Safety + Family Mode (track)"
+    target: tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
+  - label: "System Delegation / System Surfaces (no “store inside another app” anti-pattern)"
+    target: tasks/TRACK-SYSTEM-DELEGATION.md
+  - label: "DevX nx CLI (scaffold/pack/sign/inspect)"
+    target: tasks/TASK-0045-devx-nx-cli-v1.md
+  - label: "Packaging toolchain (bundle authoring/signing)"
+    target: tasks/TASK-0129-packages-v1a-nxb-format-signing-pkgr-tool.md
+  - label: "Packages install authority (bundlemgrd)"
+    target: tasks/TASK-0130-packages-v1b-bundlemgrd-install-upgrade-uninstall-trust.md
+  - label: "Store v1a (host core)"
+    target: tasks/TASK-0180-store-v1a-host-storefeedd-storemgrd-ratings.md
+  - label: "Store v1b (OS Storefront UI)"
+    target: tasks/TASK-0181-store-v1b-os-storefront-ui-selftests-policy-docs.md
+  - label: "Store v2.2 (licensing/payments core)"
+    target: tasks/TASK-0221-store-v2_2a-host-licensed-ledger-parental-payments.md
+  - label: "Store v2.2 (purchase flow/entitlements guard)"
+    target: tasks/TASK-0222-store-v2_2b-os-purchase-flow-entitlements-guard.md
+  - label: "Supply chain enforcement (store/updater/bundlemgrd)"
+    target: tasks/TASK-0198-supply-chain-v2b-os-enforcement-store-updater-bundlemgrd.md
+  - label: "Updates/packaging (A/B skeleton)"
+    target: tasks/TASK-0007-updates-packaging-v1_1-userspace-ab-skeleton.md
+  - label: "Updates v2 (offline feed delta/health/rollback)"
+    target: tasks/TASK-0179-updated-v2-offline-feed-delta-health-rollback.md
+  - label: "NexusAccount (optional account/grants)"
+    target: tasks/TRACK-NEXUSACCOUNT.md
+  - label: "Zero-Copy App Platform (intents/grants/open-with)"
+    target: tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
 ---
 
 ## Goal (track-level)

@@ -1,23 +1,31 @@
 ---
-title: TASK-0216 Block 4 layer 2 — the scanout contract on the board: a ring of planes flipped at the vertical blank, the frame clock from it, damage per plane, the pointer plane whole at every border (RFC-0101 Phase 1)
-status: Done 2026-10-12 (P0–P5; recut the same day from "Compositor v2.2b (OS/QEMU): gpuabst integration + async present queue + plane planner + cursor plane + color space" of 2025-12-27 — the plane planner, the async queue and the colour space are G4's (layer 5) on the GPU; this ledger is the display half, first)
-owner: @gpu @ui
+schema: 1
+id: TASK-0216
+title: "Block 4 layer 2 — the scanout contract on the board: a ring of planes flipped at the vertical blank, the frame clock from it, damage per plane, the pointer plane whole at every border (RFC-0101 Phase 1)"
+status: done
+status_note: "2026-10-12 (P0–P5; recut the same day from \"Compositor v2.2b (OS/QEMU): gpuabst integration + async present queue + plane planner + cursor plane + color …"
+owner: ["@gpu", "@ui"]
 created: 2025-12-27
-depends-on:
-  - TASK-0280
-  - TASK-0251
-follow-up-tasks:
-  - TASK-0329
-  - TASK-0215
+subsystem: observability
+done: 2026-10-12
+dates_source: status-text
+depends_on: [TASK-0280, TASK-0251]
+follow_ups: [TASK-0329, TASK-0215]
+implements: [RFC-0101, RFC-0093, RFC-0067]
 links:
-  - RFC: docs/rfcs/RFC-0101-gpu-driver-split-contexts-vm-batches-fence-and-the-scanout-contract.md (§8, Phase 1)
-  - RFC (display protocol, reveal): docs/rfcs/RFC-0093-display-protocol-v2-routing-reveal-present-acks.md
-  - RFC (compositor boundary): docs/rfcs/RFC-0067-windowd-compositor-boundary.md
-  - Order: tasks/IMPLEMENTATION-ORDER.md ("Block 4 in layers", layer 2)
-  - Measurements: docs/board/measurements/2026-10-12-scanout-vblank/README.md (P0), docs/board/measurements/2026-10-10-mgs-baseline/README.md (layer 0)
-  - Model: userspace/nexus-gfx/src/backend/v2/scanout.rs (the ring, the frame clock, the pointer plane — TASK-0280)
-  - Playbook: CLAUDE.md, .claude/skills/driver-bringup/
+  - label: RFC
+    target: "docs/rfcs/RFC-0101-gpu-driver-split-contexts-vm-batches-fence-and-the-scanout-contract.md (§8, Phase 1)"
+  - label: Order
+    target: "tasks/milestones/hardware-network.md (\"Block 4 in layers\", layer 2)"
+  - label: Measurements
+    target: "docs/board/measurements/2026-10-12-scanout-vblank/README.md (P0), docs/board/measurements/2026-10-10-mgs-baseline/README.md (layer 0)"
+  - label: Model
+    target: "userspace/nexus-gfx/src/backend/v2/scanout.rs (the ring, the frame clock, the pointer plane — TASK-0280)"
+  - label: Playbook
+    target: "CLAUDE.md, .claude/skills/driver-bringup/"
 ---
+
+> Status (migrated 2026-11-02): Done 2026-10-12 (P0–P5; recut the same day from "Compositor v2.2b (OS/QEMU): gpuabst integration + async present queue + plane planner + cursor plane + color space" of 2025-12-27 — the plane planner, the async queue and the colour space are G4's (layer 5) on the GPU; this ledger is the display half, first)
 
 ## Context
 

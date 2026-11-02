@@ -1,23 +1,32 @@
 ---
-title: TASK-0149 IME v2 Part 2a (host-first): JP/KR/ZH engines in ime-core + bounded user-dict API
-status: Done (2026-07-22)
-owner: @ui
+schema: 1
+id: TASK-0149
+title: "IME v2 Part 2a (host-first): JP/KR/ZH engines in ime-core + bounded user-dict API"
+status: done
+status_note: 2026-07-22
+owner: ["@ui"]
 created: 2025-12-26
-updated: 2026-07-21 (rewritten against repo reality; engines live in ime-core, persistence moved to TASK-0204 on statefsd)
-depends-on:
-  - TASK-0146
-  - TASK-0147
-follow-up-tasks:
-  - TASK-0150 (candidate popup + CJK OSK layouts)
-  - TASK-0203 / TASK-0204 (adaptive ranking + persistence)
+updated: 2026-07-21
+subsystem: text
+done: 2026-07-22
+dates_source: status-text
+depends_on: [TASK-0146, TASK-0147]
+follow_ups: [TASK-0150, TASK-0203]
+implements: [RFC-0075]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Contract: docs/rfcs/RFC-0075-ime-v2-text-focus-composition-delivery.md
-  - Host foundation: tasks/TASK-0146-ime-text-v2-part1a-imed-keymaps-host.md
-  - OS wiring: tasks/TASK-0147-ime-text-v2-part1b-osk-focus-a11y-os-proofs.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Host foundation"
+    target: tasks/TASK-0146-ime-text-v2-part1a-imed-keymaps-host.md
+  - label: "OS wiring"
+    target: tasks/TASK-0147-ime-text-v2-part1b-osk-focus-a11y-os-proofs.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
+
+> updated (migrated 2026-11-02): 2026-07-21 (rewritten against repo reality; engines live in ime-core, persistence moved to TASK-0204 on statefsd)
 
 ## Context
 

@@ -1,25 +1,43 @@
 ---
-title: TRACK NexusMedia SDK (audio/video/image): contracts + phased roadmap (deterministic, capability-first, zero-copy)
-status: Living
-owner: @media @runtime
+schema: 1
+id: TRACK-NEXUSMEDIA-SDK
+title: "NexusMedia SDK (audio/video/image): contracts + phased roadmap (deterministic, capability-first, zero-copy)"
+status: living
+owner: ["@media", "@runtime"]
 created: 2026-01-18
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - NexusGfx SDK track (render/compute): tasks/TRACK-NEXUSGFX-SDK.md
-  - NexusNet SDK track (cloud + DSoftBus): tasks/TRACK-NEXUSNET-SDK.md
-  - Media apps product track (Photos/Music/TV): tasks/TRACK-MEDIA-APPS.md
-  - Drivers & accelerators foundations (GPU/VPU/Audio/Camera): tasks/TRACK-DRIVERS-ACCELERATORS.md
-  - NexusInfer SDK (on-device ML classifiers/enhancement; shared runtime): tasks/TRACK-NEXUSINFER-SDK.md
-  - Zero-copy data plane (VMOs): tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
-  - QoS/timers (soft real-time spine): tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
-  - Deterministic parallelism policy: tasks/TASK-0276-parallelism-v1-deterministic-threadpools-policy-contract.md
-  - Policy as Code (future unification): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
-  - App capability matrix (future): tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
-  - Media decoders v1 (host-first): tasks/TASK-0099-ui-v16a-media-decoders.md
-  - Audio core v0.9a (host-first): tasks/TASK-0254-audio-v0_9a-host-mixer-ringbuffer-levels-deterministic.md
-  - Audio OS/QEMU integration v0.9b: tasks/TASK-0255-audio-v0_9b-os-audiod-i2sd-codecd-mediasession-hooks-selftests.md
-  - Media sessions + SystemUI miniplayer/lockscreen (cross-cutting): tasks/TASK-0101-ui-v16c-media-sessions-systemui-controls.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "NexusGfx SDK track (render/compute)"
+    target: tasks/TRACK-NEXUSGFX-SDK.md
+  - label: "NexusNet SDK track (cloud + DSoftBus)"
+    target: tasks/TRACK-NEXUSNET-SDK.md
+  - label: "Media apps product track (Photos/Music/TV)"
+    target: tasks/TRACK-MEDIA-APPS.md
+  - label: "Drivers & accelerators foundations (GPU/VPU/Audio/Camera)"
+    target: tasks/TRACK-DRIVERS-ACCELERATORS.md
+  - label: "NexusInfer SDK (on-device ML classifiers/enhancement; shared runtime)"
+    target: tasks/TRACK-NEXUSINFER-SDK.md
+  - label: "Zero-copy data plane (VMOs)"
+    target: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
+  - label: "QoS/timers (soft real-time spine)"
+    target: tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
+  - label: "Deterministic parallelism policy"
+    target: tasks/TASK-0276-parallelism-v1-deterministic-threadpools-policy-contract.md
+  - label: "Policy as Code (future unification)"
+    target: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
+  - label: "App capability matrix (future)"
+    target: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
+  - label: "Media decoders v1 (host-first)"
+    target: tasks/TASK-0099-ui-v16a-media-decoders.md
+  - label: "Audio core v0.9a (host-first)"
+    target: tasks/TASK-0254-audio-v0_9a-host-mixer-ringbuffer-levels-deterministic.md
+  - label: "Audio OS/QEMU integration v0.9b"
+    target: tasks/TASK-0255-audio-v0_9b-os-audiod-i2sd-codecd-mediasession-hooks-selftests.md
+  - label: "Media sessions + SystemUI miniplayer/lockscreen (cross-cutting)"
+    target: tasks/TASK-0101-ui-v16c-media-sessions-systemui-controls.md
 ---
 
 ## Goal (track-level)

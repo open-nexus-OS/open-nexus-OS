@@ -1,24 +1,31 @@
+---
+schema: 1
+id: RFC-0098
+title: "Board support contract — the FDT is the one hardware truth, and the boot chain on hardware"
+status: done
+status_note: "2026-10-10 (Phases 0–5 proven on QEMU and on the board"
+owners: ["@kernel-team", "@runtime", "@tools-team"]
+created: 2026-09-22
+updated: 2026-10-10
+subsystem: hardware
+tasks: [TASK-0244, TASK-0245, TASK-0245B, TASK-0286, TASK-0246, TASK-0246B, TASK-0260, TASK-0260B, TASK-0250, TASK-0251]
+amends: [RFC-0074, RFC-0017, RFC-0089]
+links:
+  - label: "Tasks (execution + proof, in lane order)"
+    target: "`tasks/TASK-0244-*` (FDT library), `tasks/TASK-0245-*` (kernel platform from the FDT), `tasks/TASK-0245B-*` (SoC clock/reset/ pinmux/power), `tasks/TASK-0286-*` (physical memory from the FDT + page-frame allocator), `tasks/TASK-0246-*` / `tasks/TASK-0246B-*` (SDHCI + the one block owner; nxboot reader), `tasks/TASK-0260-*` / `tasks/TASK-0260B-*` (image head + fastboot; nxboot as FIT payload), `tasks/TASK-0250-*` / `tasks/TASK-0251-*` (display controller scanout, mode authority)"
+  - label: ADRs
+    target: "`docs/adr/0066-boot-chain-on-hardware-nxboot-as-fit-payload.md`, `docs/adr/0067-one-block-owner-backend-selected-by-fdt.md`"
+  - label: Amends
+    target: "`docs/rfcs/RFC-0074-display-mode-authority-fwcfg.md` (display-mode authority leaves fw_cfg and the kernel), narrows `docs/rfcs/RFC-0017-device-mmio-access-model-v1.md` (device discovery) and `docs/rfcs/RFC-0089-*` (nxboot on real media)"
+  - label: Related
+    target: "`docs/rfcs/RFC-0085-kernel-owned-va-allocation.md`, `docs/rfcs/RFC-0093-*` (stage fence; unchanged), `docs/board/bpi-f3.md`, `docs/board/measurements/2026-09-22-stock-system/README.md` (the numbers this RFC is built on)"
+---
+
 # RFC-0098: Board support contract — the FDT is the one hardware truth, and the boot chain on hardware
 
-- Status: Done 2026-10-10 (Phases 0–5 proven on QEMU and on the board — Block 1 of the hardware fast track; the EDID read over DDC moved to the GPU lane by C7's 2026-10-10 amendment; seeded 2026-09-22, Block 1 P0)
-- Owners: @kernel-team / @runtime / @tools-team
-- Created: 2026-09-22
-- Last Updated: 2026-10-10 (Block 1 closure: Phases 1, 3, 4, 5 ✅; C7 amended — the mode from the CEA timing until EDID lands with G)
-- Links:
-  - Tasks (execution + proof, in lane order): `tasks/TASK-0244-*` (FDT library),
-    `tasks/TASK-0245-*` (kernel platform from the FDT), `tasks/TASK-0245B-*` (SoC clock/reset/
-    pinmux/power), `tasks/TASK-0286-*` (physical memory from the FDT + page-frame allocator),
-    `tasks/TASK-0246-*` / `tasks/TASK-0246B-*` (SDHCI + the one block owner; nxboot reader),
-    `tasks/TASK-0260-*` / `tasks/TASK-0260B-*` (image head + fastboot; nxboot as FIT payload),
-    `tasks/TASK-0250-*` / `tasks/TASK-0251-*` (display controller scanout, mode authority)
-  - ADRs: `docs/adr/0066-boot-chain-on-hardware-nxboot-as-fit-payload.md`,
-    `docs/adr/0067-one-block-owner-backend-selected-by-fdt.md`
-  - Amends: `docs/rfcs/RFC-0074-display-mode-authority-fwcfg.md` (display-mode authority leaves
-    fw_cfg and the kernel), narrows `docs/rfcs/RFC-0017-device-mmio-access-model-v1.md`
-    (device discovery) and `docs/rfcs/RFC-0089-*` (nxboot on real media)
-  - Related: `docs/rfcs/RFC-0085-kernel-owned-va-allocation.md`, `docs/rfcs/RFC-0093-*`
-    (stage fence; unchanged), `docs/board/bpi-f3.md`,
-    `docs/board/measurements/2026-09-22-stock-system/README.md` (the numbers this RFC is built on)
+> Status (migrated 2026-11-02): Done 2026-10-10 (Phases 0–5 proven on QEMU and on the board — Block 1 of the hardware fast track; the EDID read over DDC moved to the GPU lane by C7's 2026-10-10 amendment; seeded 2026-09-22, Block 1 P0)
+>
+> Last Updated (migrated 2026-11-02): 2026-10-10 (Block 1 closure: Phases 1, 3, 4, 5 ✅; C7 amended — the mode from the CEA timing until EDID lands with G)
 
 ## Status at a Glance
 

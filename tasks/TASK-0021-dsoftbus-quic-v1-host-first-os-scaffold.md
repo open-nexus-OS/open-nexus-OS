@@ -1,30 +1,31 @@
 ---
-title: TASK-0021 DSoftBus QUIC v1: host QUIC transport (quinn) + OS UDP scaffold (disabled) + TCP fallback
-status: Done
-owner: @runtime
+schema: 1
+id: TASK-0021
+title: "DSoftBus QUIC v1: host QUIC transport (quinn) + OS UDP scaffold (disabled) + TCP fallback"
+status: done
+owner: ["@runtime"]
 created: 2025-12-22
-depends-on:
-  - TASK-0003
-  - TASK-0005
-  - TASK-0015
-  - TASK-0020
-follow-up-tasks:
-  - TASK-0022
+subsystem: distributed
+done: 2026-07-17
+dates_source: git-reconstructed
+depends_on: [TASK-0003, TASK-0005, TASK-0015, TASK-0020]
+follow_ups: [TASK-0022]
+implements: [RFC-0035, RFC-0027]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - ADR: docs/adr/0005-dsoftbus-architecture.md
-  - RFC (seed contract): docs/rfcs/RFC-0035-dsoftbus-quic-v1-host-first-os-scaffold.md
-  - RFC (modular daemon boundary): docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md
-  - DSoftBus overview: docs/distributed/dsoftbus-lite.md
-  - Depends-on (modularization base): tasks/TASK-0015-dsoftbusd-refactor-v1-modular-os-daemon-structure.md
-  - Depends-on (OS networking): tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
-  - Depends-on (OS streams): tasks/TASK-0005-networking-cross-vm-dsoftbus-remote-proxy.md
-  - Depends-on (mux over transport): tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md
-  - Follow-on boundary (core split for OS backend): tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md
-  - Testing methodology: docs/testing/README.md
-  - Testing contract: scripts/qemu-test.sh
-  - Testing contract (2-VM): tools/os2vm.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: ADR
+    target: docs/adr/0005-dsoftbus-architecture.md
+  - label: "DSoftBus overview"
+    target: docs/distributed/dsoftbus-lite.md
+  - label: "Testing methodology"
+    target: docs/testing/README.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
+  - label: "Testing contract (2-VM)"
+    target: tools/os2vm.sh
 ---
 
 ## Short description

@@ -1,19 +1,30 @@
+---
+schema: 1
+id: RFC-0026
+title: "IPC performance optimization v1 - deterministic control-plane reuse + zero-copy-aligned data paths"
+status: done
+status_note: "extended 2026-09-18 by `docs/rfcs/RFC-0096-ipc-performance-contract-v2-call-reply-recv-fastpath.md`"
+owners: ["@runtime", "@kernel-team"]
+created: 2026-02-16
+updated: 2026-02-12
+subsystem: kernel
+tasks: [TASK-0013B]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0013B-ipc-liveness-hardening-bounded-retry-contract-v1.md` (execution + proof)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0005-kernel-ipc-capability-model.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0017-device-mmio-access-model-v1.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0019-ipc-request-reply-correlation-v1.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0025-ipc-liveness-hardening-bounded-retry-contract-v1.md`"
+---
+
 # RFC-0026: IPC performance optimization v1 - deterministic control-plane reuse + zero-copy-aligned data paths
 
-- Status: Complete (extended 2026-09-18 by `docs/rfcs/RFC-0096-ipc-performance-contract-v2-call-reply-recv-fastpath.md`,
-  which turns this RFC's control/data-plane split from prose into a kernel constant with its own
-  errno — `IPC_SHORT_MAX` / `IPC_PAYLOAD_MAX` and `E2BIG` — and adds the numbers this one asked for:
-  an exchange went from 208 µs and five kernel entries to 41–43 µs and two, asserted per boot.)
-- Owners: @runtime @kernel-team
-- Created: 2026-02-16
-- Last Updated: 2026-02-12
-- Links:
-  - Tasks: `tasks/TASK-0013B-ipc-liveness-hardening-bounded-retry-contract-v1.md` (execution + proof)
-  - Related RFCs:
-    - `docs/rfcs/RFC-0005-kernel-ipc-capability-model.md`
-    - `docs/rfcs/RFC-0017-device-mmio-access-model-v1.md`
-    - `docs/rfcs/RFC-0019-ipc-request-reply-correlation-v1.md`
-    - `docs/rfcs/RFC-0025-ipc-liveness-hardening-bounded-retry-contract-v1.md`
+> Status (migrated 2026-11-02): Complete (extended 2026-09-18 by `docs/rfcs/RFC-0096-ipc-performance-contract-v2-call-reply-recv-fastpath.md`, which turns this RFC's control/data-plane split from prose into a kernel constant with its own errno — `IPC_SHORT_MAX` / `IPC_PAYLOAD_MAX` and `E2BIG` — and adds the numbers this one asked for: an exchange went from 208 µs and five kernel entries to 41–43 µs and two, asserted per boot.)
 
 ## Status at a Glance
 

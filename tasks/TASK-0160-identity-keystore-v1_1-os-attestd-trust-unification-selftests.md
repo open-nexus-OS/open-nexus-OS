@@ -1,23 +1,31 @@
 ---
-title: TASK-0160 Identity/Keystore v1.1 (OS/QEMU): attestd stub + trust store unification + policy caps + quotas + selftests/postflight/docs
-status: Draft
-owner: @security
+schema: 1
+id: TASK-0160
+title: "Identity/Keystore v1.1 (OS/QEMU): attestd stub + trust store unification + policy caps + quotas + selftests/postflight/docs"
+status: draft
+owner: ["@security"]
 created: 2025-12-26
-depends-on: []
-follow-up-tasks:
-  - TASK-0197
-  - TASK-0198
-  - TASK-0289
+subsystem: security
+follow_ups: [TASK-0197, TASK-0198, TASK-0289]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Keystore v1.1 host slice: tasks/TASK-0159-identity-keystore-v1_1-host-keystored-lifecycle-nonexportable.md
-  - Device keys / entropy red flags: tasks/TASK-0008B-device-identity-keys-v1-virtio-rng-rngd-keystored-keygen.md
-  - Persistence substrate (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Packages trust integration: tasks/TASK-0130-packages-v1b-bundlemgrd-install-upgrade-uninstall-trust.md
-  - Updates trust integration: tasks/TASK-0007-updates-packaging-v1_1-userspace-ab-skeleton.md
-  - Policy caps (capability matrix): tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Keystore v1.1 host slice"
+    target: tasks/TASK-0159-identity-keystore-v1_1-host-keystored-lifecycle-nonexportable.md
+  - label: "Device keys / entropy red flags"
+    target: tasks/TASK-0008B-device-identity-keys-v1-virtio-rng-rngd-keystored-keygen.md
+  - label: "Persistence substrate (/state)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Packages trust integration"
+    target: tasks/TASK-0130-packages-v1b-bundlemgrd-install-upgrade-uninstall-trust.md
+  - label: "Updates trust integration"
+    target: tasks/TASK-0007-updates-packaging-v1_1-userspace-ab-skeleton.md
+  - label: "Policy caps (capability matrix)"
+    target: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

@@ -1,20 +1,24 @@
-# RFC-0075: IME v2 — text focus, composition and delivery contract
+---
+schema: 1
+id: RFC-0075
+title: "IME v2 — text focus, composition and delivery contract"
+status: done
+status_note: "2026-07-24 — all phases 0–4 + 8b/8c/8d proven; TASK-0146/0147/0149/0150/0203/0204 Done. Follow-ups: `ui.font.family` live switch, TASK-0202 runtime font cache"
+owners: ["@ui"]
+created: 2026-07-21
+updated: 2026-07-21
+subsystem: ui
+tasks: [TASK-0146, TASK-0147, TASK-0149, TASK-0150, TASK-0203, TASK-0204]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0146-ime-text-v2-part1a-imed-keymaps-host.md` (host core), `tasks/TASK-0147-ime-text-v2-part1b-osk-focus-a11y-os-proofs.md` (OS wiring + OSK), `tasks/TASK-0149-ime-v2-part2-cjk-engines-userdict.md` (CJK engines), `tasks/TASK-0150-ime-v2-part2b-candidate-popup-osk-cjk-os-proofs.md` (candidate UI), `tasks/TASK-0203-ime-v2_1a-host-adaptive-ranking-training-export.md` / `tasks/TASK-0204-ime-v2_1b-os-statefs-personal-dict-ui-cli-selftests.md` (personalization)"
+  - label: ADRs
+    target: "`docs/adr/0051-declarative-wire-codec-nexus-wire.md` (frames! codec)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0058-ui-v3b-clip-scroll-effects-ime-contract.md` (stub contract, superseded by this RFC for everything beyond the TASK-0059 baseline), `docs/rfcs/RFC-0053-input-v1_0b-os-input-pipeline.md` (input chain)"
+---
 
-- Status: Complete (2026-07-24 — all phases 0–4 + 8b/8c/8d proven; TASK-0146/0147/0149/0150/0203/0204 Done. Follow-ups: `ui.font.family` live switch, TASK-0202 runtime font cache)
-- Owners: @ui
-- Created: 2026-07-21
-- Last Updated: 2026-07-21
-- Links:
-  - Tasks: `tasks/TASK-0146-ime-text-v2-part1a-imed-keymaps-host.md` (host core),
-    `tasks/TASK-0147-ime-text-v2-part1b-osk-focus-a11y-os-proofs.md` (OS wiring + OSK),
-    `tasks/TASK-0149-ime-v2-part2-cjk-engines-userdict.md` (CJK engines),
-    `tasks/TASK-0150-ime-v2-part2b-candidate-popup-osk-cjk-os-proofs.md` (candidate UI),
-    `tasks/TASK-0203-ime-v2_1a-host-adaptive-ranking-training-export.md` /
-    `tasks/TASK-0204-ime-v2_1b-os-statefs-personal-dict-ui-cli-selftests.md` (personalization)
-  - ADRs: `docs/adr/0051-declarative-wire-codec-nexus-wire.md` (frames! codec)
-  - Related RFCs: `docs/rfcs/RFC-0058-ui-v3b-clip-scroll-effects-ime-contract.md`
-    (stub contract, superseded by this RFC for everything beyond the TASK-0059 baseline),
-    `docs/rfcs/RFC-0053-input-v1_0b-os-input-pipeline.md` (input chain)
+# RFC-0075: IME v2 — text focus, composition and delivery contract
 
 ## Status at a Glance
 

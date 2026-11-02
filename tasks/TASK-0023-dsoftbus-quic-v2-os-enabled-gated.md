@@ -1,26 +1,27 @@
 ---
-title: TASK-0023 DSoftBus QUIC v2 (OS enabled): UDP over nexus-net + handshake + loss/congestion (gated)
-status: Done
-owner: @runtime
+schema: 1
+id: TASK-0023
+title: "DSoftBus QUIC v2 (OS enabled): UDP over nexus-net + handshake + loss/congestion (gated)"
+status: done
+owner: ["@runtime"]
 created: 2025-12-22
-depends-on:
-  - TASK-0003
-  - TASK-0020
-  - TASK-0022
-follow-up-tasks:
-  - TASK-0023B
-  - TASK-0024
-  - TASK-0044
+subsystem: distributed
+done: 2026-07-17
+dates_source: git-reconstructed
+depends_on: [TASK-0003, TASK-0020, TASK-0022]
+follow_ups: [TASK-0023B, TASK-0024, TASK-0044]
+implements: [RFC-0037]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Contract seed: docs/rfcs/RFC-0037-dsoftbus-quic-v2-os-enabled-gated.md
-  - ADR: docs/adr/0005-dsoftbus-architecture.md
-  - ADR: docs/adr/0006-device-identity-architecture.md
-  - Depends-on (DSoftBus core in OS): tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md
-  - Depends-on (OS networking UDP): tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
-  - Depends-on (mux v2): tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: ADR
+    target: docs/adr/0005-dsoftbus-architecture.md
+  - label: ADR
+    target: docs/adr/0006-device-identity-architecture.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Short description

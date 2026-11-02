@@ -1,14 +1,18 @@
 ---
-title: TASK-0242 Soak & Flake-Hunter v1.0a (host-first): repro recorder + deterministic retry gates + case catalog + tests
-status: Draft
-owner: @runtime
+schema: 1
+id: TASK-0242
+title: "Soak & Flake-Hunter v1.0a (host-first): repro recorder + deterministic retry gates + case catalog + tests"
+status: draft
+owner: ["@runtime"]
 created: 2025-12-29
-depends-on: []
-follow-up-tasks: []
+subsystem: observability
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

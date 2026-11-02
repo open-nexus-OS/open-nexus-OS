@@ -1,12 +1,23 @@
+---
+schema: 1
+id: RFC-0069
+title: "Declarative service manifest for init — tiers, generic wiring, cap-slot discipline, boot stages"
+status: done
+status_note: "(2026-09-15, TASK-0324 P4–P8)"
+owners: ["@runtime"]
+created: 2026-07-02
+links:
+  - label: "Builds on"
+    target: "**RFC-0066** (the `ServiceSpec` spine + the generic wiring arm — this RFC grows that spine into the full manifest), orchestrator decomposition Stage 1 (phase modules) + Stage 2 (`CtrlChannel` routes array), ADR-0041 (atomic desktop reveal), the boot-track fixes (gpud reactive completion + splash pipeline, commits `27cb223d`, `84dd3749`)."
+  - label: Code
+    target: "`source/init/nexus-init/src/service_topology.rs` (`ServiceSpec`, `SERVICE_SPECS`, `REQUIRED_ROUTES`), `source/init/nexus-init/src/bootstrap/wiring.rs` (`wire_services` — the ~20 bespoke arms + the generic arm), `source/init/nexus-init/src/bootstrap/endpoints.rs` (the `Endpoints` bag), `source/kernel/neuron/src/cap/mod.rs` (`CapTable::allocate`), `source/kernel/neuron/src/syscall/api.rs` (object-creation syscalls)."
+  - label: "Related tracks"
+    target: "session management (login screen + real user session — the next theme; `sessiond` lands here as a manifest entry), SystemUI shell-config (profiles B/C dock onto the session stage)."
+---
+
 # RFC-0069: Declarative service manifest for init — tiers, generic wiring, cap-slot discipline, boot stages
 
-- Status: **Done** (2026-09-15, TASK-0324 P4–P8) — the manifest lives in `source/libs/nexus-service-topology` (RFC-0093 §4: one declared slot topology, every bespoke init arm deleted, `check-slot-ssot.sh`); §4's boot stages are the boot-stage FENCE of RFC-0093 §3 (TASK-0324 P5: `display-ready` is windowd's report, `session-start` init's milestone, `shell-visible` the reveal ack — they no longer fire in immediate succession); init distributes every leg before it resumes a service and its responder waits on a waitset without a clock (TASK-0324 P7/P8). RFC-0093 is the contract that supersedes the migration plan below; this document stays as the design rationale. Originally: the vehicle for the init side of the boot track (user decision 2026-07-02: modernize nexus-init now instead of "own RFC later").
-- Owners: @runtime
-- Created: 2026-07-02
-- Links:
-  - Builds on: **RFC-0066** (the `ServiceSpec` spine + the generic wiring arm — this RFC grows that spine into the full manifest), orchestrator decomposition Stage 1 (phase modules) + Stage 2 (`CtrlChannel` routes array), ADR-0041 (atomic desktop reveal), the boot-track fixes (gpud reactive completion + splash pipeline, commits `27cb223d`, `84dd3749`).
-  - Code: `source/init/nexus-init/src/service_topology.rs` (`ServiceSpec`, `SERVICE_SPECS`, `REQUIRED_ROUTES`), `source/init/nexus-init/src/bootstrap/wiring.rs` (`wire_services` — the ~20 bespoke arms + the generic arm), `source/init/nexus-init/src/bootstrap/endpoints.rs` (the `Endpoints` bag), `source/kernel/neuron/src/cap/mod.rs` (`CapTable::allocate`), `source/kernel/neuron/src/syscall/api.rs` (object-creation syscalls).
-  - Related tracks: session management (login screen + real user session — the next theme; `sessiond` lands here as a manifest entry), SystemUI shell-config (profiles B/C dock onto the session stage).
+> Status (migrated 2026-11-02): **Done** (2026-09-15, TASK-0324 P4–P8) — the manifest lives in `source/libs/nexus-service-topology` (RFC-0093 §4: one declared slot topology, every bespoke init arm deleted, `check-slot-ssot.sh`); §4's boot stages are the boot-stage FENCE of RFC-0093 §3 (TASK-0324 P5: `display-ready` is windowd's report, `session-start` init's milestone, `shell-visible` the reveal ack — they no longer fire in immediate succession); init distributes every leg before it resumes a service and its responder waits on a waitset without a clock (TASK-0324 P7/P8). RFC-0093 is the contract that supersedes the migration plan below; this document stays as the design rationale. Originally: the vehicle for the init side of the boot track (user decision 2026-07-02: modernize nexus-init now instead of "own RFC later").
 
 ## Problem — the 48th hand-written case
 

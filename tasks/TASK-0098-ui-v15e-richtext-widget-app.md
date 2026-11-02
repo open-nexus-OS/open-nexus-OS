@@ -1,27 +1,43 @@
 ---
-title: TASK-0098 UI v15e: rich text editor widget + Notes app (v1) + clipboard v3 paste + undo/redo + export (html/pdf)
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0098
+title: "UI v15e: rich text editor widget + Notes app (v1) + clipboard v3 paste + undo/redo + export (html/pdf)"
+status: draft
+owner: ["@ui"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
+tracks: [TRACK-DSL-V1-DEVX]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Zero-Copy App Platform (RichContent + paste mapping + audit/autosave): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
-  - DSL v1 DevX track: tasks/TRACK-DSL-V1-DEVX.md
-  - DSL app platform: tasks/TASK-0122B-dsl-app-platform-v1-shell-routing-launch-contract.md
-  - DSL app integration kit: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md
-  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
-  - Office Suite (Word baseline): tasks/TRACK-OFFICE-SUITE.md
-  - Text primitives: tasks/TASK-0094-ui-v15a-text-primitives-uax-bidi-hittest.md
-  - Selection/TextField core: tasks/TASK-0095-ui-v15b-selection-caret-textfield-core.md
-  - Clipboard v3: tasks/TASK-0087-ui-v13a-clipboard-v3.md
-  - IME/OSK: tasks/TASK-0096-ui-v15c-ime-candidate-ui-osk.md
-  - Spellcheck: tasks/TASK-0097-ui-v15d-spellcheck-spellerd.md
-  - Print pipeline: tasks/TASK-0088-ui-v13b-print-to-pdf-printd-preview.md
-  - Design kit baseline: tasks/TASK-0073-ui-v10a-design-system-primitives-goldens.md
-  - Share v2 targets (Notes as a share target): tasks/TASK-0127-share-v2b-chooser-ui-targets-grants.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Zero-Copy App Platform (RichContent + paste mapping + audit/autosave)"
+    target: tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
+  - label: "DSL app platform"
+    target: tasks/TASK-0122B-dsl-app-platform-v1-shell-routing-launch-contract.md
+  - label: "DSL app integration kit"
+    target: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md
+  - label: "DSL syntax/layout convention"
+    target: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
+  - label: "Office Suite (Word baseline)"
+    target: tasks/TRACK-OFFICE-SUITE.md
+  - label: "Text primitives"
+    target: tasks/TASK-0094-ui-v15a-text-primitives-uax-bidi-hittest.md
+  - label: "Selection/TextField core"
+    target: tasks/TASK-0095-ui-v15b-selection-caret-textfield-core.md
+  - label: "Clipboard v3"
+    target: tasks/TASK-0087-ui-v13a-clipboard-v3.md
+  - label: IME/OSK
+    target: tasks/TASK-0096-ui-v15c-ime-candidate-ui-osk.md
+  - label: Spellcheck
+    target: tasks/TASK-0097-ui-v15d-spellcheck-spellerd.md
+  - label: "Print pipeline"
+    target: tasks/TASK-0088-ui-v13b-print-to-pdf-printd-preview.md
+  - label: "Design kit baseline"
+    target: tasks/TASK-0073-ui-v10a-design-system-primitives-goldens.md
+  - label: "Share v2 targets (Notes as a share target)"
+    target: tasks/TASK-0127-share-v2b-chooser-ui-targets-grants.md
 ---
 
 ## Context

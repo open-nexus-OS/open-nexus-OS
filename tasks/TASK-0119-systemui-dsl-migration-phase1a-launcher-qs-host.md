@@ -1,24 +1,40 @@
 ---
-title: TASK-0119 SystemUI→DSL Migration Phase 1a: Launcher + Quick Settings DSL pages + bridge + host snapshots/interactions
-status: Done
-owner: @ui
+schema: 1
+id: TASK-0119
+title: "SystemUI→DSL Migration Phase 1a: Launcher + Quick Settings DSL pages + bridge + host snapshots/interactions"
+status: done
+owner: ["@ui"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
+done: 2026-07-19
+dates_source: git-reconstructed
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Bootstrap shell + early launcher host phase: tasks/TASK-0080B-systemui-dsl-bootstrap-shell-launcher-host.md
-  - Bootstrap shell visible OS mount: tasks/TASK-0080C-systemui-dsl-bootstrap-shell-os-wiring.md
-  - DSL v0.1 interpreter: tasks/TASK-0076-dsl-v0_1b-interpreter-snapshots-os-demo.md
-  - DSL v0.2 app mechanics (optional): tasks/TASK-0077-dsl-v0_2a-state-nav-i18n-core.md
-  - UI layout pipeline contract: docs/dev/ui/foundations/layout/layout-pipeline.md
-  - Design kit (primitives): tasks/TASK-0073-ui-v10a-design-system-primitives-goldens.md
-  - SystemUI overlays baseline: tasks/TASK-0070-ui-v8b-wm-resize-move-shortcuts-settings-overlays.md
-  - Search/prefs/media dependencies (bridged): tasks/TASK-0071-ui-v9a-searchd-command-palette.md
-  - Prefs store: tasks/TASK-0072-ui-v9b-prefsd-settings-panels-quick-settings.md
-  - Media sessions: tasks/TASK-0101-ui-v16c-media-sessions-systemui-controls.md
-  - Audio mixer: tasks/TASK-0100-ui-v16b-audiod-mixer.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Bootstrap shell + early launcher host phase"
+    target: tasks/TASK-0080B-systemui-dsl-bootstrap-shell-launcher-host.md
+  - label: "Bootstrap shell visible OS mount"
+    target: tasks/TASK-0080C-systemui-dsl-bootstrap-shell-os-wiring.md
+  - label: "DSL v0.1 interpreter"
+    target: tasks/TASK-0076-dsl-v0_1b-interpreter-snapshots-os-demo.md
+  - label: "DSL v0.2 app mechanics (optional)"
+    target: tasks/TASK-0077-dsl-v0_2a-state-nav-i18n-core.md
+  - label: "UI layout pipeline contract"
+    target: docs/dev/ui/foundations/layout/layout-pipeline.md
+  - label: "Design kit (primitives)"
+    target: tasks/TASK-0073-ui-v10a-design-system-primitives-goldens.md
+  - label: "SystemUI overlays baseline"
+    target: tasks/TASK-0070-ui-v8b-wm-resize-move-shortcuts-settings-overlays.md
+  - label: "Search/prefs/media dependencies (bridged)"
+    target: tasks/TASK-0071-ui-v9a-searchd-command-palette.md
+  - label: "Prefs store"
+    target: tasks/TASK-0072-ui-v9b-prefsd-settings-panels-quick-settings.md
+  - label: "Media sessions"
+    target: tasks/TASK-0101-ui-v16c-media-sessions-systemui-controls.md
+  - label: "Audio mixer"
+    target: tasks/TASK-0100-ui-v16b-audiod-mixer.md
 ---
 
 ## Context

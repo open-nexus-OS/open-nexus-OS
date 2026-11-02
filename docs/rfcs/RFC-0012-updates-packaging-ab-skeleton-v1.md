@@ -1,3 +1,26 @@
+---
+schema: 1
+id: RFC-0012
+title: "Updates & Packaging v1.0 — System-Set (.nxs) + userspace-only A/B skeleton (non-persistent)"
+status: done
+owners: ["@runtime", "@tools-team"]
+created: 2026-01-15
+updated: 2026-01-16
+subsystem: updates
+tasks: [TASK-0007]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0007-updates-packaging-v1_1-userspace-ab-skeleton.md` (execution + proof)"
+  - label: "`docs/adr/0020-manifest-format-capnproto.md` (bundle manifest contract"
+    target: "`manifest.nxb`)"
+  - label: "Packaging docs"
+    target: "`docs/packaging/system-set.md` (system-set layout + signature binding)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0003-unified-logging.md` (audit logging facade discipline)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0009-no-std-dependency-hygiene-v1.md` (os-lite dependency rules)"
+---
+
 <!-- Copyright 2026 Open Nexus OS Contributors -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
@@ -19,20 +42,6 @@
 > model, audit discipline. Untouched: the `.nxb` bundle contract (ADR-0020) and
 > the bundlemgrd publication contract. This document remains the v1 historical
 > contract — do not execute new work against it.
-
-- Status: Complete
-- Owners: @runtime, @tools-team
-- Created: 2026-01-15
-- Last Updated: 2026-01-16
-- Links:
-  - Tasks: `tasks/TASK-0007-updates-packaging-v1_1-userspace-ab-skeleton.md` (execution + proof)
-  - ADRs:
-    - `docs/adr/0020-manifest-format-capnproto.md` (bundle manifest contract: `manifest.nxb`)
-  - Packaging docs:
-    - `docs/packaging/system-set.md` (system-set layout + signature binding)
-  - Related RFCs:
-    - `docs/rfcs/RFC-0003-unified-logging.md` (audit logging facade discipline)
-    - `docs/rfcs/RFC-0009-no-std-dependency-hygiene-v1.md` (os-lite dependency rules)
 
 ## Status at a Glance
 

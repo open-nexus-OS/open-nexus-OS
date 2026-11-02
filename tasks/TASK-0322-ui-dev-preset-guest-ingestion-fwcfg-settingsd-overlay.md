@@ -1,24 +1,36 @@
 ---
-title: TASK-0322 UI dev presets, guest side: fw_cfg `ui-preset` key → settingsd default overlay → `systemui: profile …` marker + `SELFTEST: ui preset boot ok` (+ mode-driven pacer Hz)
-status: Draft
-owner: @ui @runtime
+schema: 1
+id: TASK-0322
+title: "UI dev presets, guest side: fw_cfg `ui-preset` key → settingsd default overlay → `systemui: profile …` marker + `SELFTEST: ui preset boot ok` (+ mode-driven pacer Hz)"
+status: draft
+owner: ["@ui", "@runtime"]
 created: 2026-09-03
 updated: 2026-09-03
-size: M
-depends-on:
-  - TASK-0055D
-follow-up-tasks: []
+subsystem: ui
+depends_on: [TASK-0055D]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Host-side preset authority (shipped): tasks/TASK-0055D-ui-v1e-dev-display-profile-presets-qemu-hz.md
-  - Preset resolver: source/services/systemui/src/preset.rs
-  - Display-mode SSOT (fw_cfg): docs/adr/0050-display-mode-authority.md
-  - Shell-mode authority (settingsd `ui.shell.mode`): source/services/settingsd/src/registry.rs
-  - fw_cfg reader precedent (selftest-client only): source/apps/selftest-client/src/os_lite/boot_cfg.rs
-  - init fw_cfg grant (selftest-client only): source/init/nexus-init/src/bootstrap/orchestrator.rs
-  - Profiles guidance: docs/dev/ui/foundations/layout/profiles.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Host-side preset authority (shipped)"
+    target: tasks/TASK-0055D-ui-v1e-dev-display-profile-presets-qemu-hz.md
+  - label: "Preset resolver"
+    target: source/services/systemui/src/preset.rs
+  - label: "Display-mode SSOT (fw_cfg)"
+    target: docs/adr/0050-display-mode-authority.md
+  - label: "Shell-mode authority (settingsd `ui.shell.mode`)"
+    target: source/services/settingsd/src/registry.rs
+  - label: "fw_cfg reader precedent (selftest-client only)"
+    target: source/apps/selftest-client/src/os_lite/boot_cfg.rs
+  - label: "init fw_cfg grant (selftest-client only)"
+    target: source/init/nexus-init/src/bootstrap/orchestrator.rs
+  - label: "Profiles guidance"
+    target: docs/dev/ui/foundations/layout/profiles.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
+  - label: size
+    target: M
 ---
 
 ## Context

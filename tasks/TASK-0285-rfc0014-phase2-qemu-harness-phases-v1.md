@@ -1,13 +1,17 @@
 ---
-title: TASK-0285 RFC-0014 Phase 2: QEMU harness phased failure output + phase early-exit
-status: Done
-owner: @tools-team @runtime
+schema: 1
+id: TASK-0285
+title: "RFC-0014 Phase 2: QEMU harness phased failure output + phase early-exit"
+status: done
+owner: ["@tools-team", "@runtime"]
 created: 2026-01-23
-depends-on: []
-follow-up-tasks: []
+subsystem: devx
+done: 2026-07-17
+dates_source: git-reconstructed
+implements: [RFC-0014]
 links:
-  - RFC: docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md
-  - Testing guide: docs/testing/README.md
+  - label: "Testing guide"
+    target: docs/testing/README.md
 ---
 
 ## Context

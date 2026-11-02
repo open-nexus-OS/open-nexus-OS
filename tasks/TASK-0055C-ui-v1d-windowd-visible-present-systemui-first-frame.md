@@ -1,25 +1,30 @@
 ---
-title: TASK-0055C UI v1d: windowd visible present + SystemUI first frame in QEMU
-status: Done
-owner: @ui
+schema: 1
+id: TASK-0055C
+title: "UI v1d: windowd visible present + SystemUI first frame in QEMU"
+status: done
+owner: ["@ui"]
 created: 2026-03-28
-depends-on:
-  - TASK-0055
-  - TASK-0055B
-follow-up-tasks:
-  - TASK-0055D
-  - TASK-0056
-  - TASK-0056B
-  - TASK-0056C
-  - TASK-0251
+subsystem: ui
+done: 2026-07-17
+dates_source: git-reconstructed
+depends_on: [TASK-0055, TASK-0055B]
+follow_ups: [TASK-0055D, TASK-0056, TASK-0056B, TASK-0056C, TASK-0251]
+split_from: TASK-0055
+implements: [RFC-0049]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - RFC seed contract: docs/rfcs/RFC-0049-ui-v1d-windowd-visible-present-systemui-first-frame-contract.md
-  - Visible scanout bootstrap: tasks/TASK-0055B-ui-v1c-visible-qemu-scanout-bootstrap.md
-  - UI v1b compositor baseline: tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md
-  - Renderer wiring: tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Visible scanout bootstrap"
+    target: tasks/TASK-0055B-ui-v1c-visible-qemu-scanout-bootstrap.md
+  - label: "UI v1b compositor baseline"
+    target: tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md
+  - label: "Renderer wiring"
+    target: tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

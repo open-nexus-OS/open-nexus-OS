@@ -1,20 +1,32 @@
 ---
-title: TASK-0237 Power/Idle v1.0b (OS/QEMU): powerd + alarmsd + standbyd + kernel idle hooks + SystemUI battery/sleep + nx-power CLI + selftests
-status: Draft — standbyd's app-standby half is Block 4 layer 6d's (tasks/TASK-0333, 2026-10-19: a suspended app receives nothing, input on it is a wake request); powerd/alarmsd stay parked
-owner: @runtime
+schema: 1
+id: TASK-0237
+title: "Power/Idle v1.0b (OS/QEMU): powerd + alarmsd + standbyd + kernel idle hooks + SystemUI battery/sleep + nx-power CLI + selftests"
+status: draft
+status_note: "standbyd's app-standby half is Block 4 layer 6d's (tasks/TASK-0333, 2026-10-19: a suspended app receives nothing, input on it is a wake request)"
+owner: ["@runtime"]
 created: 2025-12-29
-depends-on: []
-follow-up-tasks: []
+subsystem: kernel
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Power core (host-first): tasks/TASK-0236-power-v1_0a-host-governor-wakelocks-residency-standby-deterministic.md
-  - Timer coalescing baseline (timed): tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
-  - Ability lifecycle (BG detection): tasks/TASK-0235-ability-v1_1b-os-appmgrd-extension-samgr-hooks-fgbg-policies-selftests.md
-  - Media sessions (wakelock hooks): tasks/TASK-0155-media-ux-v1a-host-mediasessd-focus-nowplaying-artcache.md
-  - Settings v2 (provider keys): tasks/TASK-0225-settings-v2a-host-settingsd-typed-prefs-providers.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Power core (host-first)"
+    target: tasks/TASK-0236-power-v1_0a-host-governor-wakelocks-residency-standby-deterministic.md
+  - label: "Timer coalescing baseline (timed)"
+    target: tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
+  - label: "Ability lifecycle (BG detection)"
+    target: tasks/TASK-0235-ability-v1_1b-os-appmgrd-extension-samgr-hooks-fgbg-policies-selftests.md
+  - label: "Media sessions (wakelock hooks)"
+    target: tasks/TASK-0155-media-ux-v1a-host-mediasessd-focus-nowplaying-artcache.md
+  - label: "Settings v2 (provider keys)"
+    target: tasks/TASK-0225-settings-v2a-host-settingsd-typed-prefs-providers.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
+
+> Status (migrated 2026-11-02): Draft — standbyd's app-standby half is Block 4 layer 6d's (tasks/TASK-0333, 2026-10-19: a suspended app receives nothing, input on it is a wake request); powerd/alarmsd stay parked
 
 ## Context
 

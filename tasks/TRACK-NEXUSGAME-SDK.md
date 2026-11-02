@@ -1,28 +1,49 @@
 ---
-title: TRACK NexusGame SDK (games): contracts + phased roadmap (capability-first, deterministic, NexusGfx-backed)
-status: Living
-owner: @ui @runtime
+schema: 1
+id: TRACK-NEXUSGAME-SDK
+title: "NexusGame SDK (games): contracts + phased roadmap (capability-first, deterministic, NexusGfx-backed)"
+status: living
+owner: ["@ui", "@runtime"]
 created: 2026-01-18
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - System Delegation / System Surfaces (game invites/joins via intents, not ad-hoc UI): tasks/TRACK-SYSTEM-DELEGATION.md
-  - NexusGfx SDK track (render/compute): tasks/TRACK-NEXUSGFX-SDK.md
-  - Gfx compute/executor model: docs/architecture/graphics/nexusgfx-compute-and-executor-model.md
-  - Gfx artifact pipeline: docs/architecture/graphics/nexusgfx-artifact-pipeline.md
-  - Gfx capability matrix: docs/architecture/graphics/nexusgfx-capability-matrix.md
-  - NexusMedia SDK track (audio/video/image): tasks/TRACK-NEXUSMEDIA-SDK.md
-  - NexusNet SDK track (cloud + DSoftBus): tasks/TRACK-NEXUSNET-SDK.md
-  - Drivers & accelerators foundations: tasks/TRACK-DRIVERS-ACCELERATORS.md
-  - NexusInfer SDK (on-device ML; shared runtime, CPU ref + future NPU): tasks/TRACK-NEXUSINFER-SDK.md
-  - Reference Games umbrella (Arcade + Pinball + Puzzle): tasks/TRACK-REFERENCE-GAMES.md
-  - Arcade (reference microgames: Breakout/Asteroids/Snake): tasks/TRACK-ARCADE-APP.md
-  - Pinball (physics + pacing): tasks/TRACK-PINBALL-APP.md
-  - Puzzle (UI-heavy + touch): tasks/TRACK-PUZZLE-APP.md
-  - Zero-copy VMOs (data plane): tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
-  - QoS/timers (soft real-time): tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
-  - Deterministic parallelism policy: tasks/TASK-0276-parallelism-v1-deterministic-threadpools-policy-contract.md
-  - Input bring-up direction (OS): tasks/TASK-0253-input-v1_0b-os-hidrawd-touchd-inputd-ime-hooks-selftests.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: Link
+    target: "System Delegation / System Surfaces (game invites/joins via intents, not ad-hoc UI): tasks/TRACK-SYSTEM-DELEGATION.md"
+  - label: "NexusGfx SDK track (render/compute)"
+    target: tasks/TRACK-NEXUSGFX-SDK.md
+  - label: "Gfx compute/executor model"
+    target: docs/architecture/graphics/nexusgfx-compute-and-executor-model.md
+  - label: "Gfx artifact pipeline"
+    target: docs/architecture/graphics/nexusgfx-artifact-pipeline.md
+  - label: "Gfx capability matrix"
+    target: docs/architecture/graphics/nexusgfx-capability-matrix.md
+  - label: "NexusMedia SDK track (audio/video/image)"
+    target: tasks/TRACK-NEXUSMEDIA-SDK.md
+  - label: "NexusNet SDK track (cloud + DSoftBus)"
+    target: tasks/TRACK-NEXUSNET-SDK.md
+  - label: "Drivers & accelerators foundations"
+    target: tasks/TRACK-DRIVERS-ACCELERATORS.md
+  - label: "NexusInfer SDK (on-device ML; shared runtime, CPU ref + future NPU)"
+    target: tasks/TRACK-NEXUSINFER-SDK.md
+  - label: "Reference Games umbrella (Arcade + Pinball + Puzzle)"
+    target: tasks/TRACK-REFERENCE-GAMES.md
+  - label: "Arcade (reference microgames"
+    target: "Breakout/Asteroids/Snake): tasks/TRACK-ARCADE-APP.md"
+  - label: "Pinball (physics + pacing)"
+    target: tasks/TRACK-PINBALL-APP.md
+  - label: "Puzzle (UI-heavy + touch)"
+    target: tasks/TRACK-PUZZLE-APP.md
+  - label: "Zero-copy VMOs (data plane)"
+    target: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
+  - label: "QoS/timers (soft real-time)"
+    target: tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
+  - label: "Deterministic parallelism policy"
+    target: tasks/TASK-0276-parallelism-v1-deterministic-threadpools-policy-contract.md
+  - label: "Input bring-up direction (OS)"
+    target: tasks/TASK-0253-input-v1_0b-os-hidrawd-touchd-inputd-ime-hooks-selftests.md
 ---
 
 ## Goal (track-level)

@@ -1,3 +1,12 @@
+---
+schema: 1
+id: TRACK-REPO-HYGIENE-FOLLOWUPS
+title: "Repo-Hygiene Follow-ups (2026-07-17)"
+status: living
+owner: ["@unassigned"]
+created: 2026-07-17
+---
+
 # TRACK: Repo-Hygiene Follow-ups (2026-07-17)
 
 Deferred items from the 2026-07 repository-hygiene track (structure/docs/test

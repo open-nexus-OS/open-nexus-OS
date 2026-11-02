@@ -1,29 +1,51 @@
 ---
-title: TRACK NexusNet SDK (cloud + DSoftBus): contracts + phased roadmap (local-first, deterministic, policy-gated)
-status: Living
-owner: @runtime @distributed
+schema: 1
+id: TRACK-NEXUSNET-SDK
+title: "NexusNet SDK (cloud + DSoftBus): contracts + phased roadmap (local-first, deterministic, policy-gated)"
+status: living
+owner: ["@runtime", "@distributed"]
 created: 2026-01-18
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - System Delegation / System Surfaces (avoid app-embedded networking/social glue): tasks/TRACK-SYSTEM-DELEGATION.md
-  - Zero-Copy App Platform (apps consume NexusNet via svc.*): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
-  - Mail app (IMAP/SMTP client; consumer): tasks/TRACK-MAIL-APP.md
-  - Weather app (HTTP provider + location-gated): tasks/TRACK-WEATHER-APP.md
-  - Feeds app (RSS/Atom; HTTP + caching): tasks/TRACK-FEEDS-APP.md
-  - Podcasts app (RSS + downloads; HTTP + caching): tasks/TRACK-PODCASTS-APP.md
-  - Networking authority (canonical vs bring-up): docs/architecture/networking-authority.md
-  - Userspace networking contract seed: docs/rfcs/RFC-0006-userspace-networking-v1.md
-  - DSoftBus architecture: docs/adr/0005-dsoftbus-architecture.md
-  - DSoftBus overview: docs/distributed/dsoftbus-lite.md
-  - NexusMedia SDK track (optional large payload flows): tasks/TRACK-NEXUSMEDIA-SDK.md
-  - Policy as Code (future unification): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
-  - App capability matrix (future): tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
-  - Networking step 1 (canonical): tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
-  - DSoftBus streams/mux: tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md
-  - DSoftBus localSim v1: tasks/TASK-0157-dsoftbus-v1a-local-sim-pairing-streams-host.md
-  - DSoftBus OS wiring v1: tasks/TASK-0158-dsoftbus-v1b-os-consent-policy-registry-share-demo-cli-selftests.md
-  - DSL service stubs (svc.*): tasks/TASK-0078-dsl-v0_2b-service-stubs-cli-demo.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "System Delegation / System Surfaces (avoid app-embedded networking/social glue)"
+    target: tasks/TRACK-SYSTEM-DELEGATION.md
+  - label: "Zero-Copy App Platform (apps consume NexusNet via svc.*)"
+    target: tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
+  - label: "Mail app (IMAP/SMTP client; consumer)"
+    target: tasks/TRACK-MAIL-APP.md
+  - label: "Weather app (HTTP provider + location-gated)"
+    target: tasks/TRACK-WEATHER-APP.md
+  - label: "Feeds app (RSS/Atom; HTTP + caching)"
+    target: tasks/TRACK-FEEDS-APP.md
+  - label: "Podcasts app (RSS + downloads; HTTP + caching)"
+    target: tasks/TRACK-PODCASTS-APP.md
+  - label: "Networking authority (canonical vs bring-up)"
+    target: docs/architecture/networking-authority.md
+  - label: "Userspace networking contract seed"
+    target: docs/rfcs/RFC-0006-userspace-networking-v1.md
+  - label: "DSoftBus architecture"
+    target: docs/adr/0005-dsoftbus-architecture.md
+  - label: "DSoftBus overview"
+    target: docs/distributed/dsoftbus-lite.md
+  - label: "NexusMedia SDK track (optional large payload flows)"
+    target: tasks/TRACK-NEXUSMEDIA-SDK.md
+  - label: "Policy as Code (future unification)"
+    target: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
+  - label: "App capability matrix (future)"
+    target: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
+  - label: "Networking step 1 (canonical)"
+    target: tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
+  - label: "DSoftBus streams/mux"
+    target: tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md
+  - label: "DSoftBus localSim v1"
+    target: tasks/TASK-0157-dsoftbus-v1a-local-sim-pairing-streams-host.md
+  - label: "DSoftBus OS wiring v1"
+    target: tasks/TASK-0158-dsoftbus-v1b-os-consent-policy-registry-share-demo-cli-selftests.md
+  - label: "DSL service stubs (svc.*)"
+    target: tasks/TASK-0078-dsl-v0_2b-service-stubs-cli-demo.md
 ---
 
 ## Goal (track-level)

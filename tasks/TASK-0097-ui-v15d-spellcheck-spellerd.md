@@ -1,17 +1,24 @@
 ---
-title: TASK-0097 UI v15d: spellcheck service (spellerd) + suggestions + underlines + deterministic dictionaries
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0097
+title: "UI v15d: spellcheck service (spellerd) + suggestions + underlines + deterministic dictionaries"
+status: draft
+owner: ["@ui"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Text primitives: tasks/TASK-0094-ui-v15a-text-primitives-uax-bidi-hittest.md
-  - TextField core: tasks/TASK-0095-ui-v15b-selection-caret-textfield-core.md
-  - Policy as Code (no network): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
-  - Config broker (langs): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Text primitives"
+    target: tasks/TASK-0094-ui-v15a-text-primitives-uax-bidi-hittest.md
+  - label: "TextField core"
+    target: tasks/TASK-0095-ui-v15b-selection-caret-textfield-core.md
+  - label: "Policy as Code (no network)"
+    target: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
+  - label: "Config broker (langs)"
+    target: tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
 ---
 
 ## Context

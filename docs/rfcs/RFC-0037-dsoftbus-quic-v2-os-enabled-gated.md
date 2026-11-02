@@ -1,18 +1,29 @@
-# RFC-0037: DSoftBus QUIC v2 OS enablement gated contract
+---
+schema: 1
+id: RFC-0037
+title: "DSoftBus QUIC v2 OS enablement gated contract"
+status: done
+owners: ["@runtime"]
+created: 2026-04-15
+updated: 2026-04-15
+links:
+  - label: "Execution SSOT"
+    target: "`tasks/TASK-0023-dsoftbus-quic-v2-os-enabled-gated.md`"
+  - label: "Follow-up implementation task"
+    target: "`tasks/TASK-0024-dsoftbus-quic-v2-reliability-os.md`"
+  - label: "Program gate track"
+    target: "`tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`"
+  - label: "Status board"
+    target: "`tasks/SUBSYSTEMS.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0034-dsoftbus-production-closure-v1.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0035-dsoftbus-quic-v1-host-first-os-scaffold.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0036-dsoftbus-core-no-std-transport-abstraction-v1.md`"
+---
 
-- Status: Done
-- Owners: @runtime
-- Created: 2026-04-15
-- Last Updated: 2026-04-15
-- Links:
-  - Execution SSOT: `tasks/TASK-0023-dsoftbus-quic-v2-os-enabled-gated.md`
-  - Follow-up implementation task: `tasks/TASK-0024-dsoftbus-quic-v2-reliability-os.md`
-  - Program gate track: `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`
-  - Status board: `tasks/STATUS-BOARD.md`
-  - Related RFCs:
-    - `docs/rfcs/RFC-0034-dsoftbus-production-closure-v1.md`
-    - `docs/rfcs/RFC-0035-dsoftbus-quic-v1-host-first-os-scaffold.md`
-    - `docs/rfcs/RFC-0036-dsoftbus-core-no-std-transport-abstraction-v1.md`
+# RFC-0037: DSoftBus QUIC v2 OS enablement gated contract
 
 ## Status at a Glance
 

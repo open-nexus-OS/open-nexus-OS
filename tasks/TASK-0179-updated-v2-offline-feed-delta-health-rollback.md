@@ -1,23 +1,31 @@
 ---
-title: TASK-0179 updated v2: component apply engine + path-based staging + offline feed — owner of the first real OTA flip (crown proof)
-status: Done — 2026-08-31 (apply engine v2 + crown proof: the first update that changes what the machine boots)
-owner: @runtime
+schema: 1
+id: TASK-0179
+title: "updated v2: component apply engine + path-based staging + offline feed — owner of the first real OTA flip (crown proof)"
+status: done
+status_note: "2026-08-31 (apply engine v2 + crown proof: the first update that changes what the machine boots)"
+owner: ["@runtime"]
 created: 2025-12-27
 updated: 2026-08-31
-depends-on:
-  - TASK-0198   # Phase 1: device trust anchor + verifier verdict authority
-  - TASK-0289   # Phase A: nxboot loader + boot flip
-  - TASK-0036   # Phase B: BSB projection (and Phase A record v3 fields)
-  - TASK-0260   # nx image emits the OTA container fixtures
-follow-up-tasks:
-  - TASK-0140
-  - TASK-0034
+subsystem: updates
+started: 2026-08-31
+done: 2026-08-31
+active_days: 1
+dates_source: git-reconstructed
+depends_on: [TASK-0198, TASK-0289, TASK-0036, TASK-0260]
+follow_ups: [TASK-0140, TASK-0034]
+implements: [RFC-0089]
 links:
-  - Contract: docs/rfcs/RFC-0089-ota-v2-component-manifest-ab-boot-images-nxboot-bsb.md (§3 manifest, §8 updated v2, §9 feed, §10 anti-downgrade)
-  - Authority: docs/adr/0055-bootctld-single-boot-state-authority.md (updated stays a client)
-  - Staging placement: docs/adr/0043-user-data-in-dedicated-cow-fs-statefs-stays-service-kv.md (/data, never /state KV)
-  - Block substrate: tasks/TASK-0315-block-topology-consolidation-gpt-virtioblkd-sole-owner.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Contract
+    target: "docs/rfcs/RFC-0089-ota-v2-component-manifest-ab-boot-images-nxboot-bsb.md (§3 manifest, §8 updated v2, §9 feed, §10 anti-downgrade)"
+  - label: Authority
+    target: "docs/adr/0055-bootctld-single-boot-state-authority.md (updated stays a client)"
+  - label: "Staging placement"
+    target: "docs/adr/0043-user-data-in-dedicated-cow-fs-statefs-stays-service-kv.md (/data, never /state KV)"
+  - label: "Block substrate"
+    target: tasks/TASK-0315-block-topology-consolidation-gpt-virtioblkd-sole-owner.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## REWRITE 2026-08-25 (RFC-0089 lane recut — supersedes the whole pre-rewrite body)

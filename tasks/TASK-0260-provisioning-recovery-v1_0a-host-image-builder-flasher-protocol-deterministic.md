@@ -1,25 +1,41 @@
 ---
-title: TASK-0260 Provisioning v1.0a (host-first): nx image — deterministic GPT disk assembler + NXBD signer + factory BSB + OTA-container emission (flasher/factory-reset = residual)
-status: Done 2026-10-10 (Block 1 closure — P3 ran as TASK-0260B P2/P3: the boot ROM boots our boot0 from the eMMC with the microSD out, the SPL takes our FIT and finds its stages by partition name, nxboot verifies and jumps, the board reaches `init: ready` 2026-09-27/29 and boots the desktop on every cycle since; residuals named below: factory reset → TASK-0261, `data` growth → a provisioning step after Block 4, `swap` → M7; was "In Progress (P2 done 2026-09-26 — the flash path: the eMMC boots from boot0 (the vendor source), our disk and boot0 written through raw partitions and read back exactly; P3 next — with TASK-0260B, the board boots it; P1 done 2026-09-26 — the layout and the builder on the host: every image a complete GPT with a protective MBR for its disk, the head as partitions 1–4, `nx image build --target`, `blkd` by name and type; P2 next — the flash path, with the user at the board; P0 done 2026-09-26 — the boot medium measured byte for byte: sector 0 shares the boot-ROM header and a protective MBR, the SPL finds its stages through the GPT, the flash vehicle's `flash gpt` cannot carry our partition types; recut to the end state below; P1 next — the layout and the builder)
-note: image-builder scope (the OTA-lane package) DELIVERED 2026-08-25. RECUT 2026-09-22 (Block 1 B1.6 of the hardware fast track): the residual "flasher protocol" is answered — fastboot over the boot-ROM download mode IS the protocol (TASK-0327) — and the residual becomes the boot-ROM head partitions in `nx image`; factory reset stays residual; the nxboot-as-FIT-payload half is TASK-0260B
-owner: @reliability
+schema: 1
+id: TASK-0260
+title: "Provisioning v1.0a (host-first): nx image — deterministic GPT disk assembler + NXBD signer + factory BSB + OTA-container emission (flasher/factory-reset = residual)"
+status: done
+status_note: "2026-10-10 (Block 1 closure"
+owner: ["@reliability"]
 created: 2025-12-29
 updated: 2026-10-10
-depends-on: []
-follow-up-tasks:
-  - TASK-0315
-  - TASK-0289
-  - tasks/TASK-0260B-nxboot-as-fit-payload-chosen-node.md
+subsystem: updates
+started: 2026-09-26
+done: 2026-10-10
+active_days: 1
+dates_source: git-reconstructed
+follow_ups: [TASK-0315, TASK-0289, TASK-0260B]
+implements: [RFC-0089]
 links:
-  - Contract: docs/rfcs/RFC-0089-ota-v2-component-manifest-ab-boot-images-nxboot-bsb.md (§2 layout, §5 NXBD, §6 BSB)
-  - BSB factory role: docs/adr/0058-boot-selection-block-dual-actor-discipline.md
-  - Block topology: docs/adr/0044-single-blk-device-gpt-partitions-block-layer.md + tasks/TASK-0315-block-topology-consolidation-gpt-virtioblkd-sole-owner.md
-  - GPT/GUID authority (shared, host-tested): userspace/storage/src/gpt.rs
-  - Signing primitives baseline: tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
-  - Testing contract: scripts/qemu-test.sh
-  - Measurement: docs/board/measurements/2026-09-26-boot-medium/README.md (P0), docs/board/measurements/2026-09-22-stock-system/README.md (boot flow)
-  - Decisions: docs/adr/0066-boot-chain-on-hardware-nxboot-as-fit-payload.md, docs/adr/0067-one-block-owner-backend-selected-by-fdt.md
+  - label: Contract
+    target: "docs/rfcs/RFC-0089-ota-v2-component-manifest-ab-boot-images-nxboot-bsb.md (§2 layout, §5 NXBD, §6 BSB)"
+  - label: "BSB factory role"
+    target: docs/adr/0058-boot-selection-block-dual-actor-discipline.md
+  - label: "Block topology"
+    target: "docs/adr/0044-single-blk-device-gpt-partitions-block-layer.md + tasks/TASK-0315-block-topology-consolidation-gpt-virtioblkd-sole-owner.md"
+  - label: "GPT/GUID authority (shared, host-tested)"
+    target: userspace/storage/src/gpt.rs
+  - label: "Signing primitives baseline"
+    target: tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
+  - label: Measurement
+    target: "docs/board/measurements/2026-09-26-boot-medium/README.md (P0), docs/board/measurements/2026-09-22-stock-system/README.md (boot flow)"
+  - label: Decisions
+    target: "docs/adr/0066-boot-chain-on-hardware-nxboot-as-fit-payload.md, docs/adr/0067-one-block-owner-backend-selected-by-fdt.md"
+  - label: note
+    target: "image-builder scope (the OTA-lane package) DELIVERED 2026-08-25. RECUT 2026-09-22 (Block 1 B1.6 of the hardware fast track): the residual \"flasher protocol\" is answered — fastboot over the boot-ROM download mode IS the protocol (TASK-0327) — and the residual becomes the boot-ROM head partitions in `nx image`; factory reset stays residual; the nxboot-as-FIT-payload half is TASK-0260B"
 ---
+
+> Status (migrated 2026-11-02): Done 2026-10-10 (Block 1 closure — P3 ran as TASK-0260B P2/P3: the boot ROM boots our boot0 from the eMMC with the microSD out, the SPL takes our FIT and finds its stages by partition name, nxboot verifies and jumps, the board reaches `init: ready` 2026-09-27/29 and boots the desktop on every cycle since; residuals named below: factory reset → TASK-0261, `data` growth → a provisioning step after Block 4, `swap` → M7; was "In Progress (P2 done 2026-09-26 — the flash path: the eMMC boots from boot0 (the vendor source), our disk and boot0 written through raw partitions and read back exactly; P3 next — with TASK-0260B, the board boots it; P1 done 2026-09-26 — the layout and the builder on the host: every image a complete GPT with a protective MBR for its disk, the head as partitions 1–4, `nx image build --target`, `blkd` by name and type; P2 next — the flash path, with the user at the board; P0 done 2026-09-26 — the boot medium measured byte for byte: sector 0 shares the boot-ROM header and a protective MBR, the SPL finds its stages through the GPT, the flash vehicle's `flash gpt` cannot carry our partition types; recut to the end state below; P1 next — the layout and the builder)
 
 ## RECUT 2026-09-26 — P0 measured: the boot medium, byte for byte (Block 1 B1.6; supersedes the 2026-09-22 recut below where they differ)
 

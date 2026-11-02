@@ -1,18 +1,29 @@
 ---
-title: TRACK Core Utilities (Calculator + Clock + Voice Memos): “every device is usable on day 1” reference apps
-status: Draft
-owner: @ui
+schema: 1
+id: TRACK-CORE-UTILITIES
+title: "Core Utilities (Calculator + Clock + Voice Memos): “every device is usable on day 1” reference apps"
+status: draft
+owner: ["@ui"]
 created: 2026-01-19
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - System Delegation / System Surfaces (share/export as intents): tasks/TRACK-SYSTEM-DELEGATION.md
-  - Zero-Copy App Platform (content/grants/share): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
-  - Share v2 / Intents (registry + dispatch): tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md
-  - Share v2 (targets + senders + selftests): tasks/TASK-0128-share-v2c-app-senders-selftests-postflight-docs.md
-  - Files app (Open With / save/export): tasks/TASK-0086-ui-v12c-files-app-progress-dnd-share-openwith.md
-  - Accessibility wiring (Settings + app hardening): tasks/TASK-0118-ui-v20e-accessibility-settings-app-wiring-os-proofs.md
-  - NexusMedia SDK (audio record/playback for Voice Memos): tasks/TRACK-NEXUSMEDIA-SDK.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "System Delegation / System Surfaces (share/export as intents)"
+    target: tasks/TRACK-SYSTEM-DELEGATION.md
+  - label: "Zero-Copy App Platform (content/grants/share)"
+    target: tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
+  - label: "Share v2 / Intents (registry + dispatch)"
+    target: tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md
+  - label: "Share v2 (targets + senders + selftests)"
+    target: tasks/TASK-0128-share-v2c-app-senders-selftests-postflight-docs.md
+  - label: "Files app (Open With / save/export)"
+    target: tasks/TASK-0086-ui-v12c-files-app-progress-dnd-share-openwith.md
+  - label: "Accessibility wiring (Settings + app hardening)"
+    target: tasks/TASK-0118-ui-v20e-accessibility-settings-app-wiring-os-proofs.md
+  - label: "NexusMedia SDK (audio record/playback for Voice Memos)"
+    target: tasks/TRACK-NEXUSMEDIA-SDK.md
 ---
 
 ## Goal (track-level)

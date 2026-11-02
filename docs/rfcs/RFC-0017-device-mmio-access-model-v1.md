@@ -1,15 +1,27 @@
-# RFC-0017: Device MMIO Access Model v1
+---
+schema: 1
+id: RFC-0017
+title: "Device MMIO Access Model v1"
+status: done
+owners: ["@kernel-team", "@runtime"]
+created: 2026-02-02
+updated: 2026-02-02
+subsystem: kernel
+tasks: [TASK-0010]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0010-device-mmio-access-model.md` (execution + proof)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0005-kernel-ipc-capability-model.md` (IPC/cap model)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0004-safe-loader-guards.md` (W^X enforcement)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md` (policy authority)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0016-device-identity-keys-v1.md` (uses MMIO primitive)"
+---
 
-- Status: Done
-- Owners: @kernel-team @runtime
-- Created: 2026-02-02
-- Last Updated: 2026-02-02
-- Links:
-  - Tasks: `tasks/TASK-0010-device-mmio-access-model.md` (execution + proof)
-  - Related RFCs: `docs/rfcs/RFC-0005-kernel-ipc-capability-model.md` (IPC/cap model)
-  - Related RFCs: `docs/rfcs/RFC-0004-safe-loader-guards.md` (W^X enforcement)
-  - Related RFCs: `docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md` (policy authority)
-  - Related RFCs: `docs/rfcs/RFC-0016-device-identity-keys-v1.md` (uses MMIO primitive)
+# RFC-0017: Device MMIO Access Model v1
 
 ## Consumers (not exhaustive, but canonical)
 

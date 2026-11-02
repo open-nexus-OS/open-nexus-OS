@@ -1,18 +1,31 @@
+---
+schema: 1
+id: RFC-0092
+title: "Service Exposure Contract — default-deny inbound policy, exposure intents, and the `ingressd` gateway"
+status: done
+status_note: "2026-09-08 — Phases 0–3, execution TASK-0052; the TLS / mTLS termination slot stays reserved for the network track"
+owners: ["@security", "@runtime"]
+created: 2026-09-08
+updated: 2026-09-08
+subsystem: networking
+tasks: [TASK-0052]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0052-security-v3-ingress-policy-ingressd-gateway.md` (execution + proof, P0–P3)"
+  - label: ADR
+    target: "`docs/adr/0061-exposure-intent-instead-of-free-binds.md` (the one decision this contract rests on)"
+  - label: RFCs
+    target: "`docs/rfcs/RFC-0091-policy-profile-v2-schema-wire-argument-matchers.md` (`net.bind` address class, `OP_ABI_EVAL`, deny taxonomy), `docs/rfcs/RFC-0068-structured-event-observability-subject-grouped-journal-renderer.md` (audit record)"
+  - label: Docs
+    target: "`docs/security/network-egress.md` (the outbound half), `docs/security/abi-filters.md` (seams), `docs/security/ingress.md` (this contract's user-facing notes)"
+  - label: IDL
+    target: "`tools/nexus-idl/schemas/ingress.capnp` (host SSOT of the exposure intent)"
+---
+
 <!-- Copyright 2026 Open Nexus OS Contributors -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # RFC-0092: Service Exposure Contract — default-deny inbound policy, exposure intents, and the `ingressd` gateway
-
-- Status: Done (2026-09-08 — Phases 0–3, execution TASK-0052; the TLS / mTLS termination slot stays reserved for the network track)
-- Owners: @security @runtime
-- Created: 2026-09-08
-- Last Updated: 2026-09-08
-- Links:
-  - Tasks: `tasks/TASK-0052-security-v3-ingress-policy-ingressd-gateway.md` (execution + proof, P0–P3)
-  - ADR: `docs/adr/0061-exposure-intent-instead-of-free-binds.md` (the one decision this contract rests on)
-  - RFCs: `docs/rfcs/RFC-0091-policy-profile-v2-schema-wire-argument-matchers.md` (`net.bind` address class, `OP_ABI_EVAL`, deny taxonomy), `docs/rfcs/RFC-0068-structured-event-observability-subject-grouped-journal-renderer.md` (audit record)
-  - Docs: `docs/security/network-egress.md` (the outbound half), `docs/security/abi-filters.md` (seams), `docs/security/ingress.md` (this contract's user-facing notes)
-  - IDL: `tools/nexus-idl/schemas/ingress.capnp` (host SSOT of the exposure intent)
 
 ## Status at a Glance
 

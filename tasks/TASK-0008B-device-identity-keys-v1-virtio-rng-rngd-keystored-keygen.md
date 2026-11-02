@@ -1,28 +1,26 @@
 ---
-title: TASK-0008B Device identity keys v1 (OS): virtio-rng entropy + rngd + keystored keygen (enables real keys)
-status: Done
-owner: @runtime @security
+schema: 1
+id: TASK-0008B
+title: "Device identity keys v1 (OS): virtio-rng entropy + rngd + keystored keygen (enables real keys)"
+status: done
+owner: ["@runtime", "@security"]
 created: 2026-01-23
-depends-on:
-  - TASK-0006
-  - TASK-0008
-  - TASK-0009
-  - TASK-0010
-follow-up-tasks:
-  - TASK-0027
-  - TASK-0053
-  - TASK-0108
-  - TASK-0160
-  - TASK-0289
+subsystem: security
+started: 2026-01-27
+done: 2026-01-27
+active_days: 1
+dates_source: git-reconstructed
+depends_on: [TASK-0006, TASK-0008, TASK-0009, TASK-0010]
+follow_ups: [TASK-0027, TASK-0053, TASK-0108, TASK-0160, TASK-0289]
+split_from: TASK-0008
+implements: [RFC-0015]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Depends-on (policy baseline): tasks/TASK-0008-security-hardening-v1-nexus-sel-audit-device-keys.md
-  - Policy contract: docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md
-  - Depends-on (audit sink): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
-  - Depends-on (MMIO mapping primitive): tasks/TASK-0010-device-mmio-access-model.md
-  - Depends-on (persistence, optional): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

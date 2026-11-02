@@ -1,25 +1,40 @@
 ---
-title: TASK-0169 Renderer Abstraction v1a (host-first): Scene-IR + Backend trait + deterministic cpu2d + assets + golden snapshots
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0169
+title: "Renderer Abstraction v1a (host-first): Scene-IR + Backend trait + deterministic cpu2d + assets + golden snapshots"
+status: draft
+owner: ["@ui"]
 created: 2025-12-26
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - NexusGfx compute/executor model: docs/architecture/graphics/nexusgfx-compute-and-executor-model.md
-  - NexusGfx resource model: docs/architecture/graphics/nexusgfx-resource-model.md
-  - NexusGfx capability matrix: docs/architecture/graphics/nexusgfx-capability-matrix.md
-  - NexusGfx text pipeline: docs/architecture/graphics/nexusgfx-text-pipeline.md
-  - Driver/accelerator contracts (CPU now, GPU later): tasks/TRACK-DRIVERS-ACCELERATORS.md
-  - UI v1a renderer baseline (to be refactored into this): tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md
-  - Text shaping baseline: tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
-  - Text stack integration contract: tasks/TASK-0148-textshape-v1-deterministic-bidi-breaks-shaping-contract.md
-  - L10n/i18n + font fallback core: tasks/TASK-0174-l10n-i18n-v1a-host-core-fluent-icu-fontsel-goldens.md
-  - Perf tracer (optional host hooks): tasks/TASK-0143-perf-v1a-perfd-frame-trace-metrics.md
-  - Deterministic parallelism policy (thread pools): tasks/TASK-0276-parallelism-v1-deterministic-threadpools-policy-contract.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "NexusGfx compute/executor model"
+    target: docs/architecture/graphics/nexusgfx-compute-and-executor-model.md
+  - label: "NexusGfx resource model"
+    target: docs/architecture/graphics/nexusgfx-resource-model.md
+  - label: "NexusGfx capability matrix"
+    target: docs/architecture/graphics/nexusgfx-capability-matrix.md
+  - label: "NexusGfx text pipeline"
+    target: docs/architecture/graphics/nexusgfx-text-pipeline.md
+  - label: "Driver/accelerator contracts (CPU now, GPU later)"
+    target: tasks/TRACK-DRIVERS-ACCELERATORS.md
+  - label: "UI v1a renderer baseline (to be refactored into this)"
+    target: tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md
+  - label: "Text shaping baseline"
+    target: tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
+  - label: "Text stack integration contract"
+    target: tasks/TASK-0148-textshape-v1-deterministic-bidi-breaks-shaping-contract.md
+  - label: "L10n/i18n + font fallback core"
+    target: tasks/TASK-0174-l10n-i18n-v1a-host-core-fluent-icu-fontsel-goldens.md
+  - label: "Perf tracer (optional host hooks)"
+    target: tasks/TASK-0143-perf-v1a-perfd-frame-trace-metrics.md
+  - label: "Deterministic parallelism policy (thread pools)"
+    target: tasks/TASK-0276-parallelism-v1-deterministic-threadpools-policy-contract.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

@@ -1,22 +1,34 @@
 ---
-title: TASK-0170 Renderer Abstraction v1b (OS/QEMU): windowd/compositor wiring to Backend + textshape bridge + present markers (CPU2D default)
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0170
+title: "Renderer Abstraction v1b (OS/QEMU): windowd/compositor wiring to Backend + textshape bridge + present markers (CPU2D default)"
+status: draft
+owner: ["@ui"]
 created: 2025-12-26
-depends-on: []
-follow-up-tasks: []
+subsystem: observability
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - NexusGfx sync/lifetime model: docs/architecture/graphics/nexusgfx-sync-and-lifetime.md
-  - NexusGfx command/pass model: docs/architecture/graphics/nexusgfx-command-and-pass-model.md
-  - NexusGfx tile-aware design: docs/architecture/graphics/nexusgfx-tile-aware-design.md
-  - Driver/accelerator contracts (CPU now, GPU later): tasks/TRACK-DRIVERS-ACCELERATORS.md
-  - Renderer abstraction host slice: tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md
-  - UI v1b windowd baseline: tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md
-  - Text shaping baseline: tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
-  - Perf hooks (optional): tasks/TASK-0144-perf-v1b-instrumentation-hud-nx-perf.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "NexusGfx sync/lifetime model"
+    target: docs/architecture/graphics/nexusgfx-sync-and-lifetime.md
+  - label: "NexusGfx command/pass model"
+    target: docs/architecture/graphics/nexusgfx-command-and-pass-model.md
+  - label: "NexusGfx tile-aware design"
+    target: docs/architecture/graphics/nexusgfx-tile-aware-design.md
+  - label: "Driver/accelerator contracts (CPU now, GPU later)"
+    target: tasks/TRACK-DRIVERS-ACCELERATORS.md
+  - label: "Renderer abstraction host slice"
+    target: tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md
+  - label: "UI v1b windowd baseline"
+    target: tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md
+  - label: "Text shaping baseline"
+    target: tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
+  - label: "Perf hooks (optional)"
+    target: tasks/TASK-0144-perf-v1b-instrumentation-hud-nx-perf.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

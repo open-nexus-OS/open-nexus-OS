@@ -1,6 +1,13 @@
-# RFC-0058: UI v3b clipping/scroll/effects + IME/text-input contract seed
+---
+schema: 1
+id: RFC-0058
+title: "UI v3b clipping/scroll/effects + IME/text-input contract seed"
+status: done
+owners: ["@unassigned"]
+created: 2026-05-18
+---
 
-- Status: Done
+# RFC-0058: UI v3b clipping/scroll/effects + IME/text-input contract seed
 
 > **IME contract superseded (2026-07-21):** everything beyond the TASK-0059
 > stub baseline — focus model, composition, delivery, OSK — is owned by

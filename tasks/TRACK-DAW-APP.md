@@ -1,29 +1,51 @@
 ---
-title: TRACK DAW App (Logic Pro iPad-class): low-jitter audio engine + MIDI + plugin hosting (CLAP-first, LV2 subset optional), capability-gated
-status: Draft
-owner: @media @ui @runtime
+schema: 1
+id: TRACK-DAW-APP
+title: "DAW App (Logic Pro iPad-class): low-jitter audio engine + MIDI + plugin hosting (CLAP-first, LV2 subset optional), capability-gated"
+status: draft
+owner: ["@media", "@ui", "@runtime"]
 created: 2026-01-19
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Authority registry (names are binding): tasks/TRACK-AUTHORITY-NAMING.md
-  - Keystone closure plan: tasks/TRACK-KEYSTONE-GATES.md
-  - NexusMedia SDK (audio contracts, soft realtime): tasks/TRACK-NEXUSMEDIA-SDK.md
-  - NexusNet SDK (optional downloads/sync, policy-gated): tasks/TRACK-NEXUSNET-SDK.md
-  - NexusGfx SDK (render/compute, UI acceleration): tasks/TRACK-NEXUSGFX-SDK.md
-  - Drivers & accelerators (audio device-class direction): tasks/TRACK-DRIVERS-ACCELERATORS.md
-  - Zero-copy data plane (VMOs): tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
-  - QoS/timers (soft realtime spine): tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
-  - Deterministic parallelism policy: tasks/TASK-0276-parallelism-v1-deterministic-threadpools-policy-contract.md
-  - Audio core (host-first): tasks/TASK-0254-audio-v0_9a-host-mixer-ringbuffer-levels-deterministic.md
-  - Audio OS wiring (audiod): tasks/TASK-0255-audio-v0_9b-os-audiod-i2sd-codecd-mediasession-hooks-selftests.md
-  - Media sessions/system controls: tasks/TASK-0101-ui-v16c-media-sessions-systemui-controls.md
-  - Zero-Copy App Platform (autosave/oplog concepts): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
-  - Packages / signed bundles (format + install): tasks/TASK-0129-packages-v1a-nxb-format-signing-pkgr-tool.md
-  - Packages / bundle install authority: tasks/TASK-0130-packages-v1b-bundlemgrd-install-upgrade-uninstall-trust.md
-  - Storefront UI (licensed registry direction): tasks/TASK-0181-store-v1b-os-storefront-ui-selftests-policy-docs.md
-  - Content broker quotas/versions (sound packs as content): tasks/TASK-0232-content-v1_2a-host-content-quotas-versions-naming-nx-content.md
-  - Content SAF flows (picker/save/open; grants): tasks/TASK-0233-content-v1_2b-os-saf-flows-files-polish-privacy-gates-selftests.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Authority registry (names are binding)"
+    target: tasks/TRACK-AUTHORITY-NAMING.md
+  - label: "Keystone closure plan"
+    target: tasks/TRACK-KEYSTONE-GATES.md
+  - label: "NexusMedia SDK (audio contracts, soft realtime)"
+    target: tasks/TRACK-NEXUSMEDIA-SDK.md
+  - label: "NexusNet SDK (optional downloads/sync, policy-gated)"
+    target: tasks/TRACK-NEXUSNET-SDK.md
+  - label: "NexusGfx SDK (render/compute, UI acceleration)"
+    target: tasks/TRACK-NEXUSGFX-SDK.md
+  - label: "Drivers & accelerators (audio device-class direction)"
+    target: tasks/TRACK-DRIVERS-ACCELERATORS.md
+  - label: "Zero-copy data plane (VMOs)"
+    target: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
+  - label: "QoS/timers (soft realtime spine)"
+    target: tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
+  - label: "Deterministic parallelism policy"
+    target: tasks/TASK-0276-parallelism-v1-deterministic-threadpools-policy-contract.md
+  - label: "Audio core (host-first)"
+    target: tasks/TASK-0254-audio-v0_9a-host-mixer-ringbuffer-levels-deterministic.md
+  - label: "Audio OS wiring (audiod)"
+    target: tasks/TASK-0255-audio-v0_9b-os-audiod-i2sd-codecd-mediasession-hooks-selftests.md
+  - label: "Media sessions/system controls"
+    target: tasks/TASK-0101-ui-v16c-media-sessions-systemui-controls.md
+  - label: "Zero-Copy App Platform (autosave/oplog concepts)"
+    target: tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
+  - label: "Packages / signed bundles (format + install)"
+    target: tasks/TASK-0129-packages-v1a-nxb-format-signing-pkgr-tool.md
+  - label: "Packages / bundle install authority"
+    target: tasks/TASK-0130-packages-v1b-bundlemgrd-install-upgrade-uninstall-trust.md
+  - label: "Storefront UI (licensed registry direction)"
+    target: tasks/TASK-0181-store-v1b-os-storefront-ui-selftests-policy-docs.md
+  - label: "Content broker quotas/versions (sound packs as content)"
+    target: tasks/TASK-0232-content-v1_2a-host-content-quotas-versions-naming-nx-content.md
+  - label: "Content SAF flows (picker/save/open; grants)"
+    target: tasks/TASK-0233-content-v1_2b-os-saf-flows-files-polish-privacy-gates-selftests.md
 ---
 
 ## Goal (track-level)

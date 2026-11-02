@@ -1,19 +1,30 @@
+---
+schema: 1
+id: RFC-0009
+title: "no_std Dependency Hygiene v1 (OS/QEMU reproducible builds)"
+status: done
+status_note: "Phase 0 + 1 + 2"
+owners: ["@runtime", "@tools-team"]
+created: 2026-01-07
+updated: 2026-01-07
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0003C-dsoftbus-udp-discovery-os.md` (OS networking bring-up surfaced the failure mode)"
+  - label: Tasks
+    target: "`tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md` (OS/QEMU slice, proof markers)"
+  - label: "ADRs (optional)"
+    target: "`docs/adr/0016-kernel-libs-architecture.md` (if we decide to formalize “OS support crates” as kernel-libs boundary)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0006-userspace-networking-v1.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0007-dsoftbus-os-transport-v1.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0008-dsoftbus-noise-xk-v1.md`"
+---
+
 # RFC-0009: no_std Dependency Hygiene v1 (OS/QEMU reproducible builds)
 
-- Status: Complete (Phase 0 + 1 + 2)
-- Owners: @runtime / @tools-team
-- Created: 2026-01-07
-- Last Updated: 2026-01-07 (Phase 2 complete)
-- Links:
-  - Tasks:
-    - `tasks/TASK-0003C-dsoftbus-udp-discovery-os.md` (OS networking bring-up surfaced the failure mode)
-    - `tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md` (OS/QEMU slice, proof markers)
-  - ADRs (optional):
-    - `docs/adr/0016-kernel-libs-architecture.md` (if we decide to formalize “OS support crates” as kernel-libs boundary)
-  - Related RFCs:
-    - `docs/rfcs/RFC-0006-userspace-networking-v1.md`
-    - `docs/rfcs/RFC-0007-dsoftbus-os-transport-v1.md`
-    - `docs/rfcs/RFC-0008-dsoftbus-noise-xk-v1.md`
+> Last Updated (migrated 2026-11-02): 2026-01-07 (Phase 2 complete)
 
 ## Status at a Glance
 

@@ -1,10 +1,19 @@
-# RFC-0090: `.nxdelta` v1 — Boot-Image Delta Stream Format (`boot-image-delta` component kind)
+---
+schema: 1
+id: RFC-0090
+title: "`.nxdelta` v1 — Boot-Image Delta Stream Format (`boot-image-delta` component kind)"
+status: done
+status_note: TASK-0034
+owners: ["@runtime", "@tools-team"]
+created: 2026-09-03
+links:
+  - label: Seed
+    target: "RFC-0089 §11 (the reserved delta seam); TASK-0034 (execution ledger)"
+  - label: Related
+    target: "RFC-0089 (container/trust/staging/machine — all UNCHANGED here), ADR-0058/0059 (BSB/loader — untouched), RFC-0009 (dependency hygiene, §Algorithms)"
+---
 
-- Status: Done (TASK-0034)
-- Owners: @runtime @tools-team
-- Seed: RFC-0089 §11 (the reserved delta seam); TASK-0034 (execution ledger)
-- Related: RFC-0089 (container/trust/staging/machine — all UNCHANGED here),
-  ADR-0058/0059 (BSB/loader — untouched), RFC-0009 (dependency hygiene, §Algorithms)
+# RFC-0090: `.nxdelta` v1 — Boot-Image Delta Stream Format (`boot-image-delta` component kind)
 
 ## Context
 

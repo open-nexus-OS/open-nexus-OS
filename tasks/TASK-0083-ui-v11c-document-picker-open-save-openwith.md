@@ -1,25 +1,40 @@
 ---
-title: TASK-0083 UI v11c: document picker (open/save) + Open With… + app integration + OS markers/postflight
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0083
+title: "UI v11c: document picker (open/save) + Open With… + app integration + OS markers/postflight"
+status: draft
+owner: ["@ui"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - DSL query posture: docs/dev/dsl/db-queries.md
-  - Document picker usage posture: docs/dev/ui/system-experiences/document-access/doc-picker.md
-  - DSL app integration kit: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md
-  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
-  - QuerySpec v1 foundation: tasks/TASK-0078B-dsl-v0_2b-queryspec-v1-foundation-service-gated-paging-hash.md
-  - DSL query objects: tasks/TASK-0274-dsl-v0_2c-db-query-objects-builder-defaults-paging-deterministic.md
-  - MIME + content providers: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
-  - Thumbnailer + recents: tasks/TASK-0082-ui-v11b-thumbnailer-recents.md
-  - WM/modal overlays baseline: tasks/TASK-0074-ui-v10b-app-shell-adoption-modals.md
-  - App lifecycle launch (Open With target): tasks/TASK-0065-ui-v6b-app-lifecycle-notifications-navigation.md
-  - Screenshot/share (optional destination): tasks/TASK-0068-ui-v7c-screenshot-screencap-share-sheet.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "DSL query posture"
+    target: docs/dev/dsl/db-queries.md
+  - label: "Document picker usage posture"
+    target: docs/dev/ui/system-experiences/document-access/doc-picker.md
+  - label: "DSL app integration kit"
+    target: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md
+  - label: "DSL syntax/layout convention"
+    target: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
+  - label: "QuerySpec v1 foundation"
+    target: tasks/TASK-0078B-dsl-v0_2b-queryspec-v1-foundation-service-gated-paging-hash.md
+  - label: "DSL query objects"
+    target: tasks/TASK-0274-dsl-v0_2c-db-query-objects-builder-defaults-paging-deterministic.md
+  - label: "MIME + content providers"
+    target: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
+  - label: "Thumbnailer + recents"
+    target: tasks/TASK-0082-ui-v11b-thumbnailer-recents.md
+  - label: "WM/modal overlays baseline"
+    target: tasks/TASK-0074-ui-v10b-app-shell-adoption-modals.md
+  - label: "App lifecycle launch (Open With target)"
+    target: tasks/TASK-0065-ui-v6b-app-lifecycle-notifications-navigation.md
+  - label: "Screenshot/share (optional destination)"
+    target: tasks/TASK-0068-ui-v7c-screenshot-screencap-share-sheet.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

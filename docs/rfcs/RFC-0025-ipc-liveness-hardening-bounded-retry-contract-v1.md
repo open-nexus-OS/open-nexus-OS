@@ -1,16 +1,27 @@
-# RFC-0025: IPC liveness hardening v1 - bounded retry, correlation, and deterministic timeout contract
+---
+schema: 1
+id: RFC-0025
+title: "IPC liveness hardening v1 - bounded retry, correlation, and deterministic timeout contract"
+status: done
+owners: ["@runtime", "@kernel-team"]
+created: 2026-02-16
+updated: 2026-02-16
+subsystem: kernel
+tasks: [TASK-0013B]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0013B-ipc-liveness-hardening-bounded-retry-contract-v1.md` (execution + proof)"
+  - label: ADRs
+    target: "`docs/adr/0025-qemu-smoke-proof-gating.md` (deterministic QEMU proof policy)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0019-ipc-request-reply-correlation-v1.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0022-kernel-smp-v1b-scheduler-hardening-contract.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0023-qos-abi-timed-coalescing-contract-v1.md`"
+---
 
-- Status: Complete
-- Owners: @runtime @kernel-team
-- Created: 2026-02-16
-- Last Updated: 2026-02-16
-- Links:
-  - Tasks: `tasks/TASK-0013B-ipc-liveness-hardening-bounded-retry-contract-v1.md` (execution + proof)
-  - ADRs: `docs/adr/0025-qemu-smoke-proof-gating.md` (deterministic QEMU proof policy)
-  - Related RFCs:
-    - `docs/rfcs/RFC-0019-ipc-request-reply-correlation-v1.md`
-    - `docs/rfcs/RFC-0022-kernel-smp-v1b-scheduler-hardening-contract.md`
-    - `docs/rfcs/RFC-0023-qos-abi-timed-coalescing-contract-v1.md`
+# RFC-0025: IPC liveness hardening v1 - bounded retry, correlation, and deterministic timeout contract
 
 ## Status at a Glance
 

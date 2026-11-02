@@ -1,32 +1,39 @@
 ---
-title: TASK-0056 UI v2a: double-buffered surfaces + present scheduler (vsync/fences/latency) + input routing (hit-test/focus)
-status: Done
-owner: @ui
+schema: 1
+id: TASK-0056
+title: "UI v2a: double-buffered surfaces + present scheduler (vsync/fences/latency) + input routing (hit-test/focus)"
+status: done
+owner: ["@ui"]
 created: 2025-12-23
-depends-on:
-  - TASK-0055
-  - TASK-0055B
-  - TASK-0055C
-follow-up-tasks:
-  - TASK-0056B
-  - TASK-0056C
-  - TASK-0199
-  - TASK-0200
-  - TASK-0253
+subsystem: ui
+done: 2026-07-17
+dates_source: git-reconstructed
+depends_on: [TASK-0055, TASK-0055B, TASK-0055C]
+follow_ups: [TASK-0056B, TASK-0056C, TASK-0199, TASK-0200, TASK-0253]
+implements: [RFC-0050]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - UI v1a renderer (baseline): tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md
-  - UI v1b windowd (baseline): tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md
-  - RFC seed contract: docs/rfcs/RFC-0050-ui-v2a-present-scheduler-double-buffer-input-routing-contract.md
-  - Drivers/Accelerators contracts: tasks/TRACK-DRIVERS-ACCELERATORS.md
-  - VMO plumbing: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
-  - QoS/timers (vsync spine): tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
-  - Production gates: tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md
-  - Present/input perf follow-up: tasks/TASK-0056C-ui-v2a-present-input-perf-latency-coalescing.md
-  - Config broker (ui knobs): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
-  - Policy as Code (permissions): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "UI v1a renderer (baseline)"
+    target: tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md
+  - label: "UI v1b windowd (baseline)"
+    target: tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md
+  - label: "Drivers/Accelerators contracts"
+    target: tasks/TRACK-DRIVERS-ACCELERATORS.md
+  - label: "VMO plumbing"
+    target: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
+  - label: "QoS/timers (vsync spine)"
+    target: tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
+  - label: "Production gates"
+    target: tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md
+  - label: "Config broker (ui knobs)"
+    target: tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
+  - label: "Policy as Code (permissions)"
+    target: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

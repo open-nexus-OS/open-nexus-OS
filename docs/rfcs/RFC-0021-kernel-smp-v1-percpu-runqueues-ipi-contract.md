@@ -1,21 +1,34 @@
+---
+schema: 1
+id: RFC-0021
+title: "Kernel SMP v1 contract (per-CPU runqueues + IPI resched)"
+status: done
+owners: ["@kernel-team"]
+created: 2026-02-10
+updated: 2026-02-10
+subsystem: kernel
+tasks: [TASK-0012, TASK-0247, TASK-0042]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md` (execution + proof)"
+  - label: Tasks
+    target: "`tasks/TASK-0247-bringup-rv-virt-v1_1b-os-smp-hsm-ipi-virtioblkd-packagefs-selftests.md` (RISC-V extension, not parallel authority)"
+  - label: Tasks
+    target: "`tasks/TASK-0042-smp-v2-affinity-qos-budgets-kernel-abi.md` (post-baseline SMP policy extension)"
+  - label: ADRs
+    target: "`docs/adr/0025-qemu-smoke-proof-gating.md` (deterministic QEMU proof policy)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md` (pre-SMP ownership/types contract seed)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md` (testing contract + deterministic gates)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0013-boot-gates-readiness-spawn-resource-v1.md` (marker/readiness discipline)"
+---
+
 <!-- Copyright 2026 Open Nexus OS Contributors -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # RFC-0021: Kernel SMP v1 contract (per-CPU runqueues + IPI resched)
-
-- Status: Complete
-- Owners: @kernel-team
-- Created: 2026-02-10
-- Last Updated: 2026-02-10
-- Links:
-  - Tasks: `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md` (execution + proof)
-  - Tasks: `tasks/TASK-0247-bringup-rv-virt-v1_1b-os-smp-hsm-ipi-virtioblkd-packagefs-selftests.md` (RISC-V extension, not parallel authority)
-  - Tasks: `tasks/TASK-0042-smp-v2-affinity-qos-budgets-kernel-abi.md` (post-baseline SMP policy extension)
-  - ADRs: `docs/adr/0025-qemu-smoke-proof-gating.md` (deterministic QEMU proof policy)
-  - Related RFCs:
-    - `docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md` (pre-SMP ownership/types contract seed)
-    - `docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md` (testing contract + deterministic gates)
-    - `docs/rfcs/RFC-0013-boot-gates-readiness-spawn-resource-v1.md` (marker/readiness discipline)
 
 ## Status at a Glance
 

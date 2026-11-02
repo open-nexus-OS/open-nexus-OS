@@ -1,22 +1,33 @@
 ---
-title: TASK-0168 Policy v1.1 (OS/QEMU): permsd runtime prompts + Privacy Dashboard (Settings) + audit viewer/export + nx-policy (+ selftests/docs)
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0168
+title: "Policy v1.1 (OS/QEMU): permsd runtime prompts + Privacy Dashboard (Settings) + audit viewer/export + nx-policy (+ selftests/docs)"
+status: draft
+owner: ["@ui"]
 created: 2025-12-26
-depends-on: []
-follow-up-tasks: []
+subsystem: security
+tracks: [TRACK-ADS-SAFETY-FAMILYMODE]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
-  - Policy v1.1 core: tasks/TASK-0167-policy-v1_1-host-scoped-grants-expiry-enumeration.md
-  - Policy v1 capability matrix + adapters: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
-  - Security & Privacy UI v1 baseline: tasks/TASK-0137-ui-security-privacy-settings-permissions-audit.md
-  - permsd baseline: tasks/TASK-0103-ui-v17a-permissions-privacyd.md
-  - SystemUI→DSL Settings baseline: tasks/TASK-0121-systemui-dsl-migration-phase2a-settings-notifs-host.md
-  - Observability/audit sink direction (logd): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
-  - Persistence substrate (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Policy v1.1 core"
+    target: tasks/TASK-0167-policy-v1_1-host-scoped-grants-expiry-enumeration.md
+  - label: "Policy v1 capability matrix + adapters"
+    target: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
+  - label: "Security & Privacy UI v1 baseline"
+    target: tasks/TASK-0137-ui-security-privacy-settings-permissions-audit.md
+  - label: "permsd baseline"
+    target: tasks/TASK-0103-ui-v17a-permissions-privacyd.md
+  - label: "SystemUI→DSL Settings baseline"
+    target: tasks/TASK-0121-systemui-dsl-migration-phase2a-settings-notifs-host.md
+  - label: "Observability/audit sink direction (logd)"
+    target: tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
+  - label: "Persistence substrate (/state)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

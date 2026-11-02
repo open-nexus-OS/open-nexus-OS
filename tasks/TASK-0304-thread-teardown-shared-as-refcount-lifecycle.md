@@ -1,8 +1,18 @@
-# TASK-0304: Shared-AS reap ordering + thread teardown
+---
+schema: 1
+id: TASK-0304
+title: "Shared-AS reap ordering + thread teardown"
+status: deferred
+status_note: "Part 1 Done (reap ordering, boot-proven 2026-07-24); Part 2 deferred"
+owner: ["@kernel-team"]
+created: 2026-07-24
+subsystem: kernel
+links:
+  - label: Related
+    target: "TASK-0303 (process reaper), RFC-0081, TASK-0276 (compute-only threads)"
+---
 
-- Status: Part 1 Done (reap ordering, boot-proven 2026-07-24); Part 2 deferred
-- Owners: @kernel-team
-- Related: TASK-0303 (process reaper), RFC-0081, TASK-0276 (compute-only threads)
+# TASK-0304: Shared-AS reap ordering + thread teardown
 
 ## What the `destroy as failed InUse` actually was (investigated 2026-07-24)
 

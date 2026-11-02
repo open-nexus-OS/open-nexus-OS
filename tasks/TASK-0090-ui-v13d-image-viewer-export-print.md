@@ -1,25 +1,37 @@
 ---
-title: TASK-0090 UI v13d: Image Viewer app (png/jpeg/svg) + zoom/pan/rotate/export + clipboard image + print integration
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0090
+title: "UI v13d: Image Viewer app (png/jpeg/svg) + zoom/pan/rotate/export + clipboard image + print integration"
+status: draft
+owner: ["@ui"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
+tracks: [TRACK-NEXUSMEDIA-SDK, TRACK-MEDIA-APPS]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - DSL app platform: tasks/TASK-0122B-dsl-app-platform-v1-shell-routing-launch-contract.md
-  - DSL app integration kit: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md
-  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
-  - ADR: docs/adr/0022-modern-image-formats-avif-webp.md
-  - NexusMedia SDK track (audio/video/image): tasks/TRACK-NEXUSMEDIA-SDK.md
-  - Media apps product track (quick viewers vs library apps): tasks/TRACK-MEDIA-APPS.md
-  - Document access (picker/content): tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
-  - MIME registry (Open With): tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
-  - Clipboard v3: tasks/TASK-0087-ui-v13a-clipboard-v3.md
-  - Print pipeline: tasks/TASK-0088-ui-v13b-print-to-pdf-printd-preview.md
-  - Recents: tasks/TASK-0082-ui-v11b-thumbnailer-recents.md
-  - SVG mini pipeline: tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "DSL app platform"
+    target: tasks/TASK-0122B-dsl-app-platform-v1-shell-routing-launch-contract.md
+  - label: "DSL app integration kit"
+    target: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md
+  - label: "DSL syntax/layout convention"
+    target: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
+  - label: ADR
+    target: docs/adr/0022-modern-image-formats-avif-webp.md
+  - label: "Document access (picker/content)"
+    target: tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
+  - label: "MIME registry (Open With)"
+    target: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
+  - label: "Clipboard v3"
+    target: tasks/TASK-0087-ui-v13a-clipboard-v3.md
+  - label: "Print pipeline"
+    target: tasks/TASK-0088-ui-v13b-print-to-pdf-printd-preview.md
+  - label: Recents
+    target: tasks/TASK-0082-ui-v11b-thumbnailer-recents.md
+  - label: "SVG mini pipeline"
+    target: tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
 ---
 
 ## Context

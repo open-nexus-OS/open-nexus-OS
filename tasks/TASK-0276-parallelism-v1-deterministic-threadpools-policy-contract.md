@@ -1,16 +1,24 @@
 ---
-title: TASK-0276 Parallelism v1: deterministic threadpools policy (safe-by-default, no-proof-drift)
-status: Done
-owner: @arch
+schema: 1
+id: TASK-0276
+title: "Parallelism v1: deterministic threadpools policy (safe-by-default, no-proof-drift)"
+status: done
+owner: ["@arch"]
 created: 2025-12-30
-depends-on: []
-follow-up-tasks: []
+subsystem: kernel
+done: 2026-07-19
+dates_source: git-reconstructed
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Keystone gates: tasks/TRACK-KEYSTONE-GATES.md
-  - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
-  - Kernel SMP plan (roadmap): tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Keystone gates"
+    target: tasks/TRACK-KEYSTONE-GATES.md
+  - label: "Authority & naming registry"
+    target: tasks/TRACK-AUTHORITY-NAMING.md
+  - label: "Kernel SMP plan (roadmap)"
+    target: tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md
 ---
 
 ## Context

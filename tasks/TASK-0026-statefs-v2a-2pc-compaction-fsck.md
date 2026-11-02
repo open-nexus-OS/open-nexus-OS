@@ -1,22 +1,33 @@
 ---
-title: TASK-0026 StateFS v2a: 2PC crash-atomicity + bounded compaction + fsck tool (rebased 2026-07-15 onto shipped statefs v1)
-status: Done
-owner: @runtime
+schema: 1
+id: TASK-0026
+title: "StateFS v2a: 2PC crash-atomicity + bounded compaction + fsck tool (rebased 2026-07-15 onto shipped statefs v1)"
+status: done
+owner: ["@runtime"]
 created: 2025-12-22
-depends-on:
-  - TASK-0009
-follow-up-tasks:
-  - TASK-0027
-  - TASK-0134
+subsystem: observability
+started: 2026-08-18
+done: 2026-08-18
+active_days: 1
+dates_source: git-reconstructed
+depends_on: [TASK-0009]
+follow_ups: [TASK-0027, TASK-0134]
+tracks: [TRACK-STASH-USER-DATA-FS]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Shipped substrate (v1, Complete): docs/rfcs/RFC-0018-statefs-journal-format-v1.md
-  - Architecture split: docs/adr/0043-user-data-in-dedicated-cow-fs-statefs-stays-service-kv.md
-  - Block layer / cold-boot proofs: docs/adr/0044-single-blk-device-gpt-partitions-block-layer.md
-  - Current-state doc: docs/storage/statefs.md
-  - Track: tasks/TRACK-STASH-USER-DATA-FS.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Shipped substrate (v1, Complete)"
+    target: docs/rfcs/RFC-0018-statefs-journal-format-v1.md
+  - label: "Architecture split"
+    target: docs/adr/0043-user-data-in-dedicated-cow-fs-statefs-stays-service-kv.md
+  - label: "Block layer / cold-boot proofs"
+    target: docs/adr/0044-single-blk-device-gpt-partitions-block-layer.md
+  - label: "Current-state doc"
+    target: docs/storage/statefs.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context (rebased 2026-07-15)

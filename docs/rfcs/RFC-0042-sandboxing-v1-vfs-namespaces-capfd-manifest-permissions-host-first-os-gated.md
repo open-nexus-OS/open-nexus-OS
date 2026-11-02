@@ -1,15 +1,27 @@
-# RFC-0042: Sandboxing v1 userspace confinement (VFS namespaces + CapFd + manifest permissions, host-first, OS-gated)
+---
+schema: 1
+id: RFC-0042
+title: "Sandboxing v1 userspace confinement (VFS namespaces + CapFd + manifest permissions, host-first, OS-gated)"
+status: done
+owners: ["@runtime", "@security"]
+created: 2026-04-23
+updated: 2026-04-24
+subsystem: security
+tasks: [TASK-0039]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0039-sandboxing-v1-vfs-namespaces-capfd-manifest.md` (execution + proof)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0005-kernel-ipc-capability-model.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0032-abi-syscall-guardrails-v2-userland-kernel-untouched.md`"
+  - label: "Production gate policy"
+    target: "`tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`"
+---
 
-- Status: Done
-- Owners: @runtime @security
-- Created: 2026-04-23
-- Last Updated: 2026-04-24
-- Links:
-  - Tasks: `tasks/TASK-0039-sandboxing-v1-vfs-namespaces-capfd-manifest.md` (execution + proof)
-  - Related RFCs: `docs/rfcs/RFC-0005-kernel-ipc-capability-model.md`
-  - Related RFCs: `docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md`
-  - Related RFCs: `docs/rfcs/RFC-0032-abi-syscall-guardrails-v2-userland-kernel-untouched.md`
-  - Production gate policy: `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`
+# RFC-0042: Sandboxing v1 userspace confinement (VFS namespaces + CapFd + manifest permissions, host-first, OS-gated)
 
 ## Status at a Glance
 

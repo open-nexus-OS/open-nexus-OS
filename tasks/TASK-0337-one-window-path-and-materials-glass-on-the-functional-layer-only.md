@@ -1,15 +1,27 @@
 ---
-title: TASK-0337 One window path and the materials — every app on window-kit, windowd's title bar retired, glass only on the functional layer, the content pane opaque, controls tinted, state as a layer's opacity, reduce-transparency
-status: In Progress (P1, P2 built 2026-10-21, board cycles 52–53 read; P3 read against cycle 54, after TASK-0338 freed the frame clock)
-owner: @ui
+schema: 1
+id: TASK-0337
+title: "One window path and the materials — every app on window-kit, windowd's title bar retired, glass only on the functional layer, the content pane opaque, controls tinted, state as a layer's opacity, reduce-transparency"
+status: in_progress
+status_note: "P1, P2 built 2026-10-21, board cycles 52–53 read; P3 read against cycle 54, after TASK-0338 freed the frame clock"
+owner: ["@ui"]
 created: 2026-10-21
-depends-on: [TASK-0336 (the window as one surface)]
-follow-up-tasks: [TASK-0335 P2 occlusion (the opaque pane is the occluder), the programs (rounded/blur shaders)]
+subsystem: ui
+started: 2026-10-21
+dates_source: git-reconstructed
+depends_on: [TASK-0336]
+follow_ups: [TASK-0335]
 links:
-  - Standard: docs/dev/ui/foundations/visual/materials.md (the five rules)
-  - Plan: docs/dev/ui/patterns/windowing/windows-as-widgets.md (the one window construction that stays)
-  - Measurement: docs/board/measurements/2026-10-21-gpu-vendor-per-pixel/README.md ("Cycle 51": the three window paths, the glass layers per window)
-  - Code today: userspace/apps/window-kit/ui/components/WinAppWindow.nx, userspace/dsl/runtime/src/registry.rs (materials), source/services/app-host/src/probe/layers.rs (material → glass level), source/services/app-host/src/hover_wash.rs (the paint-time hover), source/services/windowd/src/compositor/runtime/app_window.rs (`has_chrome`, the legacy title bar)
+  - label: Standard
+    target: "docs/dev/ui/foundations/visual/materials.md (the five rules)"
+  - label: Plan
+    target: "docs/dev/ui/patterns/windowing/windows-as-widgets.md (the one window construction that stays)"
+  - label: Measurement
+    target: "docs/board/measurements/2026-10-21-gpu-vendor-per-pixel/README.md (\"Cycle 51\": the three window paths, the glass layers per window)"
+  - label: "Code today"
+    target: "userspace/apps/window-kit/ui/components/WinAppWindow.nx, userspace/dsl/runtime/src/registry.rs (materials), source/services/app-host/src/probe/layers.rs (material → glass level), source/services/app-host/src/hover_wash.rs (the paint-time hover), source/services/windowd/src/compositor/runtime/app_window.rs (`has_chrome`, the legacy title bar)"
+  - label: follow-up
+    target: "the programs (rounded/blur shaders)"
 ---
 
 ## Context (cycle 51)
@@ -107,4 +119,3 @@ pixels; `glass_w` per frame ≤ the shell's glasses + one per window.
 - **Cycle 53 (board, 2026-10-21):** every window on one path, launches 140–727 ms to the first
   frame; the hover read (P3) was masked by the ring overflow TASK-0338 fixes — each NACK forced a
   full-screen recompose, so no frame number of cycle 53 measures a hover. Read again in cycle 54.
-

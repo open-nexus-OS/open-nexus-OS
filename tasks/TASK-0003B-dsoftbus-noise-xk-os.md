@@ -1,17 +1,24 @@
 ---
-title: TASK-0003B DSoftBus OS Noise XK handshake (no_std)
-status: Done ✅ (Noise XK handshake complete; identity binding enforcement → TASK-0004)
-owner: @runtime
+schema: 1
+id: TASK-0003B
+title: "DSoftBus OS Noise XK handshake (no_std)"
+status: done
+status_note: "✅ (Noise XK handshake complete; identity binding enforcement → TASK-0004)"
+owner: ["@runtime"]
 created: 2026-01-01
 updated: 2026-01-07
-depends-on: []
-follow-up-tasks: []
+subsystem: distributed
+done: 2026-07-17
+dates_source: git-reconstructed
+split_from: TASK-0003
+implements: [RFC-0007, RFC-0008]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - RFC: docs/rfcs/RFC-0007-dsoftbus-os-transport-v1.md
-  - RFC: docs/rfcs/RFC-0008-dsoftbus-noise-xk-v1.md
-  - Parent task: tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Parent task"
+    target: tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
 ---
 
 ## Context

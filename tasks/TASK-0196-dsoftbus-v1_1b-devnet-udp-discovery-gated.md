@@ -1,19 +1,27 @@
 ---
-title: TASK-0196 DSoftBus v1.1b (devnet-gated): UDP discovery + loopback/udp mode switch + deterministic beacons + tests (host-first), OS gated
-status: Draft
-owner: @networking
+schema: 1
+id: TASK-0196
+title: "DSoftBus v1.1b (devnet-gated): UDP discovery + loopback/udp mode switch + deterministic beacons + tests (host-first), OS gated"
+status: draft
+owner: ["@networking"]
 created: 2025-12-27
-depends-on: []
-follow-up-tasks: []
+subsystem: distributed
+depends_on: [TASK-0003]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - DSoftBus v1 localSim OS slice: tasks/TASK-0158-dsoftbus-v1b-os-consent-policy-registry-share-demo-cli-selftests.md
-  - DSoftBus v1.1 secure channels: tasks/TASK-0195-dsoftbus-v1_1a-host-secure-channels-encrypted-streams-share.md
-  - Networking v1 devnet gating: tasks/TASK-0193-networking-v1a-host-devnet-tls-fetchd-integration.md
-  - OS networking prerequisites: tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
-  - Device MMIO access model: tasks/TASK-0010-device-mmio-access-model.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "DSoftBus v1 localSim OS slice"
+    target: tasks/TASK-0158-dsoftbus-v1b-os-consent-policy-registry-share-demo-cli-selftests.md
+  - label: "DSoftBus v1.1 secure channels"
+    target: tasks/TASK-0195-dsoftbus-v1_1a-host-secure-channels-encrypted-streams-share.md
+  - label: "Networking v1 devnet gating"
+    target: tasks/TASK-0193-networking-v1a-host-devnet-tls-fetchd-integration.md
+  - label: "Device MMIO access model"
+    target: tasks/TASK-0010-device-mmio-access-model.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Short description

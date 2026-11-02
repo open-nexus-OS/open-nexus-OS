@@ -1,16 +1,23 @@
 ---
-title: TASK-0236 Power/Idle v1.0a (host-first): deterministic governor + wake locks + residency metrics + app standby + tests
-status: Draft — the wake-lock / app-standby half is Block 4 layer 6d's manifest `background = [...]` declaration (tasks/TASK-0333, 2026-10-19); the governor stays parked
-owner: @runtime
+schema: 1
+id: TASK-0236
+title: "Power/Idle v1.0a (host-first): deterministic governor + wake locks + residency metrics + app standby + tests"
+status: draft
+status_note: "the wake-lock / app-standby half is Block 4 layer 6d's manifest `background = [...]` declaration (tasks/TASK-0333, 2026-10-19); the governor stays parked"
+owner: ["@runtime"]
 created: 2025-12-29
-depends-on: []
-follow-up-tasks: []
+subsystem: observability
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Timer coalescing baseline (timed): tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
-  - Ability lifecycle (BG detection): tasks/TASK-0235-ability-v1_1b-os-appmgrd-extension-samgr-hooks-fgbg-policies-selftests.md
-  - Media sessions (active playback): tasks/TASK-0155-media-ux-v1a-host-mediasessd-focus-nowplaying-artcache.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Timer coalescing baseline (timed)"
+    target: tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
+  - label: "Ability lifecycle (BG detection)"
+    target: tasks/TASK-0235-ability-v1_1b-os-appmgrd-extension-samgr-hooks-fgbg-policies-selftests.md
+  - label: "Media sessions (active playback)"
+    target: tasks/TASK-0155-media-ux-v1a-host-mediasessd-focus-nowplaying-artcache.md
 ---
 
 ## Context

@@ -1,16 +1,23 @@
 ---
-title: TASK-0044 DSoftBus QUIC tuning v1: pacing + congestion selection + mux WFQ priorities (Superseded 2026-08-14 — priorities shipped in 0020; pacing residual → TASK-0024)
-status: Superseded
-owner: @runtime
+schema: 1
+id: TASK-0044
+title: "DSoftBus QUIC tuning v1: pacing + congestion selection + mux WFQ priorities (Superseded 2026-08-14 — priorities shipped in 0020; pacing residual → TASK-0024)"
+status: superseded
+owner: ["@runtime"]
 created: 2025-12-22
-depends-on: []
-follow-up-tasks: []
+subsystem: distributed
+superseded_by: [TASK-0024]
 links:
-  - Vision: docs/architecture/vision.md
-  - DSoftBus QUIC baseline: tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md
-  - Mux v2 baseline: tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md
-  - Discovery/authz hardening: tasks/TASK-0030-dsoftbus-discovery-authz-hardening-mdns-ttl-acl-ratelimit.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: "DSoftBus QUIC baseline"
+    target: tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md
+  - label: "Mux v2 baseline"
+    target: tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md
+  - label: "Discovery/authz hardening"
+    target: tasks/TASK-0030-dsoftbus-discovery-authz-hardening-mdns-ttl-acl-ratelimit.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Short description

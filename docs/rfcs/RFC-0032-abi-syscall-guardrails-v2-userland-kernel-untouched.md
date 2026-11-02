@@ -1,18 +1,29 @@
-# RFC-0032: ABI syscall guardrails v2 (userland, kernel-untouched)
+---
+schema: 1
+id: RFC-0032
+title: "ABI syscall guardrails v2 (userland, kernel-untouched)"
+status: done
+owners: ["@runtime", "@security"]
+created: 2026-03-26
+updated: 2026-03-27
+subsystem: security
+tasks: [TASK-0019]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0019-security-v2-userland-abi-syscall-filters.md` (execution + proof)"
+  - label: "Follow-on tasks"
+    target: "`tasks/TASK-0028-abi-filters-v2-arg-match-learn-enforce.md`"
+  - label: "Follow-on tasks"
+    target: "`tasks/TASK-0188-kernel-sysfilter-v1-task-profiles-rate-buckets.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0005-kernel-ipc-capability-model.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0031-crashdumps-v1-minidump-host-symbolize.md`"
+---
 
-- Status: Complete
-- Owners: @runtime @security
-- Created: 2026-03-26
-- Last Updated: 2026-03-27
-- Links:
-  - Tasks: `tasks/TASK-0019-security-v2-userland-abi-syscall-filters.md` (execution + proof)
-  - Follow-on tasks:
-    - `tasks/TASK-0028-abi-filters-v2-arg-match-learn-enforce.md`
-    - `tasks/TASK-0188-kernel-sysfilter-v1-task-profiles-rate-buckets.md`
-  - Related RFCs:
-    - `docs/rfcs/RFC-0005-kernel-ipc-capability-model.md`
-    - `docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md`
-    - `docs/rfcs/RFC-0031-crashdumps-v1-minidump-host-symbolize.md`
+# RFC-0032: ABI syscall guardrails v2 (userland, kernel-untouched)
 
 ## Status at a Glance
 

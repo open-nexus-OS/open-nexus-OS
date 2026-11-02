@@ -1,19 +1,28 @@
 ---
-title: TASK-0189 Sandbox profiles v2 (userspace): profile format + distribution (sandboxd or policyd) + samgr IPC allowlist + vfsd path policy + tests/markers
-status: Draft
-owner: @security
+schema: 1
+id: TASK-0189
+title: "Sandbox profiles v2 (userspace): profile format + distribution (sandboxd or policyd) + samgr IPC allowlist + vfsd path policy + tests/markers"
+status: draft
+owner: ["@security"]
 created: 2025-12-27
-depends-on: []
-follow-up-tasks: []
+subsystem: security
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Sandboxing v1 (namespaces/CapFd): tasks/TASK-0039-sandboxing-v1-vfs-namespaces-capfd-manifest.md
-  - ABI filters v2 (guardrails): tasks/TASK-0019-security-v2-userland-abi-syscall-filters.md
-  - ABI filters v2 arg matching (optional): tasks/TASK-0028-abi-filters-v2-arg-match-learn-enforce.md
-  - Policy authority (single source): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
-  - Policy caps/adapters: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Sandboxing v1 (namespaces/CapFd)"
+    target: tasks/TASK-0039-sandboxing-v1-vfs-namespaces-capfd-manifest.md
+  - label: "ABI filters v2 (guardrails)"
+    target: tasks/TASK-0019-security-v2-userland-abi-syscall-filters.md
+  - label: "ABI filters v2 arg matching (optional)"
+    target: tasks/TASK-0028-abi-filters-v2-arg-match-learn-enforce.md
+  - label: "Policy authority (single source)"
+    target: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
+  - label: "Policy caps/adapters"
+    target: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

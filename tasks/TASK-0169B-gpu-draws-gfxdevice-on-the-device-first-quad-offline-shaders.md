@@ -1,18 +1,33 @@
 ---
-title: TASK-0169B The GPU draws — `GfxDevice` on the device (G2) and the first textured quad from offline shaders (G3's first op) — Block 4 layer 4, RFC-0101 Phase 3
-status: Done (2026-10-13)
-owner: @gpu @compositor
+schema: 1
+id: TASK-0169B
+title: "The GPU draws — `GfxDevice` on the device (G2) and the first textured quad from offline shaders (G3's first op) — Block 4 layer 4, RFC-0101 Phase 3"
+status: done
+status_note: 2026-10-13
+owner: ["@gpu", "@compositor"]
 created: 2026-04-10
-recut: 2026-10-13 (from the v1b "resource/fence core + CPU mock" draft, whose host half landed as TASK-0280's `GfxDevice` v2 + `cpu_mock`)
-depends-on: [TASK-0329 (G1, the device online), TASK-0280 (the v2 contract, host), TASK-0216 (the plane ring)]
-follow-up-tasks: [TASK-0215 + TASK-0216 (layer 5: the desktop on the GPU — the render queue, blending, blur), TASK-0290 (M2: the uncached mapping for several commands in flight)]
+subsystem: app-platform
+done: 2026-10-13
+dates_source: status-text
+depends_on: [TASK-0329, TASK-0280, TASK-0216]
+follow_ups: [TASK-0215, TASK-0290]
+split_from: TASK-0169
+implements: [RFC-0101]
 links:
-  - Contract: docs/rfcs/RFC-0101-gpu-driver-split-contexts-vm-batches-fence-and-the-scanout-contract.md (§4, §7, §8c Phase 3)
-  - Order: tasks/IMPLEMENTATION-ORDER.md ("Block 4 in layers", layer 4)
-  - Measurement: docs/board/measurements/2026-10-13-gpu-first-quad/README.md
-  - The device online (layer 3): tasks/TASK-0329-gpu-device-driver-img-b-series-gpud-backend-firmware-mmu-submission.md
-  - The scanout contract (layer 2): tasks/TASK-0216-…
-  - Method: .claude/skills/driver-bringup/SKILL.md
+  - label: Contract
+    target: "docs/rfcs/RFC-0101-gpu-driver-split-contexts-vm-batches-fence-and-the-scanout-contract.md (§4, §7, §8c Phase 3)"
+  - label: Order
+    target: "tasks/milestones/hardware-network.md (\"Block 4 in layers\", layer 4)"
+  - label: Measurement
+    target: docs/board/measurements/2026-10-13-gpu-first-quad/README.md
+  - label: "The device online (layer 3)"
+    target: tasks/TASK-0329-gpu-device-driver-img-b-series-gpud-backend-firmware-mmu-submission.md
+  - label: "The scanout contract (layer 2)"
+    target: "tasks/TASK-0216-…"
+  - label: Method
+    target: ".claude/skills/driver-bringup/SKILL.md"
+  - label: recut
+    target: "2026-10-13 (from the v1b \"resource/fence core + CPU mock\" draft, whose host half landed as TASK-0280's `GfxDevice` v2 + `cpu_mock`)"
 ---
 
 ## Context

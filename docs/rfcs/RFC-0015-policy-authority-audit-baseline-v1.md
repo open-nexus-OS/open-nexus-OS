@@ -1,13 +1,23 @@
-# RFC-0015: Policy Authority & Audit Baseline v1
+---
+schema: 1
+id: RFC-0015
+title: "Policy Authority & Audit Baseline v1"
+status: done
+owners: ["@runtime"]
+created: 2026-01-23
+updated: 2026-01-25
+subsystem: security
+tasks: [TASK-0008]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0008-security-hardening-v1-nexus-sel-audit-device-keys.md` (execution + proof)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0005-kernel-ipc-capability-model.md` (capability model foundation)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0011-logd-journal-crash-v1.md` (audit sink via logd)"
+---
 
-- Status: Complete
-- Owners: @runtime
-- Created: 2026-01-23
-- Last Updated: 2026-01-25
-- Links:
-  - Tasks: `tasks/TASK-0008-security-hardening-v1-nexus-sel-audit-device-keys.md` (execution + proof)
-  - Related RFCs: `docs/rfcs/RFC-0005-kernel-ipc-capability-model.md` (capability model foundation)
-  - Related RFCs: `docs/rfcs/RFC-0011-logd-journal-crash-v1.md` (audit sink via logd)
+# RFC-0015: Policy Authority & Audit Baseline v1
 
 ## Status at a Glance
 

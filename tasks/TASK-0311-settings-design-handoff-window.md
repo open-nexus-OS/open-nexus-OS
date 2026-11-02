@@ -1,18 +1,34 @@
 ---
-title: TASK-0311 Settings design handoff — full information architecture on WinAppWindow
-status: In Progress (2026-07-29) — Phase 0+1 + repair round boot-proven end-to-end (landing, taps, menus, appearance live-accent, fullscreen); Phase 2 (sub-pages, view options, search) open
-owner: @ui
+schema: 1
+id: TASK-0311
+title: "Settings design handoff — full information architecture on WinAppWindow"
+status: in_progress
+status_note: "(2026-07-29) — Phase 0+1 + repair round boot-proven end-to-end (landing, taps, menus, appearance live-accent, fullscreen)"
+owner: ["@ui"]
 created: 2026-07-29
+subsystem: ui
+started: 2026-07-29
+dates_source: git-reconstructed
 links:
-  - Design contract: userspace/apps/settings/docs/design_handoff_os_settings_window/README.md
-  - Metrics contract: userspace/apps/settings/docs/design_handoff_os_settings_window/LAYOUT.md
-  - Window scaffold: docs/rfcs/RFC-0084-dsl-slots-component-content-regions.md
-  - Scaffold execution: tasks/TASK-0308-dsl-slots-and-window-scaffold.md
-  - Settings authority: tasks/TASK-0307-settings-distribution-v2.md
-  - App layout convention: docs/dev/dsl/project-layout.md
-  - Token gap list: docs/dev/ui/design-token-audit.md
-  - Playbook: CLAUDE.md
+  - label: "Design contract"
+    target: userspace/apps/settings/docs/design_handoff_os_settings_window/README.md
+  - label: "Metrics contract"
+    target: userspace/apps/settings/docs/design_handoff_os_settings_window/LAYOUT.md
+  - label: "Window scaffold"
+    target: docs/rfcs/RFC-0084-dsl-slots-component-content-regions.md
+  - label: "Scaffold execution"
+    target: tasks/TASK-0308-dsl-slots-and-window-scaffold.md
+  - label: "Settings authority"
+    target: tasks/TASK-0307-settings-distribution-v2.md
+  - label: "App layout convention"
+    target: docs/dev/dsl/project-layout.md
+  - label: "Token gap list"
+    target: docs/dev/ui/design-token-audit.md
+  - label: Playbook
+    target: CLAUDE.md
 ---
+
+> Status (migrated 2026-11-02): In Progress (2026-07-29) — Phase 0+1 + repair round boot-proven end-to-end (landing, taps, menus, appearance live-accent, fullscreen); Phase 2 (sub-pages, view options, search) open
 
 ## Context
 

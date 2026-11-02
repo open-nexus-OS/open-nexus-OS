@@ -1,20 +1,30 @@
+---
+schema: 1
+id: RFC-0020
+title: "Kernel ownership + Rust idioms pre-SMP v1 (logic-preserving)"
+status: done
+owners: ["@kernel-team", "@runtime"]
+created: 2026-02-09
+updated: 2026-02-10
+subsystem: kernel
+tasks: [TASK-0011B]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0011B-kernel-rust-idioms-pre-smp.md` (execution + proof)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0001-kernel-simplification.md` (stable kernel taxonomy + layout contract; implemented by TASK-0011)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0013-boot-gates-readiness-spawn-resource-v1.md` (marker/readiness discipline; determinism)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md` (host-first + phased QEMU smoke)"
+  - label: "`docs/standards/RUST_STANDARDS.md` (kernel Rust policy"
+    target: "unsafe discipline, newtypes, ownership docs)"
+---
+
 <!-- Copyright 2026 Open Nexus OS Contributors -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # RFC-0020: Kernel ownership + Rust idioms pre-SMP v1 (logic-preserving)
-
-- Status: Complete
-- Owners: @kernel-team, @runtime
-- Created: 2026-02-09
-- Last Updated: 2026-02-10
-- Links:
-  - Tasks: `tasks/TASK-0011B-kernel-rust-idioms-pre-smp.md` (execution + proof)
-  - Related RFCs:
-    - `docs/rfcs/RFC-0001-kernel-simplification.md` (stable kernel taxonomy + layout contract; implemented by TASK-0011)
-    - `docs/rfcs/RFC-0013-boot-gates-readiness-spawn-resource-v1.md` (marker/readiness discipline; determinism)
-    - `docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md` (host-first + phased QEMU smoke)
-  - Standards:
-    - `docs/standards/RUST_STANDARDS.md` (kernel Rust policy: unsafe discipline, newtypes, ownership docs)
 
 ## Status at a Glance
 

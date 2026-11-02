@@ -1,14 +1,25 @@
-# RFC-0040: Zero-Copy VMOs v1 Plumbing — host-first, OS-gated contract seed
+---
+schema: 1
+id: RFC-0040
+title: "Zero-Copy VMOs v1 Plumbing — host-first, OS-gated contract seed"
+status: done
+owners: ["@runtime", "@kernel-team"]
+created: 2026-04-21
+updated: 2026-04-23
+subsystem: storage
+tasks: [TASK-0031, TASK-0290]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md` (execution + proof), `tasks/TASK-0290-kernel-zero-copy-closure-v1b-vmo-seals-reuse-truth.md` (production-grade closure)"
+  - label: "Production gate policy"
+    target: "`tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`"
+  - label: ADRs
+    target: "None (as of draft)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0005-kernel-ipc-capability-model.md`, `docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md`, `docs/rfcs/RFC-0038-selftest-client-production-grade-deterministic-test-architecture-refactor-v1.md`"
+---
 
-- Status: Done
-- Owners: @runtime / @kernel-team
-- Created: 2026-04-21
-- Last Updated: 2026-04-23
-- Links:
-  - Tasks: `tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md` (execution + proof), `tasks/TASK-0290-kernel-zero-copy-closure-v1b-vmo-seals-reuse-truth.md` (production-grade closure)
-  - Production gate policy: `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`
-  - ADRs: None (as of draft)
-  - Related RFCs: `docs/rfcs/RFC-0005-kernel-ipc-capability-model.md`, `docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md`, `docs/rfcs/RFC-0038-selftest-client-production-grade-deterministic-test-architecture-refactor-v1.md`
+# RFC-0040: Zero-Copy VMOs v1 Plumbing — host-first, OS-gated contract seed
 
 ## Status at a Glance
 

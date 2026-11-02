@@ -1,17 +1,23 @@
-# RFC-0084: DSL slots v1 — component content regions, caller-scope bodies, IR v1.5
+---
+schema: 1
+id: RFC-0084
+title: "DSL slots v1 — component content regions, caller-scope bodies, IR v1.5"
+status: draft
+owners: ["@ui", "@runtime"]
+created: 2026-07-27
+updated: 2026-07-27
+subsystem: app-platform
+tasks: [TASK-0308]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0308-dsl-slots-and-window-scaffold.md` (execution + proof)"
+  - label: ADRs
+    target: "none required (compiler/wire change inside one toolchain). One amendment paragraph below covers the `device.sizeClass` contract touch."
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0067-windowd-compositor-boundary.md` (window UI is a widget, windowd is a service), `docs/rfcs/RFC-0082-type-ramp-v2-on-glass-surface-tokens.md` (the glass/`Panel` paint SSOT this builds on)"
+---
 
-- Status: Draft
-- Owners: @ui @runtime
-- Created: 2026-07-27
-- Last Updated: 2026-07-27
-- Links:
-  - Tasks: `tasks/TASK-0308-dsl-slots-and-window-scaffold.md` (execution + proof)
-  - ADRs: none required (compiler/wire change inside one toolchain). One
-    amendment paragraph below covers the `device.sizeClass` contract touch.
-  - Related RFCs: `docs/rfcs/RFC-0067-windowd-compositor-boundary.md`
-    (window UI is a widget, windowd is a service),
-    `docs/rfcs/RFC-0082-type-ramp-v2-on-glass-surface-tokens.md`
-    (the glass/`Panel` paint SSOT this builds on)
+# RFC-0084: DSL slots v1 — component content regions, caller-scope bodies, IR v1.5
 
 ## Status at a Glance
 

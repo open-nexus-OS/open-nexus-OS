@@ -1,28 +1,41 @@
 ---
-
-title: TASK-0034 Delta updates v1: nxdelta (rollsum+zstd) + bundlemgrd delta apply (digest/bootctl goals shipped)
-status: Done
-owner: @runtime
+schema: 1
+id: TASK-0034
+title: "Delta updates v1: nxdelta (rollsum+zstd) + bundlemgrd delta apply (digest/bootctl goals shipped)"
+status: done
+owner: ["@runtime"]
 created: 2025-12-22
 updated: 2026-09-01
-size: M  # was L; Goals 1+2 shipped (see Rebase 2026-08-14), residual scope is the .nxdelta lane only
-depends-on: []
-follow-up-tasks: []
+subsystem: updates
+started: 2026-09-03
+done: 2026-09-03
+active_days: 1
+dates_source: git-reconstructed
 links:
-
-  - Vision: docs/architecture/vision.md
-  - Packaging baseline: tasks/TASK-0007-updates-packaging-v1_1-userspace-ab-skeleton.md
-  - Manifest format: docs/adr/0020-manifest-format-capnproto.md
-  - Signing policy: docs/security/signing-and-policy.md
-  - Supply-chain baseline (SBOM/sign policy): tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
-  - Persistence substrate (resume checkpoints): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - VMO plumbing (optional fast path): tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
-  - Testing contract: scripts/qemu-test.sh
-  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
-
-
-  - TASK-0007: Updates v1.0 (manifest.nxb unification, non-persistent A/B skeleton)
-  - TASK-0009: Persistence v1 (statefs for bootctl + resume checkpoints)
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: "Packaging baseline"
+    target: tasks/TASK-0007-updates-packaging-v1_1-userspace-ab-skeleton.md
+  - label: "Manifest format"
+    target: docs/adr/0020-manifest-format-capnproto.md
+  - label: "Signing policy"
+    target: docs/security/signing-and-policy.md
+  - label: "Supply-chain baseline (SBOM/sign policy)"
+    target: tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
+  - label: "Persistence substrate (resume checkpoints)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "VMO plumbing (optional fast path)"
+    target: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
+  - label: "Data formats rubric (JSON vs Cap'n Proto)"
+    target: docs/adr/0021-structured-data-formats-json-vs-capnp.md
+  - label: TASK-0007
+    target: "Updates v1.0 (manifest.nxb unification, non-persistent A/B skeleton)"
+  - label: TASK-0009
+    target: "Persistence v1 (statefs for bootctl + resume checkpoints)"
+  - label: size
+    target: "M (was L; Goals 1+2 shipped (see Rebase 2026-08-14), residual scope is the .nxdelta lane only)"
 ---
 
 ## DELIVERED 2026-09-01 (RFC-0090; honest recuts stated)

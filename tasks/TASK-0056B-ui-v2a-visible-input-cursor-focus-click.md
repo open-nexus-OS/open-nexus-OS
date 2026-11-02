@@ -1,28 +1,30 @@
 ---
-title: TASK-0056B UI v2a extension: visible input v0 (cursor + hover + focus + click) in QEMU
-status: Done
-owner: @ui
+schema: 1
+id: TASK-0056B
+title: "UI v2a extension: visible input v0 (cursor + hover + focus + click) in QEMU"
+status: done
+owner: ["@ui"]
 created: 2026-03-28
-depends-on:
-  - TASK-0055C
-  - TASK-0056
-follow-up-tasks:
-  - TASK-0252
-  - TASK-0253
-  - TASK-0056C
-  - TASK-0199
-  - TASK-0200
-  - TASK-0251
+subsystem: ui
+done: 2026-07-17
+dates_source: git-reconstructed
+depends_on: [TASK-0055C, TASK-0056]
+follow_ups: [TASK-0252, TASK-0253, TASK-0056C, TASK-0199, TASK-0200, TASK-0251]
+split_from: TASK-0056
+implements: [RFC-0051, RFC-0050]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - RFC seed contract: docs/rfcs/RFC-0051-ui-v2a-visible-input-cursor-focus-click-contract.md
-  - Visible present baseline: tasks/TASK-0055C-ui-v1d-windowd-visible-present-systemui-first-frame.md
-  - UI v2a present/input baseline: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
-  - UI v2a contract carry-in: docs/rfcs/RFC-0050-ui-v2a-present-scheduler-double-buffer-input-routing-contract.md
-  - Production gates: tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md
-  - Input device OS follow-up: tasks/TASK-0253-input-v1_0b-os-hidrawd-touchd-inputd-ime-hooks-selftests.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Visible present baseline"
+    target: tasks/TASK-0055C-ui-v1d-windowd-visible-present-systemui-first-frame.md
+  - label: "UI v2a present/input baseline"
+    target: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
+  - label: "Production gates"
+    target: tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

@@ -1,27 +1,49 @@
 ---
-title: TASK-0058 UI v3a: deterministic layout engine (flex/grid/stack) + text wrapping + host goldens
-status: Done
-owner: @ui
+schema: 1
+id: TASK-0058
+title: "UI v3a: deterministic layout engine (flex/grid/stack) + text wrapping + host goldens"
+status: done
+owner: ["@ui"]
 created: 2025-12-23
-updated: 2026-05-17 (Done — production-grade, 31 tests, windowd integrated, single source of truth, pretext philosophy, types concretized)
-depends-on: [TASK-0057, TASK-0056]
-follow-up-tasks: [TASK-0059]
+updated: 2026-05-17
+subsystem: ui
+started: 2026-05-15
+done: 2026-05-17
+active_days: 3
+dates_source: git-reconstructed
+depends_on: [TASK-0057, TASK-0056]
+follow_ups: [TASK-0059]
+implements: [RFC-0057]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - **RFC seed (SSOT contract)**: docs/rfcs/RFC-0057-ui-v3a-layout-engine-pretext-contract.md
-  - Design reference: https://github.com/chenglou/pretext (prepare/layout split philosophy)
-  - UI v2b shaping baseline: tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
-  - UI v2a present/input baseline: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
-  - UI layout pipeline contract: docs/dev/ui/foundations/layout/layout-pipeline.md
-  - Text preparation contract: docs/dev/ui/foundations/layout/text.md
-  - Wrapping spec: docs/dev/ui/foundations/layout/wrapping.md
-  - DSL alignment (view expressions, modifiers): tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
-  - DSL syntax conventions: docs/dev/dsl/syntax.md
-  - Testing contract: docs/dev/ui/foundations/quality/goldens.md
-  - Minimal DisplayServer v0: docs/architecture/graphics/display-output-service-chain.md
-  - Proof surface reference: source/services/windowd/src/os_lite.rs (current hardcoded panel)
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Design reference"
+    target: "https://github.com/chenglou/pretext (prepare/layout split philosophy)"
+  - label: "UI v2b shaping baseline"
+    target: tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
+  - label: "UI v2a present/input baseline"
+    target: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
+  - label: "UI layout pipeline contract"
+    target: docs/dev/ui/foundations/layout/layout-pipeline.md
+  - label: "Text preparation contract"
+    target: docs/dev/ui/foundations/layout/text.md
+  - label: "Wrapping spec"
+    target: docs/dev/ui/foundations/layout/wrapping.md
+  - label: "DSL alignment (view expressions, modifiers)"
+    target: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
+  - label: "DSL syntax conventions"
+    target: docs/dev/dsl/syntax.md
+  - label: "Testing contract"
+    target: docs/dev/ui/foundations/quality/goldens.md
+  - label: "Minimal DisplayServer v0"
+    target: docs/architecture/graphics/display-output-service-chain.md
+  - label: "Proof surface reference"
+    target: "source/services/windowd/src/os_lite.rs (current hardcoded panel)"
 ---
+
+> updated (migrated 2026-11-02): 2026-05-17 (Done — production-grade, 31 tests, windowd integrated, single source of truth, pretext philosophy, types concretized)
 
 ## Context
 

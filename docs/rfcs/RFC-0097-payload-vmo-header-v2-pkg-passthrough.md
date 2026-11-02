@@ -1,18 +1,34 @@
+---
+schema: 1
+id: RFC-0097
+title: "Payload-VMO header v2 — ONE header codec, and `pkg:/` reads as a VMO pass-through"
+status: done
+status_note: "2026-09-18 (TASK-0033 P0–P3)"
+owners: ["@runtime"]
+created: 2026-09-18
+updated: 2026-09-18
+subsystem: storage
+tasks: [TASK-0033]
+extends: [RFC-0072]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0033-packagefs-v2b-vmo-splice-from-image.md` (execution + proof, P0–P3)"
+  - label: Extends
+    target: "`docs/rfcs/RFC-0072-vfs-v2-writable-providers-readdir-stable-errors.md` (Phase 3 named the VMO data plane and the `E2BIG` rule; this RFC makes `pkg:/` obey them and gives the header ONE definition)"
+  - label: "Builds on"
+    target: "`docs/rfcs/RFC-0089-ota-v2-component-manifest-ab-boot-images-nxboot-bsb.md` / `tasks/TASK-0321-ota-phase-b-verified-system-volume-bundle-set.md` P5 (`OP_GET_FILE_VMO`: digest-checked file VMOs out of the verified system volume — unchanged by this RFC)"
+  - label: Cites
+    target: "`docs/rfcs/RFC-0096-ipc-performance-contract-v2-call-reply-recv-fastpath.md` (the control plane is small, bounded and capped at `IPC_PAYLOAD_MAX` → `E2BIG`; bulk belongs in a VMO — this RFC is the other half of that sentence)"
+  - label: Cites
+    target: "`docs/rfcs/RFC-0079-ipc-last-sender-eof.md` (a forwarded request is awaited, or the peer's death ends it — never polled)"
+---
+
 <!-- Copyright 2026 Open Nexus OS Contributors -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # RFC-0097: Payload-VMO header v2 — ONE header codec, and `pkg:/` reads as a VMO pass-through
 
-- Status: **Done 2026-09-18** (TASK-0033 P0–P3). `pkg:/` served 93 of the system volume's 115 entries when this was written, and asking for one of the other 22 ended packagefsd. The reply-frame ceiling is gone: an entry is bounded by the caller's VMO now, and nothing else. Proven on `pkg:/settings/payload.nxir` — 259 424 bytes, from the previously fatal class.
-- Owners: @runtime
-- Created: 2026-09-18
-- Last Updated: 2026-09-18
-- Links:
-  - Tasks: `tasks/TASK-0033-packagefs-v2b-vmo-splice-from-image.md` (execution + proof, P0–P3)
-  - Extends: `docs/rfcs/RFC-0072-vfs-v2-writable-providers-readdir-stable-errors.md` (Phase 3 named the VMO data plane and the `E2BIG` rule; this RFC makes `pkg:/` obey them and gives the header ONE definition)
-  - Builds on: `docs/rfcs/RFC-0089-ota-v2-component-manifest-ab-boot-images-nxboot-bsb.md` / `tasks/TASK-0321-ota-phase-b-verified-system-volume-bundle-set.md` P5 (`OP_GET_FILE_VMO`: digest-checked file VMOs out of the verified system volume — unchanged by this RFC)
-  - Cites: `docs/rfcs/RFC-0096-ipc-performance-contract-v2-call-reply-recv-fastpath.md` (the control plane is small, bounded and capped at `IPC_PAYLOAD_MAX` → `E2BIG`; bulk belongs in a VMO — this RFC is the other half of that sentence)
-  - Cites: `docs/rfcs/RFC-0079-ipc-last-sender-eof.md` (a forwarded request is awaited, or the peer's death ends it — never polled)
+> Status (migrated 2026-11-02): **Done 2026-09-18** (TASK-0033 P0–P3). `pkg:/` served 93 of the system volume's 115 entries when this was written, and asking for one of the other 22 ended packagefsd. The reply-frame ceiling is gone: an entry is bounded by the caller's VMO now, and nothing else. Proven on `pkg:/settings/payload.nxir` — 259 424 bytes, from the previously fatal class.
 
 ## Status at a Glance
 

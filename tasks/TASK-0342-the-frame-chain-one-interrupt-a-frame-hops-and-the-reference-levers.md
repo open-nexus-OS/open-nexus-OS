@@ -1,15 +1,27 @@
 ---
-title: TASK-0342 The frame chain — one display interrupt a frame, hop markers along the input and frame chains, then the reference platforms' levers by measured cost
-status: Done (2026-10-22, board cycles 60–61 — steps 1–3 and the hops; steps 4–6 handed to TASK-0335, step 7 to layer 8)
-owner: @ui @runtime
+schema: 1
+id: TASK-0342
+title: "The frame chain — one display interrupt a frame, hop markers along the input and frame chains, then the reference platforms' levers by measured cost"
+status: done
+status_note: "2026-10-22, board cycles 60–61 — steps 1–3 and the hops; steps 4–6 handed to TASK-0335, step 7 to layer 8"
+owner: ["@ui", "@runtime"]
 created: 2026-10-22
-depends-on: [TASK-0341 (surface layers), TASK-0339 (the compositor never waits on a client)]
-follow-up-tasks: [frame pacing — a steady cadence and the motion computed for the time a frame is shown (cycle 61: fluid, but the content cannot be followed); the frames that change no pixel (`frames(blit=)` while typing); the scan-out underflows (`underflows=8` in cycle 61) — when they come; TASK-0335 the programs (this task's steps 4–6); layer 8 the planes for what moves (step 7); zero-copy client surfaces (G5, RFC-0101 §7b); the input's own stamp from the device (RFC-0108 Phase 1)]
+subsystem: ui
+done: 2026-10-22
+dates_source: status-text
+depends_on: [TASK-0341, TASK-0339]
+implements: [RFC-0108, RFC-0101]
 links:
-  - RFC: docs/rfcs/RFC-0108-ux-latency-contract-instant-and-smooth-as-numbers.md (§hops, amended)
-  - RFC: docs/rfcs/RFC-0101-gpu-driver-split-contexts-vm-batches-fence-and-the-scanout-contract.md (§8, amended: the flip through the controller's latch)
-  - Measurement: docs/board/measurements/2026-10-22-frame-chain/README.md
-  - Before: docs/board/measurements/2026-10-21-gpu-vendor-per-pixel/README.md ("Cycle 59")
+  - label: RFC
+    target: "docs/rfcs/RFC-0108-ux-latency-contract-instant-and-smooth-as-numbers.md (§hops, amended)"
+  - label: RFC
+    target: "docs/rfcs/RFC-0101-gpu-driver-split-contexts-vm-batches-fence-and-the-scanout-contract.md (§8, amended: the flip through the controller's latch)"
+  - label: Measurement
+    target: docs/board/measurements/2026-10-22-frame-chain/README.md
+  - label: Before
+    target: "docs/board/measurements/2026-10-21-gpu-vendor-per-pixel/README.md (\"Cycle 59\")"
+  - label: follow-up
+    target: "frame pacing — a steady cadence and the motion computed for the time a frame is shown (cycle 61: fluid, but the content cannot be followed); the frames that change no pixel (`frames(blit=)` while typing); the scan-out underflows (`underflows=8` in cycle 61) — when they come; TASK-0335 the programs (this task's steps 4–6); layer 8 the planes for what moves (step 7); zero-copy client surfaces (G5, RFC-0101 §7b); the input's own stamp from the device (RFC-0108 Phase 1)"
 ---
 
 ## Context (cycle 59)

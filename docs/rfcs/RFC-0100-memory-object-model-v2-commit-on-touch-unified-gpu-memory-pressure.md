@@ -1,15 +1,28 @@
-# RFC-0100: The memory object model v2 — a VMO dies with its last capability, pages committed on touch, one pool shared with the GPU, pressure as an event, compression before swap
+---
+schema: 1
+id: RFC-0100
+title: "The memory object model v2 — a VMO dies with its last capability, pages committed on touch, one pool shared with the GPU, pressure as an event, compression before swap"
+status: done
+status_note: "2026-10-30 — phases 0–4 green: TASK-0333 6a, 6b, 6c, 6e, 6f; board cycles 48–77; seeded 2026-10-19 at layer 6's start, filled in 6b"
+owners: ["@kernel-team", "@runtime", "@gpu"]
+created: 2026-10-19
+updated: 2026-10-28
+subsystem: kernel
+tasks: [TASK-0333, TASK-0286]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0333-memory-the-efficient-one-and-the-app-lifecycle-layer-6.md` (the layer, 6a–6f, execution + proof); `tasks/TASK-0286-…` (M1, Done: frames from the FDT, page-backed VMOs, the `contiguous-DMA` kind, `mm_stats`)"
+  - label: "Related RFCs"
+    target: "RFC-0098 C4 (physical memory from the FDT; defers the object model here), RFC-0085 (kernel-owned VAs; the explicit `vmo_destroy` rule stays), RFC-0080 (`vmo_share_ro`), RFC-0087 (\"exhaustion is an event\"), RFC-0101 (the GPU driver: contexts with their own GPU address space, VMOs bound with a cache mode), RFC-0079 (EOF on the last sender's death)"
+  - label: "ADRs (at their packages, numbers at writing)"
+    target: "process control of a child; the app lifecycle contract; windowd never blocks on an app; one memory authority; the compressor before swap"
+  - label: Order
+    target: "`tasks/milestones/hardware-network.md` (\"Block 4 in layers\", layer 6)"
+  - label: Measured
+    target: "`docs/board/measurements/2026-10-10-mgs-baseline/README.md` (\"Memory\"); `docs/board/measurements/2026-10-20-memory-lifecycle-baseline/` (6a P0)"
+---
 
-- Status: Complete (2026-10-30 — phases 0–4 green: TASK-0333 6a, 6b, 6c, 6e, 6f; board cycles 48–77; seeded 2026-10-19 at layer 6's start, filled in 6b)
-- Owners: @kernel-team @runtime @gpu
-- Created: 2026-10-19
-- Last Updated: 2026-10-28
-- Links:
-  - Tasks: `tasks/TASK-0333-memory-the-efficient-one-and-the-app-lifecycle-layer-6.md` (the layer, 6a–6f, execution + proof); `tasks/TASK-0286-…` (M1, Done: frames from the FDT, page-backed VMOs, the `contiguous-DMA` kind, `mm_stats`)
-  - Related RFCs: RFC-0098 C4 (physical memory from the FDT; defers the object model here), RFC-0085 (kernel-owned VAs; the explicit `vmo_destroy` rule stays), RFC-0080 (`vmo_share_ro`), RFC-0087 ("exhaustion is an event"), RFC-0101 (the GPU driver: contexts with their own GPU address space, VMOs bound with a cache mode), RFC-0079 (EOF on the last sender's death)
-  - ADRs (at their packages, numbers at writing): process control of a child; the app lifecycle contract; windowd never blocks on an app; one memory authority; the compressor before swap
-  - Order: `tasks/IMPLEMENTATION-ORDER.md` ("Block 4 in layers", layer 6)
-  - Measured: `docs/board/measurements/2026-10-10-mgs-baseline/README.md` ("Memory"); `docs/board/measurements/2026-10-20-memory-lifecycle-baseline/` (6a P0)
+# RFC-0100: The memory object model v2 — a VMO dies with its last capability, pages committed on touch, one pool shared with the GPU, pressure as an event, compression before swap
 
 ## Status at a Glance
 

@@ -1,15 +1,25 @@
-# RFC-0022: Kernel SMP v1b scheduler/SMP hardening contract
+---
+schema: 1
+id: RFC-0022
+title: "Kernel SMP v1b scheduler/SMP hardening contract"
+status: done
+owners: ["@kernel-team"]
+created: 2026-02-10
+updated: 2026-02-11
+subsystem: kernel
+tasks: [TASK-0012B]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md` (execution + proof)"
+  - label: ADRs
+    target: "`docs/adr/0025-qemu-smoke-proof-gating.md` (QEMU proof policy)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0021-kernel-smp-v1-percpu-runqueues-ipi-contract.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md`"
+---
 
-- Status: Done
-- Owners: @kernel-team
-- Created: 2026-02-10
-- Last Updated: 2026-02-11
-- Links:
-  - Tasks: `tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md` (execution + proof)
-  - ADRs: `docs/adr/0025-qemu-smoke-proof-gating.md` (QEMU proof policy)
-  - Related RFCs:
-    - `docs/rfcs/RFC-0021-kernel-smp-v1-percpu-runqueues-ipi-contract.md`
-    - `docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md`
+# RFC-0022: Kernel SMP v1b scheduler/SMP hardening contract
 
 ## Status at a Glance
 

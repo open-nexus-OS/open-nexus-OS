@@ -1,16 +1,27 @@
-# RFC-0054: Input v1.0c OS/QEMU virtio-input driver layer (`virtio-input` -> `hidrawd`)
+---
+schema: 1
+id: RFC-0054
+title: "Input v1.0c OS/QEMU virtio-input driver layer (`virtio-input` -> `hidrawd`)"
+status: done
+owners: ["@ui", "@runtime"]
+created: 2026-05-05
+updated: 2026-05-11
+subsystem: ui
+tasks: [TASK-0253]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0253-input-v1_0b-os-hidrawd-touchd-inputd-ime-hooks-selftests.md` (execution + proof)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0017-device-mmio-access-model-v1.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0052-input-v1_0a-host-hid-touch-keymaps-repeat-accel-contract.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0053-input-v1_0b-os-qemu-live-input-hidrawd-touchd-inputd-contract.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0006-userspace-networking-v1.md`"
+---
 
-- Status: Done
-- Owners: @ui @runtime
-- Created: 2026-05-05
-- Last Updated: 2026-05-11
-- Links:
-  - Tasks: `tasks/TASK-0253-input-v1_0b-os-hidrawd-touchd-inputd-ime-hooks-selftests.md` (execution + proof)
-  - Related RFCs:
-    - `docs/rfcs/RFC-0017-device-mmio-access-model-v1.md`
-    - `docs/rfcs/RFC-0052-input-v1_0a-host-hid-touch-keymaps-repeat-accel-contract.md`
-    - `docs/rfcs/RFC-0053-input-v1_0b-os-qemu-live-input-hidrawd-touchd-inputd-contract.md`
-    - `docs/rfcs/RFC-0006-userspace-networking-v1.md`
+# RFC-0054: Input v1.0c OS/QEMU virtio-input driver layer (`virtio-input` -> `hidrawd`)
 
 ## Status at a Glance
 

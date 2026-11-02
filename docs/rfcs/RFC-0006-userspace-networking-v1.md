@@ -1,14 +1,23 @@
-# RFC-0006: Userspace Networking v1 (virtio-net + smoltcp + sockets facade)
+---
+schema: 1
+id: RFC-0006
+title: "Userspace Networking v1 (virtio-net + smoltcp + sockets facade)"
+status: done
+owners: ["@runtime"]
+created: 2026-01-01
+updated: 2026-01-02
+subsystem: distributed
+tasks: [TASK-0003]
+links:
+  - label: "Device/MMIO gatekeeper"
+    target: "`tasks/TASK-0010-device-mmio-access-model.md`"
+  - label: "Driver track alignment"
+    target: "`tasks/TRACK-NETWORKING-DRIVERS.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0005-kernel-ipc-capability-model.md` (extension policy + identity rules)"
+---
 
-- Status: Complete
-- Owners: @runtime
-- Created: 2026-01-01
-- Last Updated: 2026-01-02
-- Links:
-  - Tasks (execution + proof): `tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md`
-  - Device/MMIO gatekeeper: `tasks/TASK-0010-device-mmio-access-model.md`
-  - Driver track alignment: `tasks/TRACK-NETWORKING-DRIVERS.md`
-  - Related RFCs: `docs/rfcs/RFC-0005-kernel-ipc-capability-model.md` (extension policy + identity rules)
+# RFC-0006: Userspace Networking v1 (virtio-net + smoltcp + sockets facade)
 
 ## Status at a Glance
 

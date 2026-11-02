@@ -1,16 +1,28 @@
+---
+schema: 1
+id: RFC-0008
+title: "DSoftBus Noise XK v1 (no_std handshake + identity binding)"
+status: done
+status_note: "Phase 0+1 ✅"
+owners: ["@runtime"]
+created: 2026-01-07
+updated: 2026-01-10
+subsystem: distributed
+tasks: [TASK-0003B, TASK-0004]
+links:
+  - label: ADR
+    target: "`docs/adr/0005-dsoftbus-architecture.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0007-dsoftbus-os-transport-v1.md` (OS transport contract)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0006-userspace-networking-v1.md` (sockets facade contract)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0005-kernel-ipc-capability-model.md` (identity-binding rules for security-critical protocols)"
+---
+
 # RFC-0008: DSoftBus Noise XK v1 (no_std handshake + identity binding)
 
-- Status: Complete (Phase 0+1 ✅)
-- Owners: @runtime
-- Created: 2026-01-07
-- Last Updated: 2026-01-10 (Phase 1b proven; host negative tests + QEMU marker harness green)
-- Links:
-  - Tasks (execution + proof): `tasks/TASK-0003B-dsoftbus-noise-xk-os.md`, `tasks/TASK-0004-networking-dhcp-icmp-dsoftbus-dual-node.md`
-  - ADR: `docs/adr/0005-dsoftbus-architecture.md`
-  - Related RFCs:
-    - `docs/rfcs/RFC-0007-dsoftbus-os-transport-v1.md` (OS transport contract)
-    - `docs/rfcs/RFC-0006-userspace-networking-v1.md` (sockets facade contract)
-    - `docs/rfcs/RFC-0005-kernel-ipc-capability-model.md` (identity-binding rules for security-critical protocols)
+> Last Updated (migrated 2026-11-02): 2026-01-10 (Phase 1b proven; host negative tests + QEMU marker harness green)
 
 ## Status at a Glance
 

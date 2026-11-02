@@ -1,26 +1,24 @@
-# RFC-0087: Reliability & Failure Model v1 — supervision, exhaustion events, degradation, boot targets
+---
+schema: 1
+id: RFC-0087
+title: "Reliability & Failure Model v1 — supervision, exhaustion events, degradation, boot targets"
+status: done
+status_note: "all seven lane tasks Done 2026-08-20..24; proof gates green in `just test-all`"
+owners: ["@runtime", "@reliability"]
+created: 2026-08-18
+updated: 2026-08-24
+subsystem: observability
+tasks: [TASK-0049, TASK-0049B, TASK-0049C, TASK-0050, TASK-0051, TASK-0051B, TASK-0053]
+links:
+  - label: ADRs
+    target: "`docs/adr/0055-bootctld-single-boot-state-authority.md`, `docs/adr/0056-task-exit-reason-kernel-abi.md`, `docs/adr/0057-service-restart-capability-re-resolve.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0013-boot-gates-readiness-spawn-resource-v1.md` (readiness vocabulary), `docs/rfcs/RFC-0069-init-declarative-service-manifest-slot-discipline-boot-stages.md` (ServiceSpec, boot stages), `docs/rfcs/RFC-0079-ipc-last-sender-eof.md` (PeerClosed signal), `docs/rfcs/RFC-0081-process-reaper-nonblocking-reclaim.md` (reap mechanics), `docs/rfcs/RFC-0011-logd-journal-crash-v1.md` (crash envelope)"
+  - label: Track
+    target: "`tasks/TRACK-TIME-AS-RESOURCE.md` (conserved time/budget rights — future)"
+---
 
-- Status: Complete (all seven lane tasks Done 2026-08-20..24; proof gates green in `just test-all`)
-- Owners: @runtime / @reliability
-- Created: 2026-08-18
-- Last Updated: 2026-08-24
-- Links:
-  - Tasks: `tasks/TASK-0049-fault-exhaustion-truth-proof-reanimation.md`,
-    `tasks/TASK-0049B-service-supervision-v1.md`,
-    `tasks/TASK-0049C-persistent-evidence-journal.md`,
-    `tasks/TASK-0050-system-reset-boot-targets-bootctld.md`,
-    `tasks/TASK-0051-recovery-operations-surface.md`,
-    `tasks/TASK-0051B-crash-evidence-at-rest.md`,
-    `tasks/TASK-0053-security-v3-signed-recovery-actions-nxra.md`
-  - ADRs: `docs/adr/0055-bootctld-single-boot-state-authority.md`,
-    `docs/adr/0056-task-exit-reason-kernel-abi.md`,
-    `docs/adr/0057-service-restart-capability-re-resolve.md`
-  - Related RFCs: `docs/rfcs/RFC-0013-boot-gates-readiness-spawn-resource-v1.md`
-    (readiness vocabulary), `docs/rfcs/RFC-0069-init-declarative-service-manifest-slot-discipline-boot-stages.md`
-    (ServiceSpec, boot stages), `docs/rfcs/RFC-0079-ipc-last-sender-eof.md`
-    (PeerClosed signal), `docs/rfcs/RFC-0081-process-reaper-nonblocking-reclaim.md`
-    (reap mechanics), `docs/rfcs/RFC-0011-logd-journal-crash-v1.md` (crash envelope)
-  - Track: `tasks/TRACK-TIME-AS-RESOURCE.md` (conserved time/budget rights — future)
+# RFC-0087: Reliability & Failure Model v1 — supervision, exhaustion events, degradation, boot targets
 
 ## Status at a Glance
 

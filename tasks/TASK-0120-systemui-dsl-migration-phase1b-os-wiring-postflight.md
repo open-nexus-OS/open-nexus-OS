@@ -1,21 +1,34 @@
 ---
-title: TASK-0120 SystemUI→DSL Migration Phase 1b: mount in OS + feature flags + nx-dsl systemui targets + selftests/postflight/docs
-status: Done
-owner: @ui
+schema: 1
+id: TASK-0120
+title: "SystemUI→DSL Migration Phase 1b: mount in OS + feature flags + nx-dsl systemui targets + selftests/postflight/docs"
+status: done
+owner: ["@ui"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
+done: 2026-07-19
+dates_source: git-reconstructed
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Bootstrap shell visible launcher mount: tasks/TASK-0080C-systemui-dsl-bootstrap-shell-os-wiring.md
-  - Phase 1a pages/tests: tasks/TASK-0119-systemui-dsl-migration-phase1a-launcher-qs-host.md
-  - DSL CLI/tooling: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
-  - DSL interpreter/snapshots: tasks/TASK-0076-dsl-v0_1b-interpreter-snapshots-os-demo.md
-  - AOT codegen (optional): tasks/TASK-0079-dsl-v0_3a-aot-codegen-incremental-assets.md
-  - Dev display/profile presets for QEMU: tasks/TASK-0055D-ui-v1e-dev-display-profile-presets-qemu-hz.md
-  - Prefs store (feature flag): tasks/TASK-0072-ui-v9b-prefsd-settings-panels-quick-settings.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Bootstrap shell visible launcher mount"
+    target: tasks/TASK-0080C-systemui-dsl-bootstrap-shell-os-wiring.md
+  - label: "Phase 1a pages/tests"
+    target: tasks/TASK-0119-systemui-dsl-migration-phase1a-launcher-qs-host.md
+  - label: "DSL CLI/tooling"
+    target: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
+  - label: "DSL interpreter/snapshots"
+    target: tasks/TASK-0076-dsl-v0_1b-interpreter-snapshots-os-demo.md
+  - label: "AOT codegen (optional)"
+    target: tasks/TASK-0079-dsl-v0_3a-aot-codegen-incremental-assets.md
+  - label: "Dev display/profile presets for QEMU"
+    target: tasks/TASK-0055D-ui-v1e-dev-display-profile-presets-qemu-hz.md
+  - label: "Prefs store (feature flag)"
+    target: tasks/TASK-0072-ui-v9b-prefsd-settings-panels-quick-settings.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

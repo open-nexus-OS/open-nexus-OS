@@ -1,19 +1,27 @@
 ---
-title: TASK-0003C DSoftBus OS UDP Discovery (loopback announce + receive)
-status: Done ✅ (loopback scope complete; discovery-driven connect + identity binding → TASK-0004)
-owner: @runtime
+schema: 1
+id: TASK-0003C
+title: "DSoftBus OS UDP Discovery (loopback announce + receive)"
+status: done
+status_note: "✅ (loopback scope complete; discovery-driven connect + identity binding → TASK-0004)"
+owner: ["@runtime"]
 created: 2026-01-07
 updated: 2026-01-07
-depends-on:
-  - TASK-0003B
-follow-up-tasks: []
+subsystem: distributed
+done: 2026-07-17
+dates_source: git-reconstructed
+depends_on: [TASK-0003B]
+split_from: TASK-0003
+implements: [RFC-0007]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - RFC: docs/rfcs/RFC-0007-dsoftbus-os-transport-v1.md
-  - Parent task: tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
-  - Depends-on: tasks/TASK-0003B-dsoftbus-noise-xk-os.md
-  - Blocks: tasks/TASK-0004-networking-dhcp-icmp-dsoftbus-dual-node.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Parent task"
+    target: tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
+  - label: Blocks
+    target: tasks/TASK-0004-networking-dhcp-icmp-dsoftbus-dual-node.md
 ---
 
 ## Context

@@ -1,17 +1,24 @@
 ---
-title: TASK-0142 Problem Reporter UI v1 (offline): list/open/delete/export crash reports + deep-link from notifications + host snapshots/tests + OS markers
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0142
+title: "Problem Reporter UI v1 (offline): list/open/delete/export crash reports + deep-link from notifications + host snapshots/tests + OS markers"
+status: draft
+owner: ["@ui"]
 created: 2025-12-25
-depends-on: []
-follow-up-tasks: []
+subsystem: observability
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Crash export/notify surface: tasks/TASK-0141-crash-v1-export-redaction-notify.md
-  - Crashdump v2b OS pipeline: tasks/TASK-0049-fault-exhaustion-truth-proof-reanimation.md
-  - SystemUI→DSL baseline: tasks/TASK-0121-systemui-dsl-migration-phase2a-settings-notifs-host.md
-  - Share v2 (optional export destination): tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Crash export/notify surface"
+    target: tasks/TASK-0141-crash-v1-export-redaction-notify.md
+  - label: "Crashdump v2b OS pipeline"
+    target: tasks/TASK-0049-fault-exhaustion-truth-proof-reanimation.md
+  - label: "SystemUI→DSL baseline"
+    target: tasks/TASK-0121-systemui-dsl-migration-phase2a-settings-notifs-host.md
+  - label: "Share v2 (optional export destination)"
+    target: tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md
 ---
 
 ## Rebase note 2026-08-18 (reliability-lane recut)

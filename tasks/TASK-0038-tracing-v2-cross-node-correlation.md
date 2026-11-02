@@ -1,25 +1,21 @@
 ---
-title: TASK-0038 Tracing v2: cross-node correlation via DSoftBus (context propagation + sampling + traced collector) (rebased 2026-08-14 onto shipped tracing v1 + real OS mux)
-status: Draft
-owner: @runtime
+schema: 1
+id: TASK-0038
+title: "Tracing v2: cross-node correlation via DSoftBus (context propagation + sampling + traced collector) (rebased 2026-08-14 onto shipped tracing v1 + real OS mux)"
+status: draft
+owner: ["@runtime"]
 created: 2025-12-22
-depends-on:
-  - TASK-0003
-  - TASK-0006
-  - TASK-0009
-  - TASK-0014
-  - TASK-0020
-follow-up-tasks: []
+subsystem: distributed
+depends_on: [TASK-0003, TASK-0006, TASK-0009, TASK-0014, TASK-0020]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Depends-on (local spans/metrics baseline): tasks/TASK-0014-observability-v2-metrics-tracing.md
-  - Depends-on (log sink): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
-  - Depends-on (persistence for JSONL): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Depends-on (DSoftBus mux v2): tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md
-  - Depends-on (OS DSoftBus networking): tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
-  - Time sync service (placeholder today): source/services/time-syncd/
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Time sync service (placeholder today)"
+    target: source/services/time-syncd/
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

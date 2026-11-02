@@ -1,20 +1,26 @@
 ---
-title: TASK-0314 Block driver v2: multi-sector requests + real queue depth + IRQ completion (the storage perf multiplier)
-status: Done
-completed: 2026-08-25
-owner: @runtime
+schema: 1
+id: TASK-0314
+title: "Block driver v2: multi-sector requests + real queue depth + IRQ completion (the storage perf multiplier)"
+status: done
+owner: ["@runtime"]
 created: 2026-08-14
-depends-on: []
-follow-up-tasks:
-  - TASK-0315
-  - TASK-0318
+subsystem: storage
+done: 2026-08-25
+dates_source: recorded
+follow_ups: [TASK-0315, TASK-0318]
+implements: [RFC-0071]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Topology contract: docs/adr/0044-single-blk-device-gpt-partitions-block-layer.md
-  - Store contract: docs/rfcs/RFC-0071-nxfs-user-data-filesystem-contract.md
-  - IRQ mechanism: kernel PLIC irq_bind/irq_complete (syscalls 36/37, see docs/architecture/)
-  - Ladder: tasks/TRACK-STASH-USER-DATA-FS.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Topology contract"
+    target: docs/adr/0044-single-blk-device-gpt-partitions-block-layer.md
+  - label: "IRQ mechanism"
+    target: "kernel PLIC irq_bind/irq_complete (syscalls 36/37, see docs/architecture/)"
+  - label: Ladder
+    target: tasks/TRACK-STASH-USER-DATA-FS.md
 ---
 
 ## DELIVERED 2026-08-25 (test-all green; OTA-lane package 3)

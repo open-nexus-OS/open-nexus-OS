@@ -1,20 +1,30 @@
 ---
-title: TASK-0284B NexusInfer v1c (host-first): ownership-based tensor/buffer states + CPU reference executor + fixture proofs
-status: Draft
-owner: @runtime @ui
+schema: 1
+id: TASK-0284B
+title: "NexusInfer v1c (host-first): ownership-based tensor/buffer states + CPU reference executor + fixture proofs"
+status: draft
+owner: ["@runtime", "@ui"]
 created: 2026-04-10
-depends-on: []
-follow-up-tasks: []
+subsystem: app-platform
+split_from: TASK-0284
+tracks: [TRACK-NEXUSINFER-SDK]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - NexusInfer track: tasks/TRACK-NEXUSINFER-SDK.md
-  - DriverKit core contracts: tasks/TASK-0280-gpu-and-scanout-base-contracts-driverkit-v2-gfxdevice-v2-host.md
-  - NexusInfer interop/profile binding: tasks/TASK-0280B-nexusinfer-v1b-tensor-image-interop-profile-binding.md
-  - DMA buffer ownership prototype: tasks/TASK-0284-userspace-dmabuffer-ownership-v1-prototype.md
-  - NexusInfer rust design: docs/architecture/inference/nexusinfer-rust-design.md
-  - NexusInfer techniques catalog: docs/architecture/inference/nexusinfer-techniques.md
-  - Zero-copy VMO plumbing: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "DriverKit core contracts"
+    target: tasks/TASK-0280-gpu-and-scanout-base-contracts-driverkit-v2-gfxdevice-v2-host.md
+  - label: "NexusInfer interop/profile binding"
+    target: tasks/TASK-0280B-nexusinfer-v1b-tensor-image-interop-profile-binding.md
+  - label: "DMA buffer ownership prototype"
+    target: tasks/TASK-0284-userspace-dmabuffer-ownership-v1-prototype.md
+  - label: "NexusInfer rust design"
+    target: docs/architecture/inference/nexusinfer-rust-design.md
+  - label: "NexusInfer techniques catalog"
+    target: docs/architecture/inference/nexusinfer-techniques.md
+  - label: "Zero-copy VMO plumbing"
+    target: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
 ---
 
 ## Context

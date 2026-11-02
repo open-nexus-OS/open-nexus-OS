@@ -1,19 +1,27 @@
 ---
-title: TASK-0211 DSoftBus v1.1c (host-first): busdir (service directory + watch) + rpcmux (req/resp over framed channels) + keepalive/health + quotas/backpressure + deterministic tests
-status: Draft
-owner: @runtime
+schema: 1
+id: TASK-0211
+title: "DSoftBus v1.1c (host-first): busdir (service directory + watch) + rpcmux (req/resp over framed channels) + keepalive/health + quotas/backpressure + deterministic tests"
+status: draft
+owner: ["@runtime"]
 created: 2025-12-27
-depends-on: []
-follow-up-tasks: []
+subsystem: distributed
+follow_ups: [TASK-0196]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - DSoftBus v1 localSim baseline: tasks/TASK-0157-dsoftbus-v1a-local-sim-pairing-streams-host.md
-  - DSoftBus v1 OS wiring baseline: tasks/TASK-0158-dsoftbus-v1b-os-consent-policy-registry-share-demo-cli-selftests.md
-  - DSoftBus v1.1 secure channels + encrypted framing + share resume: tasks/TASK-0195-dsoftbus-v1_1a-host-secure-channels-encrypted-streams-share.md
-  - DSoftBus mux/flow control substrate: tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md
-  - UDP discovery devnet-gated (follow-up): tasks/TASK-0196-dsoftbus-v1_1b-devnet-udp-discovery-gated.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "DSoftBus v1 localSim baseline"
+    target: tasks/TASK-0157-dsoftbus-v1a-local-sim-pairing-streams-host.md
+  - label: "DSoftBus v1 OS wiring baseline"
+    target: tasks/TASK-0158-dsoftbus-v1b-os-consent-policy-registry-share-demo-cli-selftests.md
+  - label: "DSoftBus v1.1 secure channels + encrypted framing + share resume"
+    target: tasks/TASK-0195-dsoftbus-v1_1a-host-secure-channels-encrypted-streams-share.md
+  - label: "DSoftBus mux/flow control substrate"
+    target: tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Short description

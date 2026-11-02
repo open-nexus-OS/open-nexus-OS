@@ -1,19 +1,30 @@
 ---
-title: TASK-0198 Supply-Chain hardening v2b (OS): Phase 1 device trust anchor + verifier verdict authority (lane-critical); Phase 2+ sigchain/translog/provenance enforcement + rotation
-status: In Progress (Phase 1 delivered 2026-08-25 as OTA-lane package 1; Phases 2+ open behind TASK-0197)
-owner: @security
+schema: 1
+id: TASK-0198
+title: "Supply-Chain hardening v2b (OS): Phase 1 device trust anchor + verifier verdict authority (lane-critical); Phase 2+ sigchain/translog/provenance enforcement + rotation"
+status: in_progress
+status_note: "Phase 1 delivered 2026-08-25 as OTA-lane package 1; Phases 2+ open behind TASK-0197"
+owner: ["@security"]
 created: 2025-12-27
 updated: 2026-09-03
-depends-on: []
-follow-up-tasks:
-  - TASK-0289
+subsystem: updates
+started: 2025-12-27
+dates_source: git-reconstructed
+follow_ups: [TASK-0289]
+implements: [RFC-0089]
 links:
-  - Contract (Phase 1): docs/rfcs/RFC-0089-ota-v2-component-manifest-ab-boot-images-nxboot-bsb.md (§4 trust model)
-  - Supply-chain v2 host core (Phases 2+): tasks/TASK-0197-supply-chain-v2a-host-sigchain-translog-sbom-provenance.md
-  - Supply-chain v1 baseline: tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
-  - Anchor pattern precedent: userspace/nxra/build.rs (BAKED_TRUST, RFC-0088)
-  - Consumers: tasks/TASK-0179-updated-v2-offline-feed-delta-health-rollback.md, tasks/TASK-0130-packages-v1b-bundlemgrd-install-upgrade-uninstall-trust.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: "Contract (Phase 1)"
+    target: "docs/rfcs/RFC-0089-ota-v2-component-manifest-ab-boot-images-nxboot-bsb.md (§4 trust model)"
+  - label: "Supply-chain v2 host core (Phases 2+)"
+    target: tasks/TASK-0197-supply-chain-v2a-host-sigchain-translog-sbom-provenance.md
+  - label: "Supply-chain v1 baseline"
+    target: tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
+  - label: "Anchor pattern precedent"
+    target: "userspace/nxra/build.rs (BAKED_TRUST, RFC-0088)"
+  - label: Consumers
+    target: "tasks/TASK-0179-updated-v2-offline-feed-delta-health-rollback.md, tasks/TASK-0130-packages-v1b-bundlemgrd-install-upgrade-uninstall-trust.md"
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Phase 1 DELIVERED 2026-08-25 (test-all green; lane package 1)

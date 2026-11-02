@@ -1,18 +1,26 @@
 ---
-title: TASK-0139 Network Basics v1b (offline): Settings Network page + nx-net CLI + policy gate + OS selftests/postflight + docs
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0139
+title: "Network Basics v1b (offline): Settings Network page + nx-net CLI + policy gate + OS selftests/postflight + docs"
+status: draft
+owner: ["@ui"]
 created: 2025-12-25
-depends-on: []
-follow-up-tasks: []
+subsystem: security
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Offline net daemons: tasks/TASK-0138-network-basics-v1a-offline-controlplane-daemons.md
-  - SystemUI→DSL Settings baseline: tasks/TASK-0121-systemui-dsl-migration-phase2a-settings-notifs-host.md
-  - Policy gates (network.configure): tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
-  - Testing contract: scripts/qemu-test.sh
-  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Offline net daemons"
+    target: tasks/TASK-0138-network-basics-v1a-offline-controlplane-daemons.md
+  - label: "SystemUI→DSL Settings baseline"
+    target: tasks/TASK-0121-systemui-dsl-migration-phase2a-settings-notifs-host.md
+  - label: "Policy gates (network.configure)"
+    target: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
+  - label: "Data formats rubric (JSON vs Cap'n Proto)"
+    target: docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
 ## Context

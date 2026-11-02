@@ -1,22 +1,38 @@
 ---
-title: TASK-0296 nexus-wire — declarative service frame codec + nexus-abi identity split
-status: Done (2026-07-20)
-owner: @runtime
+schema: 1
+id: TASK-0296
+title: "nexus-wire — declarative service frame codec + nexus-abi identity split"
+status: done
+status_note: 2026-07-20
+owner: ["@runtime"]
 created: 2026-07-20
-depends-on: []
-follow-up-tasks:
-  - Consumer import migration nexus_abi::<svc> → nexus_wire::<svc> + shim removal
-  - Consolidate userspace/nexus-ipc/{logd_wire,policyd_wire}.rs onto nexus-wire
-  - abi_filter.rs adopts the codec engine
-  - slot_probe.rs relocation to nexus-service-entry (optional)
-  - RFC-0066 typed Connection::call rollout on top of nexus-wire
-  - Retire unused nexus-idl macro crate (decision)
+subsystem: kernel
+started: 2026-07-20
+done: 2026-07-20
+active_days: 1
+dates_source: git-reconstructed
+implements: [RFC-0019]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - ADR: docs/adr/0051-declarative-wire-codec-nexus-wire.md
-  - ADR: docs/adr/0038-display-wire-ssot-and-capnp-boundary.md
-  - RFC: docs/rfcs/RFC-0019-ipc-request-reply-correlation-v1.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: ADR
+    target: docs/adr/0051-declarative-wire-codec-nexus-wire.md
+  - label: ADR
+    target: docs/adr/0038-display-wire-ssot-and-capnp-boundary.md
+  - label: follow-up
+    target: "Consumer import migration nexus_abi::<svc> → nexus_wire::<svc> + shim removal"
+  - label: follow-up
+    target: "Consolidate userspace/nexus-ipc/{logd_wire,policyd_wire}.rs onto nexus-wire"
+  - label: follow-up
+    target: "abi_filter.rs adopts the codec engine"
+  - label: follow-up
+    target: "slot_probe.rs relocation to nexus-service-entry (optional)"
+  - label: follow-up
+    target: "RFC-0066 typed Connection::call rollout on top of nexus-wire"
+  - label: follow-up
+    target: "Retire unused nexus-idl macro crate (decision)"
 ---
 
 ## Context

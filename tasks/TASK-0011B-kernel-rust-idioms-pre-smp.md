@@ -1,19 +1,28 @@
 ---
-title: TASK-0011B Kernel Rust idioms & ownership clarity (pre-SMP prep)
-status: Done (2026-09-09 — reconciled: goal delivered under RFC-0020, Complete)
-owner: @kernel-team
+schema: 1
+id: TASK-0011B
+title: "Kernel Rust idioms & ownership clarity (pre-SMP prep)"
+status: done
+status_note: "2026-09-09 — reconciled: goal delivered under RFC-0020, Complete"
+owner: ["@kernel-team"]
 created: 2026-01-09
-depends-on: []
-follow-up-tasks: []
+subsystem: kernel
+started: 2026-02-10
+done: 2026-09-09
+active_days: 1
+dates_source: git-reconstructed
+follow_ups: [TASK-0012]
+split_from: TASK-0011
+implements: [RFC-0020, RFC-0001]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Parent: tasks/TASK-0011-kernel-simplification-phase-a.md
-  # NOTE: RFC-0001 is the seed contract for TASK-0011 (layout + headers). TASK-0011B requires its own seed RFC.
-  - Seed RFC: docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md
-  - Background (parent contract): docs/rfcs/RFC-0001-kernel-simplification.md
-  - Kernel overview: docs/architecture/01-neuron-kernel.md
-  - SMP follow-up: tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: Parent
+    target: "tasks/TASK-0011-kernel-simplification-phase-a.md # NOTE: RFC-0001 is the seed contract for TASK-0011 (layout + headers). TASK-0011B requires its own seed RFC."
+  - label: "Kernel overview"
+    target: docs/architecture/01-neuron-kernel.md
 ---
 
 ## Closure 2026-09-09 (reconciliation — Done, delivered under RFC-0020)

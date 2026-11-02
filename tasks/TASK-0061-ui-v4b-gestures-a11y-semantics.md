@@ -1,19 +1,30 @@
 ---
-title: TASK-0061 UI v4b: gesture recognizers + inertial scroll + accessibility semantics tree + focus navigation/events
-status: Done
-owner: @ui
+schema: 1
+id: TASK-0061
+title: "UI v4b: gesture recognizers + inertial scroll + accessibility semantics tree + focus navigation/events"
+status: done
+owner: ["@ui"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
+done: 2026-07-19
+dates_source: git-reconstructed
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - UI v4a perf baseline: tasks/TASK-0060-ui-v4a-tiled-compositor-clipstack-atlases-perf.md
-  - UI v2a input routing baseline: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
-  - UI v3b IME/text-input baseline (focus/caret): tasks/TASK-0059-ui-v3b-clip-scroll-effects-ime-textinput.md
-  - Policy as Code (a11y injection guards): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
-  - Config broker (thresholds): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "UI v4a perf baseline"
+    target: tasks/TASK-0060-ui-v4a-tiled-compositor-clipstack-atlases-perf.md
+  - label: "UI v2a input routing baseline"
+    target: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
+  - label: "UI v3b IME/text-input baseline (focus/caret)"
+    target: tasks/TASK-0059-ui-v3b-clip-scroll-effects-ime-textinput.md
+  - label: "Policy as Code (a11y injection guards)"
+    target: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
+  - label: "Config broker (thresholds)"
+    target: tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

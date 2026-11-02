@@ -1,24 +1,36 @@
 ---
-title: TASK-0286 Kernel memory v1a (M1): the physical map comes from the FDT and a page-frame allocator replaces the fixed windows — page-backed VMOs, a `contiguous-DMA` kind, and the accounting counters this ledger always promised
-status: Done 2026-09-24 (P5 done 2026-09-24 — accounting as a read of the owners, `mm_stats`, `KSELFTEST: mm frames`, exhaustion as a bounded event, DoD swept; the board's serial proof is TASK-0327B's; P4b done 2026-09-24 — coherence travels in the device capability, user-mode Zicbom, `DmaBuffer`, TASK-0284 closed; P4a done 2026-09-24 — one door for a physical address (`vmo_runs`), gpud attaches runs, the 64 MiB framebuffer block is gone; P3b done 2026-09-23 — no fixed physical window left, `-m` a lane knob, gate in `just check`; P3a done 2026-09-23 — the VMO is a page-backed object, `VmoPool` + the arena deleted; P2b done 2026-09-23 — frames live at boot, page tables are frames, the kernel half is shared; P2 done 2026-09-23 — the kernel runs in the high half, smp1 + visible green; P1 done 2026-09-22 — `frames` host-proven over both golden trees; P0 done 2026-09-22 — measured, the kernel direct map decided; recut 2026-09-22 to the end state — Block 1 B1.4 of the hardware fast track and M1 of target picture M; was "per-task RSS counters + pressure snapshots + trusted query ABI", Draft since 2026-04-13)
-owner: @kernel-team @runtime
+schema: 1
+id: TASK-0286
+title: "Kernel memory v1a (M1): the physical map comes from the FDT and a page-frame allocator replaces the fixed windows — page-backed VMOs, a `contiguous-DMA` kind, and the accounting counters this ledger always promised"
+status: done
+status_note: "2026-09-24 (P5 done 2026-09-24"
+owner: ["@kernel-team", "@runtime"]
 created: 2026-04-13
 updated: 2026-09-24
-depends-on:
-  - tasks/TASK-0244-bringup-rv-virt-v1_0a-host-dtb-sbi-shim-deterministic.md
-  - tasks/TASK-0245-bringup-rv-virt-v1_0b-os-kernel-uart-plic-timer-uartd-selftests.md
-follow-up-tasks:
-  - tasks/TASK-0286B (M2, seeded at its P0): demand paging + CoW fault path
-  - tasks/TASK-0286C (M3, seeded at its P0): page cache + shared read-only code
-  - tasks/TASK-0287-kernel-memory-pressure-v1-hard-limits-oom-handoff.md (M4)
+subsystem: kernel
+started: 2026-09-22
+done: 2026-09-24
+active_days: 3
+dates_source: git-reconstructed
+depends_on: [TASK-0244, TASK-0245]
+follow_ups: [TASK-0286B, TASK-0286C, TASK-0287]
+implements: [RFC-0098, RFC-0100]
 links:
-  - Contract: docs/rfcs/RFC-0098-board-support-contract-fdt-truth-boot-chain.md (C4, Phase 2); target picture M in tasks/IMPLEMENTATION-ORDER.md; RFC-0100 (memory object model v2, seeded at M2's P0)
-  - What this deletes: source/kernel/neuron/src/mm/mod.rs (`USER_VMO_ARENA_*`, `KERNEL_PAGE_POOL_*`), syscall/api/vmo_pool.rs (`VmoPool`)
-  - What stays: docs/rfcs/RFC-0085-kernel-owned-va-allocation.md (VA side), docs/rfcs/RFC-0080-* (`vmo_share_ro`), docs/adr/0054-*
-  - Absorbs: tasks/TASK-0284-userspace-dmabuffer-ownership-v1-prototype.md (the `contiguous-DMA` kind + `DmaBuffer` hooks)
-  - Measurement: docs/board/measurements/2026-09-22-stock-system/README.md ("Memory", "DMA coherence")
-  - Playbook: CLAUDE.md
+  - label: Contract
+    target: "docs/rfcs/RFC-0098-board-support-contract-fdt-truth-boot-chain.md (C4, Phase 2); target picture M in tasks/milestones/hardware-network.md; RFC-0100 (memory object model v2, seeded at M2's P0)"
+  - label: "What this deletes"
+    target: "source/kernel/neuron/src/mm/mod.rs (`USER_VMO_ARENA_*`, `KERNEL_PAGE_POOL_*`), syscall/api/vmo_pool.rs (`VmoPool`)"
+  - label: "What stays"
+    target: "docs/rfcs/RFC-0085-kernel-owned-va-allocation.md (VA side), docs/rfcs/RFC-0080-* (`vmo_share_ro`), docs/adr/0054-*"
+  - label: Absorbs
+    target: "tasks/TASK-0284-userspace-dmabuffer-ownership-v1-prototype.md (the `contiguous-DMA` kind + `DmaBuffer` hooks)"
+  - label: Measurement
+    target: "docs/board/measurements/2026-09-22-stock-system/README.md (\"Memory\", \"DMA coherence\")"
+  - label: Playbook
+    target: CLAUDE.md
 ---
+
+> Status (migrated 2026-11-02): Done 2026-09-24 (P5 done 2026-09-24 — accounting as a read of the owners, `mm_stats`, `KSELFTEST: mm frames`, exhaustion as a bounded event, DoD swept; the board's serial proof is TASK-0327B's; P4b done 2026-09-24 — coherence travels in the device capability, user-mode Zicbom, `DmaBuffer`, TASK-0284 closed; P4a done 2026-09-24 — one door for a physical address (`vmo_runs`), gpud attaches runs, the 64 MiB framebuffer block is gone; P3b done 2026-09-23 — no fixed physical window left, `-m` a lane knob, gate in `just check`; P3a done 2026-09-23 — the VMO is a page-backed object, `VmoPool` + the arena deleted; P2b done 2026-09-23 — frames live at boot, page tables are frames, the kernel half is shared; P2 done 2026-09-23 — the kernel runs in the high half, smp1 + visible green; P1 done 2026-09-22 — `frames` host-proven over both golden trees; P0 done 2026-09-22 — measured, the kernel direct map decided; recut 2026-09-22 to the end state — Block 1 B1.4 of the hardware fast track and M1 of target picture M; was "per-task RSS counters + pressure snapshots + trusted query ABI", Draft since 2026-04-13)
 
 ## History
 

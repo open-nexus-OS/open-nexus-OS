@@ -1,22 +1,34 @@
 ---
-title: TASK-0280B NexusInfer v1b (host-first): tensor/image interop + profile binding + bounded submit semantics
-status: Draft
-owner: @runtime @ui
+schema: 1
+id: TASK-0280B
+title: "NexusInfer v1b (host-first): tensor/image interop + profile binding + bounded submit semantics"
+status: draft
+owner: ["@runtime", "@ui"]
 created: 2026-04-10
-depends-on: []
-follow-up-tasks: []
+subsystem: app-platform
+split_from: TASK-0280
+tracks: [TRACK-NEXUSINFER-SDK]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - NexusInfer track: tasks/TRACK-NEXUSINFER-SDK.md
-  - DriverKit core contracts: tasks/TASK-0280-gpu-and-scanout-base-contracts-driverkit-v2-gfxdevice-v2-host.md
-  - DMA buffer ownership prototype: tasks/TASK-0284-userspace-dmabuffer-ownership-v1-prototype.md
-  - Zero-copy VMO plumbing: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
-  - QoS/timers contract: tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
-  - Gfx resource model: docs/architecture/graphics/nexusgfx-resource-model.md
-  - Gfx sync/lifetime model: docs/architecture/graphics/nexusgfx-sync-and-lifetime.md
-  - NexusInfer runtime profiles: docs/architecture/inference/nexusinfer-runtime-profiles.md
-  - NexusInfer rust design: docs/architecture/inference/nexusinfer-rust-design.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "DriverKit core contracts"
+    target: tasks/TASK-0280-gpu-and-scanout-base-contracts-driverkit-v2-gfxdevice-v2-host.md
+  - label: "DMA buffer ownership prototype"
+    target: tasks/TASK-0284-userspace-dmabuffer-ownership-v1-prototype.md
+  - label: "Zero-copy VMO plumbing"
+    target: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
+  - label: "QoS/timers contract"
+    target: tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
+  - label: "Gfx resource model"
+    target: docs/architecture/graphics/nexusgfx-resource-model.md
+  - label: "Gfx sync/lifetime model"
+    target: docs/architecture/graphics/nexusgfx-sync-and-lifetime.md
+  - label: "NexusInfer runtime profiles"
+    target: docs/architecture/inference/nexusinfer-runtime-profiles.md
+  - label: "NexusInfer rust design"
+    target: docs/architecture/inference/nexusinfer-rust-design.md
 ---
 
 ## Context

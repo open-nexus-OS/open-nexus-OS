@@ -1,21 +1,35 @@
 ---
-title: TASK-0074 UI v10b: modal semantics in the DSL runtime (bounded overlay stack, dismissal contract, focus trap, one windowd routing verb, toast unification)
-status: Done (2026-10-06 — P0–P4 in one go as Block 3's first task; proof chain + board smoke in "Delivered" below; end-state rewrite 2026-09-09)
-owner: @ui
+schema: 1
+id: TASK-0074
+title: "UI v10b: modal semantics in the DSL runtime (bounded overlay stack, dismissal contract, focus trap, one windowd routing verb, toast unification)"
+status: done
+status_note: "2026-10-06 — P0–P4 in one go as Block 3's first task; proof chain + board smoke in \"Delivered\" below; end-state rewrite 2026-09-09"
+owner: ["@ui"]
 created: 2025-12-23
 updated: 2026-07-05
-depends-on:
-  - TASK-0073 (design-system SSOT: token convergence + glass primitive + core/controls/inputs/nav/window primitives)
-follow-up-tasks: []
+subsystem: ui
+started: 2026-10-06
+done: 2026-10-06
+active_days: 1
+dates_source: git-reconstructed
+depends_on: [TASK-0073]
 links:
-  - Architecture spine: docs/rfcs/RFC-0070-ui-design-system-ssot-convergence.md
-  - Component inventory (IST + promote verdict): docs/dev/ui/components/inventory.md
-  - Token reconciliation: docs/dev/ui/foundations/visual/token-reconciliation.md
-  - Design contract (overlays + window templates + 5-surface notifications): docs/dev/design_handoff_open_nexus_os/
-  - windowd boundary this task realizes (W6): docs/rfcs/RFC-0067
-  - DSL emit target: tasks/TRACK-DSL-V1-DEVX.md
-  - WM baseline: tasks/TASK-0064; Notifications baseline: tasks/TASK-0069; Search/Settings: TASK-0071/0072
-  - Testing contract: scripts/qemu-test.sh
+  - label: "Architecture spine"
+    target: docs/rfcs/RFC-0070-ui-design-system-ssot-convergence.md
+  - label: "Component inventory (IST + promote verdict)"
+    target: docs/dev/ui/components/inventory.md
+  - label: "Token reconciliation"
+    target: docs/dev/ui/foundations/visual/token-reconciliation.md
+  - label: "Design contract (overlays + window templates + 5-surface notifications)"
+    target: docs/dev/design_handoff_open_nexus_os/
+  - label: "windowd boundary this task realizes (W6)"
+    target: docs/rfcs/RFC-0067
+  - label: "DSL emit target"
+    target: tasks/TRACK-DSL-V1-DEVX.md
+  - label: "WM baseline"
+    target: "tasks/TASK-0064; Notifications baseline: tasks/TASK-0069; Search/Settings: TASK-0071/0072"
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Delivered 2026-10-06 (what was built, where the decisions above were corrected by measurement)

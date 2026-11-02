@@ -1,23 +1,27 @@
+---
+schema: 1
+id: RFC-0114
+title: "Surfaces are shared buffers — the app draws where the GPU reads, the compositor composes by reference, and its tables grow with the windows"
+status: in_progress
+status_note: "seeded 2026-10-31 — package 1 of the operator's three-package plan, 2026-10-30"
+owners: ["@ui", "@runtime", "@kernel-team"]
+created: 2026-10-31
+updated: 2026-11-02
+subsystem: ui
+tasks: [TASK-0348]
+links:
+  - label: ADRs
+    target: "`docs/adr/0092-a-surface-is-a-buffer-the-app-draws-and-the-gpu-reads-gpud-allocates-it-for-its-owner-windowd-composes-by-reference.md` (the decision), ADR-0042 (why blit — superseded for app surfaces), ADR-0078 (GPU memory is the one pool; \"one object per window surface: the end state\"), ADR-0079 (cache maintenance for non-drivers: \"a kernel call over an object the caller may write\"), ADR-0075 (the compositor never waits on a client), ADR-0091 (no ambient authority over address spaces)"
+  - label: RFCs
+    target: "RFC-0109 (surface layers: base, store, bands, washes), RFC-0101 (the GPU driver split; §8 the scanout contract and the planner's layer matching), RFC-0112 (the compositor's restart — amended by this package), RFC-0086 (the window feed), RFC-0108 (UX budgets)"
+---
+
 <!-- Copyright 2026 Open Nexus OS Contributors -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # RFC-0114: Surfaces are shared buffers — the app draws where the GPU reads, the compositor composes by reference, and its tables grow with the windows
 
-- Status: In Progress (seeded 2026-10-31 — package 1 of the operator's three-package plan,
-  2026-10-30; Phases 1–4 built and proven on the QEMU lanes 2026-11-02, the board cycle pending)
-- Owners: @ui @runtime @kernel-team
-- Created: 2026-10-31
-- Last Updated: 2026-11-02
-- Links:
-  - Tasks: `tasks/TASK-0348-zero-copy-surfaces-a-compositor-without-fixed-tables-and-its-restart.md`
-  - ADRs: `docs/adr/0092-a-surface-is-a-buffer-the-app-draws-and-the-gpu-reads-gpud-allocates-it-for-its-owner-windowd-composes-by-reference.md`
-    (the decision), ADR-0042 (why blit — superseded for app surfaces), ADR-0078 (GPU memory is
-    the one pool; "one object per window surface: the end state"), ADR-0079 (cache maintenance
-    for non-drivers: "a kernel call over an object the caller may write"), ADR-0075 (the
-    compositor never waits on a client), ADR-0091 (no ambient authority over address spaces)
-  - RFCs: RFC-0109 (surface layers: base, store, bands, washes), RFC-0101 (the GPU driver
-    split; §8 the scanout contract and the planner's layer matching), RFC-0112 (the compositor's
-    restart — amended by this package), RFC-0086 (the window feed), RFC-0108 (UX budgets)
+> Status (migrated 2026-11-02): In Progress (seeded 2026-10-31 — package 1 of the operator's three-package plan, 2026-10-30; Phases 1–4 built and proven on the QEMU lanes 2026-11-02, the board cycle pending)
 
 ## Status at a Glance
 

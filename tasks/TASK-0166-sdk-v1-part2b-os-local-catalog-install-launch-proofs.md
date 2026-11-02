@@ -1,19 +1,28 @@
 ---
-title: TASK-0166 SDK v1 Part 2b (OS/QEMU): local catalog + install/launch proofs (offline) + selftests/docs
-status: Draft
-owner: @devx
+schema: 1
+id: TASK-0166
+title: "SDK v1 Part 2b (OS/QEMU): local catalog + install/launch proofs (offline) + selftests/docs"
+status: draft
+owner: ["@devx"]
 created: 2025-12-26
-depends-on: []
-follow-up-tasks: []
+subsystem: app-platform
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - SDK devtools workflow: tasks/TASK-0165-sdk-v1-part2a-devtools-lints-pack-sign-ci.md
-  - Packages install/launch (bundlemgrd/installer UI): tasks/TASK-0130-packages-v1b-bundlemgrd-install-upgrade-uninstall-trust.md
-  - Installer UI integration: tasks/TASK-0131-packages-v1c-installer-ui-openwith-launcher-integration.md
-  - Persistence substrate (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Identity/Keystore v1.1 trust/signing: tasks/TASK-0160-identity-keystore-v1_1-os-attestd-trust-unification-selftests.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "SDK devtools workflow"
+    target: tasks/TASK-0165-sdk-v1-part2a-devtools-lints-pack-sign-ci.md
+  - label: "Packages install/launch (bundlemgrd/installer UI)"
+    target: tasks/TASK-0130-packages-v1b-bundlemgrd-install-upgrade-uninstall-trust.md
+  - label: "Installer UI integration"
+    target: tasks/TASK-0131-packages-v1c-installer-ui-openwith-launcher-integration.md
+  - label: "Persistence substrate (/state)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Identity/Keystore v1.1 trust/signing"
+    target: tasks/TASK-0160-identity-keystore-v1_1-os-attestd-trust-unification-selftests.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

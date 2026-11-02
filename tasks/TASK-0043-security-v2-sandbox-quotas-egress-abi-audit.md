@@ -1,28 +1,25 @@
 ---
-title: TASK-0043 Security v2: sandbox quotas (tmp/state) + per-subject network egress rules + tighter ABI policies + audits (host-first, OS-gated)
-status: Done (P0–P4 delivered 2026-09-07..08; network family follow-ups listed)
-owner: @runtime
+schema: 1
+id: TASK-0043
+title: "Security v2: sandbox quotas (tmp/state) + per-subject network egress rules + tighter ABI policies + audits (host-first, OS-gated)"
+status: done
+status_note: "P0–P4 delivered 2026-09-07..08; network family follow-ups listed"
+owner: ["@runtime"]
 created: 2025-12-22
-depends-on:
-  - TASK-0003
-  - TASK-0006
-  - TASK-0008
-  - TASK-0028
-  - TASK-0039
-follow-up-tasks:
-  - TASK-0133
-  - TASK-0188
-  - TASK-0286
-  - TASK-0287
+subsystem: security
+started: 2026-09-07
+done: 2026-09-07
+active_days: 1
+dates_source: git-reconstructed
+depends_on: [TASK-0003, TASK-0006, TASK-0008, TASK-0028, TASK-0039]
+follow_ups: [TASK-0133, TASK-0188, TASK-0286, TASK-0287]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Depends-on (sandboxing v1): tasks/TASK-0039-sandboxing-v1-vfs-namespaces-capfd-manifest.md
-  - Depends-on (ABI filters v2): tasks/TASK-0028-abi-filters-v2-arg-match-learn-enforce.md
-  - Depends-on (policy authority): tasks/TASK-0008-security-hardening-v1-nexus-sel-audit-device-keys.md
-  - Depends-on (audit sink): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
-  - Depends-on (OS networking surface): tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## End-state rewrite 2026-09-03 (binding; supersedes older sections where they differ)

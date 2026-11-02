@@ -1,19 +1,27 @@
 ---
-title: TASK-0117 UI v20d: captions/subtitles (SRT/VTT) crate + Video app rendering + SystemUI CC toggle + markers
-status: Draft
-owner: @media
+schema: 1
+id: TASK-0117
+title: "UI v20d: captions/subtitles (SRT/VTT) crate + Video app rendering + SystemUI CC toggle + markers"
+status: draft
+owner: ["@media"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
+tracks: [TRACK-DSL-V1-DEVX]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - DSL v1 DevX track: tasks/TRACK-DSL-V1-DEVX.md
-  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
-  - Video app baseline: tasks/TASK-0102-ui-v16d-music-video-apps-os-proofs.md
-  - Text shaping baseline: tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
-  - Prefs store: tasks/TASK-0072-ui-v9b-prefsd-settings-panels-quick-settings.md
-  - Media sessions (CC hint wiring optional): tasks/TASK-0101-ui-v16c-media-sessions-systemui-controls.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "DSL syntax/layout convention"
+    target: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
+  - label: "Video app baseline"
+    target: tasks/TASK-0102-ui-v16d-music-video-apps-os-proofs.md
+  - label: "Text shaping baseline"
+    target: tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
+  - label: "Prefs store"
+    target: tasks/TASK-0072-ui-v9b-prefsd-settings-panels-quick-settings.md
+  - label: "Media sessions (CC hint wiring optional)"
+    target: tasks/TASK-0101-ui-v16c-media-sessions-systemui-controls.md
 ---
 
 ## Context

@@ -1,19 +1,25 @@
 ---
-title: TASK-0079 DSL v0.3a: AOT Rust codegen tier — retired by decision 2026-09-09 (interpreter in app-host = the one execution tier)
-status: Done (2026-09-09 — resolved by decision: the app-host interpreter is the sole execution tier; AOT codegen retired, no code existed)
-owner: @ui @runtime
+schema: 1
+id: TASK-0079
+title: "DSL v0.3a: AOT Rust codegen tier — retired by decision 2026-09-09 (interpreter in app-host = the one execution tier)"
+status: done
+status_note: "2026-09-09 — resolved by decision: the app-host interpreter is the sole execution tier; AOT codegen retired, no code existed"
+owner: ["@ui", "@runtime"]
 created: 2025-12-23
 updated: 2026-07-06
-depends-on:
-  - tasks/TASK-0078-dsl-v0_2b-service-stubs-cli-demo.md
-  - tasks/TASK-0080D-dsl-app-runtime-lifecycle-surface-contract.md
-follow-up-tasks:
-  - tasks/TASK-0080-dsl-v0_3b-perf-bench-os-aot-demo.md
+subsystem: app-platform
+done: 2026-09-09
+dates_source: status-text
+depends_on: [TASK-0078, TASK-0080D]
+follow_ups: [TASK-0080]
+tracks: [TRACK-DSL-V1-DEVX]
 links:
-  - Track: tasks/TRACK-DSL-V1-DEVX.md
-  - Codegen contract: docs/dev/dsl/{codegen,incremental,ir}.md
-  - Parity anchor: tests/dsl_conformance/ (corpus from TASK-0076+) + tests/dsl_goldens/
-  - SVG safe subset baseline: tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
+  - label: "Codegen contract"
+    target: "docs/dev/dsl/{codegen,incremental,ir}.md"
+  - label: "Parity anchor"
+    target: "tests/dsl_conformance/ (corpus from TASK-0076+) + tests/dsl_goldens/"
+  - label: "SVG safe subset baseline"
+    target: tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
 ---
 
 ## Closure 2026-09-09 (resolved by decision — Done, nothing built, dual structure removed)

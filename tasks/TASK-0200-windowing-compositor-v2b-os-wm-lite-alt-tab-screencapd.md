@@ -1,23 +1,36 @@
 ---
-title: TASK-0200 Windowing/Compositor v2b (OS/QEMU): layers+damage+input regions + vsync tick + WM-lite (move/resize/snap) + Alt-Tab thumbs + screencapd + selftests/docs
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0200
+title: "Windowing/Compositor v2b (OS/QEMU): layers+damage+input regions + vsync tick + WM-lite (move/resize/snap) + Alt-Tab thumbs + screencapd + selftests/docs"
+status: draft
+owner: ["@ui"]
 created: 2025-12-27
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - ADR: docs/adr/0022-modern-image-formats-avif-webp.md
-  - Windowing v2 host substrate: tasks/TASK-0199-windowing-compositor-v2a-host-damage-occlusion-screencap.md
-  - windowd↔renderer OS wiring baseline: tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md
-  - Present scheduler + input routing baseline: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
-  - WM controller baseline: tasks/TASK-0064-ui-v6a-window-management-scene-transitions.md
-  - WM resize/move + shortcuts baseline: tasks/TASK-0070-ui-v8b-wm-resize-move-shortcuts-settings-overlays.md
-  - Screenshot/share baseline: tasks/TASK-0068-ui-v7c-screenshot-screencap-share-sheet.md
-  - Perf sessions (optional): tasks/TASK-0172-perf-v2a-perfd-sessions-stats-export.md
-  - Policy caps: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: ADR
+    target: docs/adr/0022-modern-image-formats-avif-webp.md
+  - label: "Windowing v2 host substrate"
+    target: tasks/TASK-0199-windowing-compositor-v2a-host-damage-occlusion-screencap.md
+  - label: "windowd↔renderer OS wiring baseline"
+    target: tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md
+  - label: "Present scheduler + input routing baseline"
+    target: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
+  - label: "WM controller baseline"
+    target: tasks/TASK-0064-ui-v6a-window-management-scene-transitions.md
+  - label: "WM resize/move + shortcuts baseline"
+    target: tasks/TASK-0070-ui-v8b-wm-resize-move-shortcuts-settings-overlays.md
+  - label: "Screenshot/share baseline"
+    target: tasks/TASK-0068-ui-v7c-screenshot-screencap-share-sheet.md
+  - label: "Perf sessions (optional)"
+    target: tasks/TASK-0172-perf-v2a-perfd-sessions-stats-export.md
+  - label: "Policy caps"
+    target: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

@@ -1,14 +1,26 @@
-# RFC-0088: `.nxra` — Signed Recovery Action Tokens
+---
+schema: 1
+id: RFC-0088
+title: "`.nxra` — Signed Recovery Action Tokens"
+status: done
+status_note: "v1 — bootctld enforcement; statefsd seam recut to the first token-carrying client"
+owners: ["@security", "@reliability"]
+created: 2026-08-24
+updated: 2026-08-24
+subsystem: updates
+tasks: [TASK-0053]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0053-recovery-signed-actions-nxra.md` (execution + proof)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0087-reliability-failure-model-v1.md` (§4 targets, §6 ops surface)"
+  - label: ADRs
+    target: "`docs/adr/0055-bootctld-single-boot-state-authority.md`"
+  - label: Registry
+    target: "`tasks/TRACK-AUTHORITY-NAMING.md` (artifact `.nxra`)"
+---
 
-- Status: Done (v1 — bootctld enforcement; statefsd seam recut to the first token-carrying client)
-- Owners: @security @reliability
-- Created: 2026-08-24
-- Last Updated: 2026-08-24
-- Links:
-  - Tasks: `tasks/TASK-0053-recovery-signed-actions-nxra.md` (execution + proof)
-  - Related RFCs: `docs/rfcs/RFC-0087-reliability-failure-model-v1.md` (§4 targets, §6 ops surface)
-  - ADRs: `docs/adr/0055-bootctld-single-boot-state-authority.md`
-  - Registry: `tasks/TRACK-AUTHORITY-NAMING.md` (artifact `.nxra`)
+# RFC-0088: `.nxra` — Signed Recovery Action Tokens
 
 ## Status at a Glance
 

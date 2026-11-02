@@ -1,16 +1,25 @@
 ---
-title: TRACK Networking Drivers (virtio-net etc.): contracts + gated roadmap for nexus-net + DSoftBus
-status: Living
-owner: @runtime
+schema: 1
+id: TRACK-NETWORKING-DRIVERS
+title: "Networking Drivers (virtio-net etc.): contracts + gated roadmap for nexus-net + DSoftBus"
+status: living
+owner: ["@runtime"]
 created: 2025-12-22
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Networking step 1: tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
-  - Networking step 2: tasks/TASK-0004-networking-dhcp-icmp-dsoftbus-dual-node.md
-  - Networking step 3: tasks/TASK-0005-networking-cross-vm-dsoftbus-remote-proxy.md
-  - Device/MMIO access: tasks/TASK-0010-device-mmio-access-model.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Networking step 1"
+    target: tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
+  - label: "Networking step 2"
+    target: tasks/TASK-0004-networking-dhcp-icmp-dsoftbus-dual-node.md
+  - label: "Networking step 3"
+    target: tasks/TASK-0005-networking-cross-vm-dsoftbus-remote-proxy.md
+  - label: "Device/MMIO access"
+    target: tasks/TASK-0010-device-mmio-access-model.md
 ---
+
 > **Dissolved 2026-09-21 (hardware fast track).** The real-NIC work is `tasks/TASK-0248-*.md`
 > (recut: SDIO host + WiFi module driver core, `0248B` Ethernet MAC + PHY) and `tasks/TASK-0249-*.md`
 > (recut: `wifid`/`ethd` + netstackd on the real NIC) — target picture N in

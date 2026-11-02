@@ -1,20 +1,28 @@
 ---
-title: TASK-0076 DSL v0.1b: interpreter runtime (mount/dispatch/dirty-index/retained tree) + headless goldens + conformance corpus (host)
-status: Done
-owner: @ui @runtime
+schema: 1
+id: TASK-0076
+title: "DSL v0.1b: interpreter runtime (mount/dispatch/dirty-index/retained tree) + headless goldens + conformance corpus (host)"
+status: done
+owner: ["@ui", "@runtime"]
 created: 2025-12-23
 updated: 2026-07-06
-depends-on:
-  - tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
-follow-up-tasks:
-  - tasks/TASK-0076B-dsl-v0_1c-visible-os-mount-first-frame.md
+subsystem: ui
+done: 2026-07-19
+dates_source: git-reconstructed
+depends_on: [TASK-0075]
+follow_ups: [TASK-0076B]
+tracks: [TRACK-DSL-V1-DEVX]
 links:
-  - Track: tasks/TRACK-DSL-V1-DEVX.md
-  - Language reference: docs/dev/dsl/{state,ir,testing}.md
-  - Widget consumer set: userspace/ui/widgets/* (TASK-0073 kit; pure LayoutNode builders)
-  - Layout engine: userspace/ui/layout (nexus-layout), types: userspace/ui/layout-types
-  - Golden harness to reuse: tests/ui_v10_goldens/ (BGRA painter + a11y lints)
-  - Testing contract: scripts/qemu-test.sh
+  - label: "Language reference"
+    target: "docs/dev/dsl/{state,ir,testing}.md"
+  - label: "Widget consumer set"
+    target: "userspace/ui/widgets/* (TASK-0073 kit; pure LayoutNode builders)"
+  - label: "Layout engine"
+    target: "userspace/ui/layout (nexus-layout), types: userspace/ui/layout-types"
+  - label: "Golden harness to reuse"
+    target: "tests/ui_v10_goldens/ (BGRA painter + a11y lints)"
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context (updated 2026-07-06)

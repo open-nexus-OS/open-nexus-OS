@@ -1,15 +1,30 @@
+---
+schema: 1
+id: RFC-0072
+title: "VFS v2 — ReadDir, writable providers, and the stable storage error SSOT — contract seed"
+status: draft
+status_note: 2026-07-15
+owners: ["@runtime"]
+created: 2026-07-15
+updated: 2026-08-14
+subsystem: storage
+tasks: [TASK-0291, TASK-0293, TASK-0295]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0291-vfs-readdir-svc-files-stash-real-listing.md` (P1 execution + proof), `tasks/TASK-0293-nxfsd-os-bringup-gpt-mount-data-keepblk.md` (P2 execution + proof), `tasks/TASK-0295-zero-copy-read-write-vmo-splice.md` (P3)"
+  - label: ADRs
+    target: "`docs/adr/0043-user-data-in-dedicated-cow-fs-statefs-stays-service-kv.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0042-sandboxing-v1-vfs-namespaces-capfd-manifest-permissions-host-first-os-gated.md` (namespace/CapFd discipline this RFC composes with), `docs/rfcs/RFC-0041-packagefs-v2-ro-image-index-fastpath-host-first-os-gated.md` (RO provider), `docs/rfcs/RFC-0071-nxfs-user-data-filesystem-contract.md` (the RW provider), `docs/rfcs/RFC-0073-app-files-surface-svc-files-permission-filemanager-role.md` (app surface on top), `docs/rfcs/RFC-0040-zero-copy-vmos-v1-plumbing-host-first-os-gated.md` (data plane)"
+  - label: Track
+    target: "`tasks/TRACK-STASH-USER-DATA-FS.md`"
+  - label: Absorbs
+    target: "`tasks/TASK-0132-storage-errors-vfs-semantic-contract.md` (the stable error-semantics contract lives here now; that task's execution folds into TASK-0291)."
+---
+
 # RFC-0072: VFS v2 — ReadDir, writable providers, and the stable storage error SSOT — contract seed
 
-- Status: Draft (2026-07-15)
-- Owners: @runtime
-- Created: 2026-07-15
-- Last Updated: 2026-08-14 (status sync: P2 behavior shipped via TASK-0293; capnp-v2 wire closure + VMO write half owned by TASK-0317)
-- Links:
-  - Tasks: `tasks/TASK-0291-vfs-readdir-svc-files-stash-real-listing.md` (P1 execution + proof), `tasks/TASK-0293-nxfsd-os-bringup-gpt-mount-data-keepblk.md` (P2 execution + proof), `tasks/TASK-0295-zero-copy-read-write-vmo-splice.md` (P3)
-  - ADRs: `docs/adr/0043-user-data-in-dedicated-cow-fs-statefs-stays-service-kv.md`
-  - Related RFCs: `docs/rfcs/RFC-0042-sandboxing-v1-vfs-namespaces-capfd-manifest-permissions-host-first-os-gated.md` (namespace/CapFd discipline this RFC composes with), `docs/rfcs/RFC-0041-packagefs-v2-ro-image-index-fastpath-host-first-os-gated.md` (RO provider), `docs/rfcs/RFC-0071-nxfs-user-data-filesystem-contract.md` (the RW provider), `docs/rfcs/RFC-0073-app-files-surface-svc-files-permission-filemanager-role.md` (app surface on top), `docs/rfcs/RFC-0040-zero-copy-vmos-v1-plumbing-host-first-os-gated.md` (data plane)
-  - Track: `tasks/TRACK-STASH-USER-DATA-FS.md`
-  - Absorbs: `tasks/TASK-0132-storage-errors-vfs-semantic-contract.md` (the stable error-semantics contract lives here now; that task's execution folds into TASK-0291).
+> Last Updated (migrated 2026-11-02): 2026-08-14 (status sync: P2 behavior shipped via TASK-0293; capnp-v2 wire closure + VMO write half owned by TASK-0317)
 
 ## Status at a Glance
 

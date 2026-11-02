@@ -1,23 +1,35 @@
 ---
-title: TASK-0205 WebView v1.2a (host-first): persistent history model + session crash-recovery model + CSP report format/export + cookie jar v0 (dev) + deterministic tests
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0205
+title: "WebView v1.2a (host-first): persistent history model + session crash-recovery model + CSP report format/export + cookie jar v0 (dev) + deterministic tests"
+status: draft
+owner: ["@ui"]
 created: 2025-12-27
-depends-on: []
-follow-up-tasks: []
+subsystem: observability
+tracks: [TRACK-ADS-SAFETY-FAMILYMODE]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - DSL query posture: docs/dev/dsl/db-queries.md
-  - DSL state tiers: docs/dev/dsl/state.md
-  - WebView usage posture: docs/dev/ui/blessed-surfaces/webview.md
-  - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
-  - WebView v1.1 core (history/find/storage/CSP strict): tasks/TASK-0186-webview-v1_1a-host-webview-core-history-find-sessionstorage-csp.md
-  - WebView Net v1 OS services (fetchd/downloadd fixtures-only): tasks/TASK-0177-webview-net-v1b-os-httpstubd-fetchd-downloadd-policy-selftests.md
-  - QuerySpec v1 foundation: tasks/TASK-0078B-dsl-v0_2b-queryspec-v1-foundation-service-gated-paging-hash.md
-  - QuerySpec v2 hardening: tasks/TASK-0274-dsl-v0_2c-db-query-objects-builder-defaults-paging-deterministic.md
-  - Devnet TLS fetch path (real HTTP(S), host-first): tasks/TASK-0193-networking-v1a-host-devnet-tls-fetchd-integration.md
-  - Persistence substrate (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "DSL query posture"
+    target: docs/dev/dsl/db-queries.md
+  - label: "DSL state tiers"
+    target: docs/dev/dsl/state.md
+  - label: "WebView usage posture"
+    target: docs/dev/ui/blessed-surfaces/webview.md
+  - label: "WebView v1.1 core (history/find/storage/CSP strict)"
+    target: tasks/TASK-0186-webview-v1_1a-host-webview-core-history-find-sessionstorage-csp.md
+  - label: "WebView Net v1 OS services (fetchd/downloadd fixtures-only)"
+    target: tasks/TASK-0177-webview-net-v1b-os-httpstubd-fetchd-downloadd-policy-selftests.md
+  - label: "QuerySpec v1 foundation"
+    target: tasks/TASK-0078B-dsl-v0_2b-queryspec-v1-foundation-service-gated-paging-hash.md
+  - label: "QuerySpec v2 hardening"
+    target: tasks/TASK-0274-dsl-v0_2c-db-query-objects-builder-defaults-paging-deterministic.md
+  - label: "Devnet TLS fetch path (real HTTP(S), host-first)"
+    target: tasks/TASK-0193-networking-v1a-host-devnet-tls-fetchd-integration.md
+  - label: "Persistence substrate (/state)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
 ---
 
 ## Context

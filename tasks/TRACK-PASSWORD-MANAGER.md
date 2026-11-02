@@ -1,14 +1,21 @@
 ---
-title: TRACK Password Manager: vault + generator + policy/audit first (keystore-backed, no-secret-logs)
-status: Draft
-owner: @security @ui
+schema: 1
+id: TRACK-PASSWORD-MANAGER
+title: "Password Manager: vault + generator + policy/audit first (keystore-backed, no-secret-logs)"
+status: draft
+owner: ["@security", "@ui"]
 created: 2026-01-19
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - keystored (secrets authority): tasks/TRACK-KEYSTONE-GATES.md
-  - Policy foundations (cap matrix future): tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
-  - Zero-Copy App Platform (attachments/export): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "keystored (secrets authority)"
+    target: tasks/TRACK-KEYSTONE-GATES.md
+  - label: "Policy foundations (cap matrix future)"
+    target: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
+  - label: "Zero-Copy App Platform (attachments/export)"
+    target: tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
 ---
 
 ## Goal (track-level)

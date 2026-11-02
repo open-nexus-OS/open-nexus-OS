@@ -1,18 +1,36 @@
 ---
-title: TASK-0333 Memory, the efficient one + the app lifecycle — Block 4 layer 6 (RFC-0100): what dies is freed, unified memory with the GPU committed on touch, shared code, freeze/kill like a phone, restore, pressure, compression before swap
-status: In Progress (6a ✅ 2026-10-20, 6b ✅ 2026-10-23 — 6b-1, 6b-2a, 6b-2b, 6b-3 (board cycle 67); 6c ✅ 2026-10-26 (ADR-0081, 989b1474); 6d ✅ 2026-10-27 (35005c8b, board cycle 72b) — 6d-4 → 6g after 6f (RFC-0112); 6e ✅ 2026-10-27 (ADR-0085/0086, both QEMU lanes + board cycle 73; the board's close-and-reopen rung open with the keyboard defect — after 6f); 6f-0 ✅ 2026-10-28 (bb6557f9, board cycle 74); 6f-1 ✅ 2026-10-28 (7004801e, ADR-0087, board cycle 75); 6f-2 ✅ 2026-10-28 (ADR-0088, board cycle 76); 6f-3 ✅ 2026-10-30 (ADR-0086 amended, ADR-0089 — the determinism package; test-all + board cycle 77) — 6f complete; next: the keyboard package, then 6g (RFC-0112); planned 2026-10-19 with the operator)
-owner: @kernel-team @runtime @ui @gpu
+schema: 1
+id: TASK-0333
+title: "Memory, the efficient one + the app lifecycle — Block 4 layer 6 (RFC-0100): what dies is freed, unified memory with the GPU committed on touch, shared code, freeze/kill like a phone, restore, pressure, compression before swap"
+status: in_progress
+status_note: "6a ✅ 2026-10-20, 6b ✅ 2026-10-23"
+owner: ["@kernel-team", "@runtime", "@ui", "@gpu"]
 created: 2026-10-19
-depends-on: [TASK-0286 (M1: frames from the FDT, page-backed VMOs), TASK-0215 (layer 5: the desktop on the GPU)]
-follow-up-tasks: [layer 7 SMP (TASK-0330 S1–S3), layer 8 closing (S4–S6, G5, the GPU items layer 5 carried)]
+subsystem: kernel
+started: 2026-10-20
+dates_source: git-reconstructed
+depends_on: [TASK-0286, TASK-0215]
+implements: [RFC-0100]
 links:
-  - Contract: docs/rfcs/RFC-0100-memory-object-model-v2-commit-on-touch-unified-gpu-memory-pressure.md (seeded here; filled in 6b)
-  - Order: tasks/IMPLEMENTATION-ORDER.md ("Block 4 in layers", layer 6 — recut 2026-10-19: memory before SMP)
-  - Absorbs / retitles: tasks/TASK-0286B (M2 → "M2 + the split", seeded at 6b's P0), tasks/TASK-0286C (M3, at 6c's P0), tasks/TASK-0287 (M4), tasks/TASK-0290 (M5; its "Input from Block 1" moves to 6b), tasks/TASK-0287B / 0287C (M6/M7, at 6f's P0), tasks/TASK-0228 (superseded by memd), tasks/TASK-0234 + 0235 (lifecycle, into 6d), tasks/TASK-0236 + 0237 (only the wake-lock / background-declaration half, into 6d), tasks/TASK-0269B (the launch budget, into 6a/6e), tasks/TASK-0080D R3 (`@persist` on suspend, into 6e)
-  - Measured today: docs/board/measurements/2026-10-10-mgs-baseline/README.md ("Memory"); the layer's own folder docs/board/measurements/2026-10-20-memory-lifecycle-baseline/ (6a P0)
-  - Method: .claude/skills/driver-bringup/SKILL.md (measure → hypotheses with a decision line → gate → code → gate)
-  - Prior art read: HarmonyOS (freeze + compressed memory + prewarmed spawn), iOS (early freeze, Jetsam bands, snapshot + state restoration), Fuchsia (capability-started components, suspend as a token, buffered channels), macOS (automatic termination + resume)
+  - label: Contract
+    target: "docs/rfcs/RFC-0100-memory-object-model-v2-commit-on-touch-unified-gpu-memory-pressure.md (seeded here; filled in 6b)"
+  - label: Order
+    target: "tasks/milestones/hardware-network.md (\"Block 4 in layers\", layer 6 — recut 2026-10-19: memory before SMP)"
+  - label: "Absorbs / retitles"
+    target: "tasks/TASK-0286B (M2 → \"M2 + the split\", seeded at 6b's P0), tasks/TASK-0286C (M3, at 6c's P0), tasks/TASK-0287 (M4), tasks/TASK-0290 (M5; its \"Input from Block 1\" moves to 6b), tasks/TASK-0287B / 0287C (M6/M7, at 6f's P0), tasks/TASK-0228 (superseded by memd), tasks/TASK-0234 + 0235 (lifecycle, into 6d), tasks/TASK-0236 + 0237 (only the wake-lock / background-declaration half, into 6d), tasks/TASK-0269B (the launch budget, into 6a/6e), tasks/TASK-0080D R3 (`@persist` on suspend, into 6e)"
+  - label: "Measured today"
+    target: "docs/board/measurements/2026-10-10-mgs-baseline/README.md (\"Memory\"); the layer's own folder docs/board/measurements/2026-10-20-memory-lifecycle-baseline/ (6a P0)"
+  - label: Method
+    target: ".claude/skills/driver-bringup/SKILL.md (measure → hypotheses with a decision line → gate → code → gate)"
+  - label: "Prior art read"
+    target: "HarmonyOS (freeze + compressed memory + prewarmed spawn), iOS (early freeze, Jetsam bands, snapshot + state restoration), Fuchsia (capability-started components, suspend as a token, buffered channels), macOS (automatic termination + resume)"
+  - label: follow-up
+    target: "layer 7 SMP (TASK-0330 S1–S3)"
+  - label: follow-up
+    target: "layer 8 closing (S4–S6, G5, the GPU items layer 5 carried)"
 ---
+
+> Status (migrated 2026-11-02): In Progress (6a ✅ 2026-10-20, 6b ✅ 2026-10-23 — 6b-1, 6b-2a, 6b-2b, 6b-3 (board cycle 67); 6c ✅ 2026-10-26 (ADR-0081, 989b1474); 6d ✅ 2026-10-27 (35005c8b, board cycle 72b) — 6d-4 → 6g after 6f (RFC-0112); 6e ✅ 2026-10-27 (ADR-0085/0086, both QEMU lanes + board cycle 73; the board's close-and-reopen rung open with the keyboard defect — after 6f); 6f-0 ✅ 2026-10-28 (bb6557f9, board cycle 74); 6f-1 ✅ 2026-10-28 (7004801e, ADR-0087, board cycle 75); 6f-2 ✅ 2026-10-28 (ADR-0088, board cycle 76); 6f-3 ✅ 2026-10-30 (ADR-0086 amended, ADR-0089 — the determinism package; test-all + board cycle 77) — 6f complete; next: the keyboard package, then 6g (RFC-0112); planned 2026-10-19 with the operator)
 
 ## Context
 

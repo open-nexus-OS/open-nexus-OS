@@ -1,19 +1,28 @@
 ---
-title: TASK-0212 DSoftBus v1.1d (OS/QEMU): busdir wiring + rpcmux calls + health indicators + flow-control enforcement + nx-bus + SystemUI integration + selftests/docs
-status: Draft
-owner: @runtime
+schema: 1
+id: TASK-0212
+title: "DSoftBus v1.1d (OS/QEMU): busdir wiring + rpcmux calls + health indicators + flow-control enforcement + nx-bus + SystemUI integration + selftests/docs"
+status: draft
+owner: ["@runtime"]
 created: 2025-12-27
-depends-on: []
-follow-up-tasks: []
+subsystem: distributed
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - DSoftBus v1 OS slice baseline (localSim + share demo + nx-bus): tasks/TASK-0158-dsoftbus-v1b-os-consent-policy-registry-share-demo-cli-selftests.md
-  - DSoftBus v1.1 secure channels + encrypted framing: tasks/TASK-0195-dsoftbus-v1_1a-host-secure-channels-encrypted-streams-share.md
-  - DSoftBus v1.1c busdir/rpcmux/health (host-first): tasks/TASK-0211-dsoftbus-v1_1c-host-busdir-rpcmux-health-flow.md
-  - UDP devnet discovery gating: tasks/TASK-0196-dsoftbus-v1_1b-devnet-udp-discovery-gated.md
-  - Policy caps baseline: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "DSoftBus v1 OS slice baseline (localSim + share demo + nx-bus)"
+    target: tasks/TASK-0158-dsoftbus-v1b-os-consent-policy-registry-share-demo-cli-selftests.md
+  - label: "DSoftBus v1.1 secure channels + encrypted framing"
+    target: tasks/TASK-0195-dsoftbus-v1_1a-host-secure-channels-encrypted-streams-share.md
+  - label: "DSoftBus v1.1c busdir/rpcmux/health (host-first)"
+    target: tasks/TASK-0211-dsoftbus-v1_1c-host-busdir-rpcmux-health-flow.md
+  - label: "UDP devnet discovery gating"
+    target: tasks/TASK-0196-dsoftbus-v1_1b-devnet-udp-discovery-gated.md
+  - label: "Policy caps baseline"
+    target: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Short description

@@ -1,21 +1,31 @@
 ---
-title: TASK-0180 Store v1a (host-first): offline feed (pkg://store) + storefeedd + storemgrd over bundlemgrd + ratings stub + deterministic tests
-status: Draft
-owner: @platform
+schema: 1
+id: TASK-0180
+title: "Store v1a (host-first): offline feed (pkg://store) + storefeedd + storemgrd over bundlemgrd + ratings stub + deterministic tests"
+status: draft
+owner: ["@platform"]
 created: 2025-12-27
-depends-on: []
-follow-up-tasks: []
+subsystem: updates
+tracks: [TRACK-ADS-SAFETY-FAMILYMODE]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
-  - Packages install authority (bundlemgrd): tasks/TASK-0130-packages-v1b-bundlemgrd-install-upgrade-uninstall-trust.md
-  - Bundle authoring/signing (pkgr): tasks/TASK-0129-packages-v1a-nxb-format-signing-pkgr-tool.md
-  - Trust store unification (Ed25519): tasks/TASK-0160-identity-keystore-v1_1-os-attestd-trust-unification-selftests.md
-  - SDK OS install proof (catalog decision): tasks/TASK-0166-sdk-v1-part2b-os-local-catalog-install-launch-proofs.md
-  - Persistence substrate (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Testing contract: scripts/qemu-test.sh
-  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Packages install authority (bundlemgrd)"
+    target: tasks/TASK-0130-packages-v1b-bundlemgrd-install-upgrade-uninstall-trust.md
+  - label: "Bundle authoring/signing (pkgr)"
+    target: tasks/TASK-0129-packages-v1a-nxb-format-signing-pkgr-tool.md
+  - label: "Trust store unification (Ed25519)"
+    target: tasks/TASK-0160-identity-keystore-v1_1-os-attestd-trust-unification-selftests.md
+  - label: "SDK OS install proof (catalog decision)"
+    target: tasks/TASK-0166-sdk-v1-part2b-os-local-catalog-install-launch-proofs.md
+  - label: "Persistence substrate (/state)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
+  - label: "Data formats rubric (JSON vs Cap'n Proto)"
+    target: docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
 ## Context

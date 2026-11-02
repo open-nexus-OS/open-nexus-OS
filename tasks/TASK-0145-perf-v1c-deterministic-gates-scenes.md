@@ -1,19 +1,27 @@
 ---
-title: TASK-0145 Perf v1c (host-first): deterministic perf gates for key scenes + baseline artifacts + OS markers (gated)
-status: Draft
-owner: @reliability
+schema: 1
+id: TASK-0145
+title: "Perf v1c (host-first): deterministic perf gates for key scenes + baseline artifacts + OS markers (gated)"
+status: draft
+owner: ["@reliability"]
 created: 2025-12-25
-depends-on: []
-follow-up-tasks:
-  - tasks/TASK-0145B-ui-interaction-latency-budget.md  # TASK-0145B — the one budget a measurement demands, cut out of this scope 2026-09-20 so it can land
+subsystem: observability
+follow_ups: [TASK-0145B]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - perfd tracer: tasks/TASK-0143-perf-v1a-perfd-frame-trace-metrics.md
-  - Perf instrumentation/HUD: tasks/TASK-0144-perf-v1b-instrumentation-hud-nx-perf.md
-  - UI performance philosophy: docs/dev/ui/foundations/quality/performance-philosophy.md
-  - SystemUI DSL pages (scenes): tasks/TASK-0119-systemui-dsl-migration-phase1a-launcher-qs-host.md
-  - Notifications center DSL: tasks/TASK-0121-systemui-dsl-migration-phase2a-settings-notifs-host.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "perfd tracer"
+    target: tasks/TASK-0143-perf-v1a-perfd-frame-trace-metrics.md
+  - label: "Perf instrumentation/HUD"
+    target: tasks/TASK-0144-perf-v1b-instrumentation-hud-nx-perf.md
+  - label: "UI performance philosophy"
+    target: docs/dev/ui/foundations/quality/performance-philosophy.md
+  - label: "SystemUI DSL pages (scenes)"
+    target: tasks/TASK-0119-systemui-dsl-migration-phase1a-launcher-qs-host.md
+  - label: "Notifications center DSL"
+    target: tasks/TASK-0121-systemui-dsl-migration-phase2a-settings-notifs-host.md
 ---
 
 ## Context

@@ -1,24 +1,32 @@
 ---
-title: TASK-0055B UI v1c: visible QEMU scanout bootstrap (ramfb window + first visible frame)
-status: Done
-owner: @ui @runtime
+schema: 1
+id: TASK-0055B
+title: "UI v1c: visible QEMU scanout bootstrap (ramfb window + first visible frame)"
+status: done
+owner: ["@ui", "@runtime"]
 created: 2026-03-28
-depends-on:
-  - TASK-0055
-  - TASK-0010
-follow-up-tasks:
-  - TASK-0055C
-  - TASK-0251
+subsystem: ui
+done: 2026-07-17
+dates_source: git-reconstructed
+depends_on: [TASK-0055, TASK-0010]
+follow_ups: [TASK-0055C, TASK-0251]
+split_from: TASK-0055
+implements: [RFC-0048]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - RFC seed contract: docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md
-  - UI v1b headless compositor baseline: tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md
-  - Renderer abstraction OS wiring: tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md
-  - Display host core: tasks/TASK-0250-display-v1_0a-host-simplefb-compositor-backend-deterministic.md
-  - Display OS integration follow-up: tasks/TASK-0251-display-v1_0b-os-fbdevd-windowd-integration-cursor-selftests.md
-  - Device MMIO access model: tasks/TASK-0010-device-mmio-access-model.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "UI v1b headless compositor baseline"
+    target: tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md
+  - label: "Renderer abstraction OS wiring"
+    target: tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md
+  - label: "Display host core"
+    target: tasks/TASK-0250-display-v1_0a-host-simplefb-compositor-backend-deterministic.md
+  - label: "Device MMIO access model"
+    target: tasks/TASK-0010-device-mmio-access-model.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

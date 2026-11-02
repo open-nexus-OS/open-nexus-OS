@@ -1,23 +1,35 @@
 ---
-title: TASK-0113 UI v19c: Browser app (offline) + downloads shelf + Open With html/svg + OS selftests/postflight
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0113
+title: "UI v19c: Browser app (offline) + downloads shelf + Open With html/svg + OS selftests/postflight"
+status: draft
+owner: ["@ui"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
+tracks: [TRACK-ADS-SAFETY-FAMILYMODE]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - WebView usage posture: docs/dev/ui/blessed-surfaces/webview.md
-  - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
-  - System Delegation / System Surfaces (default handlers/Open With): tasks/TRACK-SYSTEM-DELEGATION.md
-  - WebView daemon: tasks/TASK-0111-ui-v19a-webviewd-sandbox-offscreen.md
-  - Content saveAs helper: tasks/TASK-0112-ui-v19b-contentd-saveas-downloads.md
-  - QuerySpec v1 foundation: tasks/TASK-0078B-dsl-v0_2b-queryspec-v1-foundation-service-gated-paging-hash.md
-  - MIME registry/Open With: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
-  - Document picker filters: tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
-  - Files app integration: tasks/TASK-0086-ui-v12c-files-app-progress-dnd-share-openwith.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "WebView usage posture"
+    target: docs/dev/ui/blessed-surfaces/webview.md
+  - label: "System Delegation / System Surfaces (default handlers/Open With)"
+    target: tasks/TRACK-SYSTEM-DELEGATION.md
+  - label: "WebView daemon"
+    target: tasks/TASK-0111-ui-v19a-webviewd-sandbox-offscreen.md
+  - label: "Content saveAs helper"
+    target: tasks/TASK-0112-ui-v19b-contentd-saveas-downloads.md
+  - label: "QuerySpec v1 foundation"
+    target: tasks/TASK-0078B-dsl-v0_2b-queryspec-v1-foundation-service-gated-paging-hash.md
+  - label: "MIME registry/Open With"
+    target: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
+  - label: "Document picker filters"
+    target: tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
+  - label: "Files app integration"
+    target: tasks/TASK-0086-ui-v12c-files-app-progress-dnd-share-openwith.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

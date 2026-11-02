@@ -1,19 +1,28 @@
 ---
-title: TASK-0167 Policy v1.1 (host-first): scoped grants + once/session/persistent modes + expiry + enumerate/revoke + deterministic audit emission
-status: Draft
-owner: @runtime
+schema: 1
+id: TASK-0167
+title: "Policy v1.1 (host-first): scoped grants + once/session/persistent modes + expiry + enumerate/revoke + deterministic audit emission"
+status: draft
+owner: ["@runtime"]
 created: 2025-12-26
-depends-on: []
-follow-up-tasks: []
+subsystem: security
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Policy v1 capability matrix baseline: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
-  - permsd baseline: tasks/TASK-0103-ui-v17a-permissions-privacyd.md
-  - Observability/audit sink direction (logd): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
-  - Persistence substrate (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - UI privacy dashboard (v1.1): tasks/TASK-0168-policy-v1_1-os-runtime-prompts-privacy-dashboard-cli.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Policy v1 capability matrix baseline"
+    target: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
+  - label: "permsd baseline"
+    target: tasks/TASK-0103-ui-v17a-permissions-privacyd.md
+  - label: "Observability/audit sink direction (logd)"
+    target: tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
+  - label: "Persistence substrate (/state)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "UI privacy dashboard (v1.1)"
+    target: tasks/TASK-0168-policy-v1_1-os-runtime-prompts-privacy-dashboard-cli.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

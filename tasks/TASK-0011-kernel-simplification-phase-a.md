@@ -1,16 +1,25 @@
 ---
-title: TASK-0011 Kernel simplification (RFC-0001): Phase A (text-only) + Phase B (physical reorg)
-status: Done
-owner: @kernel-team
+schema: 1
+id: TASK-0011
+title: "Kernel simplification (RFC-0001): Phase A (text-only) + Phase B (physical reorg)"
+status: done
+owner: ["@kernel-team"]
 created: 2025-12-22
-depends-on: []
-follow-up-tasks: []
+subsystem: kernel
+started: 2026-02-09
+done: 2026-02-09
+active_days: 1
+dates_source: git-reconstructed
+implements: [RFC-0001]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - RFC: docs/rfcs/RFC-0001-kernel-simplification.md
-  - Kernel overview: docs/architecture/01-neuron-kernel.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Kernel overview"
+    target: docs/architecture/01-neuron-kernel.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

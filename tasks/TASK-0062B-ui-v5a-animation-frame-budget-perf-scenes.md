@@ -1,20 +1,30 @@
 ---
-title: TASK-0062B UI v5a extension: animation frame-budget discipline + perf scenes + QEMU fluidity gates
-status: Done
-owner: @ui @runtime
+schema: 1
+id: TASK-0062B
+title: "UI v5a extension: animation frame-budget discipline + perf scenes + QEMU fluidity gates"
+status: done
+owner: ["@ui", "@runtime"]
 created: 2026-03-29
-depends-on: []
-follow-up-tasks: []
+subsystem: observability
+done: 2026-07-19
+dates_source: git-reconstructed
+follow_ups: [TASK-0060B, TASK-0143]
+split_from: TASK-0062
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - UI v5a runtime/animation baseline: tasks/TASK-0062-ui-v5a-reactive-runtime-animation-transitions.md
-  - Glass compositor follow-up: tasks/TASK-0060B-ui-v4b-glass-materials-backdrop-cache-degrade.md
-  - Compositor perf baseline: tasks/TASK-0060-ui-v4a-tiled-compositor-clipstack-atlases-perf.md
-  - Perf tracing follow-ups: tasks/TASK-0143-perf-v1a-perfd-frame-trace-metrics.md
-  - Deterministic perf pipeline: tasks/TASK-0144-perf-v1b-instrumentation-hooks-hud-nx-perf.md
-  - Perf gates: tasks/TASK-0145-perf-v1c-deterministic-gates-key-scenes.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "UI v5a runtime/animation baseline"
+    target: tasks/TASK-0062-ui-v5a-reactive-runtime-animation-transitions.md
+  - label: "Compositor perf baseline"
+    target: tasks/TASK-0060-ui-v4a-tiled-compositor-clipstack-atlases-perf.md
+  - label: "Deterministic perf pipeline"
+    target: tasks/TASK-0144-perf-v1b-instrumentation-hooks-hud-nx-perf.md
+  - label: "Perf gates"
+    target: tasks/TASK-0145-perf-v1c-deterministic-gates-key-scenes.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

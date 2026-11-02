@@ -1,7 +1,9 @@
 # Bring-up ledger template (one per driver / board / SoC block)
 
-Copy into `tasks/TASK-XXXX-<driver>-bringup.md` (front matter as in `tasks/TASK-TEMPLATE.md`)
-and fill every heading with measurements, not intentions. Four phases, each with its
+Start with `nx ledger new task --title … --subsystem hardware --owner …`, then write the four
+phases below as frontmatter phases (`nx ledger phase TASK-N P0 --story … --gate …`, RFC-0115) —
+the headings below are the body's narrative for each, the state lives in the phases.
+Fill every heading with measurements, not intentions. Four phases, each with its
 evidence path; the Definition of Done is the last heading and is copied, not paraphrased.
 
 ```markdown

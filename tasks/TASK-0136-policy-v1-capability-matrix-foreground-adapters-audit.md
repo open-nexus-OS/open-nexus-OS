@@ -1,22 +1,31 @@
 ---
-title: TASK-0136 Policy v1 (apps): capability matrix + foreground-only guards + enforcement adapters + audit events (host-first, OS-gated)
-status: Draft
-owner: @runtime
+schema: 1
+id: TASK-0136
+title: "Policy v1 (apps): capability matrix + foreground-only guards + enforcement adapters + audit events (host-first, OS-gated)"
+status: draft
+owner: ["@runtime"]
 created: 2025-12-25
-depends-on: []
-follow-up-tasks: []
+subsystem: security
+tracks: [TRACK-ADS-SAFETY-FAMILYMODE, TRACK-SYSTEM-DELEGATION]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
-  - System Delegation / System Surfaces (track): tasks/TRACK-SYSTEM-DELEGATION.md
-  - Policy authority + unification: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
-  - Security hardening baseline (nexus-sel + audit): tasks/TASK-0008-security-hardening-v1-nexus-sel-audit-device-keys.md
-  - Permissions broker (runtime consent): tasks/TASK-0103-ui-v17a-permissions-privacyd.md
-  - Storage error contract: tasks/TASK-0132-storage-errors-vfs-semantic-contract.md
-  - Share v2 intents: tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md
-  - Notifications v2: tasks/TASK-0069-ui-v8a-notifications-v2-actions-inline-reply.md
-  - Clipboard v3: tasks/TASK-0087-ui-v13a-clipboard-v3.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Policy authority + unification"
+    target: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
+  - label: "Security hardening baseline (nexus-sel + audit)"
+    target: tasks/TASK-0008-security-hardening-v1-nexus-sel-audit-device-keys.md
+  - label: "Permissions broker (runtime consent)"
+    target: tasks/TASK-0103-ui-v17a-permissions-privacyd.md
+  - label: "Storage error contract"
+    target: tasks/TASK-0132-storage-errors-vfs-semantic-contract.md
+  - label: "Share v2 intents"
+    target: tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md
+  - label: "Notifications v2"
+    target: tasks/TASK-0069-ui-v8a-notifications-v2-actions-inline-reply.md
+  - label: "Clipboard v3"
+    target: tasks/TASK-0087-ui-v13a-clipboard-v3.md
 ---
 
 ## Context

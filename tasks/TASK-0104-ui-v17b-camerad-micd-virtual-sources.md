@@ -1,15 +1,20 @@
 ---
-title: TASK-0104 UI v17b: virtual camerad + synthetic micd with permission enforcement + privacy indicators
-status: Draft
-owner: @media
+schema: 1
+id: TASK-0104
+title: "UI v17b: virtual camerad + synthetic micd with permission enforcement + privacy indicators"
+status: draft
+owner: ["@media"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Perms/privacy substrate: tasks/TASK-0103-ui-v17a-permissions-privacyd.md
-  - Media decoders (optional fixtures): tasks/TASK-0099-ui-v16a-media-decoders.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Perms/privacy substrate"
+    target: tasks/TASK-0103-ui-v17a-permissions-privacyd.md
+  - label: "Media decoders (optional fixtures)"
+    target: tasks/TASK-0099-ui-v16a-media-decoders.md
 ---
 
 ## Context

@@ -1,20 +1,33 @@
 ---
-title: TRACK Dev Studio (IDE): Xcode/Qt-Creator-class app builder + debugger + store submission (developer ecosystem keystone)
-status: Draft
-owner: @devx @ui @runtime
+schema: 1
+id: TRACK-DEVSTUDIO-IDE
+title: "Dev Studio (IDE): Xcode/Qt-Creator-class app builder + debugger + store submission (developer ecosystem keystone)"
+status: draft
+owner: ["@devx", "@ui", "@runtime"]
 created: 2026-01-19
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - DevX nx CLI (scaffold/inspect/postflight): tasks/TASK-0045-devx-nx-cli-v1.md
-  - DSL state/nav core: tasks/TASK-0077-dsl-v0_2a-state-nav-i18n-core.md
-  - DSL service stubs: tasks/TASK-0078-dsl-v0_2b-service-stubs-cli-demo.md
-  - SDK workflow (typed clients/templates): tasks/TASK-0164-sdk-v1-part2a-typed-clients-app-templates-nx-sdk.md
-  - SDK workflow (pack/sign/CI): tasks/TASK-0165-sdk-v1-part2b-dev-workflow-lints-pack-sign-ci-host.md
-  - SDK workflow (OS install/launch proofs): tasks/TASK-0166-sdk-v1-part2b-os-local-catalog-install-launch-proofs.md
-  - Packaging toolchain (bundle authoring/signing): tasks/TASK-0129-packages-v1a-nxb-format-signing-pkgr-tool.md
-  - App Store umbrella (publishing target): tasks/TRACK-APP-STORE.md
-  - Zero-Copy App Platform (intents/grants): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "DevX nx CLI (scaffold/inspect/postflight)"
+    target: tasks/TASK-0045-devx-nx-cli-v1.md
+  - label: "DSL state/nav core"
+    target: tasks/TASK-0077-dsl-v0_2a-state-nav-i18n-core.md
+  - label: "DSL service stubs"
+    target: tasks/TASK-0078-dsl-v0_2b-service-stubs-cli-demo.md
+  - label: "SDK workflow (typed clients/templates)"
+    target: tasks/TASK-0164-sdk-v1-part2a-typed-clients-app-templates-nx-sdk.md
+  - label: "SDK workflow (pack/sign/CI)"
+    target: tasks/TASK-0165-sdk-v1-part2b-dev-workflow-lints-pack-sign-ci-host.md
+  - label: "SDK workflow (OS install/launch proofs)"
+    target: tasks/TASK-0166-sdk-v1-part2b-os-local-catalog-install-launch-proofs.md
+  - label: "Packaging toolchain (bundle authoring/signing)"
+    target: tasks/TASK-0129-packages-v1a-nxb-format-signing-pkgr-tool.md
+  - label: "App Store umbrella (publishing target)"
+    target: tasks/TRACK-APP-STORE.md
+  - label: "Zero-Copy App Platform (intents/grants)"
+    target: tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
 ---
 
 ## Goal (track-level)

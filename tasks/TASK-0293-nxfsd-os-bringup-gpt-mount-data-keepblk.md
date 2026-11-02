@@ -1,21 +1,26 @@
 ---
-title: TASK-0293 nxfsd OS bring-up: writable /data mount + stash writes (v1: 2nd blk device, vfsd-hosted DataStore) + NEXUS_KEEP_BLK
-status: Done
-owner: @runtime
+schema: 1
+id: TASK-0293
+title: "nxfsd OS bring-up: writable /data mount + stash writes (v1: 2nd blk device, vfsd-hosted DataStore) + NEXUS_KEEP_BLK"
+status: done
+owner: ["@runtime"]
 created: 2026-07-15
-depends-on:
-  - TASK-0291
-  - TASK-0292
-follow-up-tasks:
-  - TASK-0295
+subsystem: storage
+done: 2026-07-19
+dates_source: git-reconstructed
+depends_on: [TASK-0291, TASK-0292]
+follow_ups: [TASK-0295]
+implements: [RFC-0071, RFC-0072]
+tracks: [TRACK-STASH-USER-DATA-FS]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Contract seed (this task, store): docs/rfcs/RFC-0071-nxfs-user-data-filesystem-contract.md
-  - Contract seed (this task, VFS writes): docs/rfcs/RFC-0072-vfs-v2-writable-providers-readdir-stable-errors.md
-  - Block topology decision: docs/adr/0044-single-blk-device-gpt-partitions-block-layer.md
-  - Track: tasks/TRACK-STASH-USER-DATA-FS.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Block topology decision"
+    target: docs/adr/0044-single-blk-device-gpt-partitions-block-layer.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

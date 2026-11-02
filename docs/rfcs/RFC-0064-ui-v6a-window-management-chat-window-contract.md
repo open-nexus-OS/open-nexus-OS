@@ -1,15 +1,30 @@
+---
+schema: 1
+id: RFC-0064
+title: "UI v6a — Window Management v1 (Chat-Window + Drag) Contract"
+status: done
+owners: ["@ui"]
+created: 2026-06-12
+updated: 2026-06-22
+subsystem: ui
+tasks: [TASK-0064]
+depends_on: [RFC-0063, RFC-0051]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0064-ui-v6a-window-management-scene-transitions.md` (execution + proof — SSOT for stop conditions)"
+  - label: "Depends on"
+    target: "`docs/rfcs/RFC-0063-ui-v5b-scene-graph-gpu-pipeline-virtual-list-theme-contract.md` (scene graph rendering authority)"
+  - label: "Depends on"
+    target: "`docs/rfcs/RFC-0051-ui-v2a-visible-input-cursor-focus-click-contract.md` (input routing + hit-test)"
+  - label: Related
+    target: "`docs/rfcs/RFC-0059-ui-v5a-animation-nexusgfx-sdk-gpu-driver-contract.md` (animation runtime — reused by future transitions)"
+  - label: Follow-up
+    target: "`tasks/TASK-0064B` (scene transitions: crossfade/slide — intentionally deferred)"
+---
+
 # RFC-0064: UI v6a — Window Management v1 (Chat-Window + Drag) Contract
 
-- Status: Complete
-- Owners: @ui
-- Created: 2026-06-12
-- Last Updated: 2026-06-22 (complete: ShellWindow N-window WM landed — chat is a window instance with title-bar/X/drag/z-order; markers + host tests green, boot-verified over virgl. Scene transitions → RFC-0064B/TASK-0064B)
-- Links:
-  - Tasks: `tasks/TASK-0064-ui-v6a-window-management-scene-transitions.md` (execution + proof — SSOT for stop conditions)
-  - Depends on: `docs/rfcs/RFC-0063-ui-v5b-scene-graph-gpu-pipeline-virtual-list-theme-contract.md` (scene graph rendering authority)
-  - Depends on: `docs/rfcs/RFC-0051-ui-v2a-visible-input-cursor-focus-click-contract.md` (input routing + hit-test)
-  - Related: `docs/rfcs/RFC-0059-ui-v5a-animation-nexusgfx-sdk-gpu-driver-contract.md` (animation runtime — reused by future transitions)
-  - Follow-up: `tasks/TASK-0064B` (scene transitions: crossfade/slide — intentionally deferred)
+> Last Updated (migrated 2026-11-02): 2026-06-22 (complete: ShellWindow N-window WM landed — chat is a window instance with title-bar/X/drag/z-order; markers + host tests green, boot-verified over virgl. Scene transitions → RFC-0064B/TASK-0064B)
 
 ## Status at a Glance
 

@@ -1,14 +1,66 @@
 ---
-title: TASK-0347 No ambient authority over address spaces, and no kernel panic from a caller's size
-status: In Progress (2026-10-31 — code + host tests + QEMU ladder; board cycle pending)
-owner: @kernel-team
+schema: 1
+id: TASK-0347
+title: "No ambient authority over address spaces, and no kernel panic from a caller's size"
+status: in_progress
+status_note: "board marker green in cycle 80 (2026-11-02); the closure sweep is open"
+owner: ["@kernel-team"]
 created: 2026-10-31
-depends-on: []
-follow-up-tasks: [TASK-0349 the memory model (growable kernel heap, sparse lazy objects, task-slot reuse, VMO refcounts that count in-flight capabilities), nexus-loader's future (no dependent left)]
+updated: 2026-11-02
+subsystem: kernel
+kind: hardening
+novelty: first
+started: 2026-10-31
+dates_source: git-reconstructed
+goal:
+  metric: "syscalls that reach another address space or panic the kernel from a caller's input"
+  baseline: "4 holes: as_map, as_create, spawn into any space or S-mode, a size or a fault panics"
+  target: "0: every path refused by name or answered ENOMEM"
+  instrument: "KSELFTEST: ambient authority reject ok ("
+consumer: "every process: the kernel's isolation and its liveness under a hostile caller"
+follow_ups: [TASK-0349]
 links:
-  - ADR: docs/adr/0091-no-ambient-authority-over-address-spaces-a-task-maps-and-spawns-only-into-its-own-the-kernel-bounds-what-a-caller-sizes.md
-  - Related: ADR-0080 (exec_vmo the only exec path), RFC-0085 (a task maps into its own space), ADR-0054 (errors keep their identity)
-  - Found by: the kernel memory map for TASK-0348/0349 (2026-10-30)
+  - label: ADR
+    target: docs/adr/0091-no-ambient-authority-over-address-spaces-a-task-maps-and-spawns-only-into-its-own-the-kernel-bounds-what-a-caller-sizes.md
+  - label: Related
+    target: "ADR-0080 (exec_vmo the only exec path), RFC-0085 (a task maps into its own space), ADR-0054 (errors keep their identity)"
+  - label: "Found by"
+    target: "the kernel memory map for TASK-0348/0349 (2026-10-30)"
+  - label: follow-up
+    target: "nexus-loader's future (no dependent left)"
+phases:
+  - id: P0
+    story: "the four ambient-authority and panic paths are found, read end to end"
+    state: done
+    gate: "the findings in the ledger"
+    started: 2026-10-30
+    done: 2026-10-30
+    evidence: "tasks/TASK-0347 § Found"
+  - id: P1
+    story: "no process maps into or starts a thread in another space; syscalls 9/10 retired"
+    state: done
+    gate: "spawn only into the caller's own space (EPERM otherwise)"
+    started: 2026-10-31
+    done: 2026-10-31
+    evidence: "cargo test -p neuron (214 tests)"
+  - id: P2
+    story: "a caller's size or a fault never panics the kernel"
+    state: done
+    gate: "kheap test_reject_an_allocation_that_eats_into_the_reserve; MapError::OutOfMemory"
+    started: 2026-10-31
+    done: 2026-10-31
+    evidence: "cargo test -p neuron"
+  - id: P3
+    story: "the reject rung on every QEMU profile and on the board"
+    state: done
+    gate: "KSELFTEST: ambient authority reject ok ( in every ladder and in scripts/board-test.sh"
+    started: 2026-11-02
+    done: 2026-11-02
+    evidence: build/logs/board--2026-11-02T14-16-01
+  - id: P4
+    story: "closure: ledger, CHANGELOG and ADR-0091 status swept"
+    state: planned
+    gate: "the docs sweep of CLAUDE.md's workflow"
 ---
 
 # TASK-0347 — No ambient authority over address spaces, no kernel panic from a caller's size

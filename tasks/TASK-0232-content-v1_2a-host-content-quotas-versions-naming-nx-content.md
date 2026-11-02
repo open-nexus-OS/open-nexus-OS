@@ -1,19 +1,28 @@
 ---
-title: TASK-0232 Files/Content v1.2a (host-first): per-app content quotas (bytes+files), deterministic naming rules, simple versions stub, and `nx content`
-status: Draft
-owner: @platform @devx
+schema: 1
+id: TASK-0232
+title: "Files/Content v1.2a (host-first): per-app content quotas (bytes+files), deterministic naming rules, simple versions stub, and `nx content`"
+status: draft
+owner: ["@platform", "@devx"]
 created: 2025-12-29
-depends-on: []
-follow-up-tasks: []
+subsystem: storage
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Content provider foundations (contentd pathless streams): tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
-  - Scoped content URI grants (grantsd): tasks/TASK-0084-ui-v12a-scoped-uri-grants.md
-  - FileOps/Trash backbone: tasks/TASK-0085-ui-v12b-fileops-trash-services.md
-  - State quotas substrate (bytes): tasks/TASK-0133-statefs-quotas-v1-accounting-enforcement.md
-  - Storage errors contract (EDQUOTA propagation): tasks/TASK-0132-storage-errors-vfs-semantic-contract.md
-  - DevX CLI base (`nx`): tasks/TASK-0045-devx-nx-cli-v1.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Content provider foundations (contentd pathless streams)"
+    target: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
+  - label: "Scoped content URI grants (grantsd)"
+    target: tasks/TASK-0084-ui-v12a-scoped-uri-grants.md
+  - label: "FileOps/Trash backbone"
+    target: tasks/TASK-0085-ui-v12b-fileops-trash-services.md
+  - label: "State quotas substrate (bytes)"
+    target: tasks/TASK-0133-statefs-quotas-v1-accounting-enforcement.md
+  - label: "Storage errors contract (EDQUOTA propagation)"
+    target: tasks/TASK-0132-storage-errors-vfs-semantic-contract.md
+  - label: "DevX CLI base (`nx`)"
+    target: tasks/TASK-0045-devx-nx-cli-v1.md
 ---
 
 ## Context

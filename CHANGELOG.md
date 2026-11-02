@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-11-02 (planning as data — RFC-0115)
+
+- **Planning state is data.** Every task, track and RFC (557 documents) carries canonical
+  frontmatter (schema 1): status as an enum, a one-line status note, owners, dates, subsystem,
+  typed relations. Long status histories moved into the body unchanged; the bodies are kept byte
+  for byte. Finished tasks got `started`/`done`/`active_days` reconstructed from commit subjects
+  (`dates_source: git-reconstructed`), so estimates can be calibrated from our own history.
+- **Milestones and weekly sprints.** `tasks/milestones/` holds the three fast lanes as ordered
+  steps — `ui-fast-lane` and `sub-80` (done), `hardware-network` (active) — and
+  `tasks/sprints/<week>.md` the week's stories (a task's phases). `tasks/IMPLEMENTATION-ORDER.md`
+  and `tasks/STATUS-BOARD.md` are gone: the order is the milestones, counts and boards are
+  derived, the subsystem list with its gate tiers is `tasks/SUBSYSTEMS.md`.
+- **Phases are user stories with a number at the gate.** A task names its goal (metric, baseline,
+  target, instrument), its consumer and an estimate; from 2026-11-03 the gate refuses to start
+  work without them.
+- **`nx ledger`** — the one writer of planning state: `brief`, `show`, `list`, `table` to read in a
+  few hundred tokens; `set`, `goal`, `phase`, `step`, `plan`, `new` to write (dates stamped, body
+  untouched, an edit the gate would reject is not written); `lint` as `just ledger-gate` in
+  `just check`. A SessionStart hook puts `nx ledger brief` into every new agent session; the
+  `plan-package` skill is the planning ritual. New task and RFC templates; the RFC index is
+  derived (`nx ledger list --kind rfc`).
+
 ### Changed - 2026-11-02 (windows by reference, a compositor without fixed tables, and its restart — TASK-0348, RFC-0114, RFC-0112, ADR-0092)
 
 - **An app draws where the GPU reads.** gpud allocates every app surface for its app — made for

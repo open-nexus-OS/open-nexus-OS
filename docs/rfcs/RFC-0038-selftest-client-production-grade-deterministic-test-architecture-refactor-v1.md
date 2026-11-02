@@ -1,19 +1,34 @@
+---
+schema: 1
+id: RFC-0038
+title: "Selftest-client production-grade deterministic test architecture refactor + manifest/evidence/replay v1"
+status: done
+status_note: "2026-04-20; one environmental closure step remains"
+owners: ["@runtime"]
+created: 2026-04-16
+updated: 2026-04-20
+links:
+  - label: "Execution SSOT"
+    target: "`tasks/TASK-0023B-selftest-client-production-grade-deterministic-test-architecture-refactor.md`"
+  - label: "Long-running infrastructure track"
+    target: "`tasks/TRACK-OS-PROOF-INFRASTRUCTURE.md`"
+  - label: "Follow-on task"
+    target: "`tasks/TASK-0024-dsoftbus-quic-v2-reliability-os.md`"
+  - label: ADRs
+    target: "`docs/adr/0005-dsoftbus-architecture.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md` (phase-list authority; expanded 8 → 12 in Phase 2 of this task)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0037-dsoftbus-quic-v2-os-enabled-gated.md`"
+---
+
 # RFC-0038: Selftest-client production-grade deterministic test architecture refactor + manifest/evidence/replay v1
 
-- Status: Done (2026-04-20; one environmental closure step remains — external CI-runner replay artifact for P6-05, see `docs/testing/replay-and-bisect.md` §7-§11; no code, fixture, or doc work outstanding)
-- Owners: @runtime
-- Created: 2026-04-16
-- Last Updated: 2026-04-20 (Phase 6 functionally closed; proof-floor synthetic bad-bundle + 3-commit good→drift→regress smokes recorded; only environmental external-CI replay artifact remaining)
-- Links:
-  - Execution SSOT: `tasks/TASK-0023B-selftest-client-production-grade-deterministic-test-architecture-refactor.md`
-  - Long-running infrastructure track: `tasks/TRACK-OS-PROOF-INFRASTRUCTURE.md`
-  - Follow-on task: `tasks/TASK-0024-dsoftbus-quic-v2-reliability-os.md`
-  - ADRs:
-    - `docs/adr/0005-dsoftbus-architecture.md`
-  - Related RFCs:
-    - `docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md` (phase-list authority; expanded 8 → 12 in Phase 2 of this task)
-    - `docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md`
-    - `docs/rfcs/RFC-0037-dsoftbus-quic-v2-os-enabled-gated.md`
+> Status (migrated 2026-11-02): Done (2026-04-20; one environmental closure step remains — external CI-runner replay artifact for P6-05, see `docs/testing/replay-and-bisect.md` §7-§11; no code, fixture, or doc work outstanding)
+>
+> Last Updated (migrated 2026-11-02): 2026-04-20 (Phase 6 functionally closed; proof-floor synthetic bad-bundle + 3-commit good→drift→regress smokes recorded; only environmental external-CI replay artifact remaining)
 
 ## Status at a Glance
 

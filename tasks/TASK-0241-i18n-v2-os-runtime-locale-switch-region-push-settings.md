@@ -1,22 +1,33 @@
 ---
-title: TASK-0241 i18n v2b (OS/QEMU): runtime locale switch via OP_SURFACE_REGION push + Settings language picker + de catalogs
-status: Done (2026-07-21)
-owner: @runtime
+schema: 1
+id: TASK-0241
+title: "i18n v2b (OS/QEMU): runtime locale switch via OP_SURFACE_REGION push + Settings language picker + de catalogs"
+status: done
+status_note: 2026-07-21
+owner: ["@runtime"]
 created: 2025-12-29
-updated: 2026-07-21 (DONE — OS loop landed; deltas: packs ride the NXLC payload (no `locales/<tag>.nxlp` load-on-switch — all catalogs parsed once at mount), selftest marker is `SELFTEST: i18n switch ok` (settings-leg round-trip; the app re-render marker is `apphost: locale <tag> applied`). Originally rewritten: no l10nd — windowd relays settingsd changes to app-host PackLocaleSource; architecture per RFC-0077)
-depends-on:
-  - TASK-0240
-  - TASK-0298
-follow-up-tasks: []
+updated: 2026-07-21
+subsystem: text
+done: 2026-07-21
+dates_source: status-text
+depends_on: [TASK-0240, TASK-0298]
+implements: [RFC-0077]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Contract: docs/rfcs/RFC-0077-i18n-v2-locale-packs-runtime-switch.md
-  - Pack compiler + PackLocaleSource: tasks/TASK-0240-i18n-l10n-v1_0a-host-catalog-compiler-icu-lite-plurals-deterministic.md
-  - Settings spine (ui.locale + watch): tasks/TASK-0298-settings-spine-watch-region-keys.md
-  - Superseded heavy line: tasks/TASK-0175-l10n-i18n-v1b-os-locale-switch-settings-cli-selftests.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Pack compiler + PackLocaleSource"
+    target: tasks/TASK-0240-i18n-l10n-v1_0a-host-catalog-compiler-icu-lite-plurals-deterministic.md
+  - label: "Settings spine (ui.locale + watch)"
+    target: tasks/TASK-0298-settings-spine-watch-region-keys.md
+  - label: "Superseded heavy line"
+    target: tasks/TASK-0175-l10n-i18n-v1b-os-locale-switch-settings-cli-selftests.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
+
+> updated (migrated 2026-11-02): 2026-07-21 (DONE — OS loop landed; deltas: packs ride the NXLC payload (no `locales/<tag>.nxlp` load-on-switch — all catalogs parsed once at mount), selftest marker is `SELFTEST: i18n switch ok` (settings-leg round-trip; the app re-render marker is `apphost: locale <tag> applied`). Originally rewritten: no l10nd — windowd relays settingsd changes to app-host PackLocaleSource; architecture per RFC-0077)
 
 ## Context
 

@@ -1,18 +1,23 @@
 ---
-title: TASK-0319 nxfs Phase 3: CoW metadata tree (ADR first) + snapshots/clones + data checksums (RFC-0071 P3)
-status: Draft
-owner: @runtime
+schema: 1
+id: TASK-0319
+title: "nxfs Phase 3: CoW metadata tree (ADR first) + snapshots/clones + data checksums (RFC-0071 P3)"
+status: draft
+owner: ["@runtime"]
 created: 2026-08-14
-depends-on:
-  - TASK-0316
-follow-up-tasks:
-  - TASK-0320
+subsystem: storage
+depends_on: [TASK-0316]
+follow_ups: [TASK-0320]
+implements: [RFC-0071]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Contract (Phase 3, fixed since 2026-07-15): docs/rfcs/RFC-0071-nxfs-user-data-filesystem-contract.md
-  - Prerequisite decision (to be authored HERE, step 1): the narrow "object-table: B-tree vs sorted-run/LSM" ADR RFC-0071 requires before P3
-  - Ladder: tasks/TRACK-STASH-USER-DATA-FS.md (replaces milestone 6 "seed-when-ready")
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Prerequisite decision (to be authored HERE, step 1)"
+    target: "the narrow \"object-table: B-tree vs sorted-run/LSM\" ADR RFC-0071 requires before P3"
+  - label: Ladder
+    target: "tasks/TRACK-STASH-USER-DATA-FS.md (replaces milestone 6 \"seed-when-ready\")"
 ---
 
 ## Context

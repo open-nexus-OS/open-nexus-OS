@@ -1,19 +1,107 @@
 ---
-title: TASK-0348 Zero-copy surfaces, a compositor without fixed tables, and its restart
-status: In Progress (2026-11-02 — P1–P5 built and QEMU-proven; P6 milestone 1 (the restart and the rejoin, without ghosts) built and proven on the many-windows lane; test-all + board cycle at this checkpoint; P6 milestones 2–3 (ghosts, the board context's rebinding) next)
-owner: @ui @runtime @kernel-team
+schema: 1
+id: TASK-0348
+title: "Zero-copy surfaces, a compositor without fixed tables, and its restart"
+status: in_progress
+status_note: "P0–P5 done; P6 QEMU-proven, its board half and P7–P10 next"
+owner: ["@ui", "@runtime", "@kernel-team"]
 created: 2026-10-31
-depends-on: [TASK-0347]
-follow-up-tasks: [TASK-0349 the memory model (an owner's footprint includes its surfaces, jetsam, the large-memory grant), TASK-0350 layer 8 (direct scanout via usage=SCANOUT, apps rendering with the GPU into their slots, the passes a frame runs)]
+updated: 2026-11-02
+subsystem: ui
+components: [windowd, gpud, app-host, neuron]
+kind: service
+novelty: first
+started: 2026-10-31
+dates_source: git-reconstructed
+goal:
+  metric: "windowd copy per compositor pass on the board; windows open at once"
+  baseline: "up to 138 ms and 4008 rows per pass; a fifth app refused (cycle 79)"
+  target: "0 copies; twelve windows drawn in one frame"
+  instrument: "windowd: compose copies= · windowd: windows drawn (n="
+consumer: "every app window (app-host) and, next, the web engine's frames (TASK-0350)"
+depends_on: [TASK-0347]
+follow_ups: [TASK-0349, TASK-0350]
+implements: [RFC-0114, RFC-0112]
 links:
-  - RFC: docs/rfcs/RFC-0114-surfaces-are-shared-buffers-the-app-draws-where-the-gpu-reads-the-compositor-composes-by-reference.md
-  - RFC: docs/rfcs/RFC-0112-a-services-death-is-a-re-resolve-for-its-clients-the-compositors-restart.md (amended, Phase 6)
-  - ADR: docs/adr/0092-a-surface-is-a-buffer-the-app-draws-and-the-gpu-reads-gpud-allocates-it-for-its-owner-windowd-composes-by-reference.md
-  - Evidence: board cycle 79 (build/logs/board--2026-10-30T18-10-02): `copy_rows=`/`copy_us=` up to 4008 rows / 138 ms per pass
-  - Queued by: the operator's three-package plan (2026-10-30): package 1 of 3
+  - label: RFC
+    target: "docs/rfcs/RFC-0112-a-services-death-is-a-re-resolve-for-its-clients-the-compositors-restart.md (amended, Phase 6)"
+  - label: ADR
+    target: docs/adr/0092-a-surface-is-a-buffer-the-app-draws-and-the-gpu-reads-gpud-allocates-it-for-its-owner-windowd-composes-by-reference.md
+  - label: Evidence
+    target: "board cycle 79 (build/logs/board--2026-10-30T18-10-02): `copy_rows=`/`copy_us=` up to 4008 rows / 138 ms per pass"
+  - label: "Queued by"
+    target: "the operator's three-package plan (2026-10-30): package 1 of 3"
+phases:
+  - id: P0
+    story: "the copy and the window limit are measured on the board"
+    state: done
+    gate: "board cycle 79: copy per pass and the refused fifth app logged"
+    started: 2026-10-31
+    done: 2026-10-31
+    evidence: build/logs/board--2026-10-30T18-10-02
+  - id: P1
+    story: "the kernel cleans what a non-coherent device reads (vmo_clean)"
+    state: done
+    gate: "KSELFTEST: vmo clean ok ("
+    started: 2026-11-02
+    done: 2026-11-02
+    evidence: build/logs/many-windows--2026-11-02T15-57-26
+  - id: P2
+    story: "gpud allocates each app surface for its owner on 2D, virgl and the board"
+    state: done
+    gate: "gpud: surface alloc ok ("
+    started: 2026-11-02
+    done: 2026-11-02
+    evidence: build/logs/many-windows--2026-11-02T15-57-26
+  - id: P3
+    story: "windowd composes app surfaces by reference and copies nothing"
+    state: done
+    gate: "windowd: compose copies=0 on headless and visible"
+    started: 2026-11-02
+    done: 2026-11-02
+    evidence: build/logs/many-windows--2026-11-02T15-57-26
+  - id: P4
+    story: "an app paints straight into the buffer the GPU reads"
+    state: done
+    gate: "apphost: surface mapped ("
+    started: 2026-11-02
+    done: 2026-11-02
+    evidence: build/logs/many-windows--2026-11-02T15-57-26
+  - id: P5
+    story: "any number of windows: slots, keys and outboxes grow"
+    state: done
+    gate: "many-windows lane: windowd: windows drawn (n=12)"
+    started: 2026-11-02
+    done: 2026-11-02
+    evidence: build/logs/many-windows--2026-11-02T15-57-26
+  - id: P6
+    story: "the compositor restarts under twelve windows and every app rejoins"
+    state: proving
+    gate: "QEMU: execd: compositor back (apps=13 owed=0 failed=0); board: the restart chord reaches windowd"
+    started: 2026-11-02
+    evidence: build/logs/many-windows--2026-11-02T15-57-26
+    note: "QEMU proven; board cycle 80 ran the package, the restart chord did not reach windowd"
+  - id: P7
+    story: "the board's Super+Ctrl chords reach windowd: tile, restore, restart"
+    state: planned
+    gate: "board: windowd: wm chord ( lines; board-visual: tile and restore acked"
+  - id: P8
+    story: "the IME probes pass whatever order real input arrives in"
+    state: planned
+    gate: "board: SELFTEST: ime v2 cjk jp ok with real input before and after the greeter"
+  - id: P9
+    story: "after a restart each app shows its last pixels until it presents again"
+    state: planned
+    gate: "visible lane after a QMP kill: windowd: restarted (ghosts=N)"
+  - id: P10
+    story: "on the board the new compositor's GPU context binds the adopted surfaces"
+    state: planned
+    gate: "board cycle: restart from the console, ghosts shown, frame p99 within budget"
 ---
 
 # TASK-0348 — Zero-copy surfaces, a compositor without fixed tables, and its restart
+
+> Status (migrated 2026-11-02): In Progress (2026-11-02 — P1–P5 built and QEMU-proven; P6 milestone 1 (the restart and the rejoin, without ghosts) built and proven on the many-windows lane; test-all + board cycle at this checkpoint; P6 milestones 2–3 (ghosts, the board context's rebinding) next)
 
 ## The operator's ask (2026-10-30)
 

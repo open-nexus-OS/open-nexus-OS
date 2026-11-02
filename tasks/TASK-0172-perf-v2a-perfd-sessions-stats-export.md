@@ -1,18 +1,26 @@
 ---
-title: TASK-0172 Perf v2a (host-first): perfd sessions API + deterministic stats + export format (.nptr) + tests
-status: Draft
-owner: @reliability
+schema: 1
+id: TASK-0172
+title: "Perf v2a (host-first): perfd sessions API + deterministic stats + export format (.nptr) + tests"
+status: draft
+owner: ["@reliability"]
 created: 2025-12-27
-depends-on: []
-follow-up-tasks: []
+subsystem: observability
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Perf v1 plan (superseded): tasks/TASK-0143-perf-v1a-perfd-frame-trace-metrics.md
-  - Perf gates v1 plan (superseded): tasks/TASK-0145-perf-v1c-deterministic-gates-scenes.md
-  - SDK IDL freeze (perf schema later): tasks/TASK-0163-sdk-v1-part1a-idl-freeze-codegen-wire-gates.md
-  - Persistence (/state export, OS-gated): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Perf v1 plan (superseded)"
+    target: tasks/TASK-0143-perf-v1a-perfd-frame-trace-metrics.md
+  - label: "Perf gates v1 plan (superseded)"
+    target: tasks/TASK-0145-perf-v1c-deterministic-gates-scenes.md
+  - label: "SDK IDL freeze (perf schema later)"
+    target: tasks/TASK-0163-sdk-v1-part1a-idl-freeze-codegen-wire-gates.md
+  - label: "Persistence (/state export, OS-gated)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

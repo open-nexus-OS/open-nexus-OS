@@ -1,19 +1,28 @@
 ---
-title: TASK-0122 SystemUI→DSL Migration Phase 2b: OS wiring for Settings/Notifs + feature flags + selftests/postflight + docs
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0122
+title: "SystemUI→DSL Migration Phase 2b: OS wiring for Settings/Notifs + feature flags + selftests/postflight + docs"
+status: draft
+owner: ["@ui"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Phase 2a pages/tests: tasks/TASK-0121-systemui-dsl-migration-phase2a-settings-notifs-host.md
-  - Launcher bootstrap + early visible shell: tasks/TASK-0080C-systemui-dsl-bootstrap-shell-os-wiring.md
-  - DSL CLI/tooling: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
-  - DSL interpreter baseline: tasks/TASK-0076-dsl-v0_1b-interpreter-snapshots-os-demo.md
-  - Prefs store (feature flags): tasks/TASK-0072-ui-v9b-prefsd-settings-panels-quick-settings.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Phase 2a pages/tests"
+    target: tasks/TASK-0121-systemui-dsl-migration-phase2a-settings-notifs-host.md
+  - label: "Launcher bootstrap + early visible shell"
+    target: tasks/TASK-0080C-systemui-dsl-bootstrap-shell-os-wiring.md
+  - label: "DSL CLI/tooling"
+    target: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
+  - label: "DSL interpreter baseline"
+    target: tasks/TASK-0076-dsl-v0_1b-interpreter-snapshots-os-demo.md
+  - label: "Prefs store (feature flags)"
+    target: tasks/TASK-0072-ui-v9b-prefsd-settings-panels-quick-settings.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

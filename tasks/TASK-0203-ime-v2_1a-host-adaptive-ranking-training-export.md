@@ -1,21 +1,32 @@
 ---
-title: TASK-0203 IME v2.1a (host-first): deterministic adaptive ranking (Q8.8 freq/recency/bigram) + training + export/import + quota eviction
-status: Done (2026-07-24 — ranking engine + NDJSON; `cargo test -p ime-ranker` 16/16, just check + test-host green)
-owner: @ui
+schema: 1
+id: TASK-0203
+title: "IME v2.1a (host-first): deterministic adaptive ranking (Q8.8 freq/recency/bigram) + training + export/import + quota eviction"
+status: done
+status_note: "2026-07-24 — ranking engine + NDJSON; `cargo test -p ime-ranker` 16/16, just check + test-host green"
+owner: ["@ui"]
 created: 2025-12-27
-updated: 2026-07-21 (rewritten against repo reality; store trait targets statefsd in TASK-0204, not securefsd)
-depends-on:
-  - TASK-0149
-follow-up-tasks:
-  - TASK-0204 (OS persistence on statefsd + Settings UI)
+updated: 2026-07-21
+subsystem: storage
+started: 2026-07-24
+done: 2026-07-24
+active_days: 1
+dates_source: git-reconstructed
+depends_on: [TASK-0149]
+follow_ups: [TASK-0204]
+implements: [RFC-0075]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Contract: docs/rfcs/RFC-0075-ime-v2-text-focus-composition-delivery.md
-  - CJK engines + user-dict API: tasks/TASK-0149-ime-v2-part2-cjk-engines-userdict.md
-  - OS persistence (follow-up): tasks/TASK-0204-ime-v2_1b-os-statefs-personal-dict-ui-cli-selftests.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "CJK engines + user-dict API"
+    target: tasks/TASK-0149-ime-v2-part2-cjk-engines-userdict.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
+
+> updated (migrated 2026-11-02): 2026-07-21 (rewritten against repo reality; store trait targets statefsd in TASK-0204, not securefsd)
 
 ## Context
 

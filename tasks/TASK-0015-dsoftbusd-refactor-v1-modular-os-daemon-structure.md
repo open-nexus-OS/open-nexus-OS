@@ -1,32 +1,29 @@
 ---
-title: TASK-0015 DSoftBusd refactor v1: modular OS daemon structure without behavior change
-status: Done
-owner: @runtime
+schema: 1
+id: TASK-0015
+title: "DSoftBusd refactor v1: modular OS daemon structure without behavior change"
+status: done
+owner: ["@runtime"]
 created: 2026-03-12
-depends-on:
-  - TASK-0003
-  - TASK-0003B
-  - TASK-0003C
-  - TASK-0004
-  - TASK-0005
-follow-up-tasks: []
+subsystem: distributed
+started: 2026-03-16
+done: 2026-03-16
+active_days: 1
+dates_source: git-reconstructed
+depends_on: [TASK-0003, TASK-0003B, TASK-0003C, TASK-0004, TASK-0005]
+follow_ups: [TASK-0016, TASK-0017, TASK-0020, TASK-0021, TASK-0022]
+implements: [RFC-0027]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - RFC: docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md
-  - ADR: docs/adr/0005-dsoftbus-architecture.md
-  - Docs: docs/distributed/dsoftbus-lite.md
-  - Docs: docs/testing/README.md
-  - Depends-on: tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
-  - Depends-on: tasks/TASK-0003B-dsoftbus-noise-xk-os.md
-  - Depends-on: tasks/TASK-0003C-dsoftbus-udp-discovery-os.md
-  - Depends-on: tasks/TASK-0004-networking-dhcp-icmp-dsoftbus-dual-node.md
-  - Depends-on: tasks/TASK-0005-networking-cross-vm-dsoftbus-remote-proxy.md
-  - Follow-on: tasks/TASK-0016-dsoftbus-remote-packagefs-ro.md
-  - Follow-on: tasks/TASK-0017-dsoftbus-remote-statefs-rw.md
-  - Follow-on: tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md
-  - Follow-on: tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md
-  - Follow-on: tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: ADR
+    target: docs/adr/0005-dsoftbus-architecture.md
+  - label: Docs
+    target: docs/distributed/dsoftbus-lite.md
+  - label: Docs
+    target: docs/testing/README.md
 ---
 
 ## Context

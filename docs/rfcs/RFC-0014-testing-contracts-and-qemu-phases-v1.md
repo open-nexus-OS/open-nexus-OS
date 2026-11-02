@@ -1,22 +1,35 @@
+---
+schema: 1
+id: RFC-0014
+title: "Testing contracts v1 — host-first service contract tests + phased QEMU smoke gates"
+status: accepted
+status_note: "Phase 0 complete; Phase 1/2 pending"
+owners: ["@runtime", "@tools-team"]
+created: 2026-01-22
+updated: 2026-01-22
+links:
+  - label: Tasks
+    target: "TBD (post-RFC acceptance; keep tasks as the single execution/proof truth)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0013-boot-gates-readiness-spawn-resource-v1.md` (readiness vs up; determinism; bounded waits)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md` (OTA/update proof markers; `updated` contract surface)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0011-logd-journal-crash-v1.md` (logd contract + E2E expectations)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0003-unified-logging.md` (no fake success; marker discipline)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0005-kernel-ipc-capability-model.md` (IPC semantics; capability move model)"
+  - label: "Testing methodology"
+    target: "`docs/testing/README.md`"
+  - label: "Security standards"
+    target: "`docs/standards/SECURITY_STANDARDS.md`"
+---
+
 <!-- Copyright 2026 Open Nexus OS Contributors -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # RFC-0014: Testing contracts v1 — host-first service contract tests + phased QEMU smoke gates
-
-- Status: Accepted (Phase 0 complete; Phase 1/2 pending)
-- Owners: @runtime, @tools-team
-- Created: 2026-01-22
-- Last Updated: 2026-01-22
-- Links:
-  - Tasks: TBD (post-RFC acceptance; keep tasks as the single execution/proof truth)
-  - Related RFCs:
-    - `docs/rfcs/RFC-0013-boot-gates-readiness-spawn-resource-v1.md` (readiness vs up; determinism; bounded waits)
-    - `docs/rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md` (OTA/update proof markers; `updated` contract surface)
-    - `docs/rfcs/RFC-0011-logd-journal-crash-v1.md` (logd contract + E2E expectations)
-    - `docs/rfcs/RFC-0003-unified-logging.md` (no fake success; marker discipline)
-    - `docs/rfcs/RFC-0005-kernel-ipc-capability-model.md` (IPC semantics; capability move model)
-  - Testing methodology: `docs/testing/README.md`
-  - Security standards: `docs/standards/SECURITY_STANDARDS.md`
 
 ## Status at a Glance
 

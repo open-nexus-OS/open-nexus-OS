@@ -1,21 +1,32 @@
 ---
-title: TASK-0141 Crash v1 (offline): crash notifications + export/redaction surface over .nxcd.zst (no new formats) + tests/markers/docs
-status: Draft
-owner: @reliability
+schema: 1
+id: TASK-0141
+title: "Crash v1 (offline): crash notifications + export/redaction surface over .nxcd.zst (no new formats) + tests/markers/docs"
+status: draft
+owner: ["@reliability"]
 created: 2025-12-25
-depends-on: []
-follow-up-tasks: []
+subsystem: observability
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Crash evidence at rest (.nxcd.zst on device): tasks/TASK-0051B-crash-evidence-at-rest.md
-  - Fault truth (exit reasons, proof reanimation): tasks/TASK-0049-fault-exhaustion-truth-proof-reanimation.md
-  - Crashdump v2a host tooling (`nx crash`): tasks/TASK-0048-crashdump-v2a-host-pipeline-nxsym-nx-crash.md
-  - Notifications v2 (for crash notifications): tasks/TASK-0069-ui-v8a-notifications-v2-actions-inline-reply.md
-  - Policy capability gates (diagnostics.export): tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
-  - Share v2 (optional export via chooser): tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md
-  - Persistence (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - logd (recent logs pull): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Crash evidence at rest (.nxcd.zst on device)"
+    target: tasks/TASK-0051B-crash-evidence-at-rest.md
+  - label: "Fault truth (exit reasons, proof reanimation)"
+    target: tasks/TASK-0049-fault-exhaustion-truth-proof-reanimation.md
+  - label: "Crashdump v2a host tooling (`nx crash`)"
+    target: tasks/TASK-0048-crashdump-v2a-host-pipeline-nxsym-nx-crash.md
+  - label: "Notifications v2 (for crash notifications)"
+    target: tasks/TASK-0069-ui-v8a-notifications-v2-actions-inline-reply.md
+  - label: "Policy capability gates (diagnostics.export)"
+    target: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
+  - label: "Share v2 (optional export via chooser)"
+    target: tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md
+  - label: "Persistence (/state)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "logd (recent logs pull)"
+    target: tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
 ---
 
 ## Rebase note 2026-08-18 (reliability-lane recut)

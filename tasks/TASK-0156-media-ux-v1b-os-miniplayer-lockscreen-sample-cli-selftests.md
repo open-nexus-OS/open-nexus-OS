@@ -1,21 +1,31 @@
 ---
-title: TASK-0156 Media UX v1b (OS/QEMU): SystemUI mini-player + lockscreen tile + notif integration (optional) + sample player + nx-media + selftests/postflight/docs
-status: Draft
-owner: @media
+schema: 1
+id: TASK-0156
+title: "Media UX v1b (OS/QEMU): SystemUI mini-player + lockscreen tile + notif integration (optional) + sample player + nx-media + selftests/postflight/docs"
+status: draft
+owner: ["@media"]
 created: 2025-12-26
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
+tracks: [TRACK-MEDIA-APPS]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Media apps product track (miniplayer/lockscreen shared across apps): tasks/TRACK-MEDIA-APPS.md
-  - Media UX core: tasks/TASK-0155-media-ux-v1a-host-mediasessd-focus-nowplaying-artcache.md
-  - Media baseline umbrella: tasks/TASK-0101-ui-v16c-media-sessions-systemui-controls.md
-  - Lockscreen baseline: tasks/TASK-0109-ui-v18c-lockd-lockscreen-autolock.md
-  - Notifications baseline: tasks/TASK-0069-ui-v8a-notifications-v2-actions-inline-reply.md
-  - Policy caps (apps/systemui): tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
-  - Persistence substrate (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Media UX core"
+    target: tasks/TASK-0155-media-ux-v1a-host-mediasessd-focus-nowplaying-artcache.md
+  - label: "Media baseline umbrella"
+    target: tasks/TASK-0101-ui-v16c-media-sessions-systemui-controls.md
+  - label: "Lockscreen baseline"
+    target: tasks/TASK-0109-ui-v18c-lockd-lockscreen-autolock.md
+  - label: "Notifications baseline"
+    target: tasks/TASK-0069-ui-v8a-notifications-v2-actions-inline-reply.md
+  - label: "Policy caps (apps/systemui)"
+    target: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
+  - label: "Persistence substrate (/state)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

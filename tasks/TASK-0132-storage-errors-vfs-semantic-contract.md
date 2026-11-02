@@ -1,20 +1,27 @@
 ---
-title: TASK-0132 Storage errors: strict cross-service error semantics contract (vfs/content/fileops/trash/grants) + tests
-status: Draft
-owner: @platform
+schema: 1
+id: TASK-0132
+title: "Storage errors: strict cross-service error semantics contract (vfs/content/fileops/trash/grants) + tests"
+status: draft
+owner: ["@platform"]
 created: 2025-12-25
-depends-on: []
-follow-up-tasks:
-  - TASK-0133
-  - TASK-0287
+subsystem: storage
+follow_ups: [TASK-0133, TASK-0287]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Content providers baseline: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
-  - Scoped grants enforcement: tasks/TASK-0084-ui-v12a-scoped-uri-grants.md
-  - File operations + trash: tasks/TASK-0085-ui-v12b-fileops-trash-services.md
-  - Persistence substrate (state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Error-code SSOT (vfs slice, authoritative): docs/rfcs/RFC-0072-vfs-v2-writable-providers-readdir-stable-errors.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Content providers baseline"
+    target: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
+  - label: "Scoped grants enforcement"
+    target: tasks/TASK-0084-ui-v12a-scoped-uri-grants.md
+  - label: "File operations + trash"
+    target: tasks/TASK-0085-ui-v12b-fileops-trash-services.md
+  - label: "Persistence substrate (state)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Error-code SSOT (vfs slice, authoritative)"
+    target: docs/rfcs/RFC-0072-vfs-v2-writable-providers-readdir-stable-errors.md
 ---
 
 > **PARTIALLY ABSORBED (2026-07-15).** The **vfs/storage error-code SSOT** now lives in RFC-0072

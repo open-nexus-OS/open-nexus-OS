@@ -1,19 +1,31 @@
 ---
-title: TASK-0174 L10n/i18n v1a (host-first): locale resolver + Fluent bundles + ICU4X formatting + pseudo-locale + font fallback resolver + goldens
-status: Superseded (2026-07-21 — replaced by the i18n v2 locale-pack line TASK-0240/0241 per RFC-0077; Fluent+ICU4X rejected for the no_std OS graph, packs ride the existing DSL catalog instead)
-owner: @ui
+schema: 1
+id: TASK-0174
+title: "L10n/i18n v1a (host-first): locale resolver + Fluent bundles + ICU4X formatting + pseudo-locale + font fallback resolver + goldens"
+status: superseded
+status_note: "2026-07-21 — replaced by the i18n v2 locale-pack line TASK-0240/0241 per RFC-0077"
+owner: ["@ui"]
 created: 2025-12-27
-depends-on: []
-follow-up-tasks: []
+subsystem: text
+superseded_by: [TASK-0240]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Renderer abstraction (font integration): tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md
-  - Text stack contract (bidi/line-break/shaping): tasks/TASK-0148-textshape-v1-deterministic-bidi-breaks-shaping-contract.md
-  - Shaping baseline (font fallback chain): tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
-  - DSL i18n runtime plan (avoid duplicate semantics): tasks/TASK-0077-dsl-v0_2a-state-nav-i18n-core.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Renderer abstraction (font integration)"
+    target: tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md
+  - label: "Text stack contract (bidi/line-break/shaping)"
+    target: tasks/TASK-0148-textshape-v1-deterministic-bidi-breaks-shaping-contract.md
+  - label: "Shaping baseline (font fallback chain)"
+    target: tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
+  - label: "DSL i18n runtime plan (avoid duplicate semantics)"
+    target: tasks/TASK-0077-dsl-v0_2a-state-nav-i18n-core.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
+
+> Status (migrated 2026-11-02): Superseded (2026-07-21 — replaced by the i18n v2 locale-pack line TASK-0240/0241 per RFC-0077; Fluent+ICU4X rejected for the no_std OS graph, packs ride the existing DSL catalog instead)
 
 ## Context
 

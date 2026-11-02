@@ -1,22 +1,23 @@
 ---
-title: TASK-0030 DSoftBus discovery/authz hardening: NXSB TTL/backoff + pre-session ACL + rate-limits (rebased 2026-08-14 onto shipped NXSB discovery; host-first, OS-gated)
-status: Draft
-owner: @runtime
+schema: 1
+id: TASK-0030
+title: "DSoftBus discovery/authz hardening: NXSB TTL/backoff + pre-session ACL + rate-limits (rebased 2026-08-14 onto shipped NXSB discovery; host-first, OS-gated)"
+status: draft
+owner: ["@runtime"]
 created: 2025-12-22
-depends-on:
-  - TASK-0003
-  - TASK-0020
-  - TASK-0021
-follow-up-tasks: []
+subsystem: distributed
+depends_on: [TASK-0003, TASK-0020, TASK-0021]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - ADR: docs/adr/0005-dsoftbus-architecture.md
-  - DSoftBus overview: docs/distributed/dsoftbus-lite.md
-  - Depends-on (OS dsoftbus networking): tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
-  - Depends-on (mux v2): tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md
-  - Depends-on (transport kinds): tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: ADR
+    target: docs/adr/0005-dsoftbus-architecture.md
+  - label: "DSoftBus overview"
+    target: docs/distributed/dsoftbus-lite.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Short description

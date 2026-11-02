@@ -1,29 +1,38 @@
 ---
-title: TASK-0046 Config & Schema v1: configd broker + Cap'n Proto canonical snapshot + JSON Schema validation + deterministic layering + 2PC reload (+ nx config)
-status: Done
-owner: @runtime
+schema: 1
+id: TASK-0046
+title: "Config & Schema v1: configd broker + Cap'n Proto canonical snapshot + JSON Schema validation + deterministic layering + 2PC reload (+ nx config)"
+status: done
+owner: ["@runtime"]
 created: 2025-12-22
-depends-on: []
-follow-up-tasks:
-  - TASK-0047
-  - TASK-0262
-  - TASK-0266
-  - TASK-0268
-  - TASK-0273
-  - TASK-0285
+subsystem: devx
+done: 2026-07-17
+dates_source: git-reconstructed
+follow_ups: [TASK-0047, TASK-0262, TASK-0266, TASK-0268, TASK-0273, TASK-0285]
+implements: [RFC-0044]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Contract seed (this task): docs/rfcs/RFC-0044-config-v1-configd-schema-layering-2pc-host-first-os-gated.md
-  - DevX CLI: tasks/TASK-0045-devx-nx-cli-v1.md
-  - Policy as Code (consumer): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
-  - Persistence substrate: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Audit sink (optional): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
-  - DSoftBus hardening (future consumer): tasks/TASK-0030-dsoftbus-discovery-authz-hardening-mdns-ttl-acl-ratelimit.md
-  - Metrics gatekeeping (future consumer): tasks/TASK-0014-observability-v2-metrics-tracing.md
-  - Structured format policy: docs/adr/0021-structured-data-formats-json-vs-capnp.md
-  - Service control-plane data model: docs/adr/0017-service-architecture.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "DevX CLI"
+    target: tasks/TASK-0045-devx-nx-cli-v1.md
+  - label: "Policy as Code (consumer)"
+    target: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
+  - label: "Persistence substrate"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Audit sink (optional)"
+    target: tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
+  - label: "DSoftBus hardening (future consumer)"
+    target: tasks/TASK-0030-dsoftbus-discovery-authz-hardening-mdns-ttl-acl-ratelimit.md
+  - label: "Metrics gatekeeping (future consumer)"
+    target: tasks/TASK-0014-observability-v2-metrics-tracing.md
+  - label: "Structured format policy"
+    target: docs/adr/0021-structured-data-formats-json-vs-capnp.md
+  - label: "Service control-plane data model"
+    target: docs/adr/0017-service-architecture.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

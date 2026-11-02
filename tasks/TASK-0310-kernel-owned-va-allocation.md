@@ -1,13 +1,22 @@
 ---
-title: TASK-0310 Kernel-owned VA allocation — vm_map/vm_unmap/mmio_map_auto end to end
-status: Done (2026-07-28) — all phases 0–6 proven; RFC-0085 Implemented
-owner: @kernel-mm-team @ui
+schema: 1
+id: TASK-0310
+title: "Kernel-owned VA allocation — vm_map/vm_unmap/mmio_map_auto end to end"
+status: done
+status_note: "(2026-07-28) — all phases 0–6 proven; RFC-0085 Implemented"
+owner: ["@kernel-mm-team", "@ui"]
 created: 2026-07-28
+subsystem: kernel
+done: 2026-07-28
+dates_source: status-text
+implements: [RFC-0085]
 links:
-  - RFC: docs/rfcs/RFC-0085-kernel-owned-va-allocation.md
-  - ADR: docs/adr/0054-map-errors-keep-their-identity-across-the-abi.md
-  - Forced by: tasks/TASK-0309-gpud-framebuffer-vmo-map-ordering-hazard.md
-  - Pauses: tasks/TASK-0308-dsl-slots-and-window-scaffold.md (Phasen 7/8)
+  - label: ADR
+    target: docs/adr/0054-map-errors-keep-their-identity-across-the-abi.md
+  - label: "Forced by"
+    target: tasks/TASK-0309-gpud-framebuffer-vmo-map-ordering-hazard.md
+  - label: Pauses
+    target: "tasks/TASK-0308-dsl-slots-and-window-scaffold.md (Phasen 7/8)"
 ---
 
 ## Context

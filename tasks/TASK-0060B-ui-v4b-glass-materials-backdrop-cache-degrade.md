@@ -1,18 +1,29 @@
 ---
-title: TASK-0060B UI v4b: glass materials + backdrop snapshots + cached blur + deterministic degrade
-status: Done
-owner: @ui
+schema: 1
+id: TASK-0060B
+title: "UI v4b: glass materials + backdrop snapshots + cached blur + deterministic degrade"
+status: done
+owner: ["@ui"]
 created: 2026-03-29
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
+done: 2026-07-19
+dates_source: git-reconstructed
+split_from: TASK-0060
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Glass material guidance: docs/dev/ui/foundations/visual/materials.md
-  - UI v3b effects baseline: tasks/TASK-0059-ui-v3b-clip-scroll-effects-ime-textinput.md
-  - UI v4a compositor perf baseline: tasks/TASK-0060-ui-v4a-tiled-compositor-clipstack-atlases-perf.md
-  - UI v5a animation baseline: tasks/TASK-0062-ui-v5a-reactive-runtime-animation-transitions.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Glass material guidance"
+    target: docs/dev/ui/foundations/visual/materials.md
+  - label: "UI v3b effects baseline"
+    target: tasks/TASK-0059-ui-v3b-clip-scroll-effects-ime-textinput.md
+  - label: "UI v4a compositor perf baseline"
+    target: tasks/TASK-0060-ui-v4a-tiled-compositor-clipstack-atlases-perf.md
+  - label: "UI v5a animation baseline"
+    target: tasks/TASK-0062-ui-v5a-reactive-runtime-animation-transitions.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

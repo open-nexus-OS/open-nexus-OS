@@ -1,22 +1,36 @@
 ---
-title: TASK-0245 Board support v1b (OS): the kernel's platform comes from the FDT — UART, PLIC, timer, memory ranges, hart list; kernel + nxboot position-independent; init discovers devices from the FDT
-status: Done (2026-09-22 — P1–P4 + DoD sweep; QEMU proof complete, the board's serial proof follows with TASK-0327B; recut 2026-09-22 to the end state — `hal/platform.rs` replaces `hal/virt.rs`: console/PLIC/timer/timebase from the tree, Sstc chosen by the ISA list, no CLINT; smp1 green; recut 2026-09-22 to the end state — Block 1 B1.2 of the hardware fast track; was "Hardware Bring-up (RISC-V virt) v1.0b: kernel UART/PLIC/timer + userspace uartd + selftests", Draft since 2025-12-29)
-owner: @kernel-team
+schema: 1
+id: TASK-0245
+title: "Board support v1b (OS): the kernel's platform comes from the FDT — UART, PLIC, timer, memory ranges, hart list; kernel + nxboot position-independent; init discovers devices from the FDT"
+status: done
+status_note: "2026-09-22 — P1–P4 + DoD sweep"
+owner: ["@kernel-team"]
 created: 2025-12-29
 updated: 2026-09-22
-depends-on:
-  - tasks/TASK-0244-bringup-rv-virt-v1_0a-host-dtb-sbi-shim-deterministic.md
-follow-up-tasks:
-  - tasks/TASK-0245B-board-support-v1c-soc-clock-reset-pinmux-power-from-fdt.md
-  - tasks/TASK-0286-kernel-memory-accounting-v1-rss-pressure-snapshots.md
+subsystem: kernel
+started: 2026-09-22
+done: 2026-09-22
+active_days: 1
+dates_source: git-reconstructed
+depends_on: [TASK-0244]
+follow_ups: [TASK-0245B, TASK-0286]
+implements: [RFC-0098]
 links:
-  - Contract: docs/rfcs/RFC-0098-board-support-contract-fdt-truth-boot-chain.md (C2, C3, Phase 1)
-  - Execution order: tasks/IMPLEMENTATION-ORDER.md (Block 1)
-  - Measurement: docs/board/measurements/2026-09-22-stock-system/README.md
-  - Hardcodes this deletes: source/kernel/neuron/src/hal/virt.rs, hal/plic.rs, arch/riscv/mod.rs (CLINT), diag/uart.rs, mm/kernel_layout.rs (UART/PLIC windows), core/kmain.rs (fw_cfg), source/init/nexus-init/src/bootstrap/helpers.rs:107-113 (virtio window), bootstrap/route_provision.rs:220 (RTC)
-  - Display-mode syscall this prepares for deletion: docs/rfcs/RFC-0074-display-mode-authority-fwcfg.md (deleted in TASK-0251)
-  - Playbook: CLAUDE.md
+  - label: Contract
+    target: "docs/rfcs/RFC-0098-board-support-contract-fdt-truth-boot-chain.md (C2, C3, Phase 1)"
+  - label: "Execution order"
+    target: "tasks/milestones/hardware-network.md (Block 1)"
+  - label: Measurement
+    target: docs/board/measurements/2026-09-22-stock-system/README.md
+  - label: "Hardcodes this deletes"
+    target: "source/kernel/neuron/src/hal/virt.rs, hal/plic.rs, arch/riscv/mod.rs (CLINT), diag/uart.rs, mm/kernel_layout.rs (UART/PLIC windows), core/kmain.rs (fw_cfg), source/init/nexus-init/src/bootstrap/helpers.rs:107-113 (virtio window), bootstrap/route_provision.rs:220 (RTC)"
+  - label: "Display-mode syscall this prepares for deletion"
+    target: "docs/rfcs/RFC-0074-display-mode-authority-fwcfg.md (deleted in TASK-0251)"
+  - label: Playbook
+    target: CLAUDE.md
 ---
+
+> Status (migrated 2026-11-02): Done (2026-09-22 — P1–P4 + DoD sweep; QEMU proof complete, the board's serial proof follows with TASK-0327B; recut 2026-09-22 to the end state — `hal/platform.rs` replaces `hal/virt.rs`: console/PLIC/timer/timebase from the tree, Sstc chosen by the ISA list, no CLINT; smp1 green; recut 2026-09-22 to the end state — Block 1 B1.2 of the hardware fast track; was "Hardware Bring-up (RISC-V virt) v1.0b: kernel UART/PLIC/timer + userspace uartd + selftests", Draft since 2025-12-29)
 
 ## History
 

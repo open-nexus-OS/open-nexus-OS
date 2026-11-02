@@ -1,19 +1,27 @@
 ---
-title: TASK-0155 Media UX v1a (host-first): mediasessd sessions + focus rules + now-playing + artwork cache (bounded) + deterministic tests
-status: Draft
-owner: @media
+schema: 1
+id: TASK-0155
+title: "Media UX v1a (host-first): mediasessd sessions + focus rules + now-playing + artwork cache (bounded) + deterministic tests"
+status: draft
+owner: ["@media"]
 created: 2025-12-26
-depends-on: []
-follow-up-tasks: []
+subsystem: media
+tracks: [TRACK-MEDIA-APPS]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Media apps product track (system-wide now playing): tasks/TRACK-MEDIA-APPS.md
-  - Media baseline task (umbrella): tasks/TASK-0101-ui-v16c-media-sessions-systemui-controls.md
-  - Audiod mixer (volume OSD later): tasks/TASK-0100-ui-v16b-audiod-mixer.md
-  - Persistence substrate (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Quotas v1 (cache bounds later): tasks/TASK-0133-statefs-quotas-v1-accounting-enforcement.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Media baseline task (umbrella)"
+    target: tasks/TASK-0101-ui-v16c-media-sessions-systemui-controls.md
+  - label: "Audiod mixer (volume OSD later)"
+    target: tasks/TASK-0100-ui-v16b-audiod-mixer.md
+  - label: "Persistence substrate (/state)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Quotas v1 (cache bounds later)"
+    target: tasks/TASK-0133-statefs-quotas-v1-accounting-enforcement.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

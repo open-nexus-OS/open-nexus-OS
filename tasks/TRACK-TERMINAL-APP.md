@@ -1,14 +1,21 @@
 ---
-title: TRACK Terminal app: tabs + PTY + safe clipboard (power-user reference app; host-first)
-status: Draft
-owner: @ui
+schema: 1
+id: TRACK-TERMINAL-APP
+title: "Terminal app: tabs + PTY + safe clipboard (power-user reference app; host-first)"
+status: draft
+owner: ["@ui"]
 created: 2026-01-19
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Zero-Copy App Platform (clipboard/share/save): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
-  - Files app (Open With / save/export): tasks/TASK-0086-ui-v12c-files-app-progress-dnd-share-openwith.md
-  - Accessibility wiring (Settings + app hardening): tasks/TASK-0118-ui-v20e-accessibility-settings-app-wiring-os-proofs.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Zero-Copy App Platform (clipboard/share/save)"
+    target: tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
+  - label: "Files app (Open With / save/export)"
+    target: tasks/TASK-0086-ui-v12c-files-app-progress-dnd-share-openwith.md
+  - label: "Accessibility wiring (Settings + app hardening)"
+    target: tasks/TASK-0118-ui-v20e-accessibility-settings-app-wiring-os-proofs.md
 ---
 
 ## Goal (track-level)

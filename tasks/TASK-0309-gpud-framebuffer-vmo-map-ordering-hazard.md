@@ -1,12 +1,21 @@
 ---
-title: TASK-0309 gpud framebuffer VMO map — a VA-layout defect the boot order exposed
-status: Habitat removed (2026-07-28) — RFC-0085 P4 replaced the per-page loop with ONE vm_map; MAP-FAIL stage trace stays armed until P6 deletes the legacy path
-owner: @ui
+schema: 1
+id: TASK-0309
+title: "gpud framebuffer VMO map — a VA-layout defect the boot order exposed"
+status: done
+status_note: "(2026-07-28) — RFC-0085 P4 replaced the per-page loop with ONE vm_map; MAP-FAIL stage trace stays armed until P6 deletes the legacy path"
+owner: ["@ui"]
 created: 2026-07-27
+subsystem: ui
+done: 2026-07-28
+dates_source: status-text
 links:
-  - Exposed by: tasks/TASK-0308-dsl-slots-and-window-scaffold.md
-  - Evidence (fail): build/logs/headless--2026-07-28T08-29-57/uart.log
-  - Evidence (pass): build/logs/headless--2026-07-28T08-39-51/uart.log
+  - label: "Exposed by"
+    target: tasks/TASK-0308-dsl-slots-and-window-scaffold.md
+  - label: "Evidence (fail)"
+    target: build/logs/headless--2026-07-28T08-29-57/uart.log
+  - label: "Evidence (pass)"
+    target: build/logs/headless--2026-07-28T08-39-51/uart.log
 ---
 
 ## Context

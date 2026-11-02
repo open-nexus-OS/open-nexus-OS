@@ -1,15 +1,30 @@
+---
+schema: 1
+id: RFC-0101
+title: "The GPU driver split and the scanout contract — contexts with their own GPU VM, buffers bound with a cache mode, one batch per crossing, the kernel's timeline fence, and a ring of planes flipped at the vertical blank"
+status: in_progress
+status_note: "Phase 0 ✅ 2026-10-12 — the contracts, host-tested"
+owners: ["@gpu", "@runtime", "@kernel-team"]
+created: 2026-10-12
+updated: 2026-10-21
+subsystem: ui
+tasks: [TASK-0280, TASK-0216, TASK-0329, TASK-0169B, TASK-0170B, TASK-0171, TASK-0215]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0280-gpu-and-scanout-base-contracts-driverkit-v2-gfxdevice-v2-host.md` (Phase 0, the SSOT ledger of Block 4 layer 1), `tasks/TASK-0216-…` (Phase 1, the scanout contract on the board), `tasks/TASK-0329-…` (Phase 2, the device online), `tasks/TASK-0169B-…` / `TASK-0170B-…` / `TASK-0171-…` (Phase 3, the GPU draws), `tasks/TASK-0215-…` + `TASK-0216-…` (Phase 4, the desktop on the GPU)"
+  - label: ADRs
+    target: "`docs/adr/0018-driverkit-abi-versioning-and-stability.md`, `docs/adr/0032-gpu-command-ring-and-pipelined-present.md`, `docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md`"
+  - label: "Related RFCs"
+    target: "RFC-0033 (soft-real-time spine: waitset, the timeline fence, driver-kit), RFC-0067 (windowd's compositor boundary), RFC-0098 C4 (page-backed VMOs, `ContiguousDma`, the coherence attribute), RFC-0106 (SoC glue: the GPU's power set)"
+  - label: Measurements
+    target: "`docs/board/measurements/2026-10-10-mgs-baseline/`, `docs/board/measurements/2026-10-10-gpu-stock-baseline/`"
+  - label: Order
+    target: "`tasks/milestones/hardware-network.md` \"Block 4 in layers\""
+---
+
 # RFC-0101: The GPU driver split and the scanout contract — contexts with their own GPU VM, buffers bound with a cache mode, one batch per crossing, the kernel's timeline fence, and a ring of planes flipped at the vertical blank
 
-- Status: In Progress (Phase 0 ✅ 2026-10-12 — the contracts, host-tested; Phase 1 ✅ 2026-10-12 — the scanout contract on the board, `[PASS] board-visible` with `front=0`; Phase 2 ✅ 2026-10-13 — the device online on the board, a null job's round trip 131 µs against the stock 640 µs; Phases 3–4 with their layers)
-- Owners: @gpu @runtime @kernel-team
-- Created: 2026-10-12
-- Last Updated: 2026-10-21
-- Links:
-  - Tasks: `tasks/TASK-0280-gpu-and-scanout-base-contracts-driverkit-v2-gfxdevice-v2-host.md` (Phase 0, the SSOT ledger of Block 4 layer 1), `tasks/TASK-0216-…` (Phase 1, the scanout contract on the board), `tasks/TASK-0329-…` (Phase 2, the device online), `tasks/TASK-0169B-…` / `TASK-0170B-…` / `TASK-0171-…` (Phase 3, the GPU draws), `tasks/TASK-0215-…` + `TASK-0216-…` (Phase 4, the desktop on the GPU)
-  - ADRs: `docs/adr/0018-driverkit-abi-versioning-and-stability.md`, `docs/adr/0032-gpu-command-ring-and-pipelined-present.md`, `docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md`
-  - Related RFCs: RFC-0033 (soft-real-time spine: waitset, the timeline fence, driver-kit), RFC-0067 (windowd's compositor boundary), RFC-0098 C4 (page-backed VMOs, `ContiguousDma`, the coherence attribute), RFC-0106 (SoC glue: the GPU's power set)
-  - Measurements: `docs/board/measurements/2026-10-10-mgs-baseline/`, `docs/board/measurements/2026-10-10-gpu-stock-baseline/`
-  - Order: `tasks/IMPLEMENTATION-ORDER.md` "Block 4 in layers"
+> Status (migrated 2026-11-02): In Progress (Phase 0 ✅ 2026-10-12 — the contracts, host-tested; Phase 1 ✅ 2026-10-12 — the scanout contract on the board, `[PASS] board-visible` with `front=0`; Phase 2 ✅ 2026-10-13 — the device online on the board, a null job's round trip 131 µs against the stock 640 µs; Phases 3–4 with their layers)
 
 ## Status at a Glance
 

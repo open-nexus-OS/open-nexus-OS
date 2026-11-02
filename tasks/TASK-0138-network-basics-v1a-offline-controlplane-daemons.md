@@ -1,18 +1,26 @@
 ---
-title: TASK-0138 Network Basics v1a (offline): netcfgd + sim-dhcpcd + dnsd (hosts+cache) + timesyncd (local offset) + host tests
-status: Draft
-owner: @platform
+schema: 1
+id: TASK-0138
+title: "Network Basics v1a (offline): netcfgd + sim-dhcpcd + dnsd (hosts+cache) + timesyncd (local offset) + host tests"
+status: draft
+owner: ["@platform"]
 created: 2025-12-25
-depends-on: []
-follow-up-tasks: []
+subsystem: devx
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Real OS networking (virtio-net/smoltcp): tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
-  - Real DHCP/ICMP (on-device): tasks/TASK-0004-networking-dhcp-icmp-dsoftbus-dual-node.md
-  - Config system (future defaults): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
-  - Policy gates (network.configure): tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
-  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Real OS networking (virtio-net/smoltcp)"
+    target: tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
+  - label: "Real DHCP/ICMP (on-device)"
+    target: tasks/TASK-0004-networking-dhcp-icmp-dsoftbus-dual-node.md
+  - label: "Config system (future defaults)"
+    target: tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
+  - label: "Policy gates (network.configure)"
+    target: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
+  - label: "Data formats rubric (JSON vs Cap'n Proto)"
+    target: docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
 ## Context

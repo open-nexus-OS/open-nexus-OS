@@ -1,19 +1,27 @@
 ---
-title: TASK-0157 DSoftBus v1a (host-first): localSim discovery + numeric pairing + reliable msg/byte streams + deterministic tests
-status: Draft
-owner: @runtime
+schema: 1
+id: TASK-0157
+title: "DSoftBus v1a (host-first): localSim discovery + numeric pairing + reliable msg/byte streams + deterministic tests"
+status: draft
+owner: ["@runtime"]
 created: 2025-12-26
-depends-on: []
-follow-up-tasks: []
+subsystem: distributed
+tracks: [TRACK-NEXUSNET-SDK]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - NexusNet SDK track (cloud + DSoftBus): tasks/TRACK-NEXUSNET-SDK.md
-  - DSoftBus overview: docs/distributed/dsoftbus-lite.md
-  - DSoftBus no_std refactor: tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md
-  - Share v2 (intents) later: tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md
-  - Persistence substrate (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "DSoftBus overview"
+    target: docs/distributed/dsoftbus-lite.md
+  - label: "DSoftBus no_std refactor"
+    target: tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md
+  - label: "Share v2 (intents) later"
+    target: tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md
+  - label: "Persistence substrate (/state)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Short description

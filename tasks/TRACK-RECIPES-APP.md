@@ -1,18 +1,29 @@
 ---
-title: TRACK Recipes App (Recime-class): personal cookbook + meal plans + nutrition, share/import from Moments/Video (bounded, offline-first)
-status: Draft
-owner: @apps @ui
+schema: 1
+id: TRACK-RECIPES-APP
+title: "Recipes App (Recime-class): personal cookbook + meal plans + nutrition, share/import from Moments/Video (bounded, offline-first)"
+status: draft
+owner: ["@apps", "@ui"]
 created: 2026-01-19
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - System Delegation / System Surfaces (import/export via intents): tasks/TRACK-SYSTEM-DELEGATION.md
-  - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
-  - Content/URIs + picker + grants: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md, tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md, tasks/TASK-0084-ui-v12a-scoped-uri-grants.md
-  - Share v2 intents + chooser: tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md, tasks/TASK-0127-share-v2b-chooser-ui-targets-grants.md
-  - NexusMoments (recipe attachment offer): tasks/TRACK-NEXUSSOCIAL.md
-  - NexusVideo (recipe attachment offer): tasks/TRACK-NEXUSVIDEO.md
-  - NexusFrame (optional recipe cards / graphics): tasks/TRACK-NEXUSFRAME.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "System Delegation / System Surfaces (import/export via intents)"
+    target: tasks/TRACK-SYSTEM-DELEGATION.md
+  - label: "Authority & naming registry"
+    target: tasks/TRACK-AUTHORITY-NAMING.md
+  - label: "Content/URIs + picker + grants"
+    target: "tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md, tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md, tasks/TASK-0084-ui-v12a-scoped-uri-grants.md"
+  - label: "Share v2 intents + chooser"
+    target: "tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md, tasks/TASK-0127-share-v2b-chooser-ui-targets-grants.md"
+  - label: "NexusMoments (recipe attachment offer)"
+    target: tasks/TRACK-NEXUSSOCIAL.md
+  - label: "NexusVideo (recipe attachment offer)"
+    target: tasks/TRACK-NEXUSVIDEO.md
+  - label: "NexusFrame (optional recipe cards / graphics)"
+    target: tasks/TRACK-NEXUSFRAME.md
 ---
 
 ## Goal (track-level)

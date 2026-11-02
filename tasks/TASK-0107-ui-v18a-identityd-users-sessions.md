@@ -1,18 +1,26 @@
 ---
-title: TASK-0107 UI v18a: identityd (users + password/PIN auth + sessions) with Argon2id + persistence + tests
-status: Draft
-owner: @security
+schema: 1
+id: TASK-0107
+title: "UI v18a: identityd (users + password/PIN auth + sessions) with Argon2id + persistence + tests"
+status: draft
+owner: ["@security"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: security
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Persistence (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Policy as Code (identity guards): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
-  - Config broker (argon2 params): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
-  - Testing contract: scripts/qemu-test.sh
-  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Persistence (/state)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Policy as Code (identity guards)"
+    target: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
+  - label: "Config broker (argon2 params)"
+    target: tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
+  - label: "Data formats rubric (JSON vs Cap'n Proto)"
+    target: docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
 ## Context

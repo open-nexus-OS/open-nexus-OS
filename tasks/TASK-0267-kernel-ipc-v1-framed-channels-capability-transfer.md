@@ -1,18 +1,25 @@
 ---
-title: TASK-0267 Kernel IPC v1: framed channels + capability transfer (QEMU-proof)
-status: Draft
-owner: @kernel
+schema: 1
+id: TASK-0267
+title: "Kernel IPC v1: framed channels + capability transfer (QEMU-proof)"
+status: draft
+owner: ["@kernel"]
 created: 2025-12-30
-depends-on: []
-follow-up-tasks: []
+subsystem: kernel
+implements: [RFC-0005]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - RFC-0005 IPC/capability model: docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
-  - Keystone gates: tasks/TRACK-KEYSTONE-GATES.md
-  - Zero-copy VMO plumbing: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
-  - Sandboxing v1 (CapFd rights): tasks/TASK-0039-sandboxing-v1-vfs-namespaces-capfd-manifest.md
-  - sysfilter baseline: tasks/TASK-0188-kernel-sysfilter-v1-task-profiles-rate-buckets.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Keystone gates"
+    target: tasks/TRACK-KEYSTONE-GATES.md
+  - label: "Zero-copy VMO plumbing"
+    target: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
+  - label: "Sandboxing v1 (CapFd rights)"
+    target: tasks/TASK-0039-sandboxing-v1-vfs-namespaces-capfd-manifest.md
+  - label: "sysfilter baseline"
+    target: tasks/TASK-0188-kernel-sysfilter-v1-task-profiles-rate-buckets.md
 ---
 
 ## Context

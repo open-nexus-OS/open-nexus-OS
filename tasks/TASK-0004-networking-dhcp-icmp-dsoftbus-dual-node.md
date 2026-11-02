@@ -1,24 +1,25 @@
 ---
-title: TASK-0004 Networking step 2 (OS): DHCP + ICMP + DSoftBus dual-node + discovery-driven sessions + identity binding
-status: Done
-owner: @runtime
+schema: 1
+id: TASK-0004
+title: "Networking step 2 (OS): DHCP + ICMP + DSoftBus dual-node + discovery-driven sessions + identity binding"
+status: done
+owner: ["@runtime"]
 created: 2025-12-22
 updated: 2026-01-10
-depends-on:
-  - TASK-0003
-  - TASK-0003B
-  - TASK-0003C
-follow-up-tasks: []
+subsystem: distributed
+done: 2026-07-17
+dates_source: git-reconstructed
+depends_on: [TASK-0003, TASK-0003B, TASK-0003C]
+implements: [RFC-0007, RFC-0008]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Depends-on: tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
-  - Depends-on: tasks/TASK-0003B-dsoftbus-noise-xk-os.md
-  - Depends-on: tasks/TASK-0003C-dsoftbus-udp-discovery-os.md
-  - RFC: docs/rfcs/RFC-0007-dsoftbus-os-transport-v1.md
-  - RFC: docs/rfcs/RFC-0008-dsoftbus-noise-xk-v1.md
-  - ADR: docs/adr/0005-dsoftbus-architecture.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: ADR
+    target: docs/adr/0005-dsoftbus-architecture.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

@@ -1,16 +1,25 @@
 ---
-title: TRACK Pinball app: physics + audio + high-FPS pacing reference game (deterministic, NexusGame SDK showcase)
-status: Draft
-owner: @ui @runtime
+schema: 1
+id: TRACK-PINBALL-APP
+title: "Pinball app: physics + audio + high-FPS pacing reference game (deterministic, NexusGame SDK showcase)"
+status: draft
+owner: ["@ui", "@runtime"]
 created: 2026-01-19
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Reference Games umbrella: tasks/TRACK-REFERENCE-GAMES.md
-  - NexusGame SDK (foundation): tasks/TRACK-NEXUSGAME-SDK.md
-  - NexusGfx SDK (render/present): tasks/TRACK-NEXUSGFX-SDK.md
-  - NexusMedia SDK (audio): tasks/TRACK-NEXUSMEDIA-SDK.md
-  - Perf tracing + gates (deterministic): tasks/TASK-0143-perf-v1a-perfd-frame-trace-metrics.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Reference Games umbrella"
+    target: tasks/TRACK-REFERENCE-GAMES.md
+  - label: "NexusGame SDK (foundation)"
+    target: tasks/TRACK-NEXUSGAME-SDK.md
+  - label: "NexusGfx SDK (render/present)"
+    target: tasks/TRACK-NEXUSGFX-SDK.md
+  - label: "NexusMedia SDK (audio)"
+    target: tasks/TRACK-NEXUSMEDIA-SDK.md
+  - label: "Perf tracing + gates (deterministic)"
+    target: tasks/TASK-0143-perf-v1a-perfd-frame-trace-metrics.md
 ---
 
 ## Goal (track-level)

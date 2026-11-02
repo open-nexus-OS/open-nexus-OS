@@ -1,16 +1,24 @@
-# RFC-0076: Wall-clock v1 — goldfish rtcd, timed walltime, tz-lite, live clock
+---
+schema: 1
+id: RFC-0076
+title: "Wall-clock v1 — goldfish rtcd, timed walltime, tz-lite, live clock"
+status: done
+status_note: "all phases proven 2026-07-21 — TASK-0297; deviation documented; TASK-0299 is a later seed"
+owners: ["@runtime"]
+created: 2026-07-21
+updated: 2026-07-21
+subsystem: hardware
+tasks: [TASK-0297, TASK-0299]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0297-time-v1-rtcd-walltime-tz-live-clock.md` (execution + proof), `tasks/TASK-0299-time-sync-v1-sntp-seed.md` (NTP follow-up, seed)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0078-settings-region-keys-watch.md` (`time.zone`/`time.format` keys), `docs/rfcs/RFC-0077-i18n-v2-locale-packs-runtime-switch.md` (`OP_SURFACE_REGION` carries tz/hour-format to apps)"
+  - label: ADRs
+    target: "`docs/adr/0051-declarative-wire-codec-nexus-wire.md` (frames! codec)"
+---
 
-- Status: Done (all phases proven 2026-07-21 — TASK-0297; deviation documented; TASK-0299 is a later seed)
-- Owners: @runtime
-- Created: 2026-07-21
-- Last Updated: 2026-07-21
-- Links:
-  - Tasks: `tasks/TASK-0297-time-v1-rtcd-walltime-tz-live-clock.md` (execution + proof),
-    `tasks/TASK-0299-time-sync-v1-sntp-seed.md` (NTP follow-up, seed)
-  - Related RFCs: `docs/rfcs/RFC-0078-settings-region-keys-watch.md`
-    (`time.zone`/`time.format` keys), `docs/rfcs/RFC-0077-i18n-v2-locale-packs-runtime-switch.md`
-    (`OP_SURFACE_REGION` carries tz/hour-format to apps)
-  - ADRs: `docs/adr/0051-declarative-wire-codec-nexus-wire.md` (frames! codec)
+# RFC-0076: Wall-clock v1 — goldfish rtcd, timed walltime, tz-lite, live clock
 
 ## Status at a Glance
 

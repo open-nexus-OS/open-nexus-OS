@@ -1,33 +1,45 @@
 ---
-title: TASK-0065 UI v6b: appmgrd ability-lite lifecycle + SystemUI navigation + notifd toasts/notifications
-status: Done
-owner: @ui
+schema: 1
+id: TASK-0065
+title: "UI v6b: appmgrd ability-lite lifecycle + SystemUI navigation + notifd toasts/notifications"
+status: done
+owner: ["@ui"]
 created: 2025-12-23
 updated: 2026-06-23
-depends-on:
-  - tasks/TASK-0064-ui-v6a-window-management-scene-transitions.md   # WM baseline (ShellWindow N-window + focus)
-  - docs/rfcs/RFC-0002-process-per-service-architecture.md          # process-per-service; execd is the spawner
-  - source/services/bundlemgrd/                                     # installed-app registry (the "which apps exist" SSOT)
-  - source/services/execd/                                          # process spawn (our appspawn/launchd)
-  - tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md  # notification limits via configd
-  - tasks/TASK-0047-policy-as-code-v1-unified-engine.md             # launch/notify policy guards
-follow-up-tasks:
-  - tasks/TASK-0065B-session-login-greeter-v0.md                    # session/login authority (kept separate from lifecycle)
-  - TASK-0234   # Ability/Lifecycle v1.1 (backoff/crash-loop/kill reasons/FG-BG policies) — host-first
-  - TASK-0235   # OS extension of the lifecycle broker (abilitymgr)
+subsystem: sessions
+done: 2026-07-19
+dates_source: git-reconstructed
+depends_on: [TASK-0064, TASK-0046, TASK-0047]
+follow_ups: [TASK-0065B, TASK-0234, TASK-0235]
+implements: [RFC-0065]
+tracks: [TRACK-ADS-SAFETY-FAMILYMODE]
 links:
-  - Design contract (RFC): docs/rfcs/RFC-0065-ui-v6b-app-lifecycle-registry-notifications-navigation-contract.md
-  - Service-split decision (ADR): docs/adr/0036-ability-lifecycle-vs-process-vs-registry-service-split.md
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
-  - UI v6a WM baseline: tasks/TASK-0064-ui-v6a-window-management-scene-transitions.md
-  - Process-per-service: docs/rfcs/RFC-0002-process-per-service-architecture.md
-  - Execd supervisor: source/services/execd/
-  - Config broker (notification limits): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
-  - Policy as Code (launch/notify guards): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
-  - Updates (future integration): tasks/TASK-0036-ota-ab-v2-userspace-healthmux-rollback-softreboot.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: "Service-split decision (ADR)"
+    target: docs/adr/0036-ability-lifecycle-vs-process-vs-registry-service-split.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "UI v6a WM baseline"
+    target: tasks/TASK-0064-ui-v6a-window-management-scene-transitions.md
+  - label: Process-per-service
+    target: docs/rfcs/RFC-0002-process-per-service-architecture.md
+  - label: "Execd supervisor"
+    target: source/services/execd/
+  - label: "Config broker (notification limits)"
+    target: tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
+  - label: "Policy as Code (launch/notify guards)"
+    target: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
+  - label: "Updates (future integration)"
+    target: tasks/TASK-0036-ota-ab-v2-userspace-healthmux-rollback-softreboot.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
+  - label: "depends on"
+    target: "docs/rfcs/RFC-0002-process-per-service-architecture.md          # process-per-service; execd is the spawner"
+  - label: "depends on"
+    target: "source/services/bundlemgrd/                                     # installed-app registry (the \"which apps exist\" SSOT)"
+  - label: "depends on"
+    target: "source/services/execd/                                          # process spawn (our appspawn/launchd)"
 ---
 
 ## Closure (2026-06-23) — DONE

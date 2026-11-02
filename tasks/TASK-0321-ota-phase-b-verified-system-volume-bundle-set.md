@@ -1,29 +1,43 @@
 ---
-title: TASK-0321 OTA Phase B — verified system volume (system-a/b) + service migration out of the boot image + bundle-set updates with unchanged-bundle reuse
-status: Done (P0–P5 delivered 2026-09-04)
-owner: @runtime @security
+schema: 1
+id: TASK-0321
+title: "OTA Phase B — verified system volume (system-a/b) + service migration out of the boot image + bundle-set updates with unchanged-bundle reuse"
+status: done
+status_note: "P0–P5 delivered 2026-09-04"
+owner: ["@runtime", "@security"]
 created: 2026-09-03
 updated: 2026-09-03
-size: XL
-depends-on:
-  - TASK-0179
-  - TASK-0289
-  - TASK-0034
-follow-up-tasks:
-  - TASK-0035
+subsystem: updates
+started: 2026-09-03
+done: 2026-09-04
+active_days: 2
+dates_source: git-reconstructed
+depends_on: [TASK-0179, TASK-0289, TASK-0034]
+follow_ups: [TASK-0035]
+implements: [RFC-0089, RFC-0090]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - RFC (contract, §2 reserved partitions, §3 component kinds 2/4, §12 Phase B seam): docs/rfcs/RFC-0089-ota-v2-component-manifest-ab-boot-images-nxboot-bsb.md
-  - RFC (delta stream, extended per bundle in this task): docs/rfcs/RFC-0090-nxdelta-boot-image-delta-stream-format.md
-  - ADR (block topology, partition roles): docs/adr/0044-single-blk-device-gpt-partitions-block-layer.md
-  - ADR (first-stage loader; unchanged by this task): docs/adr/0059-first-stage-boot-chain-nxboot-handoff.md
-  - Layout authority: userspace/storage/src/layout.rs
-  - Apply engine v2 (extended, not replaced): tasks/TASK-0179-updated-v2-offline-feed-delta-health-rollback.md
-  - Boot trust floor (the chain this task extends downward): tasks/TASK-0289-boot-trust-floor-v1-verified-boot-rollback-measurement.md
-  - Delta orchestration that executes AFTER this seam: tasks/TASK-0035-delta-updates-v1b-system-set-nxs.md
-  - Per-app A/B (store distribution; NOT this task): tasks/TASK-0239-installer-v1_1b-os-pkgr-atomic-ab-bundlemgr-registry-licensed-selftests.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "ADR (block topology, partition roles)"
+    target: docs/adr/0044-single-blk-device-gpt-partitions-block-layer.md
+  - label: "ADR (first-stage loader; unchanged by this task)"
+    target: docs/adr/0059-first-stage-boot-chain-nxboot-handoff.md
+  - label: "Layout authority"
+    target: userspace/storage/src/layout.rs
+  - label: "Apply engine v2 (extended, not replaced)"
+    target: tasks/TASK-0179-updated-v2-offline-feed-delta-health-rollback.md
+  - label: "Boot trust floor (the chain this task extends downward)"
+    target: tasks/TASK-0289-boot-trust-floor-v1-verified-boot-rollback-measurement.md
+  - label: "Delta orchestration that executes AFTER this seam"
+    target: tasks/TASK-0035-delta-updates-v1b-system-set-nxs.md
+  - label: "Per-app A/B (store distribution; NOT this task)"
+    target: tasks/TASK-0239-installer-v1_1b-os-pkgr-atomic-ab-bundlemgr-registry-licensed-selftests.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
+  - label: size
+    target: XL
 ---
 
 ## End-state rewrite 2026-09-03 (binding; supersedes the seed text below where they differ)

@@ -1,16 +1,22 @@
 ---
-title: TASK-0164 SDK v1 Part 1b (host-first): typed client stubs + app templates + nx sdk (nx-sdk wrapper) + doctor/build helpers
-status: Draft
-owner: @devx
+schema: 1
+id: TASK-0164
+title: "SDK v1 Part 1b (host-first): typed client stubs + app templates + nx sdk (nx-sdk wrapper) + doctor/build helpers"
+status: draft
+owner: ["@devx"]
 created: 2025-12-26
-depends-on: []
-follow-up-tasks: []
+subsystem: app-platform
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - SDK v1 IDL/codegen/gates: tasks/TASK-0163-sdk-v1-part1a-idl-freeze-codegen-wire-gates.md
-  - DevX nx CLI v1: tasks/TASK-0045-devx-nx-cli-v1.md
-  - Existing schema runtime: userspace/nexus-idl-runtime/
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "SDK v1 IDL/codegen/gates"
+    target: tasks/TASK-0163-sdk-v1-part1a-idl-freeze-codegen-wire-gates.md
+  - label: "DevX nx CLI v1"
+    target: tasks/TASK-0045-devx-nx-cli-v1.md
+  - label: "Existing schema runtime"
+    target: userspace/nexus-idl-runtime/
 ---
 
 ## Context

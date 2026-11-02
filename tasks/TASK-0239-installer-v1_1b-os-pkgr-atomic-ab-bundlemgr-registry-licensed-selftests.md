@@ -1,20 +1,29 @@
 ---
-title: TASK-0239 Installer v1.1b (OS/QEMU): pkgr service (atomic A/B per app) + bundlemgr registry extension + licensed entitlement gates + SystemUI installer + nx-pkg CLI + selftests
-status: Draft
-owner: @runtime
+schema: 1
+id: TASK-0239
+title: "Installer v1.1b (OS/QEMU): pkgr service (atomic A/B per app) + bundlemgr registry extension + licensed entitlement gates + SystemUI installer + nx-pkg CLI + selftests"
+status: draft
+owner: ["@runtime"]
 created: 2025-12-29
-depends-on: []
-follow-up-tasks:
-  - TASK-0289
+subsystem: updates
+follow_ups: [TASK-0289]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Installer core (host-first): tasks/TASK-0238-installer-v1_1a-host-nab-semver-migrations-policy-deterministic.md
-  - bundlemgrd install baseline: tasks/TASK-0130-packages-v1b-bundlemgrd-install-upgrade-uninstall-trust.md
-  - Installer UI baseline: tasks/TASK-0131-packages-v1c-installer-ui-openwith-launcher-integration.md
-  - Licensed entitlement enforcement: tasks/TASK-0222-store-v2_2b-os-purchase-flow-entitlements-guard.md
-  - State persistence (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Installer core (host-first)"
+    target: tasks/TASK-0238-installer-v1_1a-host-nab-semver-migrations-policy-deterministic.md
+  - label: "bundlemgrd install baseline"
+    target: tasks/TASK-0130-packages-v1b-bundlemgrd-install-upgrade-uninstall-trust.md
+  - label: "Installer UI baseline"
+    target: tasks/TASK-0131-packages-v1c-installer-ui-openwith-launcher-integration.md
+  - label: "Licensed entitlement enforcement"
+    target: tasks/TASK-0222-store-v2_2b-os-purchase-flow-entitlements-guard.md
+  - label: "State persistence (/state)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

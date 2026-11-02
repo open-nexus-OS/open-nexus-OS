@@ -1,20 +1,34 @@
 ---
-title: TASK-0250 Display v1.0a (host-first): the display-controller scanout contract — a `GfxBackend` implementation for a planes-and-timings controller, EDID mode selection, host-tested
-status: Done (2026-09-30 — P1/P2 done: `nexus_gfx::backend::dc`: bounded EDID/CEA parser + `pick_mode`, the measured register map, the bring-up/plane/flush model over `RegWriter`, goldens against the 2026-09-29 dump; P3's policy arm moves to TASK-0251 P2 where its consumer lands; recut 2026-09-22 to the end state — Block 1 B1.7 host half of the hardware fast track; was "simplefb compositor backend + premultiplied alpha + dirty rects", Draft since 2025-12-29)
-owner: @ui @runtime
+schema: 1
+id: TASK-0250
+title: "Display v1.0a (host-first): the display-controller scanout contract — a `GfxBackend` implementation for a planes-and-timings controller, EDID mode selection, host-tested"
+status: done
+status_note: "2026-09-30 — P1/P2 done: `nexus_gfx::backend::dc`: bounded EDID/CEA parser + `pick_mode`"
+owner: ["@ui", "@runtime"]
 created: 2025-12-29
 updated: 2026-09-30
-depends-on:
-  - tasks/TASK-0244-bringup-rv-virt-v1_0a-host-dtb-sbi-shim-deterministic.md
-follow-up-tasks:
-  - tasks/TASK-0251-display-v1_0b-os-fbdevd-windowd-integration-cursor-selftests.md
+subsystem: hardware
+started: 2026-09-30
+done: 2026-09-30
+active_days: 1
+dates_source: git-reconstructed
+depends_on: [TASK-0244]
+follow_ups: [TASK-0251]
+implements: [RFC-0098]
 links:
-  - Contract: docs/rfcs/RFC-0098-board-support-contract-fdt-truth-boot-chain.md (C7, Phase 5)
-  - The seam: userspace/nexus-gfx/src/backend/traits.rs (`GfxBackend`), backend/cpu_mock.rs (template); gpud backends source/drivers/gpud/src/backend/ (`attach.rs`, `present.rs`, `scanout_policy.rs`, `display_mode.rs`)
-  - Boundary that stays: docs/rfcs/RFC-0067-* (windowd = single present authority), docs/rfcs/RFC-0093-* (handoff), docs/adr/0062-*
-  - Measurement: docs/board/measurements/2026-09-22-stock-system/README.md ("Display"), `edid-hdmi.bin`
-  - Playbook: CLAUDE.md
+  - label: Contract
+    target: "docs/rfcs/RFC-0098-board-support-contract-fdt-truth-boot-chain.md (C7, Phase 5)"
+  - label: "The seam"
+    target: "userspace/nexus-gfx/src/backend/traits.rs (`GfxBackend`), backend/cpu_mock.rs (template); gpud backends source/drivers/gpud/src/backend/ (`attach.rs`, `present.rs`, `scanout_policy.rs`, `display_mode.rs`)"
+  - label: "Boundary that stays"
+    target: "docs/rfcs/RFC-0067-* (windowd = single present authority), docs/rfcs/RFC-0093-* (handoff), docs/adr/0062-*"
+  - label: Measurement
+    target: "docs/board/measurements/2026-09-22-stock-system/README.md (\"Display\"), `edid-hdmi.bin`"
+  - label: Playbook
+    target: CLAUDE.md
 ---
+
+> Status (migrated 2026-11-02): Done (2026-09-30 — P1/P2 done: `nexus_gfx::backend::dc`: bounded EDID/CEA parser + `pick_mode`, the measured register map, the bring-up/plane/flush model over `RegWriter`, goldens against the 2026-09-29 dump; P3's policy arm moves to TASK-0251 P2 where its consumer lands; recut 2026-09-22 to the end state — Block 1 B1.7 host half of the hardware fast track; was "simplefb compositor backend + premultiplied alpha + dirty rects", Draft since 2025-12-29)
 
 ## History
 

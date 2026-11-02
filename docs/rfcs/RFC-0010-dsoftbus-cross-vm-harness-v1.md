@@ -1,16 +1,17 @@
 ---
-title: RFC-0010 DSoftBus cross-VM harness v1 (2-VM opt-in, real subnet discovery)
-status: Accepted
-owners: runtime
+schema: 1
+id: RFC-0010
+title: "DSoftBus cross-VM harness v1 (2-VM opt-in, real subnet discovery)"
+status: accepted
+owners: ["@runtime"]
 created: 2026-01-12
 updated: 2026-01-13
-audience: networking, dsoftbus, qa
+subsystem: distributed
+tasks: [TASK-0005]
+depends_on: [RFC-0006, RFC-0007, RFC-0008, RFC-0009]
 links:
-  - Tasks: tasks/TASK-0005-networking-cross-vm-dsoftbus-remote-proxy.md
-  - Depends-on: docs/rfcs/RFC-0006-userspace-networking-v1.md
-  - Depends-on: docs/rfcs/RFC-0007-dsoftbus-os-transport-v1.md
-  - Depends-on: docs/rfcs/RFC-0008-dsoftbus-noise-xk-v1.md
-  - Depends-on: docs/rfcs/RFC-0009-no-std-dependency-hygiene-v1.md
+  - label: audience
+    target: "networking, dsoftbus, qa"
 ---
 
 ## Status at a Glance

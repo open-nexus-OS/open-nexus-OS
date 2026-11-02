@@ -1,38 +1,41 @@
 ---
-title: TASK-0012 Performance & Power v1 (kernel): SMP bring-up + per-CPU runqueues + IPIs (QEMU riscv virt)
-status: Done
-owner: @kernel-team
+schema: 1
+id: TASK-0012
+title: "Performance & Power v1 (kernel): SMP bring-up + per-CPU runqueues + IPIs (QEMU riscv virt)"
+status: done
+owner: ["@kernel-team"]
 created: 2025-12-22
-depends-on:
-  - TASK-0011
-follow-up-tasks:
-  - TASK-0012B
-  - TASK-0013
-  - TASK-0042
-  - TASK-0247
-  - TASK-0283
+subsystem: kernel
+started: 2026-02-10
+done: 2026-02-11
+active_days: 2
+dates_source: git-reconstructed
+depends_on: [TASK-0011]
+follow_ups: [TASK-0012B, TASK-0013, TASK-0042, TASK-0247, TASK-0283]
+implements: [RFC-0021, RFC-0020]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - RFC: docs/rfcs/RFC-0021-kernel-smp-v1-percpu-runqueues-ipi-contract.md
-  - Kernel overview: docs/architecture/01-neuron-kernel.md
-  - QEMU platform determinism: docs/dev/platform/qemu-virtio-mmio-modern.md
-  - QEMU smoke proof policy: docs/adr/0025-qemu-smoke-proof-gating.md
-  - Kernel SMP/parallelism policy (normative): tasks/TASK-0277-kernel-smp-parallelism-policy-v1-deterministic.md
-  - Depends-on (orientation): tasks/TASK-0011-kernel-simplification-phase-a.md
-  - Pre-SMP ownership/types contract (seed): docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md
-  - Pre-SMP execution/proofs: tasks/TASK-0011B-kernel-rust-idioms-pre-smp.md
-  - Testing contract: scripts/qemu-test.sh
-  - Unblocks: tasks/TRACK-DRIVERS-ACCELERATORS.md (per-CPU driver scheduling, multi-queue devices)
-  - Unblocks: tasks/TRACK-NETWORKING-DRIVERS.md (multi-queue NIC scheduling baseline)
-enables:
-  - TASK-0012B: SMP v1b hardening bridge (scheduler/SMP internals, bounded queue behavior, trap/IPI contract hardening)
-  - TASK-0013: Perf/Power v1 (QoS ABI + timed coalescing)
-  - TASK-0042: SMP v2 (affinity hints + QoS budgets)
-  - TASK-0247: RISC-V bring-up v1.1b extension (SBI HSM/IPI hardening + per-hart timers + storage integration)
-  - TASK-0283: Per-CPU ownership wrapper adoption (`PerCpu<T>`) for additional compile-time hardening
-  - TRACK-DRIVERS-ACCELERATORS: per-CPU driver scheduling baseline for device-class services
-  - TRACK-NETWORKING-DRIVERS: per-CPU scheduler baseline for future NIC/offload work
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Kernel overview"
+    target: docs/architecture/01-neuron-kernel.md
+  - label: "QEMU platform determinism"
+    target: docs/dev/platform/qemu-virtio-mmio-modern.md
+  - label: "QEMU smoke proof policy"
+    target: docs/adr/0025-qemu-smoke-proof-gating.md
+  - label: "Kernel SMP/parallelism policy (normative)"
+    target: tasks/TASK-0277-kernel-smp-parallelism-policy-v1-deterministic.md
+  - label: "Pre-SMP execution/proofs"
+    target: tasks/TASK-0011B-kernel-rust-idioms-pre-smp.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
+  - label: Unblocks
+    target: "tasks/TRACK-DRIVERS-ACCELERATORS.md (per-CPU driver scheduling, multi-queue devices)"
+  - label: Unblocks
+    target: "tasks/TRACK-NETWORKING-DRIVERS.md (multi-queue NIC scheduling baseline)"
+  - label: enables
+    target: "TASK-0012B: SMP v1b hardening bridge (scheduler/SMP internals, bounded queue behavior, trap/IPI contract hardening); TASK-0013: Perf/Power v1 (QoS ABI + timed coalescing); TASK-0042: SMP v2 (affinity hints + QoS budgets); TASK-0247: RISC-V bring-up v1.1b extension (SBI HSM/IPI hardening + per-hart timers + storage integration); TASK-0283: Per-CPU ownership wrapper adoption (`PerCpu<T>`) for additional compile-time hardening; TRACK-DRIVERS-ACCELERATORS: per-CPU driver scheduling baseline for device-class services; TRACK-NETWORKING-DRIVERS: per-CPU scheduler baseline for future NIC/offload work"
 ---
 
 ## Context

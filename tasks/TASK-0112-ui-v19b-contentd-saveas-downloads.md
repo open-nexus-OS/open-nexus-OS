@@ -1,18 +1,26 @@
 ---
-title: TASK-0112 UI v19b: contentd saveAs helper (data:/content:// → state:/Downloads) + recents integration + tests
-status: Draft
-owner: @platform
+schema: 1
+id: TASK-0112
+title: "UI v19b: contentd saveAs helper (data:/content:// → state:/Downloads) + recents integration + tests"
+status: draft
+owner: ["@platform"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: storage
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Content providers: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
-  - Scoped grants (optional cross-subject): tasks/TASK-0084-ui-v12a-scoped-uri-grants.md
-  - Recents service: tasks/TASK-0082-ui-v11b-thumbnailer-recents.md
-  - Persistence (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Policy as Code (download allowlist): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Content providers"
+    target: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
+  - label: "Scoped grants (optional cross-subject)"
+    target: tasks/TASK-0084-ui-v12a-scoped-uri-grants.md
+  - label: "Recents service"
+    target: tasks/TASK-0082-ui-v11b-thumbnailer-recents.md
+  - label: "Persistence (/state)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Policy as Code (download allowlist)"
+    target: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
 ---
 
 ## Context

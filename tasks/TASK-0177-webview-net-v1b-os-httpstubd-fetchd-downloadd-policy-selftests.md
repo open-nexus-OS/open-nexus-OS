@@ -1,20 +1,30 @@
 ---
-title: TASK-0177 WebView Net v1b (OS/QEMU): httpstubd + fetchd (policy-gated) + downloadd quotas/progress + sample app + nx-web + selftests/docs
-status: Draft
-owner: @platform
+schema: 1
+id: TASK-0177
+title: "WebView Net v1b (OS/QEMU): httpstubd + fetchd (policy-gated) + downloadd quotas/progress + sample app + nx-web + selftests/docs"
+status: draft
+owner: ["@platform"]
 created: 2025-12-27
-depends-on: []
-follow-up-tasks: []
+subsystem: networking
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - WebView baseline (offline URL policy): tasks/TASK-0111-ui-v19a-webviewd-sandbox-offscreen.md
-  - WebView Net v1a sanitizer/render core: tasks/TASK-0176-webview-net-v1a-host-sanitizer-webview-sceneir-goldens.md
-  - Downloads helper baseline (saveAs to state): tasks/TASK-0112-ui-v19b-contentd-saveas-downloads.md
-  - Policy v1.1 caps/scopes (prefer reuse): tasks/TASK-0167-policy-v1_1-host-scoped-grants-expiry-enumeration.md
-  - SDK manifest lint tooling (webpolicy.json validation; optional): tasks/TASK-0165-sdk-v1-part2a-devtools-lints-pack-sign-ci.md
-  - Persistence (/state downloads): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "WebView baseline (offline URL policy)"
+    target: tasks/TASK-0111-ui-v19a-webviewd-sandbox-offscreen.md
+  - label: "WebView Net v1a sanitizer/render core"
+    target: tasks/TASK-0176-webview-net-v1a-host-sanitizer-webview-sceneir-goldens.md
+  - label: "Downloads helper baseline (saveAs to state)"
+    target: tasks/TASK-0112-ui-v19b-contentd-saveas-downloads.md
+  - label: "Policy v1.1 caps/scopes (prefer reuse)"
+    target: tasks/TASK-0167-policy-v1_1-host-scoped-grants-expiry-enumeration.md
+  - label: "SDK manifest lint tooling (webpolicy.json validation; optional)"
+    target: tasks/TASK-0165-sdk-v1-part2a-devtools-lints-pack-sign-ci.md
+  - label: "Persistence (/state downloads)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

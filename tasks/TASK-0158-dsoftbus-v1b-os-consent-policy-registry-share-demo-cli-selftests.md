@@ -1,22 +1,33 @@
 ---
-title: TASK-0158 DSoftBus v1b (OS/QEMU): perms consent + policy caps + registry persistence + Share Demo + nx-bus + selftests/postflight/docs
-status: Draft
-owner: @runtime
+schema: 1
+id: TASK-0158
+title: "DSoftBus v1b (OS/QEMU): perms consent + policy caps + registry persistence + Share Demo + nx-bus + selftests/postflight/docs"
+status: draft
+owner: ["@runtime"]
 created: 2025-12-26
-depends-on: []
-follow-up-tasks: []
+subsystem: distributed
+tracks: [TRACK-NEXUSNET-SDK]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - NexusNet SDK track (cloud + DSoftBus): tasks/TRACK-NEXUSNET-SDK.md
-  - DSoftBus v1a core: tasks/TASK-0157-dsoftbus-v1a-local-sim-pairing-streams-host.md
-  - Permissions baseline: tasks/TASK-0103-ui-v17a-permissions-privacyd.md
-  - Policy caps (capability matrix): tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
-  - Persistence substrate (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Clipboard v2 substrate (optional demo): tasks/TASK-0067-ui-v7b-dnd-clipboard-v2.md
-  - Share v2 (intents) later: tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md
-  - Testing contract: scripts/qemu-test.sh
-  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "DSoftBus v1a core"
+    target: tasks/TASK-0157-dsoftbus-v1a-local-sim-pairing-streams-host.md
+  - label: "Permissions baseline"
+    target: tasks/TASK-0103-ui-v17a-permissions-privacyd.md
+  - label: "Policy caps (capability matrix)"
+    target: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
+  - label: "Persistence substrate (/state)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Clipboard v2 substrate (optional demo)"
+    target: tasks/TASK-0067-ui-v7b-dnd-clipboard-v2.md
+  - label: "Share v2 (intents) later"
+    target: tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
+  - label: "Data formats rubric (JSON vs Cap'n Proto)"
+    target: docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
 ## Short description

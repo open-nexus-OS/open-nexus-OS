@@ -1,16 +1,22 @@
-# RFC-0077: i18n v2 — compiled locale packs + runtime locale switch
+---
+schema: 1
+id: RFC-0077
+title: "i18n v2 — compiled locale packs + runtime locale switch"
+status: done
+status_note: "all phases proven 2026-07-21 — TASK-0240/0241"
+owners: ["@runtime"]
+created: 2026-07-21
+updated: 2026-07-21
+subsystem: text
+tasks: [TASK-0240, TASK-0241]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0240-i18n-l10n-v1_0a-host-catalog-compiler-icu-lite-plurals-deterministic.md` (host: packs + swap), `tasks/TASK-0241-i18n-v2-os-runtime-locale-switch-region-push-settings.md` (OS: region-driven switch + Settings)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0078-settings-region-keys-watch.md` (`ui.locale` key + watch spine), `docs/rfcs/RFC-0076-wallclock-v1-rtcd-timed-tz.md` (`OP_SURFACE_REGION` transport, already shipping tz/hour-format)"
+---
 
-- Status: Done (all phases proven 2026-07-21 — TASK-0240/0241)
-- Owners: @runtime
-- Created: 2026-07-21
-- Last Updated: 2026-07-21
-- Links:
-  - Tasks: `tasks/TASK-0240-i18n-l10n-v1_0a-host-catalog-compiler-icu-lite-plurals-deterministic.md`
-    (host: packs + swap), `tasks/TASK-0241-i18n-v2-os-runtime-locale-switch-region-push-settings.md`
-    (OS: region-driven switch + Settings)
-  - Related RFCs: `docs/rfcs/RFC-0078-settings-region-keys-watch.md` (`ui.locale` key +
-    watch spine), `docs/rfcs/RFC-0076-wallclock-v1-rtcd-timed-tz.md` (`OP_SURFACE_REGION`
-    transport, already shipping tz/hour-format)
+# RFC-0077: i18n v2 — compiled locale packs + runtime locale switch
 
 ## Status at a Glance
 

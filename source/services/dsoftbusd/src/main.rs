@@ -52,7 +52,7 @@ fn os_entry() -> core::result::Result<(), ()> {
         return Ok(());
     }
 
-    // Network family HOLD (tasks/IMPLEMENTATION-ORDER.md "Netz-Gruppe"): the single-VM
+    // Network family HOLD (tasks/milestones/hardware-network.md step N5): the single-VM
     // dual-node session is a dev-only exploration path (it talks to itself over loopback with
     // bring-up test keys, and its 62-line diagnostic vocabulary is not proof-manifest
     // contract). In a PROOF boot (the kernel's fw_cfg-derived boot mode, the same switch

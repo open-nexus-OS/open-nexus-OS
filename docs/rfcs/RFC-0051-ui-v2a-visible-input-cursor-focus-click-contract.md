@@ -1,15 +1,25 @@
-# RFC-0051: UI v2a visible input (cursor + hover + focus + click) contract
+---
+schema: 1
+id: RFC-0051
+title: "UI v2a visible input (cursor + hover + focus + click) contract"
+status: done
+owners: ["@ui"]
+created: 2026-04-30
+updated: 2026-05-03
+subsystem: ui
+tasks: [TASK-0056B]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0056B-ui-v2a-visible-input-cursor-focus-click.md` (execution + proof)"
+  - label: ADRs
+    target: "`docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0049-ui-v1d-windowd-visible-present-systemui-first-frame-contract.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0050-ui-v2a-present-scheduler-double-buffer-input-routing-contract.md`"
+---
 
-- Status: Done
-- Owners: @ui
-- Created: 2026-04-30
-- Last Updated: 2026-05-03
-- Links:
-  - Tasks: `tasks/TASK-0056B-ui-v2a-visible-input-cursor-focus-click.md` (execution + proof)
-  - ADRs: `docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md`
-  - Related RFCs:
-    - `docs/rfcs/RFC-0049-ui-v1d-windowd-visible-present-systemui-first-frame-contract.md`
-    - `docs/rfcs/RFC-0050-ui-v2a-present-scheduler-double-buffer-input-routing-contract.md`
+# RFC-0051: UI v2a visible input (cursor + hover + focus + click) contract
 
 ## Status at a Glance
 

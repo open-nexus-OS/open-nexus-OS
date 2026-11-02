@@ -1,16 +1,27 @@
-# RFC-0082: Type ramp v2 + on-glass surface tokens
+---
+schema: 1
+id: RFC-0082
+title: "Type ramp v2 + on-glass surface tokens"
+status: in_progress
+owners: ["@ui"]
+created: 2026-07-26
+updated: 2026-07-26
+subsystem: ui
+tasks: [TASK-0305]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0305-greeter-design-handoff-type-ramp-on-glass-tokens.md` (execution + proof)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0070-ui-design-system-ssot-convergence.md` (token SSOT this extends)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0080-shared-atlas-ro-vmo.md` (the atlas this grows)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0067-windowd-compositor-service-boundary-rasterizer-app-ui-extraction.md` (who paints what)"
+  - label: "Design contract"
+    target: "`userspace/apps/greeter/docs/design_handoff_os_login/README.md`"
+---
 
-- Status: In Progress
-- Owners: @ui
-- Created: 2026-07-26
-- Last Updated: 2026-07-26
-- Links:
-  - Tasks: `tasks/TASK-0305-greeter-design-handoff-type-ramp-on-glass-tokens.md` (execution + proof)
-  - Related RFCs:
-    - `docs/rfcs/RFC-0070-ui-design-system-ssot-convergence.md` (token SSOT this extends)
-    - `docs/rfcs/RFC-0080-shared-atlas-ro-vmo.md` (the atlas this grows)
-    - `docs/rfcs/RFC-0067-windowd-compositor-service-boundary-rasterizer-app-ui-extraction.md` (who paints what)
-  - Design contract: `userspace/apps/greeter/docs/design_handoff_os_login/README.md`
+# RFC-0082: Type ramp v2 + on-glass surface tokens
 
 ## Status at a Glance
 

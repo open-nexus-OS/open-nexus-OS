@@ -1,21 +1,32 @@
 ---
-title: TASK-0089 UI v13c: Text Editor app (tabs + find/replace + autosave/recovery + syntax stubs) + print integration
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0089
+title: "UI v13c: Text Editor app (tabs + find/replace + autosave/recovery + syntax stubs) + print integration"
+status: draft
+owner: ["@ui"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - DSL app platform: tasks/TASK-0122B-dsl-app-platform-v1-shell-routing-launch-contract.md
-  - DSL app integration kit: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md
-  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
-  - Document access (picker/content): tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
-  - Grants (cross-app open): tasks/TASK-0084-ui-v12a-scoped-uri-grants.md
-  - Clipboard v3: tasks/TASK-0087-ui-v13a-clipboard-v3.md
-  - Print pipeline: tasks/TASK-0088-ui-v13b-print-to-pdf-printd-preview.md
-  - Recents: tasks/TASK-0082-ui-v11b-thumbnailer-recents.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "DSL app platform"
+    target: tasks/TASK-0122B-dsl-app-platform-v1-shell-routing-launch-contract.md
+  - label: "DSL app integration kit"
+    target: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md
+  - label: "DSL syntax/layout convention"
+    target: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
+  - label: "Document access (picker/content)"
+    target: tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
+  - label: "Grants (cross-app open)"
+    target: tasks/TASK-0084-ui-v12a-scoped-uri-grants.md
+  - label: "Clipboard v3"
+    target: tasks/TASK-0087-ui-v13a-clipboard-v3.md
+  - label: "Print pipeline"
+    target: tasks/TASK-0088-ui-v13b-print-to-pdf-printd-preview.md
+  - label: Recents
+    target: tasks/TASK-0082-ui-v11b-thumbnailer-recents.md
 ---
 
 ## Context

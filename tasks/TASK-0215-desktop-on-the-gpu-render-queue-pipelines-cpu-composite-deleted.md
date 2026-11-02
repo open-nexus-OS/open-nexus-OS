@@ -1,19 +1,40 @@
 ---
-title: TASK-0215 The desktop on the GPU — Block 4 layer 5 (RFC-0101 Phase 4): the render queue on the board, dynamic geometry, the compositor's ops as GPU pipelines, the CPU composite deleted
-status: Done 2026-10-19 (5a–5d; the bars 5c-4/5d could not meet are carried to Block 4 layer 8 with their measured cause — see "5d" and tasks/IMPLEMENTATION-ORDER.md)
-owner: @gpu @compositor
+schema: 1
+id: TASK-0215
+title: "The desktop on the GPU — Block 4 layer 5 (RFC-0101 Phase 4): the render queue on the board, dynamic geometry, the compositor's ops as GPU pipelines, the CPU composite deleted"
+status: done
+status_note: "2026-10-19 (5a–5d; the bars 5c-4/5d could not meet are carried to Block 4 layer 8 with their measured cause — see \"5d\" and tasks/IMPLEMENTATION-ORDER.md)"
+owner: ["@gpu", "@compositor"]
 created: 2025-12-27
-recut: 2026-10-13 (from "Compositor v2.2a: gpuabst CPU stub + plane planner + async present + colour spaces" — the plane ring and the async present landed as TASK-0216 on the display side; the GPU abstraction is RFC-0101's `GfxDevice`, on hardware since TASK-0169B; what remains of the old draft is this layer's work and is rewritten here to the end state)
-depends-on: [TASK-0169B (layer 4: GfxDevice on the device, the first quad), TASK-0216 (layer 2: the plane ring), TASK-0329 (layer 3: the device online)]
-follow-up-tasks: [TASK-0290 (M2: uncached mappings, the frame arena), M5 (purgeable blur cache), S3 (the IPC budget the frame clock rides on)]
+subsystem: ui
+started: 2026-10-17
+done: 2026-10-19
+active_days: 3
+dates_source: git-reconstructed
+depends_on: [TASK-0169B, TASK-0216, TASK-0329]
+follow_ups: [TASK-0290]
+implements: [RFC-0101]
 links:
-  - Contract: docs/rfcs/RFC-0101-gpu-driver-split-contexts-vm-batches-fence-and-the-scanout-contract.md (§8c, §8d Phase 4)
-  - Order: tasks/IMPLEMENTATION-ORDER.md ("Block 4 in layers", layer 5)
-  - Measurement 5a: docs/board/measurements/2026-10-13-gpu-render-queue/README.md
-  - The bar: docs/board/measurements/2026-10-10-gpu-stock-baseline/README.md (the stock stack's frame: `glass-quarter` 23.3 ms; fixed cost 0.64 ms; 1.8 ns/px opaque; a blended full-screen layer 2.7 ms then 1.8 ms; a 21-tap blur pass at 1080p 42.8 ms)
-  - The CPU composite today: docs/board/measurements/2026-10-10-mgs-baseline/README.md (150–300 ms a present)
-  - Layer 4: tasks/TASK-0169B-gpu-draws-gfxdevice-on-the-device-first-quad-offline-shaders.md
-  - Method: .claude/skills/driver-bringup/SKILL.md
+  - label: Contract
+    target: "docs/rfcs/RFC-0101-gpu-driver-split-contexts-vm-batches-fence-and-the-scanout-contract.md (§8c, §8d Phase 4)"
+  - label: Order
+    target: "tasks/milestones/hardware-network.md (\"Block 4 in layers\", layer 5)"
+  - label: "Measurement 5a"
+    target: docs/board/measurements/2026-10-13-gpu-render-queue/README.md
+  - label: "The bar"
+    target: "docs/board/measurements/2026-10-10-gpu-stock-baseline/README.md (the stock stack's frame: `glass-quarter` 23.3 ms; fixed cost 0.64 ms; 1.8 ns/px opaque; a blended full-screen layer 2.7 ms then 1.8 ms; a 21-tap blur pass at 1080p 42.8 ms)"
+  - label: "The CPU composite today"
+    target: "docs/board/measurements/2026-10-10-mgs-baseline/README.md (150–300 ms a present)"
+  - label: "Layer 4"
+    target: tasks/TASK-0169B-gpu-draws-gfxdevice-on-the-device-first-quad-offline-shaders.md
+  - label: Method
+    target: ".claude/skills/driver-bringup/SKILL.md"
+  - label: recut
+    target: "2026-10-13 (from \"Compositor v2.2a: gpuabst CPU stub + plane planner + async present + colour spaces\" — the plane ring and the async present landed as TASK-0216 on the display side; the GPU abstraction is RFC-0101's `GfxDevice`, on hardware since TASK-0169B; what remains of the old draft is this layer's work and is rewritten here to the end state)"
+  - label: follow-up
+    target: "M5 (purgeable blur cache)"
+  - label: follow-up
+    target: "S3 (the IPC budget the frame clock rides on)"
 ---
 
 ## Context

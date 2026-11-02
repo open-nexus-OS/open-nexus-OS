@@ -1,16 +1,23 @@
 ---
-title: TASK-0100B UI v16b follow-up: Audio Mixer DSL app/SystemUI surface + audiod bridge + host tests
-status: Draft
-owner: @ui @media
+schema: 1
+id: TASK-0100B
+title: "UI v16b follow-up: Audio Mixer DSL app/SystemUI surface + audiod bridge + host tests"
+status: draft
+owner: ["@ui", "@media"]
 created: 2026-03-28
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
+split_from: TASK-0100
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Audiod service baseline: tasks/TASK-0100-ui-v16b-audiod-mixer.md
-  - SystemUI DSL phase 1: tasks/TASK-0119-systemui-dsl-migration-phase1a-launcher-qs-host.md
-  - DSL App Platform v1: tasks/TASK-0122B-dsl-app-platform-v1-shell-routing-launch-contract.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Audiod service baseline"
+    target: tasks/TASK-0100-ui-v16b-audiod-mixer.md
+  - label: "SystemUI DSL phase 1"
+    target: tasks/TASK-0119-systemui-dsl-migration-phase1a-launcher-qs-host.md
+  - label: "DSL App Platform v1"
+    target: tasks/TASK-0122B-dsl-app-platform-v1-shell-routing-launch-contract.md
 ---
 
 ## Context

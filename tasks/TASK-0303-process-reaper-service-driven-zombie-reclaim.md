@@ -1,10 +1,21 @@
-# TASK-0303: Process reaper — service-driven zombie reclaim (execd reaper-of-record)
+---
+schema: 1
+id: TASK-0303
+title: "Process reaper — service-driven zombie reclaim (execd reaper-of-record)"
+status: done
+status_note: "boot-proven 2026-07-24"
+owner: ["@kernel-team", "@runtime"]
+created: 2026-07-24
+subsystem: kernel
+done: 2026-07-24
+dates_source: status-text
+implements: [RFC-0081]
+links:
+  - label: Related
+    target: "RFC-0075 8f (process-image arena reclaim), RFC-0079 (IPC last-sender EOF → apps self-exit on window close), `kernel-early-blocking-fleet-collapse`"
+---
 
-- Status: Done (boot-proven 2026-07-24)
-- Owners: @kernel-team / @runtime
-- RFC: `docs/rfcs/RFC-0081-process-reaper-nonblocking-reclaim.md`
-- Related: RFC-0075 8f (process-image arena reclaim), RFC-0079 (IPC last-sender
-  EOF → apps self-exit on window close), `kernel-early-blocking-fleet-collapse`
+# TASK-0303: Process reaper — service-driven zombie reclaim (execd reaper-of-record)
 
 ## Problem
 

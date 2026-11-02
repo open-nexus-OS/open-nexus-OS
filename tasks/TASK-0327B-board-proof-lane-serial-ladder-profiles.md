@@ -1,18 +1,33 @@
 ---
-title: TASK-0327B Board proof lane: the marker ladder from the boot trace on the disk (RFC-0107) or the debug UART, `board-*` profiles, opt-in in `test-all`
-status: Done 2026-10-10 (Block 1 closure — `[PASS] board-headless` 2026-09-29, `[PASS] board-visible` 2026-10-06 (TASK-0328 U3, cycle 20) with D5's line as amended (`cea`, RFC-0098 C7); the Block 1 gate boot 2026-10-10 ran the ladder 46/46 with six of seven operator rungs, the clipboard rung accepted by the operator (TASK-0251 Closure). Owners named for the board's reds: the TRNG → N3, the RTC → N4; H0a stays a watch item (the instrument in nxboot, the pitfall in docs/board/bpi-f3.md); H0b's host move → TRACK-REPO-HYGIENE-FOLLOWUPS §14; was "In Progress (P4 H0 done 2026-09-29 — `[PASS] board-headless` on the desk board; `board-visible` waits for Block 1's D5; P0 done 2026-09-27 — recut: no USB-UART adapter is at the desk, so the ladder's channel is the boot trace on the boot disk (RFC-0107 seeded), the serial log where an adapter exists; P1 done 2026-09-27 — the loader's trace: kept on the disk in every lane, read back with `nx image trace` and, on the board, `just board-log` (the board's first eMMC boot read with it, TASK-0260B P2); P2 done 2026-09-28 — the OS trace; P3 done 2026-09-28 — the RAM rescue, proven on QEMU, and the board measured: its reset scrubs DRAM, so the board's early kernel needs the UART (P4's serial ladder) or a LED ladder; seeded 2026-09-21 at Block 0 P0)
-owner: @devx @runtime
+schema: 1
+id: TASK-0327B
+title: "Board proof lane: the marker ladder from the boot trace on the disk (RFC-0107) or the debug UART, `board-*` profiles, opt-in in `test-all`"
+status: done
+status_note: "2026-10-10 (Block 1 closure"
+owner: ["@devx", "@runtime"]
 created: 2026-09-21
-depends-on:
-  - tasks/TASK-0327-board-developer-tooling-flash-serial-one-command.md
-follow-up-tasks: []
+subsystem: devx
+started: 2026-09-27
+done: 2026-10-10
+active_days: 3
+dates_source: git-reconstructed
+depends_on: [TASK-0327]
+split_from: TASK-0327
+implements: [RFC-0107]
 links:
-  - Execution order (Block 0 T3 / Block 1 B1.6): tasks/IMPLEMENTATION-ORDER.md
-  - Playbook: CLAUDE.md
-  - The harness this mirrors: scripts/qemu-test.sh, docs/testing/README.md, docs/testing/proof-manifest.md
-  - Profiles SSOT: source/apps/selftest-client/proof-manifest/profiles/harness.toml
-  - Contract: docs/rfcs/RFC-0107-boot-trace-console-markers-on-the-boot-disk.md (the boot trace)
+  - label: "Execution order (Block 0 T3 / Block 1 B1.6)"
+    target: tasks/milestones/hardware-network.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "The harness this mirrors"
+    target: "scripts/qemu-test.sh, docs/testing/README.md, docs/testing/proof-manifest.md"
+  - label: "Profiles SSOT"
+    target: source/apps/selftest-client/proof-manifest/profiles/harness.toml
+  - label: Contract
+    target: "docs/rfcs/RFC-0107-boot-trace-console-markers-on-the-boot-disk.md (the boot trace)"
 ---
+
+> Status (migrated 2026-11-02): Done 2026-10-10 (Block 1 closure — `[PASS] board-headless` 2026-09-29, `[PASS] board-visible` 2026-10-06 (TASK-0328 U3, cycle 20) with D5's line as amended (`cea`, RFC-0098 C7); the Block 1 gate boot 2026-10-10 ran the ladder 46/46 with six of seven operator rungs, the clipboard rung accepted by the operator (TASK-0251 Closure). Owners named for the board's reds: the TRNG → N3, the RTC → N4; H0a stays a watch item (the instrument in nxboot, the pitfall in docs/board/bpi-f3.md); H0b's host move → TRACK-REPO-HYGIENE-FOLLOWUPS §14; was "In Progress (P4 H0 done 2026-09-29 — `[PASS] board-headless` on the desk board; `board-visible` waits for Block 1's D5; P0 done 2026-09-27 — recut: no USB-UART adapter is at the desk, so the ladder's channel is the boot trace on the boot disk (RFC-0107 seeded), the serial log where an adapter exists; P1 done 2026-09-27 — the loader's trace: kept on the disk in every lane, read back with `nx image trace` and, on the board, `just board-log` (the board's first eMMC boot read with it, TASK-0260B P2); P2 done 2026-09-28 — the OS trace; P3 done 2026-09-28 — the RAM rescue, proven on QEMU, and the board measured: its reset scrubs DRAM, so the board's early kernel needs the UART (P4's serial ladder) or a LED ladder; seeded 2026-09-21 at Block 0 P0)
 
 ## RECUT 2026-09-27 — P0: the ladder's channel is the boot trace on the disk (RFC-0107)
 

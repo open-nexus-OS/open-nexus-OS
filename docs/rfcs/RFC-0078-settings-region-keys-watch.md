@@ -1,16 +1,24 @@
-# RFC-0078: Settings spine — region/keymap/time keys + OP_WATCH push propagation
+---
+schema: 1
+id: RFC-0078
+title: "Settings spine — region/keymap/time keys + OP_WATCH push propagation"
+status: done
+status_note: "Phases 0–2 proven 2026-07-21 — TASK-0298) · Amended by RFC-0083 (registration burst, server-side resync heal, region push folded into the presentation snapshot"
+owners: ["@runtime"]
+created: 2026-07-21
+updated: 2026-07-21
+subsystem: ui
+tasks: [TASK-0298]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0298-settings-spine-watch-region-keys.md` (execution + proof)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0075-ime-v2-text-focus-composition-delivery.md` (keymap consumer), `docs/rfcs/RFC-0076-wallclock-v1-rtcd-timed-tz.md` (time.zone validator SSOT), `docs/rfcs/RFC-0077-i18n-v2-locale-packs-runtime-switch.md` (ui.locale consumer)"
+  - label: ADRs
+    target: "`docs/adr/0051-declarative-wire-codec-nexus-wire.md` (frames! codec)"
+---
 
-- Status: Done (Phases 0–2 proven 2026-07-21 — TASK-0298) · Amended by RFC-0083 (registration burst, server-side resync heal, region push folded into the presentation snapshot)
-- Owners: @runtime
-- Created: 2026-07-21
-- Last Updated: 2026-07-21
-- Links:
-  - Tasks: `tasks/TASK-0298-settings-spine-watch-region-keys.md` (execution + proof)
-  - Related RFCs: `docs/rfcs/RFC-0075-ime-v2-text-focus-composition-delivery.md`
-    (keymap consumer), `docs/rfcs/RFC-0076-wallclock-v1-rtcd-timed-tz.md`
-    (time.zone validator SSOT), `docs/rfcs/RFC-0077-i18n-v2-locale-packs-runtime-switch.md`
-    (ui.locale consumer)
-  - ADRs: `docs/adr/0051-declarative-wire-codec-nexus-wire.md` (frames! codec)
+# RFC-0078: Settings spine — region/keymap/time keys + OP_WATCH push propagation
 
 ## Status at a Glance
 

@@ -1,20 +1,31 @@
 ---
-title: TASK-0036 OTA A/B v2: health-commit v2 (record v3 + quorum + deadline) and BSB projection — bootctld machine evolution
-status: Done — Phase A 2026-08-25, Phase B 2026-08-30 (BSB projection live; full loop loader↔bootctld proven)
-owner: @runtime
+schema: 1
+id: TASK-0036
+title: "OTA A/B v2: health-commit v2 (record v3 + quorum + deadline) and BSB projection — bootctld machine evolution"
+status: done
+status_note: "Phase A 2026-08-25, Phase B 2026-08-30 (BSB projection live; full loop loader↔bootctld proven)"
+owner: ["@runtime"]
 created: 2025-12-22
 updated: 2026-08-30
-depends-on:
-  - TASK-0050
-follow-up-tasks:
-  - TASK-0179
+subsystem: updates
+done: 2026-08-25
+dates_source: status-text
+depends_on: [TASK-0050]
+follow_ups: [TASK-0179]
+implements: [RFC-0089]
 links:
-  - Contract: docs/rfcs/RFC-0089-ota-v2-component-manifest-ab-boot-images-nxboot-bsb.md (§6 BSB, §13 record v3)
-  - BSB actor discipline: docs/adr/0058-boot-selection-block-dual-actor-discipline.md
-  - Authority: docs/adr/0055-bootctld-single-boot-state-authority.md
-  - Health vocabulary: docs/rfcs/RFC-0087-reliability-failure-model-v1.md (§2) + docs/rfcs/RFC-0013-boot-gates-readiness-spawn-resource-v1.md (`ready`, never `init: up`)
-  - Substrate for Phase B: tasks/TASK-0315-block-topology-consolidation-gpt-virtioblkd-sole-owner.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Contract
+    target: "docs/rfcs/RFC-0089-ota-v2-component-manifest-ab-boot-images-nxboot-bsb.md (§6 BSB, §13 record v3)"
+  - label: "BSB actor discipline"
+    target: docs/adr/0058-boot-selection-block-dual-actor-discipline.md
+  - label: Authority
+    target: docs/adr/0055-bootctld-single-boot-state-authority.md
+  - label: "Health vocabulary"
+    target: "docs/rfcs/RFC-0087-reliability-failure-model-v1.md (§2) + docs/rfcs/RFC-0013-boot-gates-readiness-spawn-resource-v1.md (`ready`, never `init: up`)"
+  - label: "Substrate for Phase B"
+    target: tasks/TASK-0315-block-topology-consolidation-gpt-virtioblkd-sole-owner.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Phase A DELIVERED 2026-08-25 (test-all green; lane package 2)

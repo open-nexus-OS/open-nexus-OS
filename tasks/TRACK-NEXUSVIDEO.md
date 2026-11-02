@@ -1,17 +1,27 @@
 ---
-title: TRACK NexusVideo (PeerTube): federated video + live + creator-first monetization + danmaku plugins (EU-friendly)
-status: Draft
-owner: @media @ui @platform
+schema: 1
+id: TRACK-NEXUSVIDEO
+title: "NexusVideo (PeerTube): federated video + live + creator-first monetization + danmaku plugins (EU-friendly)"
+status: draft
+owner: ["@media", "@ui", "@platform"]
 created: 2026-01-19
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - System Delegation / System Surfaces (share/send via chat without per-app stacks): tasks/TRACK-SYSTEM-DELEGATION.md
-  - Media Apps track (players + TV hub direction): tasks/TRACK-MEDIA-APPS.md
-  - NexusNet SDK (network/account/grants): tasks/TRACK-NEXUSNET-SDK.md
-  - Recipes app (recipe attachment import target): tasks/TRACK-RECIPES-APP.md
-  - Store v2.2 (license tokens/ledger/parental primitives): tasks/TASK-0221-store-v2_2a-host-licensed-ledger-parental-payments.md
-  - TRACK NexusAccount (online account provider): tasks/TRACK-NEXUSACCOUNT.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "System Delegation / System Surfaces (share/send via chat without per-app stacks)"
+    target: tasks/TRACK-SYSTEM-DELEGATION.md
+  - label: "Media Apps track (players + TV hub direction)"
+    target: tasks/TRACK-MEDIA-APPS.md
+  - label: "NexusNet SDK (network/account/grants)"
+    target: tasks/TRACK-NEXUSNET-SDK.md
+  - label: "Recipes app (recipe attachment import target)"
+    target: tasks/TRACK-RECIPES-APP.md
+  - label: "Store v2.2 (license tokens/ledger/parental primitives)"
+    target: tasks/TASK-0221-store-v2_2a-host-licensed-ledger-parental-payments.md
+  - label: "TRACK NexusAccount (online account provider)"
+    target: tasks/TRACK-NEXUSACCOUNT.md
 ---
 
 ## Goal (track-level)

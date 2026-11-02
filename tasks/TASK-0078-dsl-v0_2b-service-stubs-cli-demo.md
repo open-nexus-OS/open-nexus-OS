@@ -1,21 +1,28 @@
 ---
-title: TASK-0078 DSL v0.2b: typed svc.* adapters from the real IDL + transcript testing + CLI generators + master-detail demo (host)
-status: Done
-owner: @ui @runtime
+schema: 1
+id: TASK-0078
+title: "DSL v0.2b: typed svc.* adapters from the real IDL + transcript testing + CLI generators + master-detail demo (host)"
+status: done
+owner: ["@ui", "@runtime"]
 created: 2025-12-23
 updated: 2026-07-06
-depends-on:
-  - tasks/TASK-0077-dsl-v0_2a-state-nav-i18n-core.md
-follow-up-tasks:
-  - tasks/TASK-0078B-dsl-v0_2b-queryspec-v1-foundation-service-gated-paging-hash.md
+subsystem: app-platform
+done: 2026-07-19
+dates_source: git-reconstructed
+depends_on: [TASK-0077]
+follow_ups: [TASK-0078B]
+tracks: [TRACK-DSL-V1-DEVX]
 links:
-  - Track: tasks/TRACK-DSL-V1-DEVX.md
-  - Services contract: docs/dev/dsl/services.md
-  - Real IDL SSOT the stubs generate from: tools/nexus-idl/schemas/*.capnp
-    + userspace/nexus-idl-runtime (generated modules; IPC frame = [opcode u8][capnp])
-  - QuerySpec sibling: tasks/TASK-0078B (the demo's list data comes through it)
-  - Data formats rubric: docs/adr/0021-structured-data-formats-json-vs-capnp.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: "Services contract"
+    target: docs/dev/dsl/services.md
+  - label: "Real IDL SSOT the stubs generate from"
+    target: "tools/nexus-idl/schemas/*.capnp + userspace/nexus-idl-runtime (generated modules; IPC frame = [opcode u8][capnp])"
+  - label: "QuerySpec sibling"
+    target: "tasks/TASK-0078B (the demo's list data comes through it)"
+  - label: "Data formats rubric"
+    target: docs/adr/0021-structured-data-formats-json-vs-capnp.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context (updated 2026-07-06)

@@ -1,17 +1,24 @@
-# RFC-0107: The boot trace — console markers persisted on the boot disk, read without a serial adapter
+---
+schema: 1
+id: RFC-0107
+title: "The boot trace — console markers persisted on the boot disk, read without a serial adapter"
+status: in_progress
+status_note: "Phase 0 + 1 ✅ 2026-09-27, Phase 2 ✅ 2026-09-28 — TASK-0327B P0–P2; Phase 3 waits for the board's DRAM measurement; seeded 2026-09-27"
+owners: ["@runtime", "@devx"]
+created: 2026-09-27
+updated: 2026-09-27
+subsystem: devx
+tasks: [TASK-0327B]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0327B-board-proof-lane-serial-ladder-profiles.md` (execution + proof)"
+  - label: ADRs
+    target: "`docs/adr/0040-*` (logging policy — amended in Phase 2: the kernel keeps a fixed console ring), `docs/adr/0059-*` (nxboot and its handoff), `docs/adr/0066-*` (the board's boot chain)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0089-*` (§2 the disk layout the `trace` partition joins), `docs/rfcs/RFC-0098-*` (C8 proof markers), `docs/rfcs/RFC-0011-*` (logd's structured journal — a different thing), `docs/rfcs/RFC-0031-*` (crash dumps — a different thing)"
+---
 
-- Status: In Progress (Phase 0 + 1 ✅ 2026-09-27, Phase 2 ✅ 2026-09-28 — TASK-0327B P0–P2; Phase 3
-  waits for the board's DRAM measurement; seeded 2026-09-27)
-- Owners: @runtime @devx
-- Created: 2026-09-27
-- Last Updated: 2026-09-27
-- Links:
-  - Tasks: `tasks/TASK-0327B-board-proof-lane-serial-ladder-profiles.md` (execution + proof)
-  - ADRs: `docs/adr/0040-*` (logging policy — amended in Phase 2: the kernel keeps a fixed console
-    ring), `docs/adr/0059-*` (nxboot and its handoff), `docs/adr/0066-*` (the board's boot chain)
-  - Related RFCs: `docs/rfcs/RFC-0089-*` (§2 the disk layout the `trace` partition joins),
-    `docs/rfcs/RFC-0098-*` (C8 proof markers), `docs/rfcs/RFC-0011-*` (logd's structured journal —
-    a different thing), `docs/rfcs/RFC-0031-*` (crash dumps — a different thing)
+# RFC-0107: The boot trace — console markers persisted on the boot disk, read without a serial adapter
 
 ## Status at a Glance
 

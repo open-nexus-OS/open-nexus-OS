@@ -1,17 +1,25 @@
 ---
-title: TASK-0122B DSL App Platform v1: shared app shell + launch/open contract + host proofs
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0122B
+title: "DSL App Platform v1: shared app shell + launch/open contract + host proofs"
+status: draft
+owner: ["@ui"]
 created: 2026-03-28
-depends-on: []
-follow-up-tasks: []
+subsystem: app-platform
+split_from: TASK-0122
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - SystemUI DSL Phase 2b: tasks/TASK-0122-systemui-dsl-migration-phase2b-os-wiring-postflight-docs.md
-  - App shell baseline: tasks/TASK-0074-ui-v10b-app-shell-adoption-modals.md
-  - DSL v0.2 app mechanics: tasks/TASK-0077-dsl-v0_2a-state-nav-i18n-core.md
-  - Document picker/openWith app contract: tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "SystemUI DSL Phase 2b"
+    target: tasks/TASK-0122-systemui-dsl-migration-phase2b-os-wiring-postflight-docs.md
+  - label: "App shell baseline"
+    target: tasks/TASK-0074-ui-v10b-app-shell-adoption-modals.md
+  - label: "DSL v0.2 app mechanics"
+    target: tasks/TASK-0077-dsl-v0_2a-state-nav-i18n-core.md
+  - label: "Document picker/openWith app contract"
+    target: tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
 ---
 
 ## Context

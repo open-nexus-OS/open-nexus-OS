@@ -1,18 +1,29 @@
 ---
-title: TRACK Score App (forScore-class): fast PDF sheet music reader + annotations + setlists + page turn, offline-first and deterministic
-status: Draft
-owner: @apps @ui
+schema: 1
+id: TRACK-SCORE-APP
+title: "Score App (forScore-class): fast PDF sheet music reader + annotations + setlists + page turn, offline-first and deterministic"
+status: draft
+owner: ["@apps", "@ui"]
 created: 2026-01-19
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
-  - Content/URIs + picker + grants: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md, tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md, tasks/TASK-0084-ui-v12a-scoped-uri-grants.md
-  - Files app integration (open-with/share): tasks/TASK-0086-ui-v12c-files-app-progress-dnd-share-openwith.md
-  - PDF viewer baseline: tasks/TASK-0092-ui-v14b-pdf-viewer.md
-  - Print/export helpers (optional): tasks/TASK-0088-ui-v13b-print-to-pdf-printd-preview.md
-  - Input spine (page turn via HID): tasks/TASK-0253-input-v1_0b-os-hidrawd-touchd-inputd-ime-hooks-selftests.md
-  - windowd compositor/present spine: tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Authority & naming registry"
+    target: tasks/TRACK-AUTHORITY-NAMING.md
+  - label: "Content/URIs + picker + grants"
+    target: "tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md, tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md, tasks/TASK-0084-ui-v12a-scoped-uri-grants.md"
+  - label: "Files app integration (open-with/share)"
+    target: tasks/TASK-0086-ui-v12c-files-app-progress-dnd-share-openwith.md
+  - label: "PDF viewer baseline"
+    target: tasks/TASK-0092-ui-v14b-pdf-viewer.md
+  - label: "Print/export helpers (optional)"
+    target: tasks/TASK-0088-ui-v13b-print-to-pdf-printd-preview.md
+  - label: "Input spine (page turn via HID)"
+    target: tasks/TASK-0253-input-v1_0b-os-hidrawd-touchd-inputd-ime-hooks-selftests.md
+  - label: "windowd compositor/present spine"
+    target: tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md
 ---
 
 ## Goal (track-level)

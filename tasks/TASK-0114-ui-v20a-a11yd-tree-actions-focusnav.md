@@ -1,18 +1,26 @@
 ---
-title: TASK-0114 UI v20a: Accessibility tree v1 hardening (a11yd) + actions + focus/keyboard navigation + adapters
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0114
+title: "UI v20a: Accessibility tree v1 hardening (a11yd) + actions + focus/keyboard navigation + adapters"
+status: draft
+owner: ["@ui"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - A11y v4 baseline: tasks/TASK-0061-ui-v4b-gestures-a11y-semantics.md
-  - Design kit (roles/labels): tasks/TASK-0073-ui-v10a-design-system-primitives-goldens.md
-  - Window/input baseline: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
-  - Config broker (a11y prefs): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "A11y v4 baseline"
+    target: tasks/TASK-0061-ui-v4b-gestures-a11y-semantics.md
+  - label: "Design kit (roles/labels)"
+    target: tasks/TASK-0073-ui-v10a-design-system-primitives-goldens.md
+  - label: "Window/input baseline"
+    target: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
+  - label: "Config broker (a11y prefs)"
+    target: tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

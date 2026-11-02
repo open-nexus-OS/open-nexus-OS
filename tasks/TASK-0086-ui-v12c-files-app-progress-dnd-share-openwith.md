@@ -1,30 +1,50 @@
 ---
-title: TASK-0086 UI v12c: Files app (grid/list/search/thumbnails) + progress UI + DnD + Open With… + Share integration + OS proofs
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0086
+title: "UI v12c: Files app (grid/list/search/thumbnails) + progress UI + DnD + Open With… + Share integration + OS proofs"
+status: draft
+owner: ["@ui"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - DSL query posture: docs/dev/dsl/db-queries.md
-  - Files usage posture: docs/dev/ui/collections/files.md
-  - UI lazy loading posture: docs/dev/ui/collections/lazy-loading.md
-  - DSL app platform: tasks/TASK-0122B-dsl-app-platform-v1-shell-routing-launch-contract.md
-  - DSL app integration kit: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md
-  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
-  - QuerySpec v1 foundation: tasks/TASK-0078B-dsl-v0_2b-queryspec-v1-foundation-service-gated-paging-hash.md
-  - DSL query objects: tasks/TASK-0274-dsl-v0_2c-db-query-objects-builder-defaults-paging-deterministic.md
-  - UI layout pipeline contract: docs/dev/ui/foundations/layout/layout-pipeline.md
-  - Document Access foundations: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
-  - Thumbnailer/recents: tasks/TASK-0082-ui-v11b-thumbnailer-recents.md
-  - Document picker/open-with: tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
-  - Scoped grants: tasks/TASK-0084-ui-v12a-scoped-uri-grants.md
-  - FileOps/Trash: tasks/TASK-0085-ui-v12b-fileops-trash-services.md
-  - Clipboard authority (transfer items for DnD): tasks/TASK-0067-ui-v7b-dnd-clipboard-v2.md, docs/rfcs/RFC-0094-content-transfer-v1-clipboardd.md
-  - Share sheet: tasks/TASK-0068-ui-v7c-screenshot-screencap-share-sheet.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "DSL query posture"
+    target: docs/dev/dsl/db-queries.md
+  - label: "Files usage posture"
+    target: docs/dev/ui/collections/files.md
+  - label: "UI lazy loading posture"
+    target: docs/dev/ui/collections/lazy-loading.md
+  - label: "DSL app platform"
+    target: tasks/TASK-0122B-dsl-app-platform-v1-shell-routing-launch-contract.md
+  - label: "DSL app integration kit"
+    target: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md
+  - label: "DSL syntax/layout convention"
+    target: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
+  - label: "QuerySpec v1 foundation"
+    target: tasks/TASK-0078B-dsl-v0_2b-queryspec-v1-foundation-service-gated-paging-hash.md
+  - label: "DSL query objects"
+    target: tasks/TASK-0274-dsl-v0_2c-db-query-objects-builder-defaults-paging-deterministic.md
+  - label: "UI layout pipeline contract"
+    target: docs/dev/ui/foundations/layout/layout-pipeline.md
+  - label: "Document Access foundations"
+    target: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
+  - label: Thumbnailer/recents
+    target: tasks/TASK-0082-ui-v11b-thumbnailer-recents.md
+  - label: "Document picker/open-with"
+    target: tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
+  - label: "Scoped grants"
+    target: tasks/TASK-0084-ui-v12a-scoped-uri-grants.md
+  - label: FileOps/Trash
+    target: tasks/TASK-0085-ui-v12b-fileops-trash-services.md
+  - label: "Clipboard authority (transfer items for DnD)"
+    target: "tasks/TASK-0067-ui-v7b-dnd-clipboard-v2.md, docs/rfcs/RFC-0094-content-transfer-v1-clipboardd.md"
+  - label: "Share sheet"
+    target: tasks/TASK-0068-ui-v7c-screenshot-screencap-share-sheet.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Drag and drop moved here (2026-10-07, operator decision with the TASK-0067 recut)

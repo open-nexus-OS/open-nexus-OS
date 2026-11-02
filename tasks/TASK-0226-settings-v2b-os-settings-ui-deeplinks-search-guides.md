@@ -1,22 +1,33 @@
 ---
-title: TASK-0226 Settings v2b (OS/QEMU): Settings UI wiring (DSL) + setting:// deep links + searchable settings entries + guided setup cards + selftests/docs
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0226
+title: "Settings v2b (OS/QEMU): Settings UI wiring (DSL) + setting:// deep links + searchable settings entries + guided setup cards + selftests/docs"
+status: draft
+owner: ["@ui"]
 created: 2025-12-29
-depends-on: []
-follow-up-tasks: []
+subsystem: messaging
+tracks: [TRACK-ADS-SAFETY-FAMILYMODE]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
-  - Typed settings substrate (host-first): tasks/TASK-0225-settings-v2a-host-settingsd-typed-prefs-providers.md
-  - SystemUI→DSL Settings baseline: tasks/TASK-0121-systemui-dsl-migration-phase2a-settings-notifs-host.md
-  - SystemUI→DSL OS wiring baseline: tasks/TASK-0122-systemui-dsl-migration-phase2b-os-wiring-postflight-docs.md
-  - Search execution router + setting:// URIs: tasks/TASK-0152-search-v2-ui-os-deeplinks-selftests-postflight-docs.md
-  - Search backend sources: tasks/TASK-0153-search-v2-backend-host-index-ranking-analyzers-sources.md
-  - Policy v1.1 prompts/dashboard: tasks/TASK-0168-policy-v1_1-os-runtime-prompts-privacy-dashboard-cli.md
-  - L10n locale switching (Settings consumer): tasks/TASK-0175-l10n-i18n-v1b-os-locale-switch-settings-cli-selftests.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Typed settings substrate (host-first)"
+    target: tasks/TASK-0225-settings-v2a-host-settingsd-typed-prefs-providers.md
+  - label: "SystemUI→DSL Settings baseline"
+    target: tasks/TASK-0121-systemui-dsl-migration-phase2a-settings-notifs-host.md
+  - label: "SystemUI→DSL OS wiring baseline"
+    target: tasks/TASK-0122-systemui-dsl-migration-phase2b-os-wiring-postflight-docs.md
+  - label: Link
+    target: "Search execution router + setting:// URIs: tasks/TASK-0152-search-v2-ui-os-deeplinks-selftests-postflight-docs.md"
+  - label: "Search backend sources"
+    target: tasks/TASK-0153-search-v2-backend-host-index-ranking-analyzers-sources.md
+  - label: "Policy v1.1 prompts/dashboard"
+    target: tasks/TASK-0168-policy-v1_1-os-runtime-prompts-privacy-dashboard-cli.md
+  - label: "L10n locale switching (Settings consumer)"
+    target: tasks/TASK-0175-l10n-i18n-v1b-os-locale-switch-settings-cli-selftests.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

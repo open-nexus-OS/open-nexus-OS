@@ -1,15 +1,32 @@
+---
+schema: 1
+id: RFC-0071
+title: "nxfs — user-data filesystem (container/volumes, transactional CoW track, integrity, encryption classes) contract seed"
+status: draft
+status_note: "(2026-07-15) — user decision 2026-07-15: production-grade, future-proof (\"Apple-like\"), not the minimal solution"
+owners: ["@runtime"]
+created: 2026-07-15
+updated: 2026-08-14
+subsystem: storage
+tasks: [TASK-0292, TASK-0293]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0292-nxfs-v1-core-host-first.md` (P1 execution + proof), `tasks/TASK-0293-nxfsd-os-bringup-gpt-mount-data-keepblk.md` (P2 execution + proof)"
+  - label: ADRs
+    target: "`docs/adr/0043-user-data-in-dedicated-cow-fs-statefs-stays-service-kv.md`, `docs/adr/0044-single-blk-device-gpt-partitions-block-layer.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0018-statefs-journal-format-v1.md` (service-state KV — NOT this), `docs/rfcs/RFC-0072-vfs-v2-writable-providers-readdir-stable-errors.md` (mount surface), `docs/rfcs/RFC-0073-app-files-surface-svc-files-permission-filemanager-role.md` (app surface), `docs/rfcs/RFC-0040-zero-copy-vmos-v1-plumbing-host-first-os-gated.md` (data plane), `docs/rfcs/RFC-0016-device-identity-keys-v1.md` (key material)"
+  - label: Track
+    target: "`tasks/TRACK-STASH-USER-DATA-FS.md`"
+  - label: Supersedes
+    target: "the \"securefsd\" overlay direction of `tasks/TASK-0182`/`tasks/TASK-0183` (encrypted user data is an nxfs encryption class, not a separate overlay filesystem); absorbs the user-data snapshot ambitions of `tasks/TASK-0134` (statefs-side remainder stays there)."
+---
+
 # RFC-0071: nxfs — user-data filesystem (container/volumes, transactional CoW track, integrity, encryption classes) contract seed
 
-- Status: Draft (2026-07-15) — user decision 2026-07-15: production-grade, future-proof ("Apple-like"), not the minimal solution; engine ships in phases but the contract is CoW-ready from day one.
-- Owners: @runtime
-- Created: 2026-07-15
-- Last Updated: 2026-08-14 (status sync to shipped reality; P3/P4 tasks seeded: TASK-0319/0320; performance amendment owned by TASK-0318)
-- Links:
-  - Tasks: `tasks/TASK-0292-nxfs-v1-core-host-first.md` (P1 execution + proof), `tasks/TASK-0293-nxfsd-os-bringup-gpt-mount-data-keepblk.md` (P2 execution + proof)
-  - ADRs: `docs/adr/0043-user-data-in-dedicated-cow-fs-statefs-stays-service-kv.md`, `docs/adr/0044-single-blk-device-gpt-partitions-block-layer.md`
-  - Related RFCs: `docs/rfcs/RFC-0018-statefs-journal-format-v1.md` (service-state KV — NOT this), `docs/rfcs/RFC-0072-vfs-v2-writable-providers-readdir-stable-errors.md` (mount surface), `docs/rfcs/RFC-0073-app-files-surface-svc-files-permission-filemanager-role.md` (app surface), `docs/rfcs/RFC-0040-zero-copy-vmos-v1-plumbing-host-first-os-gated.md` (data plane), `docs/rfcs/RFC-0016-device-identity-keys-v1.md` (key material)
-  - Track: `tasks/TRACK-STASH-USER-DATA-FS.md`
-  - Supersedes: the "securefsd" overlay direction of `tasks/TASK-0182`/`tasks/TASK-0183` (encrypted user data is an nxfs encryption class, not a separate overlay filesystem); absorbs the user-data snapshot ambitions of `tasks/TASK-0134` (statefs-side remainder stays there).
+> Status (migrated 2026-11-02): Draft (2026-07-15) — user decision 2026-07-15: production-grade, future-proof ("Apple-like"), not the minimal solution; engine ships in phases but the contract is CoW-ready from day one.
+>
+> Last Updated (migrated 2026-11-02): 2026-08-14 (status sync to shipped reality; P3/P4 tasks seeded: TASK-0319/0320; performance amendment owned by TASK-0318)
 
 ## Status at a Glance
 

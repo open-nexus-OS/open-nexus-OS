@@ -1,18 +1,32 @@
 ---
-title: TASK-0067B UI v7b: the clipboard's two surfaces — the shell search (field + Apps / Files / Clipboard) and the keyboard's clipboard cards
-status: Done (2026-10-08 — recut with the operator: the search bar of the desktop reference instead of a panel, plus the mobile reference's keyboard clipboard; board cycle 1 found three gaps, fixed and QEMU-proven; board cycle 2 confirmed `board-visual: clipboard` — operator: "noch nicht perfekt, aber ausreichend")
-owner: @ui
+schema: 1
+id: TASK-0067B
+title: "UI v7b: the clipboard's two surfaces — the shell search (field + Apps / Files / Clipboard) and the keyboard's clipboard cards"
+status: done
+status_note: "2026-10-08 — recut with the operator: the search bar of the desktop reference instead of a panel, plus the mobile reference's keyboard clipboard"
+owner: ["@ui"]
 created: 2026-03-28
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
+done: 2026-10-08
+dates_source: status-text
+split_from: TASK-0067
+implements: [RFC-0094, RFC-0075]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Clipboard v2 service baseline: tasks/TASK-0067-ui-v7b-dnd-clipboard-v2.md
-  - SystemUI bootstrap shell: tasks/TASK-0080B-systemui-dsl-bootstrap-shell-launcher-host.md
-  - DSL App Integration Kit: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md
-  - Contract: docs/rfcs/RFC-0094-content-transfer-v1-clipboardd.md (+ RFC-0075 `OP_INSERT` amendment) · Decision: docs/adr/0070-clipboardd-one-authority-focus-gated-reads-ui-in-shell-and-keyboard.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Clipboard v2 service baseline"
+    target: tasks/TASK-0067-ui-v7b-dnd-clipboard-v2.md
+  - label: "SystemUI bootstrap shell"
+    target: tasks/TASK-0080B-systemui-dsl-bootstrap-shell-launcher-host.md
+  - label: "DSL App Integration Kit"
+    target: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md
+  - label: Contract
+    target: "docs/rfcs/RFC-0094-content-transfer-v1-clipboardd.md (+ RFC-0075 `OP_INSERT` amendment) · Decision: docs/adr/0070-clipboardd-one-authority-focus-gated-reads-ui-in-shell-and-keyboard.md"
 ---
+
+> Status (migrated 2026-11-02): Done (2026-10-08 — recut with the operator: the search bar of the desktop reference instead of a panel, plus the mobile reference's keyboard clipboard; board cycle 1 found three gaps, fixed and QEMU-proven; board cycle 2 confirmed `board-visual: clipboard` — operator: "noch nicht perfekt, aber ausreichend")
 
 ## Recut 2026-10-07 — two surfaces (binding; supersedes the 2026-09-09 panel design below)
 

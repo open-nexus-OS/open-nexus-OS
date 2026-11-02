@@ -1,23 +1,32 @@
 ---
-title: TASK-0222 Store v2.2b (OS/QEMU): licensed enforcement + purchase UX + trials/refunds + parental controls UI + nx-store CLI + selftests/docs (offline)
-status: Draft
-owner: @platform
+schema: 1
+id: TASK-0222
+title: "Store v2.2b (OS/QEMU): licensed enforcement + purchase UX + trials/refunds + parental controls UI + nx-store CLI + selftests/docs (offline)"
+status: draft
+owner: ["@platform"]
 created: 2025-12-27
-depends-on: []
-follow-up-tasks:
-  - TASK-0239
-  - TASK-0289
+subsystem: devx
+follow_ups: [TASK-0239, TASK-0289]
+tracks: [TRACK-ADS-SAFETY-FAMILYMODE]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
-  - Store v2.2 host core: tasks/TASK-0221-store-v2_2a-host-licensed-ledger-parental-payments.md
-  - Store v1 OS storefront baseline: tasks/TASK-0181-store-v1b-os-storefront-ui-selftests-policy-docs.md
-  - Packages install authority (bundlemgrd): tasks/TASK-0130-packages-v1b-bundlemgrd-install-upgrade-uninstall-trust.md
-  - Supply-chain enforcement hooks: tasks/TASK-0198-supply-chain-v2b-os-enforcement-store-updater-bundlemgrd.md
-  - Trust store unification: tasks/TASK-0160-identity-keystore-v1_1-os-attestd-trust-unification-selftests.md
-  - Persistence substrate (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Store v2.2 host core"
+    target: tasks/TASK-0221-store-v2_2a-host-licensed-ledger-parental-payments.md
+  - label: "Store v1 OS storefront baseline"
+    target: tasks/TASK-0181-store-v1b-os-storefront-ui-selftests-policy-docs.md
+  - label: "Packages install authority (bundlemgrd)"
+    target: tasks/TASK-0130-packages-v1b-bundlemgrd-install-upgrade-uninstall-trust.md
+  - label: "Supply-chain enforcement hooks"
+    target: tasks/TASK-0198-supply-chain-v2b-os-enforcement-store-updater-bundlemgrd.md
+  - label: "Trust store unification"
+    target: tasks/TASK-0160-identity-keystore-v1_1-os-attestd-trust-unification-selftests.md
+  - label: "Persistence substrate (/state)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

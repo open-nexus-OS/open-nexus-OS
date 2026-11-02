@@ -1,31 +1,38 @@
 ---
-title: TASK-0054 UI v1a (host-first): BGRA8888 CPU renderer + damage tracking + headless snapshots (PNG/SSIM)
-status: Done
-owner: @ui
+schema: 1
+id: TASK-0054
+title: "UI v1a (host-first): BGRA8888 CPU renderer + damage tracking + headless snapshots (PNG/SSIM)"
+status: done
+owner: ["@ui"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks:
-  - TASK-0054B
-  - TASK-0054C
-  - TASK-0054D
-  - TASK-0169
-  - TASK-0170
+subsystem: ui
+done: 2026-07-17
+dates_source: git-reconstructed
+follow_ups: [TASK-0054B, TASK-0054C, TASK-0054D, TASK-0169, TASK-0170]
+implements: [RFC-0046]
 links:
-  - RFC: docs/rfcs/RFC-0046-ui-v1a-host-cpu-renderer-snapshots-contract.md
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Gfx compute/executor model: docs/architecture/graphics/nexusgfx-compute-and-executor-model.md
-  - Gfx text pipeline integration: docs/architecture/graphics/nexusgfx-text-pipeline.md
-  - UI consumer of buffer/sync contracts: tasks/TRACK-DRIVERS-ACCELERATORS.md
-  - VMO plumbing: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
-  - QoS/timers (future vsync spine): tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
-  - Kernel/UI perf floor follow-up: tasks/TASK-0054B-ui-v1a-kernel-ui-perf-floor-zero-copy-qos-hardening.md
-  - Kernel IPC fastpath follow-up: tasks/TASK-0054C-ui-v1a-kernel-ipc-fastpath-control-plane-vmo-bulk.md
-  - Kernel MM perf floor follow-up: tasks/TASK-0054D-ui-v1a-kernel-mm-perf-floor-vmo-surface-reuse.md
-  - Renderer abstraction successor: tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md
-  - OS renderer wiring successor: tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md
-  - Production gates: tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md
-  - DevX CLI: tasks/TASK-0045-devx-nx-cli-v1.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Gfx compute/executor model"
+    target: docs/architecture/graphics/nexusgfx-compute-and-executor-model.md
+  - label: "Gfx text pipeline integration"
+    target: docs/architecture/graphics/nexusgfx-text-pipeline.md
+  - label: "UI consumer of buffer/sync contracts"
+    target: tasks/TRACK-DRIVERS-ACCELERATORS.md
+  - label: "VMO plumbing"
+    target: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
+  - label: "QoS/timers (future vsync spine)"
+    target: tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
+  - label: "Renderer abstraction successor"
+    target: tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md
+  - label: "OS renderer wiring successor"
+    target: tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md
+  - label: "Production gates"
+    target: tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md
+  - label: "DevX CLI"
+    target: tasks/TASK-0045-devx-nx-cli-v1.md
 ---
 
 ## Context

@@ -1,23 +1,27 @@
 ---
-title: TASK-0080C SystemUI DSL shell + greeter (OS/QEMU): boot→greeter→login→shell→launcher-click→app end-to-end
-status: Done
-owner: @ui @runtime
+schema: 1
+id: TASK-0080C
+title: "SystemUI DSL shell + greeter (OS/QEMU): boot→greeter→login→shell→launcher-click→app end-to-end"
+status: done
+owner: ["@ui", "@runtime"]
 created: 2026-03-28
 updated: 2026-07-06
-depends-on:
-  - tasks/TASK-0080B-systemui-dsl-bootstrap-shell-launcher-host.md
-  - tasks/TASK-0080D-dsl-app-runtime-lifecycle-surface-contract.md
-follow-up-tasks:
-  - tasks/TASK-0120-systemui-dsl-migration-phase1b-os-wiring-postflight.md
+subsystem: ui
+done: 2026-07-19
+dates_source: git-reconstructed
+depends_on: [TASK-0080B, TASK-0080D]
+follow_ups: [TASK-0120]
+split_from: TASK-0080
+tracks: [TRACK-DSL-V1-DEVX]
 links:
-  - Track: tasks/TRACK-DSL-V1-DEVX.md
-  - Shell registry wiring point (EXISTS): source/services/systemui/manifests/shells/*/shell.toml
-    (`dsl_root` resolves the compiled shell program; [first_frame] dims; ADR-0035)
-  - Session gate (EXISTS, TASK-0065B): sessiond authority + greeter handoff,
-    docs/dev/ui/shell/session.md
-  - Query service boot wiring (from TASK-0078B): source/services/queryd → nexus-init topology
-    (RFC-0069 service manifest)
-  - Testing contract: scripts/qemu-test.sh
+  - label: "Shell registry wiring point (EXISTS)"
+    target: "source/services/systemui/manifests/shells/*/shell.toml (`dsl_root` resolves the compiled shell program; [first_frame] dims; ADR-0035)"
+  - label: "Session gate (EXISTS, TASK-0065B)"
+    target: "sessiond authority + greeter handoff, docs/dev/ui/shell/session.md"
+  - label: "Query service boot wiring (from TASK-0078B)"
+    target: "source/services/queryd → nexus-init topology (RFC-0069 service manifest)"
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context (updated 2026-07-06)

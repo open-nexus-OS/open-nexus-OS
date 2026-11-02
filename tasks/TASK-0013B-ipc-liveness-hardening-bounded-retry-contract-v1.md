@@ -1,22 +1,33 @@
 ---
-title: TASK-0013B IPC liveness hardening v1: bounded retry/correlation contract across services
-status: Done
-owner: @runtime
+schema: 1
+id: TASK-0013B
+title: "IPC liveness hardening v1: bounded retry/correlation contract across services"
+status: done
+owner: ["@runtime"]
 created: 2026-02-16
-depends-on: []
-follow-up-tasks:
-  - TASK-0247
+subsystem: kernel
+started: 2026-02-16
+done: 2026-02-16
+active_days: 1
+dates_source: git-reconstructed
+follow_ups: [TASK-0247]
+split_from: TASK-0013
+implements: [RFC-0025, RFC-0026]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Seed contract: docs/rfcs/RFC-0025-ipc-liveness-hardening-bounded-retry-contract-v1.md
-  - Performance extension contract: docs/rfcs/RFC-0026-ipc-performance-optimization-contract-v1.md
-  - Previous baseline: tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
-  - Correlation baseline: docs/rfcs/RFC-0019-ipc-request-reply-correlation-v1.md
-  - SMP hardening baseline: tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md
-  - Follow-up runtime hardening: tasks/TASK-0247-bringup-rv-virt-v1_1b-os-smp-hsm-ipi-virtioblkd-packagefs-selftests.md
-  - Testing contract: scripts/qemu-test.sh
-  - Review package: .cursor/handoff/task-0013b-rfc0026-review-package.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Previous baseline"
+    target: tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
+  - label: "Correlation baseline"
+    target: docs/rfcs/RFC-0019-ipc-request-reply-correlation-v1.md
+  - label: "SMP hardening baseline"
+    target: tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
+  - label: "Review package"
+    target: ".cursor/handoff/task-0013b-rfc0026-review-package.md"
 ---
 
 ## Context

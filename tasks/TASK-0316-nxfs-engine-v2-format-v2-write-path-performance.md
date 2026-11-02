@@ -1,18 +1,23 @@
 ---
-title: TASK-0316 nxfs engine v2: format v2 (contracted fields + volume table) + write-path performance (block-granular CoW, group commit, cache)
-status: Draft
-owner: @runtime
+schema: 1
+id: TASK-0316
+title: "nxfs engine v2: format v2 (contracted fields + volume table) + write-path performance (block-granular CoW, group commit, cache)"
+status: draft
+owner: ["@runtime"]
 created: 2026-08-14
-depends-on:
-  - TASK-0314
-follow-up-tasks:
-  - TASK-0319
+subsystem: storage
+depends_on: [TASK-0314]
+follow_ups: [TASK-0319]
+implements: [RFC-0071]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Contract (this task closes the v1 gap against it): docs/rfcs/RFC-0071-nxfs-user-data-filesystem-contract.md
-  - Store split: docs/adr/0043-user-data-in-dedicated-cow-fs-statefs-stays-service-kv.md
-  - Ladder: tasks/TRACK-STASH-USER-DATA-FS.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Store split"
+    target: docs/adr/0043-user-data-in-dedicated-cow-fs-statefs-stays-service-kv.md
+  - label: Ladder
+    target: tasks/TRACK-STASH-USER-DATA-FS.md
 ---
 
 ## Context

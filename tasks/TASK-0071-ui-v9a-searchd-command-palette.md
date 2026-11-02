@@ -1,19 +1,29 @@
 ---
-title: TASK-0071 UI v9a: searchd index + global search / command palette UI (Superseded 2026-08-14 by TASK-0151/0152 (UI) + TASK-0153/0154 (backend))
-status: Superseded
-owner: @ui
+schema: 1
+id: TASK-0071
+title: "UI v9a: searchd index + global search / command palette UI (Superseded 2026-08-14 by TASK-0151/0152 (UI) + TASK-0153/0154 (backend))"
+status: superseded
+owner: ["@ui"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
+superseded_by: [TASK-0151, TASK-0152, TASK-0153, TASK-0154]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
-  - UI v6b app launching (app hits): tasks/TASK-0065-ui-v6b-app-lifecycle-notifications-navigation.md
-  - UI v8b shortcuts/overlays baseline (palette UI): tasks/TASK-0070-ui-v8b-wm-resize-move-shortcuts-settings-overlays.md
-  - Config broker (search knobs): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
-  - Policy as Code (search access): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "DSL syntax/layout convention"
+    target: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
+  - label: "UI v6b app launching (app hits)"
+    target: tasks/TASK-0065-ui-v6b-app-lifecycle-notifications-navigation.md
+  - label: "UI v8b shortcuts/overlays baseline (palette UI)"
+    target: tasks/TASK-0070-ui-v8b-wm-resize-move-shortcuts-settings-overlays.md
+  - label: "Config broker (search knobs)"
+    target: tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
+  - label: "Policy as Code (search access)"
+    target: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

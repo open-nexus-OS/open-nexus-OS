@@ -1,22 +1,34 @@
 ---
-title: TASK-0274 DSL v0.2c QuerySpec v2 (host-first): builder/defaults/hardening + paging refinement + deterministic tests
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0274
+title: "DSL v0.2c QuerySpec v2 (host-first): builder/defaults/hardening + paging refinement + deterministic tests"
+status: draft
+owner: ["@ui"]
 created: 2025-12-30
-depends-on: []
-follow-up-tasks: []
+subsystem: app-platform
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - DSL query posture: docs/dev/dsl/db-queries.md
-  - DSL services/effects posture: docs/dev/dsl/services.md
-  - QuerySpec v1 foundation: tasks/TASK-0078B-dsl-v0_2b-queryspec-v1-foundation-service-gated-paging-hash.md
-  - Zero-Copy App Platform (query IR + connectors): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
-  - Office Suite (Sheets/BI query bindings): tasks/TRACK-OFFICE-SUITE.md
-  - DSL v0.2a core (stores/effects/routes/i18n): tasks/TASK-0077-dsl-v0_2a-state-nav-i18n-core.md
-  - DSL v0.2b stubs + demo: tasks/TASK-0078-dsl-v0_2b-service-stubs-cli-demo.md
-  - Content providers + query: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
-  - Virtualized list (lazy UI): tasks/TASK-0063-ui-v5b-virtualized-list-theme-tokens.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "DSL query posture"
+    target: docs/dev/dsl/db-queries.md
+  - label: "DSL services/effects posture"
+    target: docs/dev/dsl/services.md
+  - label: "QuerySpec v1 foundation"
+    target: tasks/TASK-0078B-dsl-v0_2b-queryspec-v1-foundation-service-gated-paging-hash.md
+  - label: "Zero-Copy App Platform (query IR + connectors)"
+    target: tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
+  - label: "Office Suite (Sheets/BI query bindings)"
+    target: tasks/TRACK-OFFICE-SUITE.md
+  - label: "DSL v0.2a core (stores/effects/routes/i18n)"
+    target: tasks/TASK-0077-dsl-v0_2a-state-nav-i18n-core.md
+  - label: "DSL v0.2b stubs + demo"
+    target: tasks/TASK-0078-dsl-v0_2b-service-stubs-cli-demo.md
+  - label: "Content providers + query"
+    target: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
+  - label: "Virtualized list (lazy UI)"
+    target: tasks/TASK-0063-ui-v5b-virtualized-list-theme-tokens.md
 ---
 
 ## Context

@@ -1,21 +1,32 @@
 ---
-title: TASK-0173 Perf v2b (host+OS): deterministic scenarios + budgets + gates + nx-perf CLI + CI reports/docs (QEMU-safe)
-status: Draft
-owner: @reliability
+schema: 1
+id: TASK-0173
+title: "Perf v2b (host+OS): deterministic scenarios + budgets + gates + nx-perf CLI + CI reports/docs (QEMU-safe)"
+status: draft
+owner: ["@reliability"]
 created: 2025-12-27
-depends-on: []
-follow-up-tasks: []
+subsystem: observability
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - perfd v2 core: tasks/TASK-0172-perf-v2a-perfd-sessions-stats-export.md
-  - Perf v1 instrumentation plan (optional reuse): tasks/TASK-0144-perf-v1b-instrumentation-hud-nx-perf.md
-  - IME v2 OS path (scenario deps): tasks/TASK-0147-ime-text-v2-part1b-osk-focus-a11y-os-proofs.md
-  - Search v2 UI OS path (scenario deps): tasks/TASK-0152-search-v2-ui-os-deeplinks-selftests-postflight-docs.md
-  - Media UX v1 OS path (scenario deps): tasks/TASK-0156-media-ux-v1b-os-miniplayer-lockscreen-sample-cli-selftests.md
-  - DSoftBus v1 localSim OS path (scenario deps): tasks/TASK-0158-dsoftbus-v1b-os-consent-policy-registry-share-demo-cli-selftests.md
-  - Renderer/windowd present markers (scenario deps): tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "perfd v2 core"
+    target: tasks/TASK-0172-perf-v2a-perfd-sessions-stats-export.md
+  - label: "Perf v1 instrumentation plan (optional reuse)"
+    target: tasks/TASK-0144-perf-v1b-instrumentation-hud-nx-perf.md
+  - label: "IME v2 OS path (scenario deps)"
+    target: tasks/TASK-0147-ime-text-v2-part1b-osk-focus-a11y-os-proofs.md
+  - label: "Search v2 UI OS path (scenario deps)"
+    target: tasks/TASK-0152-search-v2-ui-os-deeplinks-selftests-postflight-docs.md
+  - label: "Media UX v1 OS path (scenario deps)"
+    target: tasks/TASK-0156-media-ux-v1b-os-miniplayer-lockscreen-sample-cli-selftests.md
+  - label: "DSoftBus v1 localSim OS path (scenario deps)"
+    target: tasks/TASK-0158-dsoftbus-v1b-os-consent-policy-registry-share-demo-cli-selftests.md
+  - label: "Renderer/windowd present markers (scenario deps)"
+    target: tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

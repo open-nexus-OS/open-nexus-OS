@@ -1,18 +1,33 @@
 ---
-title: TASK-0253B HID ingress v2: hidrawd's sources behind one trait — virtio-input and USB HID (xhcid's client) — onto the one `WireHidBatch` contract
-status: Done (P4 ✅ 2026-10-06 — the board: `inputd: live pointer route on` / `… keyboard route on` from the operator's USB mouse and keyboard, `[PASS] board-visible` in TASK-0328 U3 cycle 20; P1–P3 ✅ 2026-10-05 — TASK-0328 U2: hidrawd is one loop over its sources, xhcid serves the HID boot class to it, and the `usb-visible` lane drives the desktop over USB alone (`SELFTEST: ui v2 input ok`); P4 rides on TASK-0328 U3 (the board); seeded 2026-10-04 at TASK-0328 U0 — the parsers it relies on were fixed to the measured reports there)
-owner: @runtime
+schema: 1
+id: TASK-0253B
+title: "HID ingress v2: hidrawd's sources behind one trait — virtio-input and USB HID (xhcid's client) — onto the one `WireHidBatch` contract"
+status: done
+status_note: "P4 ✅ 2026-10-06 — the board: `inputd: live pointer route on` / `… keyboard route on` from the operator's USB mouse and keyboard"
+owner: ["@runtime"]
 created: 2026-10-04
-depends-on:
-  - tasks/TASK-0328-usb-host-stack-v1-xhci-hub-enumeration-class-clients.md
-follow-up-tasks: []
+subsystem: hardware
+started: 2026-10-05
+done: 2026-10-06
+active_days: 1
+dates_source: git-reconstructed
+depends_on: [TASK-0328]
+split_from: TASK-0253
+implements: [RFC-0099, RFC-0052]
 links:
-  - Execution order (Block 2 U2): tasks/IMPLEMENTATION-ORDER.md
-  - Contract: docs/rfcs/RFC-0099-usb-host-contract-xhcid-reactive-event-rings.md (§5 the HID class contract)
-  - HID contract: docs/rfcs/RFC-0052-input-v1_0a-host-hid-touch-keymaps-repeat-accel-contract.md, userspace/hid (TASK-0252)
-  - Parent: tasks/TASK-0253-input-v1_0b-os-hidrawd-touchd-inputd-ime-hooks-selftests.md (Done — the virtio-input ingress)
-  - Measurement: docs/board/measurements/2026-10-04-usb-boot-protocol/
+  - label: "Execution order (Block 2 U2)"
+    target: tasks/milestones/hardware-network.md
+  - label: Contract
+    target: "docs/rfcs/RFC-0099-usb-host-contract-xhcid-reactive-event-rings.md (§5 the HID class contract)"
+  - label: "HID contract"
+    target: "docs/rfcs/RFC-0052-input-v1_0a-host-hid-touch-keymaps-repeat-accel-contract.md, userspace/hid (TASK-0252)"
+  - label: Parent
+    target: "tasks/TASK-0253-input-v1_0b-os-hidrawd-touchd-inputd-ime-hooks-selftests.md (Done — the virtio-input ingress)"
+  - label: Measurement
+    target: docs/board/measurements/2026-10-04-usb-boot-protocol/
 ---
+
+> Status (migrated 2026-11-02): Done (P4 ✅ 2026-10-06 — the board: `inputd: live pointer route on` / `… keyboard route on` from the operator's USB mouse and keyboard, `[PASS] board-visible` in TASK-0328 U3 cycle 20; P1–P3 ✅ 2026-10-05 — TASK-0328 U2: hidrawd is one loop over its sources, xhcid serves the HID boot class to it, and the `usb-visible` lane drives the desktop over USB alone (`SELFTEST: ui v2 input ok`); P4 rides on TASK-0328 U3 (the board); seeded 2026-10-04 at TASK-0328 U0 — the parsers it relies on were fixed to the measured reports there)
 
 ## Origin
 

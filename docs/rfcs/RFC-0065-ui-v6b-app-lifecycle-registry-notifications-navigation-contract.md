@@ -1,19 +1,39 @@
+---
+schema: 1
+id: RFC-0065
+title: "UI v6b — App Lifecycle + App Registry + Notifications + Navigation Contract"
+status: done
+status_note: "contract satisfied — TASK-0065 closed 2026-06-23; spawned-process/per-app-surface runtime continues under TASK-0080D + the SystemUI DSL phases"
+owners: ["@ui", "@runtime"]
+created: 2026-06-22
+updated: 2026-06-23
+subsystem: sessions
+tasks: [TASK-0065]
+depends_on: [RFC-0064, RFC-0002]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0065-ui-v6b-app-lifecycle-notifications-navigation.md` (execution + proof — **SSOT** for stop conditions)"
+  - label: "Depends on"
+    target: "`docs/rfcs/RFC-0064-ui-v6a-window-management-chat-window-contract.md` (WM baseline — ShellWindow N-window model + focus)"
+  - label: "Depends on"
+    target: "`docs/rfcs/RFC-0002-process-per-service-architecture.md` (process-per-service; execd is the spawner)"
+  - label: "Depends on"
+    target: "`source/services/bundlemgrd/` (installed-app registry — the static \"which apps exist\" SSOT)"
+  - label: "Depends on"
+    target: "`source/services/execd/` (process spawn — our appspawn/launchd)"
+  - label: Related
+    target: "`tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md` (notification limits via configd)"
+  - label: Related
+    target: "`tasks/TASK-0047-policy-as-code-v1-unified-engine.md` (launch/notify policy guards)"
+  - label: "Decision record"
+    target: "`docs/adr/0036-ability-lifecycle-vs-process-vs-registry-service-split.md` (why `abilitymgr`, not a new `appmgrd`)"
+  - label: Follow-up
+    target: "`tasks/TASK-0065B-session-login-greeter-v0.md` (session/login authority — kept separate from lifecycle)"
+---
+
 # RFC-0065: UI v6b — App Lifecycle + App Registry + Notifications + Navigation Contract
 
-- Status: Done (contract satisfied — TASK-0065 closed 2026-06-23; spawned-process/per-app-surface runtime continues under TASK-0080D + the SystemUI DSL phases)
-- Owners: @ui @runtime
-- Created: 2026-06-22
-- Last Updated: 2026-06-23 (done)
-- Links:
-  - Tasks: `tasks/TASK-0065-ui-v6b-app-lifecycle-notifications-navigation.md` (execution + proof — **SSOT** for stop conditions)
-  - Depends on: `docs/rfcs/RFC-0064-ui-v6a-window-management-chat-window-contract.md` (WM baseline — ShellWindow N-window model + focus)
-  - Depends on: `docs/rfcs/RFC-0002-process-per-service-architecture.md` (process-per-service; execd is the spawner)
-  - Depends on: `source/services/bundlemgrd/` (installed-app registry — the static "which apps exist" SSOT)
-  - Depends on: `source/services/execd/` (process spawn — our appspawn/launchd)
-  - Related: `tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md` (notification limits via configd)
-  - Related: `tasks/TASK-0047-policy-as-code-v1-unified-engine.md` (launch/notify policy guards)
-  - Decision record: `docs/adr/0036-ability-lifecycle-vs-process-vs-registry-service-split.md` (why `abilitymgr`, not a new `appmgrd`)
-  - Follow-up: `tasks/TASK-0065B-session-login-greeter-v0.md` (session/login authority — kept separate from lifecycle)
+> Last Updated (migrated 2026-11-02): 2026-06-23 (done)
 
 ## Status at a Glance
 

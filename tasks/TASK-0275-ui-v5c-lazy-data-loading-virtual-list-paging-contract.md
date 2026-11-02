@@ -1,21 +1,32 @@
 ---
-title: TASK-0275 UI v5c QuerySpec v3 (host-first): lazy data surfaces (virtual list ↔ pager ↔ paged query providers) + deterministic proofs
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0275
+title: "UI v5c QuerySpec v3 (host-first): lazy data surfaces (virtual list ↔ pager ↔ paged query providers) + deterministic proofs"
+status: draft
+owner: ["@ui"]
 created: 2025-12-30
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - DSL query posture: docs/dev/dsl/db-queries.md
-  - Virtualized list widget: tasks/TASK-0063-ui-v5b-virtualized-list-theme-tokens.md
-  - Scroll/clip foundation: tasks/TASK-0059-ui-v3b-clip-scroll-effects-ime-textinput.md
-  - UI layout pipeline contract: docs/dev/ui/foundations/layout/layout-pipeline.md
-  - UI lazy loading posture: docs/dev/ui/collections/lazy-loading.md
-  - QuerySpec v1 foundation: tasks/TASK-0078B-dsl-v0_2b-queryspec-v1-foundation-service-gated-paging-hash.md
-  - QuerySpec v2 hardening: tasks/TASK-0274-dsl-v0_2c-db-query-objects-builder-defaults-paging-deterministic.md
-  - DSL v0.2 app mechanics: tasks/TASK-0077-dsl-v0_2a-state-nav-i18n-core.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "DSL query posture"
+    target: docs/dev/dsl/db-queries.md
+  - label: "Virtualized list widget"
+    target: tasks/TASK-0063-ui-v5b-virtualized-list-theme-tokens.md
+  - label: "Scroll/clip foundation"
+    target: tasks/TASK-0059-ui-v3b-clip-scroll-effects-ime-textinput.md
+  - label: "UI layout pipeline contract"
+    target: docs/dev/ui/foundations/layout/layout-pipeline.md
+  - label: "UI lazy loading posture"
+    target: docs/dev/ui/collections/lazy-loading.md
+  - label: "QuerySpec v1 foundation"
+    target: tasks/TASK-0078B-dsl-v0_2b-queryspec-v1-foundation-service-gated-paging-hash.md
+  - label: "QuerySpec v2 hardening"
+    target: tasks/TASK-0274-dsl-v0_2c-db-query-objects-builder-defaults-paging-deterministic.md
+  - label: "DSL v0.2 app mechanics"
+    target: tasks/TASK-0077-dsl-v0_2a-state-nav-i18n-core.md
 ---
 
 ## Context

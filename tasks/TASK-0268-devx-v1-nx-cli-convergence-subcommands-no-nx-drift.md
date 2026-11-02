@@ -1,16 +1,22 @@
 ---
-title: TASK-0268 DevX v1: nx CLI convergence (subcommands only, eliminate nx-* tool drift)
-status: Draft
-owner: @devx
+schema: 1
+id: TASK-0268
+title: "DevX v1: nx CLI convergence (subcommands only, eliminate nx-* tool drift)"
+status: draft
+owner: ["@devx"]
 created: 2025-12-30
-depends-on: []
-follow-up-tasks: []
+subsystem: devx
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
-  - Authority decision (binding): tasks/TASK-0266-architecture-v1-authority-naming-contract.md
-  - Base nx CLI: tasks/TASK-0045-devx-nx-cli-v1.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Authority & naming registry"
+    target: tasks/TRACK-AUTHORITY-NAMING.md
+  - label: "Authority decision (binding)"
+    target: tasks/TASK-0266-architecture-v1-authority-naming-contract.md
+  - label: "Base nx CLI"
+    target: tasks/TASK-0045-devx-nx-cli-v1.md
 ---
 
 ## Context

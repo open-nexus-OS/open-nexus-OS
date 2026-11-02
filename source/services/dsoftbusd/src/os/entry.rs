@@ -103,7 +103,7 @@ pub(crate) fn get_local_ip(
 }
 
 /// The declared HOLD of the single-VM session path (network family HOLD until the joint
-/// replanning, tasks/IMPLEMENTATION-ORDER.md "Netz-Gruppe"): the daemon stays alive and
+/// replanning, tasks/milestones/hardware-network.md step N5): the daemon stays alive and
 /// blocks in the kernel on a fence nobody signals — zero CPU, no error exit for init's
 /// supervision to count, no `yield_()` spin. Until TASK-0324 P7 this daemon never got here at
 /// all: a 10 000-yield slot probe at Idle QoS wedged it for every proof boot, and the

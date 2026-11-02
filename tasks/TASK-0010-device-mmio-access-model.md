@@ -1,34 +1,32 @@
 ---
-title: TASK-0010 Device access model v1: safe userspace MMIO for virtio devices (enables virtio-net/virtio-blk)
-status: Done
-owner: @kernel-team @runtime
+schema: 1
+id: TASK-0010
+title: "Device access model v1: safe userspace MMIO for virtio devices (enables virtio-net/virtio-blk)"
+status: done
+owner: ["@kernel-team", "@runtime"]
 created: 2025-12-22
-depends-on: []
-follow-up-tasks:
-  - TASK-0009
-  - TASK-0032
-  - TASK-0247
-  - TASK-0249
-  - TASK-0251
-  - TASK-0253
-  - TASK-0255
-  - TASK-0257
-  - TASK-0259
-  - TASK-0280
-  - TASK-0284
+subsystem: kernel
+started: 2026-01-27
+done: 2026-02-02
+active_days: 2
+dates_source: git-reconstructed
+follow_ups: [TASK-0009, TASK-0032, TASK-0247, TASK-0249, TASK-0251, TASK-0253, TASK-0255, TASK-0257, TASK-0259, TASK-0280, TASK-0284]
+implements: [RFC-0017, RFC-0005]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - RFC: docs/rfcs/RFC-0017-device-mmio-access-model-v1.md
-  - Related RFC: docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
-  - Used-by (already done): tasks/TASK-0008B-device-identity-keys-v1-virtio-rng-rngd-keystored-keygen.md
-  - Used-by (already done): tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
-  - Used-by (already done): tasks/TASK-0004-networking-dhcp-icmp-dsoftbus-dual-node.md
-  - Unblocks: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Unblocks: tasks/TASK-0247-bringup-rv-virt-v1_1b-os-smp-hsm-ipi-virtioblkd-packagefs-selftests.md
-  - Unblocks: tasks/TASK-0249-bringup-rv-virt-v1_2b-os-virtionetd-netstackd-fetchd-echod-selftests.md
-  - Unblocks: tasks/TRACK-DRIVERS-ACCELERATORS.md (GPU/NPU/VPU/Audio/Camera/ISP userspace drivers)
-  - Unblocks: tasks/TRACK-NETWORKING-DRIVERS.md (virtio-net userspace frontend)
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Used-by (already done)"
+    target: tasks/TASK-0008B-device-identity-keys-v1-virtio-rng-rngd-keystored-keygen.md
+  - label: "Used-by (already done)"
+    target: tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
+  - label: "Used-by (already done)"
+    target: tasks/TASK-0004-networking-dhcp-icmp-dsoftbus-dual-node.md
+  - label: Unblocks
+    target: "tasks/TRACK-DRIVERS-ACCELERATORS.md (GPU/NPU/VPU/Audio/Camera/ISP userspace drivers)"
+  - label: Unblocks
+    target: "tasks/TRACK-NETWORKING-DRIVERS.md (virtio-net userspace frontend)"
 ---
 
 ## Context

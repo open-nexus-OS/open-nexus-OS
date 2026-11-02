@@ -1,23 +1,39 @@
 ---
-title: TRACK Live Studio App (OBS-class): capture + scene compose + stream/record, capability-gated and deterministic
-status: Draft
-owner: @media @ui @runtime
+schema: 1
+id: TRACK-LIVE-STUDIO-APP
+title: "Live Studio App (OBS-class): capture + scene compose + stream/record, capability-gated and deterministic"
+status: draft
+owner: ["@media", "@ui", "@runtime"]
 created: 2026-01-19
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Authority registry (names are binding): tasks/TRACK-AUTHORITY-NAMING.md
-  - Keystone closure plan: tasks/TRACK-KEYSTONE-GATES.md
-  - NexusMedia SDK (audio/video/image contracts): tasks/TRACK-NEXUSMEDIA-SDK.md
-  - NexusGfx SDK (render/compute contracts): tasks/TRACK-NEXUSGFX-SDK.md
-  - Drivers & accelerators (GPU/VPU/audio/camera contracts): tasks/TRACK-DRIVERS-ACCELERATORS.md
-  - NexusNet SDK (streaming/networking, policy-gated): tasks/TRACK-NEXUSNET-SDK.md
-  - Zero-copy data plane (VMOs): tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
-  - windowd present spine (OS/QEMU): tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md
-  - Renderer abstraction (host + OS wiring): tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md
-  - Input spine (for hotkeys): tasks/TASK-0253-input-v1_0b-os-hidrawd-touchd-inputd-ime-hooks-selftests.md
-  - Screen capture direction: tasks/TASK-0105-ui-v17c-screen-recorder-capture-overlay.md
-  - Camera/mic device direction: tasks/TASK-0104-ui-v17b-camerad-micd-virtual-sources.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Authority registry (names are binding)"
+    target: tasks/TRACK-AUTHORITY-NAMING.md
+  - label: "Keystone closure plan"
+    target: tasks/TRACK-KEYSTONE-GATES.md
+  - label: "NexusMedia SDK (audio/video/image contracts)"
+    target: tasks/TRACK-NEXUSMEDIA-SDK.md
+  - label: "NexusGfx SDK (render/compute contracts)"
+    target: tasks/TRACK-NEXUSGFX-SDK.md
+  - label: "Drivers & accelerators (GPU/VPU/audio/camera contracts)"
+    target: tasks/TRACK-DRIVERS-ACCELERATORS.md
+  - label: "NexusNet SDK (streaming/networking, policy-gated)"
+    target: tasks/TRACK-NEXUSNET-SDK.md
+  - label: "Zero-copy data plane (VMOs)"
+    target: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
+  - label: "windowd present spine (OS/QEMU)"
+    target: tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md
+  - label: "Renderer abstraction (host + OS wiring)"
+    target: tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md
+  - label: "Input spine (for hotkeys)"
+    target: tasks/TASK-0253-input-v1_0b-os-hidrawd-touchd-inputd-ime-hooks-selftests.md
+  - label: "Screen capture direction"
+    target: tasks/TASK-0105-ui-v17c-screen-recorder-capture-overlay.md
+  - label: "Camera/mic device direction"
+    target: tasks/TASK-0104-ui-v17b-camerad-micd-virtual-sources.md
 ---
 
 ## Goal (track-level)

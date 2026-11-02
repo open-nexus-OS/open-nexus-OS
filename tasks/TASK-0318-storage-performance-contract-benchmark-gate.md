@@ -1,18 +1,22 @@
 ---
-title: TASK-0318 Storage performance contract + benchmark gate: RFC-0071 perf amendment, bench harness, regression gate, client-side round-trip hygiene
-status: Draft
-owner: @runtime
+schema: 1
+id: TASK-0318
+title: "Storage performance contract + benchmark gate: RFC-0071 perf amendment, bench harness, regression gate, client-side round-trip hygiene"
+status: draft
+owner: ["@runtime"]
 created: 2026-08-14
-depends-on:
-  - TASK-0314
-  - TASK-0316
-follow-up-tasks: []
+subsystem: storage
+depends_on: [TASK-0314, TASK-0316]
+implements: [RFC-0071]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Contract to amend: docs/rfcs/RFC-0071-nxfs-user-data-filesystem-contract.md
-  - Prior art (UI perf gates, pattern to mirror): tasks/TASK-0143..0145 (perfd/frame trace)
-  - Ladder: tasks/TRACK-STASH-USER-DATA-FS.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Prior art (UI perf gates, pattern to mirror)"
+    target: "tasks/TASK-0143..0145 (perfd/frame trace)"
+  - label: Ladder
+    target: tasks/TRACK-STASH-USER-DATA-FS.md
 ---
 
 ## Context

@@ -1,14 +1,22 @@
-# RFC-0080: Shared glyph-atlas RO VMO (kill per-instance duplication)
+---
+schema: 1
+id: RFC-0080
+title: "Shared glyph-atlas RO VMO (kill per-instance duplication)"
+status: done
+status_note: "Phases 0–1 delivered — TASK-0302"
+owners: ["@ui", "@kernel-mm-team", "@runtime"]
+created: 2026-07-23
+updated: 2026-07-23
+subsystem: ui
+tasks: [TASK-0302]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0302-shared-atlas-ro-vmo.md` (execution + proof)"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0075-ime-v2-text-focus-composition-delivery.md` (Phase 8d baked the CJK atlas that made this duplication expensive), `docs/adr/0042-*` (per-app surface VMOs), RFC-0075 8f/8e (arena reclaim)"
+---
 
-- Status: Done (Phases 0–1 delivered — TASK-0302)
-- Owners: @ui / @kernel-mm-team / @runtime
-- Created: 2026-07-23
-- Last Updated: 2026-07-23
-- Links:
-  - Tasks: `tasks/TASK-0302-shared-atlas-ro-vmo.md` (execution + proof)
-  - Related RFCs: `docs/rfcs/RFC-0075-ime-v2-text-focus-composition-delivery.md`
-    (Phase 8d baked the CJK atlas that made this duplication expensive),
-    `docs/adr/0042-*` (per-app surface VMOs), RFC-0075 8f/8e (arena reclaim)
+# RFC-0080: Shared glyph-atlas RO VMO (kill per-instance duplication)
 
 ## Status at a Glance
 

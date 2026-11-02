@@ -1,21 +1,31 @@
 ---
-title: TASK-0109 UI v18c: lockd auto-lock + lockscreen UI overlay + notifications redaction + media pause hooks
-status: Draft
-owner: @security
+schema: 1
+id: TASK-0109
+title: "UI v18c: lockd auto-lock + lockscreen UI overlay + notifications redaction + media pause hooks"
+status: draft
+owner: ["@security"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: sessions
+tracks: [TRACK-DSL-V1-DEVX]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - DSL v1 DevX track: tasks/TRACK-DSL-V1-DEVX.md
-  - SystemUI bootstrap shell: tasks/TASK-0080C-systemui-dsl-bootstrap-shell-os-wiring.md
-  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
-  - Identity sessions: tasks/TASK-0107-ui-v18a-identityd-users-sessions.md
-  - Keychain session scoping: tasks/TASK-0108-ui-v18b-keymintd-keystore-keychain.md
-  - Notifications baseline: tasks/TASK-0069-ui-v8a-notifications-v2-actions-inline-reply.md
-  - Media sessions hook (pause on lock): tasks/TASK-0101-ui-v16c-media-sessions-systemui-controls.md
-  - Config broker (idle timeout): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "SystemUI bootstrap shell"
+    target: tasks/TASK-0080C-systemui-dsl-bootstrap-shell-os-wiring.md
+  - label: "DSL syntax/layout convention"
+    target: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
+  - label: "Identity sessions"
+    target: tasks/TASK-0107-ui-v18a-identityd-users-sessions.md
+  - label: "Keychain session scoping"
+    target: tasks/TASK-0108-ui-v18b-keymintd-keystore-keychain.md
+  - label: "Notifications baseline"
+    target: tasks/TASK-0069-ui-v8a-notifications-v2-actions-inline-reply.md
+  - label: "Media sessions hook (pause on lock)"
+    target: tasks/TASK-0101-ui-v16c-media-sessions-systemui-controls.md
+  - label: "Config broker (idle timeout)"
+    target: tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
 ---
 
 ## Context

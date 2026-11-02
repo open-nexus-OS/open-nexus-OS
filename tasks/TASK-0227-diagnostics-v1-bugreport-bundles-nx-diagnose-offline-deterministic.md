@@ -1,20 +1,30 @@
 ---
-title: TASK-0227 Diagnostics v1 (offline): deterministic bugreport bundles + `nx diagnose` over existing crash/log artifacts (no new formats)
-status: Draft
-owner: @reliability @devx
+schema: 1
+id: TASK-0227
+title: "Diagnostics v1 (offline): deterministic bugreport bundles + `nx diagnose` over existing crash/log artifacts (no new formats)"
+status: draft
+owner: ["@reliability", "@devx"]
 created: 2025-12-29
-depends-on: []
-follow-up-tasks: []
+subsystem: observability
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - /state (persistence gate): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - logd (recent logs query): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
-  - Crash pipeline (OS): tasks/TASK-0049-fault-exhaustion-truth-proof-reanimation.md
-  - Crash export/redaction (single report): tasks/TASK-0141-crash-v1-export-redaction-notify.md
-  - Host tooling (`nx crash`, `nxsym`, `.nxcd`): tasks/TASK-0048-crashdump-v2a-host-pipeline-nxsym-nx-crash.md
-  - DevX CLI base (`nx ...`): tasks/TASK-0045-devx-nx-cli-v1.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "/state (persistence gate)"
+    target: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - label: "logd (recent logs query)"
+    target: tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
+  - label: "Crash pipeline (OS)"
+    target: tasks/TASK-0049-fault-exhaustion-truth-proof-reanimation.md
+  - label: "Crash export/redaction (single report)"
+    target: tasks/TASK-0141-crash-v1-export-redaction-notify.md
+  - label: "Host tooling (`nx crash`, `nxsym`, `.nxcd`)"
+    target: tasks/TASK-0048-crashdump-v2a-host-pipeline-nxsym-nx-crash.md
+  - label: "DevX CLI base (`nx ...`)"
+    target: tasks/TASK-0045-devx-nx-cli-v1.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Rebase note 2026-08-18 (reliability-lane recut)

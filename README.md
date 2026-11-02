@@ -99,7 +99,9 @@ QEMU marker proofs:
   UDP datagram facade. The 2-VM cross-device harness exists but its discovery
   lane is currently failing — see `tasks/TRACK-NETWORK-PROOF-LANES.md`.
 
-Day-to-day status (open tasks, tracks, blockers) lives in `tasks/STATUS-BOARD.md`.
+Day-to-day status lives in the planning documents under `tasks/` (RFC-0115): the milestones in
+`tasks/milestones/`, this week's sprint in `tasks/sprints/`, the task ledgers. `just brief` prints
+the active milestone, the sprint and the open work.
 
 ## FAQ
 

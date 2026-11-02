@@ -1,17 +1,27 @@
 ---
-title: TRACK PIM Suite (Calendar + Contacts): local-first, account-aware, share-integrated reference apps
-status: Draft
-owner: @ui @runtime
+schema: 1
+id: TRACK-PIM-SUITE
+title: "PIM Suite (Calendar + Contacts): local-first, account-aware, share-integrated reference apps"
+status: draft
+owner: ["@ui", "@runtime"]
 created: 2026-01-19
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - System Delegation / System Surfaces (pickers/targets): tasks/TRACK-SYSTEM-DELEGATION.md
-  - NexusAccount (identity + online grants): tasks/TRACK-NEXUSACCOUNT.md
-  - NexusNet SDK (sync/providers): tasks/TRACK-NEXUSNET-SDK.md
-  - Zero-Copy App Platform (content/grants/share): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
-  - Share v2 / Intents (registry + dispatch): tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md
-  - Share v2 (targets + senders + selftests): tasks/TASK-0128-share-v2c-app-senders-selftests-postflight-docs.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "System Delegation / System Surfaces (pickers/targets)"
+    target: tasks/TRACK-SYSTEM-DELEGATION.md
+  - label: "NexusAccount (identity + online grants)"
+    target: tasks/TRACK-NEXUSACCOUNT.md
+  - label: "NexusNet SDK (sync/providers)"
+    target: tasks/TRACK-NEXUSNET-SDK.md
+  - label: "Zero-Copy App Platform (content/grants/share)"
+    target: tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
+  - label: "Share v2 / Intents (registry + dispatch)"
+    target: tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md
+  - label: "Share v2 (targets + senders + selftests)"
+    target: tasks/TASK-0128-share-v2c-app-senders-selftests-postflight-docs.md
 ---
 
 ## Goal (track-level)

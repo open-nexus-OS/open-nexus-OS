@@ -1,27 +1,46 @@
 ---
-title: TASK-0054C Kernel IPC performance contract + `call` / `reply_recv` fastpath (one trap per side, direct handoff, inline ≤ 32 B, VMO-first bulk)
-status: **Done 2026-09-18** (P0–P6; RFC-0096 Implemented, ADR-0064 Accepted). An exchange: 208 µs / 5 kernel entries → 41–43 µs / 2, asserted per boot. Kernel allocations per message: 2 → 1 → 0 for the 72–93 % that fit inline. The handoff the contract proposed was measured and withdrawn.
-owner: @kernel-team @runtime
+schema: 1
+id: TASK-0054C
+title: "Kernel IPC performance contract + `call` / `reply_recv` fastpath (one trap per side, direct handoff, inline ≤ 32 B, VMO-first bulk)"
+status: done
+status_note: "2026-09-18 (P0–P6; RFC-0096 Implemented, ADR-0064 Accepted)"
+owner: ["@kernel-team", "@runtime"]
 created: 2026-03-29
-depends-on: []
-follow-up-tasks: []
+subsystem: kernel
+started: 2026-09-15
+done: 2026-09-18
+active_days: 4
+dates_source: git-reconstructed
+split_from: TASK-0054
+implements: [RFC-0005, RFC-0096, RFC-0026]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Kernel IPC contract: docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
-  - IPC runtime architecture: docs/adr/0003-ipc-runtime-architecture.md
-  - VMO plumbing baseline: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
-  - UI perf floor baseline: tasks/TASK-0054B-ui-v1a-kernel-ui-perf-floor-zero-copy-qos-hardening.md
-  - Present/input consumer baseline: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
-  - Testing contract: scripts/qemu-test.sh
-  - IPC performance contract v1 (extended by RFC-0096): docs/rfcs/RFC-0026-ipc-performance-optimization-contract-v1.md
-  - Last-sender EOF: docs/rfcs/RFC-0079-ipc-last-sender-eof.md
-  - Waits without clocks (§7), routing v2 (§1): docs/rfcs/RFC-0093-display-handoff-and-boot-stage-contract.md
-  - Lock classes / cpu0 right-of-way: docs/adr/0049-bkl-lockclass-and-softrt-cpu-placement.md
-  - Stage fence: docs/adr/0062-boot-stage-fence-and-readiness-barriers.md
-  - The ONE request/reply exchange today: userspace/nexus-ipc/src/exchange.rs
-  - Contract seeds (P0): docs/rfcs/RFC-0096-ipc-performance-contract-v2-call-reply-recv-fastpath.md, docs/adr/0064-request-reply-one-trap-per-side-direct-handoff.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "IPC runtime architecture"
+    target: docs/adr/0003-ipc-runtime-architecture.md
+  - label: "VMO plumbing baseline"
+    target: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
+  - label: "UI perf floor baseline"
+    target: tasks/TASK-0054B-ui-v1a-kernel-ui-perf-floor-zero-copy-qos-hardening.md
+  - label: "Present/input consumer baseline"
+    target: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
+  - label: "Last-sender EOF"
+    target: docs/rfcs/RFC-0079-ipc-last-sender-eof.md
+  - label: "Waits without clocks (§7), routing v2 (§1)"
+    target: docs/rfcs/RFC-0093-display-handoff-and-boot-stage-contract.md
+  - label: "Lock classes / cpu0 right-of-way"
+    target: docs/adr/0049-bkl-lockclass-and-softrt-cpu-placement.md
+  - label: "Stage fence"
+    target: docs/adr/0062-boot-stage-fence-and-readiness-barriers.md
+  - label: "The ONE request/reply exchange today"
+    target: userspace/nexus-ipc/src/exchange.rs
 ---
+
+> Status (migrated 2026-11-02): **Done 2026-09-18** (P0–P6; RFC-0096 Implemented, ADR-0064 Accepted). An exchange: 208 µs / 5 kernel entries → 41–43 µs / 2, asserted per boot. Kernel allocations per message: 2 → 1 → 0 for the 72–93 % that fit inline. The handoff the contract proposed was measured and withdrawn.
 
 ## End-state rewrite 2026-09-15 (binding; supersedes the 2026-09-09 rewrite where they differ)
 

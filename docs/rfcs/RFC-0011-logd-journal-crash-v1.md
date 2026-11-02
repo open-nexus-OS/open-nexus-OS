@@ -1,23 +1,34 @@
+---
+schema: 1
+id: RFC-0011
+title: "logd journal + crash reports v1"
+status: done
+owners: ["@runtime"]
+created: 2026-01-13
+updated: 2026-01-14
+subsystem: observability
+tasks: [TASK-0006]
+links:
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0003-unified-logging.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0005-kernel-ipc-capability-model.md`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0009-no-std-dependency-hygiene-v1.md`"
+  - label: ADRs
+    target: "`docs/adr/0017-service-architecture.md`"
+  - label: "IDL schema (host/control plane doc)"
+    target: "`tools/nexus-idl/schemas/log.capnp`"
+  - label: "QEMU marker contract"
+    target: "`scripts/qemu-test.sh`"
+  - label: "Proof Gates"
+    target: "Green (QEMU markers present, host tests pass)"
+---
+
 <!-- Copyright 2026 Open Nexus OS Contributors -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # RFC-0011: logd journal + crash reports v1
-
-- Status: Complete
-- Owners: @runtime
-- Created: 2026-01-13
-- Last Updated: 2026-01-14
-- Proof Gates: Green (QEMU markers present, host tests pass)
-- Links:
-  - Tasks: `tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md`
-  - Related RFCs:
-    - `docs/rfcs/RFC-0003-unified-logging.md`
-    - `docs/rfcs/RFC-0005-kernel-ipc-capability-model.md`
-    - `docs/rfcs/RFC-0009-no-std-dependency-hygiene-v1.md`
-  - ADRs:
-    - `docs/adr/0017-service-architecture.md`
-  - IDL schema (host/control plane doc): `tools/nexus-idl/schemas/log.capnp`
-  - QEMU marker contract: `scripts/qemu-test.sh`
 
 ## Status at a Glance
 

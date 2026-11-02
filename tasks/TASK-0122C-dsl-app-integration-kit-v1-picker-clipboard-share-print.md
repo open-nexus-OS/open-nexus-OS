@@ -1,18 +1,27 @@
 ---
-title: TASK-0122C DSL App Integration Kit v1: picker + clipboard + share + print bridges for apps
-status: Draft
-owner: @ui
+schema: 1
+id: TASK-0122C
+title: "DSL App Integration Kit v1: picker + clipboard + share + print bridges for apps"
+status: draft
+owner: ["@ui"]
 created: 2026-03-28
-depends-on: []
-follow-up-tasks: []
+subsystem: messaging
+split_from: TASK-0122
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - DSL App Platform v1: tasks/TASK-0122B-dsl-app-platform-v1-shell-routing-launch-contract.md
-  - Document picker/openWith: tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
-  - Clipboard baseline: tasks/TASK-0067-ui-v7b-dnd-clipboard-v2.md
-  - Share target baseline: tasks/TASK-0127-share-v2b-chooser-ui-targets-grants.md
-  - Print pipeline: tasks/TASK-0088-ui-v13b-print-to-pdf-printd-preview.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "DSL App Platform v1"
+    target: tasks/TASK-0122B-dsl-app-platform-v1-shell-routing-launch-contract.md
+  - label: "Document picker/openWith"
+    target: tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
+  - label: "Clipboard baseline"
+    target: tasks/TASK-0067-ui-v7b-dnd-clipboard-v2.md
+  - label: "Share target baseline"
+    target: tasks/TASK-0127-share-v2b-chooser-ui-targets-grants.md
+  - label: "Print pipeline"
+    target: tasks/TASK-0088-ui-v13b-print-to-pdf-printd-preview.md
 ---
 
 ## Context

@@ -1,22 +1,26 @@
+---
+schema: 1
+id: RFC-0110
+title: "Frame timing — when a frame reaches the glass, the cadence the driver holds, the motion computed for the time a frame is shown"
+status: in_progress
+owners: ["@ui", "@gpu"]
+created: 2026-10-22
+updated: 2026-10-22
+subsystem: ui
+tasks: [TASK-0343]
+links:
+  - label: Tasks
+    target: "`tasks/TASK-0343-frame-pacing-the-shown-time-the-cadence-the-motion-for-its-frame.md` (execution + proof)"
+  - label: "Wire SSOT"
+    target: "`source/libs/nexus-display-proto/src/frame_time.rs`"
+  - label: "Related RFCs"
+    target: "`docs/rfcs/RFC-0093-display-handoff-and-boot-stage-contract.md` (§5: the present ack this extends), `docs/rfcs/RFC-0101-gpu-driver-split-contexts-vm-batches-fence-and-the-scanout-contract.md` (§8: the flip through the controller's latch, whose landing this times), `docs/rfcs/RFC-0108-ux-latency-contract-instant-and-smooth-as-numbers.md` (the frame budget, the hops), `docs/rfcs/RFC-0109-surface-layers-the-app-scrolls-and-hovers-the-compositor-composes.md` (the app's scroll physics this paces)"
+---
+
 <!-- Copyright 2026 Open Nexus OS Contributors -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # RFC-0110: Frame timing — when a frame reaches the glass, the cadence the driver holds, the motion computed for the time a frame is shown
-
-- Status: In Progress
-- Owners: @ui @gpu
-- Created: 2026-10-22
-- Last Updated: 2026-10-22
-- Links:
-  - Tasks: `tasks/TASK-0343-frame-pacing-the-shown-time-the-cadence-the-motion-for-its-frame.md`
-    (execution + proof)
-  - Wire SSOT: `source/libs/nexus-display-proto/src/frame_time.rs`
-  - Related RFCs: `docs/rfcs/RFC-0093-display-handoff-and-boot-stage-contract.md` (§5: the
-    present ack this extends), `docs/rfcs/RFC-0101-gpu-driver-split-contexts-vm-batches-fence-and-the-scanout-contract.md`
-    (§8: the flip through the controller's latch, whose landing this times),
-    `docs/rfcs/RFC-0108-ux-latency-contract-instant-and-smooth-as-numbers.md` (the frame budget,
-    the hops), `docs/rfcs/RFC-0109-surface-layers-the-app-scrolls-and-hovers-the-compositor-composes.md`
-    (the app's scroll physics this paces)
 
 ## Status at a Glance
 

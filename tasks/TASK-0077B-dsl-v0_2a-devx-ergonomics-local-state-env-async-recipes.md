@@ -1,17 +1,28 @@
 ---
-title: TASK-0077B DSL v0.2a DevX: keyed per-instance `$state` + complete two-way bindings + async recipes (host)
-status: Done 2026-09-20 (P0-P4: timeoutMs retired (IR v1.6), keyed per-instance state (v1.7), the bind rule read off the catalog and carrying its value derivation (v1.8), §4's both-paths contract enforced, async recipes documented + proven with their limit named)
-owner: @ui @runtime
+schema: 1
+id: TASK-0077B
+title: "DSL v0.2a DevX: keyed per-instance `$state` + complete two-way bindings + async recipes (host)"
+status: done
+status_note: "2026-09-20 (P0-P4: timeoutMs retired (IR v1.6)"
+owner: ["@ui", "@runtime"]
 created: 2026-01-26
 updated: 2026-07-06
-depends-on:
-  - tasks/TASK-0077-dsl-v0_2a-state-nav-i18n-core.md
-follow-up-tasks: []
+subsystem: app-platform
+started: 2026-09-20
+done: 2026-09-20
+active_days: 1
+dates_source: git-reconstructed
+depends_on: [TASK-0077]
+split_from: TASK-0077
+tracks: [TRACK-DSL-V1-DEVX]
 links:
-  - Track: tasks/TRACK-DSL-V1-DEVX.md
-  - Language reference: docs/dev/dsl/{state,syntax,patterns}.md
-  - Principles this task serves: docs/dev/dsl/principles.md (encapsulation without magic)
+  - label: "Language reference"
+    target: "docs/dev/dsl/{state,syntax,patterns}.md"
+  - label: "Principles this task serves"
+    target: "docs/dev/dsl/principles.md (encapsulation without magic)"
 ---
+
+> Status (migrated 2026-11-02): Done 2026-09-20 (P0-P4: timeoutMs retired (IR v1.6), keyed per-instance state (v1.7), the bind rule read off the catalog and carrying its value derivation (v1.8), §4's both-paths contract enforced, async recipes documented + proven with their limit named)
 
 ## Review 2026-09-19 (binding; refines the 2026-09-09 rewrite, which stands)
 

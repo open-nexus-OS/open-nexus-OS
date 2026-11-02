@@ -1,21 +1,33 @@
 ---
-title: TASK-0069 UI v8a: Notifications v2 (Superseded 2026-08-14 by TASK-0123/0124/0125; actions+inline-reply wire shape carried into 0123)
-status: Superseded
-owner: @ui
+schema: 1
+id: TASK-0069
+title: "UI v8a: Notifications v2 (Superseded 2026-08-14 by TASK-0123/0124/0125; actions+inline-reply wire shape carried into 0123)"
+status: superseded
+owner: ["@ui"]
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+subsystem: ui
+superseded_by: [TASK-0123, TASK-0124, TASK-0125]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - System Delegation / System Surfaces (messaging reply routing): tasks/TRACK-SYSTEM-DELEGATION.md
-  - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
-  - UI v6b notifications baseline: tasks/TASK-0065-ui-v6b-app-lifecycle-notifications-navigation.md
-  - UI v3b IME/text-input baseline (inline reply widget): tasks/TASK-0059-ui-v3b-clip-scroll-effects-ime-textinput.md
-  - Policy as Code (notif quotas): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
-  - Config broker (notif settings): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
-  - Logging/audit sink: tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
-  - Testing contract: scripts/qemu-test.sh
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "System Delegation / System Surfaces (messaging reply routing)"
+    target: tasks/TRACK-SYSTEM-DELEGATION.md
+  - label: "DSL syntax/layout convention"
+    target: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
+  - label: "UI v6b notifications baseline"
+    target: tasks/TASK-0065-ui-v6b-app-lifecycle-notifications-navigation.md
+  - label: "UI v3b IME/text-input baseline (inline reply widget)"
+    target: tasks/TASK-0059-ui-v3b-clip-scroll-effects-ime-textinput.md
+  - label: "Policy as Code (notif quotas)"
+    target: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
+  - label: "Config broker (notif settings)"
+    target: tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
+  - label: "Logging/audit sink"
+    target: tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
+  - label: "Testing contract"
+    target: scripts/qemu-test.sh
 ---
 
 ## Context

@@ -1,24 +1,27 @@
 ---
-title: TASK-0145B Perf v1c-B: UI interaction latency has a budget with a NUMBER, like the kernel paths already do
-status: Draft (seeded 2026-09-20 from TASK-0077C's measurement — the scope firewall for it)
-owner: @ui @runtime
+schema: 1
+id: TASK-0145B
+title: "Perf v1c-B: UI interaction latency has a budget with a NUMBER, like the kernel paths already do"
+status: draft
+status_note: "seeded 2026-09-20 from TASK-0077C's measurement — the scope firewall for it"
+owner: ["@ui", "@runtime"]
 created: 2026-09-20
-depends-on:
-  - tasks/TASK-0145-perf-v1c-deterministic-gates-scenes.md
-  - tasks/TASK-0077C-dsl-v0_2c-runtime-long-session-large-data-contract.md
-follow-up-tasks: []
+subsystem: observability
+depends_on: [TASK-0145, TASK-0077C]
+split_from: TASK-0145
 links:
-  - Memory sibling (the other half of the same measurement): tasks/TASK-0077C-dsl-v0_2c-runtime-long-session-large-data-contract.md
-  - Done predecessor that claimed the latency subject: tasks/TASK-0056C-ui-v2a-present-input-perf-latency-coalescing.md
-  - Parent (Draft): tasks/TASK-0145-perf-v1c-deterministic-gates-scenes.md — "deterministic perf
-    gates for key scenes + baseline artifacts + OS markers". This B variant is that subject cut
-    down to the one budget a measurement now demands, so the parent stops being a five-year plan.
-  - Rest of the perf family, also Draft — USE or RETIRE, never add a sixth:
-      tasks/TASK-0143 (perfd tracer), tasks/TASK-0144 (pacing hooks + HUD + nx perf),
-      tasks/TASK-0172 (sessions API), tasks/TASK-0173 (scenarios + budgets + gates + CI reports)
-  - The pattern to copy (a budget with numbers, asserted): `KSELFTEST: ipc call budget ok (rt=<n>us …)`,
-    tasks/TASK-0054C-ui-v1a-kernel-ipc-fastpath-control-plane-vmo-bulk.md
-  - Budget constants precedent: source/kernel/neuron/src/core/trap/budgets.rs
+  - label: "Memory sibling (the other half of the same measurement)"
+    target: tasks/TASK-0077C-dsl-v0_2c-runtime-long-session-large-data-contract.md
+  - label: "Done predecessor that claimed the latency subject"
+    target: tasks/TASK-0056C-ui-v2a-present-input-perf-latency-coalescing.md
+  - label: "Parent (Draft)"
+    target: "tasks/TASK-0145-perf-v1c-deterministic-gates-scenes.md — \"deterministic perf gates for key scenes + baseline artifacts + OS markers\". This B variant is that subject cut down to the one budget a measurement now demands, so the parent stops being a five-year plan."
+  - label: "Rest of the perf family, also Draft — USE or RETIRE, never add a sixth"
+    target: "tasks/TASK-0143 (perfd tracer), tasks/TASK-0144 (pacing hooks + HUD + nx perf), tasks/TASK-0172 (sessions API), tasks/TASK-0173 (scenarios + budgets + gates + CI reports)"
+  - label: "The pattern to copy (a budget with numbers, asserted)"
+    target: "`KSELFTEST: ipc call budget ok (rt=<n>us …)`, tasks/TASK-0054C-ui-v1a-kernel-ipc-fastpath-control-plane-vmo-bulk.md"
+  - label: "Budget constants precedent"
+    target: source/kernel/neuron/src/core/trap/budgets.rs
 ---
 
 ## Why a B variant in the 1xx UI range

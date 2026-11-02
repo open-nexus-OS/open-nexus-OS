@@ -1,17 +1,26 @@
 ---
-title: TASK-0332 A Rust `std` target for the OS (`riscv64gc-unknown-nexus`) + C library and C++ runtime port, for isolated components such as the web engine
-status: Draft (seeded 2026-09-21 by the hardware fast track — `tasks/IMPLEMENTATION-ORDER.md`; rewritten to end state at its block's P0)
-owner: @runtime @devx
+schema: 1
+id: TASK-0332
+title: "A Rust `std` target for the OS (`riscv64gc-unknown-nexus`) + C library and C++ runtime port, for isolated components such as the web engine"
+status: draft
+status_note: "seeded 2026-09-21 by the hardware fast track — `tasks/IMPLEMENTATION-ORDER.md`; rewritten to end state at its block's P0"
+owner: ["@runtime", "@devx"]
 created: 2026-09-21
-depends-on: []
-follow-up-tasks: []
+subsystem: app-platform
+implements: [RFC-0103]
 links:
-  - Execution order (the lane this belongs to): tasks/IMPLEMENTATION-ORDER.md
-  - Playbook: CLAUDE.md
-  - Toolchain: rust-toolchain.toml (pinned nightly), config/rustfmt.toml
-  - Identity + spawn: source/services/execd (exec_v2, kernel-attributed service names)
-  - Consumers: tasks/TASK-0111-ui-v19a-webviewd-sandbox-offscreen.md (recut to the engine component), tasks/TRACK-CONSOLE-AND-TOOLCHAINS.md (managed runtimes)
-  - RFC seed (at P0): RFC-0103 std target + component runtime
+  - label: "Execution order (the lane this belongs to)"
+    target: tasks/milestones/hardware-network.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: Toolchain
+    target: "rust-toolchain.toml (pinned nightly), config/rustfmt.toml"
+  - label: "Identity + spawn"
+    target: "source/services/execd (exec_v2, kernel-attributed service names)"
+  - label: Consumers
+    target: "tasks/TASK-0111-ui-v19a-webviewd-sandbox-offscreen.md (recut to the engine component), tasks/TRACK-CONSOLE-AND-TOOLCHAINS.md (managed runtimes)"
+  - label: "RFC seed (at P0)"
+    target: "RFC-0103 std target + component runtime"
 ---
 
 ## Origin

@@ -1,21 +1,29 @@
 ---
-title: TASK-0075 DSL v0.1a: frontend (lexer/parser/AST/typecheck/lints/fmt) + canonical capnp IR + nx-dsl CLI backend + host proofs
-status: Done
-owner: @ui @runtime
+schema: 1
+id: TASK-0075
+title: "DSL v0.1a: frontend (lexer/parser/AST/typecheck/lints/fmt) + canonical capnp IR + nx-dsl CLI backend + host proofs"
+status: done
+owner: ["@ui", "@runtime"]
 created: 2025-12-23
 updated: 2026-07-06
-depends-on: []
-follow-up-tasks:
-  - tasks/TASK-0076-dsl-v0_1b-interpreter-snapshots-os-demo.md
+subsystem: ui
+done: 2026-07-19
+dates_source: git-reconstructed
+follow_ups: [TASK-0076]
+tracks: [TRACK-DSL-V1-DEVX]
 links:
-  - Track: tasks/TRACK-DSL-V1-DEVX.md
-  - Language reference (SSOT this task implements): docs/dev/dsl/grammar.md, docs/dev/dsl/types.md,
-    docs/dev/dsl/modifiers.md, docs/dev/dsl/principles.md, docs/dev/dsl/ir.md
-  - Data formats rubric: docs/adr/0021-structured-data-formats-json-vs-capnp.md
-  - CLI shim this backend satisfies: tools/nx/src/commands/dsl.rs (NX_DSL_BACKEND delegation)
-  - IDL convention: tools/nexus-idl/schemas/ (new ui_ir.capnp lives here)
-  - UI layout pipeline contract: docs/dev/ui/foundations/layout/layout-pipeline.md
-  - Design-system consumer baseline: tasks/TASK-0073-ui-v10a-design-system-primitives-goldens.md
+  - label: "Language reference (SSOT this task implements)"
+    target: "docs/dev/dsl/grammar.md, docs/dev/dsl/types.md, docs/dev/dsl/modifiers.md, docs/dev/dsl/principles.md, docs/dev/dsl/ir.md"
+  - label: "Data formats rubric"
+    target: docs/adr/0021-structured-data-formats-json-vs-capnp.md
+  - label: "CLI shim this backend satisfies"
+    target: "tools/nx/src/commands/dsl.rs (NX_DSL_BACKEND delegation)"
+  - label: "IDL convention"
+    target: "tools/nexus-idl/schemas/ (new ui_ir.capnp lives here)"
+  - label: "UI layout pipeline contract"
+    target: docs/dev/ui/foundations/layout/layout-pipeline.md
+  - label: "Design-system consumer baseline"
+    target: tasks/TASK-0073-ui-v10a-design-system-primitives-goldens.md
 ---
 
 ## Context (updated 2026-07-06)

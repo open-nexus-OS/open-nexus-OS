@@ -1,16 +1,21 @@
 ---
-title: TASK-0299 Time sync v1 (seed): SNTP client in time-syncd → timed anchor refinement
-status: Draft (seed — not scheduled)
-owner: @runtime
+schema: 1
+id: TASK-0299
+title: "Time sync v1 (seed): SNTP client in time-syncd → timed anchor refinement"
+status: draft
+status_note: "seed — not scheduled"
+owner: ["@runtime"]
 created: 2026-07-21
-depends-on:
-  - TASK-0297
-follow-up-tasks: []
+subsystem: hardware
+depends_on: [TASK-0297]
+implements: [RFC-0076]
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Wall-clock baseline: tasks/TASK-0297-time-v1-rtcd-walltime-tz-live-clock.md
-  - Wall-clock contract: docs/rfcs/RFC-0076-wallclock-v1-rtcd-timed-tz.md
+  - label: Vision
+    target: docs/architecture/vision.md
+  - label: Playbook
+    target: CLAUDE.md
+  - label: "Wall-clock baseline"
+    target: tasks/TASK-0297-time-v1-rtcd-walltime-tz-live-clock.md
 ---
 
 ## Context (seed)
