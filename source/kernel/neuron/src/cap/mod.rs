@@ -358,6 +358,12 @@ impl CapTable {
         self.slots.get(slot).and_then(|entry| *entry).ok_or(CapError::InvalidSlot)
     }
 
+    /// The capability in `slot`, `None` when the slot is empty (`InvalidSlot` past the table) —
+    /// where `get` cannot tell an empty slot from a missing one.
+    pub fn peek(&self, slot: usize) -> Result<Option<Capability>, CapError> {
+        self.slots.get(slot).copied().ok_or(CapError::InvalidSlot)
+    }
+
     /// Removes and returns the capability stored in `slot`.
     pub fn take(&mut self, slot: usize) -> Result<Capability, CapError> {
         let entry = self.slots.get_mut(slot).ok_or(CapError::InvalidSlot)?;

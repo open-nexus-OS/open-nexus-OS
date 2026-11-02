@@ -21,14 +21,15 @@
 //! `cbo.inval` runs as a flush, so user mode can never discard data. `DmaVmo` is a VMO mapped for DMA to one device (bytes +
 //! runs), the memory `nexus_driverkit::DmaBuffer` moves between the CPU and it;
 //! `LazyDmaVmo` one whose pages are committed when first touched or told to the
-//! device (ADR-0078), so it keeps no run list.
+//! device (ADR-0078), so it keeps no run list; `SharedVmo` one another task made for
+//! a device and moved here (a surface's buffer, RFC-0114), mapped for the CPU.
 //! This module is the crate's second unsafe island next to the ecall helpers: the
 //! `cbo` instructions and the byte view of a mapping this module made itself.
 //! OWNERS: @runtime @drivers
 //! STATUS: Functional
 //! PUBLIC API: DmaRun, MAX_DMA_RUNS, vmo_runs(), vmo_dma_base(), DmaWindow, DeviceDesc,
 //!   MAX_DMA_WINDOWS, DEVICE_DESC_VERSION, CAP_FLAG_DMA_NONCOHERENT, DmaCoherence,
-//!   device_dma_coherence(), cache_clean(), cache_flush(), DmaVmo, LazyDmaVmo
+//!   device_dma_coherence(), cache_clean(), cache_flush(), DmaVmo, LazyDmaVmo, SharedVmo
 //! TEST_COVERAGE: `tests` below (descriptor layout, coherence decoding); the kernel's
 //!   `dma_reach` / `dma_runs` host tests (decode and reject matrix);
 //!   `KSELFTEST: vmo reach ok (…)`; `SELFTEST: dma buffer ok (…)` runs the
@@ -452,6 +453,83 @@ impl Drop for LazyDmaVmo {
     fn drop(&mut self) {
         let _ = vm_unmap(self.va, self.len);
         let _ = vmo_destroy(self.vmo);
+    }
+}
+
+/// An object another task made for a device and moved here, mapped read-write for the CPU — a
+/// surface's buffer gpud made for its app (RFC-0114 §1, ADR-0092): the app draws where the GPU
+/// reads. The writer makes its writes visible to a reader that does not snoop the caches with
+/// [`SharedVmo::clean`] (`vmo_clean`, a no-op for an object no such device reads). Drop unmaps
+/// it and closes this task's capability; the memory lives on while another holder keeps it.
+#[cfg(nexus_env = "os")]
+pub struct SharedVmo {
+    vmo: Handle,
+    va: usize,
+    len: usize,
+}
+
+#[cfg(nexus_env = "os")]
+impl SharedVmo {
+    /// The first `len` bytes (page-rounded) of the object `vmo` this task holds, mapped
+    /// read-write. Takes the capability: it is closed with the mapping, or here when the map is
+    /// refused (a read-only alias, a range past the object).
+    pub fn map(vmo: Handle, len: usize) -> SysResult<Self> {
+        let Some(len) = len.checked_next_multiple_of(4096).filter(|l| *l != 0) else {
+            let _ = cap_close(vmo);
+            return Err(AbiError::InvalidArgument);
+        };
+        let flags = page_flags::VALID | page_flags::USER | page_flags::READ | page_flags::WRITE;
+        match vm_map(vmo, 0, len, flags) {
+            Ok(va) => Ok(Self { vmo, va, len }),
+            Err(err) => {
+                let _ = cap_close(vmo);
+                Err(err)
+            }
+        }
+    }
+
+    /// The object's capability in this task.
+    pub fn handle(&self) -> Handle {
+        self.vmo
+    }
+
+    /// Bytes mapped.
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Never true: an empty mapping is refused.
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// The CPU's view.
+    pub fn bytes(&self) -> &[u8] {
+        // SAFETY: `va..va + len` is this value's own read-write mapping, alive until drop; the
+        // borrow ties the slice to `self`. Other holders only read the object (the GPU, gpud's
+        // read-only view) — what they see of a concurrent write is the writer's to order
+        // (RFC-0114 §5: a slot is written only while no frame reads it).
+        unsafe { core::slice::from_raw_parts(self.va as *const u8, self.len) }
+    }
+
+    /// The CPU's view, writable.
+    pub fn bytes_mut(&mut self) -> &mut [u8] {
+        // SAFETY: as `bytes`, and `&mut self` makes the view exclusive in this task.
+        unsafe { core::slice::from_raw_parts_mut(self.va as *mut u8, self.len) }
+    }
+
+    /// Writes `[offset, offset + len)` back toward memory for a device that does not snoop the
+    /// caches (syscall 74); `Ok` without work for an object no such device reads.
+    pub fn clean(&self, offset: usize, len: usize) -> SysResult<()> {
+        vmo_clean(self.vmo, offset, len)
+    }
+}
+
+#[cfg(nexus_env = "os")]
+impl Drop for SharedVmo {
+    fn drop(&mut self) {
+        let _ = vm_unmap(self.va, self.len);
+        let _ = cap_close(self.vmo);
     }
 }
 

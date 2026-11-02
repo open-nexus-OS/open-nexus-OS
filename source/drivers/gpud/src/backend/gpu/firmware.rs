@@ -28,8 +28,10 @@ const BLOB: &[u8] =
 /// the structures about 20, the trace buffer 12, the page table 4 — and the contexts': a render
 /// context with its transfer queue holds about 60 (its catalogue, directories and tables, its
 /// memory context, three queues of 11, the render context, the free lists, the dataset). Pages
-/// come back when a context goes (5c-3 P2); 1024 hold the firmware and about fifteen contexts.
-pub(super) const BACKING_PAGES: usize = 1024;
+/// come back when a context goes (5c-3 P2). The contexts' MMU tables come from here too: every
+/// app surface bound in windowd's context takes a table page per 2 MiB (RFC-0114: some 14 a
+/// full-HD window) — 2048 hold the firmware, about fifteen contexts and some 60 windows.
+pub(super) const BACKING_PAGES: usize = 2048;
 
 /// Where everything landed.
 pub(super) struct Loaded {

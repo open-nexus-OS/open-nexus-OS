@@ -134,10 +134,9 @@ The authoritative list (including numeric IDs) lives in `source/kernel/neuron/sr
 - **4** — RETIRED (RFC‑0085 P6): was the fixed‑VA `map`; number never reused. Use 53 `vm_map`.
 - **5 `vmo_create`**: Create a page-backed VMO (`mm::vmo`, TASK-0286 P3a): a list of physically contiguous blocks from the frame pool. Args `(slot, len, flags, device)`: flag bit 0 asks for ONE block (`nexus_abi::vmo_create_contiguous`) — for memory a device addresses by one base (virtio queues, command pools); `device` names the device capability the object is for (`usize::MAX` = none) and its frames then come from inside that device's DMA reach (TASK-0246 P1, `nexus_abi::vmo_create_for`). A contiguous object needs its device — a task without one cannot make it.
 - **6 `vmo_write`**: Write bytes into a VMO capability.
-- **7 `spawn`**: Create a child task (fresh Sv39 AS by default) with a guarded stack.
+- **7 `spawn`**: Start a thread in the caller's OWN address space (`as_self`), suspended for its parent (ADR-0091); another space or none is `EPERM`. Processes come from `exec_vmo` (63).
 - **8 `cap_transfer`**: Duplicate/grant a capability to another task with a rights mask (subset-only).
-- **9 `as_create`**: Allocate a new Sv39 address space and return its opaque handle.
-- **10 `as_map`**: Map a VMO into a *target* address space identified by handle. Enforces W^X at the syscall boundary.
+- **9, 10** — retired (ADR-0091): `as_create` and `as_map` (a fixed-VA map into ANY space named by a raw handle); never reused.
 - **11 `exit`**: Terminate the current task.
 - **12 `wait`**: Wait for a child task exit.
 - **13** — retired (ADR-0080): the pointer-and-length exec loader; never reused.
@@ -225,8 +224,8 @@ increment:
   mappings are installed via `AddressSpaceManager::map_page`; every table page is an order-0
   frame from `mm::frame_pool`, zeroed on allocation and returned on drop (there is no static
   bring-up pool any more).
-- The ASID allocator tracks 256 slots (ASID `0` is reserved for the kernel). Handles returned by
-  `SYS_AS_CREATE` wrap the internal slot index and remain opaque to callers.
+- The ASID allocator tracks 256 slots (ASID `0` is reserved for the kernel). Spaces are made by
+  the kernel only (`exec_vmo`, ADR-0080); `as_self` returns the caller's own handle, opaque.
 - Fresh address spaces are seeded with the kernel half (`mm/kernel_layout.rs`, RFC-0098 C4):
   the image at its high alias (`[__text_start..__text_end)` RX|GLOBAL, `[__text_end..__stack_bottom)`
   RW|GLOBAL, the kernel stack RW|GLOBAL above its guard page, left unmapped), every `/memory` bank
@@ -301,8 +300,8 @@ increment:
 
 ## W^X Policy
 
-- Writable and executable user mappings are mutually exclusive. `SYS_AS_MAP` rejects requests that
-  combine `PROT_WRITE` and `PROT_EXEC` and returns `EPERM`.
+- Writable and executable user mappings are mutually exclusive. The page table refuses a
+  WRITE+EXECUTE leaf (`MapError::PermissionDenied`, `EPERM`); `vm_map` refuses EXECUTE outright.
 - The policy applies uniformly to mappings requested by the caller and those created by kernel
   helpers (for example, guarded stacks installed during `spawn`).
 
@@ -326,12 +325,11 @@ Golden layout tests assert size/padding correctness.
 
 ## Spawn semantics (dedicated address spaces)
 
-- Default behaviour: a zero `as_handle` argument instructs the kernel to create a fresh Sv39
-  address space for the child. The kernel maps a four-page RW stack capped by an unmapped guard
-  page and activates the new AS during scheduling.
-- Custom handle: callers may bind the child to an existing address space by passing a non-zero
-  handle obtained via `SYS_AS_CREATE`. The caller is responsible for provisioning the stack in
-  that address space.
+- A thread is started in the caller's own address space only: `as_handle` must be the caller's
+  `as_self` handle and the caller names the stack; any other handle, or none, is `EPERM`
+  (ADR-0091). The thread starts suspended; the parent resumes it after handing it capabilities.
+- A supervisor task (no address space of its own) is the kernel's alone — its selftests start
+  theirs through the kernel API, never through `spawn`.
 - Entry checks: `entry_pc` must lie within `__text_start..__text_end` and be aligned; otherwise
   `SpawnError::InvalidEntryPoint` is raised.
 - Spawn failure taxonomy: kernel classifies failures into `SpawnFailReason` (RFC-0013) and exposes
@@ -499,7 +497,7 @@ and when the API makes incorrect construction hard:
 
 - **`Pid`**: constructed by `TaskTable` only (kernel authority).
 - **`Asid`**: allocated/freed by `AddressSpaceManager` only.
-- **`AsHandle`**: created by the `as_create` syscall path; opaque to callers; never reveals the ASID.
+- **`AsHandle`**: created by the kernel (`exec_vmo`, its own selftests); a task learns only its own (`as_self`); never reveals the ASID.
 - **`CapSlot`**: indexes a per-task cap table; validated at syscall boundaries.
 - **`HartId` / `CpuId`**: hardware-vs-logical CPU identity split; SMP paths avoid raw integer IDs in scheduler/boot code.
 

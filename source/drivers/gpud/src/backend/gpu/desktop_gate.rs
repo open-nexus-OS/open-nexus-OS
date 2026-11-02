@@ -35,6 +35,8 @@ impl Desktop {
         target: &FrameTarget<'_>,
     ) -> Result<(), Refusal> {
         use nexus_gfx::core::types::TileRect;
+        // The gate's scene samples the layout alone: no app buffer.
+        let none = super::surface_buffers::SurfaceBuffers::new();
         let (w, h) = self.display;
         let glass = Command::CompositeLayer {
             src_row_abs: target.base_row,
@@ -57,6 +59,7 @@ impl Desktop {
             content_epoch: 1,
             flags: 0,
             key: 0,
+            source: 0,
         };
         let whole = TileRect { x: 0, y: 0, width: w, height: h };
         let cold = [glass, Command::Damage { rect: whole, origin: 0 }];
@@ -66,20 +69,20 @@ impl Desktop {
         // a pointer-sized change — the frame's floor) find it clean.
         self.pass_witness = [0; 3];
         let drawn = self
-            .frame_of(dev, &cold, target, (true, false, false), target.base_dirty)
+            .frame_of(dev, &cold, target, (true, false, false), (target.base_dirty, &none))
             .and_then(|(_, cold_us, cold_passes)| {
                 let mut warm_us = [0u64; 3];
                 let mut warm_passes = 0;
                 for (i, w) in warm_us.iter_mut().enumerate() {
                     // The last warm frame's pass is traced: its wait iteration by iteration.
                     let (_, us, passes) =
-                        self.frame_of(dev, &warm, target, (true, i == 2, false), false)?;
+                        self.frame_of(dev, &warm, target, (true, i == 2, false), (false, &none))?;
                     (*w, warm_passes) = (us, passes);
                 }
                 // The cold frame again, its passes pipelined (the base counted dirty so the
                 // glass is blurred again): one wait for four passes.
                 let (_, piped_us, _) =
-                    self.frame_of(dev, &cold, target, (true, false, true), true)?;
+                    self.frame_of(dev, &cold, target, (true, false, true), (true, &none))?;
                 Ok((cold_us, cold_passes, warm_us, warm_passes, piped_us))
             });
         self.frame.layers.clear();

@@ -47,6 +47,11 @@ pub mod purge;
 /// Sealed objects (ADR-0080): the seal, the device-named mark that forbids it.
 mod sealing;
 pub use sealing::{is_sealed, mark_device_named, seal, SealError};
+/// An object's bytes as physical pieces; a lazy range as the runs a device is told.
+mod span;
+pub use span::{named_runs, span};
+/// CPU writes made visible to a non-coherent device (ADR-0092): `vmo_clean`, cleaned zeroes.
+pub mod clean;
 /// Squeezed pages (RFC-0100 §5, ADR-0087): a page recorded, a page brought back.
 pub mod squeeze;
 /// Swapped pages (RFC-0100 §5, ADR-0088): a record exported, committed, brought back.
@@ -87,6 +92,15 @@ pub enum VmoError {
     /// The page is swapped (ADR-0088): it comes back through the pager — a fault or a syscall
     /// parks on `token` until it does; any other access fails.
     Swapped { token: u64, slot: u32 },
+    /// The kernel heap above its reserve cannot hold the object's bookkeeping — its page words
+    /// or its block list (ADR-0091): the caller hears `ENOMEM`, the kernel never panics.
+    HeapExhausted,
+}
+
+/// The largest object a caller may ask for (ADR-0091): the frames the pool was ever given — no
+/// object needs more than the memory that could back it. `None` before the pool exists.
+fn max_object_bytes() -> Option<usize> {
+    frame_pool::stats().map(|stats| stats.total.saturating_mul(FRAME_SIZE as usize))
 }
 
 /// The CPU ranges a lazy object made for a device takes its frames from (ADR-0078): its
@@ -137,6 +151,9 @@ pub struct VmoObject {
     purgeable: bool,
     /// A purge took the content since the unlock; the owner learns it at the lock.
     purged: bool,
+    /// ADR-0092: the cache block a CPU write must be cleaned in before the object's device reads
+    /// it — 0 when that device snoops the caches, or there is none. Set before any capability.
+    clean_block: u16,
 }
 
 impl VmoObject {
@@ -210,16 +227,22 @@ struct VmoTable {
 static TABLE: TableLock<VmoTable> = TableLock::new(VmoTable { objects: Vec::new() });
 
 impl VmoTable {
-    fn insert(&mut self, object: VmoObject) -> Result<VmoId, VmoError> {
+    /// Stores the object in the lowest free slot, taking it out of `object` only then. Refused —
+    /// a full table, or no heap for a new slot (ADR-0091) — it stays with the caller, so its
+    /// frames can go back (returned inside the error it made every result 224 bytes wide).
+    fn insert(&mut self, object: &mut Option<VmoObject>) -> Result<VmoId, VmoError> {
         let index = match self.objects.iter().position(Option::is_none) {
             Some(i) => i,
             None if self.objects.len() < MAX_OBJECTS => {
+                if self.objects.try_reserve(1).is_err() {
+                    return Err(VmoError::HeapExhausted);
+                }
                 self.objects.push(None);
                 self.objects.len() - 1
             }
             None => return Err(VmoError::TableFull),
         };
-        self.objects[index] = Some(object);
+        self.objects[index] = object.take();
         Ok(index as VmoId + 1)
     }
 
@@ -239,10 +262,13 @@ pub fn create(len: usize, kind: VmoKind, reach: &DmaReach) -> Result<VmoId, VmoE
     if len == 0 || len % FRAME_SIZE as usize != 0 || kind == VmoKind::Fixed {
         return Err(VmoError::BadLength);
     }
+    if max_object_bytes().is_some_and(|max| len > max) {
+        return Err(VmoError::BadLength);
+    }
     if kind == VmoKind::Lazy {
         // No frame now: each page takes one when it is first touched (`commit`) — from inside
         // the device's reach when the object is made for one (ADR-0078).
-        let pages = Some(LazyPages::new(len / PAGE));
+        let pages = Some(LazyPages::try_new(len / PAGE).ok_or(VmoError::HeapExhausted)?);
         let within = Within::of(reach);
         let object = VmoObject {
             kind,
@@ -255,8 +281,10 @@ pub fn create(len: usize, kind: VmoKind, reach: &DmaReach) -> Result<VmoId, VmoE
             device_named: false,
             purgeable: false,
             purged: false,
+            clean_block: 0,
         };
-        return TABLE.lock().insert(object);
+        // A refused lazy object holds no frame: its words go with it.
+        return TABLE.lock().insert(&mut Some(object));
     }
     let mut windows = [(0u64, 0u64); MAX_DMA_WINDOWS];
     let mut n = 0;
@@ -270,7 +298,10 @@ pub fn create(len: usize, kind: VmoKind, reach: &DmaReach) -> Result<VmoId, VmoE
             None => frame_pool::alloc_bytes(len),
             Some(windows) => frame_pool::alloc_bytes_within(len, windows),
         }
-        .map_err(|_| VmoError::Exhausted)?,
+        .map_err(|err| match err {
+            FrameError::NoHeap => VmoError::HeapExhausted,
+            _ => VmoError::Exhausted,
+        })?,
         VmoKind::Contiguous => {
             let pages = len / FRAME_SIZE as usize;
             let order = pages.next_power_of_two().trailing_zeros() as u8;
@@ -291,10 +322,10 @@ pub fn create(len: usize, kind: VmoKind, reach: &DmaReach) -> Result<VmoId, VmoE
         }
         VmoKind::Fixed | VmoKind::Lazy => unreachable!(),
     };
-    let result = TABLE.lock().insert(VmoObject {
+    let mut object = Some(VmoObject {
         kind,
         len,
-        blocks: blocks.clone(),
+        blocks,
         fixed: (0, 0),
         lazy: None,
         within: None,
@@ -302,10 +333,12 @@ pub fn create(len: usize, kind: VmoKind, reach: &DmaReach) -> Result<VmoId, VmoE
         device_named: false,
         purgeable: false,
         purged: false,
+        clean_block: 0,
     });
-    if result.is_err() {
-        // The table is full: the frames go back before the error leaves.
-        frame_pool::free_blocks(&blocks);
+    let result = TABLE.lock().insert(&mut object);
+    if let Some(refused) = object {
+        // The table refused it: the frames go back before the error leaves.
+        frame_pool::free_blocks(&refused.blocks);
     }
     result
 }
@@ -326,8 +359,10 @@ pub fn adopt_fixed(base: usize, len: usize) -> Result<VmoId, VmoError> {
         device_named: false,
         purgeable: false,
         purged: false,
+        clean_block: 0,
     };
-    TABLE.lock().insert(object)
+    // A fixed object's frames are not the pool's: nothing goes back on a refusal.
+    TABLE.lock().insert(&mut Some(object))
 }
 
 /// An object over frames the pool does not own, SEALED from birth (ADR-0081): the bootfs the
@@ -349,8 +384,9 @@ pub fn adopt_sealed(base: usize, len: usize) -> Result<VmoId, VmoError> {
         device_named: false,
         purgeable: false,
         purged: false,
+        clean_block: 0,
     };
-    TABLE.lock().insert(object)
+    TABLE.lock().insert(&mut Some(object))
 }
 
 /// Destroy: the frames go back to the pool (a `Fixed` object frees nothing)
@@ -398,18 +434,21 @@ pub fn is_lazy(id: VmoId) -> bool {
 /// it). Answers the page's physical address; an eager object answers its translation.
 pub fn commit(id: VmoId, index: usize) -> Result<usize, VmoError> {
     for _ in 0..2 {
-        let (state, within) = with(id, |o| match &o.lazy {
-            Some(pages) => pages.state(index).map(|s| (s, o.within)).ok_or(VmoError::BadLength),
+        let (state, within, clean) = with(id, |o| match &o.lazy {
+            Some(pages) => pages
+                .state(index)
+                .map(|s| (s, o.within, usize::from(o.clean_block)))
+                .ok_or(VmoError::BadLength),
             None => o
                 .translate(index * PAGE)
-                .map(|pa| (PageState::Frame(pa as u64), None))
+                .map(|pa| (PageState::Frame(pa as u64), None, 0))
                 .ok_or(VmoError::BadLength),
         })
         .ok_or(VmoError::NoSuchObject)??;
         let done = match state {
             PageState::Frame(pa) => Some(pa as usize),
             PageState::Record(_) => squeeze::inflate(id, index, within)?,
-            PageState::Absent => commit_zeroed(id, index, within)?,
+            PageState::Absent => commit_zeroed(id, index, within, clean)?,
             PageState::Swapped => return Err(swap::parked_on(id, index)),
         };
         if let Some(pa) = done {
@@ -420,11 +459,14 @@ pub fn commit(id: VmoId, index: usize) -> Result<usize, VmoError> {
     Err(VmoError::Damaged)
 }
 
-/// Commit absent page `index` to a zeroed frame; `None` when it turned out to be a record.
+/// Commit absent page `index` to a zeroed frame; `None` when it turned out to be a record. For
+/// a non-coherent device (`clean`: its cache block) the zeroes reach memory before the frame is
+/// entered — a device read never sees the frame's previous owner (ADR-0092).
 fn commit_zeroed(
     id: VmoId,
     index: usize,
     within: Option<Within>,
+    clean: usize,
 ) -> Result<Option<usize>, VmoError> {
     let block = match within {
         None => frame_pool::alloc(0),
@@ -435,6 +477,7 @@ fn commit_zeroed(
     unsafe {
         core::ptr::write_bytes(crate::phys::phys_to_virt(block.base as usize) as *mut u8, 0, PAGE);
     }
+    clean::frame(block.base as usize, PAGE, clean);
     let entered = match TABLE.lock().get_mut(id).and_then(|o| o.lazy.as_mut()) {
         Some(pages) => pages.commit(index, block.base).map_err(Some),
         None => Err(None),
@@ -453,69 +496,6 @@ fn commit_zeroed(
     }
 }
 
-/// Lazy page `index` of `id` for a read: its frame, `None` when absent (zero) — a squeezed or
-/// swapped page is content, never zero: it is brought back first (ADR-0087, ADR-0088).
-fn resident(id: VmoId, index: usize) -> Result<Option<usize>, VmoError> {
-    match with(id, |o| o.lazy.as_ref().and_then(|p| p.state(index)))
-        .ok_or(VmoError::NoSuchObject)?
-    {
-        Some(PageState::Frame(pa)) => Ok(Some(pa as usize)),
-        Some(PageState::Absent) => Ok(None),
-        Some(PageState::Record(_) | PageState::Swapped) => commit(id, index).map(Some),
-        None => Err(VmoError::BadLength),
-    }
-}
-
-/// The bytes `[offset, offset + len)` of `id` as pieces `(pa, len)` in order: the runs of an
-/// eager object, the pages of a lazy one — `None` where a lazy page is absent. With
-/// `commit_pages` every lazy page of the span is committed first (a write, a device's runs), so
-/// no piece is `None`; a squeezed page is brought back either way.
-pub fn span(
-    id: VmoId,
-    offset: usize,
-    len: usize,
-    commit_pages: bool,
-) -> Result<Vec<(Option<usize>, usize)>, VmoError> {
-    let end = offset.checked_add(len).ok_or(VmoError::BadLength)?;
-    let (lazy, object_len) =
-        with(id, |o| (o.lazy.is_some(), o.len)).ok_or(VmoError::NoSuchObject)?;
-    if end > object_len {
-        return Err(VmoError::BadLength);
-    }
-    let mut out = Vec::new();
-    if !lazy {
-        let mut at = 0usize;
-        for (pa, run_len) in runs(id).ok_or(VmoError::NoSuchObject)? {
-            let (lo, hi) = (offset.max(at), end.min(at + run_len));
-            if lo < hi {
-                out.push((Some(pa + (lo - at)), hi - lo));
-            }
-            at += run_len;
-        }
-        return Ok(out);
-    }
-    let mut at = offset;
-    while at < end {
-        let piece = (end - at).min(PAGE - at % PAGE);
-        let base =
-            if commit_pages { Some(commit(id, at / PAGE)?) } else { resident(id, at / PAGE)? };
-        out.push((base.map(|pa| pa + at % PAGE), piece));
-        at += piece;
-    }
-    Ok(out)
-}
-
-/// `[offset, offset + len)` of a lazy object as a device is told it (RFC-0100 §2, ADR-0078):
-/// every page committed first — a device cannot fault — then the pieces merged into runs, in
-/// range order. At most `MAX_NAMED_PAGES` pages at once: the commits run under the kernel lock.
-pub fn named_runs(id: VmoId, offset: usize, len: usize) -> Result<Vec<(usize, usize)>, VmoError> {
-    if !crate::lazy::nameable(offset, len) {
-        return Err(VmoError::BadLength);
-    }
-    let pieces = span(id, offset, len, true)?;
-    Ok(crate::lazy::merge_runs(pieces.into_iter().filter_map(|(pa, len)| Some((pa?, len)))))
-}
-
 /// The physical address of byte `offset`, or `None` past the end.
 pub fn translate(id: VmoId, offset: usize) -> Option<usize> {
     with(id, |o| o.translate(offset)).flatten()
@@ -530,12 +510,15 @@ pub fn first_pa(id: VmoId) -> Option<usize> {
 /// no table lock held — the runs are copied first.
 pub fn zero(id: VmoId) {
     let Some(runs) = runs(id) else { return };
+    let clean = clean::block(id);
     for (pa, len) in runs {
         // SAFETY: frames this object owns exclusively until its capability
         // exists; nobody else can reach them.
         unsafe {
             crate::smp::tlb::zero_bytes_polled(crate::phys::phys_to_virt(pa) as *mut u8, len);
         }
+        // ADR-0092: zeroes a non-coherent device reads are in memory, not only in a cache.
+        clean::range_polled(pa, len, clean);
     }
 }
 

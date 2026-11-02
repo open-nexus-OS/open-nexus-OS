@@ -44,7 +44,7 @@ impl DisplayServerRuntime {
                     let frame = self.apps[idx].win.frame();
                     // TASK-0074 D4: a modal-gated sibling takes no wheel.
                     if matches!(
-                        crate::modal_gate::input_verdict(idx, &self.modal_facts()),
+                        self.modal_verdict(idx),
                         crate::modal_gate::Verdict::RefusedByModal { .. }
                     ) && !matches!(frame.press(cursor_x, cursor_y), WindowPress::Miss)
                     {

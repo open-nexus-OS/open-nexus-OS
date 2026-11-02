@@ -110,6 +110,11 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> AbilitymgrResult<()> {
                         lifecycle.on_seen(&mut broker, frame, sender_service_id);
                         continue;
                     }
+                    if crate::seen::is_compositor_up(frame) {
+                        // A new compositor runs (RFC-0112, one-way): the frozen run again.
+                        lifecycle.on_compositor_up(&mut broker, sender_service_id);
+                        continue;
+                    }
                     if frame.get(3) == Some(&crate::protocol::OP_MEM_SQUEEZE) {
                         // The memory authority's squeeze order (ADR-0087): a suspended instance
                         // alone, carried to the parent, the parent's totals answered.
@@ -401,6 +406,16 @@ fn emit_event(event: &Event) {
             // `abilitymgr: launch (app=<app>, inst=<id>)`
             DebugLine::new()
                 .put(b"abilitymgr: launch (app=")
+                .str(app_id)
+                .put(b", inst=")
+                .u64(u64::from(*instance_id))
+                .put(b")")
+                .emit();
+        }
+        // RFC-0112: a one-instance role asked again — the running instance answered.
+        Event::LaunchKept { app_id, instance_id } => {
+            DebugLine::new()
+                .put(b"abilitymgr: launch kept (app=")
                 .str(app_id)
                 .put(b", inst=")
                 .u64(u64::from(*instance_id))

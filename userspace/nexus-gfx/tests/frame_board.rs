@@ -40,9 +40,13 @@ fn layer(f: impl FnOnce(&mut FrameLayer)) -> Command {
         scroll_band_h: l.scroll_band_h,
         layer_id: l.layer_id,
         content_epoch: l.content_epoch,
-        flags: (if l.opaque { nexus_gfx::command::buffer::LAYER_OPAQUE } else { 0 })
-            | (if l.solid { nexus_gfx::command::buffer::LAYER_SOLID } else { 0 }),
+        flags: nexus_gfx::command::layer_wire::with_slot(
+            (if l.opaque { nexus_gfx::command::buffer::LAYER_OPAQUE } else { 0 })
+                | (if l.solid { nexus_gfx::command::buffer::LAYER_SOLID } else { 0 }),
+            l.slot,
+        ),
         key: l.key,
+        source: l.source,
     }
 }
 

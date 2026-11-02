@@ -150,11 +150,11 @@ pub const SELFTEST_UI_V10_LIVE_MODAL_OK_MARKER: &str = "SELFTEST: ui v10 live mo
 
 // --- TASK-0066: window tiling (halves, quarters, Fill, Return, arrangements) ---
 /// `windowd: wm tile (zone=left-half id=app1)` — a window took a zone.
-pub fn wm_tile_marker(zone: &str, id: &str) -> String {
+pub fn wm_tile_marker(zone: &str, id: impl core::fmt::Display) -> String {
     format!("windowd: wm tile (zone={zone} id={id})")
 }
 /// `windowd: wm return (id=app1)` — back to the pre-tile frame.
-pub fn wm_return_marker(id: &str) -> String {
+pub fn wm_return_marker(id: impl core::fmt::Display) -> String {
     format!("windowd: wm return (id={id})")
 }
 /// `windowd: wm arrange (kind=left-right n=2)` — an arrangement tiled `n` windows.
@@ -166,7 +166,7 @@ pub fn wm_tile_deny_marker(reason: &str) -> String {
     format!("windowd: wm tile deny (reason={reason})")
 }
 /// `windowd: wm chord (zone=left-half id=app1)` — a keyboard chord tiled the focused window.
-pub fn wm_chord_marker(zone: &str, id: &str) -> String {
+pub fn wm_chord_marker(zone: &str, id: impl core::fmt::Display) -> String {
     format!("windowd: wm chord (zone={zone} id={id})")
 }
 /// The tiling round trip (a tile, then Return) happened on this boot.

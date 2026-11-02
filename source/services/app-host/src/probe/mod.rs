@@ -10,7 +10,7 @@
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: QEMU markers (`APPHOST: …`)
 
-use nexus_abi::{cap_clone, debug_println, nsec, vmo_create, vmo_write, yield_};
+use nexus_abi::{cap_clone, debug_println, nsec, yield_};
 
 /// Probe markers must NOT fold: `nexus-service-entry` arms verdict
 /// folding for every process it bootstraps, so `debug_println` swallows
@@ -39,8 +39,10 @@ mod paint;
 mod persist;
 mod presentation;
 mod pressure;
+mod reconnect;
 mod scroll;
 mod state;
+mod surface_mem;
 mod windows; // RFC-0086 feed intake // RFC-0095: hover, leave and the drag gesture
 use boot::*;
 pub(crate) use env::{device_for, size_class_for, tokens_for};
@@ -101,23 +103,18 @@ pub(super) fn run() -> Result<(), &'static str> {
     //     by nonce, never by arrival order — N app-hosts may connect
     //     concurrently (the greeter/shell/counter channel-crossing bug).
     let nonce: u64 = nsec().unwrap_or(0) ^ ((payload_addr() as u64) << 16) ^ 0x9E37_79B9;
+    // The moved cap is this app's EVENT channel — data, not a reply inbox (`reconnect::attach`).
     match cap_clone(EVENTS_SEND_CLONE_SLOT) {
+        Ok(clone) if reconnect::attach(clone, nonce) => {
+            raw_marker("APPHOST: events attached (nonce)");
+            // RFC-0079: relinquish our OWN send cap to our event inbox — windowd is the sole
+            // sender now; a leftover SEND keeps the last-sender scan non-zero and the EOF of
+            // the compositor's death never comes.
+            let _ = nexus_abi::cap_close(EVENTS_SEND_CLONE_SLOT);
+        }
         Ok(clone) => {
-            let frame = wire::encode_surface_events(nonce);
-            // The moved cap is this app's EVENT channel — data, not a reply inbox; windowd
-            // binds it to the surface by nonce and pushes into it (TASK-0054C P2-d). WAIT for
-            // queue space — no clock; a dead windowd ends the wait.
-            match nexus_ipc::exchange::send_with_cap(WINDOWD_SEND_SLOT, &frame, clone) {
-                Ok(_) => {
-                    raw_marker("APPHOST: events attached (nonce)");
-                    // RFC-0079: relinquish our OWN send cap to our event
-                    // inbox — windowd is the sole sender now. Otherwise
-                    // this leftover SEND cap keeps the last-sender scan
-                    // non-zero and the window-close EOF never fires.
-                    let _ = nexus_abi::cap_close(EVENTS_SEND_CLONE_SLOT);
-                }
-                Err(_) => raw_marker("APPHOST: FAIL events attach (send)"),
-            }
+            let _ = nexus_abi::cap_close(clone);
+            raw_marker("APPHOST: FAIL events attach (send)");
         }
         Err(_) => raw_marker("APPHOST: FAIL events attach (no send clone)"),
     }
@@ -147,7 +144,7 @@ pub(super) fn run() -> Result<(), &'static str> {
     let resizable = level != wire::WIN_LEVEL_DESKTOP
         && level != wire::WIN_LEVEL_OVERLAY
         && mode != wire::WIN_MODE_FULLSCREEN;
-    let win = WindowIntent { style, level, mode, nonce };
+    let mut win = WindowIntent { style, level, mode, nonce };
     // The WM owns every window's geometry (TASK-0336): an `auto` window asks too — the ask
     // shows the launch's starting surface.
     let (mut safe_top, mut surf_w, mut surf_h) =
@@ -170,24 +167,7 @@ pub(super) fn run() -> Result<(), &'static str> {
     //    geometry decides the VMO size. The DSL lays out at the VISIBLE
     //    surface size; a windowed page with a scroll region then uses the
     //    WebRender compositor-scroll path (a TALL packed band, rendered once).
-    // Declarative base alpha: a DESKTOP surface paints a fully
-    // TRANSPARENT base — windowd alpha-blends the band over the retained
-    // wallpaper plane, so empty desktop area IS the wallpaper (elements
-    // paint their own fills; the shell must not lay `.bg()` over the whole
-    // page). A fullscreen FLOATING surface (kiosk app) stays opaque — it
-    // owns every pixel. Normal floating windows keep the frosted glass.
-    let base_alpha: u8 = if level == wire::WIN_LEVEL_DESKTOP {
-        0
-    } else if level == wire::WIN_LEVEL_OVERLAY || mode == wire::WIN_MODE_FULLSCREEN {
-        // The OSK band (overlay) paints opaque — keys must never blend
-        // with the content below (glass material = follow-up).
-        255
-    } else {
-        // Frosted floating window: the page base leaves ~1/3 of the blurred
-        // backdrop visible (the material look lives or dies on this — 190
-        // read as a solid slab; opaque ELEMENTS still paint fully on top).
-        168
-    };
+    let base_alpha = boot::base_alpha(level, mode); // the desktop's is the wallpaper's
     let mut app = DslApp::mount(payload, surf_w, surf_h, theme_mode, shell_profile, base_alpha);
     boot_env::mark_stage(0, start_ns);
     if let Some(dsl) = app.as_mut() {
@@ -201,56 +181,46 @@ pub(super) fn run() -> Result<(), &'static str> {
         let _ = dsl.apply_region(r.hour_fmt, &r.locale, &r.tz, &r.keymap);
         last_region = Some(r);
     }
-    // 3. The app's own surface VMO: its base rows and its STORE (RFC-0109) — the wash patch
-    //    and every scroll layer's band, planned from the page's layers. Mutable: a WM resize (or
-    //    a store that outgrew it) re-creates it. No device reads it (windowd copies it with
-    //    `vmo_read`): an anonymous object.
-    let plan = app.as_mut().map_or(band::StorePlan { rows: surf_h, width: 0 }, |d| d.plan_store());
-    let rows = plan.rows;
-    let mut vmo = boot_env::surface_vmo(surf_w as usize * rows as usize * 4, start_ns)
-        .map_err(|_| "apphost: vmo create failed")?;
-    // The first frame: the base, the patch, every band's visible window.
-    let mut first = band::PresentDamage::default();
-    let first_render_ok = app.as_mut().is_some_and(|dsl| {
-        dsl.store_rows = rows;
-        dsl.redraw(vmo, None, &mut first)
-    });
-    if !(app.is_some() && first_render_ok) {
-        // FAIL-CLOSED: no program, no window. The failure stays LOUD in the log (marker below +
-        // the payload-path FAIL markers above); the surface stays unclaimed so windowd shows
-        // nothing, and the process exits for execd to reap.
+    // FAIL-CLOSED: no program, no window — the failure stays LOUD in the log (marker below +
+    // the payload-path FAIL markers above); no surface is claimed, and the process exits for
+    // execd to reap.
+    let Some(dsl) = app.as_mut() else {
         raw_marker("APPHOST: FAIL dsl mount (no window, fail-closed)");
         return Err("apphost: dsl mount failed");
+    };
+    // 3. The surface: its base rows and its STORE (RFC-0109) — the wash patch and every scroll
+    //    layer's band, planned from the page's layers. windowd has gpud make its buffer for this
+    //    app (RFC-0114) and moves it here with the answer: drawn in place, read by the GPU where
+    //    it lies. A WM resize (or a store that outgrew it) re-creates it.
+    let plan = dsl.plan_store();
+    let (mut surface_id, mut mem) = boot::create_surface(
+        (&client, &events),
+        ((surf_w, surf_h), &win, resizable),
+        dsl,
+        plan,
+        (&mut pending_rect, &mut boot_region),
+    )?;
+    dsl.set_surface_id(surface_id);
+    dsl.taps_are_keystrokes = level == wire::WIN_LEVEL_OVERLAY;
+    raw_marker("APPHOST: surface created");
+    boot_env::mark_stage(2, start_ns);
+    boot_env::mark_stage(3, start_ns);
+    // The first frame, into slot 0: the base, the patch, every band's visible window.
+    let mut first = band::PresentDamage::default();
+    mem.begin_frame(true);
+    if !dsl.redraw(&mut mem, None, &mut first) {
+        raw_marker("APPHOST: FAIL dsl frame (render)");
+        return Err("apphost: first render failed");
     }
     raw_marker("APPHOST: dsl frame rendered");
     boot_env::mark_stage(1, start_ns);
-    raw_marker("apphost: vmo filled");
 
-    // 5. SURFACE_CREATE — a CLONE of the VMO cap moves with the message (the gpud-attach
-    //    pattern); the original stays ours for redraws. The create carries the visible size and
-    //    the surface's rows (base + store) — windowd allocates the atlas region up front.
-    let clone = cap_clone(vmo).map_err(|_| "apphost: cap clone failed")?;
-    send_wait_cap(&client, &boot::create_frame((surf_w, surf_h), &win, resizable, plan), clone)?;
-    let ack = recv_ack(&events, wire::OP_SURFACE_CREATE, &mut pending_rect, &mut boot_region)?;
-    let mut surface_id = ack.value;
-    if let Some(dsl) = app.as_mut() {
-        dsl.set_surface_id(surface_id);
-        dsl.taps_are_keystrokes = level == wire::WIN_LEVEL_OVERLAY;
-        // No store placed (`NO_STORE`): the page again, its scroll layers flat.
-        if dsl.created(ack.store, plan) && !dsl.redraw(vmo, None, &mut first) {
-            return Err("apphost: flat redraw failed");
-        }
-    }
-    raw_marker("APPHOST: surface created");
-    boot_env::mark_stage(2, start_ns);
-
-    // 6. The structure BEFORE the first present (windowd clears it at create: after the ack) —
-    //    the first composite is the whole window with its layers — then SURFACE_PRESENT seq=1 of
-    //    every row drawn, strictly one in flight, and the motion (offsets, no wash yet).
-    if let Some(dsl) = app.as_mut() {
-        dsl.send_tree(&client, surface_id);
-        dsl.send_present(&client, surface_id, 1, &first)?;
-    }
+    // 6. The structure BEFORE the first present (windowd clears it at create) — the first
+    //    composite is the whole window with its layers — then SURFACE_PRESENT seq=1 of slot 0
+    //    naming every row drawn, strictly one in flight, and the motion (offsets, no wash yet).
+    let slot = mem.end_frame(&first);
+    dsl.send_tree(&client, surface_id);
+    dsl.send_present(&client, surface_id, (1, slot), &first)?;
     let _ = recv_ack(&events, wire::OP_SURFACE_PRESENT, &mut pending_rect, &mut boot_region)?;
     if let Some(dsl) = app.as_mut() {
         dsl.send_motion(&client, surface_id);
@@ -301,10 +271,27 @@ pub(super) fn run() -> Result<(), &'static str> {
     // redrawn — in the base and in the bands that hold them (RFC-0109).
     // Spans from coalesced events union; any full request wins.
     let mut dirty_rows: Option<(i32, i32)> = None;
+    // RFC-0112: the compositor died — the loop rejoins the next one (`reconnect`); until the
+    // surface is made again, nothing of this window is sent.
+    let (mut rejoin_due, mut surface_lost) = (false, false);
+    let mut replay: Option<reconnect::Replay> = None;
     raw_marker("APPHOST: event loop armed");
     // The app is up: fold the bring-up markers into their verdict line.
     nexus_abi::service_verdict_flush("app-host");
     loop {
+        if rejoin_due || reconnect::back_kept() {
+            rejoin_due = false;
+            let Some(back) = reconnect::rejoin(&client, &events, &mut win) else {
+                raw_marker("APPHOST: FAIL rejoin (event channel gone) - exiting");
+                return Err("apphost: event channel gone");
+            };
+            // The rect first — it re-creates the surface — then the attach's snapshot.
+            pending_rect = Some(back.rect);
+            replay = back.snapshot;
+            (surface_lost, present_in_flight, last_settings_gen) = (true, false, None);
+            raw_marker("APPHOST: compositor back (reattached)");
+            continue;
+        }
         // A rect stashed during an ack wait (`recv_ack`) is replayed here
         // as if it had just been received — same resize path, no drop.
         let len = if let Some((inset, rw, rh)) = pending_rect.take() {
@@ -314,6 +301,8 @@ pub(super) fn run() -> Result<(), &'static str> {
             let f = wire::encode_surface_rect(0, inset, rw, rh);
             event_frame[..f.len()].copy_from_slice(&f);
             f.len()
+        } else if let Some(frame) = replay.take() {
+            frame.copy_into(&mut event_frame)
         } else {
             // The wait — no clock: the timer for the clock (if the app declares one), then
             // the waitset; the recv that follows is non-blocking and EOF-opted.
@@ -327,9 +316,15 @@ pub(super) fn run() -> Result<(), &'static str> {
                 }
                 None => Wait::Blocking,
             };
-            match events.recv_into_eof(wait, &mut event_frame) {
-                Ok(len) => {
+            match events.recv_into_with_cap(wait, &mut event_frame, true) {
+                Ok((len, cap)) => {
                     recv_err_marked = false;
+                    let len = len.min(event_frame.len());
+                    // Only a create's answer moves a capability (`boot::create_surface` waits
+                    // for it) — and a BACK, kept for the rejoin; any other is closed.
+                    if reconnect::take_cap(&event_frame[..len], cap) {
+                        continue;
+                    }
                     len
                 }
                 Err(nexus_ipc::IpcError::Timeout) | Err(nexus_ipc::IpcError::WouldBlock) => {
@@ -344,14 +339,16 @@ pub(super) fn run() -> Result<(), &'static str> {
                             dirty_rows = None;
                         }
                         // A grown store waits for the re-create (a pulse wakes the loop's tail).
-                        if dsl.store_replan {
+                        if surface_lost {
+                            // Nothing to show it on until the rejoin made the surface again.
+                        } else if dsl.store_replan {
                             let req = wire::encode_surface_frame_req(surface_id);
                             let _ = client.send(&req, Wait::Blocking);
                         } else if dirty && !present_in_flight {
                             match dsl.present_frame(
                                 &client,
                                 surface_id,
-                                vmo,
+                                &mut mem,
                                 &mut seq,
                                 Some(dirty_rows),
                             ) {
@@ -366,16 +363,14 @@ pub(super) fn run() -> Result<(), &'static str> {
                 }
                 Err(nexus_ipc::IpcError::Disconnected)
                 | Err(nexus_ipc::IpcError::Kernel(nexus_abi::IpcError::NoSuchEndpoint)) => {
-                    // The compositor released our event channel: the window is
-                    // gone (user close). The app's lifetime IS its window —
-                    // exit cleanly so the kernel frees the process (the
-                    // app-side half of the reaper, #29). Spinning on the dead
-                    // channel would burn the core forever instead.
-                    // TASK-0333 6e-1: the durable fields go to the app's own record first — the
-                    // state route outlives the window (statefsd, not the compositor, answers).
-                    persist::save_app(app.as_ref(), persist::Reason::Close);
-                    raw_marker("APPHOST: window closed - exiting");
-                    return Ok(());
+                    // RFC-0112: the channel ran dry with no CLOSED before it — the compositor
+                    // died (a window closed on purpose says so first, below). The durable fields
+                    // go to the app's own record (TASK-0333 6e-1: statefsd answers, not the
+                    // compositor), then the loop waits for the next compositor.
+                    persist::save_app(app.as_ref(), persist::Reason::Compositor);
+                    raw_marker("apphost: compositor gone (waiting)");
+                    rejoin_due = true;
+                    continue;
                 }
                 Err(_) => {
                     if !recv_err_marked {
@@ -387,14 +382,30 @@ pub(super) fn run() -> Result<(), &'static str> {
                 }
             }
         };
-        // Shared surface re-create trigger (WM resize / band change).
+        // RFC-0112: the compositor closed the window on purpose. The app's lifetime IS its
+        // window: the durable fields go to its own record, then the process ends for execd to
+        // reap (#29) — spinning on the closed channel would burn the core instead.
+        if nexus_display_proto::surface_restart::is_surface_closed(&event_frame[..len]) {
+            persist::save_app(app.as_ref(), persist::Reason::Close);
+            raw_marker("APPHOST: window closed - exiting");
+            return Ok(());
+        }
+        // Shared surface re-create trigger (WM resize / band change / a rejoin).
         let mut recreate_surface = false;
         // Classify the frame: present-ack (flow control) vs input vs theme vs other.
-        if wire::decode_surface_ack(&event_frame[..len], wire::OP_SURFACE_PRESENT).is_some() {
-            present_in_flight = false;
+        if let Some((status, acked)) =
+            wire::decode_surface_ack(&event_frame[..len], wire::OP_SURFACE_PRESENT)
+        {
+            // The ack of the present in flight is the release of the other slot (RFC-0114 §5):
+            // the next frame may be drawn there. Any other seq names no present of this surface.
+            if acked == seq {
+                present_in_flight = false;
+            }
+            marker::present_nack(status, acked, &mut odd_frame_markers);
         } else if let Some((_, inset, rw, rh)) = wire::decode_surface_rect(&event_frame[..len]) {
             // WM resize (the compositor owns geometry): re-layout at the
-            // new size, then run the SHARED surface re-create below.
+            // new size, then run the SHARED surface re-create below — after a rejoin at any size.
+            recreate_surface = surface_lost;
             let (nw, nh) = (u32::from(rw), u32::from(rh));
             // The safe area rides the SAME frame as the size, so a maximize
             // never shows one without the other.
@@ -555,74 +566,78 @@ pub(super) fn run() -> Result<(), &'static str> {
                 dirty = true;
                 dirty_rows = None;
             }
-        } else if odd_frame_markers < 8 {
-            // Unrelated frame — bounded marker WITH IDENTITY (magic/op/
-            // len): seven anonymous skips cost a debugging session.
-            odd_frame_markers += 1;
-            let (m0, m1, op) = (
-                event_frame.first().copied().unwrap_or(0),
-                event_frame.get(1).copied().unwrap_or(0),
-                event_frame.get(3).copied().unwrap_or(0),
-            );
-            raw_marker(&alloc::format!(
-                "apphost: event frame skipped m={m0:02x}{m1:02x} op={op} len={len}"
-            ));
+        } else {
+            marker::odd_frame(&event_frame[..len], &mut odd_frame_markers);
         }
         // A layer set whose bands outgrew the surface's rows (planned at the relayout)
         // re-creates the surface (same flow as a WM resize, same size).
         if app.as_mut().is_some_and(|dsl| core::mem::take(&mut dsl.store_replan)) {
             recreate_surface = true;
         }
-        // SHARED surface re-create (WM resize / a store that outgrew it): plan the store, new
-        // VMO, destroy + create + the structure + a full present.
-        if recreate_surface && app.is_some() {
-            let flat = band::StorePlan { rows: surf_h, width: 0 };
-            let plan = app.as_mut().map_or(flat, |d| d.plan_for_create());
-            if let Ok(nv) = vmo_create(surf_w as usize * plan.rows as usize * 4) {
-                let _ = send_wait(&client, &wire::encode_surface_destroy(surface_id));
-                let _ = nexus_abi::cap_close(vmo);
-                vmo = nv;
-                if let Ok(clone) = cap_clone(vmo) {
-                    let create = boot::create_frame((surf_w, surf_h), &win, resizable, plan);
-                    if send_wait_cap(&client, &create, clone).is_ok() {
-                        let mut late_region: Option<boot::RegionPush> = None;
-                        let ack = recv_ack(
-                            &events,
-                            wire::OP_SURFACE_CREATE,
-                            &mut pending_rect,
-                            &mut late_region,
-                        );
-                        if let (Some(dsl), Some(r)) = (app.as_mut(), late_region.take()) {
-                            let _ = dsl.apply_region(r.hour_fmt, &r.locale, &r.tz, &r.keymap);
-                            last_region = Some(r);
-                        }
-                        if let Ok(ack) = ack {
-                            surface_id = ack.value;
-                            if let Some(dsl) = app.as_mut() {
-                                dsl.set_surface_id(surface_id);
-                                // Everything is drawn again below — flat without a store.
-                                let _ = dsl.created(ack.store, plan);
-                                // The new surface declares its layers anew (windowd cleared
-                                // them at create).
-                                dsl.tree_dirty = true;
-                                dsl.motion_dirty = true;
-                            }
-                            // The fresh surface's seq restarts at 0 on the windowd side (strict
-                            // last_seq+1): ours too, or the next present is rejected BAD_SEQ.
-                            seq = 0;
-                            present_in_flight = false;
-                            (dirty, dirty_rows) = (true, None); // everything, into the new rows
+        // SHARED surface re-create (WM resize / a store that outgrew it): plan the store, destroy
+        // + create — a new buffer from gpud (RFC-0114), the old one unmapped once the new one is
+        // here (windowd shows the old surface's last frame until the new one presents) — then
+        // the structure and a full present.
+        if recreate_surface {
+            if let Some(dsl) = app.as_mut() {
+                let plan = dsl.plan_for_create();
+                // A lost surface died with its compositor: nothing to destroy.
+                if !surface_lost {
+                    let _ = send_wait(&client, &wire::encode_surface_destroy(surface_id));
+                }
+                let mut late_region: Option<boot::RegionPush> = None;
+                let made = boot::create_surface(
+                    (&client, &events),
+                    ((surf_w, surf_h), &win, resizable),
+                    dsl,
+                    plan,
+                    (&mut pending_rect, &mut late_region),
+                );
+                if let Some(r) = late_region.take() {
+                    let _ = dsl.apply_region(r.hour_fmt, &r.locale, &r.tz, &r.keymap);
+                    last_region = Some(r);
+                }
+                match made {
+                    Ok((id, new_mem)) => {
+                        surface_id = id;
+                        mem = new_mem;
+                        dsl.set_surface_id(surface_id);
+                        // The new surface declares its layers anew (windowd cleared them).
+                        dsl.tree_dirty = true;
+                        dsl.motion_dirty = true;
+                        // The fresh surface's seq restarts at 0 on the windowd side (strict
+                        // last_seq+1): ours too, or the next present is rejected BAD_SEQ.
+                        seq = 0;
+                        present_in_flight = false;
+                        (dirty, dirty_rows) = (true, None); // everything, into the new buffer
+                        if core::mem::take(&mut surface_lost) {
+                            // The new compositor routes no key here until it hears the focus.
+                            dsl.reannounce_text_focus(&client, surface_id);
+                            raw_marker("apphost: surface re-created");
+                        } else {
                             raw_marker("apphost: resized");
-                            // Fresh surface id: re-arm parked pulses.
-                            if app.as_ref().map(|d| d.anim_active()).unwrap_or(false) {
-                                let req = wire::encode_surface_frame_req(surface_id);
-                                let _ = client.send(&req, Wait::Blocking);
-                            }
+                        }
+                        // Fresh surface id: re-arm parked pulses.
+                        if dsl.anim_active() {
+                            let req = wire::encode_surface_frame_req(surface_id);
+                            let _ = client.send(&req, Wait::Blocking);
                         }
                     }
+                    // The compositor went (again): the rejoin waits for the next one.
+                    Err(boot::CreateFailed::Gone) => surface_lost = true,
+                    Err(boot::CreateFailed::Closed) => {
+                        persist::save_app(Some(dsl), persist::Reason::Close);
+                        raw_marker("APPHOST: window closed - exiting");
+                        return Ok(());
+                    }
+                    Err(boot::CreateFailed::Refused(m)) if surface_lost => {
+                        // No window any more — the launch's fail-closed rule.
+                        persist::save_app(Some(dsl), persist::Reason::Close);
+                        raw_marker("APPHOST: FAIL surface after rejoin - exiting");
+                        return Err(m);
+                    }
+                    Err(boot::CreateFailed::Refused(m)) => raw_marker(m),
                 }
-            } else {
-                raw_marker("apphost: FAIL resize vmo");
             }
         }
         // Coalesced present: render + present the latest model once the
@@ -630,14 +645,14 @@ pub(super) fn run() -> Result<(), &'static str> {
         // clears the in-flight slot, so a tap that arrived mid-present is
         // shown without waiting for the next input. A held drag computes
         // only its newest position, here (`probe/drag.rs`).
-        if let (false, Some(dsl)) = (present_in_flight, app.as_mut()) {
+        if let (false, Some(dsl)) = (present_in_flight || surface_lost, app.as_mut()) {
             dsl.drag_flush(&client, surface_id, &mut dirty, &mut dirty_rows);
         }
-        if let (false, Some(dsl)) = (present_in_flight, app.as_mut()) {
+        if let (false, Some(dsl)) = (present_in_flight || surface_lost, app.as_mut()) {
             if dirty || dsl.bands_pending() || dsl.tree_dirty {
                 let change = core::mem::take(&mut dirty).then_some(dirty_rows.take());
                 let full = change == Some(None);
-                match dsl.present_frame(&client, surface_id, vmo, &mut seq, change) {
+                match dsl.present_frame(&client, surface_id, &mut mem, &mut seq, change) {
                     Ok(sent) => present_in_flight = sent,
                     Err(m) => raw_marker(m),
                 }
@@ -653,7 +668,7 @@ pub(super) fn run() -> Result<(), &'static str> {
             }
         }
         // The motion — offsets, the wash — in effect at once (after any structure it names).
-        if let Some(dsl) = app.as_mut() {
+        if let (false, Some(dsl)) = (surface_lost, app.as_mut()) {
             if dsl.motion_dirty {
                 dsl.send_motion(&client, surface_id);
             }

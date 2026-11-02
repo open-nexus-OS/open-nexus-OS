@@ -162,10 +162,20 @@ pub(super) fn drain_region(events: &KernelClient, slot: &mut Option<RegionPush>)
         return;
     }
     let mut frame = [0u8; 96];
-    while let Ok(len) = events.recv_into(Wait::NonBlocking, &mut frame) {
-        if stash_region(&frame[..len], slot) {
+    while let Ok((len, cap)) = events.recv_into_with_cap(Wait::NonBlocking, &mut frame, false) {
+        close_moved(cap);
+        if stash_region(&frame[..len.min(frame.len())], slot) {
             break;
         }
+    }
+}
+
+/// A capability that moved with a frame a launch's handshake has no use for is closed — kept, it
+/// would be a sender of the app's own channel and its EOF would never come. A compositor that
+/// died during the launch (its BACK among them) thereby ends the launch's next wait.
+fn close_moved(cap: Option<u32>) {
+    if let Some(cap) = cap {
+        let _ = nexus_abi::cap_close(cap);
     }
 }
 
@@ -216,7 +226,9 @@ pub(super) fn wait_for_boot_pushes(
 /// the channel's only sender, is gone (last-sender EOF, RFC-0079). No clock (TASK-0324
 /// P7-b): the compositor's answer or its death, nothing else, ends a boot handshake.
 pub(super) fn recv_event(events: &KernelClient, frame: &mut [u8]) -> Result<usize, ()> {
-    events.recv_into_eof(Wait::Blocking, frame).map_err(|_| ())
+    let (len, cap) = events.recv_into_with_cap(Wait::Blocking, frame, true).map_err(|_| ())?;
+    close_moved(cap);
+    Ok(len.min(frame.len()))
 }
 
 /// Reads the app's window intent from the payload as the `WIN_*` wire tags
@@ -245,6 +257,22 @@ pub(super) fn read_window_intent_tags(nxir: &[u8]) -> (u8, u8, u8) {
         _ => wire::WIN_MODE_AUTO,
     };
     (style, level, mode)
+}
+
+/// The page base's alpha for a window of `level`/`mode` (declarative base alpha). A DESKTOP
+/// surface paints a fully TRANSPARENT base — windowd blends the band over the retained wallpaper
+/// plane, so empty desktop area IS the wallpaper. The OSK band (overlay) and a fullscreen
+/// floating surface (a kiosk app) stay opaque: keys never blend with what lies below, a kiosk
+/// owns every pixel. A frosted floating window leaves ~1/3 of the blurred backdrop visible (190
+/// read as a solid slab; opaque ELEMENTS still paint fully on top).
+pub(super) fn base_alpha(level: u8, mode: u8) -> u8 {
+    if level == wire::WIN_LEVEL_DESKTOP {
+        0
+    } else if level == wire::WIN_LEVEL_OVERLAY || mode == wire::WIN_MODE_FULLSCREEN {
+        255
+    } else {
+        168
+    }
 }
 
 /// The declared window intent for one geometry handshake, kept together so the
@@ -332,22 +360,6 @@ pub(super) fn send_wait(client: &KernelClient, frame: &[u8]) -> Result<(), &'sta
     Err("apphost: send failed")
 }
 
-/// [`send_wait`] with one capability moved alongside the frame.
-pub(super) fn send_wait_cap(
-    client: &KernelClient,
-    frame: &[u8],
-    cap: u32,
-) -> Result<(), &'static str> {
-    if nexus_ipc::exchange::send_with_cap(client.slots().0, frame, cap).is_ok() {
-        return Ok(());
-    }
-    let _ = debug_println("apphost: FAIL create send");
-    Err("apphost: create send failed")
-}
-
-/// WAITS for the matching ack (skips unrelated frames on the shared
-/// response channel). Bounded by TIME — windowd's bring-up decides when
-/// the ack arrives; the kernel wakes us per frame. Returns the ack value on OK.
 /// The create frame of this app's surface (RFC-0109): its size, its declared intent, its nonce
 /// and the store `plan` takes.
 pub(super) fn create_frame(
@@ -370,45 +382,145 @@ pub(super) fn create_frame(
     })
 }
 
-/// An ack's value, and — for a create — whether windowd placed the surface's store (RFC-0109:
-/// `NO_STORE` is a create that placed the base alone).
-#[derive(Clone, Copy)]
-pub(super) struct Ack {
-    pub(super) value: u32,
-    pub(super) store: bool,
+/// Why a create came to nothing.
+pub(super) enum CreateFailed {
+    /// The compositor is gone (a send to it failed, its channel closed, or a new one is back):
+    /// the window waits for the next one (RFC-0112).
+    Gone,
+    /// The compositor refused the surface, or its buffer could not be mapped.
+    Refused(&'static str),
+    /// The compositor closed the window on purpose while the create waited (RFC-0112).
+    Closed,
 }
 
+impl From<CreateFailed> for &'static str {
+    fn from(failed: CreateFailed) -> Self {
+        match failed {
+            CreateFailed::Gone => "apphost: compositor gone during create",
+            CreateFailed::Refused(why) => why,
+            CreateFailed::Closed => "apphost: window closed during create",
+        }
+    }
+}
+
+/// The surface for `plan` (RFC-0114 §3): the create — no capability rides with it — and
+/// windowd's answer, the buffer gpud made for this app with its capability moved along, mapped.
+/// A refusal for want of memory while the plan has a store asks once more without one (every
+/// scroll layer flat); any other refusal ends the launch. Returns the surface's id and buffer.
+pub(super) fn create_surface(
+    (client, events): (&KernelClient, &KernelClient),
+    (size, win, resizable): ((u32, u32), &WindowIntent, bool),
+    dsl: &mut DslApp,
+    plan: band::StorePlan,
+    (pending_rect, region): (&mut Option<(u16, u16, u16)>, &mut Option<RegionPush>),
+) -> Result<(u32, super::surface_mem::SurfaceMem), CreateFailed> {
+    let mut plan = plan;
+    loop {
+        send_wait(client, &create_frame(size, win, resizable, plan))
+            .map_err(|_| CreateFailed::Gone)?;
+        let (b, cap) = recv_buffers(events, pending_rect, region)?;
+        match cap {
+            Some(cap) if b.status == wire::SURFACE_STATUS_OK => {
+                let mem =
+                    super::surface_mem::SurfaceMem::map(&b, cap).map_err(CreateFailed::Refused)?;
+                dsl.created(plan);
+                if crate::proof_line::SURFACE_MAPPED.claim() {
+                    raw_marker(&alloc::format!(
+                        "apphost: surface mapped (id={} slots={} stride={} rows={} bytes={} clean={})",
+                        b.surface_id,
+                        b.slots,
+                        b.stride,
+                        b.rows,
+                        mem.bytes(),
+                        b.cache_block
+                    ));
+                }
+                return Ok((b.surface_id, mem));
+            }
+            refused => {
+                if let Some(cap) = refused {
+                    let _ = nexus_abi::cap_close(cap);
+                }
+                if b.status == wire::SURFACE_STATUS_QUOTA
+                    && plan.rows > size.1
+                    && !dsl.store_refused
+                {
+                    plan = dsl.refuse_store();
+                    continue;
+                }
+                let _ = debug_println("apphost: FAIL surface refused");
+                return Err(CreateFailed::Refused("apphost: surface refused"));
+            }
+        }
+    }
+}
+
+/// WAITS for windowd's answer to a create (`OP_SURFACE_BUFFERS`) and the capability that moved
+/// with it. A content rect or a region push interleaving with it is stashed for the event loop;
+/// anything else waits for the loop that asked for it (a capability with it is closed). A BACK
+/// ends the wait — its SEND is kept for the rejoin: the compositor asked died — and so does a
+/// CLOSED: the window went on purpose while it waited (RFC-0112).
+fn recv_buffers(
+    events: &KernelClient,
+    pending_rect: &mut Option<(u16, u16, u16)>,
+    region: &mut Option<RegionPush>,
+) -> Result<(wire::Buffers, Option<u32>), CreateFailed> {
+    let mut frame = [0u8; 96];
+    while let Ok((len, cap)) = events.recv_into_with_cap(Wait::Blocking, &mut frame, true) {
+        let len = len.min(frame.len());
+        if let Some(b) = wire::decode_surface_buffers(&frame[..len]) {
+            return Ok((b, cap));
+        }
+        if super::reconnect::take_cap(&frame[..len], cap) {
+            return Err(CreateFailed::Gone);
+        }
+        if nexus_display_proto::surface_restart::is_surface_closed(&frame[..len]) {
+            return Err(CreateFailed::Closed);
+        }
+        stash_interleaved(&frame[..len], pending_rect, region);
+    }
+    let _ = debug_println("apphost: create answer channel closed");
+    Err(CreateFailed::Gone)
+}
+
+/// A content rect interleaving with an answer (windowd pushes it INSIDE create handling, so it
+/// precedes the answer on this channel): the LATEST is stashed for the event loop — dropped, the
+/// surface stayed at the probe size forever. The attach-time region push races the answers for
+/// LAUNCHED apps (no content-rect wait ran): stashed too, or fresh mounts stay un-localized.
+fn stash_interleaved(
+    frame: &[u8],
+    pending_rect: &mut Option<(u16, u16, u16)>,
+    region: &mut Option<RegionPush>,
+) {
+    if let Some((_, inset, w, h)) = wire::decode_surface_rect(frame) {
+        *pending_rect = Some((inset, w, h));
+        return;
+    }
+    let _ = stash_region(frame, region);
+}
+
+/// WAITS for the ack of `op` (a present's: the release of the other slot); its value on OK.
 pub(super) fn recv_ack(
     client: &KernelClient,
     op: u8,
     pending_rect: &mut Option<(u16, u16, u16)>,
     region: &mut Option<RegionPush>,
-) -> Result<Ack, &'static str> {
+) -> Result<u32, &'static str> {
     // 96: an RFC-0083 snapshot (max 70 bytes) may race the ack on this
     // channel — a 64-byte buffer would truncate it into an undecodable frame.
     let mut frame = [0u8; 96];
-    while let Ok(len) = client.recv_into(Wait::Blocking, &mut frame) {
+    // EOF asked: a compositor that dies before it acks ends the launch (no clock otherwise).
+    while let Ok((len, cap)) = client.recv_into_with_cap(Wait::Blocking, &mut frame, true) {
+        close_moved(cap);
+        let len = len.min(frame.len());
         if let Some((status, value)) = wire::decode_surface_ack(&frame[..len], op) {
-            if status == wire::SURFACE_STATUS_OK || status == wire::SURFACE_STATUS_NO_STORE {
-                return Ok(Ack { value, store: status == wire::SURFACE_STATUS_OK });
+            if status == wire::SURFACE_STATUS_OK {
+                return Ok(value);
             }
             let _ = debug_println("apphost: FAIL surface ack status");
             return Err("apphost: ack status");
         }
-        // A content rect interleaving with the ack (windowd pushes
-        // it INSIDE create handling, so it precedes the create-ack
-        // on this channel): stash the LATEST for the event loop.
-        // Dropping it left the surface at the probe size forever.
-        if let Some((_, inset, w, h)) = wire::decode_surface_rect(&frame[..len]) {
-            *pending_rect = Some((inset, w, h));
-            continue;
-        }
-        // The attach-time region push races the create/present acks
-        // for LAUNCHED window apps (no content-rect wait ran) —
-        // stash it or fresh mounts stay un-localized (the chat-app
-        // English-despite-de finding, RFC-0075 Phase 8b).
-        let _ = stash_region(&frame[..len], region);
-        // Unrelated frame on the shared channel — keep waiting.
+        stash_interleaved(&frame[..len], pending_rect, region);
     }
     let _ = debug_println("apphost: FAIL ack channel closed");
     Err("apphost: ack channel closed")

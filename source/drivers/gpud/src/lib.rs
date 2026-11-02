@@ -38,6 +38,15 @@ pub(crate) mod pressure;
 pub mod protocol;
 #[cfg(any(test, all(feature = "os-lite", target_os = "none")))]
 pub(crate) mod surface_pages;
+/// `OP_SURFACE_ALLOC` / `OP_SURFACE_FREE` in the request loop (RFC-0114 §2).
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+pub(crate) mod surface_serve;
+/// Where an app surface object lies in windowd's GPU context on the board (RFC-0114 §1).
+#[cfg(any(test, all(feature = "os-lite", target_os = "none")))]
+pub(crate) mod surface_va;
+/// The app surfaces gpud made for their owners (RFC-0114 §1–§2): ids, geometry, the deferred free.
+#[cfg(any(test, all(feature = "os-lite", target_os = "none")))]
+pub(crate) mod surfaces;
 
 /// Virgl 3D command-stream encoders (Phase 2). Compiled for the `virgl`
 /// feature build and for host unit tests; excluded from the 2D-only build so
@@ -82,6 +91,10 @@ pub mod virgl_vector;
 #[cfg(feature = "virgl")]
 pub mod virgl_composite;
 mod virgl_composite_selftest;
+/// The app surfaces on virgl: one host texture per object, its rows sent when they changed
+/// (RFC-0114 §1, §6).
+#[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+pub(crate) mod virgl_surfaces;
 
 /// CPU fallback for the vector pipeline (non-virgl 2D path).
 pub mod cpu_vector;

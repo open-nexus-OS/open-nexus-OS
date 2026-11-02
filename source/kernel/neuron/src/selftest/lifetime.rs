@@ -66,6 +66,9 @@ pub(super) fn run_lifetime_selftests(ctx: &mut Context<'_>) {
     run_peer_closed_send(ctx);
     run_exit_releases(ctx);
     run_child_exit_notify(ctx);
+    // RFC-0112 (amendment 2026-11-02): transfers only into one's own child, REPLACE_DEAD, and
+    // what a dead endpoint's queue carried released at its death.
+    super::cap_rules::run_cap_rules_selftests(ctx);
     run_unmap_reclaim(ctx);
     // TASK-0333 6d (ADR-0082): the process orders and their refusals, in the same session.
     super::process_ctl::run_process_ctl_selftests(ctx);

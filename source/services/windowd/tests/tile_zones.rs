@@ -9,7 +9,8 @@
 
 use windowd::zones::{
     release_zone_at, request_from_code, return_frame_under_pointer, zone_frame, Arrangement, Zone,
-    ZoneRequest, CODE_ARRANGE_LEFT_RIGHT, CODE_CLOSE, CODE_FILL, CODE_MINIMIZE, CODE_RETURN,
+    ZoneRequest, CODE_ARRANGE_LEFT_RIGHT, CODE_CLOSE, CODE_FILL, CODE_MINIMIZE, CODE_RESTART,
+    CODE_RETURN,
 };
 
 const MODES: [(u32, u32, i32); 3] = [(1280, 800, 36), (1920, 1080, 36), (1280, 744, 36)];
@@ -115,6 +116,12 @@ fn registry_window_codes_are_the_zone_codes() {
         };
         assert_eq!(request_from_code(code), Some(request), "{id}");
     }
+    // RFC-0112: the desktop's restart is a key fact of its own, never a window verb.
+    let Some(Action::Window(code)) = by_id("window.restartDesktop").map(|e| e.action) else {
+        panic!("window.restartDesktop is no window entry");
+    };
+    assert_eq!(code, CODE_RESTART);
+    assert_eq!(request_from_code(code), None, "the restart is no zone request");
     let codes = [
         CODE_LEFT_HALF,
         CODE_RIGHT_HALF,
@@ -126,6 +133,7 @@ fn registry_window_codes_are_the_zone_codes() {
         CODE_RETURN,
         CODE_MINIMIZE,
         CODE_CLOSE,
+        CODE_RESTART,
     ];
     for entry in SHORTCUTS {
         if let Action::Window(code) = entry.action {

@@ -15,6 +15,15 @@ use super::*;
 
 use super::errno::*;
 
+/// The syscalls whose expensive middle runs with the BKL dropped — the one list both dispatch
+/// sites of the trap handler read.
+pub(super) fn is_phased(nr: usize) -> bool {
+    use crate::syscall::{
+        SYSCALL_EXEC_VMO, SYSCALL_VMO_CLEAN, SYSCALL_VMO_CREATE, SYSCALL_VM_UNMAP,
+    };
+    matches!(nr, SYSCALL_VMO_CREATE | SYSCALL_EXEC_VMO | SYSCALL_VM_UNMAP | SYSCALL_VMO_CLEAN)
+}
+
 /// Spin-reacquire the BKL after a phased syscall dropped it (phase B).
 fn reacquire_kernel() -> super::runtime::KernelGuard {
     loop {
@@ -142,6 +151,48 @@ pub(super) fn phased_syscall(
                 f.sepc = f.sepc.wrapping_add(4);
                 f.x[10] = value;
             }
+        }
+        return kernel;
+    }
+    if nr == crate::syscall::SYSCALL_VMO_CLEAN {
+        // ADR-0092. Phase A (BKL): check the capability and the range, note the job. Phase B:
+        // clean with the BKL dropped — `cbo.clean` changes no memory, a frame recycled meanwhile
+        // only gets a redundant write-back. Phase C: the result.
+        let (pid, planned) = {
+            let (scheduler, tasks, router, spaces, timer, hart_timers, waitsets, fences) =
+                kernel.parts();
+            let mut ctx = api::Context::new(
+                scheduler,
+                tasks,
+                router,
+                spaces,
+                timer,
+                hart_timers,
+                waitsets,
+                fences,
+            );
+            let pid = ctx.tasks.current_pid();
+            if let Some(task) = ctx.tasks.task_mut(pid) {
+                *task.frame_mut() = *frame;
+            }
+            record(frame);
+            (pid, api::vmo_clean_plan(&mut ctx, &args))
+        };
+        let value = match planned {
+            Ok(Some(job)) => {
+                drop(kernel);
+                crate::mm::vmo::clean::run(&job);
+                kernel = reacquire_kernel();
+                0
+            }
+            Ok(None) => 0,
+            Err(err) => encode_error(err),
+        };
+        let (_, tasks, ..) = kernel.parts();
+        if let Some(task) = tasks.task_mut(pid) {
+            let f = task.frame_mut();
+            f.sepc = f.sepc.wrapping_add(4);
+            f.x[10] = value;
         }
         return kernel;
     }

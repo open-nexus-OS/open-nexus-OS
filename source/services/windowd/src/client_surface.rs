@@ -1,23 +1,29 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: ADR-0042 client-surface bookkeeping — the pure, host-tested state
-//! machine behind windowd's cross-process surface transport: surface table
-//! (R1: one slot), create validation (format/bounds/quota), strict seq/ack
-//! flow control (one un-acked present in flight), damage clamping. The OS
-//! blit (vmo_read → atlas rows) lives in the compositor runtime; this module
-//! decides, the runtime moves pixels.
+//! CONTEXT: The client surfaces windowd composes (ADR-0042; by reference since RFC-0114) — the
+//! pure, host-tested state machine: the surface table (it grows with the surfaces; ids are never
+//! reused), create validation, the surface's BUFFER once gpud made it, strict seq flow control
+//! (one present in flight per surface), damage clamped to the surface's rows, and the SLOT
+//! LEDGER — which slot the frames read and when a present's ack, the release, is due. No pixel
+//! moves here or anywhere in windowd: a frame names the surface's buffer and slot, and the GPU
+//! reads the app's memory.
 //! OWNERS: @ui @runtime
-//! STATUS: Experimental (TASK-0080D R1)
-//! API_STABILITY: Unstable
-//! TEST_COVERAGE: 6 tests
-//! ADR: docs/adr/0042-cross-process-surface-transport.md
+//! STATUS: Functional
+//! API_STABILITY: Internal
+//! TEST_COVERAGE: tests below (`surface_release_*`, the bounds, `test_reject_*`)
+//! ADR: docs/adr/0092-a-surface-is-a-buffer-the-app-draws-and-the-gpu-reads-gpud-allocates-it-for-its-owner-windowd-composes-by-reference.md
+
+extern crate alloc;
+
+use alloc::vec::Vec;
 
 use nexus_display_proto::client_surface::{
     DamageRect, FORMAT_BGRA8888, INPUT_KIND_RELEASE, INPUT_KIND_TAP, INPUT_KIND_WHEEL,
     MAX_DAMAGE_RECTS, SURFACE_STATUS_BAD_SEQ, SURFACE_STATUS_BAD_SURFACE, SURFACE_STATUS_MALFORMED,
     SURFACE_STATUS_QUOTA,
 };
+use nexus_display_proto::surface_alloc::SLOTS_MAX;
 
 /// What a frame is to the client it goes to (TASK-0306, ADR-0075 — TASK-0339).
 ///
@@ -62,18 +68,64 @@ impl Delivery {
     }
 }
 
-/// Bounds for app surfaces (ADR-0037's MAX_APP_SURFACES caps the count when the
-/// table grows past one). Sized to the display so an app can go TRUE fullscreen
-/// (the "□" toggle re-creates its surface at display size — see
-/// `wm::toggle_fullscreen`). This is only a validation ceiling: the atlas band is
-/// allocated at the CONTENT size (`app_window::open_app_window`, after the frame
-/// is content-sized), and fullscreen skips the cached-blur band, so the ceiling
-/// does NOT reserve display-sized rows per window.
+/// Bounds for app surfaces: the layout's size, so an app can go TRUE fullscreen (the "□" toggle
+/// re-creates its surface at display size — `wm::toggle_fullscreen`). A validation ceiling only:
+/// a surface's buffer is made at its own size (gpud's size class, RFC-0114 §1).
 pub const MAX_SURFACE_W: u16 = nexus_display_proto::layout::LAYOUT_MAX.0 as u16;
 /// A surface's visible height. Its ROWS (base + store, RFC-0109) are bounded by
 /// `nexus_display_proto::surface_layers::MAX_SURFACE_ROWS`.
 pub const MAX_SURFACE_H: u16 = nexus_display_proto::layout::LAYOUT_MAX.1 as u16;
 pub const MIN_SURFACE_DIM: u16 = 16;
+
+/// A surface's buffer as windowd names it (RFC-0114 §1): gpud's object of `slots` slots, each
+/// `rows` rows of `stride` bytes and at most `width` pixels wide.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SurfaceBuffer {
+    /// gpud's id of the object in windowd's context — a layer's `source` (never 0).
+    pub source: u32,
+    pub stride: u32,
+    pub width: u16,
+    pub rows: u16,
+    pub slots: u8,
+    /// The cache line the app cleans its writes in (`0`: the GPU snoops the caches) — the
+    /// app's to know, carried with the create's answer.
+    pub cache_block: u16,
+}
+
+/// What a frame draws of a surface: its buffer, the slot of its newest present, and that
+/// present's seq — the content's generation (a layer's `content_epoch`, RFC-0114 §6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Shown {
+    pub buffer: SurfaceBuffer,
+    pub slot: u8,
+    pub generation: u32,
+}
+
+/// `frame` is at or before `retired` on the present sequence (which wraps).
+const fn done(frame: u32, retired: u32) -> bool {
+    retired.wrapping_sub(frame) < u32::MAX / 2
+}
+
+/// Which frames read which slot, and the present whose ack waits (RFC-0114 §5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+struct SlotLedger {
+    /// The slot of the newest accepted present: the slot the frames read.
+    latest: Option<u8>,
+    /// Per slot, the last frame (windowd's present to gpud) that read it.
+    read_by: [Option<u32>; SLOTS_MAX as usize],
+    /// The present whose ack waits until every other slot is free, and when it came.
+    owed: Option<(u32, u64)>,
+}
+
+impl SlotLedger {
+    /// Every slot but the newest is read by no frame still in flight: the app may draw into any
+    /// of them.
+    fn others_free(&self, slots: u8, retired: u32) -> bool {
+        (0..slots)
+            .filter(|k| self.latest != Some(*k))
+            .all(|k| self.read_by[usize::from(k)].is_none_or(|f| done(f, retired)))
+    }
+}
 
 /// One live client surface.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,74 +138,70 @@ pub struct ClientSurface {
     pub rows: u16,
     /// The store's used width: its rows' columns `[0, store_w)` (`0`: no store).
     pub store_w: u16,
-    /// The app's surface VMO capability slot in windowd's table (moved in
-    /// with `SURFACE_CREATE`).
-    pub vmo_slot: u32,
-    /// Last acked present sequence number (0 = none yet).
+    /// The surface's buffer, once gpud made it (`None`: the create waits for gpud's answer).
+    pub buffer: Option<SurfaceBuffer>,
+    /// windowd's capability to the buffer until the app holds it (moved with
+    /// `OP_SURFACE_BUFFERS`).
+    pub buffer_cap: Option<u32>,
+    /// Last accepted present sequence number (0 = none yet).
     pub last_seq: u32,
+    /// The client dropped the surface (`SURFACE_DESTROY`): it takes no present, and its last
+    /// frame shows until its successor's first present or the window's close.
+    pub retiring: bool,
+    ledger: SlotLedger,
 }
 
-/// Maximum concurrently-resident client surfaces. Bounded (each surface owns a
-/// VMO cap + an atlas band): enough for the desktop shell + greeter + a handful
-/// of app windows coexisting. The single-`Option` era (R1: exactly one probe
-/// app) is retired — the desktop-shell / greeter / app-window app-hosts each
-/// own a surface (RFC-0065 multi-window). Callers address surfaces by id.
-pub const MAX_APP_SURFACES: usize = 8;
+impl ClientSurface {
+    /// What a frame draws of it; `None` before its first present.
+    #[must_use]
+    pub fn shown(&self) -> Option<Shown> {
+        Some(Shown { buffer: self.buffer?, slot: self.ledger.latest?, generation: self.last_seq })
+    }
+}
 
-/// The surface table: up to [`MAX_APP_SURFACES`] live client surfaces, addressed
-/// by id. Each app-host (shell, greeter, an app) owns one; the compositor
-/// composes them per window/z-role. Ids are monotonic (never reused) so a stale
-/// id from a destroyed surface can never alias a new one.
-#[derive(Debug)]
+/// The surface table: every live client surface, addressed by id — it grows with the surfaces
+/// (the limits are memory's, RFC-0115, never a slot count). Ids are monotonic and never 0, so a
+/// stale id from a destroyed surface can never alias a new one.
+#[derive(Debug, Default)]
 pub struct ClientSurfaces {
-    surfaces: [Option<ClientSurface>; MAX_APP_SURFACES],
+    surfaces: Vec<ClientSurface>,
     next_id: u32,
 }
 
-impl Default for ClientSurfaces {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl ClientSurfaces {
+    #[cfg(test)]
     #[must_use]
     pub fn new() -> Self {
-        Self { surfaces: [None; MAX_APP_SURFACES], next_id: 1 }
+        Self::starting_at(1)
     }
 
-    /// The first live surface, if any. Back-compat accessor for the
-    /// single-surface render path (retired as the runtime models N windows);
-    /// new code addresses surfaces explicitly with [`Self::get_by_id`].
+    /// A table whose first id is `first` (never 0). The compositor seeds it with the
+    /// milliseconds since boot (RFC-0112): ids are handed out far slower than one a millisecond,
+    /// so a restarted compositor never reuses an id its predecessor gave out — a stale present
+    /// or a late buffer answer naming one finds no surface of a new client.
     #[must_use]
-    #[cfg_attr(not(test), allow(dead_code))] // documented back-compat accessor, exercised by host unit tests
-    pub fn get(&self) -> Option<&ClientSurface> {
-        self.surfaces.iter().flatten().next()
+    pub fn starting_at(first: u32) -> Self {
+        Self { surfaces: Vec::new(), next_id: first.max(1) }
     }
 
     /// The surface with `id`, if resident.
     #[must_use]
     pub fn get_by_id(&self, id: u32) -> Option<&ClientSurface> {
-        self.surfaces.iter().flatten().find(|s| s.id == id)
+        self.surfaces.iter().find(|s| s.id == id)
     }
 
-    /// Number of resident surfaces.
-    #[must_use]
-    #[cfg_attr(not(test), allow(dead_code))] // registry vocabulary, exercised by host unit tests
-    pub fn count(&self) -> usize {
-        self.surfaces.iter().flatten().count()
+    fn get_mut(&mut self, id: u32) -> Option<&mut ClientSurface> {
+        self.surfaces.iter_mut().find(|s| s.id == id)
     }
 
-    /// Validates and registers a surface in a free slot. Returns the new surface
-    /// id, or a wire status code (`MALFORMED` on bad format/bounds, `QUOTA` when
-    /// all [`MAX_APP_SURFACES`] slots are full).
+    /// Validates and registers a surface. Returns its id, or a wire status (`MALFORMED` on a bad
+    /// format or bounds, `QUOTA` when the table cannot grow).
     pub fn create(
         &mut self,
         width: u16,
         height: u16,
         (rows, store_w): (u16, u16),
         format: u8,
-        vmo_slot: u32,
     ) -> Result<u32, u8> {
         if format != FORMAT_BGRA8888 {
             return Err(SURFACE_STATUS_MALFORMED);
@@ -169,37 +217,82 @@ impl ClientSurfaces {
         {
             return Err(SURFACE_STATUS_MALFORMED);
         }
-        let Some(slot) = self.surfaces.iter_mut().find(|s| s.is_none()) else {
-            return Err(SURFACE_STATUS_QUOTA);
+        self.surfaces.try_reserve(1).map_err(|_| SURFACE_STATUS_QUOTA)?;
+        let id = loop {
+            let id = self.next_id;
+            self.next_id = self.next_id.wrapping_add(1).max(1);
+            if self.get_by_id(id).is_none() {
+                break id;
+            }
         };
-        let id = self.next_id;
-        self.next_id = self.next_id.wrapping_add(1).max(1);
-        *slot = Some(ClientSurface { id, width, height, rows, store_w, vmo_slot, last_seq: 0 });
+        self.surfaces.push(ClientSurface {
+            id,
+            width,
+            height,
+            rows,
+            store_w,
+            buffer: None,
+            buffer_cap: None,
+            last_seq: 0,
+            retiring: false,
+            ledger: SlotLedger::default(),
+        });
         Ok(id)
     }
 
-    /// The surface's store could not be placed (RFC-0109): windowd holds it as a surface of its
-    /// base alone — no structure may name the store, no present reaches it.
-    pub fn drop_store(&mut self, surface_id: u32) {
-        if let Some(s) = self.surfaces.iter_mut().flatten().find(|s| s.id == surface_id) {
-            s.rows = s.height;
-            s.store_w = 0;
+    /// gpud made the surface's buffer (`cap`: windowd's capability to it, for the app). It must
+    /// hold the surface — its width and rows, one to `SLOTS_MAX` slots at a stride that holds its
+    /// width; a retiring surface, or one that has its buffer, takes none.
+    pub fn bind_buffer(
+        &mut self,
+        id: u32,
+        buffer: SurfaceBuffer,
+        cap: Option<u32>,
+    ) -> Result<(), u8> {
+        let s = self.get_mut(id).filter(|s| !s.retiring && s.buffer.is_none());
+        let s = s.ok_or(SURFACE_STATUS_BAD_SURFACE)?;
+        let fits = buffer.source != 0
+            && (1..=SLOTS_MAX).contains(&buffer.slots)
+            && buffer.width >= s.width
+            && buffer.rows >= s.rows
+            && buffer.stride >= u32::from(buffer.width) * 4;
+        if !fits {
+            return Err(SURFACE_STATUS_MALFORMED);
         }
+        s.buffer = Some(buffer);
+        s.buffer_cap = cap;
+        Ok(())
     }
 
-    /// Validates a present: known surface, strictly increasing seq (exactly
-    /// one in flight per surface — the app waits for the ack). Returns the
-    /// surface + damage clamped to its rows — the base's and the store's
-    /// (RFC-0109) — and width (empty rects dropped).
+    /// The surfaces whose buffer's capability still waits to move to their client.
+    pub fn owed_caps(&self) -> impl Iterator<Item = u32> + '_ {
+        self.surfaces.iter().filter(|s| s.buffer_cap.is_some()).map(|s| s.id)
+    }
+
+    /// windowd's capability to the surface's buffer, taken to move it to the app.
+    pub fn take_buffer_cap(&mut self, id: u32) -> Option<u32> {
+        self.get_mut(id)?.buffer_cap.take()
+    }
+
+    /// Validates a present: a live surface with its buffer, a slot of it, strictly the next seq
+    /// (one in flight — the app waits for the ack). Returns the surface and the damage clamped
+    /// to its rows — the base's and the store's (RFC-0109) — and its width (empty rects
+    /// dropped). The slot is what the frames read from now on; the ack is owed from `now_ns`
+    /// until every other slot is free (`take_releases`).
     pub fn present(
         &mut self,
         surface_id: u32,
-        seq: u32,
+        (seq, slot): (u32, u8),
         damage: &[DamageRect],
+        now_ns: u64,
     ) -> Result<(ClientSurface, [DamageRect; MAX_DAMAGE_RECTS], usize), u8> {
-        let Some(surface) = self.surfaces.iter_mut().flatten().find(|s| s.id == surface_id) else {
-            return Err(SURFACE_STATUS_BAD_SURFACE);
-        };
+        let surface = self.get_mut(surface_id).filter(|s| !s.retiring);
+        let surface = surface.ok_or(SURFACE_STATUS_BAD_SURFACE)?;
+        // No buffer yet: the client has nothing it could have drawn into.
+        let buffer = surface.buffer.ok_or(SURFACE_STATUS_BAD_SURFACE)?;
+        if slot >= buffer.slots {
+            return Err(SURFACE_STATUS_MALFORMED);
+        }
         if seq != surface.last_seq.wrapping_add(1) {
             return Err(SURFACE_STATUS_BAD_SEQ);
         }
@@ -218,179 +311,56 @@ impl ClientSurfaces {
             count += 1;
         }
         surface.last_seq = seq;
+        surface.ledger.latest = Some(slot);
+        surface.ledger.owed = Some((seq, now_ns));
         Ok((*surface, clamped, count))
     }
 
-    /// Removes the surface; returns its VMO slot for the runtime to release.
-    pub fn destroy(&mut self, surface_id: u32) -> Result<u32, u8> {
-        let Some(slot) = self.surfaces.iter_mut().find(|s| s.is_some_and(|c| c.id == surface_id))
-        else {
-            return Err(SURFACE_STATUS_BAD_SURFACE);
-        };
-        let vmo_slot = slot.expect("slot matched Some above").vmo_slot;
-        *slot = None;
-        Ok(vmo_slot)
+    /// The client dropped the surface (`SURFACE_DESTROY`): it takes no present from now on and
+    /// owes no ack (the client re-creates or leaves), and its last frame shows until the runtime
+    /// destroys it.
+    pub fn retire(&mut self, surface_id: u32) -> Result<(), u8> {
+        let s = self.get_mut(surface_id).filter(|s| !s.retiring);
+        let s = s.ok_or(SURFACE_STATUS_BAD_SURFACE)?;
+        s.retiring = true;
+        s.ledger.owed = None;
+        Ok(())
+    }
+
+    /// Removes the surface: returned for the runtime to free its buffer (and to close windowd's
+    /// capability to it when the app never got it).
+    pub fn destroy(&mut self, surface_id: u32) -> Result<ClientSurface, u8> {
+        let i = self.surfaces.iter().position(|s| s.id == surface_id);
+        let i = i.ok_or(SURFACE_STATUS_BAD_SURFACE)?;
+        Ok(self.surfaces.swap_remove(i))
+    }
+
+    /// Frame `frame` (windowd's present to gpud) read the newest slot of each surface in `ids`.
+    pub fn note_read(&mut self, ids: &[u32], frame: u32) {
+        for s in self.surfaces.iter_mut().filter(|s| ids.contains(&s.id)) {
+            if let Some(slot) = s.ledger.latest {
+                s.ledger.read_by[usize::from(slot)] = Some(frame);
+            }
+        }
+    }
+
+    /// The present acks due now that every frame up to `retired` is read no more (RFC-0114 §5):
+    /// `(surface, seq, owed since)` of each surface whose other slots are free, appended to `out`
+    /// — each owed ack once.
+    pub fn take_releases(&mut self, retired: u32, out: &mut Vec<(u32, u32, u64)>) {
+        for s in self.surfaces.iter_mut() {
+            let (Some((seq, since)), Some(buffer)) = (s.ledger.owed, s.buffer) else { continue };
+            if s.ledger.others_free(buffer.slots, retired) {
+                s.ledger.owed = None;
+                out.push((s.id, seq, since));
+            }
+        }
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn rect(x: u16, y: u16, w: u16, h: u16) -> DamageRect {
-        DamageRect { x, y, width: w, height: h }
-    }
-
-    #[test]
-    fn create_validates_format_bounds_and_quota() {
-        let mut t = ClientSurfaces::new();
-        assert_eq!(t.create(320, 240, (240, 0), 9, 10), Err(SURFACE_STATUS_MALFORMED));
-        assert_eq!(t.create(8, 240, (240, 0), FORMAT_BGRA8888, 10), Err(SURFACE_STATUS_MALFORMED));
-        assert_eq!(
-            t.create(4096, 240, (240, 0), FORMAT_BGRA8888, 10),
-            Err(SURFACE_STATUS_MALFORMED)
-        );
-        let id = t.create(320, 240, (240, 0), FORMAT_BGRA8888, 10).expect("creates");
-        assert_eq!(id, 1);
-        // Multi-surface: further creates succeed until all slots are full, then
-        // QUOTA (not silently replaced). One is already used, so MAX-1 more fit.
-        for _ in 0..(MAX_APP_SURFACES - 1) {
-            assert!(t.create(320, 240, (240, 0), FORMAT_BGRA8888, 11).is_ok());
-        }
-        assert_eq!(t.count(), MAX_APP_SURFACES);
-        assert_eq!(t.create(320, 240, (240, 0), FORMAT_BGRA8888, 12), Err(SURFACE_STATUS_QUOTA));
-    }
-
-    #[test]
-    fn multiple_surfaces_coexist_with_independent_seq_and_ids() {
-        let mut t = ClientSurfaces::new();
-        let a = t.create(320, 240, (240, 0), FORMAT_BGRA8888, 10).expect("a");
-        let b = t.create(200, 100, (100, 0), FORMAT_BGRA8888, 11).expect("b");
-        assert_ne!(a, b);
-        assert_eq!(t.count(), 2);
-        // Independent per-surface seq: advancing a does not affect b.
-        assert!(t.present(a, 1, &[]).is_ok());
-        assert!(t.present(b, 1, &[]).is_ok());
-        assert!(t.present(a, 2, &[]).is_ok());
-        assert_eq!(t.present(b, 3, &[]).unwrap_err(), SURFACE_STATUS_BAD_SEQ);
-        // Destroy a → b survives; a's id is never reused (monotonic).
-        assert_eq!(t.destroy(a), Ok(10));
-        assert!(t.get_by_id(a).is_none());
-        assert!(t.get_by_id(b).is_some());
-        let c = t.create(64, 64, (64, 0), FORMAT_BGRA8888, 12).expect("c");
-        assert_ne!(c, a);
-        assert_ne!(c, b);
-    }
-
-    #[test]
-    fn present_enforces_strict_seq() {
-        let mut t = ClientSurfaces::new();
-        let id = t.create(320, 240, (240, 0), FORMAT_BGRA8888, 10).expect("creates");
-        assert_eq!(t.present(id, 2, &[]).unwrap_err(), SURFACE_STATUS_BAD_SEQ);
-        assert!(t.present(id, 1, &[]).is_ok());
-        // Replay of the same seq is refused (one in flight, acked in order).
-        assert_eq!(t.present(id, 1, &[]).unwrap_err(), SURFACE_STATUS_BAD_SEQ);
-        assert!(t.present(id, 2, &[]).is_ok());
-    }
-
-    #[test]
-    fn present_rejects_unknown_surfaces() {
-        let mut t = ClientSurfaces::new();
-        assert_eq!(t.present(1, 1, &[]).unwrap_err(), SURFACE_STATUS_BAD_SURFACE);
-        let id = t.create(320, 240, (240, 0), FORMAT_BGRA8888, 10).expect("creates");
-        assert_eq!(t.present(id + 1, 1, &[]).unwrap_err(), SURFACE_STATUS_BAD_SURFACE);
-    }
-
-    #[test]
-    fn damage_is_clamped_to_surface_bounds() {
-        let mut t = ClientSurfaces::new();
-        let id = t.create(100, 50, (50, 0), FORMAT_BGRA8888, 10).expect("creates");
-        let (_, rects, count) = t
-            .present(
-                id,
-                1,
-                &[
-                    rect(90, 40, 50, 50), // overhangs → clamped to 10x10
-                    rect(200, 0, 5, 5),   // fully outside → dropped
-                    rect(0, 0, 0, 10),    // empty → dropped
-                    rect(0, 0, 100, 50),  // exact fit
-                ],
-            )
-            .expect("presents");
-        assert_eq!(count, 2);
-        assert_eq!(rects[0], rect(90, 40, 10, 10));
-        assert_eq!(rects[1], rect(0, 0, 100, 50));
-    }
-
-    /// RFC-0109: a surface's rows hold its base and its store; damage in the store (a band's
-    /// rows) is kept, damage past the rows is not.
-    #[test]
-    fn store_damage_is_kept_and_clamped_to_the_rows() {
-        let mut t = ClientSurfaces::new();
-        let id = t.create(100, 50, (400, 100), FORMAT_BGRA8888, 10).expect("creates");
-        let (_, rects, count) = t
-            .present(id, 1, &[rect(0, 120, 100, 64), rect(0, 390, 100, 64), rect(0, 400, 10, 10)])
-            .expect("presents");
-        assert_eq!(count, 2);
-        assert_eq!(rects[0], rect(0, 120, 100, 64), "a band's rows below the base");
-        assert_eq!(rects[1], rect(0, 390, 100, 10), "clamped to the last row");
-    }
-
-    #[test]
-    fn test_reject_a_surface_whose_rows_are_below_its_height_or_past_the_cap() {
-        let mut t = ClientSurfaces::new();
-        assert_eq!(t.create(100, 50, (49, 0), FORMAT_BGRA8888, 10), Err(SURFACE_STATUS_MALFORMED));
-        let cap = nexus_display_proto::surface_layers::MAX_SURFACE_ROWS;
-        assert_eq!(
-            t.create(100, 50, (cap + 1, 100), FORMAT_BGRA8888, 10),
-            Err(SURFACE_STATUS_MALFORMED)
-        );
-        assert!(t.create(100, 50, (cap, 100), FORMAT_BGRA8888, 10).is_ok());
-    }
-
-    /// RFC-0109: the store lies inside the surface's columns and exists exactly when the surface
-    /// has rows for it — the wire's rule, held again where the surface is kept.
-    #[test]
-    fn test_reject_a_store_wider_than_the_surface_or_without_rows() {
-        let mut t = ClientSurfaces::new();
-        let bad = Err(SURFACE_STATUS_MALFORMED);
-        assert_eq!(t.create(100, 50, (400, 101), FORMAT_BGRA8888, 10), bad, "wider");
-        assert_eq!(t.create(100, 50, (400, 0), FORMAT_BGRA8888, 10), bad, "rows, no store");
-        assert_eq!(t.create(100, 50, (50, 16), FORMAT_BGRA8888, 10), bad, "store, no rows");
-    }
-
-    /// A store windowd could not place: the surface is its base alone — a present into the
-    /// store's rows names nothing.
-    #[test]
-    fn a_dropped_store_leaves_the_base_alone() {
-        let mut t = ClientSurfaces::new();
-        let id = t.create(100, 50, (400, 100), FORMAT_BGRA8888, 10).expect("creates");
-        t.drop_store(id);
-        let s = t.get_by_id(id).copied().expect("kept");
-        assert_eq!((s.rows, s.store_w), (50, 0));
-        let (_, _, count) = t.present(id, 1, &[rect(0, 120, 100, 64)]).expect("presents");
-        assert_eq!(count, 0);
-    }
-
-    #[test]
-    fn destroy_releases_and_unknown_destroy_errors() {
-        let mut t = ClientSurfaces::new();
-        let id = t.create(320, 240, (240, 0), FORMAT_BGRA8888, 42).expect("creates");
-        assert_eq!(t.destroy(id + 1).unwrap_err(), SURFACE_STATUS_BAD_SURFACE);
-        assert_eq!(t.destroy(id), Ok(42));
-        assert!(t.get().is_none());
-        assert_eq!(t.destroy(id).unwrap_err(), SURFACE_STATUS_BAD_SURFACE);
-    }
-
-    #[test]
-    fn ids_grow_across_lifecycles() {
-        let mut t = ClientSurfaces::new();
-        let a = t.create(320, 240, (240, 0), FORMAT_BGRA8888, 10).expect("creates");
-        assert_eq!(t.destroy(a), Ok(10));
-        let b = t.create(320, 240, (240, 0), FORMAT_BGRA8888, 11).expect("creates");
-        assert_ne!(a, b, "ids are not recycled");
-    }
-}
+#[path = "client_surface_tests.rs"]
+mod tests;
 
 #[cfg(test)]
 mod delivery_tests {

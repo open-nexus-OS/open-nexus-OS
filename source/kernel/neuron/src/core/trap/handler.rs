@@ -532,12 +532,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
         // the reserved range is unreachable until phase C installs the cap,
         // and this hart cannot be preempted (SIE off in trap context), so
         // `current` is stable across the phases.
-        if matches!(
-            frame.x[17],
-            crate::syscall::SYSCALL_VMO_CREATE
-                | crate::syscall::SYSCALL_EXEC_VMO
-                | crate::syscall::SYSCALL_VM_UNMAP
-        ) {
+        if super::phased::is_phased(frame.x[17]) {
             kernel = super::phased::phased_syscall(frame, kernel);
         }
 
@@ -640,12 +635,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
         let ecall_t0 = riscv::register::time::read() as u64;
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]
         let ecall_nr = frame.x[17];
-        if !matches!(
-            frame.x[17],
-            crate::syscall::SYSCALL_VMO_CREATE
-                | crate::syscall::SYSCALL_EXEC_VMO
-                | crate::syscall::SYSCALL_VM_UNMAP
-        ) {
+        if !super::phased::is_phased(frame.x[17]) {
             handle_ecall(frame, table, &mut ctx);
         }
         // Bounded probe: syscalls holding the BKL >10ms are the source of the

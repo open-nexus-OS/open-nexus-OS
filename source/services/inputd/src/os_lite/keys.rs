@@ -7,8 +7,11 @@
 //! (`key_channel`: the source decides the route) and sent to windowd in order on the SAME channel
 //! as the visible state, so the click that focuses a field always lands before the keys typed
 //! after it. Sends BLOCK: a full windowd queue holds inputd, a key is never dropped for it; a
-//! dead route is counted and named. The layout's relay to imed (`OP_SET_LAYOUT`) lives here too —
-//! the composition engine follows `input.keymap`.
+//! dead route is counted and named. While the compositor itself is gone — its restart (RFC-0112):
+//! the window a key would go to is not known until its app rejoins the new one — a key is
+//! dropped, never held for a window it may not belong to, and the outage named once. The
+//! layout's relay to imed (`OP_SET_LAYOUT`) lives here too — the composition engine follows
+//! `input.keymap`.
 //! OWNERS: @runtime @ui
 //! STATUS: Functional
 //! API_STABILITY: Internal
@@ -51,6 +54,8 @@ impl KeyChannel {
                 n: 0,
                 gap_events: 0,
                 lost: 0,
+                dropped: 0,
+                outage_said: false,
                 fail_lines: 0,
                 sent_said: false,
                 broken: false,
@@ -68,6 +73,10 @@ struct Outbox {
     gap_events: u32,
     /// Key entries windowd could not be handed (a dead route).
     lost: u32,
+    /// Key entries no compositor ran to take (its restart, RFC-0112).
+    dropped: u32,
+    /// The current outage was named.
+    outage_said: bool,
     fail_lines: u32,
     sent_said: bool,
     /// A send failed: the route is re-made before the next one.
@@ -91,18 +100,31 @@ impl Outbox {
         }
         let mut buf = [0u8; KEY_INPUT_FRAME_MAX];
         let sent = match (client, encode_push_key_input(&self.frame[..n], &mut buf)) {
-            (Some(client), Some(len)) => client.send(&buf[..len], Wait::Blocking).is_ok(),
-            _ => false,
+            (Some(client), Some(len)) => client.send(&buf[..len], Wait::Blocking),
+            _ => Err(nexus_ipc::IpcError::Unsupported),
         };
-        if sent {
-            if !core::mem::replace(&mut self.sent_said, true) {
-                let _ = nexus_abi::trace_line("inputd: key channel to windowd open");
+        self.broken = sent.is_err();
+        match sent {
+            Ok(()) => {
+                self.outage_said = false;
+                if !core::mem::replace(&mut self.sent_said, true) {
+                    let _ = nexus_abi::trace_line("inputd: key channel to windowd open");
+                }
             }
-            return;
+            // The compositor is gone (RFC-0112: its restart) — no window can take a key until
+            // its app rejoins the new one, and a key held for later could land in another window.
+            Err(nexus_ipc::IpcError::Disconnected)
+            | Err(nexus_ipc::IpcError::Kernel(nexus_abi::IpcError::NoSuchEndpoint)) => {
+                self.dropped = self.dropped.saturating_add(n as u32);
+                if !core::mem::replace(&mut self.outage_said, true) {
+                    let _ = debug_println("inputd: keys dropped (no compositor)");
+                }
+            }
+            Err(_) => {
+                self.lost = self.lost.saturating_add(n as u32);
+                self.say(&format!("inputd: FAIL key send (lost={})", self.lost));
+            }
         }
-        self.broken = true;
-        self.lost = self.lost.saturating_add(n as u32);
-        self.say(&format!("inputd: FAIL key send (lost={})", self.lost));
     }
 
     fn say(&mut self, line: &str) {

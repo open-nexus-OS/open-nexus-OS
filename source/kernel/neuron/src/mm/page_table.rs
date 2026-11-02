@@ -13,7 +13,7 @@
 
 extern crate alloc;
 
-use alloc::{vec, vec::Vec};
+use alloc::vec::Vec;
 use core::marker::PhantomData;
 use core::ptr::NonNull;
 use core::sync::atomic::{AtomicUsize, Ordering};
@@ -75,6 +75,9 @@ pub enum MapError {
     /// from `vm_unmap` means the region table and the page table diverged —
     /// a kernel invariant violation, logged loudly at the call site.
     NotMapped,
+    /// No frame for a new table page, or no heap to record it (ADR-0091): the map is refused —
+    /// `ENOMEM` to a syscall, the out-of-memory kill to a fault — never a kernel panic.
+    OutOfMemory,
 }
 
 #[repr(align(4096))]
@@ -98,10 +101,14 @@ pub struct PageTable {
 static_assertions::assert_not_impl_any!(PageTable: Send, Sync);
 
 impl PageTable {
-    /// Creates an empty Sv39 page table with a fresh root page.
-    pub fn new() -> Self {
-        let root = Self::alloc_page();
-        Self { root, owned: vec![root], retired: Vec::new(), _not_send_sync: PhantomData }
+    /// Creates an empty Sv39 page table with a fresh root page — refused when no frame or no heap
+    /// is left for it (ADR-0091).
+    pub fn new() -> Result<Self, MapError> {
+        let mut owned = Vec::new();
+        owned.try_reserve(1).map_err(|_| MapError::OutOfMemory)?;
+        let root = Self::alloc_page()?;
+        owned.push(root);
+        Ok(Self { root, owned, retired: Vec::new(), _not_send_sync: PhantomData })
     }
 
     /// Returns the physical page number of the root page suitable for SATP.
@@ -273,11 +280,7 @@ impl PageTable {
                 continue;
             }
 
-            let next = Self::alloc_page();
-            self.owned.push(next);
-            let ppn = crate::phys::virt_to_phys(next.as_ptr() as usize) / PAGE_SIZE;
-            *entry = (ppn << 10) | PageFlags::VALID.bits();
-            table = next;
+            table = self.link_table(entry)?;
         }
         Ok(())
     }
@@ -376,11 +379,7 @@ impl PageTable {
                 continue;
             }
 
-            let next = Self::alloc_page();
-            self.owned.push(next);
-            let ppn = crate::phys::virt_to_phys(next.as_ptr() as usize) / PAGE_SIZE;
-            *entry = (ppn << 10) | PageFlags::VALID.bits();
-            table = next;
+            table = self.link_table(entry)?;
         }
         Err(MapError::OutOfRange)
     }
@@ -505,15 +504,26 @@ impl PageTable {
         Err(MapError::OutOfRange)
     }
 
-    fn alloc_page() -> NonNull<PageTablePage> {
-        // A frame from the pool, zeroed (frames come back dirty), through the direct map.
-        let block =
-            crate::mm::frame_pool::alloc(0).unwrap_or_else(|e| panic!("page-table frame: {:?}", e));
+    /// A zeroed table page from the pool, through the direct map; an empty pool is
+    /// [`MapError::OutOfMemory`] (ADR-0091), never a panic.
+    fn alloc_page() -> Result<NonNull<PageTablePage>, MapError> {
+        let block = crate::mm::frame_pool::alloc(0).map_err(|_| MapError::OutOfMemory)?;
         let ptr = crate::phys::phys_to_virt(block.base as usize) as *mut PageTablePage;
         // SAFETY: a frame nobody else owns, page-aligned and page-sized.
         unsafe { core::ptr::write_bytes(ptr as *mut u8, 0, PAGE_SIZE) };
         record_page_alloc();
-        NonNull::new(ptr).expect("a frame is never at PA 0")
+        Ok(NonNull::new(ptr).expect("a frame is never at PA 0"))
+    }
+
+    /// Links a fresh table page into `entry` and records it as owned — the frame and the
+    /// record are both taken before the entry changes, so a refusal leaves the table as it was.
+    fn link_table(&mut self, entry: &mut usize) -> Result<NonNull<PageTablePage>, MapError> {
+        self.owned.try_reserve(1).map_err(|_| MapError::OutOfMemory)?;
+        let next = Self::alloc_page()?;
+        self.owned.push(next);
+        let ppn = crate::phys::virt_to_phys(next.as_ptr() as usize) / PAGE_SIZE;
+        *entry = (ppn << 10) | PageFlags::VALID.bits();
+        Ok(next)
     }
 }
 

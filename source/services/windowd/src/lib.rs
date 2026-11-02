@@ -64,6 +64,10 @@ mod surface_presentation;
 /// host-tested.
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod window_feed;
+/// RFC-0114 §7: the windows' keys on the wire — fresh per window, never a live one's (pure,
+/// host-tested).
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
+mod window_keys;
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod window_scene;
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]

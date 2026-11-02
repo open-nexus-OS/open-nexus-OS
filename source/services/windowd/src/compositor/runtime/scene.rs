@@ -13,10 +13,12 @@
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: No tests (behavior covered via windowd QEMU smoke + host integration)
 
+use super::surface_buffers::Owner;
 use super::*;
+use crate::compositor::shell_window::BodySource;
 use crate::layer_geometry::{fair_shares, LayerQuota};
 use crate::surface_regions::SurfaceRegions;
-use crate::window_scene::{WindowId, MAX_APP_WINDOWS};
+use crate::window_scene::WindowId;
 
 /// The frame-bound line was said (once per windowd: a heavy frame recurs every frame).
 static LAYER_BOUND_SAID: core::sync::atomic::AtomicBool =
@@ -27,12 +29,41 @@ static LAYER_BOUND_SAID: core::sync::atomic::AtomicBool =
 /// draw one app window without re-borrowing the runtime.
 #[derive(Clone, Copy, Default)]
 struct AppSceneSnap {
+    /// The window's key on the wire (RFC-0114 §7): its layers' id and owner, its damage's
+    /// origin, its transform.
+    key: u32,
+    /// The surface the window shows (its buffer is what the frame reads, RFC-0114).
+    shown: Option<u32>,
     /// The window body: its base layer, glass or solid.
     glass: Option<crate::compositor::shell_window::GlassCompositeParams>,
     /// The surface's declared layers (RFC-0109): regions, scroll layers' slices, washes.
     surface: Option<super::surface_layers_encode::LayerSnap>,
     /// The window drawn as one solid surface (TASK-0336, `solid_surface.rs`).
     solid: Option<super::solid_surface::SolidSnap>,
+}
+
+/// The frame path's scratch, reused frame after frame (cleared, never reallocated past
+/// warm-up): one entry per window slot — the slots grow (RFC-0114 §7) — and the desktop's.
+pub(super) struct SceneScratch {
+    snaps: Vec<AppSceneSnap>,
+    frames: Vec<Option<DamageRect>>,
+    quotas: Vec<LayerQuota>,
+    demand: Vec<usize>,
+    share: Vec<usize>,
+    transforms: Vec<(u32, (i32, i32, u32, u32))>,
+}
+
+impl SceneScratch {
+    pub(super) const fn new() -> Self {
+        Self {
+            snaps: Vec::new(),
+            frames: Vec::new(),
+            quotas: Vec::new(),
+            demand: Vec::new(),
+            share: Vec::new(),
+            transforms: Vec::new(),
+        }
+    }
 }
 
 impl DisplayServerRuntime {
@@ -58,22 +89,10 @@ impl DisplayServerRuntime {
         rect_count: usize,
         out: &mut [u8],
     ) -> Result<usize, WindowdError> {
-        // App-client windows (ADR-0042 R1, multi-window): blit each app's
-        // surface VMO when a present marked its window dirty.
-        for idx in 0..self.apps.len() {
-            if self.apps[idx].win.visible && self.apps[idx].win.surface_dirty {
-                // The named rows are consumed with the copy; the next present names its own.
-                self.render_app_surface(idx)?;
-                self.apps[idx].win.surface_dirty = false;
-            }
-        }
-        // Desktop surface (Umbau #17): blit the shell app-host's VMO into the
-        // full-screen desktop band when a present marked it dirty.
-        if self.desktop_dirty && self.desktop_band.is_some() {
-            self.render_desktop_surface()?;
-            self.desktop_dirty = false;
-        }
-        // Dock (TASK-0070 Phase 2): (re)render on membership change.
+        // No pixel is copied (RFC-0114): every window's body and layers sample the app's own
+        // buffer, the slot of its newest present — what this frame reads is recorded with its
+        // seq once it left (`frame_reads_sent`), the release rule's input.
+        self.begin_frame_reads();
         // Snapshot all `self` reads needed inside the encoder block so the
         // mutable borrow of `self.scene_cb` does not conflict with field reads.
         let mode = self.mode;
@@ -94,52 +113,63 @@ impl DisplayServerRuntime {
         // FRAME size but draw the content at the BAND size, top-left — the exposed
         // area is frosted glass. The client re-renders sharp at the new size on
         // release (end_window_resize), snapping back to the cached band path.
-        // Per-window snapshots (alloc-free, Copy) so the encoder block below
-        // never re-borrows `self`: glass params, material layer set, live-resize
-        // overlay and band geometry for EVERY app window, indexed by slot.
-        let mut app_snaps: [AppSceneSnap; MAX_APP_WINDOWS] =
-            core::array::from_fn(|_| AppSceneSnap::default());
+        // Per-window snapshots (Copy, in the reused scratch) so the encoder block below
+        // never re-borrows `self`: glass params, material layer set and geometry for EVERY app
+        // window, indexed by slot.
+        let mut scratch = core::mem::replace(&mut self.scene_scratch, SceneScratch::new());
+        let app_snaps = &mut scratch.snaps;
+        app_snaps.clear();
+        app_snaps.resize(self.apps.len(), AppSceneSnap::default());
         // The visible windows' frames: a damage rectangle inside one came from that window
         // (or something above it), the rest from the desktop under every window — the
         // damage's origin (`Command::Damage`, RFC-0101 §8): a glass blurs its backdrop again
         // only for a change below it, never for its own content.
-        let mut app_frames: [Option<DamageRect>; MAX_APP_WINDOWS] = [None; MAX_APP_WINDOWS];
+        let app_frames = &mut scratch.frames;
+        app_frames.clear();
         for idx in 0..self.apps.len() {
-            if self.apps[idx].win.visible {
-                if let Some(f) = app_frames.get_mut(idx) {
-                    *f = Some(self.app_window_rect(idx));
-                }
-            }
+            let visible = self.apps[idx].win.visible;
+            app_frames.push(visible.then(|| self.app_window_rect(idx)));
         }
         for idx in 0..self.apps.len() {
-            let wid = WindowId::App(idx as u8);
+            let wid = WindowId::App(idx as u16);
             let fullscreen = fullscreen_id == Some(wid);
+            let key = self.window_key(idx);
             let win = &self.apps[idx].win;
+            // The surface the window shows — its own once it presented, else the one it
+            // replaces (a re-create) — and what of it a frame draws (RFC-0114).
+            let shown_id = self.shown_surface(Owner::App(idx));
+            let shown = shown_id
+                .and_then(|id| self.client_surfaces.get_by_id(id))
+                .and_then(|c| Some((*c, c.shown()?)));
             // The surface's base size (RFC-0109): its first rows are the base layer, the rows
             // below it the client's store (its bands, its patches) — never window body.
-            let client = self.apps[idx]
-                .surface_id
-                .and_then(|id| self.client_surfaces.get_by_id(id))
-                .copied();
-            let base = client.map_or((win.w, win.h), |c| (u32::from(c.width), u32::from(c.height)));
+            let base =
+                shown.map_or((win.w, win.h), |(c, _)| (u32::from(c.width), u32::from(c.height)));
             // A GPU that composes blurs and caches the glass itself: the window holds no blur
             // band (`open_app_window`) and declares its glass without one.
             let gpu_glass = self.gpu_composes && !self.app_presentation(idx).full_screen;
-            let glass = win.glass_params().map(|mut p| {
+            let body = shown.map(|(_, sh)| BodySource {
+                source: sh.buffer.source,
+                slot: sh.slot,
+                epoch: sh.generation,
+                width: base.0,
+                height: base.1,
+            });
+            let glass = body.map(|body| {
+                let mut p = win.glass_params(body);
                 p.gpu_glass = gpu_glass;
                 if fullscreen {
                     p.radius = 0;
                     p.shadow_alpha = 0;
                 }
-                // Track C2: tag every slice with the window's transform id
-                // (slot+1). The encode is ALWAYS the untransformed base — the
-                // present's `Command::LayerTransform` (delta translate /
-                // multiplied opacity / centre scale) is applied on the GPU, never
-                // baked: an open baked at opacity 0 and multiplied again stayed
-                // invisible.
-                p.layer_id = (idx as u32) + 1;
+                // Track C2: tag every slice with the window's transform id (its key). The
+                // encode is ALWAYS the untransformed base — the present's
+                // `Command::LayerTransform` (delta translate / multiplied opacity / centre
+                // scale) is applied on the GPU, never baked: an open baked at opacity 0 and
+                // multiplied again stayed invisible.
+                p.layer_id = key;
                 p.key = super::surface_layers_encode::key(
-                    idx as u32 + 1,
+                    key,
                     super::surface_layers_encode::KIND_BODY,
                     0,
                 );
@@ -155,17 +185,24 @@ impl DisplayServerRuntime {
                 }
                 p
             });
+            // The layers the shown surface declared: the current one's, or — while it is
+            // replaced — those of the surface it replaces, with its last frame.
+            let layers = if shown_id == self.apps[idx].surface_id {
+                self.apps[idx].layers
+            } else {
+                self.apps[idx].retiring_layers
+            };
             app_snaps[idx] = AppSceneSnap {
+                key,
+                shown: shown_id.filter(|_| glass.is_some()),
                 glass,
-                surface: win.atlas.zip(client).map(|(a, c)| {
-                    super::surface_layers_encode::LayerSnap {
-                        layers: self.apps[idx].layers,
-                        regions: SurfaceRegions::of(&c, a, win.store),
-                        origin: (win.x.max(0) as u32, win.y.max(0) as u32),
-                        base,
-                        owner: idx as u32 + 1,
-                        layer_id: idx as u32 + 1,
-                    }
+                surface: shown.map(|(c, sh)| super::surface_layers_encode::LayerSnap {
+                    layers,
+                    regions: SurfaceRegions::of(&c, sh),
+                    origin: (win.x.max(0) as u32, win.y.max(0) as u32),
+                    base,
+                    owner: key,
+                    layer_id: key,
                 }),
                 solid: super::solid_surface::SolidSnap::of(&self.apps[idx], fullscreen),
             };
@@ -174,20 +211,33 @@ impl DisplayServerRuntime {
         // app-host that declared `level: desktop` owns its OWN full-screen band
         // (separate from the floating `app_win`). Snapshot its geometry for the
         // encoder block; composed as an opaque base layer at the bottom band.
-        let desktop_layer = self.desktop_band.map(|b| {
-            (b.abs_row, b.x, b.width.min(self.mode.width), b.height.min(self.mode.height))
+        let desktop_shown_id = self.shown_surface(Owner::Desktop);
+        let desktop_shown = desktop_shown_id
+            .and_then(|id| self.client_surfaces.get_by_id(id))
+            .and_then(|c| Some((*c, c.shown()?)));
+        // What the desktop's body samples: its buffer's newest slot, at most the display.
+        let desktop_layer = desktop_shown.map(|(c, sh)| {
+            let size = (
+                u32::from(c.width).min(self.mode.width),
+                u32::from(c.height).min(self.mode.height),
+            );
+            (sh, size)
         });
         // R1 seam for the DESKTOP surface: its declared layers (RFC-0109) — glass regions over
         // the wallpaper after the base blend, the panels' above the windows, its scroll layers
-        // and washes in the pass of the region holding them.
-        let desktop_client =
-            self.desktop_surface_id.and_then(|id| self.client_surfaces.get_by_id(id)).copied();
-        let desktop_surface = self.desktop_band.zip(desktop_client).map(|(b, c)| {
+        // and washes in the pass of the region holding them. While the shell's surface is
+        // replaced, the replaced one shows with its own layers.
+        let desktop_layers = if desktop_shown_id == self.desktop_surface_id {
+            self.desktop_layers
+        } else {
+            self.buffers.desktop_retiring_layers
+        };
+        let desktop_surface = desktop_shown.zip(desktop_layer).map(|((c, sh), (_, size))| {
             super::surface_layers_encode::LayerSnap {
-                layers: self.desktop_layers,
-                regions: SurfaceRegions::of(&c, b, self.desktop_store),
+                layers: desktop_layers,
+                regions: SurfaceRegions::of(&c, sh),
                 origin: (0, 0),
-                base: (b.width.min(self.mode.width), self.mode.height.min(b.height)),
+                base: size,
                 owner: super::surface_layers_encode::DESKTOP_OWNER,
                 layer_id: 0,
             }
@@ -195,23 +245,45 @@ impl DisplayServerRuntime {
         // Back-to-front window order from the z/focus stack (window_scene SSOT):
         // the composite loop below draws exactly these, in exactly this order.
         let (win_order, win_n) = self.windows.order(self.capture.frozen());
-        // Every window slot's transform as this present draws it (TASK-0336/0338): carried with
+        // What this frame reads (RFC-0114 §5): every drawn window's shown surface, the desktop's.
+        for wid in &win_order[..win_n] {
+            let read = match *wid {
+                WindowId::App(slot) => app_snaps
+                    .get(usize::from(slot))
+                    .filter(|sn| sn.solid.is_none())
+                    .and_then(|sn| sn.shown),
+                WindowId::Desktop => desktop_layer.and(desktop_shown_id),
+            };
+            if let Some(id) = read {
+                self.note_frame_reads(id);
+            }
+        }
+        // Every live window's transform as this present draws it (TASK-0336/0338): carried with
         // the layers, so a moved frame and its transform take effect together — the present is
         // the only way a transform reaches the display.
-        let transforms = self.present_transforms();
+        let transforms = &mut scratch.transforms;
+        self.present_transforms(transforms);
         // RFC-0113 §5: the focused field's caret, over the surface that holds it.
         let caret = self.caret_draw();
         // The frame's layer bound shared out (RFC-0109): the bodies first, then each drawn
         // surface's declared layers — and the caret it holds — within its max-min fair share.
         let caret_owner = caret.map(|c| c.owner);
-        let mut quotas =
-            layer_quotas(&app_snaps, &win_order[..win_n], desktop_surface.as_ref(), caret_owner);
+        let desktop_quota = app_snaps.len();
+        let quotas = &mut scratch.quotas;
+        layer_quotas(
+            (app_snaps, &win_order[..win_n]),
+            desktop_surface.as_ref(),
+            caret_owner,
+            (&mut scratch.demand, &mut scratch.share, quotas),
+        );
         // The caret's layer set aside before its surface spends the share: a tight frame drops
         // the surface's own last layer, never the caret (`None`: not drawn this frame).
         let caret =
-            caret.filter(|c| quotas[c.owner.map_or(MAX_APP_WINDOWS, usize::from)].set_aside());
+            caret.filter(|c| quotas[c.owner.map_or(desktop_quota, usize::from)].set_aside());
         // Dock layer params (bar rect is None while inactive/covered).
         self.scene_cb.clear();
+        // App windows this frame draws from their own buffers (`windows drawn`, RFC-0114 §7).
+        let mut drawn = 0usize;
         {
             let mut encoder = self
                 .scene_cb
@@ -242,7 +314,7 @@ impl DisplayServerRuntime {
                         && rect.x.saturating_add(rect.width) <= f.x.saturating_add(f.width)
                         && rect.y.saturating_add(rect.height) <= f.y.saturating_add(f.height)
                 };
-                // The topmost window the rectangle lies within names the origin.
+                // The topmost window the rectangle lies within names the origin (its key).
                 let origin = win_order[..win_n]
                     .iter()
                     .rev()
@@ -252,7 +324,7 @@ impl DisplayServerRuntime {
                             .copied()
                             .flatten()
                             .filter(inside)
-                            .map(|_| u32::from(*slot) + 1),
+                            .map(|_| app_snaps[usize::from(*slot)].key),
                         _ => None,
                     })
                     .unwrap_or(0);
@@ -276,10 +348,11 @@ impl DisplayServerRuntime {
                 encoder.try_damage_none().map_err(|_| WindowdError::InvalidDamage)?;
             }
 
-            // 1b. The windows' transforms (`Command::LayerTransform`), before their layers.
-            for (idx, &(dx, dy, opacity, scale)) in transforms.iter().enumerate() {
+            // 1b. The windows' transforms (`Command::LayerTransform`, by key), before their
+            //     layers: every live window's — a present with layers names them all.
+            for &(key, (dx, dy, opacity, scale)) in transforms.iter() {
                 encoder
-                    .try_layer_transform(idx as u32 + 1, (dx, dy), opacity, scale)
+                    .try_layer_transform(key, (dx, dy), opacity, scale)
                     .map_err(|_| WindowdError::InvalidDamage)?;
             }
 
@@ -292,22 +365,24 @@ impl DisplayServerRuntime {
                     // declared (`OP_SURFACE_TREE`, RFC-0109) — material regions, scroll layers'
                     // slices, washes. Nothing declared ⇒ the body alone.
                     WindowId::App(slot) => {
-                        let sn = &app_snaps[slot as usize];
+                        let sn = &app_snaps[usize::from(slot)];
                         // The window as ONE solid surface (TASK-0336): its starting or closing
                         // surface — a patch spread over the frame, opaque; nothing else of it.
                         if let Some(s) = sn.solid {
-                            s.encode(&mut encoder, slot, (mode.width, mode.height));
+                            s.encode(&mut encoder, sn.key, (mode.width, mode.height));
                             continue;
                         }
                         // The window body first — its base layer — then what the surface
                         // declared over it (RFC-0109): the regions blur the drawn body (the inner
                         // frost), the scroll layers' slices and the washes follow.
                         if let Some(p) = sn.glass {
-                            let _ = crate::compositor::shell_window::ShellWindow::composite_glass(
-                                &mut encoder,
-                                p,
-                                mode.width,
-                                mode.height,
+                            drawn += usize::from(
+                                crate::compositor::shell_window::ShellWindow::composite_glass(
+                                    &mut encoder,
+                                    p,
+                                    mode.width,
+                                    mode.height,
+                                ),
                             );
                         }
                         if let Some(l) = sn.surface {
@@ -341,16 +416,18 @@ impl DisplayServerRuntime {
                         // blit copies only the presented row span, and clients
                         // present paint-only spans — the composite itself is a
                         // band→display draw, not a client repaint.
-                        if let Some((row, x, w, h)) = desktop_layer {
+                        if let Some((sh, (w, h))) = desktop_layer {
                             let _ = encoder.composite_layer_full(
                                 &Layer {
-                                    content_epoch: crate::atlas::atlas_content_epoch(),
+                                    content_epoch: sh.generation,
+                                    source: sh.buffer.source,
+                                    slot: sh.slot,
                                     key: super::surface_layers_encode::key(
                                         super::surface_layers_encode::DESKTOP_OWNER,
                                         super::surface_layers_encode::KIND_BODY,
                                         0,
                                     ),
-                                    ..Layer::opaque(row, x, w, h, 0, 0)
+                                    ..Layer::opaque(0, 0, w, h, 0, 0)
                                 },
                                 (mode.width, mode.height),
                             );
@@ -363,7 +440,7 @@ impl DisplayServerRuntime {
                                     &mut encoder,
                                     super::surface_layers_encode::Pass::DesktopBelow,
                                     (mode.width, mode.height),
-                                    &mut quotas[MAX_APP_WINDOWS],
+                                    &mut quotas[desktop_quota],
                                 );
                             }
                         }
@@ -379,17 +456,19 @@ impl DisplayServerRuntime {
             //     window (per-pixel alpha — only the pills/island pixels
             //     land), then the shell's PANEL-level glass drop-downs so an
             //     open Control Center overlays fullscreen windows too.
-            if let Some((row, x, w, _h)) = desktop_layer {
-                let bar_h = super::SHELL_TOPBAR_H.min(mode.height);
+            if let Some((sh, (w, h))) = desktop_layer {
+                let bar_h = super::SHELL_TOPBAR_H.min(h);
                 let _ = encoder.composite_layer_full(
                     &Layer {
-                        content_epoch: crate::atlas::atlas_content_epoch(),
+                        content_epoch: sh.generation,
+                        source: sh.buffer.source,
+                        slot: sh.slot,
                         key: super::surface_layers_encode::key(
                             super::surface_layers_encode::DESKTOP_OWNER,
                             super::surface_layers_encode::KIND_BAR,
                             0,
                         ),
-                        ..Layer::opaque(row, x, w, bar_h, 0, 0)
+                        ..Layer::opaque(0, 0, w, bar_h, 0, 0)
                     },
                     (mode.width, mode.height),
                 );
@@ -398,7 +477,7 @@ impl DisplayServerRuntime {
                         &mut encoder,
                         super::surface_layers_encode::Pass::DesktopAbove,
                         (mode.width, mode.height),
-                        &mut quotas[MAX_APP_WINDOWS],
+                        &mut quotas[desktop_quota],
                     );
                 }
             }
@@ -434,22 +513,28 @@ impl DisplayServerRuntime {
                 "windowd: layers over the frame bound (dropped={dropped})"
             ));
         }
+        self.scene_scratch = scratch;
+        self.buffers.frame_windows = drawn;
         self.scene_cb.serialize_into(out).map_err(|_| WindowdError::InvalidDamage)
     }
 }
 
 /// Each surface's share of the frame's layers (RFC-0109 failure model): the drawn windows' bodies
 /// and the desktop's base and bar first, then the declared layers max-min fair (`fair_shares`) —
-/// index `slot` a window, [`MAX_APP_WINDOWS`] the desktop. The caret is its surface's last layer
-/// and counts in that surface's demand (`caret`: its window slot, `Some(None)` the desktop) — left
-/// out, every share was exactly the declared layers and the caret the one dropped.
+/// index `slot` a window, `snaps.len()` the desktop — into `quotas`. The caret is its surface's
+/// last layer and counts in that surface's demand (`caret`: its window slot, `Some(None)` the
+/// desktop) — left out, every share was exactly the declared layers and the caret the one dropped.
 fn layer_quotas(
-    snaps: &[AppSceneSnap; MAX_APP_WINDOWS],
-    order: &[WindowId],
+    (snaps, order): (&[AppSceneSnap], &[WindowId]),
     desktop: Option<&super::surface_layers_encode::LayerSnap>,
-    caret: Option<Option<u8>>,
-) -> [LayerQuota; MAX_APP_WINDOWS + 1] {
-    let mut demand = [0usize; MAX_APP_WINDOWS + 1];
+    caret: Option<Option<u16>>,
+    (demand, share, quotas): (&mut Vec<usize>, &mut Vec<usize>, &mut Vec<LayerQuota>),
+) {
+    let n = snaps.len() + 1;
+    demand.clear();
+    demand.resize(n, 0);
+    share.clear();
+    share.resize(n, 0);
     let mut bodies = if desktop.is_some() { 2 } else { 0 };
     for wid in order {
         let WindowId::App(slot) = *wid else { continue };
@@ -462,8 +547,8 @@ fn layer_quotas(
         }
     }
     let desktop_caret = usize::from(caret == Some(None));
-    demand[MAX_APP_WINDOWS] = desktop.map_or(0, |l| l.layers.demand() + desktop_caret);
-    let mut share = [0usize; MAX_APP_WINDOWS + 1];
-    fair_shares(nexus_gfx::frame::MAX_LAYERS.saturating_sub(bodies), &demand, &mut share);
-    share.map(LayerQuota::new)
+    demand[n - 1] = desktop.map_or(0, |l| l.layers.demand() + desktop_caret);
+    fair_shares(nexus_gfx::frame::MAX_LAYERS.saturating_sub(bodies), demand, share);
+    quotas.clear();
+    quotas.extend(share.iter().map(|s| LayerQuota::new(*s)));
 }

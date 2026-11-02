@@ -73,6 +73,9 @@ pub(crate) mod scanout_policy;
 // RFC-0093 §5 on a display that switches what it scans (the board's controller); host-tested.
 #[cfg(any(test, all(feature = "os-lite", target_os = "none")))]
 pub(crate) mod splash_hold;
+// RFC-0114: how the virtio GPU reads the app surfaces (2D mappings, virgl resources).
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+pub(crate) mod surface_backing;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 mod transport;
 #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
@@ -196,6 +199,10 @@ pub struct VirtioGpuBackend {
     /// handoff replaces the bootstrap scanout.
     #[allow(dead_code)]
     bootstrap_splash_live: bool,
+    /// windowd's framebuffer is the scanout: a restarted windowd attaches the same object again
+    /// (RFC-0112), which is acknowledged without redoing the attach.
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
+    framebuffer_attached: bool,
     #[cfg(all(feature = "os-lite", target_os = "none"))]
     ctrlq: Option<CtrlQueue>,
     /// virtio-gpu cursor virtqueue (index 1) — carries UPDATE_CURSOR / MOVE_CURSOR
@@ -362,6 +369,8 @@ impl VirtioGpuBackend {
             cursor_oy: 0,
             ctrl_batch: false,
             bootstrap_splash_live: false,
+            #[cfg(all(feature = "os-lite", target_os = "none"))]
+            framebuffer_attached: false,
             #[cfg(all(feature = "os-lite", target_os = "none"))]
             ctrlq: None,
             #[cfg(all(feature = "os-lite", target_os = "none"))]

@@ -155,7 +155,7 @@ impl DisplayServerRuntime {
                 // (it must not fall through to whatever lies beneath).
                 if let Some(idx) = app_idx {
                     if let crate::modal_gate::Verdict::RefusedByModal { modal_idx } =
-                        crate::modal_gate::input_verdict(idx, &self.modal_facts())
+                        self.modal_verdict(idx)
                     {
                         let _ = debug_println(&crate::markers::press_refused_marker(
                             self.apps[modal_idx].surface_id.unwrap_or(0),

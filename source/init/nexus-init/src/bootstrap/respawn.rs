@@ -50,19 +50,21 @@ pub struct RespawnContext {
     /// new instance — dropping it would leave a restarted service without the barrier the rest
     /// of the fleet stands on.
     pub stage_fence: u32,
+    /// RFC-0112: what windowd's respawn pins its legs from (`None`: no windowd in the image).
+    pub windowd: Option<crate::bootstrap::windowd_respawn::WindowdKept>,
 }
 
-/// Which services the respawn arm can actually re-provision today.
+/// Which services the respawn arm can re-provision: the pilot, and the compositor (RFC-0112).
 fn respawnable(id: ServiceId) -> bool {
-    matches!(id, ServiceId::Pinched)
+    matches!(id, ServiceId::Pinched | ServiceId::Windowd)
 }
 
-/// Restart driver for real services (pilot: one engine slot — widened with
-/// `respawnable`).
+/// Restart driver for real services: one engine per service in a restart cycle (a second death
+/// used to take the only engine slot and drop the first one's schedule).
 pub(crate) struct Respawner {
     ctx: RespawnContext,
-    /// The service currently in a restart cycle, if any.
-    engine: Option<(ServiceId, SupervisedChild)>,
+    /// The services in a restart cycle.
+    engines: alloc::vec::Vec<(ServiceId, SupervisedChild)>,
     /// Restart-counter persistence over init's statefsd wire (RFC-0087 §2).
     persist: Option<crate::bootstrap::persist::SupervisionPersist>,
 }
@@ -77,13 +79,23 @@ impl RespawnContext {
         statefs_send: Option<u32>,
         ask: nexus_ipc::SlotPair,
         stage_fence: u32,
+        windowd: Option<crate::bootstrap::windowd_respawn::WindowdKept>,
     ) -> Self {
-        Self { sealed, volume, selftest_pid, pinch_rsp_parent_slot, statefs_send, ask, stage_fence }
+        Self {
+            sealed,
+            volume,
+            selftest_pid,
+            pinch_rsp_parent_slot,
+            statefs_send,
+            ask,
+            stage_fence,
+            windowd,
+        }
     }
 
     /// The sealed image + launch params to re-exec `name` from: the embedded table or the
     /// volume (ServiceSource, ADR-0060) — never both.
-    fn image_for(&self, name: &str) -> Option<(u32, usize, u64, &'static str)> {
+    pub(crate) fn image_for(&self, name: &str) -> Option<(u32, usize, u64, &'static str)> {
         if let Some(img) = self.sealed.iter().find(|img| img.name == name) {
             return Some((img.image, img.stack_pages, img.global_pointer, img.name));
         }
@@ -97,7 +109,7 @@ impl RespawnContext {
 impl Respawner {
     pub(crate) fn new(ctx: RespawnContext) -> Self {
         let persist = crate::bootstrap::persist::SupervisionPersist::new(ctx.statefs_send, ctx.ask);
-        Self { ctx, engine: None, persist }
+        Self { ctx, engines: alloc::vec::Vec::new(), persist }
     }
 
     /// A supervised service died (already announced + marked stale by the
@@ -109,13 +121,13 @@ impl Respawner {
         let Some((_criticality, restart)) = supervision_for(id) else {
             return;
         };
-        let mut child = match self.engine.take() {
-            Some((prev, child)) if prev == id => child,
-            _ => SupervisedChild::new(restart, DEFAULT_BACKOFF),
+        let mut child = match self.engines.iter().position(|(prev, _)| *prev == id) {
+            Some(at) => self.engines.swap_remove(at).1,
+            None => SupervisedChild::new(restart, DEFAULT_BACKOFF),
         };
         match child.on_exit(reason, code, now_ns()) {
             EngineDecision::RestartAt { .. } => {
-                self.engine = Some((id, child));
+                self.engines.push((id, child));
             }
             EngineDecision::Blocked => {
                 crate::bootstrap::diag::emit_marker_atomic(
@@ -132,42 +144,80 @@ impl Respawner {
         }
     }
 
-    /// Respawn when the scheduled backoff is due (once per responder round).
     /// The next scheduled respawn, if any (the responder arms its one-shot timer at it).
     pub(crate) fn next_due_ns(&self) -> Option<u64> {
-        self.engine.as_ref().and_then(|(_, child)| child.due_ns())
+        self.engines.iter().filter_map(|(_, child)| child.due_ns()).min()
     }
 
+    /// Respawns every service whose scheduled backoff is due (once per responder round).
     pub(crate) fn tick(&mut self, channels: &mut [CtrlChannel], route_table: &mut RouteTable) {
-        let due = matches!(&self.engine, Some((_, child)) if child.restart_due(now_ns()));
-        if !due {
-            return;
-        }
-        let Some((id, mut child)) = self.engine.take() else {
-            return;
-        };
-        match respawn_pinched(&self.ctx, self.persist.as_mut(), channels, route_table) {
-            Some(pid) => {
-                child.on_restarted();
-                self.engine = Some((id, child));
-                route_table.clear_stale(id);
-                crate::bootstrap::diag::emit_marker_atomic(
-                    &[b"init: service restarted name=", id.name().as_bytes(), b" pid=0x"],
-                    Some(pid as u64),
-                );
+        let now = now_ns();
+        for at in 0..self.engines.len() {
+            if !self.engines[at].1.restart_due(now) {
+                continue;
             }
-            None => {
-                // Ack the schedule so a permanently failing respawn cannot
-                // busy-spin; the paired-marker guard stays the alarm.
-                child.on_restarted();
-                self.engine = Some((id, child));
-                crate::bootstrap::diag::emit_marker_atomic(
+            let id = self.engines[at].0;
+            let persist = self.persist.as_mut();
+            let respawned = match id {
+                ServiceId::Windowd => self.ctx.windowd.as_ref().and_then(|kept| {
+                    crate::bootstrap::windowd_respawn::respawn_windowd(
+                        &self.ctx, kept, persist, channels,
+                    )
+                }),
+                _ => respawn_pinched(&self.ctx, persist, channels, route_table),
+            };
+            // Acked either way, so a permanently failing respawn cannot busy-spin; the
+            // paired-marker guard stays the alarm.
+            self.engines[at].1.on_restarted();
+            match respawned {
+                Some(pid) => {
+                    route_table.clear_stale(id);
+                    crate::bootstrap::diag::emit_marker_atomic(
+                        &[b"init: service restarted name=", id.name().as_bytes(), b" pid=0x"],
+                        Some(pid as u64),
+                    );
+                }
+                None => crate::bootstrap::diag::emit_marker_atomic(
                     &[b"init: FAIL service respawn name=", id.name().as_bytes()],
                     None,
-                );
+                ),
             }
         }
     }
+}
+
+/// The control plane and the boot-stage fence of a respawned instance: the same init-owned
+/// endpoints, re-pinned to the fleet control slots, and the fence WAIT-only (ADR-0062: a respawn
+/// that skipped it would make the stage contract hold only until the first restart).
+pub(crate) fn reattach_ctrl(pid: u32, (ctrl_req, ctrl_rsp): (u32, u32), stage_fence: u32) -> bool {
+    let ctrl_send = nexus_abi::cap_transfer_to_slot(
+        pid,
+        ctrl_req,
+        Rights::SEND,
+        crate::service_topology::CTRL_SLOTS.send,
+    );
+    let ctrl_recv = nexus_abi::cap_transfer_to_slot(
+        pid,
+        ctrl_rsp,
+        Rights::RECV,
+        crate::service_topology::CTRL_SLOTS.recv,
+    );
+    if ctrl_send.is_err() || ctrl_recv.is_err() {
+        debug_write_bytes(b"init: FAIL respawn ctrl re-transfer\n");
+        return false;
+    }
+    if nexus_abi::cap_transfer_to_slot(
+        pid,
+        stage_fence,
+        Rights::WAIT,
+        crate::service_topology::STAGE_FENCE_SLOT,
+    )
+    .is_err()
+    {
+        debug_write_bytes(b"init: FAIL respawn stage fence\n");
+        return false;
+    }
+    true
 }
 
 /// Re-provisions pinched exactly like its boot wiring, from boot-held state:
@@ -186,37 +236,8 @@ fn respawn_pinched(
     let chan = channels.iter_mut().find(|c| c.svc_name == "pinched")?;
 
     let pid = nexus_abi::exec_vmo(image, stack_pages, global_pointer, name, false).ok()?;
-
-    // Ctrl plane: same init-owned endpoints, re-pinned to the fleet control slots.
-    let ctrl_send = nexus_abi::cap_transfer_to_slot(
-        pid,
-        chan.ctrl_req_parent_slot,
-        Rights::SEND,
-        crate::service_topology::CTRL_SLOTS.send,
-    );
-    let ctrl_recv = nexus_abi::cap_transfer_to_slot(
-        pid,
-        chan.ctrl_rsp_parent_slot,
-        Rights::RECV,
-        crate::service_topology::CTRL_SLOTS.recv,
-    );
-    if ctrl_send.is_err() || ctrl_recv.is_err() {
-        debug_write_bytes(b"init: FAIL respawn ctrl re-transfer\n");
-        return None;
-    }
-
-    // ADR-0062: re-pin the boot-stage fence, WAIT-only. The restarted instance waits on the same
-    // barrier as every other child; a respawn path that quietly skipped it would make the stage
-    // contract hold only until the first restart.
-    if nexus_abi::cap_transfer_to_slot(
-        pid,
-        ctx.stage_fence,
-        Rights::WAIT,
-        crate::service_topology::STAGE_FENCE_SLOT,
-    )
-    .is_err()
+    if !reattach_ctrl(pid, (chan.ctrl_req_parent_slot, chan.ctrl_rsp_parent_slot), ctx.stage_fence)
     {
-        debug_write_bytes(b"init: FAIL respawn stage fence\n");
         return None;
     }
 

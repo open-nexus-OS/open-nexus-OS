@@ -35,30 +35,41 @@ pub(super) struct FeedState {
     /// The sightings the lifecycle authority took (6d); a sighting not yet taken is owed.
     seen: crate::seen::SeenTable,
     seen_owed: bool,
+    /// This compositor's start is not told yet (RFC-0112): it goes before any sighting.
+    up_owed: bool,
+    /// Reused per pass (the slots grow, RFC-0114 §7): every slot's facts, the sightings due,
+    /// the ones the authority took.
+    slots: Vec<crate::window_feed::SlotInfo>,
+    due: Vec<crate::seen::Due>,
+    taken: Vec<crate::seen::Due>,
 }
 
 impl FeedState {
-    pub(super) const fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
             last: [0u8; feed::SURFACE_WINDOWS_FRAME_MAX],
             len: 0,
             owed: false,
-            seen: crate::seen::SeenTable { taken: [None; crate::window_scene::MAX_APP_WINDOWS] },
+            seen: crate::seen::SeenTable::default(),
             seen_owed: false,
+            up_owed: true,
+            slots: Vec::new(),
+            due: Vec::new(),
+            taken: Vec::new(),
         }
     }
 }
 
-type Slots = [crate::window_feed::SlotInfo; crate::window_scene::MAX_APP_WINDOWS];
+/// The feed listed fewer windows than are open (its frame's bound) — said once.
+static FEED_BOUND_SAID: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
 
 impl DisplayServerRuntime {
     /// Every app slot reduced to the facts the feed and the sightings are built from.
-    fn slot_infos(&self) -> Slots {
-        let mut slots =
-            [crate::window_feed::SlotInfo::default(); crate::window_scene::MAX_APP_WINDOWS];
+    fn slot_infos(&self, slots: &mut Vec<crate::window_feed::SlotInfo>) {
+        slots.clear();
         for (i, slot) in self.apps.iter().enumerate() {
-            let id = crate::window_scene::WindowId::App(i as u8);
-            slots[i] = crate::window_feed::SlotInfo {
+            let id = crate::window_scene::WindowId::App(i as u16);
+            slots.push(crate::window_feed::SlotInfo {
                 owner_sid: slot.owner_sid,
                 // A bound surface + a visible window state = OPEN (minimized
                 // windows stay visible-but-minimized in `window_scene`).
@@ -66,15 +77,23 @@ impl DisplayServerRuntime {
                 minimized: self.windows.is_minimized(id),
                 focused: self.windows.is_top(id),
                 zone: slot.zone.code(),
-            };
+            });
         }
-        slots
     }
 
-    /// The current window set as a wire frame (`None` = encode refused).
-    fn window_feed_frame(slots: &Slots) -> Option<([u8; feed::SURFACE_WINDOWS_FRAME_MAX], usize)> {
+    /// The current window set as a wire frame (`None` = encode refused): the first
+    /// `WINDOWS_MAX` open windows (the frame's bound — said once when more are open).
+    fn window_feed_frame(
+        slots: &[crate::window_feed::SlotInfo],
+    ) -> Option<([u8; feed::SURFACE_WINDOWS_FRAME_MAX], usize)> {
         let mut entries = [feed::WindowEntry::default(); feed::WINDOWS_MAX];
         let n = crate::window_feed::build_window_set(slots, &mut entries);
+        let open = slots.iter().filter(|s| s.open && s.owner_sid != 0).count();
+        if open > n && !FEED_BOUND_SAID.swap(true, core::sync::atomic::Ordering::Relaxed) {
+            let _ = debug_println(&alloc::format!(
+                "windowd: window feed bound (listed={n} open={open})"
+            ));
+        }
         feed::encode_surface_windows(&entries[..n])
     }
 
@@ -83,35 +102,50 @@ impl DisplayServerRuntime {
     /// leg. A send the queue refuses stays owed and goes with the next pass; the compositor
     /// never parks on the authority.
     #[cfg(nexus_env = "os")]
-    fn publish_seen(&mut self, slots: &Slots) {
+    fn publish_seen(&mut self, slots: &[crate::window_feed::SlotInfo]) {
         use nexus_ipc::Client as _;
-        let mut due = [crate::seen::Due { slot: 0, owner_sid: 0, seen: crate::seen::Seen::Gone };
-            crate::window_scene::MAX_APP_WINDOWS];
-        let n = self.windows_feed.seen.due(slots, &mut due);
+        let mut due = core::mem::take(&mut self.windows_feed.due);
+        let mut taken = core::mem::take(&mut self.windows_feed.taken);
+        self.windows_feed.seen.due(slots, &mut due);
+        taken.clear();
         self.windows_feed.seen_owed = false;
-        if n == 0 {
-            return;
+        if !due.is_empty() || self.windows_feed.up_owed {
+            let _ = self.abilitymgr(); // bound once
         }
-        let _ = self.abilitymgr(); // bound once
-        let feed = &mut self.windows_feed;
-        let Some(client) = self.abilitymgr_client.as_ref() else {
-            feed.seen_owed = true;
-            return;
-        };
-        let mut taken = [false; crate::window_scene::MAX_APP_WINDOWS];
-        for (k, d) in due[..n].iter().enumerate() {
-            let frame = crate::seen::encode_seen(d.owner_sid, d.seen);
-            if client.send(&frame, nexus_ipc::Wait::NonBlocking).is_ok() {
-                feed.seen.commit(*d);
-                taken[k] = true;
-            } else {
-                feed.seen_owed = true;
+        // RFC-0112: this compositor's start first — what an earlier one saw is void, the
+        // frozen are thawed to rejoin. No sighting overtakes it.
+        if self.windows_feed.up_owed {
+            let frame = crate::seen::encode_compositor_up();
+            let told = self
+                .abilitymgr_client
+                .as_ref()
+                .is_some_and(|c| c.send(&frame, nexus_ipc::Wait::NonBlocking).is_ok());
+            self.windows_feed.up_owed = !told;
+            if !told {
+                self.windows_feed.seen_owed = true;
+                self.windows_feed.due = due;
+                self.windows_feed.taken = taken;
+                return;
             }
+        }
+        match self.abilitymgr_client.as_ref() {
+            Some(client) => {
+                for d in &due {
+                    let frame = crate::seen::encode_seen(d.owner_sid, d.seen);
+                    if client.send(&frame, nexus_ipc::Wait::NonBlocking).is_ok() {
+                        self.windows_feed.seen.commit(*d);
+                        taken.push(*d);
+                    } else {
+                        self.windows_feed.seen_owed = true;
+                    }
+                }
+            }
+            None => self.windows_feed.seen_owed = !due.is_empty(),
         }
         // TASK-0333 6e-1 (ADR-0086): the window itself hears the same sighting — on `hidden` the
         // app writes its `@persist` snapshot while the grace runs. The authority's send decides
         // what is due; the app's copy rides the taken ones (a closed window has no channel).
-        for d in due[..n].iter().zip(taken).filter_map(|(d, t)| t.then_some(d)) {
+        for d in &taken {
             let seen = match d.seen {
                 crate::seen::Seen::Focused => nexus_display_proto::surface_seen::SEEN_FOCUSED,
                 crate::seen::Seen::Visible => nexus_display_proto::surface_seen::SEEN_VISIBLE,
@@ -121,6 +155,8 @@ impl DisplayServerRuntime {
             let frame = nexus_display_proto::surface_seen::encode_surface_seen(seen);
             let _ = self.send_app_frame(d.slot, &frame);
         }
+        self.windows_feed.due = due;
+        self.windows_feed.taken = taken;
     }
 
     /// The declared abilitymgr leg (TASK-0324 P4a; it answers on its own endpoint) — bound
@@ -142,9 +178,12 @@ impl DisplayServerRuntime {
     pub(crate) fn push_window_set(&mut self) {
         #[cfg(nexus_env = "os")]
         {
-            let slots = self.slot_infos();
+            let mut slots = core::mem::take(&mut self.windows_feed.slots);
+            self.slot_infos(&mut slots);
             self.publish_seen(&slots);
-            let Some((frame, n)) = Self::window_feed_frame(&slots) else { return };
+            let made = Self::window_feed_frame(&slots);
+            self.windows_feed.slots = slots;
+            let Some((frame, n)) = made else { return };
             if self.windows_feed.len == n && self.windows_feed.last[..n] == frame[..n] {
                 // Same state as last SENT: nothing owed, nothing to send.
                 if !self.windows_feed.owed {
@@ -177,7 +216,7 @@ impl DisplayServerRuntime {
     /// Frame-loop retry for an owed push (the channel was full or not bound
     /// yet). Cheap: returns immediately unless something is actually owed.
     pub(crate) fn pump_window_feed(&mut self) {
-        if self.windows_feed.owed || self.windows_feed.seen_owed {
+        if self.windows_feed.owed || self.windows_feed.seen_owed || self.windows_feed.up_owed {
             self.push_window_set();
         }
     }
@@ -212,7 +251,7 @@ impl DisplayServerRuntime {
             let _ = debug_println("windowd: taskbar activate miss");
             return;
         };
-        let id = crate::window_scene::WindowId::App(idx as u8);
+        let id = crate::window_scene::WindowId::App(idx as u16);
         match verb {
             feed::TASKBAR_ACTIVATE => {
                 if self.windows.is_minimized(id) {

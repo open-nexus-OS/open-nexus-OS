@@ -1,42 +1,24 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Service/task spawner and exec service; consumes payloads and starts processes
+//! CONTEXT: execd's std backend — the exec request protocol over a transport (host tests, the
+//! `nexus_env = "os"` lint build). It execs nothing: a process is born from a sealed image by
+//! `exec_vmo` in the os-lite service (ADR-0080); the ELF loader that mapped images into a fresh
+//! space by `as_create`/`as_map` went with those syscalls (ADR-0091).
 //! OWNERS: @services-team
-//! PUBLIC API: service_main_loop(), exec_elf(), exec_minimal(), exec_elf_bytes()
-//! DEPENDS_ON: nexus_ipc, nexus_abi, userspace::nexus_loader (os), exec_payloads (test)
-//! FEATURES: requires `idl-capnp` for IPC handlers; os path behind `cfg(nexus_env = "os")`
-//! INVARIANTS: Delegates ELF mapping to `nexus-loader`; emits readiness via ReadyNotifier
+//! PUBLIC API: service_main_loop(), exec_minimal(), run_with_transport[_ready](), daemon_main()
+//! DEPENDS_ON: nexus_ipc, nexus_idl_runtime (capnp)
+//! FEATURES: requires `idl-capnp` for IPC handlers
+//! INVARIANTS: every exec request answers `ok=false` ("exec unsupported on this build")
 //! ADR: docs/adr/0017-service-architecture.md
 
 #![forbid(unsafe_code)]
 
-#[cfg(nexus_env = "os")]
-use core::convert::TryFrom;
-#[cfg(nexus_env = "os")]
-use std::collections::HashMap;
 use std::fmt;
 use std::io::Cursor;
 
-#[cfg(nexus_env = "os")]
-use std::sync::{Mutex, OnceLock};
-#[cfg(nexus_env = "os")]
-use std::thread;
-#[cfg(nexus_env = "os")]
-use std::time::Duration;
-
 use nexus_ipc::{self, Wait};
 use thiserror::Error;
-
-#[cfg(nexus_env = "os")]
-use exec_payloads::{hello_child_entry, BootstrapMsg, HELLO_ELF};
-#[cfg(nexus_env = "os")]
-use nexus_abi::{self, AbiError, Rights};
-#[cfg(nexus_env = "os")]
-use nexus_loader::{
-    self,
-    os_mapper::{OsMapper, StackBuilder},
-};
 
 #[cfg(all(nexus_env = "host", nexus_env = "os"))]
 compile_error!("nexus_env: both 'host' and 'os' set");
@@ -53,152 +35,10 @@ compile_error!("Enable the `idl-capnp` feature to build execd handlers.");
 use capnp::message::{Builder, ReaderOptions};
 #[cfg(feature = "idl-capnp")]
 use capnp::serialize;
-#[cfg(all(feature = "idl-capnp", nexus_env = "os"))]
-use nexus_idl_runtime::bundlemgr_capnp::{get_payload_request, get_payload_response};
 #[cfg(feature = "idl-capnp")]
 use nexus_idl_runtime::execd_capnp::{exec_request, exec_response};
 
 const OPCODE_EXEC: u8 = 1;
-#[cfg(all(feature = "idl-capnp", nexus_env = "os"))]
-const BUNDLE_OPCODE_GET_PAYLOAD: u8 = 3;
-
-#[cfg(nexus_env = "os")]
-const CHILD_STACK_LEN: usize = 4096;
-#[cfg(nexus_env = "os")]
-const BOOTSTRAP_SLOT: u32 = nexus_abi::BOOTSTRAP_CAP_SLOT;
-#[cfg(nexus_env = "os")]
-const CHILD_STACK_TOP: u64 = 0x4000_0000;
-#[cfg(nexus_env = "os")]
-const CHILD_STACK_PAGES: u64 = 4;
-#[cfg(nexus_env = "os")]
-static CHILD_STACK_BASE: OnceLock<usize> = OnceLock::new();
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RestartPolicy {
-    Never,
-    Always,
-}
-
-#[cfg(nexus_env = "os")]
-struct ServiceEntry {
-    pid: nexus_abi::Pid,
-    restart: RestartPolicy,
-    argv: Vec<String>,
-    env: Vec<String>,
-}
-
-#[cfg(nexus_env = "os")]
-struct RestartRequest {
-    name: String,
-    argv: Vec<String>,
-    env: Vec<String>,
-    policy: RestartPolicy,
-}
-
-#[cfg(nexus_env = "os")]
-static SERVICE_REGISTRY: OnceLock<Mutex<HashMap<String, ServiceEntry>>> = OnceLock::new();
-
-#[cfg(nexus_env = "os")]
-fn registry() -> &'static Mutex<HashMap<String, ServiceEntry>> {
-    SERVICE_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-#[cfg(nexus_env = "os")]
-fn register_service(
-    name: &str,
-    pid: nexus_abi::Pid,
-    restart: RestartPolicy,
-    argv: &[&str],
-    env: &[&str],
-) -> Result<(), ExecError> {
-    let entry = ServiceEntry {
-        pid,
-        restart,
-        argv: argv.iter().map(|arg| (*arg).to_string()).collect(),
-        env: env.iter().map(|var| (*var).to_string()).collect(),
-    };
-    let registry = registry();
-    match registry.lock() {
-        Ok(mut guard) => {
-            guard.insert(name.to_string(), entry);
-            Ok(())
-        }
-        Err(_) => Err(ExecError::RegistryPoisoned),
-    }
-}
-
-#[cfg(nexus_env = "os")]
-fn spawn_reaper_thread() {
-    static REAPER: OnceLock<()> = OnceLock::new();
-    let _ = REAPER.get_or_init(|| {
-        thread::spawn(reaper_loop);
-        ()
-    });
-}
-
-#[cfg(nexus_env = "os")]
-fn reaper_loop() {
-    loop {
-        match nexus_abi::wait(0) {
-            Ok((pid, status)) => handle_exit(pid, status),
-            Err(nexus_abi::AbiError::ChildUnavailable)
-            | Err(nexus_abi::AbiError::NoSuchPid)
-            | Err(nexus_abi::AbiError::InvalidArgument) => {
-                thread::sleep(Duration::from_millis(5));
-            }
-            Err(nexus_abi::AbiError::Unsupported) | Err(nexus_abi::AbiError::InvalidSyscall) => {
-                return;
-            }
-            Err(err) => {
-                #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
-                let _ = nexus_abi::debug_println(&format!("execd: wait error {err:?}"));
-                thread::sleep(Duration::from_millis(5));
-            }
-        }
-    }
-}
-
-#[cfg(nexus_env = "os")]
-fn handle_exit(pid: nexus_abi::Pid, status: i32) {
-    #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
-    let _ = nexus_abi::debug_println(&format!("execd: child exited pid={pid} code={status}"));
-    let mut restart = None;
-    if let Ok(mut guard) = registry().lock() {
-        let key = guard.iter().find(|(_, entry)| entry.pid == pid).map(|(name, _)| name.clone());
-        if let Some(name) = key {
-            if let Some(entry) = guard.remove(&name) {
-                if entry.restart == RestartPolicy::Always {
-                    restart = Some(RestartRequest {
-                        name,
-                        argv: entry.argv,
-                        env: entry.env,
-                        policy: entry.restart,
-                    });
-                }
-            }
-        }
-    }
-    if let Some(request) = restart {
-        restart_service(request);
-    }
-}
-
-#[cfg(nexus_env = "os")]
-fn restart_service(request: RestartRequest) {
-    let RestartRequest { name, argv, env, policy } = request;
-    let argv_refs: Vec<&str> = argv.iter().map(|s| s.as_str()).collect();
-    let env_refs: Vec<&str> = env.iter().map(|s| s.as_str()).collect();
-    match exec_elf(&name, &argv_refs, &env_refs, policy) {
-        Ok(pid) => {
-            #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
-            let _ = nexus_abi::debug_println(&format!("execd: restart {name} pid={pid}"));
-        }
-        Err(err) => {
-            #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
-            let _ = nexus_abi::debug_println(&format!("execd: restart {name} failed: {err}"));
-        }
-    }
-}
 
 /// Trait implemented by transports capable of delivering execution requests.
 pub trait Transport {
@@ -336,36 +176,6 @@ impl From<TransportError> for ServerError {
 pub enum ExecError {
     #[error("exec unsupported on this build")]
     Unsupported,
-    #[cfg(nexus_env = "os")]
-    #[error("spawn syscall failed: {0:?}")]
-    Spawn(AbiError),
-    #[cfg(nexus_env = "os")]
-    #[error("capability transfer failed: {0:?}")]
-    CapTransfer(AbiError),
-    #[cfg(nexus_env = "os")]
-    #[error("address space creation failed: {0:?}")]
-    AsCreate(AbiError),
-    #[cfg(nexus_env = "os")]
-    #[error("address space map failed: {0:?}")]
-    AsMap(AbiError),
-    #[cfg(nexus_env = "os")]
-    #[error("VMO operation failed: {0:?}")]
-    Vmo(nexus_abi::IpcError),
-    #[cfg(nexus_env = "os")]
-    #[error("ipc error: {0:?}")]
-    Ipc(nexus_ipc::IpcError),
-    #[cfg(nexus_env = "os")]
-    #[error("bundle payload error: {0}")]
-    Payload(String),
-    #[cfg(nexus_env = "os")]
-    #[error("loader error: {0}")]
-    Loader(nexus_loader::Error),
-    #[cfg(nexus_env = "os")]
-    #[error("ELF image exceeds VMO limits")]
-    ImageTooLarge,
-    #[cfg(nexus_env = "os")]
-    #[error("service registry unavailable")]
-    RegistryPoisoned,
 }
 
 struct ExecService;
@@ -436,16 +246,7 @@ impl ExecService {
     }
 
     fn exec_minimal(&self, subject: &str) -> Result<(), ExecError> {
-        #[cfg(nexus_env = "os")]
-        {
-            exec_minimal(subject)
-        }
-
-        #[cfg(not(nexus_env = "os"))]
-        {
-            let _ = subject;
-            Err(ExecError::Unsupported)
-        }
+        exec_minimal(subject)
     }
 }
 
@@ -468,188 +269,11 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> Result<(), ServerError> {
     }
 }
 
-/// Executes the minimal bootstrap path for `subject` using the OS syscalls.
-pub fn exec_minimal(subject: &str) -> Result<(), ExecError> {
-    exec_minimal_impl(subject)
-}
-
-#[cfg(nexus_env = "os")]
-pub fn exec_elf_bytes(
-    bytes: &[u8],
-    argv: &[&str],
-    env: &[&str],
-) -> Result<nexus_abi::Pid, ExecError> {
-    spawn_reaper_thread();
-    run_loaded_elf(bytes, argv, env)
-}
-
-#[cfg(nexus_env = "os")]
-pub fn exec_hello_elf() -> Result<(), ExecError> {
-    let _ = run_loaded_elf(HELLO_ELF, &["hello-elf"], &["K=V"])?;
-    Ok(())
-}
-
-#[cfg(nexus_env = "os")]
-fn run_loaded_elf(bytes: &[u8], argv: &[&str], env: &[&str]) -> Result<nexus_abi::Pid, ExecError> {
-    let plan_info = nexus_loader::parse_elf64_riscv(bytes).map_err(ExecError::Loader)?;
-    let vmo_len = compute_vmo_len(&plan_info, bytes.len())?;
-    let vmo_len_usize = usize::try_from(vmo_len).map_err(|_| ExecError::ImageTooLarge)?;
-
-    let as_handle = nexus_abi::as_create().map_err(ExecError::AsCreate)?;
-    let bundle_vmo = nexus_abi::vmo_create(vmo_len_usize).map_err(ExecError::Vmo)?;
-    nexus_abi::vmo_write(bundle_vmo, 0, bytes).map_err(ExecError::Vmo)?;
-
-    let mut mapper = OsMapper::new(as_handle, bundle_vmo);
-    let plan = nexus_loader::load_with(bytes, &mut mapper).map_err(ExecError::Loader)?;
-
-    let stack_builder =
-        StackBuilder::new(CHILD_STACK_TOP, CHILD_STACK_PAGES).map_err(ExecError::Loader)?;
-    let stack_vmo = stack_builder.map_stack(as_handle).map_err(ExecError::Loader)?;
-    let (stack_sp, argv_ptr, env_ptr) =
-        stack_builder.populate(stack_vmo, argv, env).map_err(ExecError::Loader)?;
-
-    let argc = argv.len() as u32;
-    let _bootstrap =
-        BootstrapMsg { argc, argv_ptr, env_ptr, cap_seed_ep: BOOTSTRAP_SLOT, flags: 0 };
-
-    let entry_pc = plan.entry;
-    // NOTE: This path is not used by the RFC-0002 OS boot flow (which uses kernel `exec`),
-    // but it must still compile under `cfg(nexus_env="os")`. We pass a placeholder GP here
-    // because this backend is not executed on the bare-metal target.
-    let pid = nexus_abi::spawn(entry_pc, stack_sp, as_handle, BOOTSTRAP_SLOT, 0)
-        .map_err(ExecError::Spawn)?;
-    let _slot = nexus_abi::cap_transfer(pid, BOOTSTRAP_SLOT, Rights::SEND)
-        .map_err(ExecError::CapTransfer)?;
-
-    #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
-    let _ = nexus_abi::debug_println(&format!("execd: elf load ok {pid}"));
-    Ok(pid)
-}
-
-#[cfg(all(feature = "idl-capnp", nexus_env = "os"))]
-fn request_bundle_payload(name: &str) -> Result<Vec<u8>, ExecError> {
-    use nexus_ipc::Client as _;
-    let client = nexus_ipc::KernelClient::new().map_err(ExecError::Ipc)?;
-
-    let mut message = Builder::new_default();
-    {
-        let mut request = message.init_root::<get_payload_request::Builder<'_>>();
-        request.set_name(name);
-    }
-
-    let mut body = Vec::new();
-    serialize::write_message(&mut body, &message)
-        .map_err(|err| ExecError::Payload(format!("encode payload request: {err}")))?;
-
-    let mut frame = Vec::with_capacity(1 + body.len());
-    frame.push(BUNDLE_OPCODE_GET_PAYLOAD);
-    frame.extend_from_slice(&body);
-    client.send(&frame, Wait::Blocking).map_err(ExecError::Ipc)?;
-
-    let response = client.recv(Wait::Blocking).map_err(ExecError::Ipc)?;
-    let (opcode, payload) = response
-        .split_first()
-        .ok_or_else(|| ExecError::Payload("empty get_payload response".into()))?;
-    if *opcode != BUNDLE_OPCODE_GET_PAYLOAD {
-        return Err(ExecError::Payload(format!("unexpected opcode {opcode}")));
-    }
-
-    let mut cursor = Cursor::new(payload);
-    let message = serialize::read_message(&mut cursor, ReaderOptions::new())
-        .map_err(|err| ExecError::Payload(format!("decode get_payload: {err}")))?;
-    let reader = message
-        .get_root::<get_payload_response::Reader<'_>>()
-        .map_err(|err| ExecError::Payload(format!("get_payload root: {err}")))?;
-    if !reader.get_ok() {
-        return Err(ExecError::Payload(format!("bundle {name} payload unavailable")));
-    }
-    let bytes =
-        reader.get_bytes().map_err(|err| ExecError::Payload(format!("payload bytes: {err}")))?;
-    Ok(bytes.to_vec())
-}
-
-#[cfg(all(feature = "idl-capnp", nexus_env = "os"))]
-pub fn exec_elf(
-    bundle: &str,
-    argv: &[&str],
-    env: &[&str],
-    restart: RestartPolicy,
-) -> Result<nexus_abi::Pid, ExecError> {
-    spawn_reaper_thread();
-    #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
-    let _ = nexus_abi::debug_println(&format!("execd: exec {bundle}"));
-    let payload = request_bundle_payload(bundle)?;
-    let pid = run_loaded_elf(&payload, argv, env)?;
-    register_service(bundle, pid, restart, argv, env)?;
-    Ok(pid)
-}
-
-#[cfg(all(not(feature = "idl-capnp"), nexus_env = "os"))]
-pub fn exec_elf(
-    _bundle: &str,
-    _argv: &[&str],
-    _env: &[&str],
-    _restart: RestartPolicy,
-) -> Result<nexus_abi::Pid, ExecError> {
+/// No exec on this backend: a process is born from a sealed image by `exec_vmo` in the
+/// os-lite service (ADR-0080); the loader that mapped ELF images into a fresh space by
+/// `as_create`/`as_map` is gone with those syscalls (ADR-0091).
+pub fn exec_minimal(_subject: &str) -> Result<(), ExecError> {
     Err(ExecError::Unsupported)
-}
-
-#[cfg(nexus_env = "os")]
-fn exec_minimal_impl(subject: &str) -> Result<(), ExecError> {
-    #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
-    let _ = nexus_abi::debug_println(&format!("execd: exec_minimal {subject}"));
-    spawn_reaper_thread();
-    let stack_top = child_stack_top();
-    let entry_pc = hello_child_entry as usize as u64;
-    let pid =
-        nexus_abi::spawn(entry_pc, stack_top, 0, BOOTSTRAP_SLOT, 0).map_err(ExecError::Spawn)?;
-    let _slot = nexus_abi::cap_transfer(pid, BOOTSTRAP_SLOT, Rights::SEND)
-        .map_err(ExecError::CapTransfer)?;
-    #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
-    let _ = nexus_abi::debug_println(&format!("execd: spawn ok {pid}"));
-    Ok(())
-}
-
-#[cfg(nexus_env = "os")]
-fn compute_vmo_len(plan: &nexus_loader::LoadPlan, file_len: usize) -> Result<u64, ExecError> {
-    let mut required =
-        align_up(file_len as u64, nexus_loader::PAGE_SIZE).ok_or(ExecError::ImageTooLarge)?;
-    for seg in &plan.segments {
-        let file_extent = seg.off.checked_add(seg.filesz).ok_or(ExecError::ImageTooLarge)?;
-        required = required.max(file_extent);
-        let mem_len =
-            align_up(seg.memsz, nexus_loader::PAGE_SIZE).ok_or(ExecError::ImageTooLarge)?;
-        required = required.max(mem_len);
-    }
-    align_up(required, nexus_loader::PAGE_SIZE).ok_or(ExecError::ImageTooLarge)
-}
-
-#[cfg(nexus_env = "os")]
-fn align_up(value: u64, align: u64) -> Option<u64> {
-    if align == 0 {
-        return Some(value);
-    }
-    let mask = align - 1;
-    value.checked_add(mask).map(|sum| sum & !mask)
-}
-
-#[cfg(not(nexus_env = "os"))]
-fn exec_minimal_impl(_subject: &str) -> Result<(), ExecError> {
-    Err(ExecError::Unsupported)
-}
-
-#[cfg(nexus_env = "os")]
-fn child_stack_top() -> u64 {
-    // TEMP: child tasks still share the parent's address space. Carve-out a static stack
-    // until per-task allocators and address spaces are wired.
-    let base = *CHILD_STACK_BASE.get_or_init(|| {
-        let mut buf = Box::new([0u8; CHILD_STACK_LEN]);
-        let base = buf.as_mut_ptr() as usize;
-        Box::leak(buf);
-        base
-    });
-    let top = base + CHILD_STACK_LEN;
-    (top & !0xf) as u64
 }
 
 /// Runs the daemon using the provided transport and emits readiness markers.

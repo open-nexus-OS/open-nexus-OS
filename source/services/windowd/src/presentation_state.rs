@@ -21,28 +21,49 @@
 //! RFC: docs/rfcs/RFC-0083-settings-distribution-v2-single-authority-versioned-snapshots.md
 #![cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 
-/// Tracked delivery targets: the 8 nonce-bound app event channels + the
-/// desktop channel (index [`DESKTOP`]).
-pub(crate) const MAX_TRACKED: usize = 9;
-/// The desktop channel's tracking index.
-pub(crate) const DESKTOP: usize = 8;
+extern crate alloc;
+use alloc::vec::Vec;
+
+/// The desktop channel's tracking index (the nonce-bound channels are `0..`, as many as bind —
+/// RFC-0114 §7: no channel table cap).
+pub(crate) const DESKTOP: usize = usize::MAX;
 /// Consecutive refused sends before a channel stops being retried (the
 /// watch-table reclaim precedent). A rebind revives it.
 const DEAD_AFTER_FAILURES: u8 = 8;
 
+/// One delivery target's state: the generation it last took, its refusals in a row.
+#[derive(Clone, Copy, Debug, Default)]
+struct Track {
+    pushed_gen: u32,
+    failures: u8,
+}
+
 pub(crate) struct PresentationState {
     /// Wrapping generation of the CURRENT snapshot (bumped on every change).
     gen: u32,
-    /// Last generation successfully sent per channel.
-    pushed_gen: [u32; MAX_TRACKED],
-    /// Consecutive send failures per channel.
-    failures: [u8; MAX_TRACKED],
+    /// Per nonce-bound channel (its index in the runtime's table), grown as channels bind.
+    channels: Vec<Track>,
+    desktop: Track,
 }
 
 impl PresentationState {
     pub(crate) const fn new() -> Self {
         // gen starts at 1 so a fresh channel (pushed_gen 0) is immediately due.
-        Self { gen: 1, pushed_gen: [0; MAX_TRACKED], failures: [0; MAX_TRACKED] }
+        Self { gen: 1, channels: Vec::new(), desktop: Track { pushed_gen: 0, failures: 0 } }
+    }
+
+    fn track(&self, idx: usize) -> Option<&Track> {
+        if idx == DESKTOP {
+            return Some(&self.desktop);
+        }
+        self.channels.get(idx)
+    }
+
+    fn track_mut(&mut self, idx: usize) -> Option<&mut Track> {
+        if idx == DESKTOP {
+            return Some(&mut self.desktop);
+        }
+        self.channels.get_mut(idx)
     }
 
     /// The current snapshot generation (goes into the wire frame).
@@ -58,29 +79,39 @@ impl PresentationState {
     /// A channel was (re)bound at `idx`: it owes the current snapshot and any
     /// past failures are forgiven (fresh queue, fresh client).
     pub(crate) fn note_bound(&mut self, idx: usize) {
-        if idx < MAX_TRACKED {
-            self.pushed_gen[idx] = self.gen.wrapping_sub(1);
-            self.failures[idx] = 0;
+        if idx != DESKTOP && idx >= self.channels.len() {
+            if self.channels.try_reserve(idx + 1 - self.channels.len()).is_err() {
+                return;
+            }
+            self.channels.resize(idx + 1, Track::default());
+        }
+        let owed = self.gen.wrapping_sub(1);
+        if let Some(t) = self.track_mut(idx) {
+            *t = Track { pushed_gen: owed, failures: 0 };
+        }
+    }
+
+    /// The channel at `idx` left the table: the ones after it move down with it.
+    pub(crate) fn forget(&mut self, idx: usize) {
+        if idx < self.channels.len() {
+            self.channels.remove(idx);
         }
     }
 
     /// Whether `idx` owes a push of the current snapshot.
     pub(crate) fn due(&self, idx: usize) -> bool {
-        idx < MAX_TRACKED
-            && self.failures[idx] < DEAD_AFTER_FAILURES
-            && self.pushed_gen[idx] != self.gen
+        self.track(idx)
+            .is_some_and(|t| t.failures < DEAD_AFTER_FAILURES && t.pushed_gen != self.gen)
     }
 
     /// Records one NONBLOCK send attempt's outcome for `idx`.
     pub(crate) fn note_send(&mut self, idx: usize, ok: bool) {
-        if idx >= MAX_TRACKED {
-            return;
-        }
+        let gen = self.gen;
+        let Some(t) = self.track_mut(idx) else { return };
         if ok {
-            self.pushed_gen[idx] = self.gen;
-            self.failures[idx] = 0;
+            *t = Track { pushed_gen: gen, failures: 0 };
         } else {
-            self.failures[idx] = self.failures[idx].saturating_add(1);
+            t.failures = t.failures.saturating_add(1);
         }
     }
 }
@@ -130,16 +161,31 @@ mod tests {
     }
 
     #[test]
-    fn desktop_slot_is_tracked_and_out_of_range_is_inert() {
+    fn desktop_slot_is_tracked_and_an_unbound_channel_is_inert() {
         let mut p = PresentationState::new();
         p.note_bound(DESKTOP);
         assert!(p.due(DESKTOP));
         p.note_send(DESKTOP, true);
         assert!(!p.due(DESKTOP));
-        // Out-of-range indices never panic and are never due.
-        p.note_bound(MAX_TRACKED);
-        p.note_send(MAX_TRACKED, true);
-        assert!(!p.due(MAX_TRACKED));
+        // A channel never bound is never due, and a send to it changes nothing.
+        p.note_send(40, true);
+        assert!(!p.due(40));
+    }
+
+    /// RFC-0114 §7: as many channels as bind are tracked; one leaving the table takes its state
+    /// with it and the ones after it keep theirs.
+    #[test]
+    fn channels_grow_and_a_forgotten_one_shifts_the_rest() {
+        let mut p = PresentationState::new();
+        for i in 0..20 {
+            p.note_bound(i);
+        }
+        p.note_send(19, true);
+        assert!(!p.due(19) && p.due(18));
+        p.forget(3);
+        assert!(!p.due(18), "the delivered channel moved down with the table");
+        assert!(p.due(17));
+        assert!(!p.due(19), "past the table: nothing");
     }
 
     #[test]

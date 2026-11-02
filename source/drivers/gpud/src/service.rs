@@ -268,8 +268,9 @@ fn service_requests(
     // 8192 bytes: large enough for full cursor upload (32×32×4 = 4096B BGRA + 9B header).
     let mut recv_frame = [0u8; 8192];
     let mut active_handoff_id: u32 = 0;
-    // RFC-0093 §5: `STATUS_REVEALED` is acked exactly once per boot (see `reply::present_status`).
-    let mut reveal_acked = false;
+    // RFC-0093 §5: `STATUS_REVEALED` is acked exactly once per windowd instance, after its own
+    // `OP_REVEAL` (`reply::Reveal`; a framebuffer request starts an instance, RFC-0112).
+    let mut reveal = crate::reply::Reveal::default();
     // Persistent present buffer: reused (reload_from) for every frame so gpud
     // does NOT allocate a fresh Vec<Command> per present. When the heap never
     // freed, a per-frame deserialize Vec leaked and exhausted the 384KB heap
@@ -283,6 +284,8 @@ fn service_requests(
     // the client's context buffers — charged to the client and told to the memory authority.
     let mut charges = crate::charges::Charges::new();
     let teller = crate::charges::Teller::bind();
+    // RFC-0114: the app surfaces gpud made for their owners (the frames read them in place).
+    let mut surfaces = crate::surface_serve::SurfaceState::new();
     // Present-chain hop trace (graphical-output bisection): emit the per-frame
     // hops once a frame gets all the way through, but keep re-tracing every frame
     // while the chain is broken so a headless run shows exactly HOW FAR we get.
@@ -312,6 +315,9 @@ fn service_requests(
         // before the requests, so an ack never waits behind the next present.
         while let Some(landed) = display.vblank_wake() {
             crate::reply::send_landed(&server, landed);
+            let frames = gpu.as_deref_mut().and_then(|g| g.frames());
+            let ctx = surface_ctx(&server, &mut *display, frames, &mut charges, &teller);
+            crate::surface_serve::retired(ctx, &mut surfaces, landed.seq);
         }
         if let Some(g) = gpu.as_deref_mut() {
             g.on_wake();
@@ -356,6 +362,13 @@ fn service_requests(
                         }
                     }
                     nexus_display_proto::OP_FRAMEBUFFER_REQUEST => {
+                        // Every windowd instance asks once, first (RFC-0112): a restarted one is
+                        // owed its own `STATUS_REVEALED`, or its reveal never completes — and
+                        // what the old one composed (its layers, the apps' surfaces) goes.
+                        reveal = crate::reply::Reveal::default();
+                        let frames = gpu.as_deref_mut().and_then(|g| g.frames());
+                        let ctx = surface_ctx(&server, display, frames, &mut charges, &teller);
+                        crate::surface_serve::compositor_restarted(ctx, &mut surfaces);
                         let status = crate::framebuffer_grant::grant(display);
                         if status == STATUS_OK {
                             // 6e-4: the object gpud lends is charged to the client it is
@@ -373,6 +386,7 @@ fn service_requests(
                         // Phase 6c: carries a serialized CommittedBuffer with batched
                         // BlitSurface commands describing all damage regions.
                         let seq = nexus_display_proto::decode_present_seq(frame).unwrap_or(0);
+                        surfaces.last_present = seq;
                         // The frame chain's first hop in gpud starts here (RFC-0108 §hops).
                         let received_ns = nsec().unwrap_or(0);
                         display.begin_present();
@@ -383,6 +397,13 @@ fn service_requests(
                         let status = if frame.len() > PRESENT_HEADER_LEN {
                             // Reuse scene_cb (reload_from) — no per-frame heap alloc.
                             match scene_cb.reload_from(&frame[PRESENT_HEADER_LEN..]) {
+                                // RFC-0114: a layer of no live object of windowd's, or past one.
+                                Ok(_) if !surfaces.table.admits_commands(scene_cb.commands()) => {
+                                    let _ = debug_println(
+                                        "gpud: FAIL present names a buffer past its object",
+                                    );
+                                    STATUS_MALFORMED
+                                }
                                 Ok(_) => {
                                     if trace {
                                         let _ = debug_println(crate::markers::GPUD_CHAIN_PARSE_OK);
@@ -424,7 +445,7 @@ fn service_requests(
                         let status =
                             if display.present_lost() { STATUS_DEVICE_ERROR } else { status };
                         let status =
-                            crate::reply::present_status(display, status, seq, &mut reveal_acked);
+                            crate::reply::present_status(display, status, seq, &mut reveal);
                         // RFC-0101 §8: a display with a ring acks the present when its flip
                         // lands (`vblank_wake` at the loop's top), never before.
                         if display.present_ack_deferred(seq, status, received_ns) {
@@ -480,6 +501,7 @@ fn service_requests(
                         // Plane 0, cursor uploaded, first frame presented). Latch it — the
                         // next present reveals and is acked STATUS_REVEALED. No probe, no cap.
                         display.request_reveal();
+                        reveal.ask();
                         (STATUS_OK, None)
                     }
                     nexus_display_proto::OP_WALLPAPER_DIRTY => {
@@ -488,6 +510,17 @@ fn service_requests(
                     }
                     nexus_display_proto::OP_READBACK => {
                         (crate::readback::serve(display, frame, moved_cap.take()), None)
+                    }
+                    // RFC-0114 §2: an app surface's object for windowd; answered there (+ its cap).
+                    nexus_display_proto::surface_alloc::OP_SURFACE_ALLOC => {
+                        let frames = gpu.as_deref_mut().and_then(|g| g.frames());
+                        let ctx = surface_ctx(&server, display, frames, &mut charges, &teller);
+                        crate::surface_serve::alloc(ctx, &mut surfaces, sender, frame);
+                        continue;
+                    }
+                    nexus_display_proto::surface_alloc::OP_SURFACE_FREE => {
+                        crate::surface_serve::free(&mut surfaces, sender, frame);
+                        continue;
                     }
                     nexus_display_proto::gpu_context::OP_GPU_CAPABILITIES
                     | nexus_display_proto::gpu_context::OP_GPU_CONTEXT_OPEN => {
@@ -526,6 +559,12 @@ fn service_requests(
                     response_handoff_id,
                     active_handoff_id,
                 );
+                // A present acked at once retired with its ack (RFC-0114: freed objects go).
+                if let (OP_PRESENT_DAMAGE, Some(seq)) = (op, response_handoff_id) {
+                    let frames = gpu.as_deref_mut().and_then(|g| g.frames());
+                    let ctx = surface_ctx(&server, display, frames, &mut charges, &teller);
+                    crate::surface_serve::retired(ctx, &mut surfaces, seq);
+                }
             }
             Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
                 // Frame due (the frame clock fired, windowd idle): the display self-presents
@@ -545,6 +584,17 @@ fn service_requests(
             Err(_) => return Err(nexus_abi::AbiError::InvalidArgument),
         }
     }
+}
+
+/// The parts of the loop an app surface's allocation or retirement touches (RFC-0114).
+fn surface_ctx<'a>(
+    server: &'a KernelServer,
+    display: &'a mut dyn Display,
+    frames: Option<&'a mut dyn crate::gpu_context::FrameGpu>,
+    charges: &'a mut crate::charges::Charges,
+    teller: &'a crate::charges::Teller,
+) -> crate::surface_serve::Ctx<'a> {
+    crate::surface_serve::Ctx { server, display, frames, charges, teller }
 }
 
 fn decode_handoff_id_attach(frame: &[u8]) -> Option<u32> {

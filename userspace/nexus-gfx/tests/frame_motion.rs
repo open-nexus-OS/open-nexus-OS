@@ -8,7 +8,7 @@
 
 use nexus_gfx::command::buffer::Command;
 use nexus_gfx::core::types::TileRect;
-use nexus_gfx::frame::{Area, CacheStep, Frame, FrameLayer, Transform};
+use nexus_gfx::frame::{Area, CacheStep, Frame, FrameLayer};
 
 const DISPLAY: (u32, u32) = (1920, 1080);
 
@@ -34,6 +34,7 @@ fn layer(x: u32, y: u32, w: u32, h: u32) -> Command {
         content_epoch: 0,
         flags: 0,
         key: 0,
+        source: 0,
     }
 }
 
@@ -62,6 +63,7 @@ fn with(cmd: Command, f: impl FnOnce(&mut FrameLayer)) -> Command {
         flags: (if l.opaque { nexus_gfx::command::buffer::LAYER_OPAQUE } else { 0 })
             | (if l.solid { nexus_gfx::command::buffer::LAYER_SOLID } else { 0 }),
         key: l.key,
+        source: l.source,
     }
 }
 
@@ -157,17 +159,31 @@ fn a_glass_of_a_window_in_motion_keeps_its_blur_and_writes_once_at_rest() {
     f.layers.take_frame(&[base.clone(), body.clone(), chrome.clone()]);
     f.plan(DISPLAY, &every_blur);
     assert!(matches!(cache_of(&f, 2), Some(CacheStep::Write(_))), "the first blur");
-    // The window moves (a drag as a transform override): its glass keeps its rows.
-    assert!(f.layers.set_transform(2, Transform { dx: 40, dy: 10, opacity: 255, scale_pct: 100 }));
-    f.layers.take_frame(&[base.clone(), body.clone(), chrome.clone(), damage(0, 0, 1, 1)]);
+    // The window moves (a drag as its transform, carried by every present): its glass keeps
+    // its rows.
+    let moving = transform(2, 40, 10, 255, 100);
+    f.layers.take_frame(&[
+        moving.clone(),
+        base.clone(),
+        body.clone(),
+        chrome.clone(),
+        damage(0, 0, 1, 1),
+    ]);
     let p = f.plan(DISPLAY, &every_blur);
     assert_eq!(cache_of(&f, 2), Some(CacheStep::Read(0)), "in motion: the last blur, kept");
     assert_eq!(p.writes.total(), 0);
     // Another glass elsewhere, touched only by the moving window's damage, keeps too.
     let dock = with(glass(layer(100, 900, 400, 100), 40), |l| l.layer_id = 3);
-    f.layers.take_frame(&[base.clone(), body.clone(), chrome.clone(), dock.clone()]);
+    f.layers.take_frame(&[
+        moving.clone(),
+        base.clone(),
+        body.clone(),
+        chrome.clone(),
+        dock.clone(),
+    ]);
     f.plan(DISPLAY, &every_blur);
     f.layers.take_frame(&[
+        moving,
         base.clone(),
         body.clone(),
         chrome.clone(),
@@ -177,9 +193,9 @@ fn a_glass_of_a_window_in_motion_keeps_its_blur_and_writes_once_at_rest() {
     let p = f.plan(DISPLAY, &every_blur);
     assert!(matches!(cache_of(&f, 3), Some(CacheStep::Read(_))), "touched by motion only: kept");
     assert_eq!(p.writes.total(), 0);
-    // At rest (the identity override): one write for the changed backdrop.
-    assert!(f.layers.set_transform(2, Transform { dx: 0, dy: 0, opacity: 255, scale_pct: 100 }));
-    f.layers.take_frame(&[base, body, chrome, dock, damage(0, 0, 1, 1)]);
+    // At rest (the identity): one write for the changed backdrop.
+    let rest = transform(2, 0, 0, 255, 100);
+    f.layers.take_frame(&[rest, base, body, chrome, dock, damage(0, 0, 1, 1)]);
     let p = f.plan(DISPLAY, &every_blur);
     assert!(matches!(cache_of(&f, 2), Some(CacheStep::Write(_))), "at rest: blurred once");
     assert!(p.writes.total() >= 1);
@@ -204,7 +220,8 @@ fn a_present_carries_the_window_transform_with_its_layers() {
     ]);
     assert_eq!(f.layers.effective(0).map(|l| (l.dst_x, l.dst_y)), Some((240, 210)));
     assert!(!f.layers.in_motion(2), "the identity: at rest");
-    // A transform for a window beyond the table is ignored, the rest of the present taken.
+    // A transform for any window key is taken with the rest of the present (RFC-0114 §7: a key,
+    // never a table index).
     let taken = f.layers.take_frame(&[
         Command::LayerTransform { layer_id: 99, dx: 5, dy: 5, opacity: 255, scale_pct: 100 },
         with(layer(240, 210, 600, 400), |l| l.layer_id = 2),

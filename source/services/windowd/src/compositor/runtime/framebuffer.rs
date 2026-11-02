@@ -215,11 +215,10 @@ impl DisplayServerRuntime {
         STATUS_OK
     }
 
-    /// The desktop surface (the session's greeter or shell) presented a frame: the base layer
-    /// is dirty, and the FIRST such frame completes the reveal condition — the reveal frame
-    /// built right here composes it (`build_scene_cb_into` blits the dirty desktop band).
+    /// The desktop surface (the session's greeter or shell) presented a frame: the FIRST such
+    /// frame completes the reveal condition — the reveal frame built right here composes it
+    /// (its buffer's newest slot, RFC-0114).
     pub(super) fn note_desktop_content(&mut self) {
-        self.desktop_dirty = true;
         if self.reveal_gate.session_content() {
             self.request_reveal();
         }
@@ -308,11 +307,20 @@ impl DisplayServerRuntime {
         let _ = debug_println("windowd: handoff attach sent");
         // Block until gpud responds — fully reactive, no polling.
         let ack_ok = {
-            let Some(client) = self.gpud_client.as_ref() else {
-                return;
-            };
-            match client.recv(Wait::Blocking) {
-                Ok(reply) => match nexus_display_proto::decode_attach_ack(&reply) {
+            let mut reply = [0u8; 64];
+            // The attach ack, matched: a stray a dead predecessor left (RFC-0112) is dropped.
+            let mut answer = Err(nexus_ipc::IpcError::Unsupported);
+            for _ in 0..nexus_ipc::exchange::STRAYS_MAX {
+                answer = self.recv_gpud(Wait::Blocking, &mut reply);
+                match answer {
+                    Ok(n)
+                        if nexus_display_proto::decode_attach_ack(&reply[..n.min(64)])
+                            .is_none() => {}
+                    _ => break,
+                }
+            }
+            match answer {
+                Ok(n) => match nexus_display_proto::decode_attach_ack(&reply[..n.min(64)]) {
                     Some(ack) if ack.status == GPUD_STATUS_OK => {
                         // RFC-0093 §5: the ack's mode is EVIDENCE — the source is the mode
                         // gpud granted with the framebuffer (RFC-0098 C7). A disagreement is named:

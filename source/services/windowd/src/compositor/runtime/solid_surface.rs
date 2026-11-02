@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: A window as ONE solid surface (TASK-0336). From the launch's geometry handshake
-//! until the app's own surface exists — the STARTING surface — and from the close until the
+//! until the app's first frame — the STARTING surface — and from the close until the
 //! exit spring ends — the CLOSING surface — the window is drawn as a 16×16 atlas patch of the
 //! window colour spread over its frame (`LAYER_SOLID | LAYER_OPAQUE`): the open and close
 //! animations move one cheap opaque layer, never the app's layers with their glass, and the
@@ -14,9 +14,9 @@
 //! API_STABILITY: Internal
 //! TEST_COVERAGE: the planner's solid split (`nexus-gfx tests/frame_board.rs`); the swap and the
 //!   deadline on the QEMU visible lane and the board (`windowd: starting surface`).
-//! INVARIANTS: a starting slot is never handed to another launch (`free_app_index`); it ends at
-//!   its app's surface (the swap), its app's death (a dead push) or the launch deadline — never
-//!   left on screen by a launch that will not surface.
+//! INVARIANTS: a starting slot is never handed to another launch (`take_app_slot`); it ends at
+//!   its app's first frame (the swap), its app's death (a dead push) or — before the app created
+//!   its surface — the launch deadline: never left on screen by a launch that will not surface.
 
 use super::*;
 use nexus_gfx::{Layer, LayerShadow, RenderCommandEncoder};
@@ -81,22 +81,20 @@ impl DisplayServerRuntime {
         (width, height): (u32, u32),
         (style, level, mode, resizable): (u8, u8, u8, bool),
     ) {
-        let Some(idx) = self.free_app_index() else { return };
+        let Some(idx) = self.take_app_slot() else { return };
         self.apps[idx].reset_wm_state();
         self.apps[idx].intent_style = style;
         self.apps[idx].intent_level = level;
         self.apps[idx].intent_mode = mode;
         self.apps[idx].intent_resizable = resizable;
-        let area = (self.mode.width, self.work_area_h());
-        let min_y = self.full_surface_frame(idx).0;
-        self.apps[idx].win.set_frame_clamped(width, height, area, min_y);
+        self.frame_floating(idx, (width, height));
         if !self.show_solid(idx) {
             return;
         }
         self.apps[idx].starting = true;
         self.apps[idx].event_channel = Some(channel);
         self.apps[idx].win.visible = true;
-        let wid = crate::window_scene::WindowId::App(idx as u8);
+        let wid = crate::window_scene::WindowId::App(idx as u16);
         let role = self.app_presentation(idx).role;
         self.windows.set_role(wid, role);
         self.show_window(wid);
@@ -109,7 +107,7 @@ impl DisplayServerRuntime {
         ));
     }
 
-    /// The launch surfaced in slot `idx`: the starting surface gives way to the app's own in
+    /// The app in slot `idx` presented its first frame: the starting surface gives way to it in
     /// the same present (the window keeps its frame and its running spring). Returns whether
     /// the slot was starting.
     pub(super) fn end_starting_surface(&mut self, idx: usize) -> bool {
@@ -127,7 +125,9 @@ impl DisplayServerRuntime {
     /// window; a dead one is reaped by its first failed push.
     pub(super) fn close_starting_surfaces(&mut self) {
         for idx in 0..self.apps.len() {
-            if !self.apps[idx].starting {
+            // An app that created its surface has surfaced: its first frame ends the starting
+            // surface (`handle_surface_present`).
+            if !self.apps[idx].starting || self.apps[idx].surface_id.is_some() {
                 continue;
             }
             let _ =
@@ -139,7 +139,7 @@ impl DisplayServerRuntime {
             self.apps[idx].win.visible = false;
             self.apps[idx].transform = WinTransform::IDENTITY;
             self.apps[idx].pending_wm = None;
-            self.hide_window(crate::window_scene::WindowId::App(idx as u8));
+            self.hide_window(crate::window_scene::WindowId::App(idx as u16));
             self.queue_dirty_rect(vacated);
         }
     }
@@ -176,7 +176,7 @@ impl SolidSnap {
     pub(super) fn encode(
         &self,
         encoder: &mut RenderCommandEncoder<'_>,
-        slot: u8,
+        key: u32,
         mode: (u32, u32),
     ) {
         let (x, y, w, h) = self.frame;
@@ -193,16 +193,19 @@ impl SolidSnap {
                 dst_y: y,
                 opacity: 255,
                 corner_radius: self.radius,
-                layer_id: u32::from(slot) + 1,
+                layer_id: key,
                 content_epoch: crate::atlas::atlas_content_epoch(),
                 scroll_band_top_abs: 0,
                 scroll_band_h: 0,
+                // windowd's own patch in the layout object (RFC-0114 §6: source 0).
+                source: 0,
+                slot: 0,
                 shadow: (alpha > 0).then_some(LayerShadow { blur, offset_y, alpha }),
                 backdrop: None,
                 opaque: true,
                 solid: true,
                 key: super::surface_layers_encode::key(
-                    u32::from(slot) + 1,
+                    key,
                     super::surface_layers_encode::KIND_SOLID,
                     0,
                 ),

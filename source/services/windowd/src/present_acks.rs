@@ -93,6 +93,17 @@ impl PresentWindow {
         }
     }
 
+    /// A window whose first present carries `seed + 1` — acks at or below `seed` are unknown.
+    /// The compositor seeds it with the milliseconds since boot (RFC-0112): presents leave far
+    /// slower than one a millisecond on average, so a restarted compositor's seqs run past every
+    /// seq its predecessor sent, and gpud's frees stamped with those retire with its first frames.
+    pub(crate) const fn starting_after(seed: u32) -> Self {
+        let mut w = Self::new();
+        w.last_issued = seed;
+        w.floor = seed;
+        w
+    }
+
     /// Seq the NEXT present will carry.
     pub(crate) fn next_seq(&self) -> u32 {
         self.last_issued.wrapping_add(1).max(1)
@@ -141,6 +152,18 @@ impl PresentWindow {
         self.last_issued
     }
 
+    /// The newest present every present up to which has been acked — its frame and all before
+    /// it are read no more (RFC-0114 §5: a slot no later frame read is free). With nothing
+    /// outstanding, and after a reset, the last issued.
+    pub(crate) fn retired(&self) -> u32 {
+        if self.outstanding == 0 {
+            return self.last_issued;
+        }
+        // The oldest outstanding present is the highest set bit's age.
+        let oldest_age = 63 - self.outstanding.leading_zeros();
+        self.last_issued.wrapping_sub(oldest_age).wrapping_sub(1)
+    }
+
     /// windowd sent `OP_REVEAL`: the next `STATUS_REVEALED` ack is legitimate.
     pub(crate) fn request_reveal(&mut self) {
         self.reveal_requested = true;
@@ -168,6 +191,39 @@ impl PresentWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// RFC-0112: a seeded window starts past its seed, never acks a seq at or below it.
+    #[test]
+    fn a_seeded_window_runs_past_its_predecessor() {
+        let mut w = PresentWindow::starting_after(60_000);
+        assert_eq!(w.retired(), 60_000);
+        assert_eq!(w.issue(), Some(60_001));
+        assert_eq!(w.ack(42), Verdict::Unknown, "a predecessor's seq");
+        assert_eq!(w.ack(60_000), Verdict::Unknown);
+        assert_eq!(w.ack(60_001), Verdict::Credited);
+        assert_eq!(w.retired(), 60_001);
+    }
+
+    /// RFC-0114 §5: a frame is retired once it and every frame before it were acked — an ack
+    /// out of order retires nothing past the oldest frame still in flight.
+    #[test]
+    fn retired_is_the_newest_frame_with_nothing_older_in_flight() {
+        let mut w = PresentWindow::new();
+        assert_eq!(w.retired(), 0, "nothing issued: nothing to read");
+        for _ in 0..3 {
+            w.issue();
+        }
+        assert_eq!(w.retired(), 0, "1..=3 in flight");
+        assert_eq!(w.ack(2), Verdict::Credited);
+        assert_eq!(w.retired(), 0, "1 still in flight: 2 retired, but not before 1");
+        assert_eq!(w.ack(1), Verdict::Credited);
+        assert_eq!(w.retired(), 2);
+        assert_eq!(w.ack(3), Verdict::Credited);
+        assert_eq!(w.retired(), 3);
+        w.issue();
+        w.reset();
+        assert_eq!(w.retired(), 4, "a reset retires everything issued");
+    }
 
     #[test]
     fn issue_ack_roundtrip_credits_exactly_once() {

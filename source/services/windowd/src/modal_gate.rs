@@ -38,13 +38,22 @@ pub enum Verdict {
 /// identifies anyone) are never gated; a target that is not live is nobody's window.
 #[must_use]
 pub fn input_verdict(target: usize, slots: &[SlotFacts]) -> Verdict {
-    let Some(t) = slots.get(target) else { return Verdict::Allow };
+    input_verdict_by(target, slots.len(), |i| slots[i])
+}
+
+/// [`input_verdict`] over `n` slots whose facts `fact` reads — the routing loops ask the slots
+/// themselves, so an event materializes no table (the slots grow, RFC-0114 §7).
+#[must_use]
+pub fn input_verdict_by(target: usize, n: usize, fact: impl Fn(usize) -> SlotFacts) -> Verdict {
+    if target >= n {
+        return Verdict::Allow;
+    }
+    let t = fact(target);
     if !t.live || t.owner_sid == 0 || t.modal {
         return Verdict::Allow;
     }
-    match slots
-        .iter()
-        .enumerate()
+    match (0..n)
+        .map(|i| (i, fact(i)))
         .find(|(i, s)| *i != target && s.live && s.modal && s.owner_sid == t.owner_sid)
     {
         Some((modal_idx, _)) => Verdict::RefusedByModal { modal_idx },

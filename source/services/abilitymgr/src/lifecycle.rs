@@ -203,6 +203,15 @@ impl Broker {
         self.instances.values()
     }
 
+    /// The running instance of `app_id` — spawned, not dying — a launch of a one-instance role
+    /// answers (RFC-0112).
+    pub fn live_instance_of(&self, app_id: &str) -> Option<u32> {
+        self.instances
+            .values()
+            .find(|i| i.app_id == app_id && i.pid.is_some() && !i.dying)
+            .map(|i| i.instance_id)
+    }
+
     /// The instance whose process is `pid`, if any.
     pub fn instance_by_pid(&self, pid: u32) -> Option<&AbilityInstance> {
         self.instances.values().find(|i| i.pid == Some(pid))

@@ -603,7 +603,7 @@ USB_CLASS_MARKERS=(
   "hidrawd: usb hid subscribed"
 )
 case "${PROFILE:-full}" in
-  usb|usb-visible|lowmem)
+  usb|usb-visible|lowmem|many-windows)
     USB_MARKERS=(
       "init: usb host from pci (00:01.0 bar=0x400000000 irq=33)"
       "xhcid: controller ok (version=1.00 ports=8 slots=64 csz=32 scratch=0 irq=33)"
@@ -783,6 +783,29 @@ LOWMEM_INPUT_MARKERS=(
   "SELFTEST: mem pressure released (level=normal"
   "SELFTEST: app restore ok ("
 )
+# TASK-0348 (RFC-0114 §7): the `many-windows` lane — the USB input chain, then twelve windows
+# opened from the launcher (each press a new instance) in place of the usb-visible phases. Every
+# window's surface is made by gpud for its app and mapped by it; one frame draws all twelve from
+# their own buffers. Before RFC-0114 the fifth window was refused. Then the compositor restarts
+# over the twelve (TASK-0348 Phase 6, RFC-0112): init respawns and re-pins it, execd tells every
+# app, gpud lets go of the old compositor's surfaces, the shell is kept, every app rejoins — and the
+# twelve are drawn again (ordered: checked after the run, below).
+MANY_WINDOWS_MARKERS=(
+  "${USB_INPUT_CHAIN_MARKERS[@]}"
+  "abilitymgr: launch (app=settings"
+  "apphost: surface mapped ("
+  "windowd: compose copies=0 ("
+  "windowd: windows drawn (n=12)"
+  "windowd: restart requested (chord)"
+  "init: service restarted name=windowd"
+  "init: windowd re-pinned (clients=0x"
+  "execd: compositor back (apps="
+  "gpud: compositor restarted (owners="
+  "abilitymgr: compositor up (thawed="
+  "abilitymgr: launch kept (app=desktop-shell"
+  "APPHOST: compositor back (reattached)"
+  "apphost: surface re-created"
+)
 
 expected_sequence=(
   # ADR-0081 (TASK-0333 6c-2): the kernel adopted the bootfs the loader placed — every core
@@ -798,7 +821,13 @@ expected_sequence=(
   "KSELFTEST: vmo reach ok ("
   # TASK-0333 6b-2b (ADR-0078): a lazy object made for a device commits what it is told, in reach.
   "KSELFTEST: vmo lazy device ok ("
+  # TASK-0348 (ADR-0092): a CPU write reaches a non-coherent device — the zeroes the kernel
+  # commits are cleaned, `vmo_clean` cleans what was written, refusals keep their identity.
+  "KSELFTEST: vmo clean ok ("
   "KSELFTEST: w^x enforced"
+  # TASK-0347 (ADR-0091): no ambient authority over address spaces — 9/10 retired, spawn only
+  # into the caller's own space, a caller-sized object is EINVAL/ENOMEM, never a kernel panic.
+  "KSELFTEST: ambient authority reject ok ("
   # TASK-0333 6a (RFC-0100 §1, ADR-0073): an object dies with its last capability, a death
   # is an event — four kernel selftests, before the fence ones they run beside. TASK-0339
   # (RFC-0033 amendment, ADR-0075) runs first among them: a sender is told once when a full
@@ -810,6 +839,11 @@ expected_sequence=(
   "KSELFTEST: ipc peer closed send ok"
   "KSELFTEST: task exit releases ok ("
   "KSELFTEST: child exit notify ok ("
+  # TASK-0348 (RFC-0112, amendment 2026-11-02): a capability goes only into one's own child;
+  # REPLACE_DEAD re-pins a dead endpoint's slot and never a live one; a reply capability moved
+  # with a request the dead server never read is released at its death (the caller's EOF).
+  "KSELFTEST: cap transfer rules ok ("
+  "KSELFTEST: in-flight caps released ok"
   # TASK-0333 6b-3 (RFC-0100 §1): an object whose last capability closed while mapped dies at
   # its last unmap — the lifetime rule's third caller.
   "KSELFTEST: vm unmap reclaim ok ("
@@ -1429,7 +1463,7 @@ case "${PROFILE:-full}" in
   # gpud build provenance) on top of this ladder; the `full` display ladder
   # (input-startup incl. touchd) has had no lane since 2026-07 and its touchd
   # marker is a scheduler-determinism defect tracked in TASK-0324 P5.
-  headless|smp1|sdhci|usb|reset|display-gpu|dhcp|dhcp-strict|quic-required|os2vm|supply-chain|ota-tamper|ota-downgrade|visible|visible-fhd|visible-2d|usb-visible|lowmem)
+  headless|smp1|sdhci|usb|reset|display-gpu|dhcp|dhcp-strict|quic-required|os2vm|supply-chain|ota-tamper|ota-downgrade|visible|visible-fhd|visible-2d|usb-visible|lowmem|many-windows)
     # Use a reduced expected sequence for headless — omits display-gated
     # metrics, VFS, sandbox, and windowd markers. (The exec child-lifecycle/
     # minidump chain is NOT display-gated: it is appended for headless/smp1
@@ -1448,13 +1482,17 @@ case "${PROFILE:-full}" in
       "KSELFTEST: vmo runs ok ("
       "KSELFTEST: vmo reach ok ("
       "KSELFTEST: vmo lazy device ok ("
+      "KSELFTEST: vmo clean ok ("
       "KSELFTEST: w^x enforced"
+      "KSELFTEST: ambient authority reject ok ("
       "KSELFTEST: waitset writable ok"
       "KSELFTEST: ipc eof nonblocking ok"
       "KSELFTEST: userptr unmapped ok"
       "KSELFTEST: ipc peer closed send ok"
       "KSELFTEST: task exit releases ok ("
       "KSELFTEST: child exit notify ok ("
+      "KSELFTEST: cap transfer rules ok ("
+      "KSELFTEST: in-flight caps released ok"
       "KSELFTEST: vm unmap reclaim ok ("
       "KSELFTEST: process ctl ok ("
       "KSELFTEST: mem pressure notify ok ("
@@ -1699,6 +1737,10 @@ case "${PROFILE:-full}" in
   # TASK-0333 6f-3: the same USB plane and input chain, then the real pressure's chain.
   lowmem)
     expected_sequence+=("${USB_MARKERS[@]}" "${LOWMEM_INPUT_MARKERS[@]}")
+    ;;
+  # TASK-0348: the same USB plane and input chain, then twelve windows drawn in one frame.
+  many-windows)
+    expected_sequence+=("${USB_MARKERS[@]}" "${MANY_WINDOWS_MARKERS[@]}")
     ;;
 esac
 
@@ -2860,6 +2902,24 @@ if profile_has_display; then
   fi
 fi
 
+# TASK-0348 (RFC-0114, ADR-0092): an app's surface is a buffer gpud made for it — the app draws
+# where the GPU reads and windowd composes by reference, copying no app row. Wherever an app
+# surface was created (headless 2D, visible virgl, the board), the whole chain shows: gpud made
+# the object for its owner, the app mapped it, a frame read it in place.
+if grep -aFq "WINDOWD: desktop surface created" "$UART_LOG" \
+  || grep -aFq "WINDOWD: surface created" "$UART_LOG"; then
+  for m in \
+    "gpud: surface alloc ok (" \
+    "apphost: surface mapped (" \
+    "windowd: compose copies=0 ("; do
+    if ! grep -aFq "$m" "$UART_LOG"; then
+      echo "[error] first_failed_phase=end missing_marker='$m'" >&2
+      echo "[error] zero-copy surface chain broken (RFC-0114): gpud allocates, the app maps, windowd composes by reference" >&2
+      exit 1
+    fi
+  done
+fi
+
 # TASK-0055B fake-green guard (GPU-capable profiles): the guest marker summarizes a
 # configured GPU scanout and must not appear without mode/present/handoff prerequisites.
 # Only enforced for GPU-capable profiles (headless has no virtio-gpu device).
@@ -3429,10 +3489,37 @@ if [[ "${MARKER_CONTRACT:-1}" == "1" ]]; then
       ;;
     # TASK-0333 6f-3: the same injected USB input, without the modal/tiling/clipboard/capture
     # phases (the lane's own choreography is the real pressure's).
-    lowmem)
+    lowmem|many-windows)
       bash "$ROOT/scripts/check-chain-markers.sh" --log "$UART_LOG" --groups input-route,input-live,gpu-core,display || exit 1
       ;;
   esac
+fi
+
+# TASK-0348 Phase 6 (RFC-0112): the many-windows lane's restart. The ladder is a presence check;
+# here the order and the counts: the twelve drawn again AFTER the restart and the desktop revealed
+# again — the reveal waits for the shell's own frame, so a shell that never drew fails here (the
+# windows alone came back without it once) —, no app's notice failed, no app gave up its rejoin.
+if [[ "${PROFILE:-}" == "many-windows" ]]; then
+  restart_at=$(grep -aFn "windowd: restart requested (chord)" "$UART_LOG" | head -n1 | cut -d: -f1 || true)
+  back_at=$(grep -aFn "windowd: windows drawn (n=12)" "$UART_LOG" | tail -n1 | cut -d: -f1 || true)
+  if [[ -z "$restart_at" || -z "$back_at" || "$back_at" -le "$restart_at" ]]; then
+    echo "[error] first_failed_phase=end missing_marker='windowd: windows drawn (n=12)' after 'windowd: restart requested (chord)'" >&2
+    exit 1
+  fi
+  shell_at=$(grep -aFn "windowd: desktop revealed (seq=" "$UART_LOG" | tail -n1 | cut -d: -f1 || true)
+  if [[ -z "$shell_at" || "$shell_at" -le "$restart_at" ]]; then
+    echo "[error] first_failed_phase=end missing_marker='windowd: desktop revealed (seq=' after 'windowd: restart requested (chord)' (the shell never drew)" >&2
+    exit 1
+  fi
+  if ! grep -aEq "execd: compositor back \(apps=[0-9]+ owed=[0-9]+ failed=0\)" "$UART_LOG"; then
+    echo "[error] the compositor-back notice failed for an app: $(grep -aF 'execd: compositor back (' "$UART_LOG" | head -n1)" >&2
+    exit 1
+  fi
+  if grep -aEq "APPHOST: FAIL (rejoin|surface after rejoin)" "$UART_LOG"; then
+    echo "[error] an app gave up its rejoin: $(grep -aE 'APPHOST: FAIL (rejoin|surface after rejoin)' "$UART_LOG" | head -n1)" >&2
+    exit 1
+  fi
+  echo "[PASS] compositor restart: twelve windows and the shell back, every app told and rejoined"
 fi
 
 # No-fake-green (CLAUDE.md): the ladder above is a PRESENCE check — a proof

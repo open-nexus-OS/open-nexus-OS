@@ -6,7 +6,8 @@
 //! (`GpuPrivate`, no region) — or a plane of the ring adopted by its bus address (the display's
 //! memory). A buffer belongs to its client, is bound in ranges (`Mapping`) in any number of its
 //! client's contexts, and is destroyed by its client once nothing binds it. The table is
-//! allocated once, at its bound; a destroyed buffer's slot serves the next.
+//! reserved once and grows with the buffers (RFC-0114 §7: a window's surface is a buffer, and the
+//! windows are as many as memory allows); a destroyed buffer's slot serves the next.
 
 use alloc::vec::Vec;
 
@@ -18,8 +19,9 @@ use nexus_service_topology::DEVICE_MMIO_SLOT;
 
 use super::gpu_vmo::GpuVmo;
 
-/// Buffers the device holds at once.
-pub(super) const MAX_BOS: usize = 64;
+/// Buffers the table holds before it first grows: the device's own (firmware, contexts, the render
+/// bundle, the desktop) and the first few dozen windows' surfaces.
+const BOS_RESERVED: usize = 64;
 
 // A buffer is a slot of the table, allocated once: boxing the DMA VMO's run list would make
 // gpud allocate for every buffer a client creates.
@@ -125,9 +127,9 @@ pub(super) struct Bos {
 
 impl Bos {
     pub(super) fn new() -> Self {
-        // The table's whole bound at once: one allocation, where a table grown by doubling
-        // would copy itself and free the smaller copy at every step.
-        Self { table: Vec::with_capacity(MAX_BOS) }
+        // Reserved once for the common case, so a usual session never moves the table; past it
+        // the table grows — a growth memory refuses is the device's `Exhausted`, never a panic.
+        Self { table: Vec::with_capacity(BOS_RESERVED) }
     }
 
     pub(super) fn insert(&mut self, bo: Bo) -> Result<BoId, DeviceError> {
@@ -135,11 +137,10 @@ impl Bos {
             self.table[i] = Some(bo);
             return Ok(BoId(i as u32));
         }
-        if self.table.len() >= MAX_BOS {
-            return Err(DeviceError::Exhausted);
-        }
+        let id = u32::try_from(self.table.len()).map_err(|_| DeviceError::Exhausted)?;
+        self.table.try_reserve(1).map_err(|_| DeviceError::Exhausted)?;
         self.table.push(Some(bo));
-        Ok(BoId(self.table.len() as u32 - 1))
+        Ok(BoId(id))
     }
 
     /// `client`'s buffer `bo`.

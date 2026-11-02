@@ -82,6 +82,7 @@
   "sc.window.fill": "全体に広げる",
   "sc.window.leftHalf": "左半分",
   "sc.window.minimize": "最小化または復元",
+  "sc.window.restartDesktop": "デスクトップを再起動",
   "sc.window.return": "元のサイズに戻す",
   "sc.window.rightHalf": "右半分",
   "sc.window.topLeft": "左上4分の1",

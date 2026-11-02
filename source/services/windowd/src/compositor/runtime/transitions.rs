@@ -40,10 +40,10 @@ impl DisplayServerRuntime {
     }
 
     /// Decode a driver layer id back to a window slot (None = not a window
-    /// transform layer).
+    /// transform layer). The slots grow (RFC-0114 §7): a slot index is any `u16`.
     pub(super) fn wt_slot(layer: animation::LayerId) -> Option<usize> {
         let v = layer.0.checked_sub(WT_LAYER_BASE)?;
-        (v < crate::window_scene::MAX_APP_WINDOWS as u64).then_some(v as usize)
+        (v <= u64::from(u16::MAX)).then_some(v as usize)
     }
 
     /// OPEN transition: the window fades + scales IN from 92% (the decided
@@ -255,20 +255,17 @@ impl DisplayServerRuntime {
         )
     }
 
-    /// Every window slot's transform for the present being built: a mounted (or starting)
-    /// window's as it draws now, the identity for a free slot — so a slot's next tenant never
-    /// inherits the last tenant's fade (TASK-0338: no op retires it any more).
-    pub(super) fn present_transforms(
-        &self,
-    ) -> [(i32, i32, u32, u32); crate::window_scene::MAX_APP_WINDOWS] {
-        const IDENTITY: (i32, i32, u32, u32) = (0, 0, 255, 100);
-        let mut transforms = [IDENTITY; crate::window_scene::MAX_APP_WINDOWS];
-        for (idx, t) in transforms.iter_mut().enumerate().take(self.apps.len()) {
-            if self.apps[idx].surface_id.is_some() || self.apps[idx].starting {
-                *t = self.wire_transform(idx);
+    /// Every live window's transform for the present being built — `(its key, the transform)`
+    /// into `out` (cleared first): a mounted, replaced or starting window's as it draws now. A
+    /// present with layers names every window's (the planner holds none it does not name), so
+    /// a window's key never inherits another's fade (RFC-0114 §7, TASK-0338).
+    pub(super) fn present_transforms(&self, out: &mut Vec<(u32, (i32, i32, u32, u32))>) {
+        out.clear();
+        for (idx, a) in self.apps.iter().enumerate() {
+            if a.surface_id.is_some() || a.retiring.is_some() || a.starting {
+                out.push((u32::from(a.key), self.wire_transform(idx)));
             }
         }
-        transforms
     }
 
     /// After a driver tick: finish transitions whose springs all converged —
@@ -290,10 +287,10 @@ impl DisplayServerRuntime {
             self.apps[idx].transform = WinTransform::IDENTITY;
             match pending {
                 Some(PendingWm::Close) => {
-                    self.close_app_window(idx);
+                    self.close_app_window(idx, true);
                 }
                 Some(PendingWm::Minimize) => {
-                    self.minimize_window(crate::window_scene::WindowId::App(idx as u8));
+                    self.minimize_window(crate::window_scene::WindowId::App(idx as u16));
                     // The parked window re-enters at identity on restore.
                     self.owe_frame();
                 }

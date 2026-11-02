@@ -201,7 +201,9 @@ pub fn task_qos_set_for(target: Pid, qos: QosClass) -> SysResult<()> {
     }
 }
 
-/// Spawns a new task using the provided entry point, stack, bootstrap endpoint, and GP value.
+/// Starts a thread in the caller's OWN address space (`asid` = [`as_self`]) at `entry_pc` on
+/// `stack_sp`, left suspended for [`task_resume`] (ADR-0091). Another process's space, or none,
+/// is `PermissionDenied`; a new process comes from `exec_vmo` (ADR-0080).
 #[cfg(nexus_env = "os")]
 pub fn spawn(
     entry_pc: u64,

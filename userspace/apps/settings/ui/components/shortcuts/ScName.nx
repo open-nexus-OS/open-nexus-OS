@@ -30,6 +30,8 @@ Component ScName {
         Text(@t("sc.window.minimize")).textSize(sm).fontWeight(medium).fg(onGlass)
     } else if $props.id == "window.close" {
         Text(@t("sc.window.close")).textSize(sm).fontWeight(medium).fg(onGlass)
+    } else if $props.id == "window.restartDesktop" {
+        Text(@t("sc.window.restartDesktop")).textSize(sm).fontWeight(medium).fg(onGlass)
     } else if $props.id == "capture.ui" {
         Text(@t("sc.capture.ui")).textSize(sm).fontWeight(medium).fg(onGlass)
     } else if $props.id == "capture.screen" {

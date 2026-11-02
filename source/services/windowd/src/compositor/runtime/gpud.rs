@@ -7,8 +7,9 @@
 //!
 //! Split out of `runtime/mod.rs` (TASK-0063 modularization): the
 //! `DisplayServerRuntime` methods that own the gpud route — connect/fallback,
-//! fire-and-forget present + reply drain (bump-heap-safe `recv_into`), the
-//! blocking handoff status request, and the GPU-blur present. A child module of
+//! fire-and-forget present + reply drain (bump-heap-safe, ONE capability-aware
+//! receive: a surface buffer's answer moves its capability on this route,
+//! RFC-0114), the blocking handoff status request, and the GPU-blur present. A child module of
 //! `runtime`, so it reads the runtime's private fields directly; methods are
 //! `pub(super)` so the parent and sibling submodules can still call them.
 
@@ -72,12 +73,15 @@ impl DisplayServerRuntime {
         match send_result {
             Ok(()) => {
                 let now = nsec().unwrap_or(0);
+                let seq = self.presents.next_seq();
                 // RFC-0110: the landing predicted for it (behind the presents in flight), judged
                 // when its timed ack comes.
-                self.note_present_sent(self.presents.next_seq(), now);
-                if let Some(seq) = self.presents.issue() {
+                self.note_present_sent(seq, now);
+                if self.presents.issue().is_some() {
                     crate::compositor::frame_causes::present_issued(seq, now);
                 }
+                // RFC-0114 §5: the slots this frame reads are read until it retired.
+                self.frame_reads_sent(seq);
                 true
             }
             Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::NoSpace) => {
@@ -100,6 +104,40 @@ impl DisplayServerRuntime {
         self.gpud_client = None;
         self.presents.reset();
         self.capture_gpud_lost();
+        // Nothing in flight reads a slot any more: every owed release goes.
+        self.release_presents();
+    }
+
+    /// The ONE receive on the gpud route (RFC-0114 §2): a surface buffer's answer — tagged, its
+    /// capability moved along — completes its create wherever on the route it lands, and the
+    /// receive goes on; every other reply is returned (truncated to `out`, its length the
+    /// reply's). A capability that moved with anything else is closed, never left in windowd's
+    /// table.
+    pub(super) fn recv_gpud(
+        &mut self,
+        wait: Wait,
+        out: &mut [u8],
+    ) -> Result<usize, nexus_ipc::IpcError> {
+        use nexus_display_proto::surface_alloc::decode_allocated;
+        let mut frame = [0u8; 512];
+        loop {
+            let (n, cap) = {
+                let client = self.gpud_client.as_ref().ok_or(nexus_ipc::IpcError::Disconnected)?;
+                client.recv_into_with_cap(wait, &mut frame, false)?
+            };
+            let n = n.min(frame.len());
+            if let Some(a) = decode_allocated(&frame[..n]) {
+                self.on_surface_allocated(a, cap);
+                continue;
+            }
+            if let Some(cap) = cap {
+                crate::client_outbox::close_cap(cap);
+                let _ = debug_println("windowd: FAIL gpud reply moved a capability (closed)");
+            }
+            let len = n.min(out.len());
+            out[..len].copy_from_slice(&frame[..len]);
+            return Ok(n);
+        }
     }
 
     /// The ONE interpreter of a gpud reply (RFC-0093 §5) — used by the drain and by the
@@ -163,6 +201,8 @@ impl DisplayServerRuntime {
                 if matches!(verdict, acks::Verdict::Credited) {
                     crate::compositor::frame_causes::present_acked(seq, nsec().unwrap_or(0));
                     self.note_present_shown(seq, reply);
+                    // RFC-0114 §5: a retired frame may free a slot — its app may draw again.
+                    self.release_presents();
                 }
                 match verdict {
                     acks::Verdict::Credited => match status {
@@ -216,14 +256,12 @@ impl DisplayServerRuntime {
         // path allocates nothing.
         let mut reply_buf = [0u8; 32];
         loop {
-            let recv_result = {
-                let Some(client) = self.gpud_client.as_ref() else {
-                    return any;
-                };
-                client.recv_into(Wait::NonBlocking, &mut reply_buf)
-            };
-            match recv_result {
+            if self.gpud_client.is_none() {
+                return any;
+            }
+            match self.recv_gpud(Wait::NonBlocking, &mut reply_buf) {
                 Ok(n) => {
+                    let n = n.min(reply_buf.len());
                     any = true;
                     if !self.handle_gpud_reply(&reply_buf[..n]) {
                         return any;
@@ -294,14 +332,11 @@ impl DisplayServerRuntime {
             self.gpud_client = None;
             return Err(WindowdError::InvalidDamage);
         }
-        let recv_result = {
-            let client = self.gpud_client.as_ref().ok_or(WindowdError::InvalidDamage)?;
-            client.recv(Wait::Blocking)
-        };
-        match recv_result {
-            Ok(reply) if reply.first().copied() == Some(GPUD_STATUS_OK) => Ok(()),
-            Ok(reply) => {
-                if let Some(status) = reply.first().copied() {
+        let mut reply = [0u8; 64];
+        match self.recv_gpud(Wait::Blocking, &mut reply) {
+            Ok(n) if n >= 1 && reply[0] == GPUD_STATUS_OK => Ok(()),
+            Ok(n) => {
+                if let Some(status) = reply[..n.min(reply.len())].first().copied() {
                     let _ = debug_println(&alloc::format!(
                         "windowd: gpud request bad-status=0x{status:02x}"
                     ));

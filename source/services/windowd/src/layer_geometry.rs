@@ -3,9 +3,8 @@
 
 //! CONTEXT: a client surface's declared layers (RFC-0109) as windowd keeps them, and the pure
 //! geometry its compositor composes from: a scroll layer's visible window cut into its pieces
-//! (never a position its band does not hold), a wash placed in its parent and clipped to it, the
-//! rows a present names for the copy, what a new structure changes on the screen, who may declare
-//! layers on a surface. Host-tested here; the OS-only runtime (`compositor::runtime::
+//! (never a position its band does not hold), a wash placed in its parent and clipped to it,
+//! what a new structure changes on the screen, who may declare layers on a surface. Host-tested here; the OS-only runtime (`compositor::runtime::
 //! surface_layers`) keeps the state per surface and encodes it (`surface_layers_encode`).
 //! windowd runs no scroll physics and decides no hover (ADR-0076).
 //! OWNERS: @ui
@@ -204,68 +203,6 @@ pub(crate) fn wash_place(w: &Wash, layers: &SurfaceLayers, base: (u32, u32)) -> 
         dst: (x0 as u32, y0 as u32),
         size: ((x1 - x0) as u32, (y1 - y0) as u32),
     })
-}
-
-/// The rows of a surface a present names, waiting for the copy into the atlas: up to four spans
-/// (a present names at most four rectangles), overlapping spans merged; `full` = every row.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct DamageRows {
-    spans: [(u32, u32); 4],
-    n: usize,
-    pub(crate) full: bool,
-}
-
-impl DamageRows {
-    pub(crate) const FULL: Self = Self { spans: [(0, 0); 4], n: 0, full: true };
-    pub(crate) const NONE: Self = Self { spans: [(0, 0); 4], n: 0, full: false };
-
-    /// Rows `[y0, y1)` to copy. A fifth span joins the span nearest to it (copying a row twice
-    /// is harmless, losing one is not).
-    pub(crate) fn add(&mut self, y0: u32, y1: u32) {
-        if self.full || y1 <= y0 {
-            return;
-        }
-        let (mut a, mut b) = (y0, y1);
-        // Absorb every span it touches.
-        let mut i = 0;
-        while i < self.n {
-            let (s0, s1) = self.spans[i];
-            if s0 <= b && a <= s1 {
-                a = a.min(s0);
-                b = b.max(s1);
-                self.spans[i] = self.spans[self.n - 1];
-                self.n -= 1;
-            } else {
-                i += 1;
-            }
-        }
-        if self.n < self.spans.len() {
-            self.spans[self.n] = (a, b);
-            self.n += 1;
-            return;
-        }
-        let gap = |s: (u32, u32)| if s.1 < a { a - s.1 } else { s.0.saturating_sub(b) };
-        let near = (0..self.n).min_by_key(|&k| gap(self.spans[k])).unwrap_or(0);
-        let s = self.spans[near];
-        self.spans[near] = (s.0.min(a), s.1.max(b));
-    }
-
-    /// The spans to copy, each clamped to `rows` (every row when `full`).
-    pub(crate) fn spans(&self, rows: u32, out: &mut [(u32, u32); 4]) -> usize {
-        if self.full {
-            out[0] = (0, rows);
-            return 1;
-        }
-        let mut n = 0;
-        for &(a, b) in &self.spans[..self.n] {
-            let (a, b) = (a.min(rows), b.min(rows));
-            if a < b {
-                out[n] = (a, b);
-                n += 1;
-            }
-        }
-        n
-    }
 }
 
 /// Whether a frame's sender owns the surface it names: the kernel's sender id equals the one
@@ -474,24 +411,6 @@ mod tests {
         // A wash on the base: base coordinates.
         let w = Wash { parent: 0, x: 20, y: 30, w: 200, h: 44, ..w };
         assert_eq!(wash_place(&w, &layers, (1440, 853)).map(|p| p.dst), Some((20, 30)));
-    }
-
-    #[test]
-    fn damage_rows_merge_and_stay_bounded() {
-        let mut d = DamageRows::NONE;
-        d.add(10, 20);
-        d.add(15, 30);
-        d.add(900, 964);
-        d.add(1200, 1300);
-        d.add(2000, 2100);
-        d.add(2500, 2600); // a fifth: joins its nearest
-        let mut out = [(0, 0); 4];
-        let n = d.spans(3000, &mut out);
-        assert_eq!(n, 4);
-        assert!(out[..n].contains(&(10, 30)));
-        assert!(out[..n].iter().any(|s| s.0 <= 2000 && s.1 >= 2600), "{out:?}");
-        let n = DamageRows::FULL.spans(853, &mut out);
-        assert_eq!(&out[..n], &[(0, 853)]);
     }
 
     /// RFC-0109: a structure takes effect with the present of the pixels it names — never before;

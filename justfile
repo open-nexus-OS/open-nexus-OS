@@ -126,6 +126,7 @@ help:
     @echo "  just ci-os-usb           # the USB lane: QEMU's xHCI, a hub, a boot keyboard + mouse — xhcid enumerates them"
     @echo "  just ci-os-usb-visible   # the desktop driven over USB alone: injected input via xhcid + hidrawd's USB source"
     @echo "  just ci-os-lowmem        # real memory pressure: the kernel's own critical level squeezes, swaps out and kills a frozen app"
+    @echo "  just ci-os-many-windows  # twelve windows from the launcher in one frame, then the compositor's restart: all twelve back"
     @echo "  just ci-os-smp           # SMP=2 real-parallelism lane (MTTCG, bounded retry; CI coverage)"
     @echo "  just test-mmio           # run QEMU until MMIO phase is complete"
     @echo "  just ci-os-dhcp           # QEMU smoke with DHCP requested (deterministic fallback allowed)"
@@ -383,6 +384,14 @@ ci-os-usb-visible:
 # Real memory pressure: the kernel's own critical level squeezes, swaps out and kills a frozen app.
 ci-os-lowmem:
     RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-480s} just test-os lowmem
+# TASK-0348 (RFC-0114 §7): the compositor's tables grow with the windows (`[profile.many-windows]`)
+# — the usb-visible desktop and input chain on a 1 GiB guest, then the launcher's settings button
+# pressed twelve times (each press a new instance) until one frame draws all twelve windows from
+# their own buffers (`windowd: windows drawn (n=12)`). Before RFC-0114 the fifth was refused.
+# A launch takes ~15 s on the one-hart TCG guest (measured on usb-visible): ~4 min of
+# choreography after the ~70 s to the desktop; 720 s keeps a 2x margin.
+ci-os-many-windows:
+    RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-960s} just test-os many-windows
 # TASK-0324 P0: display truth — the real GL compositor (virgl, egl-headless +
 # VNC) with a HOST-side pixel proof: the desktop snapshot must be non-black and
 # must differ from the boot splash. Markers alone shipped a black screen.
@@ -844,6 +853,7 @@ test-all:
     just ci-os-visible
     just ci-os-usb-visible
     just ci-os-lowmem
+    just ci-os-many-windows
     just ci-os-visible-fhd
     just ci-os-visible-2d
     just input-flood

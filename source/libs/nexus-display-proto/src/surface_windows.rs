@@ -31,10 +31,13 @@ pub const OP_SURFACE_WINDOWS: u8 = 27;
 /// shell → windowd: act on a window by owner sid (RFC-0086).
 pub const OP_SURFACE_TASKBAR: u8 = 28;
 
-/// The compositor's floating-window slot count bounds the feed. Kept as a
-/// LOCAL bound (not an import) so the wire format is self-describing; the
-/// encoder refuses larger sets rather than truncating silently.
-pub const WINDOWS_MAX: usize = 8;
+/// The most windows one feed frame carries: as many 9-byte entries as fit the largest frame a
+/// client's event channel takes (`CLIENT_EVENT_FRAME_MAX`) — 29. The compositor's windows grow
+/// past any slot count (RFC-0114 §7); the encoder refuses larger sets rather than truncating
+/// silently, windowd lists the first this many and says so.
+pub const WINDOWS_MAX: usize = (crate::surface_text::CLIENT_EVENT_FRAME_MAX - HEADER_LEN - 1) / 9;
+const _: () =
+    assert!(HEADER_LEN + 1 + WINDOWS_MAX * 9 <= crate::surface_text::CLIENT_EVENT_FRAME_MAX);
 
 /// `flags` bit: the window is minimized (still open — activate restores it).
 pub const WINDOW_FLAG_MINIMIZED: u8 = 1 << 0;

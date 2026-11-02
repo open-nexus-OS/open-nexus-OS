@@ -60,7 +60,13 @@ pub use grant::{
     decode_framebuffer_grant, encode_framebuffer_grant, encode_framebuffer_request,
     parse_display_request, FramebufferGrant, FRAMEBUFFER_GRANT_LEN, OP_FRAMEBUFFER_REQUEST,
 };
+/// Surface buffers for an owner, windowd → gpud (RFC-0114 §1–§2).
+pub mod surface_alloc;
+/// The app's side of a surface buffer: its answer to a create, the present of a slot (RFC-0114 §3).
+pub mod surface_buffers;
 pub mod surface_pressure;
+/// Why an app's channel went quiet: a window closed on purpose, a compositor back (RFC-0112).
+pub mod surface_restart;
 pub mod surface_seen;
 pub mod surface_settings;
 pub mod surface_text;
@@ -221,6 +227,9 @@ pub const STATUS_UNSUPPORTED: u8 = 5;
 /// The library was refused: not a VMO of its declared length, malformed, for another code
 /// target, or not placed ([`gpu_context`]).
 pub const STATUS_REFUSED: u8 = 6;
+/// No room: a surface object past the GPU share's ceiling or its owner's limit
+/// ([`surface_alloc`], RFC-0114 §2).
+pub const STATUS_QUOTA: u8 = 7;
 
 // ── Cursor-upload reply magics (reply u32 at bytes [1..5]) ───────────────────
 //

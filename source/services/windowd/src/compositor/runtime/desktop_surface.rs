@@ -1,110 +1,70 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! BOUNDARY: this file is the DESKTOP surface slice of the app-surface service
-//! (a pure move out of `app_window.rs`, no behavior change): register the
-//! declared `level: desktop` surface (the shell / greeter app-host) into its
-//! own full-screen atlas band, blit it chromeless row-for-row, route taps /
-//! wheel / acks on its dedicated channel. It shares the create/present/destroy
-//! protocol contract of `app_window.rs`; the desktop is the base layer (below
-//! all floating windows). MUST NOT grow chrome/layout — the shell owns every
+//! BOUNDARY: this file is the DESKTOP surface slice of the app-surface service: register the
+//! declared `level: desktop` surface (the shell / greeter app-host) — its buffer is gpud's like
+//! every app's (RFC-0114), composed chromeless as the base layer below all floating windows —
+//! and route taps / wheel / acks on its dedicated channel. It shares the create/present/destroy
+//! protocol contract of `app_window.rs`. MUST NOT grow chrome/layout — the shell owns every
 //! pixel of the desktop surface itself.
 //! OWNERS: @ui @runtime
-//! STATUS: Experimental (TASK-0080D R1)
+//! STATUS: Functional
 //! API_STABILITY: Unstable
-//! ADR: docs/adr/0042-cross-process-surface-transport.md
+//! ADR: docs/adr/0092-a-surface-is-a-buffer-the-app-draws-and-the-gpu-reads-gpud-allocates-it-for-its-owner-windowd-composes-by-reference.md
 
 use super::*;
 use crate::client_surface::Delivery;
 use nexus_display_proto::client_surface as wire;
 
 impl DisplayServerRuntime {
-    /// Registers the DESKTOP surface (declared `level: desktop` — the shell or
-    /// greeter app-host): own id + event channel + full-screen atlas band,
-    /// shown in the Desktop z-band (composited as the base layer, below all
-    /// floating windows). Fail-closed: no band → QUOTA, registration rolled back.
+    /// Registers the DESKTOP surface (declared `level: desktop` — the shell or greeter
+    /// app-host): its own id and event channel, shown in the Desktop z-band (the base layer,
+    /// below every floating window). gpud makes its buffer; the answer follows gpud's
+    /// (RFC-0114 §3). `Some`: refused now — the answer to send at once.
     pub(super) fn create_desktop_surface(
         &mut self,
         c: &wire::SurfaceCreate,
-        vmo_slot: u32,
         sender_sid: u64,
-    ) -> [u8; wire::SURFACE_ACK_FRAME_LEN] {
+    ) -> Option<[u8; wire::SURFACE_BUFFERS_FRAME_LEN]> {
         let (width, height, nonce) = (c.width, c.height, c.nonce);
-        // RFC-0086: the desktop-surface owner is the ONLY sender the taskbar
-        // verbs (OP_SURFACE_TASKBAR) accept — captured from the kernel recv
-        // metadata here, never from payload bytes. sid 0 (an unnamed spawn)
-        // stays 0 and everything gated on it refuses.
-        self.desktop_owner_sid = sender_sid;
-        let id = match self.client_surfaces.create(
-            width,
-            height,
-            (c.rows, c.store_w),
-            c.format,
-            vmo_slot,
-        ) {
+        let id = match self.client_surfaces.create(width, height, (c.rows, c.store_w), c.format) {
             Ok(id) => id,
             Err(status) => {
-                let _ = super::app_window::nexus_abi_cap_close(vmo_slot);
                 let _ = debug_println(&alloc::format!(
                     "WINDOWD: desktop surface create FAIL (status={status})"
                 ));
-                return wire::encode_surface_ack(wire::OP_SURFACE_CREATE, status, 0);
+                return Some(wire::encode_surface_buffers(&wire::Buffers::refused(status)));
             }
         };
-        // The desktop's base: the display's width and height — kept across re-creates while it
-        // fits. Its store (RFC-0109) is a region of its own below.
-        let need = u32::from(height).max(self.mode.height);
-        if let Some(band) = self.desktop_band.filter(|b| b.height < need) {
-            self.atlas_alloc.free(band);
-            self.desktop_band = None;
+        // RFC-0086: the desktop-surface owner is the ONLY sender the taskbar verbs
+        // (OP_SURFACE_TASKBAR) accept — captured from the kernel recv metadata here, never from
+        // payload bytes, once its surface exists. sid 0 (an unnamed spawn) stays 0 and everything
+        // gated on it refuses.
+        let previous_owner = core::mem::replace(&mut self.desktop_owner_sid, sender_sid);
+        // A re-create without a destroy: the shell's surface retires like a destroyed one and
+        // shows until this one presents.
+        if let Some(old) = self.desktop_surface_id.replace(id) {
+            self.retire_surface(super::surface_buffers::Owner::Desktop, old);
+            // The replaced surface stays its owner's (the greeter a shell replaces).
+            self.buffers.desktop_retiring_owner = previous_owner;
         }
-        if self.desktop_band.is_none() {
-            let Some(band) = self.atlas_alloc.alloc(self.mode.width, need) else {
-                let _ = debug_println(&alloc::format!(
-                    "WINDOWD: desktop surface FAIL atlas (need={}x{} rows_remaining={})",
-                    self.mode.width,
-                    need,
-                    self.atlas_alloc.rows_remaining()
-                ));
-                let _ = self.client_surfaces.destroy(id);
-                let _ = super::app_window::nexus_abi_cap_close(vmo_slot);
-                return wire::encode_surface_ack(
-                    wire::OP_SURFACE_CREATE,
-                    wire::SURFACE_STATUS_QUOTA,
-                    0,
-                );
-            };
-            self.desktop_band = Some(band);
-        }
-        let status = self.place_desktop_store(id, c);
-        // A relaunched shell replaces the previous desktop surface (its VMO cap
-        // was already released via destroy; ids never alias — monotonic).
-        let fresh = self.desktop_surface_id != Some(id);
-        self.desktop_surface_id = Some(id);
         // The shell launch surfaced (greeter → shell swap): stop the wait ring.
-        if fresh {
-            self.end_cursor_wait();
-        }
-        #[cfg(nexus_env = "os")]
+        self.end_cursor_wait();
         if let Some(ch) = self.event_channel_for(nonce) {
-            self.desktop_channel = Some(ch);
+            self.take_desktop_channel(ch);
             self.presentation.note_bound(crate::presentation_state::DESKTOP);
             self.desktop_pending_nonce = None;
-            // RFC-0086: the feed is RETAINED state, not an event stream — a
-            // fresh (or re-created) shell gets the whole window set now.
+            // RFC-0086: the feed is RETAINED state, not an event stream — a fresh (or
+            // re-created) shell gets the whole window set now.
             self.windows_feed.owed = true;
         } else {
-            // The event-channel attach for this nonce has not arrived yet — the
-            // desktop's OP_SURFACE_CREATE raced ahead of attach_app_event_channel.
-            // Defer the bind (complete it in that handler) instead of dropping the
-            // channel, which used to leave the desktop stuck at its fallback size.
+            // The desktop's OP_SURFACE_CREATE raced ahead of its event-channel attach: the bind
+            // completes in that handler (and the buffer's answer with it), never dropped.
             self.desktop_pending_nonce = Some(nonce);
             let _ = debug_println(&alloc::format!(
                 "WINDOWD: desktop bind deferred (channel not yet attached) nonce={nonce:#x}"
             ));
         }
-        self.desktop_dirty = true;
-        self.desktop_damage = super::surface_layers::DamageRows::FULL;
         // A new surface declares its layers anew (RFC-0109).
         self.desktop_layers.clear();
         self.show_window(crate::window_scene::WindowId::Desktop);
@@ -112,9 +72,9 @@ impl DisplayServerRuntime {
         let _ = debug_println(&alloc::format!(
             "WINDOWD: desktop surface created id={id} {width}x{height}"
         ));
-        // A desktop surface smaller than the display (its pre-create rect ask
-        // raced): push the full content rect so the app re-creates at display
-        // size — the base layer must cover the screen.
+        // A desktop surface smaller than the display (its pre-create rect ask raced): push the
+        // full content rect so the app re-creates at display size — the base layer must cover
+        // the screen.
         if u32::from(width) != self.mode.width || u32::from(height) != self.mode.height {
             let rect = wire::encode_surface_rect(
                 0,
@@ -122,41 +82,34 @@ impl DisplayServerRuntime {
                 self.mode.width.min(u32::from(u16::MAX)) as u16,
                 self.mode.height.min(u32::from(u16::MAX)) as u16,
             );
-            #[cfg(nexus_env = "os")]
             if let Some(slot) = self.desktop_channel {
-                let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, rect.len() as u32);
-                let _ = nexus_abi::ipc_send_v1(slot, &hdr, &rect, nexus_abi::IPC_SYS_NONBLOCK, 0);
+                // The content rect is state: the newest wins while the client is behind.
+                let _ = self.client_send(slot, &rect, Delivery::Latest);
             }
-            #[cfg(not(nexus_env = "os"))]
-            let _ = rect;
         }
-        // The DSL shell is on — as an app-host-owned desktop surface (the
-        // in-process mount that used to emit this is deleted, Umbau #17 2d).
+        // The DSL shell is on — as an app-host-owned desktop surface (the in-process mount that
+        // used to emit this is deleted, Umbau #17 2d).
         let _ = debug_println("systemui: dsl shell on");
-        wire::encode_surface_ack(wire::OP_SURFACE_CREATE, status, id)
+        // gpud makes the buffer; its answer completes the create.
+        self.request_surface_buffer(id, sender_sid, (width, c.rows));
+        None
     }
 
-    /// The desktop's store (RFC-0109): its used width × its rows, wherever the atlas has room — so
-    /// a store that grows (the launcher opening) never needs the rows next to the desktop's base.
-    /// Without room the surface is its base alone and the client is told (`NO_STORE`): it paints
-    /// its scroll layers flat.
-    fn place_desktop_store(&mut self, id: u32, c: &wire::SurfaceCreate) -> u8 {
-        if let Some(store) = self.desktop_store.take() {
-            self.atlas_alloc.free(store);
+    /// `channel` becomes the desktop's. Another client's desktop it replaces — the greeter's,
+    /// after login — is let go on purpose (RFC-0112): its app is told and ends, instead of
+    /// lingering for the session and taking the desktop back after a compositor restart.
+    fn take_desktop_channel(&mut self, channel: u32) {
+        let replaced = self.desktop_channel.replace(channel).filter(|old| *old != channel);
+        #[cfg(nexus_env = "os")]
+        if let Some(old) = replaced {
+            if let Some(pos) = self.event_channels.iter().position(|e| e.1 == old) {
+                self.event_channels.remove(pos);
+                self.presentation.forget(pos);
+            }
+            self.close_client_channel(old);
         }
-        if c.rows <= c.height {
-            return wire::SURFACE_STATUS_OK;
-        }
-        let (w, h) = (u32::from(c.store_w), u32::from(c.rows - c.height));
-        self.desktop_store = self.atlas_alloc.alloc(w, h);
-        if self.desktop_store.is_some() {
-            return wire::SURFACE_STATUS_OK;
-        }
-        self.client_surfaces.drop_store(id);
-        let _ = debug_println(&alloc::format!(
-            "WINDOWD: desktop store FAIL atlas (need={w}x{h}): flat scroll layers"
-        ));
-        wire::SURFACE_STATUS_NO_STORE
+        #[cfg(not(nexus_env = "os"))]
+        let _ = replaced;
     }
 
     /// The current desktop surface id, for ack-ownership decisions taken
@@ -176,7 +129,7 @@ impl DisplayServerRuntime {
         if self.desktop_pending_nonce != Some(nonce) {
             return;
         }
-        self.desktop_channel = Some(slot);
+        self.take_desktop_channel(slot);
         self.presentation.note_bound(crate::presentation_state::DESKTOP);
         self.desktop_pending_nonce = None;
         let rect = wire::encode_surface_rect(
@@ -210,20 +163,6 @@ impl DisplayServerRuntime {
             let _ = frame;
             false
         }
-    }
-
-    /// Copies the rows the desktop's presents named out of its VMO into its region — chromeless
-    /// (the shell owns every pixel), its base's rows and its store's (RFC-0109). The same
-    /// damage-bounded copy as a window's (ADR-0042).
-    pub(super) fn render_desktop_surface(&mut self) -> Result<(), WindowdError> {
-        let Some(handle) = self.framebuffer else { return Ok(()) };
-        let Some(band) = self.desktop_band else { return Ok(()) };
-        let Some(id) = self.desktop_surface_id else { return Ok(()) };
-        let Some(client) = self.client_surfaces.get_by_id(id).copied() else { return Ok(()) };
-        let damage =
-            core::mem::replace(&mut self.desktop_damage, super::surface_layers::DamageRows::NONE);
-        let regions = crate::surface_regions::SurfaceRegions::of(&client, band, self.desktop_store);
-        self.copy_surface_rows(handle, &client, &regions, &damage)
     }
 
     /// Routes a tap that fell through to the DESKTOP surface to its owning

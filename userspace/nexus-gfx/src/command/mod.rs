@@ -12,6 +12,8 @@ pub mod buffer;
 mod buffer_wire_tests;
 pub mod compute_encoder;
 pub mod layer;
+/// The `CompositeLayer` record on the scene wire: its source and its slot (RFC-0114 §6).
+pub mod layer_wire;
 pub mod pass;
 pub mod render_encoder;
 pub mod validation;

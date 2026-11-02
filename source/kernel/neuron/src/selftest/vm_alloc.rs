@@ -151,37 +151,23 @@ pub(super) fn run_vm_alloc_selftests(
 /// the two call paths (direct-run and scheduler-fallback) that used to carry
 /// verbatim copies.
 pub(super) fn run_wx_selftest(ctx: &mut Context<'_>, handle_raw: usize) {
-    let mut table = SyscallTable::new();
-    api::install_handlers(&mut table);
-    let timer = ctx.hal.timer();
-    let mut sys_ctx = api::Context::new(
-        ctx.scheduler,
-        ctx.tasks,
-        ctx.router,
-        ctx.address_spaces,
-        timer,
-        ctx.hart_timers,
-        ctx.waitsets,
-        ctx.fences,
-    );
-    const PROT_READ: usize = 1 << 0;
-    const PROT_WRITE: usize = 1 << 1;
-    const PROT_EXEC: usize = 1 << 2;
-    const MAP_FLAG_USER: usize = 1 << 0;
-    let wx_args = Args::new([
-        handle_raw,
-        2,
-        CHILD_TEST_VA + PAGE_SIZE,
-        PAGE_SIZE,
-        PROT_READ | PROT_WRITE | PROT_EXEC,
-        MAP_FLAG_USER,
-    ]);
-    match table.dispatch(SYSCALL_AS_MAP, &mut sys_ctx, &wx_args) {
-        Err(SysError::AddressSpace(AddressSpaceError::Mapping(MapError::PermissionDenied))) => {
+    use crate::mm::PageFlags;
+    // ADR-0091: the page table every user mapping goes through refuses the pair itself
+    // (`vm_map` refuses EXECUTE outright; `as_map` is retired) — proven at that one boundary.
+    let space = crate::mm::AsHandle::from_raw(handle_raw as u32).expect("as handle");
+    let wx = PageFlags::VALID
+        | PageFlags::USER
+        | PageFlags::READ
+        | PageFlags::WRITE
+        | PageFlags::EXECUTE;
+    match ctx.address_spaces.map_page_tracked(space, CHILD_TEST_VA + PAGE_SIZE, 0, wx) {
+        Err(AddressSpaceError::Mapping(MapError::PermissionDenied)) => {
             log_info!(target: "selftest", "KSELFTEST: w^x enforced");
         }
         Err(_) | Ok(_) => {
             log_error!(target: "selftest", "KSELFTEST: w^x NOT enforced");
         }
     }
+    // ADR-0091: the ABI's rejections against the same foreign space, right behind W^X.
+    super::ambient::run_ambient_authority_selftest(ctx, space);
 }

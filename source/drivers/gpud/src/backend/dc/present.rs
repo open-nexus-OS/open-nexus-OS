@@ -128,6 +128,13 @@ impl Display for DcDisplay {
         surfaces.map_or(nexus_display_proto::layout::RESOURCE_BYTES, Surfaces::len)
     }
 
+    /// RFC-0114 §1: an app surface is the GPU's to read — a lazy object for it (its pages from
+    /// inside the GPU's reach), bound in windowd's context by the GPU beside the controller. The
+    /// controller composes nothing of it (its CPU fallback skips a buffer layer).
+    fn surface_device(&self) -> Option<(u32, bool, bool)> {
+        crate::gpu::granted().then_some((nexus_service_topology::DEVICE_MMIO_SLOT, true, true))
+    }
+
     /// The first frame is composed into the framebuffer; the splash keeps the glass until the
     /// reveal switches the controller to it.
     fn attach(&mut self) -> Result<(), u8> {

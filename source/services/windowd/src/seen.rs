@@ -13,8 +13,10 @@
 //! API_STABILITY: Internal
 //! TEST_COVERAGE: unit tests below (derivation, dedupe, slot reuse, the frame)
 
+extern crate alloc;
+use alloc::vec::Vec;
+
 use crate::window_feed::SlotInfo;
-use crate::window_scene::MAX_APP_WINDOWS;
 
 /// What is seen of one app window — the `seen` byte of `OP_SEEN` (abilitymgr's `seen::Seen`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -45,10 +47,11 @@ pub fn seen_of(slot: &SlotInfo) -> Option<Seen> {
 
 /// The last sighting the authority TOOK per slot, keyed by owner so a slot reused by another
 /// app reports again. A sighting counts as taken only when its send succeeded (`commit`); a
-/// failed send leaves it due, and the next pass sends it again.
-#[derive(Clone, Copy, Debug, Default)]
+/// failed send leaves it due, and the next pass sends it again. It grows with the slots
+/// (RFC-0114 §7).
+#[derive(Clone, Debug, Default)]
 pub struct SeenTable {
-    pub(crate) taken: [Option<(u64, Seen)>; MAX_APP_WINDOWS],
+    taken: Vec<Option<(u64, Seen)>>,
 }
 
 /// One sighting due to be sent.
@@ -60,32 +63,36 @@ pub struct Due {
 }
 
 impl SeenTable {
-    /// The sightings `slots` yield that the authority has not taken yet. A slot that emptied
-    /// (closed, or never had identity) after a taken sighting is `Gone` for the owner it had.
-    pub fn due(&self, slots: &[SlotInfo], out: &mut [Due; MAX_APP_WINDOWS]) -> usize {
-        let mut n = 0;
-        for (i, slot) in slots.iter().enumerate().take(MAX_APP_WINDOWS) {
-            let want = match (seen_of(slot), self.taken[i]) {
+    /// The sightings `slots` yield that the authority has not taken yet, into `out` (cleared
+    /// first). A slot that emptied (closed, or never had identity) after a taken sighting is
+    /// `Gone` for the owner it had.
+    pub fn due(&self, slots: &[SlotInfo], out: &mut Vec<Due>) {
+        out.clear();
+        for (i, slot) in slots.iter().enumerate() {
+            let taken = self.taken.get(i).copied().flatten();
+            let want = match (seen_of(slot), taken) {
                 (Some(seen), _) => Some((slot.owner_sid, seen)),
                 // Identity lost (the slot is free again): the last owner's window is gone.
                 (None, Some((owner, taken))) if taken != Seen::Gone => Some((owner, Seen::Gone)),
                 (None, _) => None,
             };
             let Some((owner_sid, seen)) = want else { continue };
-            if self.taken[i] == Some((owner_sid, seen)) {
+            if taken == Some((owner_sid, seen)) {
                 continue;
             }
-            out[n] = Due { slot: i, owner_sid, seen };
-            n += 1;
+            out.push(Due { slot: i, owner_sid, seen });
         }
-        n
     }
 
     /// The authority took `due` (its send succeeded).
     pub fn commit(&mut self, due: Due) {
-        if let Some(slot) = self.taken.get_mut(due.slot) {
-            *slot = Some((due.owner_sid, due.seen));
+        if due.slot >= self.taken.len() {
+            if self.taken.try_reserve(due.slot + 1 - self.taken.len()).is_err() {
+                return;
+            }
+            self.taken.resize(due.slot + 1, None);
         }
+        self.taken[due.slot] = Some((due.owner_sid, due.seen));
     }
 }
 
@@ -97,6 +104,14 @@ pub fn encode_seen(owner_sid: u64, seen: Seen) -> [u8; 13] {
     out
 }
 
+/// `[A,M,1,OP_COMPOSITOR_UP(9)]` — this compositor started (RFC-0112): what an earlier one saw
+/// is void, abilitymgr thaws the frozen so they rejoin (`protocol::OP_COMPOSITOR_UP`). Sent once,
+/// before any sighting of this instance.
+#[must_use]
+pub const fn encode_compositor_up() -> [u8; 4] {
+    [b'A', b'M', 1, 9]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -106,9 +121,23 @@ mod tests {
     }
 
     fn due_of(table: &SeenTable, slots: &[SlotInfo]) -> Vec<Due> {
-        let mut out = [Due { slot: 0, owner_sid: 0, seen: Seen::Gone }; MAX_APP_WINDOWS];
-        let n = table.due(slots, &mut out);
-        out[..n].to_vec()
+        let mut out = Vec::new();
+        table.due(slots, &mut out);
+        out
+    }
+
+    /// RFC-0114 §7: the table grows with the slots — a twelfth window is seen like the first.
+    #[test]
+    fn a_twelfth_window_is_seen() {
+        let mut table = SeenTable::default();
+        let slots: Vec<SlotInfo> = (1..=12).map(|i| slot(i, true, false, i == 12)).collect();
+        let due = due_of(&table, &slots);
+        assert_eq!(due.len(), 12);
+        assert_eq!(due[11], Due { slot: 11, owner_sid: 12, seen: Seen::Focused });
+        for d in due {
+            table.commit(d);
+        }
+        assert!(due_of(&table, &slots).is_empty());
     }
 
     #[test]
@@ -163,5 +192,10 @@ mod tests {
         assert_eq!(f[4], 0x08, "little-endian sid");
         assert_eq!(f[11], 0x01);
         assert_eq!(f[12], 2);
+    }
+
+    #[test]
+    fn the_start_notice_matches_the_authority_wire() {
+        assert_eq!(encode_compositor_up(), [b'A', b'M', 1, 9]);
     }
 }

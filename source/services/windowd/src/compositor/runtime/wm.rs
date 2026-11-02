@@ -58,12 +58,6 @@ impl DisplayServerRuntime {
         // hold the minimized window — re-blur them (see close_app_window).
         if let WindowId::App(i) = id {
             self.invalidate_overlapping_blur(vacated, i as usize);
-            // Atlas residency (visibility-scoped model): only VISIBLE windows hold
-            // atlas rows. A minimized window frees its content+blur bands;
-            // restore re-allocates and re-blits from the client VMO. Four open
-            // windows otherwise starved the pool (`surface open FAIL atlas
-            // need=1280x800 rows_remaining=24` on the fullscreen re-create).
-            self.release_app_surface_band(i as usize);
         }
         // RFC-0086: the shell taskbar/dock IS the minimize target — it must
         // learn the new state or the window is unreachable from the UI.
@@ -80,13 +74,7 @@ impl DisplayServerRuntime {
         if let Some(slot) = self.app_slot_mut(id) {
             slot.win.blur_valid = false;
         }
-        // Atlas residency: the minimized window released its bands — re-mount
-        // (alloc + full re-blit from the client VMO) via the open path.
-        if let WindowId::App(i) = id {
-            if self.open_app_window(i as usize, false).is_none() {
-                let _ = debug_println("windowd: FAIL restore band alloc");
-            }
-        }
+        // The window's content is its app's buffer (RFC-0114): nothing to re-mount.
         let _ = debug_println(&alloc::format!("windowd: restore id={}", Self::window_name(id)));
         let rect = self.window_damage_rect(id);
         self.queue_gpu_blit_rect(rect);
@@ -109,32 +97,18 @@ impl DisplayServerRuntime {
         if self.windows.is_fullscreen(id) {
             self.apps[idx].win.leave_fullscreen();
             self.windows.set_fullscreen(id, false);
-            // The fullscreen band shrinks on the re-create; the occluded
-            // windows re-mount as soon as rows free up (retried below and on
-            // every band release).
-            self.ensure_visible_bands();
             let _ = debug_println(&alloc::format!(
                 "windowd: unfullscreen id={}",
                 Self::window_name(id)
             ));
         } else {
             // Cover the display; the OP_SURFACE_RECT push below makes the app
-            // re-create its surface at display size (the atlas band is
-            // reallocated on that re-create — no display-sized band held for a
-            // floating window). The client re-render owns the pixels.
+            // re-create its surface at display size (its buffer is made at that
+            // size then, RFC-0114). The client re-render owns the pixels.
             let _ = mode_h;
             let (fy, fh) = self.full_surface_frame(idx);
             self.apps[idx].win.enter_fullscreen(fy, mode_w, fh);
             self.windows.set_fullscreen(id, true);
-            // Occlusion residency: fullscreen COVERS every other window —
-            // release their atlas bands so the display-sized band can mount
-            // (four open windows starved the pool: `FAIL atlas need=1280x800`).
-            // Leaving fullscreen re-mounts them (`ensure_visible_bands`).
-            for j in 0..self.apps.len() {
-                if j != idx && self.apps[j].win.visible && self.apps[j].win.is_mounted() {
-                    self.release_app_surface_band(j);
-                }
-            }
             let _ =
                 debug_println(&alloc::format!("windowd: fullscreen id={}", Self::window_name(id)));
         }
@@ -223,7 +197,7 @@ impl DisplayServerRuntime {
     /// content rect so the client re-creates its surface at that size.
     pub(super) fn apply_window_mode(&mut self, idx: usize, value: u8) {
         use nexus_display_proto::client_surface as wire;
-        let wid = WindowId::App(idx as u8);
+        let wid = WindowId::App(idx as u16);
         let full_now = self.windows.is_fullscreen(wid)
             || self.apps[idx].wm_mode.unwrap_or(self.apps[idx].intent_mode)
                 == wire::WIN_MODE_FULLSCREEN;
@@ -317,15 +291,12 @@ impl DisplayServerRuntime {
         let old = self.window_damage_rect(id);
         self.queue_gpu_blit_rect(old);
         // Resize negotiation: let the frame grow to the requested size in BOTH
-        // axes (mode-bounded). The render + glass composite are bounded to the
-        // current band (`render_app_surface` / `glass_params`), so growing past
-        // the band never over-reads; on release `end_window_resize` pushes this
-        // size and the app re-creates its surface + band to match.
+        // axes (mode-bounded). The glass composite samples at most the content
+        // (`glass_params`), so growing past it never over-reads; on release
+        // `end_window_resize` pushes this size and the app re-creates its surface.
         let w = w.min(self.mode.width);
         let h = h.min(self.mode.height);
         self.apps[idx].win.set_frame(x, y, w, h);
-        self.apps[idx].win.surface_dirty = true;
-        self.apps[idx].surface_damage = super::surface_layers::DamageRows::FULL; // resized: full re-blit
         let new = self.window_damage_rect(id);
         self.queue_gpu_blit_rect(new);
     }

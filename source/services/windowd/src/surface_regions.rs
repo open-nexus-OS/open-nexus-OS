@@ -1,133 +1,121 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: where a client surface's pixels live in the atlas (RFC-0109). A surface is
-//! `width × rows`: rows `[0, height)` its BASE, copied into the base's region; rows
-//! `[height, rows)` its STORE, of which columns `[0, store_w)` are used, copied into a region of
-//! their own — placed wherever the atlas has room, so a store that grows never needs the base's
-//! neighbourhood, and the base keeps its place. The one mapping the row copy and the layer encoder
-//! share: a surface row or a store pixel to its atlas place, nothing past what is placed.
+//! CONTEXT: where a client surface's pixels are when a frame samples them (RFC-0109, by
+//! reference since RFC-0114): in the surface's buffer, the slot of its newest present — rows
+//! `[0, height)` its BASE, rows `[height, rows)` its STORE, of which columns `[0, store_w)` are
+//! used, at the same rows in the slot (the app draws them where the GPU reads). The one mapping
+//! the layer encoder samples by: a surface row or a store pixel to its place in the slot, nothing
+//! past the surface's rows and the store's width; and what every layer names — the buffer
+//! (`source`), the slot, the content's generation.
 //! OWNERS: @ui
 //! STATUS: Functional
 //! API_STABILITY: Internal
 //! TEST_COVERAGE: `mod tests` below
 
-use crate::atlas::AtlasSurface;
-use crate::client_surface::ClientSurface;
+use crate::client_surface::{ClientSurface, Shown};
 
-/// One placed region: its first absolute row, its column and the columns used.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Region {
-    row: u32,
-    col: u32,
-    width: u32,
-}
-
-/// A surface's atlas regions, as its copy and its layers address them.
+/// A surface's places in its buffer's slot, as its layers sample them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct SurfaceRegions {
-    /// The rows a copy may name: the base's, and the store's when placed.
-    pub(crate) rows: u32,
+    /// The rows a layer may sample: the base's and the store's.
+    rows: u32,
     /// The surface's base height: rows below it are the store's.
     height: u32,
-    base: Region,
-    store: Option<Region>,
+    /// The base's width.
+    width: u32,
+    /// The store's used width (`0`: no store).
+    store_w: u32,
+    /// What the layers name: the surface's buffer, …
+    pub(crate) source: u32,
+    /// … the slot of its newest present, …
+    pub(crate) slot: u8,
+    /// … and that present's seq — the content's generation (a layer's `content_epoch`).
+    pub(crate) generation: u32,
 }
 
 impl SurfaceRegions {
-    /// The regions of `client` placed at `base` (and `store`): the base's rows its height, the
-    /// store's the rows below it — each cut to what its region holds.
-    pub(crate) fn of(
-        client: &ClientSurface,
-        base: AtlasSurface,
-        store: Option<AtlasSurface>,
-    ) -> Self {
-        let height = u32::from(client.height).min(base.height);
-        let width = u32::from(client.width).min(base.width);
-        let store_rows = u32::from(client.rows.saturating_sub(client.height));
-        let store = store.filter(|_| store_rows > 0 && client.store_w > 0).map(|s| {
-            let rows = store_rows.min(s.height);
-            (
-                Region { row: s.abs_row, col: s.x, width: u32::from(client.store_w).min(s.width) },
-                rows,
-            )
-        });
+    /// The places of `client`'s newest frame (`shown`).
+    pub(crate) fn of(client: &ClientSurface, shown: Shown) -> Self {
         Self {
-            rows: height + store.map_or(0, |(_, rows)| rows),
-            height,
-            base: Region { row: base.abs_row, col: base.x, width },
-            store: store.map(|(r, _)| r),
+            rows: u32::from(client.rows),
+            height: u32::from(client.height),
+            width: u32::from(client.width),
+            store_w: u32::from(client.store_w),
+            source: shown.buffer.source,
+            slot: shown.slot,
+            generation: shown.generation,
         }
     }
 
-    /// Surface row `y` in the atlas: its absolute row, its column and the columns to copy;
-    /// `None` past what is placed.
+    /// Surface row `y` in the slot: its row, its first column and the columns used; `None` past
+    /// the surface's rows.
     pub(crate) fn place(&self, y: u32) -> Option<(u32, u32, u32)> {
         if y < self.height {
-            return Some((self.base.row + y, self.base.col, self.base.width));
+            return Some((y, 0, self.width));
         }
-        let s = self.store.filter(|_| y < self.rows)?;
-        Some((s.row + (y - self.height), s.col, s.width))
+        (y < self.rows && self.store_w > 0).then_some((y, 0, self.store_w))
     }
 
-    /// The atlas place of store pixel `(x, y)` (surface coordinates, `y` at or below the base's
-    /// height): its absolute row and column — what a slice or a wash samples. `None` outside the
-    /// placed store.
+    /// The slot's place of store pixel `(x, y)` (surface coordinates, `y` at or below the
+    /// base's height): its row and column — what a slice or a wash samples. `None` outside the
+    /// store.
     pub(crate) fn store_place(&self, x: u32, y: u32) -> Option<(u32, u32)> {
-        let s = self.store.filter(|s| y >= self.height && y < self.rows && x < s.width)?;
-        Some((s.row + (y - self.height), s.col + x))
+        (y >= self.height && y < self.rows && x < self.store_w).then_some((y, x))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::client_surface::{ClientSurfaces, SurfaceBuffer};
+    use nexus_display_proto::client_surface::FORMAT_BGRA8888;
 
-    fn client(width: u16, height: u16, rows: u16, store_w: u16) -> ClientSurface {
-        ClientSurface { id: 1, width, height, rows, store_w, vmo_slot: 0, last_seq: 0 }
+    /// A surface of `width × height` with `rows` rows and a store `store_w` wide, presented once
+    /// into slot 1 of buffer 9.
+    fn presented(width: u16, height: u16, rows: u16, store_w: u16) -> (ClientSurface, Shown) {
+        let mut t = ClientSurfaces::new();
+        let id = t.create(width, height, (rows, store_w), FORMAT_BGRA8888).expect("creates");
+        let buffer = SurfaceBuffer {
+            source: 9,
+            stride: u32::from(width) * 4,
+            width,
+            rows,
+            slots: 2,
+            cache_block: 0,
+        };
+        t.bind_buffer(id, buffer, None).expect("binds");
+        t.present(id, (1, 1), &[], 0).expect("presents");
+        let s = *t.get_by_id(id).expect("kept");
+        (s, s.shown().expect("shown"))
     }
 
-    fn region(x: u32, row: u32, width: u32, height: u32) -> AtlasSurface {
-        AtlasSurface { x, abs_row: row, width, height }
-    }
-
-    /// The base's rows land in the base's region, the store's in its own — wherever that is.
+    /// The base's rows and the store's are the slot's own rows; every layer names the buffer,
+    /// the slot of the newest present and its generation.
     #[test]
-    fn base_rows_and_store_rows_land_in_their_own_regions() {
-        let r = SurfaceRegions::of(
-            &client(1440, 853, 2389, 1340),
-            region(0, 6496, 1440, 853),
-            Some(region(480, 9000, 1340, 1536)),
-        );
-        assert_eq!(r.rows, 2389);
-        assert_eq!(r.place(0), Some((6496, 0, 1440)));
-        assert_eq!(r.place(852), Some((6496 + 852, 0, 1440)));
-        assert_eq!(r.place(853), Some((9000, 480, 1340)), "the store's first row");
-        assert_eq!(r.place(2388), Some((9000 + 1535, 480, 1340)));
-        assert_eq!(r.store_place(1080, 869), Some((9016, 1560)), "a band's pixel");
+    fn base_rows_and_store_rows_are_the_slots_own() {
+        let (c, shown) = presented(1440, 853, 2389, 1340);
+        let r = SurfaceRegions::of(&c, shown);
+        assert_eq!((r.source, r.slot, r.generation), (9, 1, 1));
+        assert_eq!(r.place(0), Some((0, 0, 1440)));
+        assert_eq!(r.place(852), Some((852, 0, 1440)));
+        assert_eq!(r.place(853), Some((853, 0, 1340)), "the store's first row");
+        assert_eq!(r.place(2388), Some((2388, 0, 1340)));
+        assert_eq!(r.store_place(1080, 869), Some((869, 1080)), "a band's pixel");
     }
 
-    /// Nothing past what is placed: a store row without a store, a pixel past its width, a row
-    /// past the surface.
+    /// Nothing past the surface: a store row without a store, a pixel past its width, a row past
+    /// the surface.
     #[test]
-    fn test_reject_a_place_outside_the_placed_regions() {
-        let flat = SurfaceRegions::of(&client(1440, 853, 853, 0), region(0, 6496, 1440, 853), None);
-        assert_eq!((flat.rows, flat.place(853)), (853, None));
+    fn test_reject_a_place_outside_the_surface() {
+        let (flat, shown) = presented(1440, 853, 853, 0);
+        let flat = SurfaceRegions::of(&flat, shown);
+        assert_eq!(flat.place(853), None);
         assert_eq!(flat.store_place(0, 900), None);
-        let r = SurfaceRegions::of(
-            &client(1440, 853, 2389, 1340),
-            region(0, 6496, 1440, 853),
-            Some(region(480, 9000, 1340, 1536)),
-        );
+        let (c, shown) = presented(1440, 853, 2389, 1340);
+        let r = SurfaceRegions::of(&c, shown);
         assert_eq!(r.place(2389), None);
         assert_eq!(r.store_place(1340, 900), None, "past the store's width");
         assert_eq!(r.store_place(0, 852), None, "a base row");
-        // A store region shorter than the store (a client that grew its rows): cut to it.
-        let short = SurfaceRegions::of(
-            &client(1440, 853, 2389, 1340),
-            region(0, 6496, 1440, 853),
-            Some(region(480, 9000, 1340, 1000)),
-        );
-        assert_eq!((short.rows, short.place(1853)), (1853, None));
     }
 }

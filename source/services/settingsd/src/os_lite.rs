@@ -33,7 +33,7 @@ use statefs::protocol as sf_proto;
 
 use crate::persist::{Action, Persister};
 use crate::registry::{SetError, SettingsRegistry};
-use crate::watch::WatchTable;
+use crate::watch::{Delivery, WatchTable};
 use nexus_service_topology::slots::settingsd as slots;
 
 /// Result alias for the lite settingsd backend.
@@ -91,7 +91,6 @@ pub fn service_main_loop() -> SettingsdResult<()> {
     // ONE request buffer for the service lifetime: a receive allocates nothing, however many
     // requests arrive (TASK-0054C P2-g). Transport-capped, never truncates.
     let mut recv_frame = alloc::vec![0u8; nexus_abi::IPC_PAYLOAD_MAX];
-    let mut pending = nexus_ipc::PendingReply::new(); // answer + next request in ONE trap (P5c)
     loop {
         // Persistence FIRST (drain PUT replies, send a due PUT) — it never blocks a client.
         pump_persist(&mut persister, &registry);
@@ -100,7 +99,7 @@ pub fn service_main_loop() -> SettingsdResult<()> {
         }
         let wait = if waitset.is_some() { Wait::NonBlocking } else { Wait::Blocking };
         for _ in 0..IPC_BATCH_LIMIT {
-            match server.serve_next(&mut pending, wait, &mut recv_frame) {
+            match server.recv_request_with_header_into(wait, &mut recv_frame) {
                 Ok((_hdr, frame_len, _sender_service_id, reply)) => {
                     let frame = &recv_frame[..frame_len];
                     // OP_WATCH (RFC-0078/0083): the moved cap IS the subscription's
@@ -119,10 +118,15 @@ pub fn service_main_loop() -> SettingsdResult<()> {
                                     "settingsd: watch registered (sync {delivered}/{matching})"
                                 );
                                 let _ = nexus_abi::debug_println(&line);
+                                watchers.release(close_channel);
                             }
-                            _ => {
-                                // No moved cap / table full: honest reject on the
-                                // shared endpoint (the would-be subscriber's recv).
+                            refused => {
+                                // No moved cap / table full: honest reject on the shared
+                                // endpoint (the would-be subscriber's recv); a moved channel
+                                // nobody will push into goes back.
+                                if let Some(chan) = refused {
+                                    chan.close();
+                                }
                                 let len =
                                     encode(wire::OP_WATCH, wire::STATUS_PERSIST_FAIL, "", &mut rsp);
                                 let _ = server.send(&rsp[..len], Wait::NonBlocking);
@@ -138,10 +142,19 @@ pub fn service_main_loop() -> SettingsdResult<()> {
                         &mut persister,
                     );
                     let out = &rsp[..len];
-                    if let Some(reply) = reply {
-                        pending.park(reply, &out);
-                    } else {
-                        let _ = server.send(out, Wait::Blocking);
+                    // Answered AT ONCE, never parked for the next receive: this loop waits in a
+                    // waitset (statefsd's answers, the persist timer), and an answer parked
+                    // behind that wait — the last request of a batch — left its caller hanging
+                    // until someone else called (TASK-0348: the eighth settings window's second
+                    // read). A requester that is gone or not reading loses its answer, never
+                    // the service: the reply never blocks.
+                    match reply {
+                        Some(reply) => {
+                            let _ = reply.reply_and_close(out);
+                        }
+                        None => {
+                            let _ = server.send(out, Wait::NonBlocking);
+                        }
                     }
                 }
                 Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => break,
@@ -212,10 +225,14 @@ fn current_values(registry: &SettingsRegistry) -> alloc::vec::Vec<(&'static str,
 /// The one NONBLOCK event send watchers use (failures flag resync — the
 /// heal path re-sends full state on the next change). Failures are logged
 /// bounded WITH the errno: an undelivered event was previously invisible.
-fn send_event(chan: u32, ev: &[u8]) -> bool {
+fn send_event(chan: u32, ev: &[u8]) -> Delivery {
     let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, ev.len() as u32);
     match nexus_abi::ipc_send_v1(chan, &hdr, ev, nexus_abi::IPC_SYS_NONBLOCK, 0) {
-        Ok(_) => true,
+        Ok(_) => Delivery::Sent,
+        // The holder died (RFC-0112: a restarted compositor's old watch): the watcher goes.
+        Err(nexus_abi::IpcError::NoSuchEndpoint) | Err(nexus_abi::IpcError::PeerClosed) => {
+            Delivery::Gone
+        }
         Err(e) => {
             static LOGGED: core::sync::atomic::AtomicUsize =
                 core::sync::atomic::AtomicUsize::new(0);
@@ -224,9 +241,14 @@ fn send_event(chan: u32, ev: &[u8]) -> bool {
                 let _ = write!(line, "settingsd: event send FAIL chan={chan} err={e:?}");
                 let _ = nexus_abi::debug_println(&line);
             }
-            false
+            Delivery::Missed
         }
     }
+}
+
+/// A subscriber that went: its push channel's capability goes back.
+fn close_channel(chan: u32) {
+    let _ = nexus_abi::cap_close(chan);
 }
 
 /// Serves one request frame into `rsp`; returns the response length.
@@ -262,6 +284,7 @@ fn handle_request(
                     // matching state instead of only the changed key.
                     let current = current_values(registry);
                     watchers.notify(key, value, &current, send_event);
+                    watchers.release(close_channel);
                     persister.mark_dirty();
                 }
                 // Echo the now-current value (the validated new one).

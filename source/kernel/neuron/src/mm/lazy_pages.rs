@@ -130,16 +130,26 @@ fn frame_word(pa: u64) -> Option<u32> {
 }
 
 impl LazyPages {
-    /// `pages` pages, none committed.
+    /// `pages` pages, none committed — `None` when the kernel heap cannot hold their words above
+    /// its reserve (ADR-0091): the caller sized the object, so the caller hears `ENOMEM`; the
+    /// kernel never panics over it.
+    #[must_use]
+    pub fn try_new(pages: usize) -> Option<Self> {
+        let bytes = pages.checked_mul(core::mem::size_of::<u32>())?;
+        if !crate::kheap::admits(bytes) {
+            return None;
+        }
+        let mut words = Vec::new();
+        words.try_reserve_exact(pages).ok()?;
+        words.resize(pages, NONE);
+        Some(Self { words, committed: 0, squeezed: 0, store: None, swap: SwapPages::new() })
+    }
+
+    /// `pages` pages, none committed (host tests).
+    #[cfg(test)]
     #[must_use]
     pub fn new(pages: usize) -> Self {
-        Self {
-            words: alloc::vec![NONE; pages],
-            committed: 0,
-            squeezed: 0,
-            store: None,
-            swap: SwapPages::new(),
-        }
+        Self::try_new(pages).expect("test object pages")
     }
 
     /// Pages the object spans.

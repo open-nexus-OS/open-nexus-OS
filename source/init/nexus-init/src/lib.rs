@@ -38,6 +38,9 @@ mod cap_hygiene_tests;
 
 pub mod affinity;
 pub mod ready_table;
+/// RFC-0112: what a server's respawn re-pins in its clients, and the handles its own legs are
+/// pinned from — read from the declarations, host-tested.
+pub mod respawn_plan;
 pub mod route_park;
 /// Declarative service topology — host-compilable SSOT for service identity +
 /// capability routes, decoupled from the OS capability binding (RFC-0066). This is

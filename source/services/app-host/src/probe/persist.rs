@@ -37,6 +37,8 @@ pub(super) enum Reason {
     Hidden,
     /// The window closed; the process exits right after.
     Close,
+    /// The compositor died (RFC-0112): the window waits for the next one.
+    Compositor,
 }
 
 impl Reason {
@@ -44,6 +46,7 @@ impl Reason {
         match self {
             Self::Hidden => "hidden",
             Self::Close => "close",
+            Self::Compositor => "compositor",
         }
     }
 }

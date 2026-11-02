@@ -79,23 +79,40 @@ pub(crate) fn send_landed(server: &KernelServer, landed: Landed) {
     let _ = server.send(&ack, Wait::Blocking);
 }
 
-/// The status a successful present is acked with (RFC-0093 §5): the FIRST present after
-/// `OP_REVEAL` that finds the splash released is the frame that revealed the desktop, and its
-/// ack says so — exactly once per boot, whichever present (windowd's or a splash self-tick)
-/// uploaded the wallpaper. The ONE reveal marker prints here, with the seq of a frame that
-/// was actually presented.
+/// One compositor instance's reveal (RFC-0093 §5, RFC-0112): asked with its own `OP_REVEAL`,
+/// acked once. A new instance (its framebuffer request) starts a new one — the display's splash
+/// latch outlives the instance that released it, so it cannot say what THIS instance asked.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct Reveal {
+    asked: bool,
+    acked: bool,
+}
+
+impl Reveal {
+    /// The instance reported its desktop complete (`OP_REVEAL`).
+    pub(crate) fn ask(&mut self) {
+        self.asked = true;
+    }
+}
+
+/// The status a successful present is acked with (RFC-0093 §5): the FIRST present after this
+/// instance's `OP_REVEAL` that finds the splash released is the frame that revealed its
+/// desktop, and its ack says so — exactly once per instance, whichever present (windowd's or a
+/// splash self-tick) uploaded the wallpaper. The ONE reveal marker prints here, with the seq of
+/// a frame that was actually presented.
 pub(crate) fn present_status(
     display: &dyn Display,
     status: u8,
     seq: u32,
-    reveal_acked: &mut bool,
+    reveal: &mut Reveal,
 ) -> u8 {
     if status == nexus_display_proto::STATUS_OK
+        && reveal.asked
+        && !reveal.acked
         && display.reveal_requested()
-        && !*reveal_acked
         && !display.holding_splash()
     {
-        *reveal_acked = true;
+        reveal.acked = true;
         crate::markers::emit_desktop_reveal(seq);
         return nexus_display_proto::STATUS_REVEALED;
     }

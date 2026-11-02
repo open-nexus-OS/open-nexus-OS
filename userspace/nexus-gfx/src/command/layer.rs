@@ -107,6 +107,12 @@ pub struct Layer {
     /// The layer's identity across presents (RFC-0109; `0` = unnamed): unique within a present,
     /// the planner's match from one frame to the next.
     pub key: u32,
+    /// What the layer samples (RFC-0114 §6): `0` the shared layout object (`src_row_abs` its
+    /// absolute row); else the gpud surface buffer an app draws into — `src_row_abs`/`src_x`
+    /// and the scroll band are then rows and columns of its slot `slot`.
+    pub source: u32,
+    /// The slot of `source` the layer samples (`0` for the layout object).
+    pub slot: u8,
 }
 
 impl Layer {
@@ -139,6 +145,8 @@ impl Layer {
             opaque: false,
             solid: false,
             key: 0,
+            source: 0,
+            slot: 0,
         }
     }
 }
@@ -190,6 +198,7 @@ mod tests {
                 content_epoch: 0,
                 flags: 0,
                 key: 0,
+                source: 0,
             }
         );
     }

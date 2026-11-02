@@ -194,4 +194,33 @@ pub(crate) trait Display {
     fn gpu_service(&mut self) -> Option<&mut dyn crate::gpu_context::GpuService> {
         None
     }
+
+    /// RFC-0114 §1: the device capability an app surface object is made for — the device that
+    /// samples it (its frames come from inside that device's reach) —, whether it is made lazy
+    /// (a GPU behind an MMU) or eager (a device given runs), and whether a GPU beside the display
+    /// must bind it (`FrameGpu::bind_surface`). `None`: no surfaces here.
+    fn surface_device(&self) -> Option<(u32, bool, bool)> {
+        None
+    }
+
+    /// Makes object `vmo` — source `buffer` of `geometry` — readable by this display's own
+    /// compositor (the CPU executor's mapping, a virgl resource). A display whose frames a GPU
+    /// beside it draws binds nothing here (`FrameGpu::bind_surface` does). False: refused.
+    #[cfg(any(test, all(feature = "os-lite", target_os = "none")))]
+    fn bind_surface(
+        &mut self,
+        _buffer: u32,
+        _vmo: u32,
+        _geometry: &crate::surfaces::Geometry,
+    ) -> bool {
+        true
+    }
+
+    /// Source `buffer` is read by no frame any more: what `bind_surface` made goes.
+    fn unbind_surface(&mut self, _buffer: u32) {}
+
+    /// A new compositor runs (RFC-0112): the layer set the display keeps composing (the GL
+    /// scanout's) goes — it names the old compositor's surfaces; the new one's first present with
+    /// layers brings its own. A display that keeps none has nothing to forget.
+    fn forget_layers(&mut self) {}
 }

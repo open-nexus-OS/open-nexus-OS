@@ -188,8 +188,19 @@ pub(crate) fn pin_declared_waits(pid: u32, svc: ServiceId) {
     }
     // (RECV, SEND, what, queue depth). A push channel (TASK-0253B: xhcid's HID class pushes a
     // frame per drain) is deeper than a timer's one pending fire.
-    const PAIRS: [(NamedSlot, NamedSlot, &[u8], usize); 5] = [
+    const PAIRS: [(NamedSlot, NamedSlot, &[u8], usize); 7] = [
         (NamedSlot::TimerNotifyRecv, NamedSlot::TimerNotifySend, b"timer-notify", 8),
+        // RFC-0078/0083: the settings and session push channels a service subscribes with (its
+        // SEND half moved to settingsd/sessiond, the RECV half a waitset member) — minted here
+        // like every other wait, so windowd's respawn makes them the same way (RFC-0112). A
+        // settings registration's burst fits whole (`WATCH_CHANNEL_DEPTH`).
+        (
+            NamedSlot::SettingsWatchRecv,
+            NamedSlot::SettingsWatchSend,
+            b"settings-watch",
+            nexus_wire::settingsd::WATCH_CHANNEL_DEPTH,
+        ),
+        (NamedSlot::SessionWatchRecv, NamedSlot::SessionWatchSend, b"session-watch", 8),
         (NamedSlot::DeviceWatchdogRecv, NamedSlot::DeviceWatchdogSend, b"device-watchdog", 8),
         (NamedSlot::UsbHidRecv, NamedSlot::UsbHidSend, b"usb-hid", 32),
         // TASK-0333 6a: a frame per dead child; execd's sweep reaps every zombie on one wake,

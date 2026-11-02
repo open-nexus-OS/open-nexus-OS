@@ -1,13 +1,14 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: ADR-0042 client-surface transport frames — the wire contract an
-//! app process speaks to windowd: `SURFACE_CREATE` (moves the app's surface
-//! VMO capability with the message), `SURFACE_PRESENT` (seq + bounded damage
-//! rects), `SURFACE_DESTROY`. Acks return over the app's dedicated reply
-//! channel. Fixed-layout, length-guarded codecs — no allocation.
+//! CONTEXT: The client-surface frames an app process speaks to windowd (ADR-0042, v2 by
+//! RFC-0114): `SURFACE_CREATE` (the size, the intent, the store — answered by
+//! `OP_SURFACE_BUFFERS` with the buffer gpud made for the app), `SURFACE_PRESENT` (the slot the
+//! app drew, seq + bounded damage rects — `crate::surface_buffers`), `SURFACE_DESTROY`. Acks
+//! return over the app's dedicated event channel. Fixed-layout, length-guarded codecs — no
+//! allocation.
 //! OWNERS: @ui @runtime
-//! STATUS: Experimental (TASK-0080D R1)
+//! STATUS: Functional
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: unit tests below + windowd `client_surface` host tests
 //!
@@ -20,12 +21,18 @@
 // mine?"); re-exported here so `client_surface::ENVELOPE_*` stays the path.
 pub(crate) use crate::envelope::{has_op, header, HEADER_LEN};
 pub use crate::envelope::{is_client_envelope, ENVELOPE_MAGIC0, ENVELOPE_MAGIC1, ENVELOPE_VERSION};
+// The surface's buffer and the present of a slot (RFC-0114 §3): their own module.
+pub use crate::surface_buffers::{
+    decode_surface_buffers, decode_surface_present, encode_surface_buffers, encode_surface_present,
+    Buffers, SurfacePresent, OP_SURFACE_BUFFERS, SURFACE_BUFFERS_FRAME_LEN,
+    SURFACE_PRESENT_MAX_LEN,
+};
 
-/// Creates an app surface. Payload: `w:u16, h:u16, format:u8`. The message
-/// MOVES the app's surface VMO capability (gpud-attach pattern).
+/// Creates an app surface (`SurfaceCreate`). No capability rides with it (RFC-0114): windowd
+/// has gpud make the surface's buffer for the app and answers `OP_SURFACE_BUFFERS`.
 pub const OP_SURFACE_CREATE: u8 = 8;
-/// Presents damage. Payload: `surface_id:u32, seq:u32, count:u8,
-/// (x:u16,y:u16,w:u16,h:u16) * count`.
+/// Presents a slot (`crate::surface_buffers::SurfacePresent`): `surface_id:u32, seq:u32,
+/// slot:u8, count:u8, (x:u16,y:u16,w:u16,h:u16) * count`. Its ack releases the other slots.
 pub const OP_SURFACE_PRESENT: u8 = 9;
 /// Destroys a surface. Payload: `surface_id:u32`.
 pub const OP_SURFACE_DESTROY: u8 = 10;
@@ -197,9 +204,8 @@ pub const SURFACE_STATUS_DENIED: u8 = 2;
 pub const SURFACE_STATUS_QUOTA: u8 = 3;
 pub const SURFACE_STATUS_BAD_SURFACE: u8 = 4;
 pub const SURFACE_STATUS_BAD_SEQ: u8 = 5;
-/// A create that placed the surface's BASE but not its store (no atlas room for it, RFC-0109):
-/// the surface exists — the ack's value is its id — and the client paints its scroll layers flat
-/// and declares no band and no patch.
+/// RETIRED (RFC-0114, value reserved forever — never reuse): a create whose store found no atlas
+/// room. The store lives in the surface's own buffer now; a buffer gpud cannot make is `QUOTA`.
 pub const SURFACE_STATUS_NO_STORE: u8 = 6;
 
 /// One damage rect in surface-local pixels.
@@ -221,8 +227,8 @@ pub struct DamageRect {
 // +4 rows and store bytes (RFC-0109): the surface is `width × rows` — rows
 // `[0, height)` the base layer, rows `[height, rows)` the client's store (its
 // scroll layers' bands and its wash patches), of which columns `[0, store_w)`
-// are used. windowd places the base and the store as two atlas regions at
-// create, so both sizes ride atomically.
+// are used. A slot of the surface's buffer holds both (RFC-0114 §1), so both
+// sizes ride atomically.
 pub const SURFACE_CREATE_FRAME_LEN: usize = HEADER_LEN + 21;
 
 /// A surface create: its size, its declared window intent, the client's event-channel nonce and
@@ -358,62 +364,6 @@ pub fn decode_surface_rect(frame: &[u8]) -> Option<(u16, u16, u16, u16)> {
         u16::from_le_bytes([frame[8], frame[9]]),
         u16::from_le_bytes([frame[10], frame[11]]),
     ))
-}
-
-// ----------------------------------------------------------------- present
-
-pub const SURFACE_PRESENT_MAX_LEN: usize = HEADER_LEN + 9 + MAX_DAMAGE_RECTS * 8;
-
-/// Encodes a present frame; `damage` is clamped to [`MAX_DAMAGE_RECTS`].
-/// Returns the frame length.
-#[must_use]
-pub fn encode_surface_present(
-    surface_id: u32,
-    seq: u32,
-    damage: &[DamageRect],
-    out: &mut [u8; SURFACE_PRESENT_MAX_LEN],
-) -> usize {
-    let count = damage.len().min(MAX_DAMAGE_RECTS);
-    out[..HEADER_LEN].copy_from_slice(&header(OP_SURFACE_PRESENT));
-    out[4..8].copy_from_slice(&surface_id.to_le_bytes());
-    out[8..12].copy_from_slice(&seq.to_le_bytes());
-    out[12] = count as u8;
-    let mut pos = 13;
-    for rect in &damage[..count] {
-        out[pos..pos + 2].copy_from_slice(&rect.x.to_le_bytes());
-        out[pos + 2..pos + 4].copy_from_slice(&rect.y.to_le_bytes());
-        out[pos + 4..pos + 6].copy_from_slice(&rect.width.to_le_bytes());
-        out[pos + 6..pos + 8].copy_from_slice(&rect.height.to_le_bytes());
-        pos += 8;
-    }
-    pos
-}
-
-/// `(surface_id, seq, damage)` — count and length strictly validated.
-#[must_use]
-pub fn decode_surface_present(
-    frame: &[u8],
-) -> Option<(u32, u32, [DamageRect; MAX_DAMAGE_RECTS], usize)> {
-    if !has_op(frame, OP_SURFACE_PRESENT) || frame.len() < HEADER_LEN + 9 {
-        return None;
-    }
-    let surface_id = u32::from_le_bytes([frame[4], frame[5], frame[6], frame[7]]);
-    let seq = u32::from_le_bytes([frame[8], frame[9], frame[10], frame[11]]);
-    let count = frame[12] as usize;
-    if count > MAX_DAMAGE_RECTS || frame.len() != HEADER_LEN + 9 + count * 8 {
-        return None;
-    }
-    let mut rects = [DamageRect { x: 0, y: 0, width: 0, height: 0 }; MAX_DAMAGE_RECTS];
-    for (i, rect) in rects.iter_mut().enumerate().take(count) {
-        let pos = 13 + i * 8;
-        *rect = DamageRect {
-            x: u16::from_le_bytes([frame[pos], frame[pos + 1]]),
-            y: u16::from_le_bytes([frame[pos + 2], frame[pos + 3]]),
-            width: u16::from_le_bytes([frame[pos + 4], frame[pos + 5]]),
-            height: u16::from_le_bytes([frame[pos + 6], frame[pos + 7]]),
-        };
-    }
-    Some((surface_id, seq, rects, count))
 }
 
 // ----------------------------------------------------------------- destroy
@@ -611,21 +561,12 @@ mod tests {
     }
 
     #[test]
-    fn present_round_trip_clamps_and_validates() {
-        let damage = [
-            DamageRect { x: 0, y: 0, width: 320, height: 240 },
-            DamageRect { x: 10, y: 20, width: 30, height: 40 },
-        ];
+    fn present_clamps_to_the_damage_bound() {
+        let rect = DamageRect { x: 0, y: 0, width: 1, height: 1 };
         let mut buf = [0u8; SURFACE_PRESENT_MAX_LEN];
-        let len = encode_surface_present(7, 3, &damage, &mut buf);
-        let (id, seq, rects, count) = decode_surface_present(&buf[..len]).expect("decodes");
-        assert_eq!((id, seq, count), (7, 3, 2));
-        assert_eq!(rects[1], damage[1]);
-        // Truncated + over-count frames are rejected.
-        assert_eq!(decode_surface_present(&buf[..len - 1]), None);
-        let mut bad = buf;
-        bad[12] = (MAX_DAMAGE_RECTS + 1) as u8;
-        assert_eq!(decode_surface_present(&bad[..len]), None);
+        let len = encode_surface_present(7, 3, 0, &[rect; MAX_DAMAGE_RECTS + 2], &mut buf);
+        let p = decode_surface_present(&buf[..len]).expect("decodes");
+        assert_eq!(p.damage().len(), MAX_DAMAGE_RECTS, "clamped, never past the bound");
     }
 
     #[test]

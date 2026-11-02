@@ -37,11 +37,15 @@ pub(crate) fn request() -> Grant {
     if let Err(err) = nexus_ipc::exchange::send_request(route.send, &encode_framebuffer_request()) {
         return display_none(&alloc::format!("gpud unreachable: {err:?}"));
     }
-    let mut frame = [0u8; FRAMEBUFFER_GRANT_LEN];
-    let (len, moved) = match nexus_ipc::exchange::recv_response_with_cap(route.recv, &mut frame) {
-        Ok(answer) => answer,
-        Err(err) => return display_none(&alloc::format!("gpud gone: {err:?}")),
-    };
+    // The grant is the only answer of its length: a stray a dead predecessor left (RFC-0112)
+    // is dropped, never taken for the grant.
+    let mut frame = [0u8; 64];
+    let grant_len = |f: &[u8]| f.len() == FRAMEBUFFER_GRANT_LEN;
+    let (len, moved) =
+        match nexus_ipc::exchange::recv_response_matching(route.recv, &mut frame, grant_len) {
+            Ok(answer) => answer,
+            Err(err) => return display_none(&alloc::format!("gpud gone: {err:?}")),
+        };
     match (decode_framebuffer_grant(&frame[..len.min(frame.len())]), moved) {
         (Some(grant), Some(framebuffer)) if grant.status == STATUS_OK => {
             let mode = (u32::from(grant.mode_w), u32::from(grant.mode_h));

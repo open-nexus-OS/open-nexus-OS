@@ -125,12 +125,14 @@ pub enum MmuError {
     TableFull,
 }
 
-/// Directories a space holds: a GiB of addresses each.
-const MAX_PDS: usize = 8;
-/// Tables a space holds: 2 MiB of addresses each, 256 MiB in all. The compositor's context maps
-/// the whole shared layout (52 tables), its own scratches, cache and pass memory (12) beside the
-/// render bundle's ranges (9) — TASK-0215 5c-3 P4b; 64 held 128 MiB and refused the layout.
-const MAX_PTS: usize = 128;
+/// Directories a space holds at most: a GiB of addresses each.
+const MAX_PDS: usize = 16;
+/// Tables a space holds at most: 2 MiB of addresses each, 2 GiB in all. The compositor's context
+/// maps the shared layout, its scratches, cache and pass memory and the render bundle's ranges
+/// (some 73 tables, TASK-0215 5c-3 P4b) and every app surface bound whole (RFC-0114: some 14
+/// tables a full-HD window). The slots grow as tables are made — a space costs the heap what it
+/// maps, not this bound.
+const MAX_PTS: usize = 1024;
 
 #[derive(Clone, Copy, Debug)]
 struct Pd {
@@ -150,10 +152,10 @@ struct Pt {
     live: [u64; PT_ENTRIES / 64],
 }
 
-/// A space's slot tables (`MAX_PDS` / `MAX_PTS` entries) on the heap — a fixed array of 64
-/// tables was 6.5 KiB of a service's stack frame wherever the space was held (gpud's 32 KiB
-/// stack overflowed on the QEMU lane, 2026-10-13) — kept from one space to the next: a device
-/// makes and destroys contexts over the same storage, allocated once
+/// A space's slot tables on the heap, grown as directories and tables are made (at most
+/// `MAX_PDS` / `MAX_PTS`) — a fixed array of 64 tables was 6.5 KiB of a service's stack frame
+/// wherever the space was held (gpud's 32 KiB stack overflowed on the QEMU lane, 2026-10-13) —
+/// kept from one space to the next: a device makes and destroys contexts over the same storage
 /// ([`PageTables::destroy`] hands it back).
 #[derive(Clone, Debug)]
 pub struct TableStorage {
@@ -163,7 +165,7 @@ pub struct TableStorage {
 
 impl TableStorage {
     pub fn new() -> Self {
-        Self { pds: alloc::vec![None; MAX_PDS], pts: alloc::vec![None; MAX_PTS] }
+        Self { pds: alloc::vec::Vec::new(), pts: alloc::vec::Vec::new() }
     }
 }
 
@@ -171,6 +173,19 @@ impl Default for TableStorage {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// A free slot of `slots`: an emptied one, or a new one while fewer than `max` exist (`None`:
+/// full, or no heap for one more).
+fn free_slot<T>(slots: &mut alloc::vec::Vec<Option<T>>, max: usize) -> Option<usize> {
+    if let Some(s) = slots.iter().position(Option::is_none) {
+        return Some(s);
+    }
+    if slots.len() >= max || slots.try_reserve(1).is_err() {
+        return None;
+    }
+    slots.push(None);
+    Some(slots.len() - 1)
 }
 
 /// One context's address space: a page catalogue and the directories and tables under it.
@@ -196,8 +211,8 @@ impl PageTables {
     ) -> Result<Self, (MmuError, TableStorage)> {
         let Some(pc) = pages.alloc() else { return Err((MmuError::NoTablePage, storage)) };
         let TableStorage { mut pds, mut pts } = storage;
-        pds.fill(None);
-        pts.fill(None);
+        pds.clear();
+        pts.clear();
         Ok(Self { pc, pds, pts, flush: 0 })
     }
 
@@ -247,7 +262,7 @@ impl PageTables {
         let pd_slot = match self.pd_slot(pci) {
             Some(s) => s,
             None => {
-                let s = self.pds.iter().position(|p| p.is_none()).ok_or(MmuError::TableFull)?;
+                let s = free_slot(&mut self.pds, MAX_PDS).ok_or(MmuError::TableFull)?;
                 let page = pages.alloc().ok_or(MmuError::NoTablePage)?;
                 pages.write_u32(self.pc, pci, pc_entry(page.phys));
                 self.pds[s] = Some(Pd { pc_index: pci, page, mapped: 0 });
@@ -259,7 +274,7 @@ impl PageTables {
         let pt_slot = match self.pt_slot(pci, pdi) {
             Some(s) => s,
             None => {
-                let s = self.pts.iter().position(|p| p.is_none()).ok_or(MmuError::TableFull)?;
+                let s = free_slot(&mut self.pts, MAX_PTS).ok_or(MmuError::TableFull)?;
                 let page = pages.alloc().ok_or(MmuError::NoTablePage)?;
                 let Some(pd) = self.pds[pd_slot].as_ref() else { return Err(MmuError::TableFull) };
                 pages.write_u64(pd.page, pdi, pd_entry(page.phys));
@@ -338,8 +353,8 @@ impl PageTables {
             pages.free(pd.page);
         }
         pages.free(pc);
-        pds.fill(None);
-        pts.fill(None);
+        pds.clear();
+        pts.clear();
         TableStorage { pds, pts }
     }
 
@@ -472,7 +487,10 @@ mod tests {
         let mut none = Pages::new(0);
         let (e, back) = PageTables::new_in(TableStorage::new(), &mut none).unwrap_err();
         assert_eq!(e, MmuError::NoTablePage);
-        assert_eq!(back.pds.len(), MAX_PDS, "the storage comes back with the refusal");
+        assert!(
+            back.pds.is_empty() && back.pts.is_empty(),
+            "the storage comes back with the refusal"
+        );
     }
 
     #[test]

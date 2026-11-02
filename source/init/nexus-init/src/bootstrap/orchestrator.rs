@@ -332,9 +332,6 @@ where
     let imed_req = mint(imed_pid, 8)?;
     let imed_rsp = mint(inputd_pid, 8)?;
     let imed_osk = mint(imed_pid, 8)?; // OSK ep (RFC-0075 P2): RECV to imed, SEND to execd + selftest
-    let inputd_watch_ep = mint(inputd_pid, 8)?;
-    let windowd_watch_ep = mint(windowd_pid, 8)?;
-    let windowd_session_watch_ep = mint(windowd_pid, 8)?;
     let window_req = mint(windowd_pid, 32)?;
     let window_rsp = mint(windowd_pid, 8)?;
     let input_req = mint(inputd_pid, 8)?;
@@ -473,9 +470,6 @@ where
         imed_req,
         imed_rsp,
         imed_osk,
-        inputd_watch_ep,
-        windowd_watch_ep,
-        windowd_session_watch_ep,
         window_req,
         window_rsp,
         input_req,
@@ -685,6 +679,7 @@ where
             statefs_req,
             init_ask,
             stage_fence,
+            crate::bootstrap::windowd_respawn::WindowdKept::of(&eps),
         ),
         ctrl_channels,
         route_table,

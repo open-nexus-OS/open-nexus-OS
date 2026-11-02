@@ -50,6 +50,7 @@ use crate::chain_stats::InputdChainTelemetry;
 
 /// Wheel indicator + HID-rate telemetry (a pure move, structure ratchet).
 mod indicators;
+mod state_push;
 
 pub fn service_main_loop() -> Result<(), &'static str> {
     // Caps are pre-granted by init before resume — no yield needed.
@@ -180,8 +181,9 @@ struct LiveRouteRuntime {
     /// killed the whole chain ("Absturz").
     wire_events_scratch: Vec<input_live_protocol::WireHidEvent>,
     windowd_push_ok_emitted: bool,
-    windowd_route_fallback_emitted: bool,
     windowd_push_fail_emitted: bool,
+    /// The current compositor outage was named (RFC-0112).
+    no_compositor_said: bool,
     wheel_indicator_direction: WheelIndicatorDirection,
     wheel_indicator_deadline_ns: u64,
     windowd_client: Option<KernelClient>,
@@ -270,8 +272,8 @@ impl LiveRouteRuntime {
             hid_events_scratch: Vec::new(),
             wire_events_scratch: Vec::new(),
             windowd_push_ok_emitted: false,
-            windowd_route_fallback_emitted: false,
             windowd_push_fail_emitted: false,
+            no_compositor_said: false,
             wheel_indicator_direction: WheelIndicatorDirection::None,
             wheel_indicator_deadline_ns: 0,
             windowd_client: KernelClient::new_with_slots(topo::WINDOWD.send, topo::WINDOWD.recv)
@@ -627,81 +629,6 @@ impl LiveRouteRuntime {
             immediate_push,
         ) {
             self.push_visible_state_to_windowd(now_ns, immediate_push);
-        }
-    }
-
-    fn push_visible_state_to_windowd(&mut self, now_ns: u64, immediate: bool) {
-        if !should_push_visible_state(
-            self.last_windowd_push_state,
-            self.visible_state,
-            self.last_windowd_push_ns,
-            now_ns,
-            immediate,
-        ) {
-            return;
-        }
-        if self.windowd_client.is_none() {
-            self.windowd_client = KernelClient::new_for("windowd").ok();
-            if self.windowd_client.is_none() && !self.windowd_route_fallback_emitted {
-                let _ = nexus_abi::trace_line("inputd: windowd route unavailable");
-                self.windowd_route_fallback_emitted = true;
-                // Fall back to priority-wired slots from init (5=send, 6=recv).
-                self.windowd_client =
-                    KernelClient::new_with_slots(topo::WINDOWD.send, topo::WINDOWD.recv).ok();
-                if self.windowd_client.is_some() {
-                    let _ = nexus_abi::trace_line("inputd: windowd route fallback slots 5/6");
-                }
-            }
-        }
-        let Some(client) = &self.windowd_client else {
-            return;
-        };
-        let (frame, n) =
-            encode_update_visible_state_motion(self.visible_state, self.input.motion());
-        match client.send(&frame[..n], Wait::Blocking) {
-            Ok(()) => {
-                // The accumulated wheel delta is DELIVERED: clear it so the
-                // next (possibly move-throttled) push cannot replay it.
-                (self.pending_wheel_delta, self.visible_state.wheel_delta_y) = (0, 0);
-                self.input.clear_motion(); // the pointer's samples went with it (RFC-0113 §2)
-                                           // …and the one-shot key facts: delivered once, never replayed.
-                (self.visible_state.wm_chord, self.visible_state.capture) = (0, 0);
-                self.note_push_rate(now_ns);
-                self.last_windowd_push_state = Some(self.visible_state);
-                self.last_windowd_push_ns = now_ns;
-                if !self.windowd_push_ok_emitted {
-                    let _ = nexus_abi::trace_line("inputd: windowd visible-state pushed");
-                    // Input-chain hop I5: normalized state delivered to windowd.
-                    let _ = nexus_abi::trace_line("inputd: chain I5 delivered to windowd");
-                    self.windowd_push_ok_emitted = true;
-                }
-            }
-            Err(nexus_ipc::IpcError::WouldBlock)
-            | Err(nexus_ipc::IpcError::Timeout)
-            | Err(nexus_ipc::IpcError::NoSpace) => {
-                if self.push_fail_count < 40 {
-                    self.push_fail_count += 1;
-                    let _ = debug_println(&format!(
-                        "inputd: push backpressure n={}",
-                        self.push_fail_count
-                    ));
-                }
-                // Backpressure only: keep route/client and retry next tick.
-            }
-            Err(_) => {
-                // Unreachable windowd: the sample is spent for pacing purposes (the next
-                // event carries fresh state) — the timer never chases a dead route.
-                (self.last_windowd_push_state, self.last_windowd_push_ns) =
-                    (Some(self.visible_state), now_ns);
-                self.input.clear_motion();
-                if !self.windowd_push_fail_emitted {
-                    let _ = debug_println("inputd: windowd visible-state push fail");
-                    // Input-chain hop I5 fail: windowd unreachable (route dropped).
-                    let _ = debug_println("inputd: chain I5 deliver FAIL (windowd route)");
-                    self.windowd_push_fail_emitted = true;
-                }
-                self.windowd_client = None;
-            }
         }
     }
 }

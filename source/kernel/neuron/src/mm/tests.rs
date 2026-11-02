@@ -30,7 +30,7 @@ use crate::mm::page_table::PageTable;
 
 #[test]
 fn rejects_unaligned_addresses() {
-    let mut table = PageTable::new();
+    let mut table = PageTable::new().expect("table");
     assert_eq!(
         table.map(1, PAGE_SIZE, PageFlags::VALID | PageFlags::READ),
         Err(MapError::Unaligned)
@@ -40,35 +40,35 @@ fn rejects_unaligned_addresses() {
 
 #[test]
 fn rejects_invalid_flags() {
-    let mut table = PageTable::new();
+    let mut table = PageTable::new().expect("table");
     assert_eq!(table.map(0, 0, PageFlags::empty()), Err(MapError::InvalidFlags));
     assert_eq!(table.map(0, 0, PageFlags::VALID), Err(MapError::InvalidFlags));
 }
 
 #[test]
 fn enforces_w_xor_x() {
-    let mut table = PageTable::new();
+    let mut table = PageTable::new().expect("table");
     let flags = PageFlags::VALID | PageFlags::WRITE | PageFlags::EXECUTE;
     assert_eq!(table.map(0, 0, flags), Err(MapError::PermissionDenied));
 }
 
 #[test]
 fn detects_overlap() {
-    let mut table = PageTable::new();
+    let mut table = PageTable::new().expect("table");
     table.map(0, 0, PageFlags::VALID | PageFlags::READ).expect("first mapping");
     assert_eq!(table.map(0, PAGE_SIZE, PageFlags::VALID | PageFlags::READ), Err(MapError::Overlap));
 }
 
 #[test]
 fn out_of_range_rejected() {
-    let mut table = PageTable::new();
+    let mut table = PageTable::new().expect("table");
     let va = 1usize << 50; // beyond canonical Sv39 range
     assert_eq!(table.map(va, 0, PageFlags::VALID | PageFlags::READ), Err(MapError::OutOfRange));
 }
 
 #[test]
 fn lookup_observes_mapping() {
-    let mut table = PageTable::new();
+    let mut table = PageTable::new().expect("table");
     table.map(0, PAGE_SIZE, PageFlags::VALID | PageFlags::READ).expect("map");
     assert_eq!(table.lookup(0), Some(PAGE_SIZE | (PageFlags::VALID | PageFlags::READ).bits()));
     assert_eq!(table.lookup(PAGE_SIZE), None);
@@ -76,6 +76,6 @@ fn lookup_observes_mapping() {
 
 #[test]
 fn root_ppn_reports_base_page() {
-    let table = PageTable::new();
+    let table = PageTable::new().expect("table");
     assert_ne!(table.root_ppn(), 0);
 }

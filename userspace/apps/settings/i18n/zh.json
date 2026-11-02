@@ -82,6 +82,7 @@
   "sc.window.fill": "填充",
   "sc.window.leftHalf": "左半屏",
   "sc.window.minimize": "最小化或还原",
+  "sc.window.restartDesktop": "重新启动桌面",
   "sc.window.return": "恢复之前大小",
   "sc.window.rightHalf": "右半屏",
   "sc.window.topLeft": "左上四分之一",

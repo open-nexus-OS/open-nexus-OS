@@ -38,12 +38,19 @@ impl CapTransferArgsTyped {
     }
 }
 
+/// `cap_transfer_to`'s fifth argument (RFC-0112, amendment 2026-11-02): the target slot may be
+/// empty or hold a capability to a DEAD endpoint, which is dropped and replaced — a restarted
+/// server's route re-pinned into its clients' declared slots. A live capability, or one of any
+/// other kind, is never replaced.
+pub const CAP_TRANSFER_REPLACE_DEAD: usize = 1;
+
 #[derive(Copy, Clone)]
 pub(super) struct CapTransferToArgsTyped {
     child: task::Pid,
     parent_slot: SlotIndex,
     rights_bits: u32,
     child_slot: SlotIndex,
+    flags: usize,
 }
 
 impl CapTransferToArgsTyped {
@@ -54,12 +61,66 @@ impl CapTransferToArgsTyped {
             parent_slot: SlotIndex::decode(args.get(1)),
             rights_bits: args.get(2) as u32,
             child_slot: SlotIndex::decode(args.get(3)),
+            flags: args.get(4),
         })
     }
     #[inline]
     fn check(&self) -> Result<Rights, Error> {
+        if self.flags & !CAP_TRANSFER_REPLACE_DEAD != 0 {
+            return Err(AddressSpaceError::InvalidArgs.into());
+        }
         Rights::from_bits(self.rights_bits)
             .ok_or(Error::Transfer(task::TransferError::Capability(CapError::PermissionDenied)))
+    }
+}
+
+/// RFC-0112 (amendment 2026-11-02): a capability goes only into the caller's own table or into
+/// one of its direct children — the parent that wires a child (init → its services, execd → its
+/// apps, a work pool → its threads). Into a stranger it would take an empty slot the stranger's
+/// parent was about to pin a route into: a forged route.
+fn check_transfer_target(
+    tasks: &task::TaskTable,
+    caller: task::Pid,
+    child: task::Pid,
+) -> Result<(), Error> {
+    let target = tasks.task(child).ok_or(Error::Transfer(task::TransferError::InvalidChild))?;
+    let parent = target.parent().map(task::Pid::as_raw);
+    if !crate::cap_rules::transfer_target_allowed(caller.as_raw(), child.as_raw(), parent) {
+        return Err(Error::Transfer(task::TransferError::Capability(CapError::PermissionDenied)));
+    }
+    Ok(())
+}
+
+/// REPLACE_DEAD's check on the target slot: empty, or a capability to a dead endpoint — which
+/// is taken out (its id returned, to be judged after the transfer). Anything else is `EPERM`.
+fn take_dead_endpoint(
+    tasks: &mut task::TaskTable,
+    router: &ipc::Router,
+    child: task::Pid,
+    slot: usize,
+) -> Result<Option<ipc::EndpointId>, Error> {
+    use crate::cap_rules::{replace_dead_verdict, ReplaceVerdict, SlotHolds};
+    let cap_err = |e| Error::Transfer(task::TransferError::Capability(e));
+    let caps =
+        tasks.caps_of_mut(child).ok_or(Error::Transfer(task::TransferError::InvalidChild))?;
+    let held = caps.peek(slot).map_err(cap_err)?;
+    let holds = match held {
+        None => SlotHolds::Empty,
+        Some(Capability { kind: CapabilityKind::Endpoint(id), .. }) => {
+            SlotHolds::Endpoint { alive: router.endpoint_alive(id) }
+        }
+        Some(_) => SlotHolds::Other,
+    };
+    match (replace_dead_verdict(holds), held) {
+        (ReplaceVerdict::Pin, _) => Ok(None),
+        (
+            ReplaceVerdict::ReplaceDead,
+            Some(Capability { kind: CapabilityKind::Endpoint(id), .. }),
+        ) => {
+            caps.take(slot).map_err(cap_err)?;
+            Ok(Some(id))
+        }
+        _ => Err(cap_err(CapError::PermissionDenied)),
     }
 }
 
@@ -163,6 +224,15 @@ pub(super) fn sys_cap_close(ctx: &mut Context<'_>, args: &Args) -> SysResult<usi
                 id,
                 "close",
             );
+            // An endpoint that died of it took what its queue carried (RFC-0112).
+            super::eof_scan::release_in_flight(
+                ctx.tasks,
+                ctx.router,
+                ctx.scheduler,
+                (ctx.waitsets, ctx.hart_timers),
+                ctx.address_spaces,
+                "close",
+            );
         }
         CapabilityKind::Vmo { id, .. } | CapabilityKind::VmoRo { id, .. } => {
             // RFC-0100 §1 (TASK-0333 6a): a VMO dies with its last capability — when no other
@@ -219,6 +289,15 @@ pub(super) fn sys_ipc_endpoint_close(ctx: &mut Context<'_>, args: &Args) -> SysR
     for pid in waiters {
         observe_wake_outcome(ctx.tasks.wake(task::Pid::from_raw(pid), ctx.scheduler));
     }
+    // What its queue carried is dropped like a close of each (RFC-0112).
+    super::eof_scan::release_in_flight(
+        ctx.tasks,
+        ctx.router,
+        ctx.scheduler,
+        (ctx.waitsets, ctx.hart_timers),
+        ctx.address_spaces,
+        "close",
+    );
     Ok(0)
 }
 
@@ -321,6 +400,7 @@ pub(super) fn sys_cap_transfer(ctx: &mut Context<'_>, args: &Args) -> SysResult<
             }
         }
     }
+    check_transfer_target(ctx.tasks, parent, typed.child)?;
     let slot = ctx.tasks.transfer_cap(parent, typed.child, typed.parent_slot.0, rights)?;
     Ok(slot)
 }
@@ -365,6 +445,18 @@ pub(super) fn sys_cap_transfer_to(ctx: &mut Context<'_>, args: &Args) -> SysResu
             }
         }
     }
+    check_transfer_target(ctx.tasks, parent, typed.child)?;
+    let replaced = if typed.flags & CAP_TRANSFER_REPLACE_DEAD != 0 {
+        // The capability the slot will hold is checked before the dead one goes.
+        ctx.tasks
+            .caps_of(parent)
+            .ok_or(Error::Transfer(task::TransferError::InvalidParent))?
+            .derive(typed.parent_slot.0, rights)
+            .map_err(|e| Error::Transfer(task::TransferError::Capability(e)))?;
+        take_dead_endpoint(ctx.tasks, ctx.router, typed.child, typed.child_slot.0)?
+    } else {
+        None
+    };
     ctx.tasks.transfer_cap_to_slot(
         parent,
         typed.child,
@@ -372,5 +464,17 @@ pub(super) fn sys_cap_transfer_to(ctx: &mut Context<'_>, args: &Args) -> SysResu
         rights,
         typed.child_slot.0,
     )?;
+    if let Some(id) = replaced {
+        // The one drop path, though a dead endpoint's census changes nothing.
+        let _ = super::eof_scan::judge_dropped(
+            ctx.tasks,
+            ctx.router,
+            ctx.scheduler,
+            ctx.waitsets,
+            ctx.hart_timers,
+            id,
+            "replace",
+        );
+    }
     Ok(typed.child_slot.0)
 }

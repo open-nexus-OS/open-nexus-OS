@@ -150,3 +150,34 @@ fn blur_box_runs_allocation_free_and_reports_small_scratch() {
         Err(raster::RasterError::ScratchTooSmall)
     );
 }
+
+/// A layer drawn from a separate buffer with its own stride (RFC-0114: the app's surface slot,
+/// read where the app drew it) — wider rows than the layer, a band spread, its opacity applied,
+/// and a sample past the source's end skipped rather than read.
+#[test]
+fn a_layer_blends_from_a_separate_source_at_its_own_stride() {
+    // The source: 8 px of content in rows of 16 px (a 256-byte-aligned stride, scaled down).
+    const SRC_STRIDE: usize = 16 * 4;
+    let mut src = [0u8; SRC_STRIDE * 4];
+    for row in 0..4 {
+        for col in 0..8 {
+            let at = row * SRC_STRIDE + col * 4;
+            src[at..at + 4].copy_from_slice(&[0, (10 * row + col) as u8, 0, 255]);
+        }
+    }
+    let source = raster::BlendSource { bytes: &src, stride: SRC_STRIDE };
+    let mut buf = fb();
+    let mut s = Surface::new(&mut buf, W);
+    raster::blit_from_blend(&mut s, source, 2, 1, (0, 0), 5, 6, 3, 2, 255);
+    assert_eq!(px(&buf, 5, 6), [0, 12, 0, 255], "(2, 1) of the source");
+    assert_eq!(px(&buf, 7, 7), [0, 24, 0, 255], "(4, 2) of the source");
+    // A 2×2 band spread over 4×4.
+    let mut s = Surface::new(&mut buf, W);
+    raster::blit_from_blend(&mut s, source, 0, 0, (2, 2), 20, 20, 4, 4, 255);
+    assert_eq!(px(&buf, 23, 23), [0, 11, 0, 255]);
+    // Rows past the source's end are skipped, not read.
+    let mut s = Surface::new(&mut buf, W);
+    raster::blit_from_blend(&mut s, source, 0, 3, (0, 0), 30, 30, 2, 4, 255);
+    assert_eq!(px(&buf, 30, 30), [0, 30, 0, 255]);
+    assert_eq!(px(&buf, 30, 31), [0, 0, 0, 0], "no source row 4: nothing blended");
+}

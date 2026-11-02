@@ -35,6 +35,12 @@ pub fn reach(dev: DeviceId) -> Option<DmaReach> {
     TABLE.lock().get(dev).map(|d| d.reach)
 }
 
+/// Whether the device `dev` does not snoop the CPU caches (`None`: no such record) — what an
+/// object made for it needs cleaned before it reads a CPU write (ADR-0092).
+pub fn noncoherent(dev: DeviceId) -> Option<bool> {
+    TABLE.lock().get(dev).map(|d| d.noncoherent)
+}
+
 /// Drop a record no capability names (the kernel selftest's synthetic devices).
 pub fn retire(dev: DeviceId) -> Result<(), TableError> {
     TABLE.lock().retire(dev)

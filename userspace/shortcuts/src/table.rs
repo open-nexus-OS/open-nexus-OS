@@ -63,6 +63,8 @@ pub const SHORTCUTS: &[Shortcut] = &[
     window("window.return", 10, &[key(WM, U::DOWN_ARROW), letter(WM, 'r')]),
     window("window.minimize", 14, &[letter(WM, 'm')]),
     window("window.close", 15, &[letter(WM, 'w')]),
+    // RFC-0112: the compositor ends itself and init brings it back — every app window returns.
+    window("window.restartDesktop", 16, &[key(WM_SHIFT, U::BACKSPACE)]),
     // Screenshots (RFC-0095). Print with Ctrl or Super held stays free.
     capture("capture.ui", 1, &[key(NONE, U::PRINT_SCREEN)]),
     capture("capture.screen", 2, &[key(SHIFT, U::PRINT_SCREEN)]),

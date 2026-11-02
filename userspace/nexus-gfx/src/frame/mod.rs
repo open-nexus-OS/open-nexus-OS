@@ -42,5 +42,5 @@ pub use board::{
 };
 pub use damage::{Area, History, HISTORY};
 pub use glass::{CacheStep, GlassCache, WriteCause};
-pub use layers::{FrameLayer, RetainedLayers, Taken, Transform, MAX_IDS, MAX_LAYERS};
+pub use layers::{FrameLayer, RetainedLayers, Taken, Transform, MAX_LAYERS};
 pub use plan::{Frame, Glass, LayerStep, Planned, Writes};

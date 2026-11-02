@@ -30,6 +30,7 @@ use super::device_v2::Device;
 use super::emit_fmt;
 use super::render_template::RENDER_BUNDLE;
 use super::scene_load::{self, Loaded, TargetMem, Texel};
+use super::surface_buffers::SurfaceBuffers;
 use crate::gpu_context::{refused, FrameGpu, FrameTarget, GpuService};
 
 /// A context a client opened, with the render bundle in it.
@@ -53,6 +54,8 @@ pub(crate) struct BoardGpu {
     stray: Taken,
     /// The desktop refused (said once): the display composes on the CPU.
     desktop_off: bool,
+    /// The app surfaces bound in windowd's context (RFC-0114): charged to their apps.
+    buffers: SurfaceBuffers,
 }
 
 /// Why an open made nothing: the step and the device's word, when it said one.
@@ -73,7 +76,14 @@ const fn priority(p: u8) -> Priority {
 
 impl BoardGpu {
     pub(crate) fn new(dev: Device) -> Self {
-        Self { dev, held: None, desktop: None, stray: [None; 6], desktop_off: false }
+        Self {
+            dev,
+            held: None,
+            desktop: None,
+            stray: [None; 6],
+            desktop_off: false,
+            buffers: SurfaceBuffers::new(),
+        }
     }
 
     /// Tears an opened context down: the context by the firmware's cleanup (quarantined, its
@@ -93,6 +103,8 @@ impl BoardGpu {
         if let Some(desktop) = self.desktop.take() {
             (*desktop).release(&mut self.dev);
         }
+        // The apps' surfaces went from the GPU with the context's bindings (RFC-0114).
+        self.buffers.release(&mut self.dev, client);
         give_back(&mut self.dev, client, &mut self.stray);
         self.desktop_off = false;
         gone
@@ -152,7 +164,8 @@ impl BoardGpu {
 
 impl GpuService for BoardGpu {
     fn held_by(&self, client: u64) -> u64 {
-        self.dev.held_by(ClientId(client))
+        // The apps' surfaces are bound in windowd's context but charged to their apps.
+        self.dev.held_by(ClientId(client)).saturating_sub(self.buffers.bytes())
     }
 
     fn capabilities(&self) -> GpuCapabilities {
@@ -264,12 +277,36 @@ impl FrameGpu for BoardGpu {
             }
         }
         let desktop = self.desktop.as_mut()?;
-        match desktop.draw(&mut self.dev, commands, target) {
+        match desktop.draw(&mut self.dev, commands, target, &self.buffers) {
             Ok(area) => Some(area),
             Err(why) => {
                 self.desktop_refused("frame", why);
                 None
             }
+        }
+    }
+
+    fn bind_surface(
+        &mut self,
+        buffer: u32,
+        vmo: u32,
+        geometry: &crate::surfaces::Geometry,
+    ) -> bool {
+        // windowd's context exists before any app asks (windowd opens it at its start).
+        let Some(who) = self.held.as_ref().map(|h| (h.client, h.ctx)) else { return false };
+        self.buffers.bind(&mut self.dev, who, (buffer, vmo), geometry)
+    }
+
+    fn unbind_surface(&mut self, buffer: u32) {
+        let Some(who) = self.held.as_ref().map(|h| (h.client, h.ctx)) else { return };
+        if let Err(e) = self.buffers.unbind(&mut self.dev, who, buffer) {
+            emit_fmt(format_args!("gpud: FAIL surface unbind (buffer={buffer} {e:?})"));
+        }
+    }
+
+    fn forget_layers(&mut self) {
+        if let Some(desktop) = self.desktop.as_mut() {
+            desktop.forget_layers();
         }
     }
 }

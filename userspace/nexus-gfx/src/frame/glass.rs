@@ -46,7 +46,9 @@ pub fn fold_layer(h: u64, l: &FrameLayer) -> u64 {
     let b = (u64::from(l.width) << 32) | u64::from(l.height);
     let c = (u64::from(l.dst_x) << 32) | u64::from(l.dst_y);
     let d = (u64::from(l.opacity) << 32) | u64::from(l.corner_radius);
-    fold(fold(fold(fold(h, a), b), c), d)
+    // The source, never its slot (RFC-0114 §6): a flip of a buffer's slots is new content, which
+    // reaches the glass as damage — the key stays.
+    fold(fold(fold(fold(fold(h, a), b), c), d), u64::from(l.source))
 }
 
 /// A glass layer's key: the destination below it, its rectangle, its blur and corner radius.

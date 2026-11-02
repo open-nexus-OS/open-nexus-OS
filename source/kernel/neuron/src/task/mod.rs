@@ -195,7 +195,14 @@ pub enum SpawnError {
     StackExhausted,
     /// Scheduler runqueue rejected enqueue due to bounded capacity.
     RunQueueFull,
+    /// The kernel heap above its reserve cannot hold a new task — its entry and its capability
+    /// table (ADR-0091): `ENOMEM` to the caller, never an allocation panic.
+    OutOfMemory,
 }
+
+/// Kernel heap a new task takes: its entry (~1.3 KiB), its capability table (256 slots of
+/// ~32 B), its parent's child record — rounded up (ADR-0091).
+const TASK_HEAP_COST: usize = 16 * 1024;
 
 impl From<CapError> for SpawnError {
     fn from(value: CapError) -> Self {
@@ -229,7 +236,7 @@ pub fn spawn_fail_reason(err: &SpawnError) -> SpawnFailReason {
         AddressSpace(AddressSpaceError::AsidExhausted) => SpawnFailReason::MapFailed,
         AddressSpace(AddressSpaceError::Mapping(_)) => SpawnFailReason::MapFailed,
         AddressSpace(_) => SpawnFailReason::InvalidPayload,
-        StackExhausted | RunQueueFull => SpawnFailReason::OutOfMemory,
+        StackExhausted | RunQueueFull | OutOfMemory => SpawnFailReason::OutOfMemory,
     }
 }
 
@@ -785,6 +792,14 @@ impl TaskTable {
         address_spaces: &mut AddressSpaceManager,
     ) -> Result<Pid, SpawnError> {
         let parent_index = parent.as_index();
+        if self.tasks.get(parent_index).is_none() {
+            return Err(SpawnError::InvalidParent);
+        }
+        // ADR-0091: the task's heap is taken up front, above the reserve — a spawn that would
+        // eat into it is refused here, never an allocation panic further down.
+        if !crate::kheap::admits(TASK_HEAP_COST) || self.tasks.try_reserve(1).is_err() {
+            return Err(SpawnError::OutOfMemory);
+        }
         let parent_task = self.tasks.get(parent_index).ok_or(SpawnError::InvalidParent)?;
 
         ensure_entry_in_kernel_text(entry_pc, address_space)?;

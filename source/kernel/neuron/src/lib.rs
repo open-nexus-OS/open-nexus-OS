@@ -120,18 +120,9 @@ use spin::Mutex;
 
 // Global allocator using spin::Mutex instead of lock_api to avoid HPM CSR access
 
-// Kernel heap backs page-table allocations, kernel stacks, and early bring-up metadata.
-// NOTE: This region lives in `.bss.heap` and must not overlap the page-table pool range.
-// Keep it large enough to avoid ALLOC-FAIL during bring-up selftests, but below the pool base.
-// 2 MiB → 8 MiB (2026-07-22, RFC-0075 Phase 8d fallout): page tables are
-// heap-backed and each app maps a larger image now (CJK atlases) — a live
-// session PANICked (ALLOC-FAIL, heap full at ~20 address spaces) on its 6th
-// app launch because dead apps kept their AS until a parent WAITed. RFC-0081
-// (TASK-0303) landed the fix: execd is the reaper-of-record and auto-reaps its
-// exited children (`SYSCALL_WAIT_NOHANG`), so a closed window's AS is reclaimed
-// each launch — the heap stays 8 MiB as conservative desktop headroom, no
-// longer a bridge. Image headroom to the page-pool window is CI-checked
-// (`layout ok`).
+// The kernel heap (`.bss.heap`, part of the image): task and capability tables, lazy objects'
+// page words, block lists, bank bitmaps — page tables and kernel stacks are frames now. A
+// caller-sized allocation stays above its last MiB (`kheap`, ADR-0091). 8 MiB since RFC-0075 8d.
 #[cfg(target_os = "none")]
 const HEAP_SIZE: usize = 8192 * 1024; // 8.00 MiB
 
@@ -296,6 +287,12 @@ pub(crate) fn heap_used_bytes() -> usize {
     ALLOC.0.lock().used()
 }
 
+/// Kernel heap bytes free (ADR-0091's reserve check, `mm::kheap`).
+#[cfg(target_os = "none")]
+pub(crate) fn heap_free_bytes() -> usize {
+    ALLOC.0.lock().free()
+}
+
 #[cfg(target_os = "none")]
 fn init_heap() {
     // SAFETY: single-threaded early boot; we only pass a raw pointer + length.
@@ -442,23 +439,18 @@ mod waitset;
 // RFC-0033: timeline fence table — host-testable for the same reason as `waitset` (pure
 // `alloc` + raw u64 value / u32 ids). See `docs/architecture/02-selftest-and-ci.md`.
 mod fence;
-// RFC-0075 8e: per-task process-image arena bookkeeping — NOT target-gated for
-// the same reason as `waitset`/`fence` (pure usize ranges, host-unit-tested).
+// RFC-0075 8e: per-task process-image arena bookkeeping (pure usize ranges, host-unit-tested):
 // `exec` records the blocks, task teardown returns them to the frame pool.
 mod image_allocs;
-// TASK-0286 M1 P1 (RFC-0098 C4): the page-frame allocator — NOT target-gated
-// (pure index logic over a boxed bitmap) so both golden trees run on host.
-// `mod mm` is riscv/none-only, hence the `#[path]`; `pub` until P2/P3 wire
-// the in-kernel consumers, for the same reason `va_space` is.
+// TASK-0286 M1 P1 (RFC-0098 C4): the page-frame allocator — pure index logic over a boxed
+// bitmap, host-tested; `#[path]`: `mod mm` is riscv/none-only; `pub` like `va_space`.
 #[path = "mm/frames/mod.rs"]
 pub mod frames;
 // TASK-0286 M1 P2 (RFC-0098 C4): the physical↔kernel-virtual seam and the boot
 // table of the high-half switch — NOT target-gated so both are host-tested.
 #[path = "mm/phys.rs"]
 pub mod phys;
-// TASK-0286 M1 P4a (RFC-0098 C4): the one door a physical address leaves the
-// kernel by (`vmo_runs`) — the authority rule and the clipping, NOT
-// target-gated so the reject matrix runs on host.
+// TASK-0286 M1 P4a (RFC-0098 C4): the one door a physical address leaves the kernel by (pure).
 #[path = "mm/dma_runs.rs"]
 pub mod dma_runs;
 // TASK-0246 P1 (RFC-0098 C4): a device's DMA reach — the versioned device descriptor,
@@ -476,6 +468,11 @@ pub mod vmo_lifetime;
 // TASK-0333 6b-1 (ADR-0077): what a fault may commit, a lazy object's frames (pure, host-proven).
 #[path = "mm/lazy.rs"]
 pub mod lazy;
+// Pure, host-proven: the kernel heap's reserve (ADR-0091), `vmo_clean`'s range rule (ADR-0092).
+#[path = "mm/clean_span.rs"]
+pub(crate) mod clean_span;
+#[path = "mm/kheap.rs"]
+pub(crate) mod kheap;
 // TASK-0333 6b-3: who grew — a space's new high by a step, named at a reap (pure, host-proven).
 #[path = "mm/growth.rs"]
 pub mod growth;
@@ -487,6 +484,8 @@ pub mod pressure;
 /// host-tested; bound to the funnel in `hal::console_line`.
 pub mod console_line;
 mod ipc_eof;
+// RFC-0112: the capability-transfer rules (parent-only, REPLACE_DEAD) — pure, host-tested.
+mod cap_rules;
 // TASK-0054C P1 (RFC-0096): the pure IPC-path counters — NOT target-gated so
 // their record/reset contract runs on host. Fed by the send/recv paths.
 #[path = "ipc/stats.rs"]

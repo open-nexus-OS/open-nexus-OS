@@ -120,7 +120,7 @@ static_assertions::assert_not_impl_any!(AddressSpace: Send, Sync);
 
 impl AddressSpace {
     fn new(asid: Asid) -> Result<Self, MapError> {
-        let mut page_table = PageTable::new();
+        let mut page_table = PageTable::new()?;
         map_kernel_segments(&mut page_table)?;
         Ok(Self {
             page_table,

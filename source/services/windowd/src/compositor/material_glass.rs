@@ -17,7 +17,7 @@ use nexus_gfx::{BackdropCache, Layer, LayerBackdrop, LayerShadow, RenderCommandE
 /// Parameters for one **material-tagged glass region** of a client surface (R1
 /// layer seam). Unlike [`GlassCompositeParams`] (a whole window), this composites
 /// an arbitrary sub-rect the app declared as glass, sampling its content from the
-/// app surface's atlas band and blurring the retained backdrop behind it.
+/// app's buffer (RFC-0114) and blurring the retained backdrop behind it.
 #[derive(Clone, Copy)]
 pub(crate) struct MaterialLayerParams {
     pub src_row_abs: u32,
@@ -39,6 +39,9 @@ pub(crate) struct MaterialLayerParams {
     pub opaque: bool,
     /// The layer's identity across presents (RFC-0109: the planner's match).
     pub key: u32,
+    /// What the region samples (RFC-0114 §6): the surface's buffer, the slot of its newest
+    /// present and that present's seq (the content's generation).
+    pub source: (u32, u8, u32),
 }
 
 /// Composite one app-declared glass region through the `nexus-gfx` layer SSOT —
@@ -70,9 +73,11 @@ pub(crate) fn composite_material_glass(
             opacity: 255,
             corner_radius: p.corner_radius,
             layer_id: p.layer_id,
-            content_epoch: crate::atlas::atlas_content_epoch(),
+            content_epoch: p.source.2,
             scroll_band_top_abs: 0,
             scroll_band_h: 0,
+            source: p.source.0,
+            slot: p.source.1,
             shadow: (p.shadow_alpha > 0).then_some(LayerShadow {
                 blur: 24,
                 offset_y: 8,

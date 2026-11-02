@@ -144,6 +144,17 @@ impl VirtioGpuBackend {
         res
     }
 
+    /// Runs `f` with the control queue unbatched — each command submitted and waited — inside a
+    /// batch: a buffer layer's rows the host must have copied before the present is acked, so the
+    /// slot windowd hands back to the app is never read again (RFC-0114, `virgl_surfaces`).
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    pub(crate) fn ctrl_unbatched<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {
+        let batched = core::mem::replace(&mut self.ctrl_batch, false);
+        let r = f(self);
+        self.ctrl_batch = batched;
+        r
+    }
+
     /// Begin a control-queue command batch: subsequent `ctrl_submit_*` calls
     /// enqueue without waiting. Pair with [`ctrl_batch_end`].
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]

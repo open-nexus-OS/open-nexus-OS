@@ -1,9 +1,10 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Settings-watch routes (RFC-0078): inputd's and windowd's watch
-//! legs to settingsd — split out of `route_provision.rs` (module-size
-//! ratchet). Same contract, same markers.
+//! CONTEXT: inputd's settings route (RFC-0078) — its SEND to settingsd, over which it
+//! subscribes its watch channel. The watch channels themselves (inputd's, windowd's settings and
+//! session pushes) are declared waits, minted and pinned before the service runs
+//! (`declared_routes::pin_declared_waits`) — the same path windowd's respawn takes (RFC-0112).
 //! OWNERS: @runtime
 //! STATUS: Experimental
 
@@ -13,12 +14,12 @@ use crate::bootstrap::CtrlChannel;
 use crate::service_topology::ServiceId;
 use nexus_abi::Rights;
 
-/// Provisions inputd's settings-watch channel (RFC-0078): a fresh minted
-/// endpoint (both halves to inputd at FIXED slots — mint→grant→close, zero
-/// init cap-table accumulation) + SEND on settingsd's request endpoint.
-/// Best-effort: without it, live keymap switching stays inert (honest
-/// failure; the boot keymap default applies).
-pub(crate) fn provision_inputd_settings_watch(pid: u32, eps: &Endpoints, chan: &mut CtrlChannel) {
+/// Provisions inputd's settings route (RFC-0078): SEND on settingsd's request endpoint, over
+/// which inputd subscribes its watch channel — the channel itself is a declared wait, minted and
+/// pinned with the others before inputd runs (`declared_routes::pin_declared_waits`).
+/// Best-effort: without it, live keymap switching stays inert (honest failure; the boot keymap
+/// default applies).
+pub(crate) fn provision_inputd_settings_route(pid: u32, eps: &Endpoints, chan: &mut CtrlChannel) {
     let Some((settings_req, _)) = eps.server_pair(ServiceId::Settingsd) else {
         return;
     };
@@ -29,102 +30,12 @@ pub(crate) fn provision_inputd_settings_watch(pid: u32, eps: &Endpoints, chan: &
         settings_req,
         Rights::SEND,
     );
-    // Pre-minted in the orchestrator (init's cap table is at its ceiling by
-    // wiring time — a late mint NoSpace-fails); init's cap closes after wiring.
-    let ep = eps.inputd_watch_ep;
-    let recv_ok = crate::bootstrap::declared_slots::pin_named(
-        pid,
-        ServiceId::Inputd,
-        crate::service_topology::NamedSlot::SettingsWatchRecv,
-        ep,
-        Rights::RECV,
-    )
-    .is_some();
-    let send_ok = crate::bootstrap::declared_slots::pin_named(
-        pid,
-        ServiceId::Inputd,
-        crate::service_topology::NamedSlot::SettingsWatchSend,
-        ep,
-        Rights::SEND,
-    )
-    .is_some();
-    if let (Some(settings_send), true, true) = (settings_send, recv_ok, send_ok) {
+    if let Some(settings_send) = settings_send {
         chan.set_send(ServiceId::Settingsd, settings_send);
         if crate::bootstrap::diag::raw_or_expanded("inputd") {
             debug_write_bytes(b"init: inputd settings-watch ok\n");
         }
     } else {
         debug_write_bytes(b"init: inputd settings-watch FAIL (xfer)\n");
-    }
-}
-
-/// Fixed windowd slots for its settings-watch channel (RFC-0076/0077 —
-/// windowd relays region data to surfaces). Kept in sync with
-/// `windowd/src/compositor/runtime/region.rs`.
-
-/// Provisions windowd's settings-watch channel (pre-minted; both halves to
-/// fixed slots; windowd's settingsd SEND route already exists via
-/// `provision_windowd_settings_route`). Best-effort.
-pub(crate) fn provision_windowd_settings_watch(pid: u32, eps: &Endpoints, chan: &mut CtrlChannel) {
-    let _ = chan;
-    // RFC-0083 NOTE (measured, kernel follow-up recorded in TASK-0307): the
-    // watch channel stays a DEDICATED side endpoint. Pointing slot 0x41 at
-    // windowd's own service endpoint (so settings events would arrive
-    // in-band and wake an idle compositor) wedges the whole system
-    // deterministically once settingsd starts sending on the moved clones —
-    // the Idle-class selftest ladder starves and never runs (boots
-    // 2026-07-27T11-31-56 / 13-32-13; bisected against 13-38-26). Cloning
-    // windowd's own server slots instead is PermissionDenied (also
-    // measured). Until the kernel semantics of foreign-held send caps on
-    // service-pair endpoints are understood, windowd drains this side
-    // channel per frame + a bounded idle tick.
-    // TASK-0324 P4a: the watch halves are declared named slots of windowd — the numbers
-    // lived here AND in windowd's `region.rs` before, one copy per side.
-    use crate::service_topology::NamedSlot;
-    let recv_ok = crate::bootstrap::declared_slots::pin_named(
-        pid,
-        ServiceId::Windowd,
-        NamedSlot::SettingsWatchRecv,
-        eps.windowd_watch_ep,
-        Rights::RECV,
-    )
-    .is_some();
-    let send_ok = crate::bootstrap::declared_slots::pin_named(
-        pid,
-        ServiceId::Windowd,
-        NamedSlot::SettingsWatchSend,
-        eps.windowd_watch_ep,
-        Rights::SEND,
-    )
-    .is_some();
-    if recv_ok && send_ok {
-        if crate::bootstrap::diag::raw_or_expanded("windowd") {
-            debug_write_bytes(b"init: windowd settings-watch ok\n");
-        }
-    } else {
-        debug_write_bytes(b"init: windowd settings-watch FAIL (xfer)\n");
-    }
-    // TASK-0324 P7-c: the session push channel, same lifecycle (pre-minted, both halves to
-    // windowd at declared slots, init's cap closes after wiring). windowd moves a clone of
-    // the SEND half to sessiond with `OP_WATCH`; sessiond pushes state; the RECV half is a
-    // member of windowd's waitset.
-    let s_recv_ok = crate::bootstrap::declared_slots::pin_named(
-        pid,
-        ServiceId::Windowd,
-        NamedSlot::SessionWatchRecv,
-        eps.windowd_session_watch_ep,
-        Rights::RECV,
-    )
-    .is_some();
-    let s_send_ok = crate::bootstrap::declared_slots::pin_named(
-        pid,
-        ServiceId::Windowd,
-        NamedSlot::SessionWatchSend,
-        eps.windowd_session_watch_ep,
-        Rights::SEND,
-    )
-    .is_some();
-    if !(s_recv_ok && s_send_ok) {
-        debug_write_bytes(b"init: windowd session-watch FAIL (xfer)\n");
     }
 }

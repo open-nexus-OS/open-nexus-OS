@@ -31,7 +31,7 @@ static AFFINITY_FAILED: core::sync::atomic::AtomicUsize = core::sync::atomic::At
 /// CPUs is online (a 1-CPU boot has no cpu1-3 to put background work on).
 const AFFINITY_ANY: usize = 0b1111;
 
-fn apply_affinity(chan_name: &str, pid: u32) {
+pub(crate) fn apply_affinity(chan_name: &str, pid: u32) {
     let mask = crate::service_topology::affinity_for(chan_name);
     if nexus_abi::sched::set_affinity_for(pid, mask as usize).is_ok() {
         AFFINITY_APPLIED.fetch_add(1, core::sync::atomic::Ordering::Relaxed);

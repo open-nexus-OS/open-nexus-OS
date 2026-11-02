@@ -1094,7 +1094,6 @@ dependencies = [
  "nexus-display-proto",
  "nexus-idl-runtime",
  "nexus-ipc",
- "nexus-loader",
  "nexus-log",
  "nexus-metrics",
  "nexus-sdk-routes",
@@ -2345,6 +2344,7 @@ dependencies = [
  "nexus-soc",
  "nexus-sync",
  "nexus-vfs",
+ "nexus-wire",
  "packagefsd",
  "policyd",
  "samgrd",
@@ -2386,7 +2386,6 @@ dependencies = [
  "bitflags 2.11.0",
  "byteorder",
  "goblin",
- "nexus-abi",
 ]
 
 [[package]]

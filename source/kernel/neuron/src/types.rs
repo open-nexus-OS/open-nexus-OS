@@ -6,7 +6,7 @@
 //! STATUS: Functional
 //! API_STABILITY: Stable
 //! TEST_COVERAGE: QEMU selftests + boot markers
-//! PUBLIC API: VirtAddr, PageLen, SlotIndex, Pid, CapSlot, Asid, HartId, CpuId
+//! PUBLIC API: VirtAddr, SlotIndex, Pid, CapSlot, Asid, HartId, CpuId
 //! DEPENDS_ON: mm::page_table::is_canonical_sv39, PAGE_SIZE
 //! INVARIANTS: Enforce canonical Sv39 addresses; alignment helpers; prevent type confusion
 //! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
@@ -54,28 +54,6 @@ impl VirtAddr {
     #[inline]
     pub fn checked_add(self, v: usize) -> Option<usize> {
         self.0.checked_add(v)
-    }
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub struct PageLen(usize);
-
-impl PageLen {
-    #[inline]
-    pub fn from_bytes_aligned(bytes: u64) -> Option<Self> {
-        if bytes == 0 {
-            return None;
-        }
-        let b = bytes as usize;
-        if b % PAGE_SIZE == 0 {
-            Some(Self(b))
-        } else {
-            None
-        }
-    }
-    #[inline]
-    pub fn raw(self) -> usize {
-        self.0
     }
 }
 

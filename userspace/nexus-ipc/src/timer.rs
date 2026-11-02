@@ -173,6 +173,15 @@ impl Waitset {
         Ok(idx)
     }
 
+    /// Arms `send_slot` — a SEND-only capability whose queue a send found full — as a WRITABLE
+    /// member (RFC-0033 amendment, TASK-0339): the wait that reports it tells the sender once that
+    /// the queue has room again, or that no receiver can drain it any more. Arming the same
+    /// capability again re-arms its member. Writable members take indices after the receive
+    /// members added before them: a loop that arms one adds no receive member afterwards.
+    pub fn arm_writable(&self, send_slot: u32) -> Result<()> {
+        nexus_abi::waitset_arm_writable(self.cap, send_slot).map_err(|_| IpcError::Unsupported)
+    }
+
     /// Blocks until a member has a pending frame; returns its index. No deadline — pacing is
     /// a [`NotifyTimer`] member, never this call's clock.
     pub fn wait(&self) -> Result<u32> {

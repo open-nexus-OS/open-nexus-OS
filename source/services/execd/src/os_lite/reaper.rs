@@ -72,9 +72,15 @@ impl Reaper {
         Some(Self { waitset, deaths, abilitymgr: None, pending: Vec::new() })
     }
 
-    /// Blocks until a request or a death is pending.
+    /// Blocks until a request or a death is pending, or a channel armed writable has room.
     pub(super) fn wait(&self) {
         let _ = self.waitset.wait();
+    }
+
+    /// Arms an app's event channel whose queue refused a notice (`compositor_back`): the next
+    /// wait reports it once it has room. `false`: the waitset holds no more members.
+    pub(super) fn arm_writable(&self, send_slot: u32) -> bool {
+        self.waitset.arm_writable(send_slot).is_ok()
     }
 
     /// Drains every death frame pending (each is a wake, not the truth): `true` when at least

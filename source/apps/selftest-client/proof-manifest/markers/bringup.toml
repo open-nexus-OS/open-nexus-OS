@@ -129,6 +129,14 @@ proves = "a task's exit frees the timer, waitset, fence and endpoint it owned an
 phase = "bringup"
 proves = "a child's exit writes one OP_CHILD_EXITED frame (pid, code, reason) into the endpoint its parent bound with child_exit_bind"
 
+[marker."KSELFTEST: cap transfer rules ok ("]
+phase = "bringup"
+proves = "TASK-0348 (RFC-0112, amendment 2026-11-02): through the real syscall table, a capability transfer into a stranger (a sibling) is EPERM by cap_transfer and cap_transfer_to (stranger=2) while one into the caller's own child lands; a REPLACE_DEAD transfer replaces a slot holding a dead endpoint's capability and pins an empty one (replaced=2), and refuses a live capability, a capability of another kind and an occupied slot without the flag with EPERM, and an unknown flag bit with EINVAL"
+
+[marker."KSELFTEST: in-flight caps released ok"]
+phase = "bringup"
+proves = "TASK-0348 (RFC-0112, amendment 2026-11-02): a reply capability moved with a request still queued when its server dies — the only SEND to the caller's inbox — is released with the server's endpoints like a cap_close: the inbox's receiver learns its last sender is gone (the EOF latch), where it used to wait forever"
+
 [marker."KSELFTEST: vm unmap reclaim ok ("]
 phase = "bringup"
 proves = "TASK-0333 6b-3 (RFC-0100 §1): the unmap is the lifetime rule's third caller — an object created, mapped by its owner's space and whose last capability was closed while mapped outlives the close, and the vm_unmap of that region frees it: gone from the table, counted by the reclaim with its bytes"
@@ -171,7 +179,7 @@ proves = "kernel selftest: fresh VMO backing reads all-zero before any write (RF
 
 [marker."KSELFTEST: as map ok"]
 phase = "bringup"
-proves = "kernel selftest: fixed-VA as_map into a fresh address space (promoted to a gate by RFC-0085 P3)"
+proves = "kernel selftest: the kernel's own fixed-VA map into a fresh address space it made (promoted to a gate by RFC-0085 P3; the as_map syscall is retired by ADR-0091 — the selftest maps through the kernel API)"
 
 [marker."KSELFTEST: vm map ok"]
 phase = "bringup"
@@ -197,9 +205,17 @@ proves = "RFC-0098 C4 (TASK-0246 P1): a device's DMA reach is kernel truth — o
 phase = "bringup"
 proves = "TASK-0333 6b-2b (ADR-0078, RFC-0100 §2): a lazy object made for a device whose one window is the top of the first memory bank holds no frame at create; vmo_runs commits exactly the pages a range spans before it names them, inside the window and in the device's bus addresses, once (named again: the same frame, nothing more); the whole object named covers it; a range past the end, more pages than one naming may commit (MAX_NAMED_PAGES) and a lazy contiguous object are refused committing nothing (deny=3)"
 
+[marker."KSELFTEST: vmo clean ok ("]
+phase = "bringup"
+proves = "TASK-0348 (ADR-0092, ADR-0079's deferred maintenance call): for a lazy object made for a synthetic non-coherent device, the frame the kernel commits and zeroes is cleaned before it is entered (zeroed= one page of lines), vmo_clean (syscall 74) over the object cleans its one committed page and skips the absent one (lines=), a read-only alias is EPERM and a range past the end EINVAL (deny=2), an object for no device cleans nothing (coherent=0); block=0 (no Zicbom in the tree) makes every count honestly 0"
+
 [marker."KSELFTEST: w^x enforced"]
 phase = "bringup"
-proves = "kernel selftest: WRITE+EXECUTE leaf refused (promoted to a gate by RFC-0085 P3)"
+proves = "kernel selftest: WRITE+EXECUTE leaf refused by the page table every user mapping goes through (promoted to a gate by RFC-0085 P3)"
+
+[marker."KSELFTEST: ambient authority reject ok ("]
+phase = "bringup"
+proves = "TASK-0347 (ADR-0091): no ambient authority over address spaces and no kernel panic from a caller's size — the retired as_create/as_map numbers (9/10) answer nothing (retired=2), spawn refuses another process's space and a supervisor task with EPERM (spawn=2), a lazy object larger than the memory that could back it is EINVAL (bound=1), and pool-sized lazy objects asked until the kernel heap reaches its reserve end in ENOMEM, then give their heap back (reserve=1)"
 
 [marker."KSELFTEST: spawn reasons ok"]
 phase = "bringup"

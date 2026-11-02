@@ -50,8 +50,9 @@ fn cmd(l: FrameLayer) -> Command {
         scroll_band_h: l.scroll_band_h,
         layer_id: l.layer_id,
         content_epoch: l.content_epoch,
-        flags: 0,
+        flags: nexus_gfx::command::layer_wire::with_slot(0, l.slot),
         key: l.key,
+        source: l.source,
     }
 }
 

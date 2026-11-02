@@ -42,9 +42,14 @@ impl ClientSend {
     }
 }
 
-/// One non-blocking send into the client's queue — never a park.
-fn try_send(channel: u32, frame: &[u8]) -> Attempt {
-    let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
+/// One non-blocking send into the client's queue — never a park — with `cap` moving along when
+/// there is one (a full queue leaves it ours: the kernel moves it only with the frame).
+fn try_send(channel: u32, frame: &[u8], cap: Option<u32>) -> Attempt {
+    let (src, flags) = match cap {
+        Some(cap) => (cap, nexus_abi::ipc_hdr::CAP_MOVE),
+        None => (0, 0),
+    };
+    let hdr = nexus_abi::MsgHeader::new(src, 0, 0, flags, frame.len() as u32);
     match nexus_abi::ipc_send_v1(channel, &hdr, frame, nexus_abi::IPC_SYS_NONBLOCK, 0) {
         Ok(_) => Attempt::Sent,
         // A full queue (the kernel says when it has room) — or the receiver's byte budget.
@@ -72,7 +77,7 @@ impl DisplayServerRuntime {
             _ => Kind::Ordered,
         };
         if !self.outboxes.waiting(channel) {
-            match try_send(channel, frame) {
+            match try_send(channel, frame, None) {
                 Attempt::Sent => return ClientSend::Sent,
                 Attempt::Dead => return ClientSend::Dead,
                 Attempt::Full | Attempt::Budget => {}
@@ -81,6 +86,35 @@ impl DisplayServerRuntime {
         if !self.outboxes.bind(channel).is_some_and(|o| o.push(frame, kind)) {
             return ClientSend::Refused;
         }
+        self.flush_after_queue(channel)
+    }
+
+    /// [`Self::client_send`] of an ORDERED frame with `cap` moving along (a surface's buffer,
+    /// RFC-0114 §3): in order behind what waits, the capability windowd's until a send takes
+    /// it — closed when the client is gone or the frame is refused.
+    pub(super) fn client_send_cap(&mut self, channel: u32, frame: &[u8], cap: u32) -> ClientSend {
+        if !self.outboxes.waiting(channel) {
+            match try_send(channel, frame, Some(cap)) {
+                Attempt::Sent => return ClientSend::Sent,
+                Attempt::Dead => {
+                    crate::client_outbox::close_cap(cap);
+                    return ClientSend::Dead;
+                }
+                Attempt::Full | Attempt::Budget => {}
+            }
+        }
+        let queued = match self.outboxes.bind(channel) {
+            Some(o) => o.push_cap(frame, cap),
+            None => Err(cap),
+        };
+        if let Err(cap) = queued {
+            crate::client_outbox::close_cap(cap);
+            return ClientSend::Refused;
+        }
+        self.flush_after_queue(channel)
+    }
+
+    fn flush_after_queue(&mut self, channel: u32) -> ClientSend {
         match self.flush_client(channel) {
             Flush::Drained => ClientSend::Sent,
             Flush::Full => ClientSend::Queued,
@@ -94,8 +128,8 @@ impl DisplayServerRuntime {
         let waitset = self.outboxes.waitset();
         let Some(outbox) = self.outboxes.get_mut(channel) else { return Flush::Drained };
         let mut queue_full = false;
-        let verdict = outbox.flush(|frame| {
-            let attempt = try_send(channel, frame);
+        let verdict = outbox.flush(|frame, cap| {
+            let attempt = try_send(channel, frame, cap);
             queue_full = attempt == Attempt::Full;
             attempt
         });
@@ -107,22 +141,43 @@ impl DisplayServerRuntime {
                 }
             }
             Flush::Full => {}
-            Flush::Dead => self.outboxes.forget(channel),
-            Flush::Drained => {}
+            Flush::Dead => self.outboxes.dead(channel),
+            // A closing channel's last frame left: its capability goes now (RFC-0112).
+            Flush::Drained => self.outboxes.drained(channel),
         }
         verdict
+    }
+
+    /// RFC-0112: a client let go ON PURPOSE (its window closed, its desktop replaced) is told
+    /// (`OP_SURFACE_CLOSED`) before windowd lets go of its channel — an EOF without it is the
+    /// compositor's death, which the app waits out. What waited for the client is dropped; the
+    /// notice goes alone, now or as soon as the client drains, and the channel goes after it.
+    pub(super) fn close_client_channel(&mut self, channel: u32) {
+        self.outboxes.forget(channel);
+        let frame = nexus_display_proto::surface_restart::encode_surface_closed();
+        match try_send(channel, &frame, None) {
+            Attempt::Sent | Attempt::Dead => crate::client_outbox::close_cap(channel),
+            Attempt::Full | Attempt::Budget => {
+                if self.outboxes.push_last(channel, &frame) {
+                    if let Some(ws) = self.outboxes.waitset() {
+                        let _ = nexus_abi::waitset_arm_writable(ws, channel);
+                    }
+                } else {
+                    // No memory for the notice: the app reads the EOF as the compositor's death.
+                    let _ = nexus_abi::debug_println("WINDOWD: FAIL close notice (no memory)");
+                    crate::client_outbox::close_cap(channel);
+                }
+            }
+        }
     }
 
     /// Every loop pass, before the wait: what waits leaves as the clients drained; a client
     /// found gone closes its window by name.
     pub(crate) fn flush_client_outboxes(&mut self) {
-        let mut behind = [0u32; crate::client_outbox::CLIENTS_MAX];
-        let mut n = 0;
-        for (slot, channel) in behind.iter_mut().zip(self.outboxes.behind()) {
-            *slot = channel;
-            n += 1;
-        }
-        for &channel in &behind[..n] {
+        // By index: a flush may forget its channel (or a closed window bind another outbox),
+        // never remove one — the indices hold for the pass.
+        for i in 0..self.outboxes.len() {
+            let Some(channel) = self.outboxes.behind_at(i) else { continue };
             if self.flush_client(channel) == Flush::Dead {
                 if let Some(idx) = self.app_slot_of_channel(channel) {
                     self.note_app_channel_dead(idx);

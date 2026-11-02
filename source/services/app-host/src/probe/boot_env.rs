@@ -57,8 +57,9 @@ pub(super) fn mark_start() -> u64 {
 
 /// The launch's stages (TASK-0336 P0), each the time since the start in ms: the program
 /// mounted (the DSL loaded, its initial effects run), the first frame rendered (laid out,
-/// text shaped, rastered), the surface created at windowd. Named by the `ux launch` line
-/// so a slow launch says which stage took it.
+/// text shaped, rastered into the buffer), the surface created at windowd (its buffer made by
+/// gpud, RFC-0114), the buffer mapped. Named by the `ux launch` line so a slow launch says
+/// which stage took it.
 static STAGES: [core::sync::atomic::AtomicU64; 4] = [
     core::sync::atomic::AtomicU64::new(0),
     core::sync::atomic::AtomicU64::new(0),
@@ -66,15 +67,8 @@ static STAGES: [core::sync::atomic::AtomicU64; 4] = [
     core::sync::atomic::AtomicU64::new(0),
 ];
 
-/// The surface's VMO, its creation a launch stage (`3`: the band settled, the region applied,
-/// the bytes committed — `vmo_ms`, so `render_ms − vmo_ms` is the first frame's paint alone).
-pub(super) fn surface_vmo(bytes: usize, start_ns: u64) -> nexus_abi::Result<nexus_abi::Handle> {
-    let vmo = nexus_abi::vmo_create(bytes)?;
-    mark_stage(3, start_ns);
-    Ok(vmo)
-}
-
-/// A launch stage reached: `0` mounted, `1` rendered, `2` created, `3` the surface VMO.
+/// A launch stage reached: `0` mounted, `1` rendered, `2` created, `3` the buffer mapped
+/// (`render_ms − mapped_ms` is the first frame's paint alone).
 pub(super) fn mark_stage(stage: usize, start_ns: u64) {
     if let Some(s) = STAGES.get(stage) {
         let ms = nsec_now().saturating_sub(start_ns) / 1_000_000;
@@ -90,12 +84,12 @@ pub(super) fn mark_first_frame(start_ns: u64) {
     let first_frame_ms = nsec_now().saturating_sub(start_ns) / 1_000_000;
     let stage = |i: usize| STAGES[i].load(core::sync::atomic::Ordering::Relaxed);
     raw_marker(&alloc::format!(
-        "apphost: ux launch {} (first_frame_ms={first_frame_ms} mount_ms={} vmo_ms={} render_ms={} create_ms={} budget_ms={})",
+        "apphost: ux launch {} (first_frame_ms={first_frame_ms} mount_ms={} create_ms={} mapped_ms={} render_ms={} budget_ms={})",
         nexus_ux_budgets::judge_launch(first_frame_ms).as_str(),
         stage(0),
+        stage(2),
         stage(3),
         stage(1),
-        stage(2),
         nexus_ux_budgets::LAUNCH_WARN_MS
     ));
 }

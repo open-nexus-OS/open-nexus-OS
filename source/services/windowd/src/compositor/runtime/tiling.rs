@@ -45,7 +45,7 @@ impl DisplayServerRuntime {
             self.say_deny(reason);
             return false;
         }
-        let id = WindowId::App(idx as u8);
+        let id = WindowId::App(idx as u16);
         if self.windows.is_fullscreen(id) {
             // Leave fullscreen first: a tile is a floating frame.
             self.toggle_fullscreen(id);
@@ -71,7 +71,7 @@ impl DisplayServerRuntime {
         let Some(pre) = self.apps[idx].pre_tile.take() else {
             return false;
         };
-        let id = WindowId::App(idx as u8);
+        let id = WindowId::App(idx as u16);
         let tiled_w = self.apps[idx].win.w;
         let (x, y, w, h) = match pointer {
             Some((cx, grab_dx)) => {
@@ -154,7 +154,7 @@ impl DisplayServerRuntime {
                 }
             }
             ZoneRequest::Arrange(kind) => self.arrange(idx, kind),
-            ZoneRequest::Minimize => self.minimize_window(WindowId::App(idx as u8)),
+            ZoneRequest::Minimize => self.minimize_window(WindowId::App(idx as u16)),
             ZoneRequest::Close => self.start_close_transition(idx),
         }
     }
@@ -163,15 +163,16 @@ impl DisplayServerRuntime {
     /// arrangement's zones (the requester takes the first zone).
     fn arrange(&mut self, idx: usize, kind: Arrangement) {
         let (hit, hit_n) = self.windows.hit_order(self.capture.frozen());
-        let mut order: [usize; crate::window_scene::MAX_APP_WINDOWS] =
-            [usize::MAX; crate::window_scene::MAX_APP_WINDOWS];
+        // As many windows as the arrangement has zones (four at most: quarters).
+        let zones = kind.zones();
+        let mut order = [usize::MAX; 4];
         let mut n = 0usize;
         order[n] = idx;
         n += 1;
         for &wid in &hit[..hit_n] {
             let WindowId::App(i) = wid else { continue };
             let i = i as usize;
-            if i == idx || n >= order.len() || self.apps[i].surface_id.is_none() {
+            if i == idx || n >= zones.len().min(order.len()) || self.apps[i].surface_id.is_none() {
                 continue;
             }
             if self.windows.is_minimized(wid) {
@@ -181,7 +182,7 @@ impl DisplayServerRuntime {
             n += 1;
         }
         let mut tiled = 0u8;
-        for (slot, zone) in order[..n].iter().zip(kind.zones().iter()) {
+        for (slot, zone) in order[..n].iter().zip(zones.iter()) {
             if self.apply_zone(*slot, *zone) {
                 tiled += 1;
             }
@@ -209,6 +210,10 @@ impl DisplayServerRuntime {
             // the window's own close button takes; the app saves its durable state on the way.
             return self.close_chord(focused);
         }
+        if code == zones::CODE_RESTART {
+            // RFC-0112: restart the desktop — windowd ends, init brings it back.
+            self.restart_requested();
+        }
         if !self.tile_chords {
             self.say_deny(TileDeny::ChordsOff);
             return;
@@ -217,7 +222,7 @@ impl DisplayServerRuntime {
             self.say_deny(TileDeny::NoFocus);
             return;
         };
-        let i = idx as u8;
+        let i = idx as u16;
         if self.apps[idx].surface_id.is_none() {
             self.say_deny(TileDeny::NoFocus);
             return;
@@ -240,7 +245,7 @@ impl DisplayServerRuntime {
     /// minimized app window is restored (the taskbar's fly-in); nothing hidden = `no-focus`.
     fn minimize_chord(&mut self, focused: Option<usize>) {
         if let Some(idx) = focused.filter(|i| self.apps[*i].surface_id.is_some()) {
-            let id = WindowId::App(idx as u8);
+            let id = WindowId::App(idx as u16);
             let _ =
                 debug_println(&crate::markers::wm_chord_marker("minimize", Self::window_name(id)));
             self.minimize_window(id);
@@ -263,7 +268,7 @@ impl DisplayServerRuntime {
             self.say_deny(TileDeny::NoFocus);
             return;
         };
-        let id = WindowId::App(idx as u8);
+        let id = WindowId::App(idx as u16);
         let _ = debug_println(&crate::markers::wm_chord_marker("close", Self::window_name(id)));
         self.start_close_transition(idx);
     }
@@ -279,7 +284,7 @@ impl DisplayServerRuntime {
             let (top, work_h) = self.tile_area(idx);
             let (x, y, w, h) =
                 zones::zone_frame(zone, self.mode.width, work_h, top, self.tile_margin);
-            self.apply_window_frame(WindowId::App(idx as u8), x, y, w, h);
+            self.apply_window_frame(WindowId::App(idx as u16), x, y, w, h);
             self.push_app_content_rect(idx);
         }
     }

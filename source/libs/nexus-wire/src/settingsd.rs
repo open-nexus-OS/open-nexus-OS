@@ -32,6 +32,10 @@ pub const OP_EVENT: u8 = 4;
 pub const EVENT_FLAG_RESYNC: u8 = 0x01;
 /// Maximum watch-prefix bytes (RFC-0078 bound).
 pub const WATCH_PREFIX_MAX: usize = 64;
+/// The queue depth of a subscriber's push channel: a registration's burst (one `OP_EVENT` per
+/// matching key, RFC-0083) fits whole whatever the subscriber is doing — a restarted compositor
+/// registers its watches before it drains them (RFC-0112). settingsd's tests hold every key to it.
+pub const WATCH_CHANNEL_DEPTH: usize = 32;
 
 /// Operation succeeded.
 pub const STATUS_OK: u8 = 0;

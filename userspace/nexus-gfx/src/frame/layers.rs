@@ -10,13 +10,14 @@
 use super::damage::Area;
 use crate::command::buffer::Command;
 
-/// The set's capacity: a real desktop — four windows, each its body, its regions, its scroll
-/// layers' slices and its washes (RFC-0109), the desktop's base, regions and bar. windowd never
-/// encodes more (it stops at the bound and says so).
+/// The set's capacity — the frame's layer budget: every window its body, its regions, its scroll
+/// layers' slices and its washes (RFC-0109), the desktop's base, regions and bar, fair-shared
+/// among the windows on screen (windowd never encodes more: it stops at the bound and says so).
 pub const MAX_LAYERS: usize = 64;
 
-/// Transform ids, `1..=MAX_IDS` (`0` = none): a window's slot plus one.
-pub const MAX_IDS: usize = 8;
+/// The windows' transforms a set holds: at most one per window it draws — at most one per layer.
+/// A transform id is a window's key (RFC-0114 §7: `1..=0xFFFE`, the desktop `0xFFFF`; `0` = none).
+const TRANSFORMS_MAX: usize = MAX_LAYERS;
 
 /// One `CompositeLayer` as the frame keeps it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -55,6 +56,11 @@ pub struct FrameLayer {
     /// The layer's identity across presents (RFC-0109; `0` = unnamed): the plan matches a layer
     /// to its last frame's by this key and its occurrence among equal keys.
     pub key: u32,
+    /// What the layer samples (RFC-0114 §6): `0` the shared layout (`src_row_abs` absolute);
+    /// else a gpud surface buffer — `src_row_abs`, `src_x` and the band are its slot's own.
+    pub source: u32,
+    /// The slot of `source` sampled (`0` for the layout).
+    pub slot: u8,
 }
 
 impl FrameLayer {
@@ -81,6 +87,8 @@ impl FrameLayer {
         opaque: false,
         solid: false,
         key: 0,
+        source: 0,
+        slot: 0,
     };
 
     /// The layer a `CompositeLayer` command describes; `None` for any other command.
@@ -106,6 +114,7 @@ impl FrameLayer {
             content_epoch,
             flags,
             key,
+            source,
         } = *cmd
         else {
             return None;
@@ -132,6 +141,8 @@ impl FrameLayer {
             opaque: flags & super::super::command::buffer::LAYER_OPAQUE != 0,
             solid: flags & super::super::command::buffer::LAYER_SOLID != 0,
             key,
+            source,
+            slot: crate::command::layer_wire::layer_slot(flags),
         })
     }
 }
@@ -149,6 +160,9 @@ pub struct Transform {
 }
 
 impl Transform {
+    /// At rest: nothing moved, faded or scaled.
+    pub const IDENTITY: Self = Self { dx: 0, dy: 0, opacity: 255, scale_pct: 100 };
+
     /// The transform applied: moved, its opacity multiplied, scaled about its centre — the
     /// content band keeps its size, so the executor spreads it over the scaled layer.
     pub fn apply(&self, l: &mut FrameLayer) {
@@ -185,11 +199,16 @@ pub struct Taken {
 pub struct RetainedLayers {
     layers: [FrameLayer; MAX_LAYERS],
     count: usize,
-    transforms: [Option<Transform>; MAX_IDS],
+    /// `(transform id, transform)` of the windows the last presents named.
+    transforms: [(u32, Transform); TRANSFORMS_MAX],
+    transform_count: usize,
     /// The set changed since the frame last decided its atlas upload.
     pub(super) dirty: bool,
     /// The set generation the atlas was last uploaded at (`0` = none yet).
     pub(super) uploaded_epoch: u32,
+    /// The executor lost what it had uploaded of the surface buffers (RFC-0114): the next plan
+    /// uploads every buffer layer.
+    pub(super) buffers_lost: bool,
     /// What the last present said changed on the screen (RFC-0101 §8): its `Damage` commands,
     /// each with its origin, up to `MAX_DAMAGE`; `damage_full` when a present brought layers and
     /// named no damage, or named more than kept. Taken by the plan.
@@ -211,9 +230,11 @@ impl RetainedLayers {
         Self {
             layers: [FrameLayer::EMPTY; MAX_LAYERS],
             count: 0,
-            transforms: [None; MAX_IDS],
+            transforms: [(0, Transform::IDENTITY); TRANSFORMS_MAX],
+            transform_count: 0,
             dirty: true,
             uploaded_epoch: 0,
+            buffers_lost: true,
             damage: [(Area::None, 0); MAX_DAMAGE],
             damage_count: 0,
             damage_full: false,
@@ -246,13 +267,18 @@ impl RetainedLayers {
     }
 
     /// A present's commands. Layers replace the set (a scrolled body comes with its new source
-    /// row); the transforms stay (the encode is the untransformed base, each present carries
-    /// every window's). No layers: the set stays. The present's damage is recorded for the plan:
-    /// its `Damage` rectangles' union — none for `TileRect::NONE` — or everywhere when layers
-    /// came without one.
+    /// row) and the windows' transforms with it: a present with layers names every window's
+    /// (the encode is the untransformed base) — a window it names none of is at rest, and a
+    /// closed window's transform goes with it (RFC-0114 §7: keys are never a table index). No
+    /// layers: the set stays, a transform it names updates. The present's damage is recorded for
+    /// the plan: its `Damage` rectangles' union — none for `TileRect::NONE` — or everywhere when
+    /// layers came without one.
     pub fn take_frame(&mut self, cmds: &[Command]) -> Taken {
         // The present's transforms first: they hold from this present's layers on (TASK-0336),
         // whether or not the present brings layers.
+        if cmds.iter().any(|c| matches!(c, Command::CompositeLayer { .. })) {
+            self.transform_count = 0;
+        }
         for c in cmds {
             if let Command::LayerTransform { layer_id, dx, dy, opacity, scale_pct } = *c {
                 let t = Transform {
@@ -306,7 +332,7 @@ impl RetainedLayers {
     pub fn clear(&mut self) {
         self.count = 0;
         self.dirty = true;
-        self.transforms = [None; MAX_IDS];
+        self.transform_count = 0;
     }
 
     pub fn len(&self) -> usize {
@@ -337,34 +363,45 @@ impl RetainedLayers {
         self.layers[..self.count].iter().position(|l| l.layer_id == layer_id)
     }
 
-    /// The transform of layer id `layer_id` from now on; `false` for id 0 or beyond the table.
+    /// The transform of layer id `layer_id` from now on; `false` for id 0, or when the set holds
+    /// a transform for as many windows as it can draw.
     pub fn set_transform(&mut self, layer_id: u32, t: Transform) -> bool {
-        match layer_id.checked_sub(1).and_then(|i| self.transforms.get_mut(i as usize)) {
+        if layer_id == 0 {
+            return false;
+        }
+        let held = &mut self.transforms[..self.transform_count];
+        if let Some(slot) = held.iter_mut().find(|(id, _)| *id == layer_id) {
+            slot.1 = t;
+            return true;
+        }
+        match self.transforms.get_mut(self.transform_count) {
             Some(slot) => {
-                *slot = Some(t);
+                *slot = (layer_id, t);
+                self.transform_count += 1;
                 true
             }
             None => false,
         }
     }
 
+    /// The transform of layer id `layer_id`, if a present named one.
+    fn transform_of(&self, layer_id: u32) -> Option<Transform> {
+        let held = &self.transforms[..self.transform_count];
+        held.iter().find(|(id, _)| *id == layer_id && layer_id != 0).map(|(_, t)| *t)
+    }
+
     /// The uploaded atlas is no longer trusted (a batch carrying its upload was abandoned): the
     /// next frame uploads it again.
     pub fn invalidate_upload(&mut self) {
         self.uploaded_epoch = 0;
+        self.buffers_lost = true;
         self.dirty = true;
     }
 
     /// Layer `i` as the frame draws it: its window's transform applied.
     pub fn effective(&self, i: usize) -> Option<FrameLayer> {
         let mut l = *self.layers.get(i).filter(|_| i < self.count)?;
-        if let Some(t) = l
-            .layer_id
-            .checked_sub(1)
-            .and_then(|id| self.transforms.get(id as usize))
-            .copied()
-            .flatten()
-        {
+        if let Some(t) = self.transform_of(l.layer_id) {
             t.apply(&mut l);
         }
         Some(l)
@@ -374,17 +411,14 @@ impl RetainedLayers {
     /// identity (moved, scaled or faded). A glass of a window in motion keeps its last blur
     /// (TASK-0336 P3: blur at rest) — what moves is not re-blurred until it stops.
     pub fn in_motion(&self, layer_id: u32) -> bool {
-        layer_id
-            .checked_sub(1)
-            .and_then(|id| self.transforms.get(id as usize))
-            .copied()
-            .flatten()
+        self.transform_of(layer_id)
             .is_some_and(|t| t.dx != 0 || t.dy != 0 || t.opacity != 255 || t.scale_pct != 100)
     }
 
     /// The highest content generation of the set (`0`: no layer is stamped).
     pub(super) fn set_epoch(&self) -> u32 {
-        self.layers[..self.count].iter().map(|l| l.content_epoch).max().unwrap_or(0)
+        let layout = self.layers[..self.count].iter().filter(|l| l.source == 0);
+        layout.map(|l| l.content_epoch).max().unwrap_or(0)
     }
 }
 

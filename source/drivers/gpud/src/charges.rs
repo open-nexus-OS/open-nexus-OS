@@ -8,17 +8,15 @@
 //! what each client costs, by kernel service id, as an absolute figure per part; a change is
 //! told to the one memory authority (`nexus_wire::memd::OP_GPU_CHARGE`, NONBLOCK — gpud never
 //! waits on memd; the next change tells the truth) and named: `gpud: gpu memory charged
-//! (client= bytes= told=)`. Bounded: eight clients (the compositor and the system UI today; app
-//! surfaces of their own are layer 8's); a ninth is refused by name, never silently uncounted.
+//! (client= bytes= told=)`. Every client gpud holds memory for has a row — the compositor and
+//! each app whose surfaces gpud made (RFC-0114, by the app's kernel id); a row the heap cannot
+//! hold is refused by name, never silently uncounted.
 //! What gpud DROPS at `warn` stands on this ledger — a cache costs whom — and follows.
 //! OWNERS: @gpu @runtime
 //! STATUS: Functional
 //! API_STABILITY: Internal
 //! TEST_COVERAGE: tests below (a charge replaces, parts sum, zero frees the row, the bound);
 //!   the display lanes' `gpud: gpu memory charged (client=windowd` → `memd: gpu charge (client=`
-
-/// Clients the table holds at once.
-pub(crate) const MAX_CLIENTS: usize = 8;
 
 /// What a client's charge is made of.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -28,6 +26,9 @@ pub(crate) enum Part {
     Lent,
     /// The buffers of the client's GPU context the device holds (the board).
     Context,
+    /// The surface objects gpud made for the client's windows (RFC-0114: the app draws into
+    /// them, the GPU reads them) — their whole span.
+    Surfaces,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -35,11 +36,12 @@ struct Row {
     client: u64,
     lent: u64,
     context: u64,
+    surfaces: u64,
 }
 
 impl Row {
     const fn total(&self) -> u64 {
-        self.lent.saturating_add(self.context)
+        self.lent.saturating_add(self.context).saturating_add(self.surfaces)
     }
 }
 
@@ -50,38 +52,39 @@ pub(crate) enum Charged {
     Changed(u64),
     /// The figure was the one already held.
     Unchanged,
-    /// A ninth client: refused, nothing counted.
+    /// No heap for a new client's row: refused, nothing counted.
     Full,
 }
 
 /// Every client's charge.
 pub(crate) struct Charges {
-    rows: [Option<Row>; MAX_CLIENTS],
+    rows: alloc::vec::Vec<Row>,
 }
 
 impl Charges {
     pub(crate) const fn new() -> Self {
-        Self { rows: [None; MAX_CLIENTS] }
+        Self { rows: alloc::vec::Vec::new() }
     }
 
     /// `client`'s `part` is `bytes` now (absolute). A client whose every part is zero leaves
     /// the table.
     pub(crate) fn set(&mut self, client: u64, part: Part, bytes: u64) -> Charged {
-        let slot = match self.rows.iter().position(|r| r.is_some_and(|r| r.client == client)) {
+        let slot = match self.rows.iter().position(|r| r.client == client) {
             Some(i) => i,
             None if bytes == 0 => return Charged::Unchanged,
-            None => match self.rows.iter().position(Option::is_none) {
-                Some(i) => {
-                    self.rows[i] = Some(Row { client, ..Row::default() });
-                    i
+            None => {
+                if self.rows.try_reserve(1).is_err() {
+                    return Charged::Full;
                 }
-                None => return Charged::Full,
-            },
+                self.rows.push(Row { client, ..Row::default() });
+                self.rows.len() - 1
+            }
         };
-        let Some(row) = self.rows[slot].as_mut() else { return Charged::Full };
+        let row = &mut self.rows[slot];
         let field = match part {
             Part::Lent => &mut row.lent,
             Part::Context => &mut row.context,
+            Part::Surfaces => &mut row.surfaces,
         };
         if *field == bytes {
             return Charged::Unchanged;
@@ -89,7 +92,7 @@ impl Charges {
         *field = bytes;
         let total = row.total();
         if total == 0 {
-            self.rows[slot] = None;
+            self.rows.swap_remove(slot);
         }
         Charged::Changed(total)
     }
@@ -98,13 +101,13 @@ impl Charges {
     #[cfg(test)]
     #[must_use]
     pub(crate) fn of(&self, client: u64) -> u64 {
-        self.rows.iter().flatten().find(|r| r.client == client).map_or(0, Row::total)
+        self.rows.iter().find(|r| r.client == client).map_or(0, Row::total)
     }
 
     /// What every client costs together.
     #[must_use]
     pub(crate) fn total(&self) -> u64 {
-        self.rows.iter().flatten().map(Row::total).fold(0, u64::saturating_add)
+        self.rows.iter().map(Row::total).fold(0, u64::saturating_add)
     }
 }
 
@@ -201,18 +204,20 @@ mod tests {
         assert_eq!(c.set(WINDOWD, Part::Lent, 0), Charged::Changed(4096));
         assert_eq!(c.set(WINDOWD, Part::Context, 0), Charged::Changed(0));
         assert_eq!(c.of(WINDOWD), 0);
-        assert!(c.rows.iter().all(Option::is_none), "the row is free again");
+        assert!(c.rows.is_empty(), "the row is free again");
     }
 
     #[test]
-    fn test_reject_a_ninth_client() {
+    fn every_app_with_surfaces_is_a_client_of_its_own() {
+        // RFC-0114: the compositor and each app gpud made surfaces for — no fixed count.
         let mut c = Charges::new();
-        for id in 1..=MAX_CLIENTS as u64 {
-            assert_eq!(c.set(id, Part::Lent, 4096), Charged::Changed(4096));
+        for id in 1..=32u64 {
+            assert_eq!(c.set(id, Part::Surfaces, 4096 * id), Charged::Changed(4096 * id));
         }
-        assert_eq!(c.set(99, Part::Lent, 4096), Charged::Full);
-        assert_eq!(c.of(99), 0, "nothing counted for the refused one");
-        assert_eq!(c.total(), MAX_CLIENTS as u64 * 4096);
+        assert_eq!(c.of(32), 32 * 4096);
+        assert_eq!(c.total(), (1..=32u64).map(|id| 4096 * id).sum::<u64>());
+        assert_eq!(c.set(7, Part::Surfaces, 0), Charged::Changed(0), "an app's last window");
+        assert_eq!(c.of(7), 0);
     }
 
     #[test]

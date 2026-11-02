@@ -158,6 +158,11 @@ pub enum Command {
         /// history where they were. Unique within a present (windowd: the surface, the kind,
         /// the index).
         key: u32,
+        /// What the layer samples (RFC-0114 §6): `0` the shared layout object (the wallpaper,
+        /// the retained plane, the compositor's own patches); else the gpud surface buffer an
+        /// app draws into — its slot in `flags` bits 8–15 (`layer_wire::LAYER_SLOT_SHIFT`), its
+        /// rows and columns the slot's own.
+        source: u32,
     },
     /// A screen rectangle the compositor's scene changed since its previous present (RFC-0101
     /// §8, damage per plane): a display that keeps its planes redraws at least this — and every
@@ -279,7 +284,6 @@ const TAG_BLEND_CURSOR: u8 = 5;
 const TAG_BLIT_ABSOLUTE: u8 = 6;
 const TAG_FILL_SDF_GRADIENT: u8 = 7;
 const TAG_DROP_SHADOW: u8 = 8;
-const TAG_COMPOSITE_LAYER: u8 = 9;
 const TAG_DAMAGE: u8 = 10;
 const TAG_LAYER_TRANSFORM: u8 = 11;
 
@@ -383,7 +387,7 @@ fn decode_commands_into(buf: &[u8], out: &mut Vec<Command>) -> Result<usize, Gfx
             TAG_BLIT_ABSOLUTE => deser_blit_absolute(buf, pos)?,
             TAG_FILL_SDF_GRADIENT => deser_sdf_gradient(buf, pos)?,
             TAG_DROP_SHADOW => deser_drop_shadow(buf, pos)?,
-            TAG_COMPOSITE_LAYER => deser_composite_layer(buf, pos)?,
+            super::layer_wire::TAG_COMPOSITE_LAYER => super::layer_wire::deser(buf, pos)?,
             TAG_DAMAGE => {
                 let ((x, y, width, height), n) = deser_rect(buf, pos)?;
                 let o = buf.get(n..n + 4).ok_or(GfxError::InvalidArgument)?;
@@ -506,54 +510,8 @@ fn serialize_commands(commands: &[Command], buf: &mut [u8]) -> Result<usize, Gfx
                 pos =
                     ser_drop_shadow(buf, pos, rect, *radius, *blur, *offset_x, *offset_y, *color)?;
             }
-            Command::CompositeLayer {
-                src_row_abs,
-                src_x,
-                width,
-                height,
-                dst_x,
-                dst_y,
-                opacity,
-                corner_radius,
-                shadow_blur,
-                shadow_offset_y,
-                shadow_alpha,
-                backdrop_blur,
-                content_w,
-                content_h,
-                scroll_band_top_abs,
-                scroll_band_h,
-                layer_id,
-                content_epoch,
-                flags,
-                key,
-            } => {
-                pos = ser_composite_layer(
-                    buf,
-                    pos,
-                    &[
-                        *src_row_abs,
-                        *src_x,
-                        *width,
-                        *height,
-                        *dst_x,
-                        *dst_y,
-                        *opacity,
-                        *corner_radius,
-                        *shadow_blur,
-                        *shadow_offset_y as u32,
-                        *shadow_alpha,
-                        *backdrop_blur,
-                        *content_w,
-                        *content_h,
-                        *scroll_band_top_abs,
-                        *scroll_band_h,
-                        *layer_id,
-                        *content_epoch,
-                        *flags,
-                        *key,
-                    ],
-                )?;
+            layer @ Command::CompositeLayer { .. } => {
+                pos = super::layer_wire::ser(buf, pos, layer, MAX_SERIALIZED)?;
             }
         }
     }
@@ -707,21 +665,6 @@ fn ser_drop_shadow(
     buf[pos + 29..pos + 33].copy_from_slice(&offset_y.to_le_bytes());
     buf[pos + 33..pos + 37].copy_from_slice(&color.0.to_le_bytes());
     Ok(pos + 37)
-}
-
-/// 20 u32 words after the tag (signed `shadow_offset_y` is bit-cast through u32).
-fn ser_composite_layer(buf: &mut [u8], pos: usize, words: &[u32; 20]) -> Result<usize, GfxError> {
-    let needed = pos + 1 + 20 * 4;
-    if buf.len() < needed || needed > MAX_SERIALIZED {
-        return Err(GfxError::ResourceExhausted);
-    }
-    buf[pos] = TAG_COMPOSITE_LAYER;
-    let mut p = pos + 1;
-    for w in words {
-        buf[p..p + 4].copy_from_slice(&w.to_le_bytes());
-        p += 4;
-    }
-    Ok(p)
 }
 
 fn ser_cursor(
@@ -908,42 +851,6 @@ fn deser_drop_shadow(buf: &[u8], pos: usize) -> Result<(Command, usize), GfxErro
             color: RgbaColor::from_u32(color),
         },
         pos + 36,
-    ))
-}
-
-fn deser_composite_layer(buf: &[u8], pos: usize) -> Result<(Command, usize), GfxError> {
-    if buf.len() < pos + 80 {
-        return Err(GfxError::InvalidArgument);
-    }
-    let mut w = [0u32; 20];
-    for (i, slot) in w.iter_mut().enumerate() {
-        let b = pos + i * 4;
-        *slot = u32::from_le_bytes([buf[b], buf[b + 1], buf[b + 2], buf[b + 3]]);
-    }
-    Ok((
-        Command::CompositeLayer {
-            src_row_abs: w[0],
-            src_x: w[1],
-            width: w[2],
-            height: w[3],
-            dst_x: w[4],
-            dst_y: w[5],
-            opacity: w[6],
-            corner_radius: w[7],
-            shadow_blur: w[8],
-            shadow_offset_y: w[9] as i32,
-            shadow_alpha: w[10],
-            backdrop_blur: w[11],
-            content_w: w[12],
-            content_h: w[13],
-            scroll_band_top_abs: w[14],
-            scroll_band_h: w[15],
-            layer_id: w[16],
-            content_epoch: w[17],
-            flags: w[18],
-            key: w[19],
-        },
-        pos + 80,
     ))
 }
 

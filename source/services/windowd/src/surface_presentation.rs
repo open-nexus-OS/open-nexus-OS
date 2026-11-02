@@ -188,6 +188,34 @@ pub fn clamp_frame_origin(
     (x.clamp(0, max_x), y.clamp(min_y, max_y.max(min_y)))
 }
 
+/// One cascade step from a window to the next: down and to the right.
+const CASCADE_STEP: (i32, i32) = (64, 56);
+
+/// Where the `index`-th window slot's NEW frame of `frame` starts on `area` (RFC-0114 §7: the
+/// windows are as many as memory allows, so the cascade cannot end after a fixed count).
+///
+/// The room the frame leaves — every origin that keeps it on the area, below the bar — holds a
+/// RUN of windows stepping down-right, centred in the room; the next run starts half a step
+/// further right, wrapping inside the room's width. So windows of one size never start at the
+/// same point while the room's width allows, none leaves the area, and a frame as large as the
+/// area pins to its corner (there is no room to step). Before, the cascade stepped from a fixed
+/// origin and [`clamp_frame_origin`] slid every large frame past the second into the same corner.
+#[must_use]
+pub fn cascade_origin(index: usize, frame: (u32, u32), area: (u32, u32), min_y: i32) -> (i32, i32) {
+    let hi = clamp_frame_origin((i32::MAX, i32::MAX), frame, area, min_y);
+    let room = (hi.0, hi.1 - min_y);
+    let (sx, sy) = CASCADE_STEP;
+    // Windows on one diagonal before the frame would leave the room (at least one).
+    let run = 1 + (room.0 / sx).min(room.1 / sy);
+    let start = ((room.0 - (run - 1) * sx) / 2, min_y + (room.1 - (run - 1) * sy) / 2);
+    let k = (index % run as usize) as i32;
+    // Half a step right per run, inside the room's width (any index: reduced before the step).
+    let width = room.0 as u64 + 1;
+    let shift = ((index / run as usize) as u64 % width) * (sx / 2) as u64 % width;
+    let x = (i64::from(start.0) + i64::from(k * sx) + shift as i64) % (i64::from(room.0) + 1);
+    (x as i32, start.1 + k * sy)
+}
+
 #[cfg(test)]
 mod bar_tests {
     use super::*;
@@ -288,7 +316,7 @@ mod bar_tests {
 
 #[cfg(test)]
 mod frame_tests {
-    use super::clamp_frame_origin;
+    use super::{cascade_origin, clamp_frame_origin};
 
     /// The status-bar floor every case below is measured against.
     const BAR: i32 = super::SHELL_TOPBAR_H as i32;
@@ -323,6 +351,44 @@ mod frame_tests {
     fn a_cascaded_wide_frame_slides_back_onto_the_display() {
         assert_eq!(clamp_frame_origin((300, 140), (960, 570), (1280, 760), BAR), (300, 140));
         assert_eq!(clamp_frame_origin((364, 196), (960, 570), (1280, 760), BAR), (320, 190));
+    }
+
+    /// RFC-0114 §7: twelve windows of the default size (three quarters of the display), each
+    /// on the area and below the bar, no two at one point — the slot cascade used to slide
+    /// every one past the second into the same corner.
+    #[test]
+    fn twelve_large_windows_cascade_apart_on_the_area() {
+        let (frame, area) = ((960, 570), (1280, 760));
+        let origins: Vec<(i32, i32)> =
+            (0..12).map(|i| cascade_origin(i, frame, area, BAR)).collect();
+        for (i, &(x, y)) in origins.iter().enumerate() {
+            assert_eq!(
+                clamp_frame_origin((x, y), frame, area, BAR),
+                (x, y),
+                "window {i} on the area"
+            );
+            assert!(!origins[..i].contains(&(x, y)), "window {i} at a taken point");
+        }
+        // A run steps down-right: the second window is one step from the first.
+        assert_eq!((origins[1].0 - origins[0].0, origins[1].1 - origins[0].1), (64, 56));
+    }
+
+    /// Small frames run longer before they wrap; any index stays on the area.
+    #[test]
+    fn any_window_of_any_size_stays_on_the_area() {
+        for frame in [(200, 150), (400, 300), (960, 570), (1280, 728), (1600, 900)] {
+            for i in [0usize, 1, 7, 63, 4096, usize::MAX] {
+                let o = cascade_origin(i, frame, (1280, 760), BAR);
+                assert_eq!(clamp_frame_origin(o, frame, (1280, 760), BAR), o, "{frame:?} #{i}");
+            }
+        }
+    }
+
+    /// A frame as large as the area has no room to step: every window starts at the corner.
+    #[test]
+    fn a_frame_filling_the_area_pins_to_the_corner() {
+        assert_eq!(cascade_origin(0, (1280, 728), (1280, 760), BAR), (0, BAR));
+        assert_eq!(cascade_origin(5, (1600, 900), (1280, 760), BAR), (0, BAR));
     }
 }
 

@@ -14,15 +14,26 @@ impl super::DslApp {
     /// surface's structure (`band::send_tree`), so a re-created surface declares them anew with
     /// its first present — and windowd clears them at create, so neither side can carry a stale
     /// set alone. A box of a band's content is no region: it moves with its layer, its tint is in
-    /// the band. Returns the count written into `out`.
+    /// the band. A box an animation moves declares its region where it is painted now (its
+    /// translate and scale) — a blur never sits where the glass it frosts is not (the greeter's
+    /// entry); a fade keeps it (the material is there, its tint fades). Returns the count
+    /// written into `out`.
     pub(super) fn regions(&self, out: &mut [wire::LayerDesc; wire::MAX_SURFACE_LAYERS]) -> usize {
         use nexus_layout_types::{GlassLevel, SurfaceMaterial};
+        let mut expanded =
+            [nexus_scene_raster::NodeAnim::identity(0); super::anim::MAX_EXPANDED_ANIMS];
+        let k = self.expand_node_anims(&mut expanded);
+        let anims = &expanded[..k];
         // The region inside the base layer (windowd refuses a structure with one outside it).
         let (sw, sh) = (self.w as i32, self.h as i32);
         let fit = |b: &nexus_layout::LayoutBox| {
-            let (x0, y0) = (b.rect.x.0.max(0), b.rect.y.0.max(0));
-            let x1 = (b.rect.x.0 + b.rect.width.0).min(sw);
-            let y1 = (b.rect.y.0 + b.rect.height.0).min(sh);
+            let (x, y, w, h) = (b.rect.x.0, b.rect.y.0, b.rect.width.0, b.rect.height.0);
+            let (x, y, w, h) = match anims.iter().find(|a| a.node_id == b.node_id) {
+                Some(a) => a.transform_rect(x, y, w, h),
+                None => (x, y, w, h),
+            };
+            let (x0, y0) = (x.max(0), y.max(0));
+            let (x1, y1) = ((x + w).min(sw), (y + h).min(sh));
             (x1 > x0 && y1 > y0).then(|| (x0 as u16, y0 as u16, (x1 - x0) as u16, (y1 - y0) as u16))
         };
         let layers = out;

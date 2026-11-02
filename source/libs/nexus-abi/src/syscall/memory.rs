@@ -23,62 +23,8 @@ pub fn as_self() -> SysResult<u32> {
     }
 }
 
-/// Drops the caller's reference to an address space handle.
-#[cfg(nexus_env = "os")]
-pub fn as_destroy(handle: AsHandle) -> SysResult<()> {
-    let _ = handle;
-    Err(AbiError::Unsupported)
-}
-
-/// Allocates a new address space and returns its opaque handle.
-#[cfg(nexus_env = "os")]
-pub fn as_create() -> SysResult<AsHandle> {
-    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-    {
-        const SYSCALL_AS_CREATE: usize = 9;
-        let raw = unsafe { ecall0(SYSCALL_AS_CREATE) };
-        decode_syscall(raw).map(|handle| handle as AsHandle)
-    }
-    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
-    {
-        Err(AbiError::Unsupported)
-    }
-}
-
-/// Maps a VMO into the target address space referenced by `as_handle`.
-#[cfg(nexus_env = "os")]
-pub fn as_map(
-    as_handle: AsHandle,
-    vmo: Handle,
-    va: u64,
-    len: u64,
-    prot: u32,
-    flags: u32,
-) -> SysResult<()> {
-    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-    {
-        const SYSCALL_AS_MAP: usize = 10;
-        if va > usize::MAX as u64 || len > usize::MAX as u64 {
-            return Err(AbiError::Unsupported);
-        }
-        let raw = unsafe {
-            ecall6(
-                SYSCALL_AS_MAP,
-                as_handle as usize,
-                vmo as usize,
-                va as usize,
-                len as usize,
-                prot as usize,
-                flags as usize,
-            )
-        };
-        decode_syscall(raw).map(|_| ())
-    }
-    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
-    {
-        Err(AbiError::Unsupported)
-    }
-}
+// `as_create`/`as_map` (9/10) are RETIRED (ADR-0091): a process's space comes from `exec_vmo`
+// only, and a task maps into its own space only (`vm_map`).
 
 // ——— VMO userland wrappers (OS build) ———
 
@@ -539,6 +485,27 @@ pub fn vmo_seal(slot: Handle) -> SysResult<()> {
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
     {
         let _ = slot;
+        Err(AbiError::Unsupported)
+    }
+}
+
+/// ADR-0092 (syscall 74): cleans the CPU caches over `[offset, offset + len)` of the VMO in
+/// `slot`, which the caller may write, so the non-coherent device the object was made for (the
+/// board's GPU) reads what the caller wrote. A no-op for a coherent device's object (every
+/// QEMU device). `PermissionDenied` for a read-only alias or a sealed object, `InvalidArgument`
+/// past the capability's end. Call it over the rows a frame drew, before presenting them.
+#[cfg(nexus_env = "os")]
+pub fn vmo_clean(slot: Handle, offset: usize, len: usize) -> SysResult<()> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_VMO_CLEAN: usize = 74;
+        // SAFETY: plain register arguments; the kernel checks the slot and the range.
+        let raw = unsafe { ecall3(SYSCALL_VMO_CLEAN, slot as usize, offset, len) };
+        decode_syscall(raw).map(|_| ())
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        let _ = (slot, offset, len);
         Err(AbiError::Unsupported)
     }
 }

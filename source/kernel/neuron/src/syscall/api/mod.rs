@@ -13,10 +13,9 @@
 
 extern crate alloc;
 
-use core::cmp;
 use core::ptr;
 
-use crate::types::{PageLen, SlotIndex, VirtAddr};
+use crate::types::{SlotIndex, VirtAddr};
 use crate::{
     cap::{CapError, Capability, CapabilityKind, Rights},
     hal::Timer,
@@ -33,6 +32,7 @@ use crate::task::BlockReason;
 // Every item stays reachable as `crate::syscall::api::*` via the re-imports
 // below; submodule-private helpers are widened to pub(super) only.
 mod caps;
+pub(crate) use caps::CAP_TRANSFER_REPLACE_DEAD;
 mod eof_scan;
 mod exec;
 mod exec_copy;
@@ -55,6 +55,8 @@ mod task_image;
 mod user_copy;
 mod vm_map;
 mod vmo;
+mod vmo_clean;
+pub(crate) use vmo_clean::vmo_clean_plan;
 mod vmo_runs;
 mod vmo_seal;
 pub(crate) use vmo_runs::resolve_runs;
@@ -91,15 +93,14 @@ use vmo_seal::*;
 pub(crate) use sched_task::{selftest_sched_op, service_id_from_name};
 
 use super::{
-    Args, Error, SysResult, SyscallTable, SYSCALL_AS_CREATE, SYSCALL_AS_MAP, SYSCALL_AS_SELF,
-    SYSCALL_BOOT_MODE, SYSCALL_CAP_QUERY, SYSCALL_CAP_TRANSFER, SYSCALL_CAP_TRANSFER_TO,
-    SYSCALL_DEBUG_PUTC, SYSCALL_DEBUG_WRITE, SYSCALL_DEVICE_CAP_CREATE, SYSCALL_EXEC_VMO,
-    SYSCALL_EXIT, SYSCALL_IPC_CALL_V1, SYSCALL_IPC_ENDPOINT_CREATE, SYSCALL_IPC_RECV_V1,
-    SYSCALL_IPC_REPLY_RECV_V1, SYSCALL_IPC_SEND_V1, SYSCALL_MMIO_MAP_AUTO, SYSCALL_NSEC,
-    SYSCALL_RECV, SYSCALL_SCHED, SYSCALL_SEND, SYSCALL_SPAWN, SYSCALL_SPAWN_LAST_ERROR,
-    SYSCALL_TASK_QOS, SYSCALL_TASK_RESUME, SYSCALL_TIMER_CANCEL, SYSCALL_TIMER_CREATE,
-    SYSCALL_TIMER_SET, SYSCALL_VMO_CREATE, SYSCALL_VMO_WRITE, SYSCALL_VM_MAP, SYSCALL_VM_UNMAP,
-    SYSCALL_WAIT, SYSCALL_YIELD,
+    Args, Error, SysResult, SyscallTable, SYSCALL_AS_SELF, SYSCALL_BOOT_MODE, SYSCALL_CAP_QUERY,
+    SYSCALL_CAP_TRANSFER, SYSCALL_CAP_TRANSFER_TO, SYSCALL_DEBUG_PUTC, SYSCALL_DEBUG_WRITE,
+    SYSCALL_DEVICE_CAP_CREATE, SYSCALL_EXEC_VMO, SYSCALL_EXIT, SYSCALL_IPC_CALL_V1,
+    SYSCALL_IPC_ENDPOINT_CREATE, SYSCALL_IPC_RECV_V1, SYSCALL_IPC_REPLY_RECV_V1,
+    SYSCALL_IPC_SEND_V1, SYSCALL_MMIO_MAP_AUTO, SYSCALL_NSEC, SYSCALL_RECV, SYSCALL_SCHED,
+    SYSCALL_SEND, SYSCALL_SPAWN, SYSCALL_SPAWN_LAST_ERROR, SYSCALL_TASK_QOS, SYSCALL_TASK_RESUME,
+    SYSCALL_TIMER_CANCEL, SYSCALL_TIMER_CREATE, SYSCALL_TIMER_SET, SYSCALL_VMO_CREATE,
+    SYSCALL_VMO_WRITE, SYSCALL_VM_MAP, SYSCALL_VM_UNMAP, SYSCALL_WAIT, SYSCALL_YIELD,
 };
 
 /// Execution context shared across syscalls.
@@ -368,12 +369,11 @@ pub fn install_handlers(table: &mut SyscallTable) {
     table.register(crate::syscall::SYSCALL_VMO_SHARE_RO, sys_vmo_share_ro);
     table.register(crate::syscall::SYSCALL_VMO_READ, sys_vmo_read);
     table.register(crate::syscall::SYSCALL_VMO_RUNS, vmo_runs::sys_vmo_runs);
+    table.register(crate::syscall::SYSCALL_VMO_CLEAN, vmo_clean::sys_vmo_clean);
     table.register(crate::syscall::SYSCALL_MM_STATS, mm_stats::sys_mm_stats);
     table.register(SYSCALL_SPAWN, sys_spawn);
     table.register(SYSCALL_CAP_TRANSFER, sys_cap_transfer);
     table.register(SYSCALL_CAP_TRANSFER_TO, sys_cap_transfer_to);
-    table.register(SYSCALL_AS_CREATE, sys_as_create);
-    table.register(SYSCALL_AS_MAP, sys_as_map);
     table.register(SYSCALL_EXIT, sys_exit);
     table.register(SYSCALL_WAIT, sys_wait);
     table.register(crate::syscall::SYSCALL_WAIT_NOHANG, sys_wait_nohang);

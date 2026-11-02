@@ -93,10 +93,12 @@ mod present;
 mod presentation;
 mod pressure;
 mod region;
+mod restart;
 mod scene;
 mod session;
 mod shell;
 mod slots;
+mod surface_buffers;
 mod surface_layers;
 mod surface_layers_encode;
 pub(crate) mod text_input;
@@ -149,7 +151,10 @@ pub(crate) const HOVER_ROUTE_APP: u8 = 2;
 /// (bands, drag, hover), the bound surface, the live-resize overlay, the glass
 /// layer set, the window intent and the app's dedicated event channel.
 pub(crate) struct AppWindowSlot {
-    /// Frame + atlas bands + drag/hover state (the reusable glass window).
+    /// The window's key on every wire (RFC-0114 §7): its layers' id and owner, its damage's
+    /// origin, its transform — fresh for every window the slot holds, never two live alike.
+    pub(crate) key: u16,
+    /// Frame + drag/hover state + the CPU executor's blur cache (the reusable glass window).
     pub(crate) win: super::shell_window::ShellWindow,
     /// The bound client surface id (`None` = slot free).
     pub(crate) surface_id: Option<u32>,
@@ -189,9 +194,10 @@ pub(crate) struct AppWindowSlot {
     /// contract): answered with ONE `OP_SURFACE_FRAME` after the next
     /// composited frame, then cleared — the client re-requests while animating.
     pub(crate) frame_pulse_pending: bool,
-    /// The rows the client's presents named, still to copy into the atlas (ADR-0042, the
-    /// damage-bounded copy): its base's and its store's (RFC-0109).
-    pub(crate) surface_damage: surface_layers::DamageRows,
+    /// The surface its client dropped (a re-create) and its layers: shown until the new one
+    /// presents (RFC-0114).
+    pub(crate) retiring: Option<u32>,
+    pub(crate) retiring_layers: surface_layers::SurfaceLayers,
     /// Track C3: the window's CURRENT animated whole-layer transform
     /// (open/close/minimize). Identity at rest; the `AnimationDriver` ticks it
     /// on the frame clock and each tick owes ONE frame (no re-render): every
@@ -202,6 +208,8 @@ pub(crate) struct AppWindowSlot {
     pub(crate) pending_wm: Option<PendingWm>,
     /// `OP_SURFACE_CURSOR_HINT` shape while the pointer hovers the body.
     pub(crate) cursor_hint: u8,
+    /// The window has its place: a new one takes the slot's in the cascade at its first frame.
+    pub(crate) placed: bool,
 }
 
 /// A window's animated whole-layer transform (identity = no visible change).
@@ -239,13 +247,12 @@ impl AppWindowSlot {
         self.pre_tile = None;
     }
 
-    /// A fresh (unbound) slot. Windows CASCADE by slot index so several apps
-    /// opened in sequence never stack pixel-exactly on top of each other.
-    fn new(index: usize) -> Self {
+    /// A fresh (unbound) slot; its window is placed at its first frame (`frame_floating`).
+    fn new() -> Self {
         let win = super::shell_window::ShellWindow::new(
             "App",
-            300 + (index as i32) * 64,
-            140 + (index as i32) * 56,
+            0,
+            0,
             app_window::APP_WIN_MAX_W,
             app_window::APP_WIN_MAX_H,
             app_window::APP_WIN_RADIUS,
@@ -254,6 +261,7 @@ impl AppWindowSlot {
             90,
         );
         Self {
+            key: 0,
             win,
             surface_id: None,
             drag_offset: None,
@@ -272,10 +280,12 @@ impl AppWindowSlot {
             #[cfg(nexus_env = "os")]
             event_channel: None,
             frame_pulse_pending: false,
-            surface_damage: surface_layers::DamageRows::FULL,
+            retiring: None,
+            retiring_layers: surface_layers::SurfaceLayers::EMPTY,
             transform: WinTransform::IDENTITY,
             pending_wm: None,
             cursor_hint: 0,
+            placed: false,
         }
     }
 }
@@ -371,9 +381,8 @@ pub(crate) struct DisplayServerRuntime {
     /// Bounded counter for the app-surface present-rejection diagnostic
     /// (P0.2 tap repro): a rejected client present is otherwise silent.
     app_present_reject_markers: u32,
-    /// Damage-limited desktop copy: the rows the desktop's presents named since the last
-    /// `render_desktop_surface` (its base's and its store's, RFC-0109).
-    desktop_damage: surface_layers::DamageRows,
+    /// The surfaces' buffers between frames (RFC-0114, `surface_buffers.rs`).
+    buffers: surface_buffers::BufferState,
     /// handoff ID for the initial framebuffer VMO transfer to gpud.
     first_handoff_id: u32,
     first_handoff_frame_written: bool,
@@ -404,21 +413,22 @@ pub(crate) struct DisplayServerRuntime {
     pub(crate) theme_accent: u8,
     /// Solid materials (`ui.material = solid`, TASK-0337): the theme byte's `THEME_SOLID`.
     pub(crate) solid_materials: bool,
-    /// The cross-process app-client windows (ADR-0042 R1 → RFC-0065
-    /// multi-window): one SLOT per concurrently open floating app window
-    /// (`WindowId::App(i)` indexes this array). Each slot bundles what used to
-    /// be the `app_win` singleton — frame + bands, resize overlay, glass
-    /// layers, intent, surface binding and event channel.
-    apps: [AppWindowSlot; crate::window_scene::MAX_APP_WINDOWS],
+    /// The cross-process app-client windows (ADR-0042 R1 → RFC-0065 multi-window): one SLOT
+    /// per floating app window (`WindowId::App(i)` indexes it) — the slots grow with the windows
+    /// and a free one is reused (RFC-0114 §7: no slot count). A slot bundles the window's frame,
+    /// layers, intent, surface binding, event channel and its wire key.
+    apps: Vec<AppWindowSlot>,
+    /// The next window key (RFC-0114 §7) and the frame path's reused scratch.
+    window_keys: slots::WindowKeys,
+    scene_scratch: scene::SceneScratch,
     /// ADR-0042 surface table + flow control (host-tested bookkeeping).
     client_surfaces: crate::client_surface::ClientSurfaces,
-    /// Nonce → event-channel map (bounded, LRU-replace): each app-host attaches its OWN channel
-    /// tagged with a self-minted nonce and repeats it on SURFACE_CREATE (deterministic under N
-    /// concurrent connects); non-consuming: a resize RE-create binds the same nonce again.
+    /// Nonce → event-channel map: each app-host attaches its OWN channel tagged with a
+    /// self-minted nonce and repeats it on SURFACE_CREATE (deterministic under N concurrent
+    /// connects); non-consuming: a re-create binds the same nonce again. It grows with the
+    /// clients — a live channel is never evicted (RFC-0114 §7).
     #[cfg(nexus_env = "os")]
-    event_channels: [(u64, u32); 8],
-    #[cfg(nexus_env = "os")]
-    event_channels_len: usize,
+    event_channels: Vec<(u64, u32)>,
     /// ADR-0075: what waits for each client — windowd never waits on one (`client_send`).
     #[cfg(nexus_env = "os")]
     outboxes: crate::client_outbox::Outboxes,
@@ -438,15 +448,11 @@ pub(crate) struct DisplayServerRuntime {
     /// RFC-0075: launch-once + X-dismiss latch + parked intent replies.
     osk_launch_requested: bool,
     osk_dismissed: bool,
-    pending_intent_replies: [Option<(u64, [u8; 12])>; 4],
-    desktop_band: Option<crate::atlas::AtlasSurface>,
-    /// The desktop surface's store (RFC-0109): a region of its own, apart from its base.
-    desktop_store: Option<crate::atlas::AtlasSurface>,
+    pending_intent_replies: Vec<(u64, [u8; 12])>,
     /// RFC-0086: desktop-surface owner sid (taskbar-verb gate) + the window
     /// feed's retained delivery state (see `windows_feed`).
     desktop_owner_sid: u64,
     windows_feed: windows_feed::FeedState,
-    desktop_dirty: bool,
     /// The frame pulses and the display's timeline they name (RFC-0110, `frame_pulse`).
     pulses: frame_pulse::Pulses,
 
@@ -756,13 +762,16 @@ impl DisplayServerRuntime {
             scene_cb: CommandBuffer::new(),
             shell: SystemUiShell::new(DeviceProfile::qemu_default()),
             framebuffer_pending_first_write: false,
-            presents: acks::PresentWindow::new(),
+            // Seeded with the milliseconds since boot (RFC-0112: past a predecessor's seqs).
+            presents: acks::PresentWindow::starting_after(
+                (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u32,
+            ),
             reveal_gate: acks::RevealGate::new(),
             present_fail_reported: false,
             present_retry_count: 0,
             present_retry_exhausted: false,
             app_present_reject_markers: 0,
-            desktop_damage: surface_layers::DamageRows::NONE,
+            buffers: surface_buffers::BufferState::new(),
             first_handoff_id: 0,
             first_handoff_frame_written: false,
             first_handoff_bootstrap_markers_emitted: false,
@@ -777,12 +786,15 @@ impl DisplayServerRuntime {
             session_resolved: false,
             presentation: crate::presentation_state::PresentationState::new(),
             greeter_login_watch: false,
-            apps: core::array::from_fn(AppWindowSlot::new),
-            client_surfaces: crate::client_surface::ClientSurfaces::new(),
+            apps: Vec::new(),
+            window_keys: slots::WindowKeys::new(),
+            scene_scratch: scene::SceneScratch::new(),
+            // Seeded with the milliseconds since boot (RFC-0112: never a predecessor's id).
+            client_surfaces: crate::client_surface::ClientSurfaces::starting_at(
+                (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u32,
+            ),
             #[cfg(nexus_env = "os")]
-            event_channels: [(0, 0); 8],
-            #[cfg(nexus_env = "os")]
-            event_channels_len: 0,
+            event_channels: Vec::new(),
             #[cfg(nexus_env = "os")]
             outboxes: crate::client_outbox::Outboxes::new(),
             desktop_surface_id: None,
@@ -793,12 +805,9 @@ impl DisplayServerRuntime {
             desktop_pending_nonce: None,
             osk_launch_requested: false,
             osk_dismissed: false,
-            pending_intent_replies: [None; 4],
-            desktop_band: None,
-            desktop_store: None,
+            pending_intent_replies: Vec::new(),
             desktop_owner_sid: 0,
             windows_feed: windows_feed::FeedState::new(),
-            desktop_dirty: false,
             pulses: frame_pulse::Pulses::new(),
             shell_app_launched: false,
             windowing_policy: crate::surface_presentation::WindowingPolicy::Desktop,
@@ -837,16 +846,10 @@ impl DisplayServerRuntime {
             hover_marker_emitted: false,
             hover_last_move_ns: 0,
             shell_config,
-            // Registration order = initial stacking (later on top once shown);
-            // both start hidden, mirroring the ShellWindow `visible` flags above.
+            // The desktop base (shell/greeter app-host), registered hidden: shown once a
+            // desktop-level client surface connects; DESKTOP z-band → always bottom. App windows
+            // register as their slots are made (`slots::take_app_slot`).
             windows: crate::window_scene::WindowStack::new(&[
-                crate::window_scene::WindowId::App(0),
-                crate::window_scene::WindowId::App(1),
-                crate::window_scene::WindowId::App(2),
-                crate::window_scene::WindowId::App(3),
-                // The desktop base (shell/greeter app-host). Registered hidden;
-                // shown + composited once a desktop-level client surface connects
-                // (2b-render / 2c session-gate). DESKTOP z-band → always bottom.
                 crate::window_scene::WindowId::Desktop,
             ]),
             cursor_shape: cursor::CursorShape::Default,
@@ -873,17 +876,6 @@ impl DisplayServerRuntime {
     // The `windows` stack mirrors each ShellWindow's `visible` flag and owns
     // z/focus. Every visibility change goes through these helpers so the two
     // can never drift; raises emit honest markers + damage the affected rects.
-
-    /// Stable short name for markers/diagnostics.
-    pub(super) fn window_name(id: crate::window_scene::WindowId) -> &'static str {
-        match id {
-            crate::window_scene::WindowId::App(0) => "app0",
-            crate::window_scene::WindowId::App(1) => "app1",
-            crate::window_scene::WindowId::App(2) => "app2",
-            crate::window_scene::WindowId::App(_) => "app3",
-            crate::window_scene::WindowId::Desktop => "desktop",
-        }
-    }
 
     /// The on-screen damage rect (incl. shadow halo) of a stack window.
     pub(super) fn window_damage_rect(&self, id: crate::window_scene::WindowId) -> DamageRect {

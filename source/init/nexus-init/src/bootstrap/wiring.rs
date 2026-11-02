@@ -26,19 +26,7 @@ pub(crate) fn wire_services(
     init_fold: bool,
     init_wire: &mut nexus_event::SpanTally,
 ) -> Result<()> {
-    let Endpoints {
-        bnd_req,
-        window_req,
-        window_rsp,
-        input_req,
-        input_rsp,
-        gpud_req,
-        gpud_rsp,
-        sess_req,
-        abil_req,
-        abil_rsp,
-        ..
-    } = *eps;
+    let Endpoints { window_req, window_rsp, input_req, input_rsp, gpud_req, gpud_rsp, .. } = *eps;
 
     // Services are suspended; they are resumed after all MMIO and IPC wiring is complete.
     // (ADR-0062: the yield that used to stand here could not order anything — the services it
@@ -121,117 +109,20 @@ pub(crate) fn wire_services(
                 }
             }
             "windowd" => {
-                // Already priority-wired before MMIO grants — skip re-wiring.
-                if chan.send(ServiceId::Windowd).is_some()
-                    && chan.recv(ServiceId::Windowd).is_some()
+                // Its server pair is priority-wired before the device grants (orchestrator), its
+                // timer and watch channels are declared waits pinned with the distribution, and
+                // its legs are its declaration — pinned by the one path its respawn takes too
+                // (RFC-0112; the bespoke per-leg helpers this arm called are gone).
+                if chan.send(ServiceId::Windowd).is_none()
+                    || chan.recv(ServiceId::Windowd).is_none()
                 {
-                    if iw(init_wire, init_fold, "init:windowd") {
-                        debug_write_bytes(b"init: windowd already priority-wired, skip\n");
-                    }
-                    // Still need gpud caps — PINNED to the declared slots (TASK-0324 P4a).
-                    let (gpud_send_slot, gpud_recv_slot) = declared_slots::pin_route(
-                        pid,
-                        ServiceId::Windowd,
-                        ServiceId::Gpud,
-                        gpud_req,
-                        gpud_rsp,
-                    );
-                    if let (Some(gpud_send), Some(gpud_recv)) = (gpud_send_slot, gpud_recv_slot) {
-                        chan.set_send(ServiceId::Gpud, gpud_send);
-                        chan.set_recv(ServiceId::Gpud, gpud_recv);
-                    }
-                    // RFC-0065 dynamic Apps menu: registry reply-inbox + bundlemgrd
-                    // route caps. Order-free since P4a — provisioning this block early
-                    // used to shift gpud to 8/9 and kill the present handoff with
-                    // `kernel-permission-denied`; both now land where they are declared.
-                    provision_windowd_registry_route(ENDPOINT_FACTORY_CAP_SLOT, pid, bnd_req, chan);
-                    // Session route AFTER the registry route (TASK-0065B): it
-                    // reuses the reply inbox the registry route just created.
-                    if let Some(sess_req) = sess_req {
-                        provision_windowd_session_route(pid, sess_req, chan);
-                    }
-                    // Settings route (TASK-0072 Phase 10): settingsd's minted
-                    // request endpoint, same shared reply inbox.
-                    if let Some((settings_req, _)) = eps.server_pair(ServiceId::Settingsd) {
-                        provision_windowd_settings_route(pid, settings_req, chan);
-                    }
-                    // Launch route (TASK-0080D): windowd → abilitymgr OP_LAUNCH.
-                    if let (Some(req), Some(rsp)) = (abil_req, abil_rsp) {
-                        provision_windowd_ability_route(pid, req, rsp, chan);
-                    }
-                    // Focus relay route (RFC-0075): windowd → imed OP_SET_FOCUS.
-                    if let Some((imed_req, _)) = eps.server_pair(ServiceId::Imed) {
-                        provision_windowd_imed_route(pid, imed_req, chan);
-                        provision_windowd_settings_watch(pid, eps, chan);
-                    }
-                    // TASK-0067: the rest of its declared legs (the clipboard focus push);
-                    // every leg pinned above is kept.
-                    if let Some(spec) = crate::service_topology::spec_for(b"windowd") {
-                        declared_routes::wire_declared_legs(pid, spec, eps, chan);
-                    }
-                    continue;
+                    return Err(InitError::Map("windowd server slots"));
                 }
-                let slots = declared_slots::pin_server_pair(
-                    pid,
-                    ServiceId::Windowd,
-                    window_req,
-                    window_rsp,
-                )
-                .ok_or(InitError::Map("windowd server slots"))?;
-                chan.set_send(ServiceId::Windowd, slots.send);
-                chan.set_recv(ServiceId::Windowd, slots.recv);
-                // gpud may have crashed — a failed pin leaves the route unwired, loudly.
-                let (gpud_send_slot, gpud_recv_slot) = declared_slots::pin_route(
-                    pid,
-                    ServiceId::Windowd,
-                    ServiceId::Gpud,
-                    gpud_req,
-                    gpud_rsp,
-                );
-                if let (Some(gpud_send), Some(gpud_recv)) = (gpud_send_slot, gpud_recv_slot) {
-                    chan.set_send(ServiceId::Gpud, gpud_send);
-                    chan.set_recv(ServiceId::Gpud, gpud_recv);
-                }
-                // Registry reply-inbox + bundlemgrd route (pinned, see the skip path).
-                provision_windowd_registry_route(ENDPOINT_FACTORY_CAP_SLOT, pid, bnd_req, chan);
-                // Session route AFTER the registry route (TASK-0065B).
-                if let Some(sess_req) = sess_req {
-                    provision_windowd_session_route(pid, sess_req, chan);
-                }
-                // Settings route (TASK-0072 Phase 10): settingsd's minted request
-                // endpoint, same shared reply inbox as session/registry.
-                if let Some((settings_req, _)) = eps.server_pair(ServiceId::Settingsd) {
-                    provision_windowd_settings_route(pid, settings_req, chan);
-                }
-                // Launch route (TASK-0080D): windowd → abilitymgr OP_LAUNCH.
-                if let (Some(req), Some(rsp)) = (abil_req, abil_rsp) {
-                    provision_windowd_ability_route(pid, req, rsp, chan);
-                }
-                // Focus relay route (RFC-0075): windowd → imed OP_SET_FOCUS.
-                if let Some((imed_req, _)) = eps.server_pair(ServiceId::Imed) {
-                    provision_windowd_imed_route(pid, imed_req, chan);
-                }
-                provision_windowd_settings_watch(pid, eps, chan);
-                // TASK-0067: the remaining declared legs (the clipboard focus push).
-                if let Some(spec) = crate::service_topology::spec_for(b"windowd") {
-                    declared_routes::wire_declared_legs(pid, spec, eps, chan);
-                }
+                crate::bootstrap::windowd_respawn::wire_windowd_legs(pid, eps, chan);
                 if iw(init_wire, init_fold, "init:windowd") {
-                    debug_write_bytes(b"init: windowd slots recv=0x");
-                    debug_write_hex(slots.recv as usize);
-                    debug_write_bytes(b" send=0x");
-                    debug_write_hex(slots.send as usize);
-                    debug_write_byte(b'\n');
+                    debug_write_bytes(b"init: windowd legs wired\n");
                 }
-                if let (Some(gpud_send), Some(gpud_recv)) = (gpud_send_slot, gpud_recv_slot) {
-                    if iw(init_wire, init_fold, "init:windowd") {
-                        debug_write_bytes(b"init: windowd gpud slots send=0x");
-                        debug_write_hex(gpud_send as usize);
-                        debug_write_bytes(b" recv=0x");
-                        debug_write_hex(gpud_recv as usize);
-                        debug_write_byte(b'\n');
-                    }
-                }
+                continue;
             }
             "inputd" => {
                 if chan.send(ServiceId::Inputd).is_some() && chan.recv(ServiceId::Inputd).is_some()
@@ -263,7 +154,7 @@ pub(crate) fn wire_services(
                     // RFC-0075: key-forward leg to imed — AFTER the windowd
                     // legs (their slot numbers are a boot contract).
                     provision_inputd_imed_route(pid, eps, chan);
-                    provision_inputd_settings_watch(pid, eps, chan);
+                    provision_inputd_settings_route(pid, eps, chan);
                     provision_inputd_reply_inbox(pid, chan);
                     continue;
                 }
@@ -292,7 +183,7 @@ pub(crate) fn wire_services(
                 // RFC-0075: key-forward leg to imed (after the windowd legs —
                 // their slot numbers are a boot contract).
                 provision_inputd_imed_route(pid, eps, chan);
-                provision_inputd_settings_watch(pid, eps, chan);
+                provision_inputd_settings_route(pid, eps, chan);
                 provision_inputd_reply_inbox(pid, chan);
                 if iw(init_wire, init_fold, "init:inputd") {
                     debug_write_bytes(b"init: inputd slots recv=0x");

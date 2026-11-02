@@ -337,7 +337,7 @@ impl DisplayServerRuntime {
         let mut flags: Option<u32> = None;
         let mut reply = [0u8; 8];
         while early_n < UPLOAD_EARLY_REPLIES {
-            match client.recv_into(Wait::Blocking, &mut reply) {
+            match self.recv_gpud(Wait::Blocking, &mut reply) {
                 Ok(n) if n >= 1 => {
                     let payload = if n >= 5 {
                         u32::from_le_bytes([reply[1], reply[2], reply[3], reply[4]])
@@ -457,7 +457,7 @@ impl DisplayServerRuntime {
         // Drain the 1-byte status ack (present acks seen meanwhile are accounted).
         let mut reply = [0u8; 8];
         for _ in 0..4 {
-            match client.recv_into(Wait::Blocking, &mut reply) {
+            match self.recv_gpud(Wait::Blocking, &mut reply) {
                 Ok(n) if n >= 1 && reply[0] == GPUD_STATUS_OK => break,
                 _ => break,
             }

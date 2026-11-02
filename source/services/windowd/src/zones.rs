@@ -105,6 +105,9 @@ pub const CODE_MINIMIZE: u8 = 14;
 /// Close the focused window (TASK-0333 6e-1: the keyboard's close; the app saves its `@persist`
 /// snapshot on the way out and exits).
 pub const CODE_CLOSE: u8 = 15;
+/// Restart the desktop (RFC-0112): windowd ends itself and init brings it back with every app
+/// window. A key fact only, never a window verb (the feed's verb space is four bits).
+pub const CODE_RESTART: u8 = 16;
 
 impl Zone {
     /// The feed/verb code of this zone (`CODE_*`).

@@ -115,15 +115,12 @@ mount/read fastpaths and is validated fail-closed during mount.
 
 ## Loader handshake
 
-Once a bundle is installed, `execd::exec_elf(bundle, argv, env, policy)` calls
-the new `bundlemgrd.getPayload(name)` RPC. The daemon validates the install,
-resolves the `payload.elf` bytes (splitting across frames when necessary), and
-returns them to `execd`. The service writes the bytes into a staging VMO, runs
-`nexus_loader::load_with`, and maps each PT_LOAD segment into a fresh Sv39
-address space. W^X is enforced twice: the loader rejects write+execute segments
-and the kernel refuses conflicting protection flags at `as_map` time. A private
-stack is provisioned via `StackBuilder`, argv/env tables are copied in, and
-`spawn` launches the child process.
+Once a bundle is installed, `execd` starts it from a sealed image with `exec_vmo`
+(ADR-0080): the kernel maps the image's text from its own frames, copies its data
+and reserves its `.bss` and stack lazily; an app's program (`payload.nxir`) is
+filled into a payload object by `bundlemgrd` (`OP_ARM_VMO` / `GET_PAYLOAD`). The
+older path — an ELF loader in `execd` that mapped segments into a fresh space with
+`as_create`/`as_map` — is gone with those syscalls (ADR-0091).
 
 After installation completes `bundlemgrd` also publishes the bundle to
 `packagefsd`. Files are exposed under `/packages/<name>@<version>/...` and the

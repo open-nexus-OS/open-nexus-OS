@@ -157,7 +157,7 @@ impl DisplayServerRuntime {
                 // ran the edge snap wherever the pointer happened to be
                 // (top edge = surprise fullscreen).
                 let Some(idx) = own else { return Self::no_own_window() };
-                let wid = crate::window_scene::WindowId::App(idx as u8);
+                let wid = crate::window_scene::WindowId::App(idx as u16);
                 if !self.windows.is_fullscreen(wid) {
                     self.raise_window(wid);
                     if self.state.launcher_click_visible {
@@ -322,8 +322,6 @@ impl DisplayServerRuntime {
         // presentation snapshot (reemit, no remount) — pumped after the
         // generation bump below.
         for slot in self.apps.iter_mut() {
-            slot.win.surface_dirty = true;
-            slot.surface_damage = super::surface_layers::DamageRows::FULL; // re-theme: full re-blit (chrome too)
             slot.win.blur_valid = false;
         }
         self.queue_full_frame_damage();

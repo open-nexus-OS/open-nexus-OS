@@ -57,8 +57,10 @@ pub const CAPTURE_MALFORMED: u8 = 4;
 /// windowd runs display-less (no framebuffer was granted): nothing to read.
 pub const CAPTURE_NO_DISPLAY: u8 = 5;
 
-/// The most windows a freeze reply names (front to back).
-pub const CAPTURE_WINDOWS_MAX: usize = 8;
+/// The most windows a freeze reply names (front to back): every window a frame can show — one
+/// frame draws at most 64 layers (`nexus_gfx::frame::MAX_LAYERS`, pinned equal by windowd), a
+/// window at least its body (RFC-0114 §7: no slot count). 790 bytes, inside one IPC payload.
+pub const CAPTURE_WINDOWS_MAX: usize = 64;
 
 /// Print: open the screenshot UI.
 pub const CAPTURE_KEY_UI: u8 = 1;

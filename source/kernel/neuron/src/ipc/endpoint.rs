@@ -11,6 +11,7 @@
 //! TEST_COVERAGE: exercised via Router host tests in `ipc/mod.rs`
 
 use super::{IpcError, Message, WaiterId};
+use crate::cap::Capability;
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 
@@ -169,18 +170,27 @@ impl Endpoint {
     pub(super) fn close_if_owned_by(
         &mut self,
         owner: WaiterId,
+        dropped: &mut Vec<Capability>,
     ) -> Option<(Vec<WaiterId>, Vec<WaiterId>)> {
         if !self.alive || self.owner != Some(owner) {
             return None;
         }
         self.alive = false;
-        self.queue.clear();
-        self.queued_bytes = 0;
+        self.clear_queue_into(dropped);
         let recv: Vec<WaiterId> = self.recv_waiters.drain(..).collect();
         // A waitset waiting for room learns the death like a parked sender does.
         let send: Vec<WaiterId> =
             self.send_waiters.drain(..).chain(self.writable_waiters.drain(..)).collect();
         Some((recv, send))
+    }
+
+    /// Empties a closing endpoint's queue. The capabilities still in flight in it go to
+    /// `dropped` — the caller releases each like a `cap_close` (RFC-0112, amendment
+    /// 2026-11-02): a reply capability moved with a request the dead server never read was the
+    /// caller's last word on its inbox, and dropped uncounted its EOF never came.
+    pub(super) fn clear_queue_into(&mut self, dropped: &mut Vec<Capability>) {
+        dropped.extend(self.queue.drain(..).filter_map(|msg| msg.moved_cap));
+        self.queued_bytes = 0;
     }
 }
 

@@ -82,10 +82,12 @@ pub fn fill(space: &mut AddressSpace, va: usize, access: Access) -> Result<(), F
                 _ => FillError::Violation(Violation::NoRegion),
             })?;
             let flags = PageFlags::from_bits_truncate(region.flags) | user;
-            space
-                .page_table_mut()
-                .map(page, pa, flags)
-                .map_err(|_| FillError::Violation(Violation::EagerRegion))?;
+            // ADR-0091: no frame for a table page is the fault's out-of-memory (the same kill as
+            // an exhausted commit), never a kernel panic.
+            space.page_table_mut().map(page, pa, flags).map_err(|e| match e {
+                super::MapError::OutOfMemory => FillError::Exhausted,
+                _ => FillError::Violation(Violation::EagerRegion),
+            })?;
             fence_page(space, page);
             FILLED.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
             Ok(())

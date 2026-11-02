@@ -32,6 +32,7 @@ use nexus_ipc::{KernelServer, Server as _, Wait};
 use nexus_metrics::{DeterministicIdSource, SpanId};
 use nexus_service_topology::slots::execd as topo;
 
+mod compositor_back;
 mod grants;
 mod images;
 mod lifecycle;
@@ -258,10 +259,8 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     // RFC-0080: create the shared glyph-atlas VMO ONCE (RO-cloned per spawn).
     state.atlas_vmo = crate::atlas_vmo::create();
     let mut recv_frame = alloc::vec![0u8; nexus_abi::IPC_PAYLOAD_MAX]; // ONE buffer (P5b)
-                                                                       // TASK-0333 6a: the reaper of record wakes on a death. The waitset over the server endpoint
-                                                                       // and the child-death endpoint is the loop's one wait; a death frame is the wake, the sweep
-                                                                       // is the reap, and an app child's death is reported to abilitymgr. Without the binding the
-                                                                       // loop is RFC-0081's: a blocking request wait, the sweep on each request.
+                                                                       // TASK-0333 6a: one waitset over the server and child-death endpoints — a death frame wakes
+                                                                       // the sweep (an app's death reported to abilitymgr); unbound, RFC-0081's blocking wait.
     let mut reaper = Reaper::arm();
     let wait = if reaper.is_some() { Wait::NonBlocking } else { Wait::Blocking };
     loop {
@@ -270,12 +269,17 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
             if r.drain() {
                 reap_and_report(&mut state, &mut reaper);
             }
+            compositor_back::retry_owed(&mut state, reaper.as_ref());
         }
         match server.recv_request_with_meta_into(wait, &mut recv_frame) {
             Ok((n, sender_service_id, _reply)) => {
                 // RFC-0081: reap children that exited since the last request so a spawn first
                 // reclaims their AS — the app-launch ALLOC-FAIL fix. Non-blocking, bounded.
                 reap_and_report(&mut state, &mut reaper);
+                if compositor_back::is_notice(&recv_frame[..n]) {
+                    compositor_back::handle(&mut state, sender_service_id, reaper.as_ref());
+                    continue;
+                }
                 let rsp = handle_frame(&mut state, sender_service_id, &recv_frame[..n]);
                 let _ = server.send(rsp.as_slice(), Wait::Blocking);
             }
@@ -294,12 +298,15 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
 struct TrackedChild {
     pid: u32,
     image_id: u8,
-    /// RFC-0081: exit code + ADR-0056 reason once reaped (by the auto-sweep
-    /// or an `OP_WAIT_PID`); `None` while still running. Lets `OP_WAIT_PID`
-    /// answer from cache after the sweep already reaped the child.
+    /// RFC-0081: exit code + ADR-0056 reason once reaped (sweep or `OP_WAIT_PID`); `None` while
+    /// running — `OP_WAIT_PID` answers from it after the sweep reaped the child.
     exit: Option<(i32, ExitReason)>,
     /// The crash-marker / minidump / nexus-log path ran for this exit (once).
     reported: bool,
+    /// The SEND half of an app's event channel execd keeps (RFC-0112: `compositor_back`).
+    events_send: Option<u32>,
+    /// Its compositor-back notice waits for room in that channel (`compositor_back`).
+    back_owed: bool,
 }
 
 struct State {
@@ -328,7 +335,7 @@ impl State {
         if let Some(i) = crate::children::evict_index(exited) {
             self.children.remove(i);
         }
-        self.children.push(TrackedChild { pid, image_id, exit: None, reported: false });
+        self.children.push(TrackedChild::new(pid, image_id));
     }
 
     fn child_name(image_id: u8) -> &'static str {
@@ -359,6 +366,7 @@ impl State {
                 let already = child.reported;
                 child.exit = Some((code, reason));
                 child.reported = true;
+                child.forget_events();
                 (Some(child.image_id), already)
             }
             None => (None, false),
@@ -932,14 +940,10 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
     let mut ids = DeterministicIdSource::new(sender_service_id);
     let trace_id = ids.next_trace_id();
     metrics_span_start_best_effort(span_id, trace_id, "execd.exec", b"svc=execd\n");
-    // RFC-0086 identity keystone: app-hosts spawn via exec_vmo with a
-    // kernel-attributed service name `app:<bundle_id>` — execd (the spawner)
-    // is the ONLY naming authority, and the `app:` prefix makes impersonating
-    // a boot service impossible by construction. Every later ipc_recv_v2
-    // then carries a real `sender_service_id` for this child (windowd's
-    // `owner_sid` capture, taskbar verbs, CONTROL_WIN_* owner checks).
-    // Non-app images and a malformed app id keep the legacy nameless exec
-    // (sid 0 = no window authority — fail-closed, never fail-open).
+    // RFC-0086 identity keystone: an app-host runs under the kernel-attributed name
+    // `app:<bundle_id>` — execd is the ONLY naming authority, the prefix keeps a boot service
+    // unimpersonable, and every later receive carries the child's real `sender_service_id`.
+    // Non-app images and a malformed app id exec nameless (sid 0: no window authority).
     // ADR-0082: every child execd spawns is `killable` — the parent's `task_kill` and the
     // kernel's last resort may end it (boot services, spawned by init, are not).
     let name = match (image_id, app_id) {
@@ -957,11 +961,10 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
                 if let Some(vmo) = payload_vmo {
                     crate::child_grants::grant_payload_vmo(pid as u32, vmo);
                 }
-                // Dedicated event channel: attach windowd's SEND half FIRST
-                // (same request queue the child's SURFACE_CREATE uses, so
-                // windowd holds the channel before the create), then hand
-                // the RECV half to the child — all before resume.
-                crate::child_grants::grant_event_channel(pid as u32);
+                // The dedicated event channel (the child attaches it to windowd itself); execd
+                // keeps its SEND half for the compositor-back notice (RFC-0112).
+                let events = crate::child_grants::grant_event_channel(pid as u32);
+                state.keep_events(pid as u32, events);
                 crate::child_grants::grant_timer_channel(pid as u32);
                 // RFC-0080: RO clone of the shared atlas VMO (before resume).
                 crate::atlas_vmo::grant(pid as u32, state.atlas_vmo);
@@ -969,21 +972,13 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
                 // SEND per routable grant) into the child's fixed SDK slots — before resume.
                 provision_app_service_routes(pid as u32, app_grants.as_deref());
             }
-            // TASK-0049 reanimation: the demo.minidump payload PUTs its own
-            // NMD1 dump via statefs slots 7/8 (in-process capture, RFC-0031).
-            // Under the #102 resume fix children run immediately, so the old
-            // post-spawn transfer from the selftest raced the child's exit
-            // (transfer into a reaped task collapses to EPERM). The SPAWNER
-            // installs the route before resume — same grants-before-resume
-            // discipline as the app-host grants above.
+            // TASK-0049: the demo.minidump payload PUTs its own NMD1 dump via statefs slots 7/8
+            // (RFC-0031); the spawner installs the route before resume, like every grant here.
             if image_id == IMG_EXIT42 {
                 crate::child_grants::grant_minidump_statefs_route(pid as u32);
             }
-            // #102 ROOT CAUSE FIX: `spawn_inner` starts EVERY task Suspended
-            // (the grants-before-resume hardening); nexus-init resumes its
-            // services explicitly after cap wiring — execd never did, so its
-            // children loaded but never executed. Resume AFTER the grants
-            // above (same grants-before-resume discipline).
+            // #102: every task starts Suspended (grants-before-resume); execd resumes its child
+            // only after the grants above.
             // The payload answer (TASK-0324 P7-d): bundlemgrd wrote the header LAST and
             // replied — the child starts with a complete payload or a marked failure.
             if payload_vmo.is_some() && !await_app_payload() {

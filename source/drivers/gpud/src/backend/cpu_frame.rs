@@ -26,7 +26,8 @@ use super::cursor::blend_cursor_vmo;
 use super::cursor_shapes::{sprite_len, CursorShapes};
 #[cfg(all(feature = "os-lite", target_os = "none", not(feature = "virgl")))]
 use super::raster::{
-    blit_blend_vmo, blit_vmo, blur_backdrop_vmo, fill_rect_solid_vmo, fill_sdf_rounded_vmo,
+    blend_from_vmo, blit_blend_vmo, blit_vmo, blur_backdrop_vmo, fill_rect_solid_vmo,
+    fill_sdf_rounded_vmo,
 };
 
 /// What a present's commands read besides the framebuffer. The executor itself (`execute`) is
@@ -48,6 +49,9 @@ pub(crate) struct CpuFrame {
     /// The layout row screen-relative commands land on: the display plane.
     #[cfg(all(feature = "os-lite", target_os = "none", not(feature = "virgl")))]
     display_row: u32,
+    /// The app surfaces a buffer layer reads (RFC-0114): mapped here (2D), resources (virgl).
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
+    pub(crate) surfaces: super::surface_backing::SurfaceBacking,
 }
 
 impl CpuFrame {
@@ -62,6 +66,8 @@ impl CpuFrame {
             shapes: CursorShapes::new(),
             #[cfg(all(feature = "os-lite", target_os = "none", not(feature = "virgl")))]
             display_row: nexus_display_proto::layout::DISPLAY_ROW,
+            #[cfg(all(feature = "os-lite", target_os = "none"))]
+            surfaces: super::surface_backing::SurfaceBacking::new(),
         }
     }
 
@@ -231,6 +237,8 @@ impl CpuFrame {
                 backdrop_blur,
                 content_w,
                 content_h,
+                source,
+                flags,
                 ..
             } => {
                 let dst_y = dst_y.saturating_add(display_row);
@@ -264,6 +272,20 @@ impl CpuFrame {
                         *backdrop_blur,
                         0,
                     );
+                }
+                if *source != 0 {
+                    // RFC-0114: the app's buffer, read where the app drew it.
+                    let slot = nexus_gfx::command::layer_wire::layer_slot(*flags);
+                    if let Some(src) = self.surfaces.source(*source, slot) {
+                        blend_from_vmo(
+                            (fb, len, w),
+                            src,
+                            (*src_x, *src_row_abs, (*content_w, *content_h)),
+                            (*dst_x, dst_y, *width, *height),
+                            *opacity,
+                        );
+                    }
+                    return Ok(());
                 }
                 let _ = blit_blend_vmo(
                     fb,

@@ -87,6 +87,10 @@ ladder_headless=(
   # child's death is one frame into the endpoint its parent bound — on four harts too.
   "KSELFTEST: task exit releases ok ("
   "KSELFTEST: child exit notify ok ("
+  # TASK-0348 (RFC-0112): transfers only into one's own child, REPLACE_DEAD, and what a dead
+  # endpoint's queue carried released at its death — on four harts too.
+  "KSELFTEST: cap transfer rules ok ("
+  "KSELFTEST: in-flight caps released ok"
   # TASK-0333 6b-3 (RFC-0100 §1): an object whose last capability closed while mapped dies at its
   # last unmap.
   "KSELFTEST: vm unmap reclaim ok ("
@@ -128,6 +132,11 @@ ladder_headless=(
   "SELFTEST: app grants put deny ok"
   # TASK-0333 6b-2b (ADR-0078): a lazy object made for a device commits what it is told, in reach.
   "KSELFTEST: vmo lazy device ok ("
+  # TASK-0348 (ADR-0092): the board's GPU does not snoop the caches — zeroes and writes cleaned.
+  "KSELFTEST: vmo clean ok ("
+  # TASK-0347 (ADR-0091): no authority over another address space, no kernel panic from a
+  # caller's size — on the board's own heap and pool.
+  "KSELFTEST: ambient authority reject ok ("
   "KSELFTEST: spawn ok pid="
   "init: ready"
   "blkd: backend ok (kind="
@@ -272,6 +281,11 @@ ladder_visible=(
   # view — the interrupt served for a second, the first flip written inside the blank.
   "gpud: dc vblank ok ("
   "gpud: dc flip ok ("
+  # TASK-0348 (RFC-0114, ADR-0092): the shell's surface is a buffer gpud made for it — bound in
+  # windowd's GPU context, mapped by the app, read in place by the frame (no row copied).
+  "gpud: surface alloc ok ("
+  "apphost: surface mapped ("
+  "windowd: compose copies=0 ("
   # TASK-0333 6e-2 (ADR-0086): the first app the operator opens reaches the memory authority
   # as a band — the lifecycle authority's push on the declared leg. (The kill drill never runs
   # on a board: it would end an app the operator is using; the QEMU lanes prove the chain.)

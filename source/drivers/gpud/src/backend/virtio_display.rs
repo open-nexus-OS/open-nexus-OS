@@ -52,14 +52,51 @@ impl Display for VirtioGpuBackend {
             let _ = debug_println("gpud: FAIL attach before a grant");
             return Err(STATUS_MALFORMED);
         };
+        // A restarted windowd (RFC-0112) attaches the object that already is the scanout: the
+        // mapping, the resources and the GL scanout stand — redone, their fixed ids collide.
+        if self.framebuffer_attached {
+            return Ok(());
+        }
         self.attach_external_framebuffer(vmo, RESOURCE_WIDTH, RESOURCE_HEIGHT).map_err(|_| {
             let _ = debug_println("gpud: ERROR attach framebuffer failed");
             STATUS_DEVICE_ERROR
-        })
+        })?;
+        self.framebuffer_attached = true;
+        Ok(())
     }
 
     fn attached(&mut self) {
         let _ = GfxBackend::move_cursor(self, 0, 0);
+    }
+
+    /// RFC-0114 §1: an app surface is an eager object for the virtio device — runs it is given
+    /// (virgl attaches them) or pages the CPU executor maps — bound by the display itself.
+    fn surface_device(&self) -> Option<(u32, bool, bool)> {
+        Some((self.device, false, false))
+    }
+
+    fn bind_surface(
+        &mut self,
+        buffer: u32,
+        vmo: u32,
+        geometry: &crate::surfaces::Geometry,
+    ) -> bool {
+        #[cfg(feature = "virgl")]
+        return self.virgl_bind_surface(buffer, vmo, geometry);
+        #[cfg(not(feature = "virgl"))]
+        return self.cpu.surfaces.map(buffer, vmo, geometry);
+    }
+
+    fn unbind_surface(&mut self, buffer: u32) {
+        #[cfg(feature = "virgl")]
+        self.virgl_unbind_surface(buffer);
+        #[cfg(not(feature = "virgl"))]
+        self.cpu.surfaces.unmap(buffer);
+    }
+
+    fn forget_layers(&mut self) {
+        #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+        self.frame.layers.clear();
     }
 
     fn execute(&mut self, commands: &[Command], _damage: Rect) -> Result<(), GfxError> {

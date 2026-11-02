@@ -4,8 +4,9 @@
 //! CONTEXT: Memory syscalls split out of the former single-file api.rs:
 //! sys_device_cap_create, sys_vmo_* (create/destroy/read/write/share) over the
 //! page-backed objects of `mm::vmo` (TASK-0286 P3a — the arena and `VmoPool`
-//! are gone), sys_as_create/sys_as_map, and user-slice validation helpers.
-//! (The fixed-VA sys_map/sys_mmio_map were retired by RFC-0085 P6.)
+//! are gone) and user-slice validation helpers. (The fixed-VA sys_map/sys_mmio_map
+//! were retired by RFC-0085 P6; sys_as_create/sys_as_map — a map into ANY space by
+//! raw handle — by ADR-0091.)
 //! OWNERS: @kernel-team
 //! STATUS: Functional
 //! API_STABILITY: Unstable
@@ -15,45 +16,6 @@
 use super::*;
 
 // Typed decoders for the Decode→Check→Execute syscall discipline
-
-#[derive(Copy, Clone)]
-pub(super) struct AsMapArgsTyped {
-    handle: AsHandle,
-    vmo_slot: SlotIndex,
-    va: VirtAddr,
-    len: PageLen,
-    prot: u32,
-    flags: u32,
-}
-
-impl AsMapArgsTyped {
-    #[inline]
-    pub(super) fn decode(args: &Args) -> Result<Self, Error> {
-        let handle =
-            AsHandle::from_raw(args.get(0) as u32).ok_or(AddressSpaceError::InvalidHandle)?;
-        let vmo_slot = SlotIndex::decode(args.get(1));
-        let va = VirtAddr::page_aligned(args.get(2)).ok_or(AddressSpaceError::InvalidArgs)?;
-        let len = PageLen::from_bytes_aligned(args.get(3) as u64)
-            .ok_or(AddressSpaceError::InvalidArgs)?;
-        let prot = args.get(4) as u32;
-        let flags = args.get(5) as u32;
-        Ok(Self { handle, vmo_slot, va, len, prot, flags })
-    }
-
-    #[inline]
-    pub(super) fn check(&self) -> Result<(), Error> {
-        if self.len.raw() == 0 {
-            return Err(AddressSpaceError::InvalidArgs.into());
-        }
-        // W^X
-        if (self.prot & PROT_WRITE != 0) && (self.prot & PROT_EXEC != 0) {
-            return Err(AddressSpaceError::from(MapError::PermissionDenied).into());
-        }
-        // Range check: ensure va + len fits
-        self.va.checked_add(self.len.raw()).ok_or(AddressSpaceError::InvalidArgs)?;
-        Ok(())
-    }
-}
 
 #[derive(Copy, Clone)]
 pub(super) struct DeviceCapCreateArgsTyped {
@@ -236,22 +198,40 @@ pub(crate) fn vmo_create_reserve(
 ) -> Result<(u32, usize, usize), Error> {
     let typed = VmoCreateArgsTyped::decode(args)?;
     typed.check()?;
-    let reach = if typed.device_slot == VMO_CREATE_NO_DEVICE {
-        crate::dma_reach::DmaReach::ALL
+    let (reach, noncoherent) = if typed.device_slot == VMO_CREATE_NO_DEVICE {
+        (crate::dma_reach::DmaReach::ALL, false)
     } else {
         let caps = ctx
             .tasks
             .caps_of(ctx.tasks.current_pid())
             .ok_or(Error::Capability(CapError::PermissionDenied))?;
         let dev = caps.device(typed.device_slot)?;
-        crate::mm::devices::reach(dev).ok_or(Error::Capability(CapError::PermissionDenied))?
+        let denied = Error::Capability(CapError::PermissionDenied);
+        let reach = crate::mm::devices::reach(dev).ok_or(denied)?;
+        (reach, crate::mm::devices::noncoherent(dev).unwrap_or(false))
     };
     let aligned = align_len(typed.len).ok_or(Error::Capability(CapError::PermissionDenied))?;
-    let id = crate::mm::vmo::create(aligned, typed.kind(), &reach)
-        .map_err(|_| Error::Capability(CapError::PermissionDenied))?;
+    let id = crate::mm::vmo::create(aligned, typed.kind(), &reach).map_err(create_error)?;
+    if noncoherent {
+        // ADR-0092: its device reads memory, not the CPU caches — before any capability exists.
+        crate::mm::vmo::clean::set_block(id, crate::hal::platform::cbom_block());
+    }
     // Named by no capability until phase C: out of the lifetime rule's reach meanwhile.
     crate::mm::vmo::set_creating(id, true);
     Ok((id, aligned, typed.slot_raw))
+}
+
+/// A refused create keeps its cause across the ABI (ADR-0091, as ADR-0054 for maps): a length
+/// no memory could back is `EINVAL`, no frame or no kernel heap for it is `ENOMEM`, a full
+/// object table is `ENOSPC`.
+fn create_error(err: crate::mm::vmo::VmoError) -> Error {
+    use crate::mm::vmo::VmoError;
+    match err {
+        VmoError::BadLength => AddressSpaceError::InvalidArgs.into(),
+        VmoError::Exhausted | VmoError::HeapExhausted => AddressSpaceError::OutOfFrames.into(),
+        VmoError::TableFull => Error::Capability(CapError::NoSpace),
+        _ => Error::Capability(CapError::PermissionDenied),
+    }
 }
 
 /// Phase C (BKL re-acquired): install the capability. On failure the (now
@@ -443,11 +423,6 @@ pub(super) fn sys_vmo_write(ctx: &mut Context<'_>, args: &Args) -> SysResult<usi
     Ok(typed.len)
 }
 
-pub(super) const PROT_READ: u32 = 1 << 0;
-pub(super) const PROT_WRITE: u32 = 1 << 1;
-pub(super) const PROT_EXEC: u32 = 1 << 2;
-
-pub(super) const MAP_FLAG_USER: u32 = 1 << 0;
 pub(super) const USER_VADDR_LIMIT: usize = 0x8000_0000;
 
 pub(super) fn align_len(len: usize) -> Option<usize> {
@@ -525,76 +500,4 @@ pub(super) fn span_error(err: crate::mm::vmo::VmoError, other: Error) -> Error {
         crate::mm::vmo::VmoError::Swapped { token, slot } => Error::PageIn { token, slot },
         _ => other,
     }
-}
-
-pub(super) fn sys_as_create(ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
-    let handle = ctx.address_spaces.create()?;
-    Ok(handle.to_raw() as usize)
-}
-
-pub(super) fn sys_as_map(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
-    let typed = AsMapArgsTyped::decode(args)?;
-    typed.check()?; // Check phase
-
-    let cap = ctx.tasks.current_caps_mut().derive(typed.vmo_slot.0, Rights::MAP)?;
-    let (id, vmo_len) = match cap.kind {
-        CapabilityKind::Vmo { id, len } => (id, len as u64),
-        _ => return Err(Error::Capability(CapError::PermissionDenied)),
-    };
-
-    let map_bytes = cmp::min(typed.len.raw() as u64, vmo_len);
-    let aligned_bytes = map_bytes - (map_bytes % PAGE_SIZE as u64);
-    if aligned_bytes == 0 {
-        return Err(AddressSpaceError::InvalidArgs.into());
-    }
-    let pages = (aligned_bytes / PAGE_SIZE as u64) as usize;
-    let span_bytes = pages.checked_mul(PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
-    typed.va.checked_add(span_bytes).ok_or(AddressSpaceError::InvalidArgs)?;
-
-    let mut flags = PageFlags::VALID;
-    if typed.prot & PROT_READ != 0 {
-        flags |= PageFlags::READ;
-    }
-    if typed.prot & PROT_WRITE != 0 {
-        flags |= PageFlags::WRITE;
-    }
-    if typed.prot & PROT_EXEC != 0 {
-        flags |= PageFlags::EXECUTE;
-    }
-    if typed.flags & MAP_FLAG_USER != 0 {
-        flags |= PageFlags::USER;
-    }
-
-    // RFC-0004: enforce W^X at the syscall boundary for user mappings.
-    if flags.contains(PageFlags::WRITE) && flags.contains(PageFlags::EXECUTE) {
-        return Err(AddressSpaceError::from(MapError::PermissionDenied).into());
-    }
-
-    #[cfg(feature = "debug_uart")]
-    {
-        use core::fmt::Write as _;
-        let mut u = crate::uart::raw_writer();
-        let _ = writeln!(
-            u,
-            "AS-MAP handle=0x{:x} slot=0x{:x} va=0x{:x} len=0x{:x} pages=0x{:x} id={} prot=0x{:x} flags=0x{:x}",
-            typed.handle.to_raw(),
-            typed.vmo_slot.0,
-            typed.va.raw(),
-            typed.len.raw(),
-            pages,
-            id,
-            typed.prot,
-            flags.bits()
-        );
-    }
-
-    for page in 0..pages {
-        let page_va =
-            typed.va.raw().checked_add(page * PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
-        let page_pa = crate::mm::vmo::translate(id, page * PAGE_SIZE)
-            .ok_or(Error::Capability(CapError::PermissionDenied))?;
-        ctx.address_spaces.map_page_tracked(typed.handle, page_va, page_pa, flags)?;
-    }
-
-    Ok(0)
 }

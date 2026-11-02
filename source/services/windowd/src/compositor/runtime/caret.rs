@@ -37,7 +37,7 @@ pub(crate) struct CaretLayer {
     patch: Option<(crate::atlas::AtlasSurface, [u8; 4])>,
     /// What the last frame drew: the screen rectangle and the window slot it rides (`None` = the
     /// desktop surface).
-    drawn: Option<(DamageRect, Option<u8>)>,
+    drawn: Option<(DamageRect, Option<u16>)>,
     timer: Option<nexus_ipc::timer::NotifyTimer>,
     /// The kernel refused the blink timer: the caret stands steady (never stuck in its off half).
     no_timer: bool,
@@ -62,7 +62,9 @@ impl CaretLayer {
 #[derive(Clone, Copy)]
 pub(super) struct CaretDraw {
     /// The window slot it rides (`None` = the desktop surface).
-    pub(super) owner: Option<u8>,
+    pub(super) owner: Option<u16>,
+    /// That window's key on the wire (RFC-0114 §7; the desktop's for the desktop surface).
+    key: u32,
     rect: DamageRect,
     patch: crate::atlas::AtlasSurface,
     opaque: bool,
@@ -71,8 +73,7 @@ pub(super) struct CaretDraw {
 impl CaretDraw {
     /// One solid layer — the one its owner's share set aside for it (`LayerQuota::set_aside`).
     pub(super) fn encode(&self, enc: &mut RenderCommandEncoder<'_>, mode: (u32, u32)) {
-        let owner =
-            self.owner.map_or(super::surface_layers_encode::DESKTOP_OWNER, |s| u32::from(s) + 1);
+        let owner = self.key;
         let r = self.rect;
         let _ = enc.composite_layer_full(
             &Layer {
@@ -86,10 +87,13 @@ impl CaretDraw {
                 dst_y: r.y,
                 opacity: 255,
                 corner_radius: 0,
-                layer_id: self.owner.map_or(0, |s| u32::from(s) + 1),
+                layer_id: if self.owner.is_some() { self.key } else { 0 },
                 content_epoch: crate::atlas::atlas_content_epoch(),
                 scroll_band_top_abs: 0,
                 scroll_band_h: 0,
+                // windowd's own patch in the layout object (RFC-0114 §6: source 0).
+                source: 0,
+                slot: 0,
                 shadow: None,
                 backdrop: None,
                 opaque: self.opaque,
@@ -180,7 +184,7 @@ impl DisplayServerRuntime {
 
     /// Where the caret shows at `now` (its screen rectangle and window slot) and when that
     /// changes next — nothing while its surface lacks window focus or is hidden.
-    fn caret_now(&mut self, now: u64) -> (Option<(DamageRect, Option<u8>)>, Option<u64>) {
+    fn caret_now(&mut self, now: u64) -> (Option<(DamageRect, Option<u16>)>, Option<u64>) {
         let Some((surface_id, caret)) = self.caret.held else { return (None, None) };
         if self.window_focus_surface() != Some(surface_id) {
             return (None, None);
@@ -200,7 +204,7 @@ impl DisplayServerRuntime {
             let base = self.client_surfaces.get_by_id(surface_id).map_or((win.w, win.h), |c| {
                 (u32::from(c.width).min(win.w), u32::from(c.height).min(win.h))
             });
-            ((win.x, win.y), base, Some(idx as u8))
+            ((win.x, win.y), base, Some(idx as u16))
         };
         // Without a timer the blink could not come back on: the caret stands steady.
         let caret = if self.caret.no_timer {
@@ -240,7 +244,10 @@ impl DisplayServerRuntime {
     pub(super) fn caret_draw(&self) -> Option<CaretDraw> {
         let (rect, owner) = self.caret.drawn?;
         let (patch, bgra) = self.caret.patch?;
-        Some(CaretDraw { owner, rect, patch, opaque: bgra[3] == 255 })
+        let key = owner.map_or(super::surface_layers_encode::DESKTOP_OWNER, |s| {
+            self.window_key(usize::from(s))
+        });
+        Some(CaretDraw { owner, key, rect, patch, opaque: bgra[3] == 255 })
     }
 }
 

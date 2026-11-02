@@ -144,6 +144,10 @@ fn take_bytes(
     let mut blocks = Vec::new();
     let mut remaining = len.div_ceil(crate::frames::FRAME_SIZE as usize);
     while remaining > 0 {
+        if blocks.len() == blocks.capacity() && !reserve_block_room(&mut blocks) {
+            free_blocks(&blocks);
+            return Err(FrameError::NoHeap);
+        }
         let order = (remaining.ilog2() as u8).min(crate::frames::MAX_ORDER);
         match locked(order, |pool| take(pool, order)) {
             Ok(block) => {
@@ -157,6 +161,14 @@ fn take_bytes(
         }
     }
     Ok(blocks)
+}
+
+/// Grows the block list ahead of the next take (ADR-0091): a caller-sized object's list stays
+/// above the kernel heap's reserve, so a fragmented pool cannot exhaust the heap — the caller
+/// hears `ENOMEM`, the kernel never panics.
+fn reserve_block_room(blocks: &mut Vec<Block>) -> bool {
+    let more = blocks.capacity().max(8);
+    crate::kheap::admits(more * core::mem::size_of::<Block>()) && blocks.try_reserve(more).is_ok()
 }
 
 /// Keep the first `keep` frames of the allocated `block` and return the rest to the pool

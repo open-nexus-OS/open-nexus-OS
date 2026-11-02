@@ -40,6 +40,7 @@ pub(crate) mod stage_signal;
 pub(crate) mod supervision;
 pub(crate) mod types;
 pub(crate) mod volume_spawn;
+pub(crate) mod windowd_respawn;
 pub(crate) mod wiring;
 
 pub(crate) use types::{BootstrapState, CtrlChannel};

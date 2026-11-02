@@ -7,7 +7,8 @@
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Stable
-//! TEST_COVERAGE: 11 tests (7 unit, 3 integration, 1 OS mapper)
+//! TEST_COVERAGE: unit + integration tests (tests/loader.rs) — host only; the OS mapper that
+//! drove the retired `as_create`/`as_map` syscalls is gone (ADR-0091)
 //!
 //! PUBLIC API:
 //!   - parse_elf64_riscv: ELF parsing functionality
@@ -34,9 +35,6 @@ use goblin::elf::{
 };
 
 pub const PAGE_SIZE: u64 = 4096;
-
-#[cfg(nexus_env = "os")]
-pub mod os_mapper;
 
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]

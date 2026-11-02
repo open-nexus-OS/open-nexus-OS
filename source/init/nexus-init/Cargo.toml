@@ -87,6 +87,8 @@ storage = { path = "../../../userspace/storage", default-features = false }
 # RFC-0106: the provider kinds (and their slot index) init grants to socd.
 nexus-soc = { path = "../../libs/nexus-soc" }
 nexus-service-topology = { path = "../../libs/nexus-service-topology" }
+# RFC-0112: execd's compositor-back notice after windowd's respawn (protocol module only).
+nexus-wire = { path = "../../libs/nexus-wire" }
 # ADR-0081: the bootfs table's codec — init reads which core services the boot image carries.
 nexus-bootfs = { path = "../../libs/nexus-bootfs" }
 # TASK-0049B: one-shot supervision probe payload (exit0) for the sweep proof.

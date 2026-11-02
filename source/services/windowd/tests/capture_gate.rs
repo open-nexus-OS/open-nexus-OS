@@ -171,12 +171,16 @@ fn the_machine_bounds_an_unanswered_read_and_an_abandoned_freeze() {
     assert_eq!(f.readback_done(CAPTURE_OK, 11), Step::Wait, "a late answer finds nobody");
 }
 
-/// The window list: front to back, clamped into the wire, empty ones dropped, at most eight.
+/// The window list: front to back, clamped into the wire, empty ones dropped, at most the
+/// windows one frame can show (RFC-0114 §7: twelve windows are all named).
 #[test]
 fn the_window_list_is_clamped_and_bounded() {
     let (w, n) = capture_windows([(3, -40_000, 20, 640, 480), (4, 10, 10, 0, 100)]);
     assert_eq!(n, 1, "the empty window is dropped");
     assert_eq!(w[0], CaptureWindow { id: 3, x: i16::MIN, y: 20, w: 640, h: 480 });
-    let many = (0..12).map(|i| (i, 0, 0, 100, 100));
+    let twelve = (0..12).map(|i| (i, 0, 0, 100, 100));
+    assert_eq!(capture_windows(twelve).1, 12);
+    let many = (0..CAPTURE_WINDOWS_MAX as u32 + 5).map(|i| (i, 0, 0, 100, 100));
     assert_eq!(capture_windows(many).1, CAPTURE_WINDOWS_MAX);
+    assert_eq!(CAPTURE_WINDOWS_MAX, nexus_gfx::frame::MAX_LAYERS, "every window a frame shows");
 }

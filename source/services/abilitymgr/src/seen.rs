@@ -77,7 +77,18 @@ pub enum SeenOutcome {
 /// Whether `frame` may be taken from `sender_service_id`: `OP_SEEN` only from the compositor
 /// (its kernel sender id, never a payload string); every other op passes here.
 pub fn seen_frame_allowed(frame: &[u8], sender_service_id: u64, windowd_sid: u64) -> bool {
-    frame.get(3) != Some(&OP_SEEN) || sender_service_id == windowd_sid
+    !matches!(frame.get(3), Some(&OP_SEEN) | Some(&OP_COMPOSITOR_UP))
+        || sender_service_id == windowd_sid
+}
+
+/// Whether `frame` is the compositor's start notice (`[A,M,ver,OP_COMPOSITOR_UP]`, nothing more).
+pub fn is_compositor_up(frame: &[u8]) -> bool {
+    frame == encode_compositor_up()
+}
+
+/// The compositor's start notice (its side, and tests).
+pub const fn encode_compositor_up() -> [u8; 4] {
+    [MAGIC0, MAGIC1, VERSION, OP_COMPOSITOR_UP]
 }
 
 /// Decodes and applies one `OP_SEEN` frame; `sid_of(app_id)` names the kernel service id the
@@ -159,6 +170,24 @@ impl Broker {
             _ => None,
         };
         Ok((inst.state, order))
+    }
+
+    /// A new compositor runs (RFC-0112): what the old one saw is void. Every frozen instance is
+    /// thawed into the background — it must run to draw its window again, and the new
+    /// compositor's sightings move it from there (a hidden one is frozen again after its grace);
+    /// every hidden clock stops. A dying instance is its death report's alone.
+    pub fn compositor_up(&mut self) -> Vec<Order> {
+        let mut thaws = Vec::new();
+        for inst in self.instances.values_mut().filter(|i| !i.dying) {
+            inst.hidden_since = None;
+            if inst.state == AbilityState::Suspended {
+                inst.state = AbilityState::Background;
+                if let Some(pid) = inst.pid {
+                    thaws.push(Order::Thaw { instance_id: inst.instance_id, pid });
+                }
+            }
+        }
+        thaws
     }
 
     /// RFC-0111 §6: an instance the permission authority granted `nexus.permission.BACKGROUND`
@@ -416,5 +445,49 @@ mod tests {
             assert_eq!(Seen::from_wire(s as u8), Some(s));
         }
         assert_eq!(Seen::from_wire(4), None);
+    }
+
+    #[test]
+    fn a_new_compositor_thaws_every_frozen_instance_and_stops_every_hidden_clock() {
+        let mut broker = Broker::new();
+        let frozen = launched(&mut broker, "notes", 41);
+        let hidden = launched(&mut broker, "chat", 42);
+        let shown = launched(&mut broker, "calc", 43);
+        broker.seen(frozen, Seen::Hidden, 0).expect("seen");
+        assert_eq!(broker.due_freezes(FREEZE_GRACE_NS).len(), 1, "notes frozen");
+        broker.seen(hidden, Seen::Hidden, 7).expect("seen");
+        broker.seen(shown, Seen::Focused, 7).expect("seen");
+        let thaws = broker.compositor_up();
+        assert_eq!(thaws, [Order::Thaw { instance_id: frozen, pid: 41 }]);
+        assert_eq!(broker.state(frozen), Some(AbilityState::Background));
+        assert_eq!(broker.next_freeze_deadline(), None, "no clock runs on a void sighting");
+        assert_eq!(broker.state(shown), Some(AbilityState::Foreground), "the rest stays");
+        // The new compositor's sightings move them from here.
+        broker.seen(frozen, Seen::Hidden, 100).expect("seen");
+        assert_eq!(broker.next_freeze_deadline(), Some(100 + FREEZE_GRACE_NS));
+    }
+
+    #[test]
+    fn test_reject_a_compositor_up_thaw_of_a_dying_instance() {
+        let mut broker = Broker::new();
+        let id = launched(&mut broker, "notes", 41);
+        broker.seen(id, Seen::Hidden, 0).expect("seen");
+        broker.due_freezes(FREEZE_GRACE_NS);
+        broker.mark_dying(id).expect("dying");
+        assert!(broker.compositor_up().is_empty(), "the kill was carried: no thaw");
+        assert_eq!(broker.state(id), Some(AbilityState::Suspended));
+    }
+
+    #[test]
+    fn test_reject_a_compositor_up_from_another_sender() {
+        let (windowd, other) = (0x77, 0x99);
+        let frame = encode_compositor_up();
+        assert!(is_compositor_up(&frame));
+        assert!(seen_frame_allowed(&frame, windowd, windowd));
+        assert!(!seen_frame_allowed(&frame, other, windowd), "a forged start is refused");
+        let mut long = frame.to_vec();
+        long.push(0);
+        assert!(!is_compositor_up(&long), "trailing bytes");
+        assert!(!is_compositor_up(&frame[..3]), "short");
     }
 }

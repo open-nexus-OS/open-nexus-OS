@@ -228,6 +228,15 @@ impl Default for SettingsRegistry {
 mod tests {
     use super::*;
 
+    /// RFC-0112: a registration's burst — one event per matching key — fits the push channel
+    /// whole, whatever the subscriber is doing (a restarted compositor registers before it
+    /// drains): every key the registry holds is within the channel's depth.
+    #[test]
+    fn a_full_burst_fits_the_push_channel() {
+        let keys = SettingsRegistry::keys().count();
+        assert!(keys <= nexus_wire::settingsd::WATCH_CHANNEL_DEPTH, "{keys} keys");
+    }
+
     #[test]
     fn defaults_are_served_until_set() {
         let r = SettingsRegistry::new();

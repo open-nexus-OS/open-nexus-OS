@@ -25,6 +25,8 @@ use crate::protocol::*;
 pub enum Event {
     /// A new instance was launched.
     Launched { app_id: String, instance_id: u32 },
+    /// A one-instance role asked again (RFC-0112): the running instance answered, nothing spawned.
+    LaunchKept { app_id: String, instance_id: u32 },
     /// A launch refused because the permission authority holds no grants for the app
     /// (never published, rejected at publish, or unreachable) — RFC-0111 §6, fail-closed.
     LaunchDenied { app_id: String },
@@ -137,6 +139,17 @@ fn dispatch_launch(broker: &mut Broker, frame: &[u8], grants: &mut dyn GrantSour
     let Some((abil, _)) = take_lp_str(rest) else {
         return Dispatched { response: resp_status(OP_LAUNCH, STATUS_MALFORMED), event: None };
     };
+    // RFC-0112: a one-instance role (the shell, the greeter, the IME) launches once — asked again
+    // (a new compositor asks at its start) the running instance answers and rejoins it.
+    if let Some(id) =
+        crate::caps::is_singleton(&app).then(|| broker.live_instance_of(&app)).flatten()
+    {
+        let state = broker.state(id).unwrap_or(AbilityState::Created);
+        return Dispatched {
+            response: resp_instance(OP_LAUNCH, STATUS_OK, id, state),
+            event: Some(Event::LaunchKept { app_id: app, instance_id: id }),
+        };
+    }
     // RFC-0111 §6: the grants are the permission authority's answer — an app it holds nothing
     // for (never published, a rejected manifest, or no answer) does not launch.
     let Some(granted) = grants.grants_of(&app) else {
@@ -302,6 +315,7 @@ mod tests {
         ("search", &["nexus.permission.WINDOW"]),
         ("notes", &["nexus.permission.WINDOW"]),
         ("chat", &["nexus.permission.WINDOW", "nexus.permission.CLIPBOARD"]),
+        ("desktop-shell", &["nexus.permission.WINDOW"]),
     ];
 
     /// `super::dispatch` against the tests' authority.
@@ -434,6 +448,48 @@ mod tests {
         assert_eq!(resp_op_status(&d.response), (OP_RECENTS | OP_RESPONSE, STATUS_OK));
         let count = u16::from_le_bytes([d.response[5], d.response[6]]);
         assert_eq!(count, 2);
+    }
+
+    fn launched_id(d: &Dispatched) -> u32 {
+        u32::from_le_bytes([d.response[5], d.response[6], d.response[7], d.response[8]])
+    }
+
+    #[test]
+    fn a_one_instance_role_asked_again_answers_the_running_instance() {
+        let mut broker = Broker::new();
+        let first = dispatch(&mut broker, &encode_launch("desktop-shell", "main"));
+        let id = launched_id(&first);
+        assert!(matches!(first.event, Some(Event::Launched { .. })));
+        // Spawned: the OS loop bound its process.
+        broker.bind_pid(id, 40).expect("bind");
+        let again = dispatch(&mut broker, &encode_launch("desktop-shell", "main"));
+        assert_eq!(resp_op_status(&again.response), (OP_LAUNCH | OP_RESPONSE, STATUS_OK));
+        assert_eq!(launched_id(&again), id, "the running instance answers");
+        assert_eq!(
+            again.event,
+            Some(Event::LaunchKept { app_id: "desktop-shell".into(), instance_id: id })
+        );
+        assert_eq!(broker.len(), 1, "nothing spawned");
+        // Gone, it launches anew.
+        broker.exited(40).expect("exited");
+        let anew = dispatch(&mut broker, &encode_launch("desktop-shell", "main"));
+        assert!(matches!(anew.event, Some(Event::Launched { .. })));
+    }
+
+    #[test]
+    fn test_reject_a_kept_launch_for_an_ordinary_app_or_an_unspawned_role() {
+        let mut broker = Broker::new();
+        // An ordinary app opens as many windows as it is launched.
+        let a = launched_id(&dispatch(&mut broker, &encode_launch("notes", "main")));
+        broker.bind_pid(a, 41).expect("bind");
+        let b = dispatch(&mut broker, &encode_launch("notes", "main"));
+        assert!(matches!(b.event, Some(Event::Launched { .. })));
+        assert_ne!(launched_id(&b), a);
+        // A role whose spawn never happened (no process) is no running instance.
+        let mut broker = Broker::new();
+        dispatch(&mut broker, &encode_launch("desktop-shell", "main"));
+        let again = dispatch(&mut broker, &encode_launch("desktop-shell", "main"));
+        assert!(matches!(again.event, Some(Event::Launched { .. })));
     }
 }
 

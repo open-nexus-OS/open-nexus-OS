@@ -33,13 +33,14 @@ static SHAPE: AtomicU32 = AtomicU32::new(0);
 static QUEUED_RECTS: AtomicU32 = AtomicU32::new(0);
 static QUEUED_PX: AtomicU64 = AtomicU64::new(0);
 static FLUSHED_PX: AtomicU64 = AtomicU64::new(0);
-/// TASK-0339: windowd's own CPU work per frame — the longest flush, the app-surface rows copied
-/// into the atlas (two syscalls a row) and the wallpaper rows rewritten into the retained plane
-/// (a syscall a row), each with its microseconds. The measurement that splits an input's wait
-/// into "windowd works" and "windowd waits".
+/// TASK-0339: windowd's own CPU work per frame — the longest flush and the wallpaper rows
+/// rewritten into the retained plane (a syscall a row), with its microseconds; the measurement
+/// that splits an input's wait into "windowd works" and "windowd waits". RFC-0114 §5: the
+/// present acks released, and the longest an app waited for its other slot (no app row is
+/// copied any more — the GPU reads the app's buffer).
 static FLUSH_MAX_US: AtomicU64 = AtomicU64::new(0);
-static COPY_ROWS: AtomicU64 = AtomicU64::new(0);
-static COPY_US: AtomicU64 = AtomicU64::new(0);
+static RELEASED: AtomicU64 = AtomicU64::new(0);
+static HELD_MAX_US: AtomicU64 = AtomicU64::new(0);
 static BASE_ROWS: AtomicU64 = AtomicU64::new(0);
 static BASE_US: AtomicU64 = AtomicU64::new(0);
 /// RFC-0109: the surface structures and motions refused — each is said once per surface, the
@@ -124,10 +125,11 @@ pub(super) fn work_flush(us: u64) {
     FLUSH_MAX_US.fetch_max(us, Ordering::Relaxed);
 }
 
-/// `rows` app-surface rows were copied into the atlas in `us`.
-pub(super) fn work_copy(rows: u64, us: u64) {
-    COPY_ROWS.fetch_add(rows, Ordering::Relaxed);
-    COPY_US.fetch_add(us, Ordering::Relaxed);
+/// A present's ack left after it was held `us` for its other slot to be free (RFC-0114 §5:
+/// the app's wait for the GPU to finish reading).
+pub(super) fn work_release(us: u64) {
+    RELEASED.fetch_add(1, Ordering::Relaxed);
+    HELD_MAX_US.fetch_max(us, Ordering::Relaxed);
 }
 
 /// `rows` wallpaper rows were rewritten into the retained plane in `us`.
@@ -170,12 +172,13 @@ pub(super) fn take_refused() -> u32 {
     LAYERS_REFUSED.swap(0, Ordering::Relaxed)
 }
 
-/// The window's work `(flush_max_us, copy_rows, copy_us, base_rows, base_us)`, and a fresh one.
+/// The window's work `(flush_max_us, released, held_max_us, base_rows, base_us)`, and a fresh
+/// one.
 pub(super) fn take_work() -> (u64, u64, u64, u64, u64) {
     (
         FLUSH_MAX_US.swap(0, Ordering::Relaxed),
-        COPY_ROWS.swap(0, Ordering::Relaxed),
-        COPY_US.swap(0, Ordering::Relaxed),
+        RELEASED.swap(0, Ordering::Relaxed),
+        HELD_MAX_US.swap(0, Ordering::Relaxed),
         BASE_ROWS.swap(0, Ordering::Relaxed),
         BASE_US.swap(0, Ordering::Relaxed),
     )

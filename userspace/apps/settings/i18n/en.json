@@ -234,6 +234,7 @@
   "sc.window.fill": "Fill",
   "sc.window.leftHalf": "Left half",
   "sc.window.minimize": "Minimise or restore",
+  "sc.window.restartDesktop": "Restart the desktop",
   "sc.window.return": "Return to previous size",
   "sc.window.rightHalf": "Right half",
   "sc.window.topLeft": "Top-left quarter",

@@ -9,6 +9,7 @@
 //! paint any more: it is a wash layer the compositor draws (`probe/band.rs`). Plus the
 //! handler-box diagnostic dump and the tap trace.
 
+use super::surface_mem::SurfaceMem;
 use super::*;
 
 mod collect;
@@ -118,16 +119,17 @@ impl super::DslApp {
     }
 
     /// The whole base layer.
-    pub(super) fn render(&mut self, vmo: u32) -> bool {
+    pub(super) fn render(&mut self, mem: &mut SurfaceMem) -> bool {
         // Every dispatch path presents through here: mirror the modal depth to
         // windowd and keep the transient timer honest BEFORE the pixels (TASK-0074).
         self.overlay_sync();
-        self.render_rows(vmo, 0, self.h as i32)
+        self.render_rows(mem, 0, self.h as i32)
     }
 
-    /// Renders base rows `[y0, y1)` into the VMO — the damage-limited path. The page base is the
-    /// theme's Surface token; the scene's own boxes are specified against it.
-    pub(super) fn render_rows(&mut self, vmo: u32, y0: i32, y1: i32) -> bool {
+    /// Renders base rows `[y0, y1)` straight into the slot being drawn (RFC-0114) — the
+    /// damage-limited path. The page base is the theme's Surface token; the scene's own boxes
+    /// are specified against it.
+    pub(super) fn render_rows(&mut self, mem: &mut SurfaceMem, y0: i32, y1: i32) -> bool {
         use nexus_dsl_runtime::theme_tokens::ColorToken;
         self.overlay_sync();
         let s = tokens_for(self.theme_mode).color(ColorToken::Surface);
@@ -139,22 +141,18 @@ impl super::DslApp {
         self.base_views(&mut views);
         self.prepare_picks_with(Pass::Base, (y0, y1), None, &views);
         let row_bytes = self.w as usize * 4;
-        let mut row = core::mem::take(&mut self.row_scratch);
-        if row.len() < row_bytes {
-            row.resize(row_bytes, 0);
-        }
         let mut ok = true;
         for y in y0..y1 {
-            for px in row[..row_bytes].chunks_exact_mut(4) {
-                px.copy_from_slice(&base);
-            }
-            self.paint_row(&mut row[..row_bytes], y, 0, &views);
-            if vmo_write(vmo, y as usize * row_bytes, &row[..row_bytes]).is_err() {
+            // The row in the buffer itself: painted where the GPU reads it, no copy.
+            let Some(row) = mem.row_mut(y as u32).and_then(|r| r.get_mut(..row_bytes)) else {
                 ok = false;
                 break;
+            };
+            for px in row.chunks_exact_mut(4) {
+                px.copy_from_slice(&base);
             }
+            self.paint_row(row, y, 0, &views);
         }
-        self.row_scratch = row;
         self.view_scratch = views;
         ok
     }
@@ -162,15 +160,15 @@ impl super::DslApp {
     /// One row of a band: content row `model_y` (layout coordinates) painted from transparent at
     /// identity, the canvas shifted by `shift` (a horizontal band's run of columns), its columns
     /// `[cols.0, cols.1)` turned from the painter's premultiplied pixels into the straight alpha
-    /// the compositor samples, and written at byte `dst` of the surface. `false` when the write
-    /// was refused.
+    /// the compositor samples, and written at `(row, col)` of the slot being drawn. `false` past
+    /// the slot.
     pub(super) fn paint_band_row(
         &mut self,
-        vmo: u32,
+        mem: &mut SurfaceMem,
         model_y: i32,
         shift: i32,
         cols: (i32, i32),
-        dst: usize,
+        (row_at, col): (u32, u32),
     ) -> bool {
         let row_bytes = self.w as usize * 4;
         let mut row = core::mem::take(&mut self.row_scratch);
@@ -183,7 +181,7 @@ impl super::DslApp {
             (cols.0.clamp(0, self.w as i32) as usize, cols.1.clamp(0, self.w as i32) as usize);
         let span = &mut row[c0 * 4..c1.max(c0) * 4];
         unpremultiply(span);
-        let ok = vmo_write(vmo, dst, span).is_ok();
+        let ok = mem.write(row_at, col, span);
         self.row_scratch = row;
         ok
     }

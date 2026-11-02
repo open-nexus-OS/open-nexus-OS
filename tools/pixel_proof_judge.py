@@ -8,10 +8,13 @@
 # exist; the desktop and the settled frame are non-black (>= MIN_NONBLACK_PCT of
 # pixels above the black floor) and have no unpainted band (< MAX_FLAT_BAND_ROWS
 # flat rows in a row); the desktop differs from the splash (mean abs diff >=
-# MIN_DIFF). Exit 0 = proven.
+# MIN_DIFF). A lane's extra snapshot (`NEXUS_PIXEL_PROOF_EXTRA=<name>=<marker>`,
+# TASK-0348) is required too: non-black, no unpainted band, and different from the
+# settled frame it follows. Exit 0 = proven.
 #
 # Usage: pixel_proof_judge.py <display-proof.json>
 import json
+import os
 import sys
 
 # "Not black" = enough pixels above rfb_grab's black floor (luma >= 16/255) AND a
@@ -39,7 +42,9 @@ def main() -> int:
     proof = json.load(open(sys.argv[1]))
     snaps = proof.get("snapshots", {})
     ok = True
-    for name in ("splash", "desktop", "settled"):
+    extra = os.environ.get("NEXUS_PIXEL_PROOF_EXTRA", "").partition("=")[0]
+    required = ("splash", "desktop", "settled") + ((extra,) if extra else ())
+    for name in required:
         if name not in snaps or "error" in snaps[name]:
             why = snaps.get(name, {}).get("error", "marker never seen")
             print(f"[error] PIXEL PROOF: no '{name}' snapshot ({why})", file=sys.stderr)
@@ -49,7 +54,7 @@ def main() -> int:
     d = snaps["desktop"]
     # The reveal AND the settled frame: a frame that stays (the greeter with its clock,
     # minutes in) can lose rows the reveal still had (TASK-0251 finding 1).
-    for name in ("desktop", "settled"):
+    for name in ("desktop", "settled") + ((extra,) if extra else ()):
         s = snaps[name]
         if s["nonblack_pct"] < MIN_NONBLACK_PCT or s["mean_luma"] < MIN_MEAN_LUMA:
             # Every metric, every time: a verdict that hides the other numbers costs the next
@@ -62,6 +67,11 @@ def main() -> int:
             print(f"[error] PIXEL PROOF: {name} has an unpainted band of "
                   f"{s['flat_band_rows']} flat rows — {s['file']}", file=sys.stderr)
             ok = False
+    if extra and snaps[extra].get("diff_vs_settled", 255.0) < MIN_DIFF:
+        print(f"[error] PIXEL PROOF: the '{extra}' snapshot is still the settled frame "
+              f"(diff {snaps[extra].get('diff_vs_settled')}) — {snaps[extra]['file']}",
+              file=sys.stderr)
+        ok = False
     if d.get("diff_vs_splash", 255.0) < MIN_DIFF:
         print(f"[error] PIXEL PROOF: desktop snapshot is still the splash "
               f"(diff {d.get('diff_vs_splash')}) — {d['file']}", file=sys.stderr)
@@ -72,6 +82,10 @@ def main() -> int:
               f"{d['mean_luma']}, diff vs splash {d.get('diff_vs_splash')}, flat band "
               f"{d.get('flat_band_rows')} rows; settled {s['nonblack_pct']}% non-black, flat "
               f"band {s.get('flat_band_rows')} rows — {d['file']}")
+        if extra:
+            e = snaps[extra]
+            print(f"[info] PIXEL PROOF ok: {extra} {e['nonblack_pct']}% non-black, diff vs "
+                  f"settled {e.get('diff_vs_settled')} — {e['file']}")
     return 0 if ok else 1
 
 

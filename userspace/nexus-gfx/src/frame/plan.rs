@@ -16,9 +16,23 @@ use super::layers::{FrameLayer, RetainedLayers, MAX_LAYERS, ORIGIN_ABOVE};
 const GLASS_REACH: u32 = 66;
 
 /// Whether `a` and `b` draw the same pixels at the same place — the layer as drawn, its content
-/// generation left out (a content change reaches the screen as the present's damage).
+/// generation and its buffer's slot left out (a content change, a slot flip included, reaches
+/// the screen as the present's damage — RFC-0114 §6: a flip is never a backdrop change).
 fn same_drawing(a: &FrameLayer, b: &FrameLayer) -> bool {
-    FrameLayer { content_epoch: 0, ..*a } == FrameLayer { content_epoch: 0, ..*b }
+    let bare = |l: &FrameLayer| FrameLayer { content_epoch: 0, slot: 0, ..*l };
+    bare(a) == bare(b)
+}
+
+/// Whether a layer of a surface buffer must be uploaded before it draws (RFC-0114 §6): its
+/// buffer's content generation, buffer or slot changed since the layer last drew — or it is new,
+/// or the executor lost its uploads. A layout layer is the frame's `upload`, never this.
+fn buffer_upload(layer: &FrameLayer, before: Option<FrameLayer>, lost: bool) -> bool {
+    layer.source != 0
+        && (lost
+            || before.is_none_or(|b| {
+                (b.source, b.slot, b.content_epoch)
+                    != (layer.source, layer.slot, layer.content_epoch)
+            }))
 }
 
 /// The screen a layer covers: its rectangle and its shadow's halo.
@@ -45,6 +59,9 @@ pub struct LayerStep {
     pub layer: FrameLayer,
     /// Its glass, when it is a glass layer the executor blurs.
     pub glass: Option<Glass>,
+    /// Its surface buffer's rows changed since it last drew (RFC-0114 §6): an executor that keeps
+    /// a copy of the buffer (virgl's host texture) transfers the layer's rows first.
+    pub upload: bool,
 }
 
 /// What the walk decided for the frame as a whole.
@@ -123,7 +140,7 @@ impl Frame {
         Self {
             layers: RetainedLayers::new(),
             glass: GlassCache::new(glass_rows),
-            steps: [LayerStep { layer: FrameLayer::EMPTY, glass: None }; MAX_LAYERS],
+            steps: [LayerStep { layer: FrameLayer::EMPTY, glass: None, upload: false }; MAX_LAYERS],
             count: 0,
             idents: [(0, 0); MAX_LAYERS],
             prev: [FrameLayer::EMPTY; MAX_LAYERS],
@@ -268,7 +285,8 @@ impl Frame {
                 }
                 Some(Glass { cache, rows, band })
             };
-            self.steps[count] = LayerStep { layer, glass };
+            let upload = buffer_upload(&layer, before, self.layers.buffers_lost);
+            self.steps[count] = LayerStep { layer, glass, upload };
             count += 1;
         }
         // A layer of the last plan no layer of this one carries is gone: where it was changes.
@@ -278,6 +296,7 @@ impl Frame {
         self.idents[..count].copy_from_slice(&ids[..count]);
         self.count = count;
         self.layers.dirty = false;
+        self.layers.buffers_lost = false;
         if upload && set_epoch != 0 {
             self.layers.uploaded_epoch = set_epoch;
         }

@@ -215,6 +215,30 @@ pub fn recv_response_with_cap(recv_slot: u32, out: &mut [u8]) -> Result<(usize, 
     Ok((n, moved))
 }
 
+/// Frames a matched wait drops before it gives up — a response endpoint holds a handful.
+pub const STRAYS_MAX: usize = 64;
+
+/// [`recv_response_with_cap`] until `accept` takes a frame: one that is not the awaited answer —
+/// a stray a dead predecessor left on a shared response endpoint (RFC-0112: a restarted
+/// compositor's first waits on gpud) — is dropped with any capability it moved. Bounded by
+/// [`STRAYS_MAX`] strays (`Err(Unsupported)`: the answer never came), never by a clock.
+pub fn recv_response_matching(
+    recv_slot: u32,
+    out: &mut [u8],
+    accept: impl Fn(&[u8]) -> bool,
+) -> Result<(usize, Option<u32>)> {
+    for _ in 0..STRAYS_MAX {
+        let (n, moved) = recv_response_with_cap(recv_slot, out)?;
+        if accept(&out[..n.min(out.len())]) {
+            return Ok((n, moved));
+        }
+        if let Some(cap) = moved {
+            let _ = nexus_abi::cap_close(cap);
+        }
+    }
+    Err(IpcError::Unsupported)
+}
+
 fn map(err: nexus_abi::IpcError) -> IpcError {
     match err {
         nexus_abi::IpcError::PeerClosed => IpcError::Disconnected,

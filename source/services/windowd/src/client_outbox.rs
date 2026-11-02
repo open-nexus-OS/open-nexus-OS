@@ -46,10 +46,11 @@ pub(crate) const ORDERED_MAX: usize = 16;
 /// LATEST kinds one client keeps (pointer, drag, scroll, frame pulse, presentation, …); a kind
 /// beyond them queues as ORDERED — never lost.
 pub(crate) const LATEST_MAX: usize = 8;
-/// Clients with an outbox at once: windowd's event-channel table holds eight channels (the
-/// desktop's among them), so eight outboxes serve every client at once — ~6.75 KiB each
-/// (24 slots of the largest frame), allocated once.
-pub(crate) const CLIENTS_MAX: usize = 8;
+/// Outboxes the pool is born with — a usual session's clients, the desktop's among them — ~6.75
+/// KiB each (24 slots of the largest frame). Past them the pool grows with the clients behind at
+/// once (RFC-0114 §7: windowd's channels are as many as the windows); a free outbox is reused
+/// first.
+pub(crate) const CLIENTS_RESERVED: usize = 8;
 
 /// What a frame is to its client.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -92,16 +93,20 @@ struct Slot {
     len: u16,
     key: u16,
     bytes: [u8; FRAME_MAX],
+    /// A capability that moves with the frame (an ORDERED frame only: a surface's buffer,
+    /// RFC-0114 §3) — windowd's until the send takes it.
+    cap: Option<u32>,
 }
 
 impl Slot {
-    const EMPTY: Self = Self { seq: 0, len: 0, key: 0, bytes: [0; FRAME_MAX] };
+    const EMPTY: Self = Self { seq: 0, len: 0, key: 0, bytes: [0; FRAME_MAX], cap: None };
 
     fn set(&mut self, seq: u64, key: u16, frame: &[u8]) {
         self.seq = seq;
         self.key = key;
         self.len = frame.len() as u16;
         self.bytes[..frame.len()].copy_from_slice(frame);
+        self.cap = None;
     }
 
     fn frame(&self) -> &[u8] {
@@ -133,6 +138,25 @@ impl Outbox {
         }
     }
 
+    /// An empty outbox made while windowd runs; `None` when memory refuses its slots (the
+    /// caller sends once, as for a client without an outbox).
+    fn try_new() -> Option<Self> {
+        let slots = |n: usize| -> Option<Box<[Slot]>> {
+            let mut v = Vec::new();
+            v.try_reserve_exact(n).ok()?;
+            v.extend((0..n).map(|_| Slot::EMPTY));
+            Some(v.into_boxed_slice())
+        };
+        Some(Self {
+            ordered: slots(ORDERED_MAX)?,
+            head: 0,
+            count: 0,
+            latest: slots(LATEST_MAX)?,
+            seq: 0,
+            dropped: 0,
+        })
+    }
+
     /// Frames waiting.
     pub(crate) fn queued(&self) -> usize {
         self.count + self.latest.iter().filter(|s| s.len != 0).count()
@@ -147,8 +171,22 @@ impl Outbox {
         self.dropped
     }
 
-    /// Everything dropped (the client is gone, or the channel is rebound).
+    /// Capabilities waiting to move with their frames.
+    #[cfg(test)]
+    pub(crate) fn caps_waiting(&self) -> usize {
+        (0..self.count)
+            .filter(|i| self.ordered[(self.head + i) % ORDERED_MAX].cap.is_some())
+            .count()
+    }
+
+    /// Everything dropped (the client is gone, or the channel is rebound) — with every
+    /// capability a waiting frame carried, closed.
     pub(crate) fn clear(&mut self) {
+        for i in 0..self.count {
+            if let Some(cap) = self.ordered[(self.head + i) % ORDERED_MAX].cap.take() {
+                close_cap(cap);
+            }
+        }
         self.head = 0;
         self.count = 0;
         for s in self.latest.iter_mut() {
@@ -201,6 +239,21 @@ impl Outbox {
         true
     }
 
+    /// Queues `frame` ORDERED with `cap` moving along (never merged, never joined). `Err(cap)`:
+    /// refused as [`Self::push`] refuses — the capability stays the caller's.
+    pub(crate) fn push_cap(&mut self, frame: &[u8], cap: u32) -> Result<(), u32> {
+        if frame.is_empty() || frame.len() > FRAME_MAX || self.count == ORDERED_MAX {
+            self.dropped = self.dropped.saturating_add(u32::from(self.count == ORDERED_MAX));
+            return Err(cap);
+        }
+        self.seq += 1;
+        let at = (self.head + self.count) % ORDERED_MAX;
+        self.ordered[at].set(self.seq, 0, frame);
+        self.ordered[at].cap = Some(cap);
+        self.count += 1;
+        Ok(())
+    }
+
     /// The next frame to leave: the oldest ORDERED one or the LATEST one updated before it.
     fn next(&self) -> Option<Next> {
         let ordered = (self.count > 0).then(|| (self.ordered[self.head].seq, Next::Ordered));
@@ -217,16 +270,20 @@ impl Outbox {
         }
     }
 
-    /// Sends what waits, in order, until the client's queue is full or nothing waits.
-    pub(crate) fn flush(&mut self, mut send: impl FnMut(&[u8]) -> Attempt) -> Flush {
+    /// Sends what waits, in order, until the client's queue is full or nothing waits. `send`
+    /// gets each frame and the capability moving with it: `Sent` took the capability, a full
+    /// queue left it here, a dead client took or refused it (closed either way — at once, before
+    /// any other capability could take its slot).
+    pub(crate) fn flush(&mut self, mut send: impl FnMut(&[u8], Option<u32>) -> Attempt) -> Flush {
         while let Some(next) = self.next() {
-            let frame = match next {
-                Next::Ordered => self.ordered[self.head].frame(),
-                Next::Latest(i) => self.latest[i].frame(),
+            let (frame, cap) = match next {
+                Next::Ordered => (self.ordered[self.head].frame(), self.ordered[self.head].cap),
+                Next::Latest(i) => (self.latest[i].frame(), None),
             };
-            match send(frame) {
+            match send(frame, cap) {
                 Attempt::Sent => match next {
                     Next::Ordered => {
+                        self.ordered[self.head].cap = None;
                         self.head = (self.head + 1) % ORDERED_MAX;
                         self.count -= 1;
                     }
@@ -234,6 +291,9 @@ impl Outbox {
                 },
                 Attempt::Full | Attempt::Budget => return Flush::Full,
                 Attempt::Dead => {
+                    if let (Next::Ordered, Some(cap)) = (next, self.ordered[self.head].cap.take()) {
+                        close_cap(cap);
+                    }
                     self.clear();
                     return Flush::Dead;
                 }
@@ -241,6 +301,14 @@ impl Outbox {
         }
         Flush::Drained
     }
+}
+
+/// Closes a capability a frame carried that will never move (its client is gone).
+pub(crate) fn close_cap(cap: u32) {
+    #[cfg(nexus_env = "os")]
+    let _ = nexus_abi::cap_close(cap);
+    #[cfg(not(nexus_env = "os"))]
+    let _ = cap;
 }
 
 /// Two committed texts, `first` then `then`, as ONE text frame with `first`'s stamp — `None` when
@@ -275,14 +343,20 @@ enum Next {
 /// The pool: one outbox per client channel (its SEND capability's slot) while frames wait.
 pub(crate) struct Outboxes {
     boxes: Vec<(Option<u32>, Outbox)>,
+    /// Channels whose last frame waits (`OP_SURFACE_CLOSED`, RFC-0112): closed once it left.
+    closing: Vec<u32>,
     /// The compositor loop's waitset: a full channel's writable signal is armed in it.
     waitset: Option<u32>,
 }
 
 impl Outboxes {
-    /// Allocates the pool once.
+    /// The pool with its reserved outboxes.
     pub(crate) fn new() -> Self {
-        Self { boxes: (0..CLIENTS_MAX).map(|_| (None, Outbox::new())).collect(), waitset: None }
+        Self {
+            boxes: (0..CLIENTS_RESERVED).map(|_| (None, Outbox::new())).collect(),
+            closing: Vec::new(),
+            waitset: None,
+        }
     }
 
     pub(crate) fn set_waitset(&mut self, waitset: u32) {
@@ -303,12 +377,20 @@ impl Outboxes {
         self.boxes.iter().any(|(c, o)| *c == Some(channel) && !o.is_empty())
     }
 
-    /// The outbox for `channel`, binding a free one; `None` when every outbox is bound.
+    /// The outbox for `channel`, binding a free one or a new one; `None` only when memory
+    /// refuses a new one.
     pub(crate) fn bind(&mut self, channel: u32) -> Option<&mut Outbox> {
         let i = match self.boxes.iter().position(|(c, _)| *c == Some(channel)) {
             Some(i) => i,
             None => {
-                let i = self.boxes.iter().position(|(c, o)| c.is_none() || o.is_empty())?;
+                let i = match self.boxes.iter().position(|(c, o)| c.is_none() || o.is_empty()) {
+                    Some(i) => i,
+                    None => {
+                        self.boxes.try_reserve(1).ok()?;
+                        self.boxes.push((None, Outbox::try_new()?));
+                        self.boxes.len() - 1
+                    }
+                };
                 self.boxes[i].0 = Some(channel);
                 self.boxes[i].1.clear();
                 i
@@ -317,17 +399,70 @@ impl Outboxes {
         Some(&mut self.boxes[i].1)
     }
 
+    /// Outboxes in the pool (bound or free): the bound of [`Self::behind_at`].
+    pub(crate) fn len(&self) -> usize {
+        self.boxes.len()
+    }
+
+    /// The channel of outbox `i` if frames wait in it. Outboxes are never removed, so a pass
+    /// over `0..len()` holds while a flush forgets a channel.
+    pub(crate) fn behind_at(&self, i: usize) -> Option<u32> {
+        self.boxes.get(i).filter(|(_, o)| !o.is_empty()).and_then(|(c, _)| *c)
+    }
+
     /// `channel` closed: what waited for it is dropped and its outbox is free.
     pub(crate) fn forget(&mut self, channel: u32) {
         for (c, o) in self.boxes.iter_mut().filter(|(c, _)| *c == Some(channel)) {
             o.clear();
             *c = None;
         }
+        self.closing.retain(|c| *c != channel);
+    }
+
+    /// `channel`'s LAST frame (RFC-0112: `OP_SURFACE_CLOSED`), alone: what waited for it is
+    /// dropped, the frame waits in its emptied outbox, and the channel's capability is closed
+    /// once the frame left (`drained`) or the client died (`dead`). `false` only when memory
+    /// refuses an outbox (the caller closes the channel itself).
+    pub(crate) fn push_last(&mut self, channel: u32, frame: &[u8]) -> bool {
+        self.forget(channel);
+        if self.closing.try_reserve(1).is_err() {
+            return false;
+        }
+        if !self.bind(channel).is_some_and(|outbox| outbox.push(frame, Kind::Ordered)) {
+            self.forget(channel);
+            return false;
+        }
+        self.closing.push(channel);
+        true
+    }
+
+    /// Everything waiting for `channel` left: a closing channel's capability goes now.
+    pub(crate) fn drained(&mut self, channel: u32) {
+        if self.closing.contains(&channel) {
+            self.forget(channel);
+            close_cap(channel);
+        }
+    }
+
+    /// `channel`'s client is gone: what waited is dropped, a closing channel's capability goes.
+    pub(crate) fn dead(&mut self, channel: u32) {
+        let closing = self.closing.contains(&channel);
+        self.forget(channel);
+        if closing {
+            close_cap(channel);
+        }
+    }
+
+    /// Whether `channel` waits to be closed after its last frame.
+    #[cfg(test)]
+    pub(crate) fn is_closing(&self, channel: u32) -> bool {
+        self.closing.contains(&channel)
     }
 
     /// The channels with frames waiting.
+    #[cfg(test)]
     pub(crate) fn behind(&self) -> impl Iterator<Item = u32> + '_ {
-        self.boxes.iter().filter(|(_, o)| !o.is_empty()).filter_map(|(c, _)| *c)
+        (0..self.len()).filter_map(|i| self.behind_at(i))
     }
 
     /// `(clients behind, the most frames one waits with, ORDERED frames refused)` — the line.
@@ -356,239 +491,5 @@ pub(crate) fn latest_key(frame: &[u8]) -> Option<u16> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use alloc::vec;
-
-    fn f(tag: u8) -> Vec<u8> {
-        vec![tag; 13]
-    }
-
-    /// A client with room for `room` frames, recording what it got.
-    fn client(room: usize, got: &mut Vec<u8>) -> impl FnMut(&[u8]) -> Attempt + '_ {
-        let mut left = room;
-        move |frame| {
-            if left == 0 {
-                return Attempt::Full;
-            }
-            left -= 1;
-            got.push(frame[0]);
-            Attempt::Sent
-        }
-    }
-
-    #[test]
-    fn ordered_frames_leave_in_order_as_the_client_drains() {
-        let mut o = Outbox::new();
-        for t in 1..=5 {
-            assert!(o.push(&f(t), Kind::Ordered));
-        }
-        let mut got = Vec::new();
-        assert_eq!(o.flush(client(2, &mut got)), Flush::Full, "the queue fills after two");
-        assert_eq!(got, [1, 2]);
-        assert_eq!(o.queued(), 3, "the rest waits, nothing lost");
-        let mut got = Vec::new();
-        assert_eq!(o.flush(client(8, &mut got)), Flush::Drained);
-        assert_eq!(got, [3, 4, 5]);
-        assert!(o.is_empty());
-    }
-
-    #[test]
-    fn a_latest_frame_replaces_the_older_one_of_its_kind() {
-        let mut o = Outbox::new();
-        o.push(&f(1), Kind::Latest(7));
-        o.push(&f(2), Kind::Latest(7));
-        o.push(&f(3), Kind::Latest(9));
-        assert_eq!(o.queued(), 2, "one pending per kind");
-        let mut got = Vec::new();
-        o.flush(client(8, &mut got));
-        assert_eq!(got, [2, 3], "the newest of each kind, in the order of their last update");
-    }
-
-    /// A pointer move queued after a tap leaves after it; one queued before it leaves before
-    /// it — the client never sees a state older than an event queued after it.
-    #[test]
-    fn a_latest_frame_leaves_at_the_place_of_its_last_update() {
-        let mut o = Outbox::new();
-        o.push(&f(1), Kind::Latest(7)); // move to a
-        o.push(&f(2), Kind::Ordered); // tap
-        let mut got = Vec::new();
-        o.flush(client(8, &mut got));
-        assert_eq!(got, [1, 2]);
-        o.push(&f(1), Kind::Latest(7)); // move to a
-        o.push(&f(2), Kind::Ordered); // tap
-        o.push(&f(3), Kind::Latest(7)); // move to b: replaces a, after the tap
-        let mut got = Vec::new();
-        o.flush(client(8, &mut got));
-        assert_eq!(got, [2, 3]);
-    }
-
-    /// A byte-budget refusal stops the flush like a full queue; nothing is lost.
-    #[test]
-    fn a_budget_refusal_keeps_the_frame_for_the_next_pass() {
-        let mut o = Outbox::new();
-        o.push(&f(1), Kind::Ordered);
-        assert_eq!(o.flush(|_| Attempt::Budget), Flush::Full);
-        assert_eq!(o.queued(), 1);
-    }
-
-    #[test]
-    fn a_dead_client_drops_what_waited() {
-        let mut o = Outbox::new();
-        o.push(&f(1), Kind::Ordered);
-        o.push(&f(2), Kind::Latest(1));
-        assert_eq!(o.flush(|_| Attempt::Dead), Flush::Dead);
-        assert!(o.is_empty());
-    }
-
-    #[test]
-    fn test_reject_an_ordered_frame_past_the_bound() {
-        let mut o = Outbox::new();
-        for t in 0..ORDERED_MAX as u8 {
-            assert!(o.push(&f(t), Kind::Ordered));
-        }
-        assert!(!o.push(&f(99), Kind::Ordered), "far behind: refused, never parked");
-        assert_eq!(o.dropped(), 1);
-        assert_eq!(o.queued(), ORDERED_MAX, "what waited is kept");
-    }
-
-    #[test]
-    fn test_reject_a_frame_longer_than_any_event_or_empty() {
-        let mut o = Outbox::new();
-        assert!(!o.push(&vec![0; FRAME_MAX + 1], Kind::Ordered));
-        assert!(!o.push(&[], Kind::Latest(1)));
-        assert!(o.is_empty());
-        assert_eq!(o.dropped(), 0, "a malformed frame is no client's backlog");
-    }
-
-    #[test]
-    fn a_latest_kind_past_the_slots_queues_as_ordered() {
-        let mut o = Outbox::new();
-        for k in 0..=LATEST_MAX as u16 {
-            assert!(o.push(&f(k as u8), Kind::Latest(k)));
-        }
-        assert_eq!(o.queued(), LATEST_MAX + 1, "never lost");
-        let mut got = Vec::new();
-        o.flush(client(32, &mut got));
-        assert_eq!(got.len(), LATEST_MAX + 1);
-        assert_eq!(got, (0..=LATEST_MAX as u8).collect::<Vec<_>>(), "in order");
-    }
-
-    #[test]
-    fn the_pool_binds_reuses_and_forgets_by_channel() {
-        let mut pool = Outboxes::new();
-        assert_eq!(pool.waitset(), None, "no writable signal before the loop names its waitset");
-        pool.set_waitset(7);
-        assert_eq!(pool.waitset(), Some(7));
-        assert!(!pool.waiting(4));
-        pool.bind(4).map(|o| o.push(&f(1), Kind::Ordered));
-        assert!(pool.waiting(4));
-        assert_eq!(pool.behind().collect::<Vec<_>>(), [4]);
-        assert_eq!(pool.census(), (1, 1, 0));
-        pool.forget(4);
-        assert!(!pool.waiting(4) && pool.get_mut(4).is_none());
-        // Every outbox bound and waiting: a further client gets none (the caller sends once).
-        for c in 0..CLIENTS_MAX as u32 {
-            pool.bind(100 + c).map(|o| o.push(&f(1), Kind::Ordered));
-        }
-        assert!(pool.bind(999).is_none());
-        // A drained outbox is free for the next client without a forget.
-        let _ = pool.get_mut(100).map(|o| o.flush(|_| Attempt::Sent));
-        assert!(pool.bind(999).is_some());
-    }
-
-    fn commit(text: &str, seq: u32) -> Vec<u8> {
-        use nexus_display_proto::surface_text as st;
-        let stamp = st::TextStamp { seq, t_ns: u64::from(seq) * 1_000 };
-        let (frame, len) =
-            st::encode_surface_text(st::SURFACE_TEXT_COMMIT, 0, text, stamp).expect("encodes");
-        frame[..len].to_vec()
-    }
-
-    fn texts(o: &mut Outbox) -> Vec<(u8, alloc::string::String, u32)> {
-        use nexus_display_proto::surface_text as st;
-        let mut got = Vec::new();
-        o.flush(|frame| {
-            let (kind, _, text, stamp) = st::decode_surface_text(frame).expect("a text frame");
-            got.push((kind, alloc::string::String::from(text), stamp.seq));
-            Attempt::Sent
-        });
-        got
-    }
-
-    /// RFC-0113: a client behind a fast typist gets the run as one frame — every character, in
-    /// order, the first key's stamp.
-    #[test]
-    fn consecutive_commits_join_while_the_client_is_behind() {
-        let mut o = Outbox::new();
-        for (i, ch) in ["f", "a", "s", "t"].iter().enumerate() {
-            assert!(o.push(&commit(ch, i as u32 + 1), Kind::Ordered));
-        }
-        assert_eq!(o.queued(), 1, "one frame holds the run");
-        assert_eq!(texts(&mut o), [(0, "fast".into(), 1)]);
-    }
-
-    #[test]
-    fn test_reject_a_join_across_an_action_or_past_the_text_bound() {
-        use nexus_display_proto::surface_text as st;
-        let mut o = Outbox::new();
-        o.push(&commit("ab", 1), Kind::Ordered);
-        let (back, len) =
-            st::encode_surface_text(st::SURFACE_TEXT_ACTION, 2, "", st::TextStamp::NONE).unwrap();
-        o.push(&back[..len], Kind::Ordered);
-        o.push(&commit("c", 3), Kind::Ordered);
-        let got = texts(&mut o);
-        assert_eq!(got.len(), 3, "an action between two commits keeps them apart");
-        assert_eq!(got[2].1, "c");
-        let long = "x".repeat(st::SURFACE_TEXT_MAX_BYTES - 1);
-        o.push(&commit(&long, 4), Kind::Ordered);
-        o.push(&commit("yz", 5), Kind::Ordered);
-        assert_eq!(o.queued(), 2, "the joined text would not fit one frame");
-        let mut taps = Outbox::new();
-        taps.push(&f(1), Kind::Ordered);
-        taps.push(&f(2), Kind::Ordered);
-        assert_eq!(taps.queued(), 2, "only commits join");
-    }
-
-    #[test]
-    fn the_latest_key_groups_the_pointer_and_separates_ops() {
-        use nexus_display_proto::client_surface as wire;
-        let mv = wire::encode_surface_input(1, wire::INPUT_KIND_MOVE, 3, 4);
-        let leave = wire::encode_surface_input(1, wire::INPUT_KIND_LEAVE, 0, 0);
-        let drag = wire::encode_surface_input(1, wire::INPUT_KIND_DRAG, 3, 4);
-        let pulse = wire::encode_surface_frame(1);
-        assert_eq!(latest_key(&mv), latest_key(&leave), "where the pointer is: one state");
-        assert_ne!(latest_key(&mv), latest_key(&drag));
-        assert_ne!(latest_key(&mv), latest_key(&pulse));
-        assert_eq!(latest_key(&[1, 2]), None);
-    }
-
-    /// RFC-0113 §2: a MOVE that replaces a waiting one carries both batches' samples.
-    #[test]
-    fn a_replaced_move_hands_on_its_samples() {
-        use nexus_display_proto::client_surface as wire;
-        use nexus_display_proto::surface_input::{decode_surface_motion, encode_surface_motion};
-        use nexus_display_proto::surface_motion::{MotionBatch, MotionSample};
-        let batch = |x: i32| {
-            let mut b = MotionBatch::new();
-            b.push(MotionSample { x, y: 1, t_ns: x as u64 * 1_000, seq: x as u32 });
-            b
-        };
-        let (a, n) = encode_surface_motion(7, wire::INPUT_KIND_MOVE, 3, 1, &batch(3)).expect("a");
-        let (b, m) = encode_surface_motion(7, wire::INPUT_KIND_MOVE, 5, 1, &batch(5)).expect("b");
-        let key = latest_key(&a[..n]).expect("key");
-        let mut o = Outbox::new();
-        assert!(o.push(&a[..n], Kind::Latest(key)));
-        assert!(o.push(&b[..m], Kind::Latest(key)));
-        let mut got = Vec::new();
-        let _ = o.flush(|f| {
-            got.push(f.to_vec());
-            Attempt::Sent
-        });
-        assert_eq!(got.len(), 1, "one MOVE leaves");
-        let (_, _, x, _, motion) = decode_surface_motion(&got[0]).expect("a motion frame");
-        let mut both = batch(3);
-        both.append(&batch(5));
-        assert_eq!((x, motion), (5, both));
-    }
-}
+#[path = "client_outbox_tests.rs"]
+mod tests;

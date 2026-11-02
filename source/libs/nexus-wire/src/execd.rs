@@ -20,6 +20,23 @@ pub const OP_EXEC_IMAGE: u8 = 1;
 /// answered. Taken from the lifecycle authority's kernel sender id alone, for a live child alone
 /// (the freeze/thaw/kill orders 4–6 are the same gate, hand-written in execd and abilitymgr).
 pub const OP_SQUEEZE: u8 = 7;
+/// The compositor is back (RFC-0112, amendment 2026-11-02): init's one-way notice once a
+/// respawned windowd is wired, `[E,X,ver,OP_COMPOSITOR_BACK]`, taken from init's kernel id alone
+/// and never answered (execd's answers ride a response endpoint its spawn callers read). execd
+/// re-pins each live app's windowd slots over the dead capabilities and tells each app.
+pub const OP_COMPOSITOR_BACK: u8 = 8;
+
+/// The notice's frame.
+#[must_use]
+pub const fn encode_compositor_back() -> [u8; 4] {
+    [MAGIC0, MAGIC1, VERSION, OP_COMPOSITOR_BACK]
+}
+
+/// Whether `frame` is the notice.
+#[must_use]
+pub fn is_compositor_back(frame: &[u8]) -> bool {
+    frame == encode_compositor_back()
+}
 
 /// Status: operation succeeded.
 pub const STATUS_OK: u8 = 0;

@@ -10,6 +10,9 @@
 //!   no heap is touched.
 //! - [`blit_from`]: opaque copy from a *separate* source buffer (a wallpaper or
 //!   icon atlas) into the surface.
+//! - [`blit_from_blend`]: alpha-blend from a *separate* source buffer with its own
+//!   row stride — a layer drawn from the surface buffer an app draws into
+//!   (RFC-0114: the compositor reads the app's memory, it copies nothing first).
 
 #![forbid(unsafe_code)]
 
@@ -164,4 +167,60 @@ pub fn blit_from(
         }
     }
     let _ = width;
+}
+
+/// A source a layer blends from: `bytes` of rows `stride` bytes apart, BGRA premultiplied.
+#[derive(Clone, Copy, Debug)]
+pub struct BlendSource<'a> {
+    pub bytes: &'a [u8],
+    pub stride: usize,
+}
+
+/// Like [`blit_within_blend`], from a separate `src` (RFC-0114: a surface buffer's slot): the
+/// band `src_size` (`(0, 0)` = the layer's own `w × h`) at `(src_x, src_y)` of `src` spread over
+/// the layer at `(dst_x, dst_y)` by its nearest texel, every alpha times `opacity`
+/// (`0..=255`). Rows and columns outside `src` or the surface are skipped, never read.
+#[allow(clippy::too_many_arguments)]
+pub fn blit_from_blend(
+    s: &mut Surface,
+    src: BlendSource<'_>,
+    src_x: u32,
+    src_y: u32,
+    src_size: (u32, u32),
+    dst_x: u32,
+    dst_y: u32,
+    w: u32,
+    h: u32,
+    opacity: u32,
+) {
+    let (sw, sh) = match src_size {
+        (0, _) | (_, 0) => (w, h),
+        size => size,
+    };
+    let copy_w = w.min(s.width().saturating_sub(dst_x));
+    let copy_h = h.min(s.height().saturating_sub(dst_y));
+    let opacity = opacity.min(255);
+    if copy_w == 0 || copy_h == 0 || sw == 0 || sh == 0 || opacity == 0 || src.stride == 0 {
+        return;
+    }
+    let dst_stride = s.stride();
+    let buf = s.buf_mut();
+    for row in 0..copy_h {
+        let sy = src_y as usize + (u64::from(row) * u64::from(sh) / u64::from(h)) as usize;
+        let src_row = sy * src.stride + src_x as usize * 4;
+        let dst_off = (dst_y + row) as usize * dst_stride + dst_x as usize * 4;
+        if dst_off + copy_w as usize * 4 > buf.len() {
+            continue;
+        }
+        for col in 0..copy_w as usize {
+            let sx = (col as u64 * u64::from(sw) / u64::from(w)) as usize;
+            let at = src_row + sx * 4;
+            let Some(px) = src.bytes.get(at..at + 4) else { continue };
+            let mut s4 = [px[0], px[1], px[2], px[3]];
+            if opacity < 255 {
+                s4[3] = (u32::from(s4[3]) * opacity / 255) as u8;
+            }
+            blend::blend_over(buf, dst_off + col * 4, &s4);
+        }
+    }
 }

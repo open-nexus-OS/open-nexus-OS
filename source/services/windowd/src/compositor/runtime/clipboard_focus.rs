@@ -24,9 +24,7 @@ use super::*;
 
 /// Delivery state of the focus truth.
 pub(super) struct ClipFocusState {
-    /// The last SENT (focused, desktop, ime) owners — the dedupe key. Starts at
-    /// clipboardd's own initial truth (nobody), so nothing is sent until an
-    /// owner exists.
+    /// The last SENT (focused, desktop, ime) owners — the dedupe key.
     last: (u64, u64, u64),
     /// A send is still owed (the authority's queue was full).
     owed: bool,
@@ -38,7 +36,9 @@ impl ClipFocusState {
     pub(super) const fn new() -> Self {
         Self {
             last: (0, 0, 0),
-            owed: false,
+            // Owed from the start: a restarted compositor (RFC-0112) tells clipboardd who is
+            // looking now — its truth was the dead instance's owners, and their read rights.
+            owed: true,
             #[cfg(nexus_env = "os")]
             client: None,
         }

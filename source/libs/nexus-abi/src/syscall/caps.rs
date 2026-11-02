@@ -134,7 +134,12 @@ pub fn cap_transfer(dst_task: Pid, cap: Cap, rights: Rights) -> SysResult<Cap> {
     }
 }
 
-/// Transfers a capability from the current task to `dst_task` into `dst_slot`.
+/// `cap_transfer_to`'s flag (its fifth argument): the target slot may be empty or hold a
+/// capability to a DEAD endpoint, which the kernel drops and replaces (RFC-0112).
+pub const CAP_TRANSFER_REPLACE_DEAD: usize = 1;
+
+/// Transfers a capability from the current task to `dst_task` into `dst_slot` — an empty slot.
+/// The kernel takes it only into the caller itself or one of its direct children (RFC-0112).
 #[cfg(nexus_env = "os")]
 pub fn cap_transfer_to_slot(
     dst_task: Pid,
@@ -142,23 +147,50 @@ pub fn cap_transfer_to_slot(
     rights: Rights,
     dst_slot: Cap,
 ) -> SysResult<Cap> {
+    cap_transfer_to_slot_flags(dst_task, cap, rights, dst_slot, 0)
+}
+
+/// [`cap_transfer_to_slot`] re-pinning a slot whose capability names a DEAD endpoint (or an
+/// empty one): a restarted server's route into its clients' declared slots (RFC-0112). A live
+/// capability, or one of any other kind, is refused (`EPERM`).
+#[cfg(nexus_env = "os")]
+pub fn cap_transfer_to_slot_replace_dead(
+    dst_task: Pid,
+    cap: Cap,
+    rights: Rights,
+    dst_slot: Cap,
+) -> SysResult<Cap> {
+    cap_transfer_to_slot_flags(dst_task, cap, rights, dst_slot, CAP_TRANSFER_REPLACE_DEAD)
+}
+
+#[cfg(nexus_env = "os")]
+fn cap_transfer_to_slot_flags(
+    dst_task: Pid,
+    cap: Cap,
+    rights: Rights,
+    dst_slot: Cap,
+    flags: usize,
+) -> SysResult<Cap> {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
         const SYSCALL_CAP_TRANSFER_TO: usize = 31;
         let raw = unsafe {
-            ecall4(
+            // SAFETY: forwards raw arguments expected by the kernel capability transfer ABI;
+            // the fifth is always set — the kernel refuses unknown flag bits.
+            ecall5(
                 SYSCALL_CAP_TRANSFER_TO,
                 dst_task as usize,
                 cap as usize,
                 rights.bits() as usize,
                 dst_slot as usize,
+                flags,
             )
         };
         decode_syscall(raw).map(|slot| slot as Cap)
     }
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
     {
-        let _ = (dst_task, cap, rights, dst_slot);
+        let _ = (dst_task, cap, rights, dst_slot, flags);
         Err(AbiError::Unsupported)
     }
 }

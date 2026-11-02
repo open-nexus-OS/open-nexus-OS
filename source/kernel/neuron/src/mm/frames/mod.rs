@@ -110,6 +110,9 @@ pub enum FrameError {
     TooLarge,
     /// `trim` asked to keep nothing, or more frames than the block has.
     BadTrim,
+    /// The kernel heap above its reserve cannot hold the list of a caller-sized allocation's
+    /// blocks (ADR-0091) — the frames taken so far went back.
+    NoHeap,
 }
 
 /// Counters for the boot report and the telemetry query (P5).

@@ -61,6 +61,10 @@ pub(super) fn rounded_parts(rect: Px, r: u32, s: u32) -> [Part; 7] {
 /// A layer's content as drawn.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct Content {
+    /// What the band is a rectangle of (RFC-0114 §6): `0` the shared layout, else a surface
+    /// buffer, whose slot `slot` the band's rows and columns are of.
+    pub source: u32,
+    pub slot: u8,
     pub rect: Px,
     pub band: Px,
     pub tint: [f32; 4],
@@ -73,6 +77,14 @@ pub(super) struct Content {
 }
 
 impl Content {
+    /// The texture of `(x, row, w, h)` of the band's source.
+    fn tex(&self, x: u32, row: u32, w: u32, h: u32) -> Tex {
+        match self.source {
+            0 => Tex::Layout { x, row, w, h },
+            source => Tex::Buffer { source, slot: self.slot, x, row, w, h },
+        }
+    }
+
     /// The band shown at the layer's own size — or one colour: its parts can be drawn apart.
     fn one_to_one(&self) -> bool {
         self.solid || (self.band.2, self.band.3) == (self.rect.2, self.rect.3)
@@ -122,13 +134,13 @@ impl Content {
             // The band spread over the layer: one draw, the whole band as its texture.
             let pipe = if self.radius == 0 { Pipe::Straight } else { Pipe::Rounded };
             let quad = Quad::layer(f(x), f(y), f(w), f(h), self.tint, r);
-            return DrawSpec { pipe, quad, tex: Tex::Layout { x: sx, row: srow, w: bw, h: bh } };
+            return DrawSpec { pipe, quad, tex: self.tex(sx, srow, bw, bh) };
         }
         let tex = if self.solid {
             // One colour: the whole band serves every part.
-            Tex::Layout { x: sx, row: srow, w: bw, h: bh }
+            self.tex(sx, srow, bw, bh)
         } else {
-            Tex::Layout { x: sx + (p.0 - x), row: srow + (p.1 - y), w: p.2, h: p.3 }
+            self.tex(sx + (p.0 - x), srow + (p.1 - y), p.2, p.3)
         };
         let quad = if rounded {
             Quad::part((f(x), f(y), f(w), f(h)), (f(p.0), f(p.1), f(p.2), f(p.3)), self.tint, r)

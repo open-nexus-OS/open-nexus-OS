@@ -36,27 +36,44 @@ impl DslApp {
         }
         match snap {
             Some(s) => {
-                let clamp = |v: i32| v.max(0).min(i32::from(u16::MAX)) as u16;
-                let rect = self
-                    .layout
-                    .boxes
-                    .iter()
-                    .find(|b| b.node_id == s.box_id)
-                    .map(|b| {
-                        // Where the field shows on the surface (a scroll layer moves it).
-                        let (x, y) = self.on_surface(b);
-                        (clamp(x), clamp(y), clamp(b.rect.width.0), clamp(b.rect.height.0))
-                    })
-                    .unwrap_or((0, 0, 0, 0));
-                let kind = if s.secure {
-                    surface_text::SURFACE_FIELD_PASSWORD
-                } else {
-                    surface_text::SURFACE_FIELD_TEXT
-                };
+                let (kind, rect) = self.focus_claim(s.box_id, s.secure);
                 Some((true, kind, rect))
             }
             None => Some((false, surface_text::SURFACE_FIELD_TEXT, (0, 0, 0, 0))),
         }
+    }
+
+    /// What a focused field claims of the compositor: its kind and where it shows on the
+    /// surface (a scroll layer moves it).
+    fn focus_claim(&self, box_id: usize, secure: bool) -> (u8, (u16, u16, u16, u16)) {
+        use nexus_display_proto::surface_text;
+        let clamp = |v: i32| v.max(0).min(i32::from(u16::MAX)) as u16;
+        let rect = self
+            .layout
+            .boxes
+            .iter()
+            .find(|b| b.node_id == box_id)
+            .map(|b| {
+                let (x, y) = self.on_surface(b);
+                (clamp(x), clamp(y), clamp(b.rect.width.0), clamp(b.rect.height.0))
+            })
+            .unwrap_or((0, 0, 0, 0));
+        let kind = if secure {
+            surface_text::SURFACE_FIELD_PASSWORD
+        } else {
+            surface_text::SURFACE_FIELD_TEXT
+        };
+        (kind, rect)
+    }
+
+    /// A new compositor (RFC-0112): the field that holds focus is announced again — the new
+    /// one routes no key to this window until it hears it.
+    pub(crate) fn reannounce_text_focus(&self, client: &KernelClient, surface_id: u32) {
+        use nexus_display_proto::surface_text;
+        let Some(s) = self.view.text_focus() else { return };
+        let (kind, rect) = self.focus_claim(s.box_id, s.secure);
+        let f = surface_text::encode_surface_text_focus(surface_id, true, kind, rect);
+        let _ = client.send(&f, Wait::NonBlocking);
     }
 
     /// A text frame (RFC-0075) in the present loop: applied to the focused field, the rows it

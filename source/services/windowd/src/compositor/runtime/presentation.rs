@@ -61,14 +61,14 @@ impl DisplayServerRuntime {
         {
             let desktop_slot = self.desktop_channel;
             let mut due_any = desktop_slot.is_some() && self.presentation.due(DESKTOP);
-            for i in 0..self.event_channels_len {
+            for i in 0..self.event_channels.len() {
                 due_any |= self.presentation.due(i);
             }
             if !due_any {
                 return;
             }
             let Some((frame, n)) = self.presentation_frame() else { return };
-            for i in 0..self.event_channels_len {
+            for i in 0..self.event_channels.len() {
                 let slot = self.event_channels[i].1;
                 if Some(slot) == desktop_slot {
                     // Desktop alias: delivered via the DESKTOP index below.

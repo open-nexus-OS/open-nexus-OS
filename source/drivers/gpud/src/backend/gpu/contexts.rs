@@ -35,8 +35,9 @@ use super::space::Space;
 /// Contexts the device holds at once (a render context with its transfer queue holds about 60
 /// pages of the firmware's 1024).
 pub(super) const MAX_CONTEXTS: usize = 8;
-/// Bindings one context holds (the render bundle binds 37 ranges).
-pub(super) const MAX_BINDINGS: usize = 64;
+/// Bindings one context holds: the render bundle binds 37 ranges, the desktop 7, and every app
+/// surface one (RFC-0114) — room for some 80 windows.
+pub(super) const MAX_BINDINGS: usize = 128;
 /// A point: its context's number in bits 40..63, its queue in 32..39, the sequence below.
 const QUEUE_SHIFT: u32 = 32;
 const CONTEXT_SHIFT: u32 = 40;

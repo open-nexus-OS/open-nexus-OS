@@ -43,12 +43,15 @@ impl SpawnArgsTyped {
         Ok(Self { entry_pc, stack_sp, as_handle, bootstrap_slot, global_pointer })
     }
 
+    /// ADR-0091: a spawned thread runs in an address space (the caller's own, checked by
+    /// [`sys_spawn`]) on a stack the caller names. A task without a space would run in
+    /// supervisor mode — starting one is the kernel's alone, never userspace's.
     #[inline]
     fn check(&self) -> Result<(), Error> {
-        if self.as_handle.is_some() && self.stack_sp.is_none() {
-            return Err(AddressSpaceError::InvalidArgs.into());
+        if self.as_handle.is_none() {
+            return Err(Error::Capability(CapError::PermissionDenied));
         }
-        if self.as_handle.is_none() && self.stack_sp.is_some() {
+        if self.stack_sp.is_none() {
             return Err(AddressSpaceError::InvalidArgs.into());
         }
         Ok(())
@@ -428,6 +431,9 @@ pub(super) fn sys_as_self(ctx: &mut Context<'_>, _args: &Args) -> SysResult<usiz
     Ok(handle.to_raw() as usize)
 }
 
+/// `SYSCALL_SPAWN` (7): a thread in the caller's OWN address space (`as_self`), on the stack
+/// the caller names, left suspended for its parent (ADR-0091). Another process's space, or no
+/// space (a supervisor task), is `EPERM`; processes come from `exec_vmo` (ADR-0080).
 pub(super) fn sys_spawn(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let typed = SpawnArgsTyped::decode(args)?;
     let sp_raw = typed.stack_sp.map(|v| v.raw()).unwrap_or(0);
@@ -443,6 +449,11 @@ pub(super) fn sys_spawn(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> 
         typed.global_pointer
     );
     typed.check()?;
+    // ADR-0091: the only space a task may start a thread in is its own — a raw handle naming
+    // another process's space would run the caller's choice of entry inside it.
+    if typed.as_handle != ctx.tasks.current_task().address_space() {
+        return Err(Error::Capability(CapError::PermissionDenied));
+    }
 
     let parent = ctx.tasks.current_pid();
     let pid = match ctx.tasks.spawn(
@@ -464,12 +475,8 @@ pub(super) fn sys_spawn(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> 
         }
     };
 
-    // Kernel-spawned tasks (selftest, init-lite) must run immediately.
-    // Userspace-spawned services stay suspended until the parent resumes them.
-    if typed.as_handle.is_none_or(|h| h.to_raw() == 0) {
-        let _ = ctx.tasks.resume_task(pid, ctx.scheduler);
-    }
-
+    // A spawned thread stays suspended until its parent resumes it (`task_resume`), so the
+    // parent can hand it capabilities first.
     Ok(pid.as_index())
 }
 

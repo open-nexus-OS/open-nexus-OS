@@ -85,6 +85,10 @@ mod hover_wash;
 mod layout_diff;
 #[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
 mod modal_edge;
+// The surface's buffer, the pure part (RFC-0114): a slot's rows, the copy-forward, the clean
+// spans. Same one-cfg shape as `band_math`: the mapping is in `probe/surface_mem.rs`.
+#[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
+mod slot_math;
 // Pure `.scroll(paged)` page-turn decisions (launcher pager) — same one-cfg
 // shape as `hover_wash`: the physics/timing lives in RISC-V-only `probe/`,
 // the decision here where host tests reach it.

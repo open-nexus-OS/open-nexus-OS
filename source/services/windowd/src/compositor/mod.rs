@@ -271,61 +271,61 @@ fn dispatch_client_frame(
         runtime.attach_app_event_channel(send_slot, nonce);
     } else if frame.get(3).copied() == Some(nexus_display_proto::client_surface::OP_SURFACE_CREATE)
     {
-        // ADR-0042: the moved capability IS the app's surface VMO (gpud-attach
-        // pattern), NOT a reply cap. Retain its slot; the ack returns over the
-        // app's dedicated event channel (fallback: shared response endpoint).
-        let vmo_slot = moved_cap.take().map(|cap| {
+        // RFC-0114 §3: no capability rides with a create (one that does is closed); the answer
+        // follows gpud's — only a create refused at once is answered here.
+        let moved = moved_cap.take().map(|cap| {
             let slot = cap.slot();
-            core::mem::forget(cap); // keep the slot alive (no close)
+            core::mem::forget(cap); // the slot is the handler's to close
             slot
         });
-        // Ack routing BY NONCE (the create frame carries it): the reply must reach the CREATING
-        // client's own event channel — the floating channel (`send_app_frame`) sent DESKTOP
-        // create-acks into the void and the shell/greeter app-host hung in its ack wait forever.
+        // Answer routing BY NONCE (the create frame carries it): the answer must reach the
+        // CREATING client's own event channel.
         let nonce =
             nexus_display_proto::client_surface::decode_surface_create(frame).map(|c| c.nonce);
-        let ack = runtime.handle_surface_create(frame, vmo_slot, sender_sid);
-        let delivered = match nonce {
-            Some(n) => runtime.send_frame_for_nonce(n, &ack),
-            None => false,
-        };
-        // Every client owns a nonce-bound channel; a missing one falls back to
-        // the shared response endpoint (bring-up paths).
-        reply_route::answer(
-            server,
-            None,
-            &ack,
-            delivered,
-            nexus_display_proto::client_surface::OP_SURFACE_CREATE,
-        );
+        if let Some(answer) = runtime.handle_surface_create(frame, moved, sender_sid) {
+            let delivered = match nonce {
+                Some(n) => runtime.send_frame_for_nonce(n, &answer),
+                None => false,
+            };
+            // Every client owns a nonce-bound channel; a missing one falls back to the shared
+            // response endpoint (bring-up paths).
+            reply_route::answer(
+                server,
+                None,
+                &answer,
+                delivered,
+                nexus_display_proto::client_surface::OP_SURFACE_CREATE,
+            );
+        }
     } else if frame.get(3).copied() == Some(nexus_display_proto::client_surface::OP_SURFACE_PRESENT)
     {
-        // Ack routing BY SURFACE OWNER: a desktop present acks on the desktop
-        // channel, a floating present on the app channel.
-        let sid = nexus_display_proto::client_surface::decode_surface_present(frame)
-            .map(|(id, _, _, _)| id);
-        let ack = runtime.handle_surface_present(frame);
-        let delivered = match sid {
-            Some(id) => runtime.send_surface_frame(id, &ack),
-            None => false,
-        };
-        let op = frame.get(3).copied().unwrap_or(0);
-        reply_route::answer(server, moved_cap.take(), &ack, delivered, op);
+        // The ack is the release (RFC-0114 §5): it leaves once the surface's other slot is free
+        // (`release_presents`, on the surface owner's channel). A refused present is NACKed now.
+        if let Some((nack, owner_sees)) = runtime.handle_surface_present(frame, sender_sid) {
+            let sid = nexus_display_proto::client_surface::decode_surface_present(frame)
+                .map(|p| p.surface_id);
+            let delivered = match sid {
+                Some(id) if owner_sees => runtime.send_surface_frame(id, &nack),
+                _ => false,
+            };
+            let op = frame.get(3).copied().unwrap_or(0);
+            reply_route::answer(server, moved_cap.take(), &nack, delivered, op);
+        }
     } else if frame.get(3).copied() == Some(nexus_display_proto::client_surface::OP_SURFACE_DESTROY)
     {
-        // Same owner routing as present — decode BEFORE the destroy drops the
-        // surface bookkeeping.
+        // Owner routing as for a present, resolved BEFORE the destroy drops the bookkeeping: the
+        // ack rides the owning window's channel — and only its owner destroys it (RFC-0112).
         let sid = nexus_display_proto::client_surface::decode_surface_destroy(frame);
+        let owner = sid.is_some_and(|id| runtime.presents_into(id, sender_sid));
         let was_desktop = sid.is_some() && sid == runtime.desktop_surface_id_for_ack();
-        // Resolve the owning window BEFORE the destroy clears the binding —
-        // the ack still rides that window's dedicated channel.
         let app_idx = sid.and_then(|id| runtime.app_index_by_surface(id));
-        let ack = runtime.handle_surface_destroy(frame);
-        let delivered = if was_desktop {
-            runtime.send_desktop_ack(&ack)
-        } else {
-            app_idx.map(|i| runtime.send_app_frame(i, &ack)).unwrap_or(false)
-        };
+        let ack = runtime.handle_surface_destroy(frame, owner);
+        let delivered = owner
+            && if was_desktop {
+                runtime.send_desktop_ack(&ack)
+            } else {
+                app_idx.is_some_and(|i| runtime.send_app_frame(i, &ack))
+            };
         let op = frame.get(3).copied().unwrap_or(0);
         reply_route::answer(server, moved_cap.take(), &ack, delivered, op);
     } else if frame.get(3).copied() == Some(nexus_display_proto::surface_layers::OP_SURFACE_TREE) {
@@ -511,9 +511,11 @@ pub fn service_main_loop() -> Result<(), &'static str> {
         // Frame pulses AFTER the frame's compose/present work: animating clients tick their
         // physics on the REAL frame cadence.
         runtime.flush_frame_pulses();
-        // ADR-0075: what waited for a busy client leaves as it drained (its receive woke us).
+        // ADR-0075: what waited for a busy client leaves as it drained (its receive woke us);
+        // RFC-0114: so do the buffer requests gpud's queue had no room for, in order.
         #[cfg(nexus_env = "os")]
         runtime.flush_client_outboxes();
+        runtime.flush_gpud_requests();
         // 6. WAIT — no clock. Any member with a queued message wakes us; nothing pending
         //    anywhere means zero CPU until the next event.
         #[cfg(nexus_env = "os")]

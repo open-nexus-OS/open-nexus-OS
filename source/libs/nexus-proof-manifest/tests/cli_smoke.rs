@@ -116,14 +116,16 @@ fn list_markers_full_is_byte_identical_lower_bound() {
     // probes, init's control-frame witnesses); ~968 after the GPU desktop's
     // board rungs (TASK-0215 P2c–P6), TASK-0333 6a (a death is an event: the
     // kernel's exit and EOF rungs, the reaper, the memory loops) and TASK-0334
-    // (the UX contract's judged lines). If it drifts outside the range, the
-    // harness must be told.
+    // (the UX contract's judged lines); ~1070 after TASK-0346–0348 (the keys
+    // and the caret, the security rungs, the surfaces by reference, the
+    // windows that grow and the compositor's restart). If it drifts outside the
+    // range, the harness must be told.
     let (code, stdout, stderr) = run(&["list-markers", "--profile=full", &manifest_arg()]);
     assert_eq!(code, 0, "stderr=`{stderr}`");
     let count = stdout.lines().filter(|l| !l.is_empty()).count();
     assert!(
-        (900..=1060).contains(&count),
-        "list-markers full produced {count} markers; expected ~968 (range 900..=1060)"
+        (1000..=1160).contains(&count),
+        "list-markers full produced {count} markers; expected ~1070 (range 1000..=1160)"
     );
 }
 

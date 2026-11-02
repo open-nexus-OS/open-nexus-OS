@@ -113,7 +113,7 @@ impl DisplayServerRuntime {
                         // A modal-gated sibling hovers nothing (and nothing
                         // beneath it either) — TASK-0074 D4.
                         if matches!(
-                            crate::modal_gate::input_verdict(idx, &self.modal_facts()),
+                            self.modal_verdict(idx),
                             crate::modal_gate::Verdict::RefusedByModal { .. }
                         ) && !matches!(frame.press(cursor_x, cursor_y), WindowPress::Miss)
                         {
@@ -270,15 +270,16 @@ impl DisplayServerRuntime {
         }
     }
 
-    /// The slots' facts the modal gate decides on (TASK-0074 D4): owner, modal flag, live
-    /// surface — a fixed array, no allocation per event.
-    pub(crate) fn modal_facts(
-        &self,
-    ) -> [crate::modal_gate::SlotFacts; crate::window_scene::MAX_APP_WINDOWS] {
-        core::array::from_fn(|i| crate::modal_gate::SlotFacts {
-            owner_sid: self.apps[i].owner_sid,
-            modal: self.apps[i].app_modal,
-            live: self.apps[i].surface_id.is_some(),
+    /// Whether input to slot `idx` passes the modal gate (TASK-0074 D4): the gate reads each
+    /// slot's facts — owner, modal flag, live surface — in place, no table per event (the slots
+    /// grow, RFC-0114 §7).
+    pub(crate) fn modal_verdict(&self, idx: usize) -> crate::modal_gate::Verdict {
+        crate::modal_gate::input_verdict_by(idx, self.apps.len(), |i| {
+            crate::modal_gate::SlotFacts {
+                owner_sid: self.apps[i].owner_sid,
+                modal: self.apps[i].app_modal,
+                live: self.apps[i].surface_id.is_some(),
+            }
         })
     }
 }

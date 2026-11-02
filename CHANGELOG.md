@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-11-02 (windows by reference, a compositor without fixed tables, and its restart — TASK-0348, RFC-0114, RFC-0112, ADR-0092)
+
+- **An app draws where the GPU reads.** gpud allocates every app surface for its app — made for
+  the device that samples it, charged to the app — and the app paints straight into it; windowd
+  composes by naming the buffer and the slot of its newest frame. The copy of every damaged app
+  row into windowd's atlas (two syscalls per row, up to 138 ms per pass on the board) is gone, and
+  a slot is written again only once no frame in flight still reads it.
+- **No fixed number of windows.** windowd's window slots, event channels, client outboxes and the
+  shell's window feed grow with the windows; every window gets its own key, and a new one takes
+  its place in a cascade computed from the room its frame leaves. A new QEMU lane,
+  `many-windows` (`just ci-os-many-windows`, part of `test-all`), opens twelve settings windows
+  from the launcher and waits for one frame that draws all twelve from their own buffers — before,
+  the fifth window was refused.
+- **The desktop restarts without a reboot.** Ctrl+Super+Shift+Backspace (in the shortcut
+  registry) ends the compositor; init brings it back and re-pins every route into it over the
+  dead ones (a new kernel transfer mode, REPLACE_DEAD; transfers now go into the caller's own
+  child only), execd tells every app, and each app re-attaches its window and draws it again —
+  the twelve windows of the many-windows lane come back. A window closed on purpose is told so
+  first and saves its state; a frozen app is thawed to rejoin; the shell, the greeter and the IME
+  are never started twice.
+- **Fixes found on the way.** settingsd answered the last request of a batch only with the next
+  one (a settings window waited forever for its second read); a key pressed while the compositor
+  is gone is dropped and named once instead of being held for a window it may not belong to; a
+  restart chord is never replayed to the next compositor; a settings watch channel holds a whole
+  registration burst; gpud acks a restarted compositor's reveal only after its own request and
+  lets go of the old compositor's surfaces.
+
+### Security - 2026-10-31 (no ambient authority over address spaces, no kernel panic from a caller's size — TASK-0347, ADR-0091)
+
+- **No process can reach into another's memory or start supervisor code.** `as_create` and
+  `as_map` (syscalls 9 and 10), which mapped into any address space named by a raw number, are
+  retired; `spawn` starts a thread only in the caller's own space and never a supervisor task.
+- **A size cannot stop the kernel.** A lazy object larger than the memory that could back it is
+  refused; the kernel heap keeps a reserve that caller-sized bookkeeping may not touch; an
+  empty frame pool at a page table is an out-of-memory error, not a panic. `vmo_create` now says
+  why it refused (EINVAL / ENOMEM / ENOSPC).
+- Proven at every boot (`KSELFTEST: ambient authority reject ok (`); the legacy ELF loader that
+  still called the retired syscalls (never built for the OS) is gone.
+
 ### Changed - 2026-10-30 (instant input: keys never lost, the caret at once, shortcuts in one place — TASK-0346, RFC-0113, ADR-0090)
 
 - **No typed letter is lost.** The input source decides the route: a layout source (de, us) is

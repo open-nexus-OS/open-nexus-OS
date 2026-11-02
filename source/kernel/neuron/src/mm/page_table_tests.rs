@@ -14,7 +14,7 @@ use super::*;
 
 #[test]
 fn map_2m_translates_entire_huge_page() {
-    let mut table = PageTable::new();
+    let mut table = PageTable::new().expect("table");
     table
         .map_2m(HUGE_PAGE_SIZE_2M, HUGE_PAGE_SIZE_2M * 2, PageFlags::VALID | PageFlags::READ)
         .expect("2m mapping");
@@ -32,7 +32,7 @@ fn map_2m_translates_entire_huge_page() {
 
 #[test]
 fn map_2m_rejects_unaligned_or_wx_mappings() {
-    let mut table = PageTable::new();
+    let mut table = PageTable::new().expect("table");
     assert_eq!(
         table.map_2m(PAGE_SIZE, 0, PageFlags::VALID | PageFlags::READ),
         Err(MapError::Unaligned)
@@ -47,7 +47,7 @@ fn map_2m_rejects_unaligned_or_wx_mappings() {
 fn allocation_stats_track_owned_page_lifetime() {
     let before = PageTable::allocation_stats();
     {
-        let mut table = PageTable::new();
+        let mut table = PageTable::new().expect("table");
         table.map(0, 0, PageFlags::VALID | PageFlags::READ).expect("map");
         let during = PageTable::allocation_stats();
         assert!(during.live >= before.live + 1);

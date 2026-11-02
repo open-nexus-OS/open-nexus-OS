@@ -694,3 +694,60 @@ proves = "an app re-created its surface at a new size (a tile, a return): its ne
 [marker."WINDOWD: surface presented id="]
 phase = "end"
 proves = "a surface's first frame reached the compositor (a re-created window is up again)"
+
+[marker."gpud: surface alloc ok ("]
+phase = "end"
+proves = "TASK-0348 (RFC-0114 §2, ADR-0092): gpud made an app surface's object for its owner (the app's kernel id, served to windowd alone) — made for the device that samples it, bound where the frames read it (the board: windowd's GPU context; virgl: a texture over its runs; 2D: gpud's read-only mapping), charged to the app — at allocation, never per frame"
+
+[marker."apphost: surface mapped ("]
+phase = "end"
+proves = "TASK-0348 (RFC-0114 §3): the app took its surface's buffer from the create's answer (the capability moved with OP_SURFACE_BUFFERS, no VMO of its own) and mapped it read-write: its frames are drawn where the GPU reads them, no row through a syscall"
+
+[marker."windowd: compose copies=0 ("]
+phase = "end"
+proves = "TASK-0348 (RFC-0114 §6): a frame left for gpud naming app surfaces by reference — their buffer and the slot of their newest present — and the slots it read are recorded for the release rule; windowd holds no copy path for app rows any more"
+
+# TASK-0348 (RFC-0114 §7): the compositor's tables grow with the windows. One line per new high
+# of app windows a frame that left drew from their own buffers; the many-windows lane opens
+# twelve from the launcher and waits for `(n=12)`.
+[marker."windowd: windows drawn (n="]
+phase = "end"
+proves = "TASK-0348 (RFC-0114 §7): a frame left for gpud drawing N app windows, each from its own buffer — more than this boot drew before; no window slot array, event-channel table or feed bound stops the count at a fixed number"
+
+# TASK-0348 Phase 6 (RFC-0112, amendment 2026-11-02): the compositor's restart, step by step. The
+# chord asks for it; init respawns windowd, re-pins its legs and every client's leg into it over
+# the dead capabilities, and tells execd; execd re-pins every app's windowd slots and tells each
+# app with a fresh SEND of its channel; each app rejoins and draws its window again; gpud lets go
+# of what the old compositor composed; abilitymgr thaws the frozen and answers a role's launch
+# with the instance that runs. The many-windows lane restarts the compositor over twelve windows.
+[marker."windowd: restart requested (chord)"]
+phase = "end"
+proves = "RFC-0112: the restart chord reached the compositor through the shortcut registry and it ended itself for init to respawn"
+
+[marker."init: windowd re-pinned (clients=0x"]
+phase = "end"
+proves = "RFC-0112: init respawned windowd from its sealed image, minted what died with it, pinned its declared legs from the handles it kept and re-pinned every declared client leg into it over the dead capabilities (REPLACE_DEAD) — the number (hex) of the client legs re-pinned"
+
+[marker."execd: compositor back (apps="]
+phase = "end"
+proves = "RFC-0112: execd took init's notice (init's kernel id alone), re-pinned every live app's windowd slots over the dead capabilities and told each app on its own channel — counts told, owed (a full queue, armed writable) and failed"
+
+[marker."APPHOST: compositor back (reattached)"]
+phase = "end"
+proves = "RFC-0112: an app whose compositor died (an EOF with no CLOSED before it) waited without a clock for its parent's notice, attached its channel to the new compositor under a fresh nonce and got its geometry"
+
+[marker."apphost: surface re-created"]
+phase = "end"
+proves = "RFC-0112: a rejoined app made its surface again with the new compositor (a new buffer from gpud) and announced its text focus anew"
+
+[marker."gpud: compositor restarted (owners="]
+phase = "end"
+proves = "RFC-0112: a new compositor's framebuffer request let go of what the old one composed — its layer set, and every app surface unbound, closed and uncharged at once"
+
+[marker."abilitymgr: compositor up (thawed="]
+phase = "end"
+proves = "RFC-0112: the compositor's start notice (its kernel id alone) voided what the old one saw — every frozen instance thawed to rejoin, every hidden clock stopped"
+
+[marker."abilitymgr: launch kept (app="]
+phase = "end"
+proves = "RFC-0112: a one-instance role (bundle_type shell / greeter / ime) asked to launch again answered the instance that runs — no second desktop"

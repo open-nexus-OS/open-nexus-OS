@@ -140,6 +140,29 @@ impl KernelClient {
         self.recv_into_flags(wait, out, true)
     }
 
+    /// A receive on a channel whose frames may move a capability along (RFC-0114: windowd's gpud
+    /// route carries a surface buffer's answer, an app's event channel its buffer). Returns the
+    /// frame length and the slot the kernel installed the moved capability at (`None`: none
+    /// moved). The kernel installs a moved capability whatever the receiver asked for, so every
+    /// receive on such a channel goes through here — a receive that drops the slot leaks it.
+    /// `eof`: opt into last-sender EOF ([`recv_into_eof`](Self::recv_into_eof)).
+    pub fn recv_into_with_cap(
+        &self,
+        wait: Wait,
+        out: &mut [u8],
+        eof: bool,
+    ) -> Result<(usize, Option<u32>)> {
+        let mut sys_flags = wait_flags(wait) | nexus_abi::IPC_SYS_TRUNCATE;
+        if eof {
+            sys_flags |= nexus_abi::IPC_SYS_EOF;
+        }
+        let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+        let n = nexus_abi::ipc_recv_v1(self.recv_slot, &mut hdr, out, sys_flags, 0)
+            .map_err(|e| map_recv_err(e, wait))?;
+        let moved = ((hdr.flags & nexus_abi::ipc_hdr::CAP_MOVE) != 0).then_some(hdr.src);
+        Ok((n as usize, moved))
+    }
+
     fn recv_into_flags(&self, wait: Wait, out: &mut [u8], eof: bool) -> Result<usize> {
         let flags = wait_flags(wait);
         let mut sys_flags = flags | nexus_abi::IPC_SYS_TRUNCATE;
@@ -234,18 +257,20 @@ impl ReplyCap {
         let _ = nexus_abi::cap_close(self.slot);
     }
 
-    /// Sends `frame` on the reply cap and then closes it (one-shot).
+    /// Sends `frame` on the reply cap and then closes it (one-shot). The capability is closed
+    /// whether or not the answer could be delivered (a requester that died or stopped reading):
+    /// it is consumed here, so nobody could close it later — a refused answer must not leak the
+    /// server's slot.
     pub fn reply_and_close(self, frame: &[u8]) -> Result<()> {
-        KernelServer::send_on_cap_wait(self.slot, frame, Wait::NonBlocking)?;
-        let _ = nexus_abi::cap_close(self.slot);
-        Ok(())
+        self.reply_and_close_wait(frame, Wait::NonBlocking)
     }
 
-    /// Sends `frame` on the reply cap (with wait policy) and then closes it (one-shot).
+    /// Sends `frame` on the reply cap (with wait policy) and then closes it (one-shot), the
+    /// capability closed whatever the send's outcome.
     pub fn reply_and_close_wait(self, frame: &[u8], wait: Wait) -> Result<()> {
-        KernelServer::send_on_cap_wait(self.slot, frame, wait)?;
+        let sent = KernelServer::send_on_cap_wait(self.slot, frame, wait);
         let _ = nexus_abi::cap_close(self.slot);
-        Ok(())
+        sent
     }
 }
 
@@ -284,8 +309,12 @@ impl KernelServer {
     /// requester moved a capability; nothing parked means it did not, and then
     /// this is an ordinary receive — which is how P2-c's rule ("a server answers
     /// exactly the senders that moved a reply capability") survives the merge.
-    /// `wait` applies to the RECEIVE half only; a parked reply always goes out
-    /// (its trap carries the receive with it, so there is nothing to defer).
+    /// `wait` applies to the RECEIVE half only; a parked reply always goes out. The one-trap
+    /// form blocks for the next request, so only a BLOCKING step takes it: a non-blocking step
+    /// (a loop that waits in a waitset over more than this endpoint) answers at once and then
+    /// receives without blocking — the one-trap form there would block past `wait`, starving the
+    /// loop's other members. Such a loop must also never wait with an answer parked: its caller
+    /// would hang until someone else called (TASK-0348 — settingsd's last request of a batch).
     pub fn serve_next(
         &self,
         pending: &mut PendingReply,
@@ -293,8 +322,13 @@ impl KernelServer {
         out: &mut [u8],
     ) -> Result<(nexus_abi::MsgHeader, usize, u64, Option<ReplyCap>)> {
         match pending.cap.take() {
-            Some(cap) => {
+            Some(cap) if !wait.is_non_blocking() => {
                 self.reply_and_recv_with_header_into(cap, &pending.buf[..pending.len], out)
+            }
+            Some(cap) => {
+                // A requester that is gone or not reading loses its answer, never the server.
+                let _ = cap.reply_and_close(&pending.buf[..pending.len]);
+                self.recv_request_with_header_into(wait, out)
             }
             None => self.recv_request_with_header_into(wait, out),
         }

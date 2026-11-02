@@ -35,10 +35,10 @@ use crate::{
     mm::{AddressSpaceError, AddressSpaceManager, MapError, PAGE_SIZE},
     sched::Scheduler,
     syscall::{
-        api, Args, Error as SysError, SyscallTable, SYSCALL_AS_CREATE, SYSCALL_AS_MAP,
-        SYSCALL_CAP_CLOSE, SYSCALL_EXIT, SYSCALL_SPAWN, SYSCALL_TIMER_CANCEL, SYSCALL_TIMER_CREATE,
-        SYSCALL_TIMER_SET, SYSCALL_VMO_CREATE, SYSCALL_VMO_WRITE, SYSCALL_WAIT,
-        SYSCALL_WAITSET_ADD, SYSCALL_WAITSET_CREATE, SYSCALL_WAITSET_WAIT, SYSCALL_YIELD,
+        api, Args, Error as SysError, SyscallTable, SYSCALL_CAP_CLOSE, SYSCALL_EXIT,
+        SYSCALL_TIMER_CANCEL, SYSCALL_TIMER_CREATE, SYSCALL_TIMER_SET, SYSCALL_VMO_CREATE,
+        SYSCALL_VMO_WRITE, SYSCALL_WAIT, SYSCALL_WAITSET_ADD, SYSCALL_WAITSET_CREATE,
+        SYSCALL_WAITSET_WAIT, SYSCALL_YIELD,
     },
     task::{Pid, TaskTable},
     types::CpuId,
@@ -50,7 +50,13 @@ use crate::{
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 use riscv::register::sstatus;
 
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+mod ambient;
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+mod as_setup;
 pub mod assert;
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+mod cap_rules;
 mod exec_image;
 mod fence;
 mod ipc_budgets;
@@ -63,6 +69,8 @@ mod process_ctl;
 mod smp_sched;
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 mod vm_alloc;
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+mod vmo_clean;
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 mod vmo_runs;
 
@@ -229,10 +237,8 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
             ctx.fences,
         );
 
-        let h = table
-            .dispatch(SYSCALL_AS_CREATE, &mut sys_ctx, &Args::new([0; 6]))
-            .expect("as_create syscall");
-        handle_raw = h;
+        let space = as_setup::create_space(&mut sys_ctx);
+        handle_raw = space.to_raw() as usize;
         log_info!(target: "selftest", "KSELFTEST: as create ok");
 
         // RFC-0004: VMO allocations must be zero-initialized (no stale memory leaks).
@@ -287,24 +293,15 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
             }
         }
 
-        const PROT_READ: usize = 1 << 0;
-        const PROT_WRITE: usize = 1 << 1;
-        const MAP_FLAG_USER: usize = 1 << 0;
         const DATA_VMO_SLOT: usize = 4;
-        let map_args = Args::new([
-            handle_raw,
-            DATA_VMO_SLOT,
-            CHILD_TEST_VA,
-            PAGE_SIZE,
-            PROT_READ,
-            MAP_FLAG_USER,
-        ]);
-        table.dispatch(SYSCALL_AS_MAP, &mut sys_ctx, &map_args).expect("as_map syscall");
+        let ro = as_setup::USER_RO;
+        as_setup::map_slot_at(&mut sys_ctx, space, DATA_VMO_SLOT, CHILD_TEST_VA, PAGE_SIZE, ro);
         log_info!(target: "selftest", "KSELFTEST: as map ok");
 
         vm_alloc::run_vm_alloc_selftests(&table, &mut sys_ctx, handle_raw);
         vmo_runs::run_vmo_runs_selftests(&table, &mut sys_ctx);
         vmo_runs::run_vmo_reach_selftests(&table, &mut sys_ctx);
+        vmo_clean::run_vmo_clean_selftest(&table, &mut sys_ctx);
 
         let entry = child_new_as_entry as usize;
         verbose!("KSELFTEST: before spawn\n");
@@ -324,26 +321,16 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
             0,
         ]);
         table.dispatch(SYSCALL_VMO_CREATE, &mut sys_ctx, &stack_vmo_args).expect("child stack vmo");
-        let stack_map_args = Args::new([
-            handle_raw, // target AS
-            CHILD_STACK_VMO_SLOT,
-            guard_bottom + PAGE_SIZE,
-            (STACK_PAGES * PAGE_SIZE),
-            (PROT_READ | PROT_WRITE),
-            MAP_FLAG_USER,
-        ]);
-        table
-            .dispatch(SYSCALL_AS_MAP, &mut sys_ctx, &stack_map_args)
-            .expect("as_map stack syscall");
+        let (stack_va, stack_len) = (guard_bottom + PAGE_SIZE, STACK_PAGES * PAGE_SIZE);
+        let rw = as_setup::USER_RW;
+        as_setup::map_slot_at(&mut sys_ctx, space, CHILD_STACK_VMO_SLOT, stack_va, stack_len, rw);
         // Supply valid sp/as_handle and a gp derived from the current pointer to avoid gp=0 in child.
         let current_gp: usize;
         unsafe {
             core::arch::asm!("mv {0}, gp", out(reg) current_gp);
         }
         let gp = if current_gp == 0 { user_stack_top.wrapping_add(0x800) } else { current_gp };
-        let spawn_args = Args::new([entry, user_stack_top, handle_raw, 0, gp, 0]);
-        child_pid =
-            table.dispatch(SYSCALL_SPAWN, &mut sys_ctx, &spawn_args).expect("spawn syscall");
+        child_pid = as_setup::spawn_in(&mut sys_ctx, space, entry, user_stack_top, gp);
         verbose!("KSELFTEST: after spawn (raw)\n");
         // Force a few yields to exercise trap fastpath and encourage scheduling
         syscall_yield();
@@ -502,31 +489,21 @@ fn run_exit_wait_selftests(ctx: &mut Context<'_>) {
         ctx.fences,
     );
 
+    // Supervisor children through the kernel's own API (ADR-0091: never through `spawn`).
     let entry = child_exit_zero as usize;
-    let spawn_args = Args::new([entry, 0, 0, 0, 0, 0]);
-    let child_pid = table.dispatch(SYSCALL_SPAWN, &mut sys_ctx, &spawn_args).unwrap_or_default();
+    let child_pid = as_setup::spawn_kernel_task(&mut sys_ctx, entry).unwrap_or_default();
     let wait_args = Args::new([child_pid, 0, 0, 0, 0, 0]);
     let _ = table.dispatch(SYSCALL_WAIT, &mut sys_ctx, &wait_args);
     log_info!(target: "selftest", "KSELFTEST: exit ok");
 
-    let _first_child = match table.dispatch(SYSCALL_SPAWN, &mut sys_ctx, &spawn_args) {
-        Ok(pid) => pid,
-        Err(err) => {
+    for name in ["a", "b"] {
+        if as_setup::spawn_kernel_task(&mut sys_ctx, entry).is_none() {
             crate::selftest::assert::report_failure_fmt(format_args!(
-                "selftest: spawn child a failed: {:?}",
-                err
+                "selftest: spawn child {} failed",
+                name
             ));
         }
-    };
-    let _second_child = match table.dispatch(SYSCALL_SPAWN, &mut sys_ctx, &spawn_args) {
-        Ok(pid) => pid,
-        Err(err) => {
-            crate::selftest::assert::report_failure_fmt(format_args!(
-                "selftest: spawn child b failed: {:?}",
-                err
-            ));
-        }
-    };
+    }
     let any_args = Args::new([0, 0, 0, 0, 0, 0]);
     let _ = table.dispatch(SYSCALL_WAIT, &mut sys_ctx, &any_args);
     let _ = table.dispatch(SYSCALL_WAIT, &mut sys_ctx, &any_args);

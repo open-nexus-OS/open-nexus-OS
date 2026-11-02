@@ -117,6 +117,11 @@ impl VirtioGpuBackend {
             if let Some(glass) = step.glass {
                 self.glass_draw(&l, glass);
             }
+            // RFC-0114: a layer of an app's buffer, its rows sent when they changed.
+            if l.source != 0 {
+                let _ = self.composite_buffer_rt(&l, step.upload);
+                continue;
+            }
             // A content band smaller than the layer (a live resize) is spread over it; the window
             // snaps sharp when the client renders at the new size.
             let ok = self

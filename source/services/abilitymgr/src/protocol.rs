@@ -92,6 +92,15 @@ pub const OP_MEM_KILL: u8 = 7;
 ///            kept:u32le, taken:u32le, stored:u32le]`
 pub const OP_MEM_SQUEEZE: u8 = 8;
 
+/// A new compositor runs (RFC-0112, amendment 2026-11-02): what the old one saw is void. The
+/// compositor says so once at its start — a one-way EVENT like `OP_SEEN`, taken from windowd's
+/// kernel sender id alone. Every frozen instance is thawed into the background (it must run to
+/// draw its window again; the new compositor's sightings move it from there) and every hidden
+/// clock stops.
+/// Request:  `[A,M,ver,OP_COMPOSITOR_UP]`
+/// Response: none.
+pub const OP_COMPOSITOR_UP: u8 = 9;
+
 // --- Status codes ---
 /// Operation succeeded.
 pub const STATUS_OK: u8 = 0;

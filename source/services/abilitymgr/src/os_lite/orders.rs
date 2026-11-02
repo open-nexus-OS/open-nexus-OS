@@ -230,6 +230,23 @@ impl Lifecycle {
         self.rearm(broker);
     }
 
+    /// The compositor's start notice (RFC-0112): refused unless it is the compositor's; every
+    /// frozen instance is thawed (each order carried at once) — it must run to join the new
+    /// compositor — and the clock re-armed for what the new one will see.
+    pub(super) fn on_compositor_up(&mut self, broker: &mut Broker, sender_service_id: u64) {
+        if sender_service_id != self.windowd_sid {
+            emit_line("abilitymgr: compositor up denied (sender)");
+            return;
+        }
+        let thaws = broker.compositor_up();
+        let n = thaws.len();
+        for order in thaws {
+            self.carry(order);
+        }
+        self.rearm(broker);
+        emit_inst_line(b"abilitymgr: compositor up (thawed=", n as u32);
+    }
+
     /// The timer fired (or a pass ended): every instance hidden past its grace is frozen, and
     /// the timer is re-armed at the next grace to run out.
     pub(super) fn pump(&mut self, broker: &mut Broker) {

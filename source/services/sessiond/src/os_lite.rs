@@ -142,6 +142,10 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> SessiondResult<()> {
                         0,
                     );
                     let len = encode_state_rsp(&registry, &state, &mut rsp);
+                    // Every watcher hears the snapshot a new one gets: a dead one — the
+                    // compositor a restarted one replaces (RFC-0112) — is dropped here, not at
+                    // the next transition.
+                    watchers.retain(|slot| push_frame(*slot, &rsp[..len]));
                     if push_frame(push_slot, &rsp[..len]) {
                         watchers.push(push_slot);
                     }

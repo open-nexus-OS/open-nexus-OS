@@ -75,6 +75,19 @@ pub(crate) trait FrameGpu {
         commands: &[nexus_gfx::command::buffer::Command],
         target: &FrameTarget<'_>,
     ) -> Option<nexus_gfx::backend::types::Rect>;
+
+    /// RFC-0114 §1: app surface object `vmo` — source `buffer` of `geometry` — bound read-only in
+    /// windowd's context, every page entered now (no frame ever waits on an MMU flush for it).
+    /// False: refused (the GPU's ceiling, its tables) — the object is not composed.
+    fn bind_surface(&mut self, buffer: u32, vmo: u32, geometry: &crate::surfaces::Geometry)
+        -> bool;
+
+    /// Source `buffer`'s last frame retired: its binding and its pages go from the GPU.
+    fn unbind_surface(&mut self, buffer: u32);
+
+    /// A new compositor runs (RFC-0112): the layer set the GPU's frames keep goes — it names the
+    /// old compositor's surfaces — and every slot is drawn whole next.
+    fn forget_layers(&mut self);
 }
 
 /// What a display without a GPU answers.

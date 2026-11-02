@@ -46,6 +46,13 @@ impl Router {
         (send, recv, any)
     }
 
+    /// One capability that was in flight in an endpoint closed since (RFC-0112, amendment
+    /// 2026-11-02): the census above no longer sees it, so the caller releases it like a
+    /// `cap_close` (`syscall::api::eof_scan::release_in_flight`). `None` once all are out.
+    pub fn take_in_flight_dropped(&mut self) -> Option<crate::cap::Capability> {
+        self.in_flight_dropped.pop()
+    }
+
     /// Whether `id` is latched "no receiver can ever drain this" (a send returns
     /// `PeerClosed`). `false` for a missing or dead endpoint.
     #[must_use]

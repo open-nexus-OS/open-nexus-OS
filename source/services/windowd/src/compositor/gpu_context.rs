@@ -36,8 +36,10 @@ pub(crate) fn open() -> bool {
     {
         return fail(&alloc::format!("gpud unreachable: {err:?}"));
     }
-    let caps = match nexus_ipc::exchange::recv_response(route.recv, &mut reply) {
-        Ok(n) => wire::decode_capabilities_reply(&reply[..n.min(reply.len())]),
+    // Each answer is matched by its op: a stray a dead predecessor left is dropped (RFC-0112).
+    let is_caps = |f: &[u8]| wire::decode_capabilities_reply(f).is_some();
+    let caps = match nexus_ipc::exchange::recv_response_matching(route.recv, &mut reply, is_caps) {
+        Ok((n, _)) => wire::decode_capabilities_reply(&reply[..n.min(reply.len())]),
         Err(err) => return fail(&alloc::format!("gpud gone: {err:?}")),
     };
     let caps = match caps {
@@ -72,8 +74,10 @@ pub(crate) fn open() -> bool {
         let _ = nexus_abi::cap_close(vmo);
         return fail(&alloc::format!("open unsent: {err:?}"));
     }
-    let answer = match nexus_ipc::exchange::recv_response(route.recv, &mut reply) {
-        Ok(n) => wire::decode_open_reply(&reply[..n.min(reply.len())]),
+    let is_open = |f: &[u8]| wire::decode_open_reply(f).is_some();
+    let answer = match nexus_ipc::exchange::recv_response_matching(route.recv, &mut reply, is_open)
+    {
+        Ok((n, _)) => wire::decode_open_reply(&reply[..n.min(reply.len())]),
         Err(err) => return fail(&alloc::format!("gpud gone: {err:?}")),
     };
     match answer {

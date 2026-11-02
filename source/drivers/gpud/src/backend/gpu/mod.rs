@@ -85,6 +85,8 @@ mod render_template;
 mod render_texels;
 mod scene_load;
 mod space;
+/// The app surfaces bound in windowd's context (RFC-0114 §1).
+pub(crate) mod surface_buffers;
 
 use nexus_service_topology::DEVICE_MMIO_SLOT;
 

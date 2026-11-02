@@ -92,6 +92,17 @@ pub enum Tex {
         w: u32,
         h: u32,
     },
+    /// A rectangle of a surface buffer an app draws into (RFC-0114 §6): its source and slot,
+    /// its first texel's column and row in the slot, its size. The executor addresses the
+    /// buffer's own base and stride; gpud checked the rectangle against the buffer at intake.
+    Buffer {
+        source: u32,
+        slot: u8,
+        x: u32,
+        row: u32,
+        w: u32,
+        h: u32,
+    },
 }
 
 /// One draw.
@@ -449,9 +460,14 @@ impl<'a> Board<'a> {
             if l.content_w > 0 { l.content_w } else { l.width },
             if l.content_h > 0 { l.content_h } else { l.height },
         );
-        let room = self.layout_rows.saturating_sub(l.src_row_abs);
+        // A layout band is shrunk to the layout's rows; a buffer's was checked against its
+        // buffer when the present came in (RFC-0114 §6).
+        let room =
+            if l.source == 0 { self.layout_rows.saturating_sub(l.src_row_abs) } else { u32::MAX };
         let (h, bh) = (l.height.min(room), bh.min(room));
         Content {
+            source: l.source,
+            slot: l.slot,
             rect: (l.dst_x, l.dst_y, l.width, h),
             band: (l.src_x, l.src_row_abs, bw, bh),
             tint: [1.0, 1.0, 1.0, l.opacity.min(255) as f32 / 255.0],

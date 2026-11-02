@@ -74,7 +74,7 @@ impl DisplayServerRuntime {
             || self.apps.iter().enumerate().any(|(idx, a)| {
                 a.frame_pulse_pending
                     && a.win.visible
-                    && self.windows.is_visible(crate::window_scene::WindowId::App(idx as u8))
+                    && self.windows.is_visible(crate::window_scene::WindowId::App(idx as u16))
             })
     }
 
@@ -149,7 +149,7 @@ impl DisplayServerRuntime {
                 // open/close stacked a permanent ~20Hz zombie load (the "mouse
                 // gets slower the longer I use the system" report).
                 if !self.apps[idx].win.visible
-                    || !self.windows.is_visible(crate::window_scene::WindowId::App(idx as u8))
+                    || !self.windows.is_visible(crate::window_scene::WindowId::App(idx as u16))
                 {
                     continue;
                 }

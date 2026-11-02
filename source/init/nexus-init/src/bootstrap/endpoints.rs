@@ -77,15 +77,6 @@ pub(crate) struct Endpoints {
     /// imed OSK-injection endpoint (RFC-0075 Phase 2): RECV → imed; SEND → execd (app
     /// provisioning) and the selftest (probe), pinned from this one endpoint.
     pub imed_osk: u32,
-    /// inputd's settings-watch push channel (RFC-0078; both halves go to
-    /// inputd at fixed slots, init's cap closes after wiring).
-    pub inputd_watch_ep: u32,
-    /// windowd's settings-watch push channel (RFC-0076/0077 region relay;
-    /// both halves to windowd at fixed slots, init's cap closes after wiring).
-    pub windowd_watch_ep: u32,
-    /// windowd's session push channel (TASK-0324 P7-c): sessiond pushes state here; both
-    /// halves to windowd at declared slots, init's cap closes after wiring.
-    pub windowd_session_watch_ep: u32,
     /// windowd server request endpoint.
     pub window_req: u32,
     /// windowd server response endpoint.
@@ -289,16 +280,10 @@ impl Endpoints {
 }
 
 /// Closes init's already-wired endpoint slots post-`wire_services` (every
-/// leg was granted; a parked full cap table broke runtime `@mint-pair`).
+/// leg was granted; a parked full cap table broke runtime `@mint-pair`). imed's request
+/// endpoint stays: windowd's respawn pins its imed leg from it (RFC-0112).
 pub(crate) fn close_wired_eps(eps: &Endpoints) {
-    for cap in [
-        eps.imed_req,
-        eps.imed_rsp,
-        eps.imed_osk,
-        eps.inputd_watch_ep,
-        eps.windowd_watch_ep,
-        eps.windowd_session_watch_ep,
-    ] {
+    for cap in [eps.imed_rsp, eps.imed_osk] {
         if cap != 0 {
             let _ = nexus_abi::cap_close(cap);
         }

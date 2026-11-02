@@ -21,8 +21,9 @@ use nexus_display_proto::client_surface::{
 use nexus_display_proto::surface_layers::{MAX_SCROLL_LAYERS, PATCH_SIDE};
 use nexus_gfx::{Layer, RenderCommandEncoder};
 
-/// The key's owner of the desktop surface's layers (windows are `slot + 1`).
-pub(crate) const DESKTOP_OWNER: u32 = 0x10;
+/// The key's owner of the desktop surface's layers — the desktop's key (RFC-0114 §7: windows
+/// are their own keys, `1..=0xFFFE`).
+pub(crate) const DESKTOP_OWNER: u32 = super::slots::DESKTOP_KEY as u32;
 /// Layer kinds in a key (`owner << 16 | kind << 8 | index`).
 pub(crate) const KIND_BODY: u32 = 1;
 pub(crate) const KIND_REGION: u32 = 2;
@@ -67,15 +68,15 @@ pub(crate) enum Pass {
 #[derive(Clone, Copy)]
 pub(crate) struct LayerSnap {
     pub(crate) layers: SurfaceLayers,
-    /// Where the surface's base and store live in the atlas.
+    /// Where the surface's base and store are in its buffer's newest slot (RFC-0114).
     pub(crate) regions: SurfaceRegions,
     /// Where the surface's origin lands on the screen.
     pub(crate) origin: (u32, u32),
     /// The base layer's size.
     pub(crate) base: (u32, u32),
-    /// The key's owner (`slot + 1`, or [`DESKTOP_OWNER`]).
+    /// The key's owner (the window's key, or [`DESKTOP_OWNER`]).
     pub(crate) owner: u32,
-    /// The window transform's id (`slot + 1`; `0` = the desktop).
+    /// The window transform's id (the window's key; `0` = the desktop).
     pub(crate) layer_id: u32,
 }
 
@@ -155,6 +156,7 @@ impl LayerSnap {
                     layer_id: self.layer_id,
                     opaque: l.material == MATERIAL_OPAQUE,
                     key: key(self.owner, KIND_REGION, i as u32),
+                    source: (self.regions.source, self.regions.slot, self.regions.generation),
                 },
                 mode.0,
                 mode.1,
@@ -175,7 +177,7 @@ impl LayerSnap {
                 continue;
             }
             let band = s.band_rect();
-            // A band samples the store's region (RFC-0109): none placed, nothing to compose.
+            // A band samples the store's rows (RFC-0109): no store, nothing to compose.
             let Some((band_row, _)) = self.regions.store_place(band.0, band.1) else { continue };
             let mut out = [Piece::default(); MAX_PIECES];
             let n = pieces(s, self.layers.offset(k), &mut out);
@@ -237,7 +239,7 @@ impl LayerSnap {
         quota: &mut LayerQuota,
     ) {
         let (dst_x, dst_y) = (self.origin.0 + p.dst.0, self.origin.1 + p.dst.1);
-        // Slices and washes sample the store's region (RFC-0109).
+        // Slices and washes sample the store's rows of the slot (RFC-0109).
         let Some((src_row, src_col)) = self.regions.store_place(p.src.0, p.src.1) else { return };
         if dst_x >= mode.0 || dst_y >= mode.1 || p.size.0 == 0 || p.size.1 == 0 || !quota.take() {
             return;
@@ -258,9 +260,11 @@ impl LayerSnap {
                 opacity: draw.opacity,
                 corner_radius: draw.radius,
                 layer_id: self.layer_id,
-                content_epoch: crate::atlas::atlas_content_epoch(),
+                content_epoch: self.regions.generation,
                 scroll_band_top_abs: draw.band.0,
                 scroll_band_h: draw.band.1,
+                source: self.regions.source,
+                slot: self.regions.slot,
                 shadow: None,
                 backdrop: None,
                 opaque: draw.opaque,

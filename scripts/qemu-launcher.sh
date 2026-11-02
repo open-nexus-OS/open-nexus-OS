@@ -625,9 +625,16 @@ monitor_uart_stream() {
       # (TASK-0074: the `usb-visible` lane logs in and opens/closes the shell's
       # modal) names the marker that ends ITS work in `QEMU_LADDER_ALSO_WAIT`;
       # the early stop then needs both — the ladder's end AND that marker. The
-      # grace window stays the cap (`QEMU_READY_GRACE_SECS`).
+      # marker may be an ordered chain `first|then|…`: each step counts only after
+      # the one before it, and a step may be a group `a&b` that is done once every
+      # member was seen, in any order (RFC-0112: the compositor's restart, then its
+      # windows and its shell again). The grace window stays the cap
+      # (`QEMU_READY_GRACE_SECS`).
       local also_wait="${QEMU_LADDER_ALSO_WAIT:-}" saw_also=0 ladder_end_seen=0
-      [[ -z "$also_wait" ]] && saw_also=1
+      local -a also_chain=() also_members=()
+      local also_at=0 also_seen="" also_member also_left
+      [[ -n "$also_wait" ]] && IFS='|' read -r -a also_chain <<<"$also_wait"
+      [[ ${#also_chain[@]} -eq 0 ]] && saw_also=1
       # PARTIAL-LINE ACCUMULATOR. `read -t` leaves whatever arrived so far in
       # the variable and returns non-zero on timeout; echoing that as if it
       # were a finished line SPLITS markers mid-token. Slow producers hit
@@ -654,8 +661,20 @@ monitor_uart_stream() {
           case "$line" in
             *"SELFTEST: ui resize ok"*|*"SELFTEST: Completed"*) ladder_end_seen=1 ;;
           esac
-          if [[ -n "$also_wait" && "$line" == *"$also_wait"* ]]; then
-            saw_also=1
+          if [[ "$saw_also" -eq 0 ]]; then
+            IFS='&' read -r -a also_members <<<"${also_chain[$also_at]}"
+            also_left=0
+            for also_member in "${also_members[@]}"; do
+              if [[ "$line" == *"$also_member"* ]]; then
+                also_seen="${also_seen}<${also_member}>"
+              fi
+              [[ "$also_seen" == *"<${also_member}>"* ]] || also_left=1
+            done
+            if [[ "$also_left" -eq 0 ]]; then
+              also_at=$((also_at + 1))
+              also_seen=""
+              [[ "$also_at" -ge ${#also_chain[@]} ]] && saw_also=1
+            fi
           fi
           if [[ "$ladder_end_seen" -eq 1 && "$saw_also" -eq 1 && "$ladder_done_at" -eq 0 ]]; then
             ladder_done_at=$now

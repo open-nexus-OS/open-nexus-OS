@@ -113,7 +113,7 @@ pub(super) fn spawn_errno(err: &task::SpawnError) -> usize {
         Capability(_) => errno(EPERM),
         Ipc(_) => errno(EINVAL),
         AddressSpace(as_err) => address_space_errno(as_err),
-        StackExhausted => errno(ENOMEM),
+        StackExhausted | OutOfMemory => errno(ENOMEM),
         RunQueueFull => errno(EAGAIN),
     }
 }
@@ -138,6 +138,8 @@ pub(super) fn address_space_errno(err: &AddressSpaceError) -> usize {
         AddressSpaceError::Mapping(MapError::Unaligned)
         | AddressSpaceError::Mapping(MapError::InvalidFlags) => errno(EINVAL),
         AddressSpaceError::Mapping(MapError::NotMapped) => errno(ENOENT),
+        // ADR-0091: no frame or heap for a table page is the caller's out-of-memory.
+        AddressSpaceError::Mapping(MapError::OutOfMemory) => errno(ENOMEM),
     }
 }
 

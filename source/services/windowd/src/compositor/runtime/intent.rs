@@ -91,11 +91,11 @@ impl DisplayServerRuntime {
             } else {
                 // The execd attach RACES this intent (~40% of boots — the
                 // 320x240-fallback/splash-hang class): PARK the composed
-                // rect; `attach_app_event_channel` flushes it (bounded,
-                // drop-oldest — the app's 2s wait covers the flush).
-                let slot_idx =
-                    self.pending_intent_replies.iter().position(Option::is_none).unwrap_or(0);
-                self.pending_intent_replies[slot_idx] = Some((nonce, rect));
+                // rect (the latest per nonce); `attach_app_event_channel` flushes it.
+                self.pending_intent_replies.retain(|(n, _)| *n != nonce);
+                if self.pending_intent_replies.try_reserve(1).is_ok() {
+                    self.pending_intent_replies.push((nonce, rect));
+                }
                 let _ = debug_println("WINDOWD: intent reply parked (awaiting attach)");
             }
         }
@@ -134,7 +134,7 @@ impl DisplayServerRuntime {
         };
         let g = crate::surface_presentation::bar_geometry(
             &self.app_presentation(idx),
-            self.windows.is_fullscreen(crate::window_scene::WindowId::App(idx as u8)),
+            self.windows.is_fullscreen(crate::window_scene::WindowId::App(idx as u16)),
         );
         (g.frame_min_y, bottom.saturating_sub(g.frame_min_y as u32))
     }
@@ -145,7 +145,7 @@ impl DisplayServerRuntime {
     pub(crate) fn content_top_inset(&self, idx: usize) -> u32 {
         crate::surface_presentation::bar_geometry(
             &self.app_presentation(idx),
-            self.windows.is_fullscreen(crate::window_scene::WindowId::App(idx as u8)),
+            self.windows.is_fullscreen(crate::window_scene::WindowId::App(idx as u16)),
         )
         .content_top_inset
     }

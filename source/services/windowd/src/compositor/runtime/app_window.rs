@@ -1,27 +1,25 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! BOUNDARY: this file is the SERVICE side of the app surface — VMO/atlas
-//! registration, present/ack flow control, the damage-blit, and the event
-//! channel (theme/rect pushes). It MUST NOT grow window-chrome/sizing/resize/
+//! BOUNDARY: this file is the SERVICE side of the app surface — registration,
+//! present/ack flow control and the event channel (theme/rect pushes). It MUST NOT grow window-chrome/sizing/resize/
 //! decoration logic — that is the `ui/widgets/window` widget's job (the frame
 //! it currently opens is the legacy `ShellWindow`, being retired, see
 //! windows-as-widgets.md). Keep this to: move surface bytes, route input,
 //! push geometry/theme. Chrome + layout live in the widget + scene graph.
 //!
-//! CONTEXT: windowd compositor runtime — the ADR-0042 cross-process app
-//! window (TASK-0080D R1): `SURFACE_CREATE` registers the app's surface VMO
-//! (capability moved with the message, gpud-attach pattern) and opens a
-//! fifth `ShellWindow`; `SURFACE_PRESENT` marks the body dirty and acks the
-//! seq; the render path blits the surface rows out of the app's VMO
-//! (`vmo_read`, syscall 47) under windowd's own title bar. Apps get pixels
-//! and events — never scene-graph or atlas access.
+//! CONTEXT: windowd compositor runtime — the cross-process app window (ADR-0042; by reference
+//! since RFC-0114): `SURFACE_CREATE` registers the surface, opens its window and has gpud make
+//! its buffer (`surface_buffers.rs`); `SURFACE_PRESENT` makes the drawn slot what the frames
+//! read and acks it once the other slot is free; `SURFACE_DESTROY` retires the surface until its
+//! successor presents. windowd moves no pixel: the GPU reads the app's own memory. Apps get a
+//! buffer and events — never scene-graph or atlas access.
 //! OWNERS: @ui @runtime
-//! STATUS: Experimental (TASK-0080D R1)
+//! STATUS: Functional
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: bookkeeping host-tested in `crate::client_surface`; the
-//! blit is proven via QEMU markers (`WINDOWD: surface …`).
-//! ADR: docs/adr/0042-cross-process-surface-transport.md
+//! TEST_COVERAGE: bookkeeping host-tested in `crate::client_surface`; the lanes' markers
+//! (`WINDOWD: surface …`, `windowd: compose copies=0 (`).
+//! ADR: docs/adr/0092-a-surface-is-a-buffer-the-app-draws-and-the-gpu-reads-gpud-allocates-it-for-its-owner-windowd-composes-by-reference.md
 
 use super::*;
 use crate::client_surface::Delivery;
@@ -39,40 +37,32 @@ pub(crate) const AUTO_WINDOW: (u32, u32) = (320, 270);
 pub(crate) const APP_WIN_RADIUS: u32 = 12;
 
 impl DisplayServerRuntime {
-    /// `SURFACE_CREATE`: validate + register the surface, retain the moved
-    /// VMO capability, open the app window. Returns the ack frame.
+    /// `SURFACE_CREATE` (v2, RFC-0114 §3): validate and register the surface, show its window,
+    /// and have gpud make its buffer — the answer (`OP_SURFACE_BUFFERS`, the buffer's capability
+    /// moved along) follows gpud's (`on_surface_allocated`). `Some`: refused now — the answer to
+    /// send at once.
     pub(crate) fn handle_surface_create(
         &mut self,
         frame: &[u8],
-        vmo_slot: Option<u32>,
+        moved_cap: Option<u32>,
         sender_sid: u64,
-    ) -> [u8; wire::SURFACE_ACK_FRAME_LEN] {
+    ) -> Option<[u8; wire::SURFACE_BUFFERS_FRAME_LEN]> {
+        let refused = |status| Some(wire::encode_surface_buffers(&wire::Buffers::refused(status)));
+        // No capability rides with a create any more: one that does is closed, never kept.
+        if let Some(cap) = moved_cap {
+            let _ = nexus_abi_cap_close(cap);
+            let _ = debug_println("WINDOWD: surface create FAIL (a capability rode along)");
+            return refused(wire::SURFACE_STATUS_MALFORMED);
+        }
         let Some(c) = wire::decode_surface_create(frame) else {
-            return wire::encode_surface_ack(
-                wire::OP_SURFACE_CREATE,
-                wire::SURFACE_STATUS_MALFORMED,
-                0,
-            );
+            return refused(wire::SURFACE_STATUS_MALFORMED);
         };
-        let Some(vmo_slot) = vmo_slot else {
-            // The VMO capability MUST ride with the create message.
-            let _ = debug_println("WINDOWD: surface create FAIL (no vmo cap)");
-            return wire::encode_surface_ack(
-                wire::OP_SURFACE_CREATE,
-                wire::SURFACE_STATUS_MALFORMED,
-                0,
-            );
-        };
-        // Declarative routing at CREATE: the connecting app's presentation
-        // (its carried intent ⟂ policy) decides the role slot — resolved from
-        // THIS frame's values, never from stored state. A DESKTOP-role
-        // surface (shell/greeter) gets its OWN slot — id, event channel,
-        // full-screen band — fully separate from the floating `app_win`, so
-        // the shell and an app window coexist (the singleton collision made
-        // "counter startet nicht").
+        // Declarative routing at CREATE: the connecting app's presentation (its carried intent
+        // ⟂ policy) decides the role — resolved from THIS frame's values, never from stored
+        // state. A DESKTOP-role surface (shell/greeter) has its own id, channel and layer, apart
+        // from the floating windows.
         let (width, height, style, level, mode, resizable) =
             (c.width, c.height, c.style, c.level, c.mode, c.resizable);
-        #[cfg(nexus_env = "os")]
         let nonce = c.nonce;
         let presentation = crate::surface_presentation::WindowPresentation::resolve(
             style,
@@ -82,48 +72,34 @@ impl DisplayServerRuntime {
             self.windowing_policy,
         );
         if presentation.role == crate::window_scene::WindowRole::Desktop {
-            return self.create_desktop_surface(&c, vmo_slot, sender_sid);
+            return self.create_desktop_surface(&c, sender_sid);
         }
-        // Multi-window (RFC-0065): the create binds to the slot ALREADY holding
-        // this client's event channel (a resize re-create must resume in place,
-        // keeping geometry + fullscreen), else to a free slot. All slots taken
-        // ⇒ honest QUOTA — never hijack another app's window (the singleton-era
-        // behavior that made "nur ein Programm gleichzeitig").
-        #[cfg(nexus_env = "os")]
+        // Multi-window (RFC-0065): the create binds to the slot ALREADY holding this client's
+        // event channel (a re-create resumes in place, keeping geometry + fullscreen), else to a
+        // free slot — never another app's window.
         let bound_idx = self
             .event_channel_for(nonce)
             .and_then(|ch| self.apps.iter().position(|a| a.event_channel == Some(ch)));
-        // FRESH launch (vs a resize/fullscreen re-create resuming its slot):
-        // only a fresh window plays the open transition (Track C3).
-        // A slot reserved by the launch's starting surface (TASK-0336) is a fresh launch too.
-        #[cfg(nexus_env = "os")]
+        // FRESH launch (vs a re-create resuming its slot): only a fresh window plays the open
+        // transition. A slot reserved by the launch's starting surface is a fresh launch too.
         let fresh_launch = bound_idx.is_none_or(|i| self.apps[i].starting);
-        #[cfg(not(nexus_env = "os"))]
-        let fresh_launch = true;
-        #[cfg(nexus_env = "os")]
-        let slot_idx = bound_idx.or_else(|| self.free_app_index());
-        #[cfg(not(nexus_env = "os"))]
-        let slot_idx = self.free_app_index();
-        let Some(idx) = slot_idx else {
-            let _ = nexus_abi_cap_close(vmo_slot);
-            let _ = debug_println("WINDOWD: surface create FAIL (window slots exhausted)");
-            return wire::encode_surface_ack(
-                wire::OP_SURFACE_CREATE,
-                wire::SURFACE_STATUS_QUOTA,
-                0,
-            );
+        let Some(idx) = bound_idx.or_else(|| self.take_app_slot()) else {
+            let _ = debug_println("WINDOWD: surface create FAIL (no memory for a window slot)");
+            return refused(wire::SURFACE_STATUS_QUOTA);
         };
-        // The launch surfaced: stop the wait ring (one waiter done).
-        let was_starting = self.end_starting_surface(idx);
+        // A re-create without a destroy: the window's surface retires like a destroyed one.
+        if let Some(old) = self.apps[idx].surface_id.take() {
+            self.retire_surface(super::surface_buffers::Owner::App(idx), old);
+        }
+        // The starting surface stays until the app's first frame (`handle_surface_present`).
+        let was_starting = self.apps[idx].starting;
         if fresh_launch {
             self.end_cursor_wait();
             // A NEW window follows its declared intent: clear the slot's stale WM override + modal flag.
             self.apps[idx].reset_wm_state();
         }
-        let wid = crate::window_scene::WindowId::App(idx as u8);
-        // The declared intent rides ATOMICALLY on the create frame (the old
-        // separate pre-create OP_SURFACE_INTENT raced concurrent connects).
-        // It binds to THIS window's slot only.
+        let wid = crate::window_scene::WindowId::App(idx as u16);
+        // The declared intent rides ATOMICALLY on the create frame; it binds to THIS slot only.
         self.apps[idx].intent_style = style;
         self.apps[idx].intent_level = level;
         self.apps[idx].intent_mode = mode;
@@ -131,104 +107,57 @@ impl DisplayServerRuntime {
         self.apps[idx].owner_sid = sender_sid;
         // A new surface declares its layers anew (RFC-0109): nothing of the last one's survives.
         self.reset_surface_state(idx);
-        match self.client_surfaces.create(width, height, (c.rows, c.store_w), c.format, vmo_slot) {
-            Ok(id) => {
-                self.apps[idx].surface_id = Some(id);
-                #[cfg(nexus_env = "os")]
-                if let Some(ch) = self.event_channel_for(nonce) {
-                    self.apps[idx].event_channel = Some(ch);
-                } else {
-                    let _ = debug_println("WINDOWD: FAIL surface bind (no channel for nonce)");
-                }
-                // P3.1 (windows-as-widgets): size the window FRAME to the actual
-                // surface content (+ the title bar), via `window::frame`, BEFORE
-                // the atlas band is allocated. The frame/shadow track the
-                // content instead of a fixed window max — no full-screen band
-                // for a small window, no oversized shadow. Chrome per intent: a
-                // `plain` surface drops the title bar (`chrome = intent ⟂ policy`).
-                if self.app_presentation(idx).docked_bottom {
-                    // OVERLAY dock (OSK): bottom edge, full width, no chrome.
-                    let h = u32::from(height);
-                    #[allow(clippy::cast_possible_wrap)]
-                    self.apps[idx].win.set_frame(
-                        0,
-                        self.mode.height.saturating_sub(h) as i32,
-                        self.mode.width,
-                        h,
-                    );
-                } else if self.app_presentation(idx).full_screen || self.windows.is_fullscreen(wid)
-                {
-                    let (y, h) = self.full_surface_frame(idx);
-                    self.apps[idx].win.set_frame(0, y, self.mode.width, h);
-                } else {
-                    let area = (self.mode.width, self.work_area_h());
-                    let min_y = self.full_surface_frame(idx).0;
-                    self.apps[idx].win.set_frame_clamped(
-                        u32::from(width),
-                        u32::from(height),
-                        area,
-                        min_y,
-                    );
-                }
-                let Some(store_placed) = self.open_app_window(idx, true) else {
-                    // Atlas exhausted: roll the registration back fail-closed
-                    // AND hide the window — the destroy path deliberately
-                    // keeps `visible=true` for re-creates, so a failed
-                    // re-open would otherwise leave a ZOMBIE (advertised in
-                    // the hit/composite stack, no surface, no band: eats
-                    // clicks, renders nothing).
-                    let _ = self.client_surfaces.destroy(id);
-                    let _ = nexus_abi_cap_close(vmo_slot);
-                    self.apps[idx].surface_id = None;
-                    self.apps[idx].win.visible = false;
-                    self.windows.hide(wid);
-                    let _ =
-                        nexus_abi::debug_write(b"windowd: surface re-open QUOTA (window hidden)\n");
-                    return wire::encode_surface_ack(
-                        wire::OP_SURFACE_CREATE,
-                        wire::SURFACE_STATUS_QUOTA,
-                        0,
-                    );
-                };
-                // No room for the store (RFC-0109): the window shows its base, the client is
-                // told and paints its scroll layers flat.
-                let status = if store_placed {
-                    wire::SURFACE_STATUS_OK
-                } else {
-                    self.client_surfaces.drop_store(id);
-                    let _ = debug_println("WINDOWD: surface store FAIL atlas: flat scroll layers");
-                    wire::SURFACE_STATUS_NO_STORE
-                };
-                // Track C3: a FRESH floating window fades+scales in (the
-                // decided enter motion); re-creates resume without replay.
-                // The starting surface ran the enter spring already (TASK-0336): the app's
-                // surface takes over the window — and whatever is left of the spring — as is.
-                if fresh_launch
-                    && !was_starting
-                    && !self.app_presentation(idx).full_screen
-                    && !self.windows.is_fullscreen(wid)
-                {
-                    self.start_open_transition(idx);
-                }
-                // A RE-CREATE (mode switch / resize) can shrink the frame:
-                // repaint the whole scene so vacated area doesn't keep the
-                // old band's pixels (fullscreen→freeform left stale rows).
-                if !fresh_launch {
-                    self.queue_full_frame_damage();
-                }
-                let _ = debug_println(&alloc::format!(
-                    "WINDOWD: surface created id={id} {width}x{height}"
-                ));
-                wire::encode_surface_ack(wire::OP_SURFACE_CREATE, status, id)
-            }
+        let id = match self.client_surfaces.create(width, height, (c.rows, c.store_w), c.format) {
+            Ok(id) => id,
             Err(status) => {
-                let _ = nexus_abi_cap_close(vmo_slot);
                 let _ = debug_println(&alloc::format!(
                     "WINDOWD: surface create FAIL (status={status})"
                 ));
-                wire::encode_surface_ack(wire::OP_SURFACE_CREATE, status, 0)
+                return refused(status);
             }
+        };
+        self.apps[idx].surface_id = Some(id);
+        if let Some(ch) = self.event_channel_for(nonce) {
+            self.apps[idx].event_channel = Some(ch);
+        } else {
+            let _ = debug_println("WINDOWD: FAIL surface bind (no channel for nonce)");
         }
+        // The window FRAME follows the surface's size (windows-as-widgets P3.1): no full-screen
+        // frame for a small window, no oversized shadow. Chrome per intent.
+        if self.app_presentation(idx).docked_bottom {
+            // OVERLAY dock (OSK): bottom edge, full width, no chrome.
+            let h = u32::from(height);
+            #[allow(clippy::cast_possible_wrap)]
+            self.apps[idx].win.set_frame(
+                0,
+                self.mode.height.saturating_sub(h) as i32,
+                self.mode.width,
+                h,
+            );
+        } else if self.app_presentation(idx).full_screen || self.windows.is_fullscreen(wid) {
+            let (y, h) = self.full_surface_frame(idx);
+            self.apps[idx].win.set_frame(0, y, self.mode.width, h);
+        } else {
+            self.frame_floating(idx, (u32::from(width), u32::from(height)));
+        }
+        self.open_app_window(idx);
+        // Track C3: a FRESH floating window fades+scales in; a starting surface ran the enter
+        // spring already (TASK-0336) and the app's frame takes the window over as it is.
+        if fresh_launch
+            && !was_starting
+            && !self.app_presentation(idx).full_screen
+            && !self.windows.is_fullscreen(wid)
+        {
+            self.start_open_transition(idx);
+        }
+        // A RE-CREATE can shrink the frame: the whole scene again (no stale vacated area).
+        if !fresh_launch {
+            self.queue_full_frame_damage();
+        }
+        let _ = debug_println(&alloc::format!("WINDOWD: surface created id={id} {width}x{height}"));
+        // gpud makes the buffer; its answer completes the create.
+        self.request_surface_buffer(id, sender_sid, (width, c.rows));
+        None
     }
 
     /// Sends a frame on the event channel bound to `nonce` — the CREATE-ack
@@ -284,8 +213,6 @@ impl DisplayServerRuntime {
         }
     }
 
-    /// `SURFACE_PRESENT`: validate seq + damage, mark the window body dirty
-    /// (the render path blits from the VMO), queue the damage. Acks the seq.
     /// Invalidate the CACHED glass backdrop of every visible app window
     /// (except `skip`) whose frame intersects `rect`. The cache is a
     /// snapshot of what was BEHIND the window when it was built — content
@@ -310,148 +237,146 @@ impl DisplayServerRuntime {
         }
     }
 
+    /// `SURFACE_PRESENT` (v2): the slot the client drew is what the frames read from now on;
+    /// the screen follows the named rects where they show — a base row at the surface's place,
+    /// a band's rows in its scroll layer's viewport. The ack is the release (RFC-0114 §5), sent
+    /// by `release_presents` once every other slot is free — at once when it already is.
+    /// `Some`: refused, the NACK to send now.
+    /// `OP_SURFACE_PRESENT` from `sender_sid`. `Some((nack, owner_sees))`: refused — told the
+    /// surface's owner only when the sender IS the owner (a present naming another app's
+    /// surface, a dead compositor's id reused by a new one, is refused to its sender alone).
     pub(crate) fn handle_surface_present(
         &mut self,
         frame: &[u8],
-    ) -> [u8; wire::SURFACE_ACK_FRAME_LEN] {
-        let Some((surface_id, seq, rects, count)) = wire::decode_surface_present(frame) else {
-            return wire::encode_surface_ack(
-                wire::OP_SURFACE_PRESENT,
-                wire::SURFACE_STATUS_MALFORMED,
-                0,
-            );
+        sender_sid: u64,
+    ) -> Option<([u8; wire::SURFACE_ACK_FRAME_LEN], bool)> {
+        use super::surface_buffers::Owner;
+        let Some(p) = wire::decode_surface_present(frame) else {
+            let malformed = wire::SURFACE_STATUS_MALFORMED;
+            return Some((wire::encode_surface_ack(wire::OP_SURFACE_PRESENT, malformed, 0), false));
         };
-        match self.client_surfaces.present(surface_id, seq, &rects[..count]) {
-            Ok((surface, rects, count)) => {
-                // The copy follows the named rows — the base's and the store's (RFC-0109); the
-                // screen follows where they show: the base's rows at the surface's place, a
-                // band's rows in its scroll layer's viewport. Routed BY ID: a desktop present
-                // repaints the base layer; a floating present its window.
-                let rects = &rects[..count];
-                if self.desktop_surface_id == Some(surface_id) {
-                    self.note_desktop_content();
-                    let screen = (0, 0, self.mode.width, self.mode.height);
-                    let change = self.desktop_layers.activate();
-                    let mut damage = self.desktop_damage;
-                    self.present_damage(&surface, rects, change, None, screen, &mut damage);
-                    self.desktop_damage = damage;
-                } else if let Some(idx) = self.app_index_by_surface(surface_id) {
-                    let rect = self.app_window_rect(idx);
-                    let screen = (rect.x, rect.y, rect.width, rect.height);
-                    let change = self.apps[idx].layers.activate();
-                    let mut damage = if self.apps[idx].win.surface_dirty {
-                        self.apps[idx].surface_damage
+        let (surface_id, seq) = (p.surface_id, p.seq);
+        if !self.presents_into(surface_id, sender_sid) {
+            // A surface that is gone (its client's late present — a greeter the shell replaced)
+            // is stale; one that is another's is a bug or an attack: named, refused alike.
+            let gone = self.client_surfaces.get_by_id(surface_id).is_none();
+            if self.app_present_reject_markers < 8 {
+                self.app_present_reject_markers += 1;
+                let _ = debug_println(&alloc::format!(
+                    "WINDOWD: {} id={surface_id} seq={seq} sender={sender_sid:#x}",
+                    if gone {
+                        "surface present stale (gone)"
                     } else {
-                        super::surface_layers::DamageRows::NONE
-                    };
-                    self.present_damage(&surface, rects, change, Some(idx), screen, &mut damage);
-                    self.apps[idx].surface_damage = damage;
-                    self.apps[idx].win.surface_dirty = true;
-                    // Other glass windows overlapping this one see it through
-                    // their backdrop — their cached blur is now stale.
-                    self.invalidate_blur_over(rect, Some(idx));
-                } else {
-                    // Stale surface (e.g. the retired greeter's after the
-                    // shell replaced the desktop slot): ack, queue nothing —
-                    // damaging the floating window for a foreign id painted
-                    // the wrong surface.
-                    let _ = debug_println(&alloc::format!(
-                        "WINDOWD: surface present stale id={surface_id} (ignored)"
-                    ));
+                        "FAIL surface present denied"
+                    }
+                ));
+            }
+            let status =
+                if gone { wire::SURFACE_STATUS_BAD_SURFACE } else { wire::SURFACE_STATUS_DENIED };
+            return Some((wire::encode_surface_ack(wire::OP_SURFACE_PRESENT, status, seq), false));
+        }
+        let now = nexus_abi::nsec().unwrap_or(0);
+        match self.client_surfaces.present(surface_id, (seq, p.slot), p.damage(), now) {
+            Ok((surface, rects, count)) => {
+                let rects = &rects[..count];
+                match self.owner_of(surface_id) {
+                    Some(Owner::Desktop) => {
+                        let screen = (0, 0, self.mode.width, self.mode.height);
+                        let change = self.desktop_layers.activate();
+                        self.present_damage(&surface, rects, change, None, screen);
+                        // The desktop it replaced (a re-create) goes with this one's frame.
+                        self.end_retiring(Owner::Desktop);
+                        // The session's first desktop frame completes the reveal: the revealed
+                        // frame is built now — with this present's structure in effect.
+                        self.note_desktop_content();
+                    }
+                    Some(Owner::App(idx)) => {
+                        let rect = self.app_window_rect(idx);
+                        let screen = (rect.x, rect.y, rect.width, rect.height);
+                        let change = self.apps[idx].layers.activate();
+                        self.present_damage(&surface, rects, change, Some(idx), screen);
+                        // The app's frame takes its window over: the starting surface and a
+                        // surface it replaces give way in this present (TASK-0336, RFC-0114).
+                        if self.end_starting_surface(idx) || self.apps[idx].retiring.is_some() {
+                            self.end_retiring(Owner::App(idx));
+                            self.queue_dirty_rect(rect);
+                        }
+                        // Glass windows above see it through their backdrop: their blur is stale.
+                        self.invalidate_blur_over(rect, Some(idx));
+                    }
+                    None => {}
                 }
-                // A surface's FIRST present proves the chain is live — once per
-                // surface: later presents follow keystrokes too (the keystroke
-                // privacy rule) and hover rates (a `format!` and a line each).
+                // A surface's FIRST present proves the chain is live — once per surface: later
+                // presents follow keystrokes too (the keystroke privacy rule).
                 if seq == 1 {
                     let _ = debug_println(&alloc::format!(
-                        "WINDOWD: surface presented id={surface_id} seq={seq} t_us={}",
+                        "WINDOWD: surface presented id={surface_id} seq={seq} slot={} t_us={}",
+                        p.slot,
                         nexus_abi::nsec().unwrap_or(0) / 1000
                     ));
                 }
-                wire::encode_surface_ack(wire::OP_SURFACE_PRESENT, wire::SURFACE_STATUS_OK, seq)
+                self.release_presents();
+                None
             }
             Err(status) => {
-                // A rejected present is otherwise silent — name the status +
-                // seq so a seq/surface mismatch is diagnosable (bounded).
+                // A rejected present is otherwise silent — name it (bounded). A surface its client
+                // or its successor replaced (the greeter's last present at the shell's start) is
+                // stale, not a fault.
+                let stale = self.client_surfaces.get_by_id(surface_id).is_some_and(|s| s.retiring);
                 if self.app_present_reject_markers < 8 {
                     self.app_present_reject_markers += 1;
                     let _ = debug_println(&alloc::format!(
-                        "WINDOWD: FAIL surface present rejected id={surface_id} seq={seq} status={status}"
+                        "WINDOWD: {}surface present {} id={surface_id} seq={seq} slot={} status={status}",
+                        if stale { "" } else { "FAIL " },
+                        if stale { "stale (replaced)" } else { "rejected" },
+                        p.slot
                     ));
                 }
-                wire::encode_surface_ack(wire::OP_SURFACE_PRESENT, status, seq)
+                Some((wire::encode_surface_ack(wire::OP_SURFACE_PRESENT, status, seq), true))
             }
         }
     }
 
-    /// `SURFACE_DESTROY`: drop the registration, release the VMO capability,
-    /// close the window (ADR-0037 residency: closed app holds no surface).
+    /// `SURFACE_DESTROY`: the client drops its surface — a re-create follows (a resize, a mode
+    /// switch, a store that outgrew it). The surface takes no present any more and shows its
+    /// last frame until its successor presents (RFC-0114); the window keeps its place and mode
+    /// (hiding it would clear its fullscreen flag — the "fullscreen makes everything vanish"
+    /// bug). A user's close is `close_app_window`, not this.
     pub(crate) fn handle_surface_destroy(
         &mut self,
         frame: &[u8],
+        sender_owns: bool,
     ) -> [u8; wire::SURFACE_ACK_FRAME_LEN] {
+        use super::surface_buffers::Owner;
         let Some(surface_id) = wire::decode_surface_destroy(frame) else {
-            return wire::encode_surface_ack(
-                wire::OP_SURFACE_DESTROY,
-                wire::SURFACE_STATUS_MALFORMED,
-                0,
-            );
+            let malformed = wire::SURFACE_STATUS_MALFORMED;
+            return wire::encode_surface_ack(wire::OP_SURFACE_DESTROY, malformed, 0);
         };
-        match self.client_surfaces.destroy(surface_id) {
-            Ok(vmo_slot) => {
-                let _ = nexus_abi_cap_close(vmo_slot);
-                // A dying surface takes its text focus with it — and the OSK
-                // band must follow (RFC-0075: never a keyboard without a
-                // field; e.g. the greeter is destroyed at session start).
-                if self.text_focus.map(|f| f.surface_id) == Some(surface_id) {
-                    self.text_focus = None;
-                    self.update_osk_visibility();
-                }
-                if self.desktop_surface_id == Some(surface_id) {
-                    // The desktop surface dropped (shell exit / re-create): free
-                    // its band + hide the base layer until a new one connects.
-                    self.desktop_surface_id = None;
-                    for region in [self.desktop_band.take(), self.desktop_store.take()] {
-                        if let Some(region) = region {
-                            self.atlas_alloc.free(region);
-                        }
-                    }
-                    self.hide_window(crate::window_scene::WindowId::Desktop);
-                    self.queue_full_frame_damage();
-                    let _ = debug_println(&alloc::format!(
-                        "WINDOWD: desktop surface destroyed id={surface_id}"
-                    ));
-                    return wire::encode_surface_ack(
-                        wire::OP_SURFACE_DESTROY,
-                        wire::SURFACE_STATUS_OK,
-                        surface_id,
-                    );
-                }
-                if let Some(idx) = self.app_index_by_surface(surface_id) {
-                    self.apps[idx].surface_id = None;
-                    // A protocol SURFACE_DESTROY is the app dropping its surface —
-                    // during a resize/fullscreen negotiation it re-creates one
-                    // immediately (same slot via its event channel). Free the atlas
-                    // band ONLY; do NOT hide the window, which would clear its
-                    // fullscreen flag (see `window_scene::hide`) and re-add the
-                    // title bar on the re-create (atlas over-alloc, the "fullscreen
-                    // makes everything vanish" bug). The user-close path (× button)
-                    // calls `close_app_window` directly, not this.
-                    self.release_app_surface_band(idx);
-                    // Rows freed: occluded windows waiting on occlusion
-                    // residency may re-mount now (no-op under fullscreen).
-                    self.ensure_visible_bands();
-                }
-                let _ =
-                    debug_println(&alloc::format!("WINDOWD: surface destroyed id={surface_id}"));
-                wire::encode_surface_ack(
-                    wire::OP_SURFACE_DESTROY,
-                    wire::SURFACE_STATUS_OK,
-                    surface_id,
-                )
-            }
-            Err(status) => wire::encode_surface_ack(wire::OP_SURFACE_DESTROY, status, surface_id),
+        if !sender_owns {
+            let denied = wire::SURFACE_STATUS_DENIED;
+            return wire::encode_surface_ack(wire::OP_SURFACE_DESTROY, denied, surface_id);
         }
+        let owner = if self.desktop_surface_id == Some(surface_id) {
+            Owner::Desktop
+        } else if let Some(idx) = self.app_index_by_surface(surface_id) {
+            Owner::App(idx)
+        } else {
+            let bad = wire::SURFACE_STATUS_BAD_SURFACE;
+            return wire::encode_surface_ack(wire::OP_SURFACE_DESTROY, bad, surface_id);
+        };
+        // A dying surface takes its text focus with it — and the OSK band must follow
+        // (RFC-0075: never a keyboard without a field).
+        if self.text_focus.map(|f| f.surface_id) == Some(surface_id) {
+            self.text_focus = None;
+            self.update_osk_visibility();
+        }
+        match owner {
+            Owner::Desktop => self.desktop_surface_id = None,
+            Owner::App(idx) => self.apps[idx].surface_id = None,
+        }
+        self.retire_surface(owner, surface_id);
+        let _ = debug_println(&alloc::format!("WINDOWD: surface destroyed id={surface_id}"));
+        wire::encode_surface_ack(wire::OP_SURFACE_DESTROY, wire::SURFACE_STATUS_OK, surface_id)
     }
 
     /// The app surface's resolved presentation — declared intent ⟂ the
@@ -481,7 +406,7 @@ impl DisplayServerRuntime {
     /// resize RE-create binds the same nonce again.
     #[cfg(nexus_env = "os")]
     pub(super) fn event_channel_for(&self, nonce: u64) -> Option<u32> {
-        self.event_channels[..self.event_channels_len].iter().find(|e| e.0 == nonce).map(|e| e.1)
+        self.event_channels.iter().find(|e| e.0 == nonce).map(|e| e.1)
     }
 
     pub(crate) fn attach_app_event_channel(&mut self, send_slot: Option<u32>, nonce: Option<u64>) {
@@ -498,33 +423,24 @@ impl DisplayServerRuntime {
                 let _ = nexus_abi_cap_close(slot);
                 return;
             };
-            // Bind nonce → channel (replace same nonce; LRU-replace when full).
-            // Every (re)bind tells the snapshot tracker (RFC-0083): a fresh
-            // channel owes the current presentation and forgives failures.
-            if let Some(i) =
-                self.event_channels[..self.event_channels_len].iter().position(|e| e.0 == nonce)
-            {
+            // Bind nonce → channel (a rebind of the same nonce replaces its channel). The table
+            // grows: a live channel is never evicted (RFC-0114 §7 — the ninth app's attach used
+            // to evict a LIVE app's channel, and that app saw EOF and exited). Every (re)bind
+            // tells the snapshot tracker (RFC-0083): a fresh channel owes the current
+            // presentation and forgives failures.
+            if let Some(i) = self.event_channels.iter().position(|e| e.0 == nonce) {
                 // The replaced channel's waiting frames go with it (ADR-0075).
                 self.forget_client_channel(self.event_channels[i].1);
                 let _ = nexus_abi_cap_close(self.event_channels[i].1);
                 self.event_channels[i].1 = slot;
                 self.presentation.note_bound(i);
-            } else if self.event_channels_len < self.event_channels.len() {
-                self.event_channels[self.event_channels_len] = (nonce, slot);
-                self.presentation.note_bound(self.event_channels_len);
-                self.event_channels_len += 1;
+            } else if self.event_channels.try_reserve(1).is_ok() {
+                self.event_channels.push((nonce, slot));
+                self.presentation.note_bound(self.event_channels.len() - 1);
             } else {
-                // Bounded: replace the OLDEST entry (index 0), shift left.
-                // The shift renumbers every channel — rebind them ALL (an
-                // extra idempotent snapshot per channel, at window-churn rate).
-                self.forget_client_channel(self.event_channels[0].1);
-                let _ = nexus_abi_cap_close(self.event_channels[0].1);
-                self.event_channels.rotate_left(1);
-                let last = self.event_channels.len() - 1;
-                self.event_channels[last] = (nonce, slot);
-                for i in 0..self.event_channels.len() {
-                    self.presentation.note_bound(i);
-                }
+                let _ = debug_println("WINDOWD: FAIL app event channel (no memory)");
+                let _ = nexus_abi_cap_close(slot);
+                return;
             }
             // Nonce logged: desktop-bind-race triage matches attach vs deferred bind.
             let _ = debug_println(&alloc::format!(
@@ -536,23 +452,15 @@ impl DisplayServerRuntime {
             // the app's boot wait consumes it before mounting.
             // Complete a desktop bind that raced ahead of this attach (if any).
             self.complete_deferred_desktop_bind(nonce, slot);
+            // A buffer whose create raced this attach goes to its client now (RFC-0114).
+            self.deliver_owed_buffers();
             // Flush a PARKED intent reply for this nonce (boot-park track):
             // the geometry answer the racing intent could not deliver.
-            for entry in self.pending_intent_replies.iter_mut() {
-                if let Some((n, rect)) = entry {
-                    if *n == nonce {
-                        let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, rect.len() as u32);
-                        let _ = nexus_abi::ipc_send_v1(
-                            slot,
-                            &hdr,
-                            rect,
-                            nexus_abi::IPC_SYS_NONBLOCK,
-                            0,
-                        );
-                        let _ = debug_println("WINDOWD: parked intent reply flushed");
-                        *entry = None;
-                    }
-                }
+            while let Some(i) = self.pending_intent_replies.iter().position(|(n, _)| *n == nonce) {
+                let (_, rect) = self.pending_intent_replies.swap_remove(i);
+                let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, rect.len() as u32);
+                let _ = nexus_abi::ipc_send_v1(slot, &hdr, &rect, nexus_abi::IPC_SYS_NONBLOCK, 0);
+                let _ = debug_println("WINDOWD: parked intent reply flushed");
             }
         }
     }

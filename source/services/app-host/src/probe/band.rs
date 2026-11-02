@@ -14,6 +14,7 @@
 //! TEST_COVERAGE: the ring and the bounds in `nexus-display-proto::surface_layers`; the QEMU lanes.
 
 use super::scroll::ScrollLayer;
+use super::surface_mem::SurfaceMem;
 use super::*;
 use nexus_display_proto::surface_layers as lw;
 
@@ -184,21 +185,22 @@ impl super::DslApp {
         true
     }
 
-    /// The create's answer for `plan` (RFC-0109): the store placed — or none (`NO_STORE`: no
-    /// atlas room), and every scroll layer paints flat until the next create. Whether the page
-    /// must be drawn again (its layers went flat).
-    pub(super) fn created(&mut self, store: bool, plan: StorePlan) -> bool {
+    /// The surface was made for `plan` (RFC-0114: one slot of its buffer holds the base and the
+    /// store).
+    pub(super) fn created(&mut self, plan: StorePlan) {
         self.store_rows = plan.rows;
         self.store_w = plan.width;
-        self.store_refused = !store;
-        if store {
-            return false;
-        }
-        let _ = self.plan_store();
+    }
+
+    /// No memory for the store's buffer (the create answered `QUOTA`): every scroll layer paints
+    /// flat until the next create asks again. Returns the flat plan to create with.
+    pub(super) fn refuse_store(&mut self) -> StorePlan {
+        self.store_refused = true;
+        let plan = self.plan_store();
         if crate::proof_line::STORE_REFUSED.claim() {
-            raw_marker("apphost: store refused (no atlas room: scroll layers flat)");
+            raw_marker("apphost: store refused (no memory for the bands: scroll layers flat)");
         }
-        true
+        plan
     }
 
     /// The store a re-create asks for: one refused before is asked for again — its layers back
@@ -238,7 +240,7 @@ impl super::DslApp {
     /// holds.
     pub(super) fn fill_bands(
         &mut self,
-        vmo: u32,
+        mem: &mut SurfaceMem,
         budget: Option<u64>,
         damage: &mut PresentDamage,
     ) -> bool {
@@ -263,7 +265,7 @@ impl super::DslApp {
                         l.band.valid_len = 0;
                     }
                 }
-                if !self.draw_band(k, q0, q1, vmo, damage) {
+                if !self.draw_band(k, q0, q1, mem, damage) {
                     return changed;
                 }
                 if let Some(l) = self.scroll_layers[k].as_mut() {
@@ -283,7 +285,7 @@ impl super::DslApp {
         k: usize,
         p0: u32,
         p1: u32,
-        vmo: u32,
+        mem: &mut SurfaceMem,
         damage: &mut PresentDamage,
     ) -> bool {
         let Some(layer) = self.scroll_layers[k] else { return true };
@@ -291,13 +293,12 @@ impl super::DslApp {
         let Some((sx, sy, _)) = desc.ring_place(p0) else { return true };
         let (vx0, vy0, vx1, vy1) = layer.viewport;
         let n = p1 - p0;
-        let stride = self.w as usize * 4;
         let pass = super::paint::Pass::Band(layer.root);
         if layer.vertical() {
             self.prepare_picks(pass, (vy0 + p0 as i32, vy0 + p1 as i32), None);
             for i in 0..n {
-                let dst = (sy + i) as usize * stride + sx as usize * 4;
-                if !self.paint_band_row(vmo, vy0 + (p0 + i) as i32, 0, (vx0, vx1), dst) {
+                let y = vy0 + (p0 + i) as i32;
+                if !self.paint_band_row(mem, y, 0, (vx0, vx1), (sy + i, sx)) {
                     return false;
                 }
             }
@@ -308,8 +309,8 @@ impl super::DslApp {
             let shift = vx0 + p0 as i32;
             self.prepare_picks(pass, (vy0, vy1), Some((shift, shift + n as i32)));
             for r in 0..(vy1 - vy0) as u32 {
-                let dst = (sy + r) as usize * stride + sx as usize * 4;
-                if !self.paint_band_row(vmo, vy0 + r as i32, shift, (0, n as i32), dst) {
+                let y = vy0 + r as i32;
+                if !self.paint_band_row(mem, y, shift, (0, n as i32), (sy + r, sx)) {
                     return false;
                 }
             }
@@ -325,23 +326,23 @@ impl super::DslApp {
     /// surface refused a write.
     pub(super) fn redraw(
         &mut self,
-        vmo: u32,
+        mem: &mut SurfaceMem,
         span: Option<(i32, i32)>,
         damage: &mut PresentDamage,
     ) -> bool {
         let (w, h) = (self.w, self.h as i32);
         let Some((y0, y1)) = span else {
-            if !self.render(vmo) || !self.draw_patch(vmo, damage) {
+            if !self.render(mem) || !self.draw_patch(mem, damage) {
                 return false;
             }
             damage.add((0, 0, w, h as u32));
             self.invalidate_bands();
-            self.fill_bands(vmo, None, damage);
+            self.fill_bands(mem, None, damage);
             return true;
         };
         let (b0, b1) = (y0.max(0), y1.min(h));
         if b1 > b0 {
-            if !self.render_rows(vmo, b0, b1) {
+            if !self.render_rows(mem, b0, b1) {
                 return false;
             }
             damage.add((0, b0 as u32, w, (b1 - b0) as u32));
@@ -364,7 +365,7 @@ impl super::DslApp {
             let strip = u32::from(l.band.strip_len).max(1);
             while q < end {
                 let q1 = end.min(q + (strip - q % strip));
-                if !self.draw_band(k, q, q1, vmo, damage) {
+                if !self.draw_band(k, q, q1, mem, damage) {
                     return false;
                 }
                 q = q1;
@@ -373,24 +374,31 @@ impl super::DslApp {
         true
     }
 
-    /// One present: the model change redrawn (`change`: `Some(span)` — the span's layout rows,
+    /// One present: into the slot windowd released (RFC-0114 — the last present's rects first
+    /// come forward), the model change redrawn (`change`: `Some(span)` — the span's layout rows,
     /// or everything), a fill pass of the bands within its budget, the structure when it changed,
-    /// the present of every row drawn. `Ok(true)`: a present is in flight (its ack clears it).
+    /// the present of the slot naming every row drawn. `Ok(true)`: a present is in flight (its
+    /// ack — the release of the other slot — clears it).
     pub(super) fn present_frame(
         &mut self,
         client: &KernelClient,
         surface_id: u32,
-        vmo: u32,
+        mem: &mut SurfaceMem,
         seq: &mut u32,
         change: Option<Option<(i32, i32)>>,
     ) -> Result<bool, &'static str> {
         let mut damage = PresentDamage::default();
+        mem.begin_frame(change == Some(None));
         if let Some(span) = change {
-            if !self.redraw(vmo, span, &mut damage) {
+            if !self.redraw(mem, span, &mut damage) {
                 return Err("apphost: FAIL interactive render");
             }
         }
-        self.fill_bands(vmo, Some(FILL_BUDGET_NS), &mut damage);
+        self.fill_bands(mem, Some(FILL_BUDGET_NS), &mut damage);
+        // Regions an animation moved (or let rest) are declared anew with this frame's pixels.
+        if !self.tree_dirty && self.regions_moved() {
+            self.tree_dirty = true;
+        }
         if damage.is_empty() && !self.tree_dirty {
             // Nothing to show: an input that asked for a repaint alone was answered with nothing
             // (no hop); one that moved a layer is answered by the motion.
@@ -402,12 +410,13 @@ impl super::DslApp {
         if self.tree_dirty {
             self.send_tree(client, surface_id);
         }
-        // A present naming nothing would copy every row: name the patch's first pixel.
+        // A present naming nothing would damage the whole surface: name the patch's first pixel.
         if damage.is_empty() {
             damage.add((u32::from(self.patch.0), u32::from(self.patch.1), 1, 1));
         }
+        let slot = mem.end_frame(&damage);
         *seq = seq.wrapping_add(1);
-        self.send_present(client, surface_id, *seq, &damage)?;
+        self.send_present(client, surface_id, (*seq, slot), &damage)?;
         self.note_input_answered();
         // RFC-0113 §6: the keys this present shows are answered; a field the focus left says
         // its session. §5: the caret this frame places, to windowd (it draws and blinks it).
@@ -417,12 +426,13 @@ impl super::DslApp {
         Ok(true)
     }
 
-    /// `OP_SURFACE_PRESENT` of `damage`'s rows (waited: the queue's room, never a reply).
+    /// `OP_SURFACE_PRESENT` of slot `slot` naming `damage`'s rows (waited: the queue's room,
+    /// never a reply).
     pub(super) fn send_present(
         &self,
         client: &KernelClient,
         surface_id: u32,
-        seq: u32,
+        (seq, slot): (u32, u8),
         damage: &PresentDamage,
     ) -> Result<(), &'static str> {
         let mut rects = [wire::DamageRect { x: 0, y: 0, width: 0, height: 0 }; 4];
@@ -432,13 +442,13 @@ impl super::DslApp {
         }
         let n = damage.rects().len();
         let mut buf = [0u8; wire::SURFACE_PRESENT_MAX_LEN];
-        let len = wire::encode_surface_present(surface_id, seq, &rects[..n], &mut buf);
+        let len = wire::encode_surface_present(surface_id, seq, slot, &rects[..n], &mut buf);
         super::boot::send_wait(client, &buf[..len]).map_err(|_| "apphost: FAIL interactive present")
     }
 
     /// Fills the wash patch with the theme's hover colour (opaque: the wash's opacity carries
     /// its alpha) and names it in `damage`.
-    pub(super) fn draw_patch(&mut self, vmo: u32, damage: &mut PresentDamage) -> bool {
+    pub(super) fn draw_patch(&mut self, mem: &mut SurfaceMem, damage: &mut PresentDamage) -> bool {
         use nexus_dsl_runtime::theme_tokens::ColorToken;
         if self.store_refused {
             return true; // no store: no patch, no wash
@@ -449,16 +459,25 @@ impl super::DslApp {
         for px in row.chunks_exact_mut(4) {
             px.copy_from_slice(&[c.b, c.g, c.r, 255]);
         }
-        let (px, py) = (usize::from(self.patch.0), usize::from(self.patch.1));
-        for r in 0..side {
-            if vmo_write(vmo, ((py + r) * self.w as usize + px) * 4, &row).is_err() {
+        let (px, py) = (u32::from(self.patch.0), u32::from(self.patch.1));
+        for r in 0..side as u32 {
+            if !mem.write(py + r, px, &row) {
                 return false;
             }
         }
         self.wash_opacity = c.a;
-        damage.add((px as u32, py as u32, PATCH_ROWS, PATCH_ROWS));
+        damage.add((px, py, PATCH_ROWS, PATCH_ROWS));
         self.tree_dirty = true;
         true
+    }
+
+    /// Whether the regions the page declares now differ from those last sent (an animation
+    /// moved a glass box, or let it rest).
+    fn regions_moved(&self) -> bool {
+        let mut now = [wire::LayerDesc::default(); wire::MAX_SURFACE_LAYERS];
+        let n = self.regions(&mut now);
+        let sent = &self.sent_tree;
+        n != sent.region_count || now[..n] != sent.regions[..n]
     }
 
     /// The structure (`OP_SURFACE_TREE`): the regions, every layer with its band, the patch — in

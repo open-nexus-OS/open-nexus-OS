@@ -57,10 +57,13 @@ pub const SYSCALL_RECV: usize = 3;
 /// (TASK-0246 P1). A contiguous object needs its device.
 pub const SYSCALL_VMO_CREATE: usize = 5;
 pub const SYSCALL_VMO_WRITE: usize = 6;
+/// Starts a thread in the caller's OWN address space (`as_self`), suspended (ADR-0091): a task
+/// never names another space, and userspace never starts a supervisor task.
 pub const SYSCALL_SPAWN: usize = 7;
 pub const SYSCALL_CAP_TRANSFER: usize = 8;
-pub const SYSCALL_AS_CREATE: usize = 9;
-pub const SYSCALL_AS_MAP: usize = 10;
+// 9/10: `as_create`/`as_map` — a fresh address space and a fixed-VA map into ANY space named by
+// a raw handle (ambient authority) — RETIRED by ADR-0091; never reused. Spaces come from
+// `exec_vmo` (63) only; a task maps into its own space only (53/54/55).
 pub const SYSCALL_EXIT: usize = 11;
 pub const SYSCALL_WAIT: usize = 12;
 // 13: the pointer-and-length exec loader — RETIRED by ADR-0080 (`exec_vmo`, 63); never reused.
@@ -259,6 +262,10 @@ pub const SYSCALL_SWAP_COMMIT: usize = 72;
 /// stale; `EINVAL`: it did not open — the parked threads are killed). Args: (token, slot,
 /// sealed_ptr, len).
 pub const SYSCALL_SWAP_PAGE_IN: usize = 73;
+/// ADR-0092 (ADR-0079's deferred call): clean the CPU caches over `[offset, offset + len)` of an
+/// object the caller may WRITE (`Vmo`, not sealed), so the non-coherent device it was made for
+/// reads what was written. A no-op for a coherent device's object. Args: (vmo_slot, offset, len).
+pub const SYSCALL_VMO_CLEAN: usize = 74;
 /// Transfers a capability into a specific slot in the child task.
 pub const SYSCALL_CAP_TRANSFER_TO: usize = 31;
 /// Returns the last spawn failure reason for the current task (RFC-0013).

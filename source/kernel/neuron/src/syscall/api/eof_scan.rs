@@ -130,3 +130,31 @@ pub(super) fn judge_dropped(
     }
     false
 }
+
+/// RFC-0112 (amendment 2026-11-02): the capabilities that were IN FLIGHT in the queue of an
+/// endpoint that closed — its owner died, a MANAGE close, a reclaim — are dropped like a
+/// `cap_close` of each. The census no longer counts them, so an endpoint one of them named may
+/// have lost its last foreign sender (its receiver wakes to EOF: the caller of a call the dead
+/// server never read), its last receiver or its last name; a VMO its last capability. Drained
+/// to the end: a judgement may destroy an endpoint whose own queue held more. Timers, waitsets
+/// and fences die with their creator; a dropped capability to one only loses a name.
+pub(super) fn release_in_flight(
+    tasks: &mut task::TaskTable,
+    router: &mut ipc::Router,
+    scheduler: &mut Scheduler,
+    (waitsets, hart_timers): (&mut crate::waitset::WaitsetTable, &mut crate::timer::HartTimers),
+    address_spaces: &AddressSpaceManager,
+    by: &'static str,
+) {
+    while let Some(cap) = router.take_in_flight_dropped() {
+        match cap.kind {
+            CapabilityKind::Endpoint(id) => {
+                let _ = judge_dropped(tasks, router, scheduler, waitsets, hart_timers, id, by);
+            }
+            CapabilityKind::Vmo { id, .. } | CapabilityKind::VmoRo { id, .. } => {
+                crate::mm::reclaim::orphans(tasks, address_spaces, &[id], by);
+            }
+            _ => {}
+        }
+    }
+}

@@ -137,6 +137,21 @@ pub(crate) fn blit_blend_vmo(
     .map_err(|_| GfxError::ResourceExhausted)
 }
 
+/// A buffer layer on the CPU (RFC-0114): `src`'s band `(x, row, size)` — slot-relative — spread
+/// over `dst` in the framebuffer `(fb, fb_len, fb_w)` at `opacity`; nothing outside either is read.
+pub(crate) fn blend_from_vmo(
+    (fb, fb_len, fb_w): (*mut u8, usize, usize),
+    src: raster::BlendSource<'_>,
+    (src_x, src_row, size): (u32, u32, (u32, u32)),
+    (dst_x, dst_y, w, h): (u32, u32, u32, u32),
+    opacity: u32,
+) {
+    // SAFETY: `fb` is the scanout resource's own mapping of `fb_len` bytes, held for the call
+    // (the executor's contract, `cpu_frame::Target`); `src` is a separate read-only mapping.
+    let mut s = unsafe { surface(fb, fb_len, fb_w) };
+    raster::blit_from_blend(&mut s, src, src_x, src_row, size, dst_x, dst_y, w, h, opacity);
+}
+
 /// Composite a premultiplied-alpha BGRA pixel over the destination VMO pixel.
 pub(crate) fn blend_premultiplied_vmo(fb: *mut u8, idx: usize, src: &[u8; 4]) {
     unsafe {

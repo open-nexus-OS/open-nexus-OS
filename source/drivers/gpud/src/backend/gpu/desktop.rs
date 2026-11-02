@@ -34,6 +34,7 @@ use super::emit_fmt;
 use super::render_template::{
     render_streams, Captured, Target, Targets, RENDER_BUNDLE, TARGET_PDS,
 };
+use super::surface_buffers::SurfaceBuffers;
 use crate::gpu_context::FrameTarget;
 
 /// Where the context takes what the frames touch, clear of the render bundle's heaps: the
@@ -316,6 +317,14 @@ impl Desktop {
         give_back(dev, self.client, &mut self.bos);
     }
 
+    /// A new compositor runs (RFC-0112): its layers are not the old one's — the set goes and
+    /// every slot is drawn whole next (no slot's pixels are the new compositor's).
+    pub(crate) fn forget_layers(&mut self) {
+        self.frame.layers.clear();
+        self.drawn = [0; 3];
+        self.cleaned.forget();
+    }
+
     /// One frame of windowd's commands into the slot `target` names: planned, its textures
     /// cleaned where the CPU wrote them, its passes drawn and waited. The gate scene first,
     /// once (5c-4).
@@ -324,13 +333,14 @@ impl Desktop {
         dev: &mut Device,
         cmds: &[Command],
         target: &FrameTarget<'_>,
+        buffers: &SurfaceBuffers,
     ) -> Result<nexus_gfx::backend::types::Rect, Refusal> {
         if !self.gated {
             self.gated = true;
             self.gate(dev, target)?;
         }
         // The frame's passes pipelined: one wait at the end (cycle 39's pass latency).
-        self.frame_of(dev, cmds, target, (false, false, true), target.base_dirty)
+        self.frame_of(dev, cmds, target, (false, false, true), (target.base_dirty, buffers))
             .map(|(rect, _, _)| rect)
     }
 
@@ -342,7 +352,7 @@ impl Desktop {
         cmds: &[Command],
         target: &FrameTarget<'_>,
         (quiet, trace, pipelined): (bool, bool, bool),
-        base_dirty: bool,
+        (base_dirty, buffers): (bool, &SurfaceBuffers),
     ) -> Result<(nexus_gfx::backend::types::Rect, u64, usize), Refusal> {
         let t0 = now_ns();
         let k = RING_ROWS
@@ -427,6 +437,10 @@ impl Desktop {
                     if l.content_w > 0 { l.content_w } else { l.width },
                     if l.content_h > 0 { l.content_h } else { l.height },
                 );
+                // RFC-0114: an app's buffer is bound whole and cleaned by the app that drew it.
+                if l.source != 0 {
+                    continue;
+                }
                 // Its band's pages told the GPU first (the rows a piece of it can sample).
                 self.surface.enter(dev, (self.client, self.ctx), (l.src_row_abs, h))?;
                 self.cleaned.clean(target, i, (l.src_x, l.src_row_abs, w, h));
@@ -478,7 +492,7 @@ impl Desktop {
                 rings,
                 &board,
                 &spec,
-                to,
+                (to, buffers),
                 (trace && wait, wait),
                 last,
             )?;

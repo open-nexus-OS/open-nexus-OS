@@ -249,6 +249,7 @@ impl<'a> RenderCommandEncoder<'a> {
             0,
             0,
             0,
+            0,
         )
     }
 
@@ -275,6 +276,7 @@ impl<'a> RenderCommandEncoder<'a> {
         content_epoch: u32,
         flags: u32,
         key: u32,
+        source: u32,
     ) -> Result<(), GfxError> {
         if !self.active {
             return Err(GfxError::CommandRejected);
@@ -300,6 +302,7 @@ impl<'a> RenderCommandEncoder<'a> {
             content_epoch,
             flags,
             key,
+            source,
         })
     }
 
@@ -396,9 +399,13 @@ impl<'a> RenderCommandEncoder<'a> {
             layer.scroll_band_h,
             layer.layer_id,
             layer.content_epoch,
-            (if layer.opaque { crate::command::buffer::LAYER_OPAQUE } else { 0 })
-                | (if layer.solid { crate::command::buffer::LAYER_SOLID } else { 0 }),
+            crate::command::layer_wire::with_slot(
+                (if layer.opaque { crate::command::buffer::LAYER_OPAQUE } else { 0 })
+                    | (if layer.solid { crate::command::buffer::LAYER_SOLID } else { 0 }),
+                layer.slot,
+            ),
             layer.key,
+            layer.source,
         )
     }
 

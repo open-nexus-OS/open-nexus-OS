@@ -68,9 +68,12 @@ pub(crate) static SCROLL_LAYERS_OVER: OnceLine = OnceLine::new();
 /// The store could not hold a band for every scroll layer: the longest went flat.
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 pub(crate) static STORE_FULL: OnceLine = OnceLine::new();
-/// windowd had no atlas room for the surface's store (`NO_STORE`): its scroll layers are flat.
+/// No memory for the store's buffer (a create answered `QUOTA`): its scroll layers are flat.
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 pub(crate) static STORE_REFUSED: OnceLine = OnceLine::new();
+/// The surface's buffer is mapped (RFC-0114): said for the first surface — a resize maps again.
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+pub(crate) static SURFACE_MAPPED: OnceLine = OnceLine::new();
 /// The scroll layers of a mounted page and the rows their bands take (a measurement, at the
 /// largest count seen).
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]

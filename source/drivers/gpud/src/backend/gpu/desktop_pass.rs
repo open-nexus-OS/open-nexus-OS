@@ -25,6 +25,7 @@ use super::device_v2::Device;
 use super::emit_fmt;
 use super::render_cost::streams_for;
 use super::render_template::{pds_at, write_bound, Target, PDS_ARENA};
+use super::surface_buffers::SurfaceBuffers;
 use crate::gpu_context::FrameTarget;
 
 const WIDTH: u32 = STRIDE_BYTES / 4;
@@ -133,25 +134,25 @@ fn descriptor(
     dev: &mut Device,
     who: (ClientId, ContextId),
     rings: &mut Rings,
-    tex: Tex,
+    (tex, buffers): (Tex, &SurfaceBuffers),
     none: u64,
 ) -> Result<u64, &'static str> {
     let at = |va: u64, x: u32, row: u32| va + u64::from(row) * STRIDE + u64::from(x) * 4;
-    let (address, width, height) = match tex {
+    let (address, width, height, stride) = match tex {
         Tex::None => return Ok(none),
-        Tex::Layout { x, row, w, h } => (at(LAYOUT_VA, x, row), w, h),
-        Tex::Scratch => (SCRATCH_VA, WIDTH, PLANE_ROWS),
-        Tex::Half { rows } => (HALF_VA, WIDTH, rows),
-        Tex::Cache { x, row, w, h } => (at(CACHE_VA, x, row), w, h),
+        Tex::Layout { x, row, w, h } => (at(LAYOUT_VA, x, row), w, h, WIDTH),
+        Tex::Scratch => (SCRATCH_VA, WIDTH, PLANE_ROWS, WIDTH),
+        Tex::Half { rows } => (HALF_VA, WIDTH, rows, WIDTH),
+        Tex::Cache { x, row, w, h } => (at(CACHE_VA, x, row), w, h, WIDTH),
+        // RFC-0114: an app's buffer at its own address and stride, where the app drew it.
+        Tex::Buffer { source, slot, x, row, w, h } => {
+            let (address, stride) =
+                buffers.texels(source, slot, (x, row, w, h)).ok_or("a buffer the context lacks")?;
+            (address, w, h, stride)
+        }
     };
-    let image = Image {
-        address,
-        width,
-        height,
-        stride: WIDTH,
-        format: format::U8U8U8U8,
-        swizzle: swizzle::BGRA,
-    };
+    let image =
+        Image { address, width, height, stride, format: format::U8U8U8U8, swizzle: swizzle::BGRA };
     let bytes = descriptor_bytes(&image, &Sampler::BILINEAR_CLAMP).map_err(|_| "a descriptor")?;
     let off = rings.place(0, Need::Descriptor).ok_or("no line for a descriptor")?;
     write_bound(dev, who.0, who.1, FRAME_VA, off, &bytes).map_err(|_| "a descriptor's write")?;
@@ -196,7 +197,7 @@ pub(super) fn run_pass(
     rings: &mut Rings,
     board: &Board<'_>,
     spec: &PassSpec,
-    target: Target,
+    (target, buffers): (Target, &SurfaceBuffers),
     (trace, wait): (bool, bool),
     last: Option<TimelinePoint>,
 ) -> Result<(usize, [u64; 6], TimelinePoint), Refusal> {
@@ -206,8 +207,20 @@ pub(super) fn run_pass(
     }
     for attempt in 0..2 {
         rings.begin();
-        let ran =
-            emit_and_wait(dev, who, base, t, pipes, rings, board, spec, n, target, trace, wait);
+        let ran = emit_and_wait(
+            dev,
+            who,
+            base,
+            t,
+            pipes,
+            rings,
+            board,
+            spec,
+            n,
+            (target, buffers),
+            trace,
+            wait,
+        );
         match ran {
             Ok((point, mut stamps, kept)) => {
                 let r0 = now_ns();
@@ -246,7 +259,7 @@ fn emit_and_wait(
     board: &Board<'_>,
     spec: &PassSpec,
     n: usize,
-    target: Target,
+    (target, buffers): (Target, &SurfaceBuffers),
     trace: bool,
     wait: bool,
 ) -> Result<(TimelinePoint, [u64; 6], usize), Refusal> {
@@ -264,7 +277,7 @@ fn emit_and_wait(
             continue;
         }
         pipes.get(d.pipe).ok_or("a pipeline the library lacks")?;
-        tex[m] = descriptor(dev, who, rings, d.tex, t.texture_va)?;
+        tex[m] = descriptor(dev, who, rings, (d.tex, buffers), t.texture_va)?;
         kept[m] = i as u16;
         m += 1;
     }

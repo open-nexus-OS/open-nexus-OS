@@ -58,32 +58,33 @@ const CHILD_MINIDUMP_REPLY_SEND_SLOT: u32 =
 const CHILD_EVENTS_SEND_SLOT: u32 = nexus_service_topology::slots::app_child::EVENTS_SEND;
 const CHILD_TIMER_RECV_SLOT: u32 = nexus_service_topology::slots::app_child::TIMER_RECV;
 const CHILD_TIMER_SEND_SLOT: u32 = nexus_service_topology::slots::app_child::TIMER_SEND;
-/// Hands the child its RECV half of the dedicated event channel
-/// (`CHILD_EVENTS_SLOT`).
-pub(crate) fn grant_event_channel(child_pid: u32) {
+/// Hands the child its RECV half of the dedicated event channel (`CHILD_EVENTS_SLOT`) and a
+/// SEND clone; returns the SEND half execd KEEPS — the compositor-back notice rides it
+/// (RFC-0112). `None` when the grant failed (nothing kept).
+pub(crate) fn grant_event_channel(child_pid: u32) -> Option<u32> {
     // Mint a fresh PRIVATE pair via init's ctrl plane (`@mint-pair`); the
     // child gets BOTH halves: RECV→slot 8 (its event inbox) and a SEND clone→
     // slot 14 — the child attaches that to windowd ITSELF, tagged with its
-    // nonce (deterministic channel↔surface binding). execd closes its own
-    // halves after the grants: mint→grant→close, zero accumulation.
+    // nonce (deterministic channel↔surface binding).
     let Some((send_slot, recv_slot)) = route_ctrl(b"@mint-pair") else {
         let _ = nexus_abi::debug_println("execd: FAIL app event channel mint");
-        return;
+        return None;
     };
-    // NOTE: `cap_transfer_to_slot` COPIES, so `grant_clone` closes each clone
-    // after the transfer — else execd retains a live SEND cap to every child's
-    // event channel, which both LEAKS a cap per launch AND keeps the RFC-0079
-    // last-sender scan non-zero (the window-close EOF never fires).
+    // `cap_transfer_to_slot` COPIES, so `grant_clone` closes each clone after the transfer.
+    // execd keeps its own SEND half: the pair is minted FOR execd, so it owns the channel, and
+    // the owner is no peer of its own endpoint (TASK-0324 P7-b) — the window-close EOF still
+    // fires when windowd lets go. The RECV half goes (the child holds the live one).
     let recv_ok = grant_clone(child_pid, recv_slot, nexus_abi::Rights::RECV, CHILD_EVENTS_SLOT);
     let send_ok =
         grant_clone(child_pid, send_slot, nexus_abi::Rights::SEND, CHILD_EVENTS_SEND_SLOT);
-    // Close execd's own minted halves too (the child holds the live ones).
-    let _ = nexus_abi::cap_close(send_slot);
     let _ = nexus_abi::cap_close(recv_slot);
     if recv_ok && send_ok {
         let _ = nexus_abi::debug_println("execd: app event channel granted (minted)");
+        Some(send_slot)
     } else {
         let _ = nexus_abi::debug_println("execd: FAIL app event channel grant (minted)");
+        let _ = nexus_abi::cap_close(send_slot);
+        None
     }
 }
 
@@ -127,28 +128,20 @@ pub(crate) fn grant_payload_vmo(child_pid: u32, vmo: u32) {
 /// (the app-host constants). The child retries its first sends bounded, so
 /// the transfer landing moments after resume is safe (#123 lesson).
 pub(crate) fn grant_windowd_route(child_pid: u32) {
-    let send = nexus_abi::cap_clone(APP_WINDOWD_SEND_SLOT)
-        .and_then(|clone| {
-            nexus_abi::cap_transfer_to_slot(
-                child_pid as nexus_abi::Pid,
-                clone,
-                nexus_abi::Rights::SEND,
-                CHILD_WINDOWD_SEND_SLOT,
-            )
-            .map_err(|_| nexus_abi::AbiError::Unsupported)
-        })
-        .is_ok();
-    let recv = nexus_abi::cap_clone(APP_WINDOWD_RECV_SLOT)
-        .and_then(|clone| {
-            nexus_abi::cap_transfer_to_slot(
-                child_pid as nexus_abi::Pid,
-                clone,
-                nexus_abi::Rights::RECV,
-                CHILD_WINDOWD_RECV_SLOT,
-            )
-            .map_err(|_| nexus_abi::AbiError::Unsupported)
-        })
-        .is_ok();
+    // `grant_clone` closes its clone after the transfer: the clones used to stay in execd's
+    // table, two per launch, pinning windowd's endpoints past its death (RFC-0112).
+    let send = grant_clone(
+        child_pid,
+        APP_WINDOWD_SEND_SLOT,
+        nexus_abi::Rights::SEND,
+        CHILD_WINDOWD_SEND_SLOT,
+    );
+    let recv = grant_clone(
+        child_pid,
+        APP_WINDOWD_RECV_SLOT,
+        nexus_abi::Rights::RECV,
+        CHILD_WINDOWD_RECV_SLOT,
+    );
     if send && recv {
         let _ = nexus_abi::debug_println("execd: apphost windowd route granted");
     } else {

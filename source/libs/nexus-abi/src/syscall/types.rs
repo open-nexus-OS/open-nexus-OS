@@ -1,7 +1,7 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Shared syscall types — Rights, Pid/Cap/Handle/AsHandle, SysResult, AbiError, SpawnFailReason, QosClass
+//! CONTEXT: Shared syscall types — Rights, Pid/Cap/Handle, SysResult, AbiError, SpawnFailReason, QosClass
 //! (Mechanical split out of the former lib.rs monolith — ADR-0051 hygiene
 //! pass; behavior and syscall IDs unchanged.)
 
@@ -39,10 +39,6 @@ pub type Cap = u32;
 /// Handle identifying a virtual memory object (VMO).
 #[cfg(nexus_env = "os")]
 pub type Handle = u32;
-
-/// Opaque handle referencing a user address space managed by the kernel.
-#[cfg(nexus_env = "os")]
-pub type AsHandle = u64;
 
 /// Result returned by privileged syscalls that expose kernel operations.
 #[cfg(nexus_env = "os")]

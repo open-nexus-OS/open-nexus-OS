@@ -78,7 +78,7 @@ impl LoopTelemetry {
             let (ch, cap, shared) = super::reply_route::counts();
             let (content, blit, pointer, moved, keepalive, shape) = super::frame_causes::take();
             let (rects, queued_px, flushed_px) = super::frame_causes::take_damage();
-            let (flush_us, copy_rows, copy_us, base_rows, base_us) =
+            let (flush_us, released, held_us, base_rows, base_us) =
                 super::frame_causes::take_work();
             let refused = super::frame_causes::take_refused();
             let hops = super::frame_causes::take_frame_hops();
@@ -86,7 +86,7 @@ impl LoopTelemetry {
             // the intent refused because a client was far behind.
             let (behind, queued_max, dropped) = runtime.client_census();
             let _ = debug_println(&alloc::format!(
-                "windowd: loop hz={} apply={} present={} nack={} fullrq={} reply(ch={} cap={} shared={}) frames(content={} blit={} pointer={} moved={} keepalive={} shape={}) damage(rects={rects} queued_px={queued_px} flushed_px={flushed_px}) clients(behind={behind} queued_max={queued_max} dropped={dropped}) work(flush_us_max={flush_us} copy_rows={copy_rows} copy_us={copy_us} base_rows={base_rows} base_us={base_us}) layers(refused={refused})",
+                "windowd: loop hz={} apply={} present={} nack={} fullrq={} reply(ch={} cap={} shared={}) frames(content={} blit={} pointer={} moved={} keepalive={} shape={}) damage(rects={rects} queued_px={queued_px} flushed_px={flushed_px}) clients(behind={behind} queued_max={queued_max} dropped={dropped}) work(flush_us_max={flush_us} released={released} held_us_max={held_us} base_rows={base_rows} base_us={base_us}) layers(refused={refused})",
                 self.iters,
                 self.applies,
                 presents,

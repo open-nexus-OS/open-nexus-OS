@@ -7,7 +7,8 @@
 
 //! CONTEXT: Build script — generates the role lists and the export table abilitymgr reads from
 //! the real bundle manifests (`userspace/apps/<app>/manifest.toml`): `APP_UI_PROGRAMS`
-//! (payload_kind = ui-program), `APP_PRE_SESSION` (greeter/ime roles) and `APP_EXPORTS`
+//! (payload_kind = ui-program), `APP_PRE_SESSION` (greeter/ime roles), `APP_SINGLETON` (shell/greeter/ime: one instance) and
+//! `APP_EXPORTS`
 //! (manifest v2.2 app-to-app exports, namespace-checked here). The permissions an app HOLDS are
 //! no longer generated: since RFC-0111 §6 (ADR-0084) policyd is the one permission authority,
 //! published by bundlemgrd from the verified volume, and abilitymgr asks it at launch.
@@ -29,6 +30,7 @@ fn main() {
 
     let mut ui_programs: Vec<String> = Vec::new();
     let mut pre_session: Vec<String> = Vec::new();
+    let mut singleton: Vec<String> = Vec::new();
     let mut exports: Vec<(String, Vec<(String, String)>)> = Vec::new();
     if let Ok(entries) = std::fs::read_dir(&bundles_dir) {
         for entry in entries.flatten() {
@@ -62,11 +64,18 @@ fn main() {
                 if matches!(btype.as_deref(), Some("greeter") | Some("ime")) {
                     pre_session.push(name.clone());
                 }
+                // One-instance ROLES (RFC-0112): the shell, the greeter and the IME exist once —
+                // a launch asked again answers the running instance (a new compositor asks at its
+                // start; the running process rejoins it).
+                if matches!(btype.as_deref(), Some("shell") | Some("greeter") | Some("ime")) {
+                    singleton.push(name.clone());
+                }
             }
         }
     }
     ui_programs.sort();
     pre_session.sort();
+    singleton.sort();
     exports.sort();
 
     let mut out = String::new();
@@ -89,6 +98,13 @@ fn main() {
     out.push_str("#[allow(dead_code)]\n");
     let _ = writeln!(out, "pub(crate) const APP_PRE_SESSION: &[&str] = &[");
     for name in &pre_session {
+        let _ = writeln!(out, "    {name:?},");
+    }
+    out.push_str("];\n");
+
+    // One-instance roles (bundle_type shell / greeter / ime): a second launch answers the first.
+    let _ = writeln!(out, "pub(crate) const APP_SINGLETON: &[&str] = &[");
+    for name in &singleton {
         let _ = writeln!(out, "    {name:?},");
     }
     out.push_str("];\n");

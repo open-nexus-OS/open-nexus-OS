@@ -28,7 +28,7 @@ mod fill;
 mod surface;
 
 pub use blend::{blend_over, blend_over_px, blend_premultiplied, blend_premultiplied_px};
-pub use blit::{blit_from, blit_within, blit_within_blend};
+pub use blit::{blit_from, blit_from_blend, blit_within, blit_within_blend, BlendSource};
 pub use blur::{blur_box, blur_gaussian, saturate};
 pub use fill::{
     drop_shadow, fill_gradient_aa, fill_rect_solid, fill_rounded_aa, fill_rounded_solid,

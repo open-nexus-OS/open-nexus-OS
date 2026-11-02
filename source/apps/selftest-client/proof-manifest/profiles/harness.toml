@@ -183,6 +183,22 @@ runner = "scripts/qemu-test.sh"
 extends = "usb-visible"
 env = { NEXUS_SELFTEST_PROFILE = "lowmem", QEMU_INPUT_SCENARIO = "lowmem", QEMU_LADDER_ALSO_WAIT = "SELFTEST: app restore ok", QEMU_READY_GRACE_SECS = "450" }
 
+# TASK-0348 (RFC-0114 §7): the compositor's tables grow with the windows — the usb-visible desktop
+# and input chain, then twelve windows opened from the launcher (each press a new instance), all
+# twelve drawn from their own buffers in one frame (`windowd: windows drawn (n=12)`). The guest
+# gets 1 GiB: this lane proves the compositor's tables, not the memory authority — twelve
+# settings windows hold ~150 MiB of surfaces, and the default 320 MiB is the lowmem lane's
+# pressure. No modal, tiling, lifecycle, clipboard or capture phase.
+[profile.many-windows]
+runner = "scripts/qemu-test.sh"
+extends = "usb-visible"
+# Then the compositor restarts over the twelve (RFC-0112) and every window comes back: the lane
+# ends once, AFTER the restart, the twelve are drawn AND the shell revealed the desktop again (an
+# ordered chain whose last step is a group, any order), and the pixel proof snapshots that frame
+# (`display-windows.png`), judged non-black and unlike the greeter's settled frame; its watcher
+# outlives the choreography.
+env = { QEMU_MEM = "1G", QEMU_INPUT_SCENARIO = "many-windows", QEMU_LADDER_ALSO_WAIT = "windowd: restart requested (chord)|windowd: windows drawn (n=12)&windowd: desktop revealed (seq=", QEMU_READY_GRACE_SECS = "900", NEXUS_PIXEL_PROOF_EXTRA = "windows=windowd: restart requested (chord)|windowd: windows drawn (n=12)&windowd: desktop revealed (seq=", NEXUS_PIXEL_PROOF_TIMEOUT = "940" }
+
 # TASK-0050 PR-3: real system-reset lane. The guest requests an SBI cold
 # reboot EARLY in bringup (sentinel discipline over statefs); QEMU restarts
 # the same machine (no -no-reboot), the uart log carries BOTH boots, and

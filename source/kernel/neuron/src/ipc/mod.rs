@@ -80,6 +80,8 @@ pub struct Router {
     max_queued_bytes_total: usize,
     owner_queued_bytes: BTreeMap<WaiterId, usize>,
     max_queued_bytes_per_owner: usize,
+    /// RFC-0112: caps in flight in closed endpoints, each released like a `cap_close`.
+    in_flight_dropped: Vec<crate::cap::Capability>,
     // Pre-SMP contract: router mutability is trap-context local until per-CPU routing lands.
     _not_send_sync: PhantomData<*mut ()>,
 }
@@ -95,12 +97,10 @@ static DENY_NEXT_SEND: AtomicBool = AtomicBool::new(false);
 impl Router {
     /// Creates a router with space for `count` endpoints.
     pub fn new(count: usize) -> Self {
-        // Global bytes budget: keep total queued payload bytes bounded across all endpoints.
-        // Must be comfortably above boot traffic; per-endpoint budgets still apply.
+        // Queued payload bytes are bounded across all endpoints (above boot traffic; the
+        // per-endpoint budgets still apply) and per owning service, so one service's
+        // inboxes cannot take the whole global budget.
         const DEFAULT_MAX_QUEUED_BYTES_TOTAL: usize = 1024 * 1024; // 1 MiB
-                                                                   // Per-owner budget: cap total queued bytes into a single service (owner PID) across all
-                                                                   // endpoints owned by that PID. This prevents one service inbox from consuming the entire
-                                                                   // global budget via many endpoints.
         const DEFAULT_MAX_QUEUED_BYTES_PER_OWNER: usize = 256 * 1024; // 256 KiB
         let mut endpoints = Vec::with_capacity(count);
         for _ in 0..count {
@@ -112,6 +112,7 @@ impl Router {
             max_queued_bytes_total: DEFAULT_MAX_QUEUED_BYTES_TOTAL,
             owner_queued_bytes: BTreeMap::new(),
             max_queued_bytes_per_owner: DEFAULT_MAX_QUEUED_BYTES_PER_OWNER,
+            in_flight_dropped: Vec::new(),
             _not_send_sync: PhantomData,
         }
     }
@@ -413,7 +414,7 @@ impl Router {
         for (id, ep) in self.endpoints.iter_mut().enumerate() {
             #[cfg(not(feature = "ipc_trace_ring"))]
             let _ = id;
-            if let Some((recv, send)) = ep.close_if_owned_by(owner) {
+            if let Some((recv, send)) = ep.close_if_owned_by(owner, &mut self.in_flight_dropped) {
                 #[cfg(feature = "ipc_trace_ring")]
                 crate::ipc::trace::record_ep_close(owner, id as u32);
                 out.extend(recv);
@@ -434,11 +435,10 @@ impl Router {
             return Err(IpcError::NoSuchEndpoint);
         }
         ep.alive = false;
-        ep.queue.clear();
-        ep.queued_bytes = 0;
+        ep.clear_queue_into(&mut self.in_flight_dropped);
         let mut out: Vec<WaiterId> = Vec::new();
         out.extend(ep.recv_waiters.drain(..));
-        out.extend(ep.send_waiters.drain(..));
+        out.extend(ep.send_waiters.drain(..).chain(ep.writable_waiters.drain(..)));
         out.sort_unstable();
         out.dedup();
         // Conservative: recompute totals.

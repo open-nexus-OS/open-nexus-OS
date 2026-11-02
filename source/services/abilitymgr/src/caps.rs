@@ -12,8 +12,14 @@
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: 2 tests (the chat reference exports; unexported abilities stay unknown)
 
-// Generated: `APP_UI_PROGRAMS`, `APP_PRE_SESSION`, `APP_EXPORTS` from the real bundle manifests.
+// Generated: `APP_UI_PROGRAMS`, `APP_PRE_SESSION`, `APP_SINGLETON`, `APP_EXPORTS` from the real
+// bundle manifests.
 include!(concat!(env!("OUT_DIR"), "/app_manifest_caps.rs"));
+
+/// Whether `app_id` is a one-instance role (bundle_type shell / greeter / ime, RFC-0112).
+pub fn is_singleton(app_id: &str) -> bool {
+    APP_SINGLETON.contains(&app_id)
+}
 
 /// Finds the app exporting `ability` → `(exporter, ability, permission)`.
 /// The resolve primitive of the mediation core (`crate::mediation`).

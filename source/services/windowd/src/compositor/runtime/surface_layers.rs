@@ -4,8 +4,8 @@
 //! CONTEXT: windowd compositor runtime — a client surface's declared layers (RFC-0109) taken
 //! in: the STRUCTURE (`OP_SURFACE_TREE`, kept for the surface's next present when it fits the
 //! surface) and the MOTION (`OP_SURFACE_MOTION`, in effect at once), each from the surface's own
-//! client only; and a present's damage — its named rows for the copy, onto the screen where they
-//! show. The state and the geometry are `crate::layer_geometry` (host-tested); the encode is
+//! client only; and a present's damage — onto the screen where it shows (the frames sample the
+//! app's own buffer, RFC-0114: nothing is copied). The state and the geometry are `crate::layer_geometry` (host-tested); the encode is
 //! `surface_layers_encode`. windowd runs no scroll physics and decides no hover (ADR-0076).
 //! OWNERS: @ui
 //! STATUS: Functional
@@ -14,7 +14,7 @@
 
 use super::*;
 use crate::layer_geometry::{owns, store_damage};
-pub(crate) use crate::layer_geometry::{DamageRows, SurfaceLayers, TreeChange};
+pub(crate) use crate::layer_geometry::{SurfaceLayers, TreeChange};
 use nexus_display_proto::surface_layers::{self as proto, SurfaceMotion, SurfaceTree};
 
 /// Which surface a frame names.
@@ -35,6 +35,24 @@ impl DisplayServerRuntime {
             (Owner::App(idx), self.apps[idx].owner_sid)
         };
         owns(owner_sid, sender_sid).then_some(owner)
+    }
+
+    /// Whether `sender_sid` may present into surface `id`: it owns the surface — the desktop's
+    /// or a window's, the one a window is replacing included (a late present there is stale and
+    /// its owner is told). Identity is the kernel's sender id: a present naming another app's
+    /// surface — a dead compositor's ids come back in its successor (RFC-0112) — is refused.
+    pub(crate) fn presents_into(&self, id: u32, sender_sid: u64) -> bool {
+        let owner_sid = if self.desktop_surface_id == Some(id) {
+            self.desktop_owner_sid
+        } else if self.buffers.desktop_retiring == Some(id) {
+            self.buffers.desktop_retiring_owner
+        } else {
+            match self.apps.iter().find(|a| a.surface_id == Some(id) || a.retiring == Some(id)) {
+                Some(slot) => slot.owner_sid,
+                None => return false,
+            }
+        };
+        owns(owner_sid, sender_sid)
     }
 
     fn surface_layers_mut(&mut self, owner: Owner) -> &mut SurfaceLayers {
@@ -90,11 +108,11 @@ impl DisplayServerRuntime {
         }
     }
 
-    /// A present's damage (RFC-0109): its named rows into `damage` (what the next frame copies)
-    /// and onto the screen — a base row where the surface shows it, a band's rows in its scroll
-    /// layer's viewport, the whole surface for a new structure. `idx`: the window's slot (`None`:
-    /// the desktop, whose changes also stale every window's blur above them); `screen`: where the
-    /// surface's origin and extent are on the display.
+    /// A present's damage (RFC-0109) onto the screen — a base row where the surface shows it, a
+    /// band's rows in its scroll layer's viewport, the whole surface for a new structure or a
+    /// present naming nothing. `idx`: the window's slot (`None`: the desktop, whose changes also
+    /// stale every window's blur above them); `screen`: where the surface's origin and extent
+    /// are on the display.
     pub(crate) fn present_damage(
         &mut self,
         surface: &crate::client_surface::ClientSurface,
@@ -102,7 +120,6 @@ impl DisplayServerRuntime {
         change: TreeChange,
         idx: Option<usize>,
         screen: (u32, u32, u32, u32),
-        damage: &mut DamageRows,
     ) {
         let layers = idx.map_or(self.desktop_layers, |i| self.apps[i].layers);
         let base_h = u32::from(surface.height);
@@ -121,9 +138,6 @@ impl DisplayServerRuntime {
         };
         let whole = (0, 0, screen.2, screen.3);
         if rects.is_empty() || change == TreeChange::Structure {
-            if rects.is_empty() {
-                *damage = DamageRows::FULL;
-            }
             queue(self, whole);
         }
         if let TreeChange::Bands(mask) = change {
@@ -139,7 +153,6 @@ impl DisplayServerRuntime {
         for r in rects {
             let (x, y, w, h) =
                 (u32::from(r.x), u32::from(r.y), u32::from(r.width), u32::from(r.height));
-            damage.add(y, y + h);
             if y < base_h {
                 queue(self, (x, y, w, (y + h).min(base_h) - y));
             }
@@ -151,9 +164,6 @@ impl DisplayServerRuntime {
                     queue(self, *v);
                 }
             }
-        }
-        if idx.is_none() {
-            self.desktop_dirty = true;
         }
     }
 }

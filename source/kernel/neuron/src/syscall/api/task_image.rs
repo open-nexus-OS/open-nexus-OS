@@ -153,6 +153,15 @@ pub fn exit_task_and_release(
             "exit",
         ));
     }
+    // What its endpoints still carried when they closed (RFC-0112): each a `cap_close`.
+    super::eof_scan::release_in_flight(
+        tasks,
+        router,
+        scheduler,
+        (tables.waitsets, tables.hart_timers),
+        tables.address_spaces,
+        "exit",
+    );
     for pid in woken {
         observe_wake_outcome(tasks.wake(Pid::from_raw(pid), scheduler));
     }

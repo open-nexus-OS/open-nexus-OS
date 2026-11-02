@@ -1,0 +1,284 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: The many-windows lane's choreography (TASK-0348, RFC-0114 §7): the compositor's tables
+# grow with the windows. Log in, open the launcher, press its settings button twelve times — every
+# press is a new instance with a window of its own (the launcher launches; only the dock and the
+# taskbar activate a running app) — and wait for one frame that drew all twelve from their own
+# buffers (`windowd: windows drawn (n=12)`). Before RFC-0114 the fifth window was refused
+# (`surface create FAIL (window slots exhausted)`) and a ninth app's channel evicted a live one.
+# Then the compositor restarts over the twelve (RFC-0112, Phase 6) and every window comes back.
+# Every step waits for what it caused; the declared `settle_s` pauses are the frames that have none.
+# OWNERS: @ui @runtime
+# STATUS: Functional
+# API_STABILITY: Unstable
+
+[scenario]
+profile = "many-windows"
+start_after = "SELFTEST: input window open"
+
+# The keyboard's first input after boot, acknowledged on its own (see usb-visible.toml).
+[[step]]
+name = "the keyboard reaches the greeter"
+do = { key = "a" }
+expect = ["inputd: live keyboard route on"]
+timeout_s = 10
+retry = 2
+
+[[step]]
+name = "log in"
+do = { login = true }
+expect = ["windowd: session shell visible"]
+timeout_s = 60
+
+[[step]]
+name = "open the launcher"
+do = { click = "launcher_button" }
+
+# Each press is acknowledged by the launch alone; if none follows (the sheet closed), the sheet
+# opens and the button is pressed again. The launcher's sheet is shell glass above every window,
+# so its button stays pressable while the windows pile up under it.
+# The window then comes up on its own — the app's first frame, its window re-created at the
+# intended size — and its step ends on that second surface's first frame (`then`). A window that
+# never comes up fails its own step by name: it is never pressed for again.
+
+[[step]]
+name = "launch window 1"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 1 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch window 2"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 2 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch window 3"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 3 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch window 4"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 4 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch window 5"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 5 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch window 6"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 6 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch window 7"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 7 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch window 8"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 8 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch window 9"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 9 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch window 10"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 10 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch window 11"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 11 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch window 12"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 12 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+# The twelfth window's first frame left with the eleven before it: one frame, twelve windows, each
+# drawn from its own buffer.
+[[step]]
+name = "twelve windows drawn"
+do = { wait = true }
+expect = ["windowd: windows drawn (n=12)"]
+timeout_s = 30
+
+# -- the compositor's restart (TASK-0348 Phase 6, RFC-0112) -----------------------------------------
+# The chord ends the compositor; init respawns it and re-pins every leg into it; execd tells every
+# app; the shell is asked for again and kept (no second desktop); and every window comes back from
+# its own app — one frame of the new compositor draws all twelve again. No window is launched anew.
+[[step]]
+name = "restart the compositor"
+settle_s = 1.0
+do = { chord = ["ctrl", "meta_l", "shift", "backspace"] }
+expect = [
+  "windowd: restart requested (chord)",
+  "init: windowd re-pinned (clients=0x",
+  "execd: compositor back (apps=",
+]
+timeout_s = 90
+
+[[step]]
+name = "the apps rejoin"
+do = { wait = true }
+expect = [
+  "gpud: compositor restarted (owners=",
+  "abilitymgr: compositor up (thawed=",
+  "abilitymgr: launch kept (app=desktop-shell",
+  "APPHOST: compositor back (reattached)",
+  "apphost: surface re-created",
+]
+timeout_s = 120
+
+[[step]]
+name = "twelve windows back"
+do = { wait = true }
+expect = ["windowd: windows drawn (n=12)"]
+timeout_s = 240
+
+# The desktop itself is back: the new compositor revealed it with the shell's own frame (the
+# reveal waits for the session's desktop surface — a shell that never drew leaves it unrevealed).
+[[step]]
+name = "the shell back"
+do = { wait = true }
+expect = ["windowd: desktop revealed (seq="]
+timeout_s = 120
