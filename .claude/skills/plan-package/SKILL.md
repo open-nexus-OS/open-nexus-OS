@@ -18,7 +18,8 @@ because apps had hard-coded sizes).
    measurement → phase P0 is the measurement.
 3. **Goal with a number.**
    `nx ledger goal TASK-N "<metric>" "<baseline>" "<target>" "<instrument>"`
-4. **Name the consumer.** `nx ledger set TASK-N consumer "<who uses it>"`. If the consumer does
+4. **Name the consumer.** `nx ledger set TASK-N consumer <TASK-M | TASK-M/P2 | milestone/KEY>` —
+   a reference the gate can look up, never prose, never the task itself. If the consumer does
    not exist yet, it is part of this package or of a step in the same milestone — otherwise the
    mechanism is not planned.
 5. **Estimate from history, never from the textbook.** Reference class = `subsystem` + `kind` +
@@ -45,9 +46,18 @@ because apps had hard-coded sizes).
 
 ## Closing
 
-Every phase `done`/`dropped`; `nx ledger set TASK-N active_days <n>`; if the estimate missed,
+Every phase `done`/`dropped`; `nx ledger result TASK-N "<the measured value>"` against the
+goal's target; `nx ledger set TASK-N active_days <n>`; if the estimate missed,
 `nx ledger set TASK-N variance_note "<why>"` — the next estimate learns from it; then the docs
-sweep (CHANGELOG, docs, the RFC's status) and `nx ledger set TASK-N status done`.
+sweep (CHANGELOG, docs, the RFC's status) and `nx ledger set TASK-N status done`. The gate refuses
+the close while the consumer has not started (rule 11): then the consumer's first phase is part
+of this package, not a follow-up.
+
+## Monday
+
+`nx ledger review` counts `completed`/`slipped` of the week from the phases and writes them;
+`nx ledger lint --notes` lists the grandfathered inconsistencies (steps whose tasks disagree) to
+settle; then the new sprint (`new sprint`, `plan`).
 
 ## Ownership
 

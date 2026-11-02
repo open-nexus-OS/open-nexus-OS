@@ -80,7 +80,7 @@ purpose (`protection_zones`, `critical`, `forbidden`, `verification_gate`) so
 <zone path="scripts/**" access="approval"/>
 <zone path="config/**" access="approval"/>
 <zone path="recipes/meta/**" access="approval"/>
-<zone path="docs/rfcs/**" access="approval" reason="RFC process"/>
+<zone path="tasks/**" access="approval" reason="execution truth" note="frontmatter (status, title, phases, goal, steps) ONLY via `nx ledger` — no prompt; a body edit by hand prompts; never sed/python into tasks/"/>
 <zone path="source/services/**" access="iteration" note="iteration ground; windowd/samgr/policyd/dsoftbus (ABI/security/windowing) need extra care + tests"/>
 </protection_zones>
 

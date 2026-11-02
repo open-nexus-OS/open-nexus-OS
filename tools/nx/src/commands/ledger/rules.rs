@@ -26,11 +26,7 @@ pub(crate) fn lint(repo: &Repo) -> Vec<Problem> {
     for e in &repo.errors {
         out.push(Problem { rel: e.rel.clone(), message: e.message.clone(), fatal: true });
     }
-    let subsystems: BTreeSet<&str> = repo
-        .of(Kind::Subsystems)
-        .flat_map(|d| get(&d.entries, "subsystems").map(Value::records).unwrap_or(&[]))
-        .filter_map(|r| get_text(r, "slug"))
-        .collect();
+    let subsystems = subsystems(repo);
     for doc in &repo.docs {
         let mut fatal = Vec::new();
         let mut notes = Vec::new();
@@ -52,6 +48,14 @@ pub(crate) fn lint(repo: &Repo) -> Vec<Problem> {
         }));
     }
     out
+}
+
+/// The slugs of `tasks/SUBSYSTEMS.md`.
+pub(crate) fn subsystems(repo: &Repo) -> BTreeSet<&str> {
+    repo.of(Kind::Subsystems)
+        .flat_map(|d| get(&d.entries, "subsystems").map(Value::records).unwrap_or(&[]))
+        .filter_map(|r| get_text(r, "slug"))
+        .collect()
 }
 
 /// Everything that can be judged from the document alone.
@@ -269,6 +273,28 @@ fn task_rules(doc: &Doc, out: &mut Vec<String>) {
                 ));
             }
         }
+        // Rule 8: the work in progress is always in a phase the board can show — a planned phase
+        // waits while none is open. Every phase finished is the closing, not a gap.
+        fn state_of(p: &[(String, Value)]) -> &str {
+            get_text(p, "state").unwrap_or("planned")
+        }
+        let open = phases.iter().any(|p| OPEN_PHASE.contains(&state_of(p)));
+        let waiting = phases.iter().any(|p| state_of(p) == "planned");
+        if status == "in_progress" && waiting && !open {
+            out.push(String::from(
+                "an in_progress task with a planned phase needs one in building, proving or blocked (rule 8): start the next phase",
+            ));
+        }
+        // Rule 9: the consumer is something the gate can look up, never the task itself.
+        if let Some(c) = t("consumer") {
+            if !is_consumer_ref(c) {
+                out.push(String::from(
+                    "`consumer` must name a task, a phase (TASK-NNNN/P3) or a milestone step (<milestone>/<KEY>) (rule 9)",
+                ));
+            } else if c == doc.id {
+                out.push(String::from("`consumer` must not be the task itself (rule 9)"));
+            }
+        }
         if status == "done" {
             if !has("active_days") {
                 out.push(String::from("a done task needs `active_days`"));
@@ -276,8 +302,49 @@ fn task_rules(doc: &Doc, out: &mut Vec<String>) {
             if has("estimate") && !has("variance_note") {
                 out.push(String::from("a done task with an estimate needs a `variance_note`"));
             }
+            // Rule 10: a goal is closed by its measured result, not by the word done.
+            if let Some(Value::Map(goal)) = get(&doc.entries, "goal") {
+                if get(goal, "result").is_none() {
+                    out.push(String::from(
+                        "a done task needs `goal.result`, the measured value against the target (rule 10)",
+                    ));
+                }
+            }
         }
     }
+}
+
+/// Did the task start under the new process (RFC-0115 rule 5)?
+fn new_process(task: &Doc) -> bool {
+    task.text("started").is_some_and(|s| s >= CUTOVER)
+}
+
+/// Has the referenced consumer (task, phase or milestone step) at least started?
+fn consumer_started(repo: &Repo, c: &str) -> Result<bool, String> {
+    if is_task_id(c) {
+        let t = repo.get(c).ok_or_else(|| format!("consumer {c} has no file"))?;
+        return Ok(matches!(t.status(), "in_progress" | "done"));
+    }
+    let Some((a, b)) = c.split_once('/') else { return Ok(false) };
+    if is_story_ref(c) {
+        let t = repo.get(a).ok_or_else(|| format!("consumer {c} has no file"))?;
+        let p = phase_of(t, b).ok_or_else(|| format!("consumer {c}: {a} has no phase {b}"))?;
+        return Ok(matches!(
+            get_text(p, "state"),
+            Some("building" | "proving" | "done" | "blocked")
+        ));
+    }
+    let m = repo
+        .get(a)
+        .filter(|d| d.kind == Kind::Milestone)
+        .ok_or_else(|| format!("consumer {c}: no milestone {a}"))?;
+    let step = get(&m.entries, "steps")
+        .map(Value::records)
+        .unwrap_or(&[])
+        .iter()
+        .find(|s| get_text(s, "key") == Some(b))
+        .ok_or_else(|| format!("consumer {c}: {a} has no step {b}"))?;
+    Ok(matches!(get_text(step, "state"), Some("active" | "done")))
 }
 
 fn milestone_rules(doc: &Doc, out: &mut Vec<String>) {
@@ -312,7 +379,7 @@ fn milestone_rules(doc: &Doc, out: &mut Vec<String>) {
     }
 }
 
-fn check_refs(
+pub(crate) fn check_refs(
     repo: &Repo,
     doc: &Doc,
     subsystems: &BTreeSet<&str>,
@@ -342,14 +409,43 @@ fn check_refs(
         }
     }
     match doc.kind {
+        Kind::Task => {
+            // Rule 11: done is done for somebody — the consumer has at least started.
+            if doc.status() == "done" && new_process(doc) {
+                if let Some(c) = doc.text("consumer").filter(|c| is_consumer_ref(c)) {
+                    match consumer_started(repo, c) {
+                        Err(e) => fatal.push(format!("{e} (rule 11)")),
+                        Ok(false) => fatal.push(format!(
+                            "consumer {c} has not started: the work is done for nobody yet (rule 11)"
+                        )),
+                        Ok(true) => {}
+                    }
+                }
+            }
+        }
         Kind::Milestone => {
             for step in get(&doc.entries, "steps").map(Value::records).unwrap_or(&[]) {
+                let key = get_text(step, "key").unwrap_or("?");
+                let state = get_text(step, "state").unwrap_or("");
                 for id in get(step, "tasks").map(Value::items).unwrap_or_default() {
-                    if !exists(id) {
-                        notes.push(format!(
-                            "step {} names {id}, which has no file",
-                            get_text(step, "key").unwrap_or("?")
-                        ));
+                    let Some(task) = repo.get(id) else {
+                        notes.push(format!("step {key} names {id}, which has no file"));
+                        continue;
+                    };
+                    // Rule 12: a step's state agrees with its tasks; fatal for new-process tasks,
+                    // a note for the grandfathered ones (settled in the Monday review).
+                    let conflict = match (state, task.status()) {
+                        ("done", "draft" | "in_progress") => Some("is done while"),
+                        ("planned", "in_progress") => Some("is planned while"),
+                        _ => None,
+                    };
+                    if let Some(what) = conflict {
+                        let msg = format!("step {key} {what} {id} is {} (rule 12)", task.status());
+                        if new_process(task) {
+                            fatal.push(msg);
+                        } else {
+                            notes.push(msg);
+                        }
                     }
                 }
             }

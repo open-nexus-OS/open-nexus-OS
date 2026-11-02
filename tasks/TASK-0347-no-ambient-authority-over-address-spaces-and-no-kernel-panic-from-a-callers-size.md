@@ -17,7 +17,7 @@ goal:
   baseline: "4 holes: as_map, as_create, spawn into any space or S-mode, a size or a fault panics"
   target: "0: every path refused by name or answered ENOMEM"
   instrument: "KSELFTEST: ambient authority reject ok ("
-consumer: "every process: the kernel's isolation and its liveness under a hostile caller"
+consumer: TASK-0348
 follow_ups: [TASK-0349]
 links:
   - label: ADR

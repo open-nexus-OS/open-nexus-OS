@@ -14,7 +14,9 @@ Design notes:
 - No `jq` dependency (not installed): pure Python stdlib.
 - Coverage is the file-edit tools only. Writes via the Bash tool (`sed -i`, `>`, `tee`) are a
   known gap — reads are explicitly allowed, and reliably classifying arbitrary shell as
-  read-vs-write is not worth the false positives.
+  read-vs-write is not worth the false positives. For `tasks/**` that gap is the design: the
+  frontmatter is written by `nx ledger` (a Bash call) without a prompt; a body edit by hand
+  goes through Edit/Write and prompts.
 """
 import sys
 import os
@@ -23,7 +25,7 @@ import re
 
 FALLBACK_ZONES = [
     "source/kernel/**", "source/libs/**", "Cargo.toml", "Makefile",
-    "scripts/**", "config/**", "recipes/meta/**", "docs/rfcs/**",
+    "scripts/**", "config/**", "recipes/meta/**", "tasks/**",
 ]
 EDIT_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
 

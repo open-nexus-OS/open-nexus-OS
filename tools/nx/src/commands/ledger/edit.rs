@@ -1,9 +1,10 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-//! CONTEXT: The write side of `nx ledger`: set a key, write a phase, write a milestone step, mint a
-//!          task or a sprint. Every edit stamps dates from the day, re-checks the document and
-//!          refuses to write one the gate would reject. Only the frontmatter changes.
+//! CONTEXT: The write side of `nx ledger`: set a key, write a phase, write a milestone step, close
+//!          a goal with its result, review a sprint (completed/slipped counted from the phases),
+//!          mint a task or a sprint. Every edit stamps dates from the day, re-checks the document
+//!          and refuses to write one the gate would reject. Only the frontmatter changes.
 //! OWNERS: @tools-team
 //! STATUS: Functional
 //! API_STABILITY: Unstable
@@ -12,8 +13,9 @@
 
 use super::model::{self, fields, is_slug, order, Kind, Ty, PHASE, STEP};
 use super::repo::{self, Doc, Repo};
-use super::rules::check_doc;
+use super::rules::{check_doc, check_refs, subsystems};
 use super::yaml::{self, get_text, looks_numeric, Entries, Value};
+use std::fmt::Write;
 
 /// Turn a command-line value into the value the key's type expects. `-` removes the key.
 pub(crate) fn value_for(ty: Ty, raw: &str) -> Option<Value> {
@@ -51,6 +53,8 @@ fn commit(repo: &Repo, doc: &mut Doc, today: &str) -> Result<(), String> {
     }
     let mut problems = Vec::new();
     check_doc(doc, &mut problems);
+    let mut notes = Vec::new();
+    check_refs(repo, doc, &subsystems(repo), &mut problems, &mut notes);
     if !problems.is_empty() {
         return Err(format!("{}: not written —\n  {}", doc.id, problems.join("\n  ")));
     }
@@ -132,6 +136,100 @@ pub(crate) fn goal(
     Ok(format!("{id}: goal set"))
 }
 
+/// Close the goal: the measured value against the target (rule 10).
+pub(crate) fn result(
+    repo: &mut Repo,
+    id: &str,
+    value: &str,
+    today: &str,
+) -> Result<String, String> {
+    let mut doc = take(repo, id)?;
+    if doc.kind != Kind::Task {
+        return Err(format!("{id}: only a task has a goal"));
+    }
+    let Some(Value::Map(goal)) = yaml::get(&doc.entries, "goal") else {
+        return Err(format!("{id}: no goal yet; `nx ledger goal` first"));
+    };
+    let mut goal = goal.clone();
+    let gorder = ["metric", "baseline", "target", "instrument", "result"];
+    yaml::set(&mut goal, "result", Some(Value::str(value)), &gorder);
+    let order = order(fields(Kind::Task));
+    yaml::set(&mut doc.entries, "goal", Some(Value::Map(goal)), &order);
+    commit(repo, &mut doc, today)?;
+    Ok(format!("{id}: goal.result = {value}"))
+}
+
+/// The Monday review: `completed` and `slipped` counted from the planned phases' states, written
+/// into the sprint, and the review printed (what closed, what slipped, estimate against actual).
+pub(crate) fn review(repo: &mut Repo, week: &str, today: &str) -> Result<String, String> {
+    let mut doc = take(repo, week)?;
+    if doc.kind != Kind::Sprint {
+        return Err(format!("{week}: not a sprint"));
+    }
+    let mut completed = Vec::new();
+    let mut slipped = Vec::new();
+    let mut lines = Vec::new();
+    for plan in yaml::get(&doc.entries, "planned").map(Value::records).unwrap_or(&[]) {
+        let task_id = get_text(plan, "task").unwrap_or("?");
+        let task = repo
+            .get(task_id)
+            .ok_or_else(|| format!("{week}: planned task {task_id} has no file"))?;
+        for pid in yaml::get(plan, "phases").map(Value::items).unwrap_or_default() {
+            let phase = super::rules::phase_of(task, pid)
+                .ok_or_else(|| format!("{week}: {task_id} has no phase {pid}"))?;
+            let state = get_text(phase, "state").unwrap_or("planned");
+            let story = format!("{task_id}/{pid}");
+            match state {
+                "done" => completed.push(story),
+                "dropped" => {}
+                _ => slipped.push(story),
+            }
+            let date =
+                if state == "done" { get_text(phase, "done") } else { get_text(phase, "started") };
+            lines.push(format!(
+                "  {:<14} {:<8} {:<10} {}",
+                format!("{task_id}/{pid}"),
+                state,
+                date.unwrap_or(""),
+                get_text(phase, "story").unwrap_or("")
+            ));
+        }
+        if let (Some(p50), Some(p85)) = (get_text(plan, "p50"), get_text(plan, "p85")) {
+            let actual = task.text("active_days").unwrap_or("open");
+            lines
+                .push(format!("  {task_id}: planned P50 {p50}d P85 {p85}d · active days {actual}"));
+        }
+    }
+    let order = order(fields(Kind::Sprint));
+    let refs = |v: &[String]| Value::List(v.iter().map(Value::str).collect());
+    yaml::set(&mut doc.entries, "completed", Some(refs(&completed)), &order);
+    yaml::set(&mut doc.entries, "slipped", Some(refs(&slipped)), &order);
+    commit(repo, &mut doc, today)?;
+    let mut out = format!(
+        "Review {week} · completed {} · slipped {}
+",
+        completed.len(),
+        slipped.len()
+    );
+    out.push_str(&lines.join(
+        "
+",
+    ));
+    if !slipped.is_empty() {
+        out.push_str(&format!(
+            "
+  slipped: {}",
+            slipped.join(", ")
+        ));
+    }
+    out.push_str(&format!(
+        "
+  {}",
+        doc.rel
+    ));
+    Ok(out)
+}
+
 /// Upsert one record of a block (`phases` of a task, `steps` of a milestone) by its id key.
 fn upsert(
     entries: &mut Entries,
@@ -205,15 +303,54 @@ pub(crate) fn phase(
         }
     }
     upsert(&mut doc.entries, "phases", "id", pid, PHASE, &updates, &order)?;
-    // Work on a phase starts the task.
-    if matches!(state, "building" | "proving" | "done") && doc.status() == "draft" {
+    // Work on a phase starts the task, and the task's planned milestone steps become active.
+    let starts = matches!(state, "building" | "proving" | "done") && doc.status() == "draft";
+    if starts {
         yaml::set(&mut doc.entries, "status", Some(Value::str("in_progress")), &order);
         stamp_task_status(&mut doc, "in_progress", today, &order);
     }
     commit(repo, &mut doc, today)?;
     let mut out = String::new();
     super::view::show_task(&doc, &mut out);
+    if starts {
+        repo.docs.push(doc);
+        for key in activate_steps(repo, id, today)? {
+            let _ = writeln!(out, "{key}: step active");
+        }
+    }
     Ok(out.trim_end().to_string())
+}
+
+/// Starting a task activates every planned milestone step that names it (rule 12 derived, not
+/// typed). Returns `milestone/KEY` per activated step.
+fn activate_steps(repo: &mut Repo, task_id: &str, today: &str) -> Result<Vec<String>, String> {
+    let mut activated = Vec::new();
+    let milestones: Vec<String> = repo.of(Kind::Milestone).map(|d| d.id.clone()).collect();
+    for mid in milestones {
+        let keys: Vec<String> = repo
+            .get(&mid)
+            .map(|m| {
+                yaml::get(&m.entries, "steps")
+                    .map(Value::records)
+                    .unwrap_or(&[])
+                    .iter()
+                    .filter(|s| get_text(s, "state") == Some("planned"))
+                    .filter(|s| {
+                        yaml::get(s, "tasks")
+                            .map(Value::items)
+                            .unwrap_or_default()
+                            .contains(&task_id)
+                    })
+                    .filter_map(|s| get_text(s, "key").map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default();
+        for key in keys {
+            step(repo, &mid, &key, &[("state", "active")], today)?;
+            activated.push(format!("{mid}/{key}"));
+        }
+    }
+    Ok(activated)
 }
 
 pub(crate) fn step(
@@ -243,6 +380,7 @@ pub(crate) fn step(
     }
     let created = upsert(&mut doc.entries, "steps", "key", key, STEP, &updates, &order)?;
     commit(repo, &mut doc, today)?;
+    repo.docs.push(doc);
     Ok(format!("{mid}: step {key} {}", if created { "added" } else { "updated" }))
 }
 

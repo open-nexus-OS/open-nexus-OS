@@ -29,20 +29,26 @@ nx ledger step hardware-network L8.1 --state active --tasks TASK-0349
 nx ledger new task --title "…" --subsystem ui --owner @ui
 nx ledger new sprint --milestone hardware-network --capacity 5
 nx ledger plan TASK-0349 P1,P2 --p50 2 --p85 3.5 --sample-size 6
+nx ledger result TASK-0348 "0 copies (board cycle 83)"   # goal.result at close
+nx ledger review                        # Monday: completed/slipped counted from the phases
+nx ledger lint --notes                  # the grandfathered inconsistencies to settle on Monday
 just ledger-gate                        # the gate (part of `just check`); `nx ledger lint --fix` renders
 ```
 
 ## A task's life
 
 1. **Planned** (`draft`): in a milestone step or the backlog. Before work starts it has a `goal`
-   (metric, baseline, target, instrument), a `consumer` (who uses what it builds — named in the
-   same milestone), an `estimate` from a reference class (subsystem, kind, novelty, with its
-   sample), and phases. From 2026-11-03 on the gate refuses to start work without them.
-2. **Building** (`in_progress`): the first phase that goes `building` starts the task. A phase is
-   `building` → `proving` (built, waiting for its lane or board cycle) → `done` with its evidence
-   path. Where the goal has a number, every phase gate names the value it must reach.
-3. **Done**: every phase `done` or `dropped`, `active_days` recorded, a `variance_note` when the
-   estimate missed — that note is what the next estimate learns from. Then the docs sweep:
+   (metric, baseline, target, instrument), a `consumer` (a task, a phase or a milestone step that
+   uses what it builds — a reference, never prose), an `estimate` from a reference class
+   (subsystem, kind, novelty, with its sample), and phases. From 2026-11-03 on the gate refuses
+   to start work without them.
+2. **Building** (`in_progress`): the first phase that goes `building` starts the task and
+   activates its milestone steps. A phase is `building` → `proving` (built, waiting for its lane
+   or board cycle) → `done` with its evidence path; while a phase waits, one is always open.
+   Where the goal has a number, every phase gate names the value it must reach.
+3. **Done**: every phase `done` or `dropped`, `goal.result` measured (`nx ledger result`), the
+   consumer has started, `active_days` recorded, a `variance_note` when the estimate missed —
+   that note is what the next estimate learns from. Then the docs sweep:
    CHANGELOG, affected docs, the RFC's status.
 4. **Superseded / deferred**: by decision, with the successor named (`superseded_by`).
 

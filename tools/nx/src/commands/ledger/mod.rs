@@ -3,7 +3,7 @@
 //
 //! CONTEXT: `nx ledger` — the one writer of planning state (RFC-0115): milestones, sprints, tasks,
 //!          tracks and RFCs as canonical frontmatter; brief/show/list/table to read, set/phase/
-//!          step/goal/plan/new to write, lint as the gate.
+//!          step/goal/result/plan/review/new to write, lint as the gate.
 //! OWNERS: @tools-team
 //! STATUS: Functional
 //! API_STABILITY: Unstable
@@ -49,6 +49,13 @@ pub(crate) fn handle_ledger(args: LedgerArgs) -> ExecResult {
             edit::goal(&mut repo, &id, [&metric, &baseline, &target, &instrument], &today)
                 .map_err(fail)
                 .and_then(ok)
+        }
+        LedgerAction::Result { id, value } => {
+            edit::result(&mut repo, &id, &value, &today).map_err(fail).and_then(ok)
+        }
+        LedgerAction::Review { week } => {
+            let week = week.unwrap_or_else(|| iso_week(&today));
+            edit::review(&mut repo, &week, &today).map_err(fail).and_then(ok)
         }
         LedgerAction::Phase { id, phase, state, story, gate, metric, evidence, note } => {
             let e = edit::PhaseEdit {

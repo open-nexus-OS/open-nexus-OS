@@ -41,6 +41,8 @@ pub(crate) enum LedgerAction {
     Set { id: String, key: String, value: String },
     /// Set a task's goal: the metric, where it is today, where it must be, how it is measured.
     Goal { id: String, metric: String, baseline: String, target: String, instrument: String },
+    /// Close the goal with the measured value against its target (`goal.result`).
+    Result { id: String, value: String },
     /// Create or change a phase (a user story); `--state building|proving|done` stamps dates.
     Phase {
         id: String,
@@ -88,6 +90,9 @@ pub(crate) enum LedgerAction {
         #[arg(long)]
         sample_size: Option<String>,
     },
+    /// The Monday review of a sprint (default: this week's): `completed`/`slipped` counted from
+    /// the planned phases and written; prints what closed, what slipped, estimate against actual.
+    Review { week: Option<String> },
     /// Mint a task (next free number) or this week's sprint.
     New {
         #[command(subcommand)]

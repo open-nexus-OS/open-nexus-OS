@@ -7,11 +7,11 @@
 //! OWNERS: @tools-team
 //! STATUS: Functional
 //! API_STABILITY: Stable
-//! TEST_COVERAGE: 20 integration tests.
+//! TEST_COVERAGE: 25 integration tests.
 //!
 //! TEST_SCOPE:
-//!   - lint: canonical files pass, every rule rejects its violation
-//!   - set/phase/step/plan/goal/new: dates stamped from NX_TODAY, body preserved
+//!   - lint: canonical files pass, every rule rejects its violation (rules 1–12)
+//!   - set/phase/step/plan/goal/result/review/new: dates stamped from NX_TODAY, body preserved
 //!   - brief/show/table: compact read views
 //!
 //! ADR: docs/rfcs/RFC-0115-planning-as-data-milestones-sprints-phases-one-ledger-cli.md
@@ -66,6 +66,43 @@ fn with_task(front_edit: &str, replace: &str) -> TempDir {
     let t = TASK.replace(front_edit, replace);
     fs::write(dir.path().join("tasks/TASK-0001-a-window.md"), t).expect("write");
     dir
+}
+
+/// A task planned the RFC-0115 way and started today (the new process): goal, consumer (the
+/// next milestone step, T1), estimate, reference class, P0 building — which activates T0.
+fn planned_task(root: &Path) {
+    for args in [
+        vec![
+            "step",
+            "fast-lane",
+            "T1",
+            "--section",
+            "B0",
+            "--story",
+            "the next step",
+            "--state",
+            "planned",
+        ],
+        vec!["goal", "TASK-0001", "frame p99", "20 ms", "16 ms", "windowd: frame p99="],
+        vec!["set", "TASK-0001", "consumer", "fast-lane/T1"],
+        vec!["set", "TASK-0001", "estimate", "2"],
+        vec!["set", "TASK-0001", "kind", "ui"],
+        vec!["set", "TASK-0001", "novelty", "variant"],
+        vec![
+            "phase",
+            "TASK-0001",
+            "P0",
+            "--story",
+            "measured",
+            "--gate",
+            "a folder",
+            "--state",
+            "building",
+        ],
+    ] {
+        let o = nx(root, &args);
+        assert!(o.status.success(), "{args:?}: {}", text(&o));
+    }
 }
 
 #[test]
@@ -165,8 +202,124 @@ fn test_reject_sprint_with_unknown_phase() {
         .status
         .success());
     let o = nx(dir.path(), &["plan", "TASK-0001", "P4"]);
-    assert!(o.status.success(), "a plan names phases; the lint judges them: {}", text(&o));
-    lint_rejects(dir.path(), "TASK-0001 has no phase P4");
+    assert_eq!(o.status.code(), Some(3), "a plan names phases that exist: {}", text(&o));
+    assert!(text(&o).contains("TASK-0001 has no phase P4"), "{}", text(&o));
+    assert!(nx(dir.path(), &["lint"]).status.success(), "nothing written on a refused plan");
+}
+
+#[test]
+fn test_reject_in_progress_with_a_planned_phase_and_none_open() {
+    let dir = repo();
+    planned_task(dir.path());
+    assert!(nx(
+        dir.path(),
+        &["phase", "TASK-0001", "P1", "--story", "built", "--gate", "lane green"]
+    )
+    .status
+    .success());
+    let o =
+        nx(dir.path(), &["phase", "TASK-0001", "P0", "--state", "done", "--evidence", "logs/x"]);
+    assert_eq!(o.status.code(), Some(3), "{}", text(&o));
+    assert!(text(&o).contains("(rule 8)"), "{}", text(&o));
+    // Closing the last phase is not a gap: the task waits for its closing.
+    assert!(nx(dir.path(), &["phase", "TASK-0001", "P1", "--state", "dropped"]).status.success());
+    let o =
+        nx(dir.path(), &["phase", "TASK-0001", "P0", "--state", "done", "--evidence", "logs/x"]);
+    assert!(o.status.success(), "{}", text(&o));
+}
+
+#[test]
+fn test_reject_consumer_that_is_prose_or_the_task_itself() {
+    let dir = repo();
+    planned_task(dir.path());
+    let o = nx(dir.path(), &["set", "TASK-0001", "consumer", "every app on the desktop"]);
+    assert_eq!(o.status.code(), Some(3), "{}", text(&o));
+    assert!(text(&o).contains("(rule 9)"), "{}", text(&o));
+    let o = nx(dir.path(), &["set", "TASK-0001", "consumer", "TASK-0001"]);
+    assert!(text(&o).contains("must not be the task itself (rule 9)"), "{}", text(&o));
+    assert!(task(dir.path()).contains("consumer: fast-lane/T1"), "nothing written");
+}
+
+#[test]
+fn test_reject_done_without_result_or_for_a_consumer_that_never_started() {
+    let dir = repo();
+    planned_task(dir.path());
+    for args in [
+        ["phase", "TASK-0001", "P0", "--state", "done", "--evidence", "logs/x"],
+        ["set", "TASK-0001", "active_days", "3", "", "", ""],
+        ["set", "TASK-0001", "variance_note", "the board needed a second cycle", "", "", ""],
+    ] {
+        let args: Vec<&str> = args.iter().copied().filter(|a| !a.is_empty()).collect();
+        assert!(nx(dir.path(), &args).status.success(), "{args:?}");
+    }
+    let o = nx(dir.path(), &["set", "TASK-0001", "status", "done"]);
+    assert_eq!(o.status.code(), Some(3), "{}", text(&o));
+    assert!(text(&o).contains("`goal.result`"), "{}", text(&o));
+    assert!(text(&o).contains("(rule 10)"), "{}", text(&o));
+    assert!(nx(dir.path(), &["result", "TASK-0001", "15.8 ms"]).status.success());
+    assert!(
+        task(dir.path()).contains("  instrument: \"windowd: frame p99=\"\n  result: \"15.8 ms\"\n")
+    );
+    let o = nx(dir.path(), &["set", "TASK-0001", "status", "done"]);
+    assert_eq!(o.status.code(), Some(3), "{}", text(&o));
+    assert!(text(&o).contains("consumer fast-lane/T1 has not started"), "{}", text(&o));
+    assert!(nx(dir.path(), &["step", "fast-lane", "T1", "--state", "active"]).status.success());
+    let o = nx(dir.path(), &["set", "TASK-0001", "status", "done"]);
+    assert!(o.status.success(), "{}", text(&o));
+    assert!(nx(dir.path(), &["lint"]).status.success());
+}
+
+#[test]
+fn test_reject_step_done_while_its_task_runs() {
+    let dir = repo();
+    planned_task(dir.path());
+    let m = fs::read_to_string(dir.path().join("tasks/milestones/fast-lane.md")).expect("read");
+    assert!(
+        m.contains(
+            "  - key: T0\n    section: B0\n    story: \"the first step\"\n    state: active\n"
+        ),
+        "starting the task activates its step: {m}"
+    );
+    let o = nx(dir.path(), &["step", "fast-lane", "T0", "--state", "done"]);
+    assert_eq!(o.status.code(), Some(3), "{}", text(&o));
+    assert!(
+        text(&o).contains("step T0 is done while TASK-0001 is in_progress (rule 12)"),
+        "{}",
+        text(&o)
+    );
+}
+
+#[test]
+fn review_counts_completed_and_slipped_from_the_phases() {
+    let dir = repo();
+    planned_task(dir.path());
+    assert!(nx(dir.path(), &["phase", "TASK-0001", "P1", "--story", "built", "--gate", "g"])
+        .status
+        .success());
+    assert!(nx(dir.path(), &["new", "sprint", "--milestone", "fast-lane", "--capacity", "5"])
+        .status
+        .success());
+    assert!(nx(dir.path(), &["plan", "TASK-0001", "P0,P1", "--p50", "2", "--p85", "3"])
+        .status
+        .success());
+    assert!(nx(dir.path(), &["phase", "TASK-0001", "P1", "--state", "building"]).status.success());
+    assert!(nx(
+        dir.path(),
+        &["phase", "TASK-0001", "P0", "--state", "done", "--evidence", "logs/x"]
+    )
+    .status
+    .success());
+    let o = nx(dir.path(), &["review"]);
+    let t = text(&o);
+    assert!(o.status.success(), "{t}");
+    assert!(t.contains("Review 2026-W45 · completed 1 · slipped 1"), "{t}");
+    assert!(t.contains("TASK-0001: planned P50 2d P85 3d · active days open"), "{t}");
+    let sprint = fs::read_to_string(dir.path().join("tasks/sprints/2026-W45.md")).expect("read");
+    assert!(
+        sprint.contains("completed: [TASK-0001/P0]\nslipped: [TASK-0001/P1]\n---\n"),
+        "{sprint}"
+    );
+    assert!(nx(dir.path(), &["lint"]).status.success());
 }
 
 #[test]
@@ -187,7 +340,7 @@ fn phase_building_starts_the_task_and_keeps_the_body() {
         .status
         .success());
     for (k, v) in
-        [("consumer", "every app"), ("estimate", "2"), ("kind", "ui"), ("novelty", "first")]
+        [("consumer", "fast-lane/T0"), ("estimate", "2"), ("kind", "ui"), ("novelty", "first")]
     {
         assert!(nx(dir.path(), &["set", "TASK-0001", k, v]).status.success());
     }

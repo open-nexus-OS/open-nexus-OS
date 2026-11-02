@@ -103,7 +103,8 @@ goal:
   baseline: "138 ms (board cycle 79)"
   target: "0"
   instrument: "windowd: compose copies="
-consumer: "every app window on the desktop (app-host)"
+  result: "0 (board cycle 83)"   # the measured value at close (rule 10)
+consumer: hardware-network/L8.2  # a task, a phase (TASK-NNNN/P3) or a milestone step — never prose (rule 9)
 depends_on: [TASK-0347]
 follow_ups: [TASK-0349]
 split_from: TASK-0348
@@ -201,6 +202,23 @@ beta-floor), release, focus`.
 6. Milestones: unique step keys, every step names a known section, a `done` milestone has only
    `done`/`dropped` steps.
 7. Referenced ids that do not exist are reported, not fatal (history mentions retired ledgers).
+8. **An open phase while one waits.** An `in_progress` task with a `planned` phase has a phase in
+   `building`, `proving` or `blocked`; the board always shows where the work is. Every phase
+   finished is the closing, not a gap.
+9. **The consumer is a reference**: a task, a phase (`TASK-NNNN/P3`) or a milestone step
+   (`<milestone>/<KEY>`), never prose and never the task itself.
+10. **`done` closes the goal with its result**: a done task with a goal carries `goal.result`,
+    the measured value against the target.
+11. **Done is done for somebody**: at `done` the consumer exists and has at least started
+    (task `in_progress`/`done`, phase open or done, step `active`/`done`). The memory week could
+    not have closed with the apps' sizes still hardcoded.
+12. **A milestone step agrees with its tasks**: no `done` step with a task still `draft` or
+    `in_progress`, no `planned` step with a task `in_progress`. Starting a task's first phase
+    activates its planned steps (derived, not typed).
+
+Rules 8–12 are fatal for tasks started on or after the cutover and notes for the grandfathered
+ones (`nx ledger lint --notes` lists them for the Monday review). Every `nx ledger` write runs the
+cross-document checks too, so a refused edit is refused before it lands.
 
 ## Rules for the work itself
 
@@ -224,10 +242,15 @@ nx ledger show <ID>...                # compact view: header line, goal, one lin
 nx ledger list [--kind] [--status] [--subsystem]
 nx ledger table [<milestone>]         # progress table for a report, counted, never estimated
 nx ledger set <ID> <key> <value>      # status changes stamp started/done with today
+nx ledger goal <ID> <metric> <baseline> <target> <instrument>
+nx ledger result <ID> <value>         # goal.result: the measured value at close
 nx ledger phase <ID> <P> [--state] [--story] [--gate] [--metric] [--evidence] [--note]
 nx ledger step <milestone> <KEY> [--state] [--story] [--section] [--tasks] [--gate]
+nx ledger plan <ID> <P,P> [--week] [--p50] [--p85] [--sample-size]
+nx ledger review [<week>]             # completed/slipped counted from the phases, written, printed
 nx ledger new task --title … --subsystem … --owner …   # next free number, template body
-nx ledger lint [--fix]                # the gate; --fix renders canonically
+nx ledger new sprint --milestone … --capacity …
+nx ledger lint [--fix] [--notes]      # the gate; --fix renders canonically
 ```
 
 The CLI edits only the frontmatter; the body is preserved byte for byte. Output is compact by
@@ -239,8 +262,9 @@ design: an agent reads `show` (a few hundred tokens) instead of a 20 KB ledger.
   `tasks/sprints/<week>.md`, proposed as a diff and applied by the human.
 - **During the week, building (agent).** Phase states via `nx ledger phase`; the reader shows the
   sprint board live from the working copy.
-- **Monday, review.** `completed`/`slipped` from the ledgers, three lines of retrospective, the
-  closed tasks' `variance_note`s become lessons per subsystem.
+- **Monday, review.** `nx ledger review` (or Section 9's `get_sprint` → `outcome`) counts
+  `completed`/`slipped` from the phases and writes them; three lines of retrospective in the
+  sprint body; the closed tasks' `variance_note`s become lessons per subsystem.
 
 **Ownership rule.** A task `in_progress` belongs to the building session; drafts, future tasks,
 milestones and sprints belong to the planning conversation. The reader proposes no frontmatter
@@ -263,6 +287,8 @@ change to an `in_progress` task. Applying a proposal fails if the file changed s
 ```bash
 cargo test -p nx --test ledger_cli    # parser, renderer, rules, edits (test_reject_* for every rule)
 just ledger-gate                      # every document lints; part of `just check`
+# Section 9: tests/core/data-repo.test.ts parses and re-renders every document of this repo
+# byte for byte through its own schema and renderer — the two implementations cannot drift.
 ```
 
 ## Alternatives considered

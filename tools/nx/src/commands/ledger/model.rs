@@ -151,6 +151,7 @@ const GOAL: &[Field] = &[
     f("baseline", Ty::Text, true),
     f("target", Ty::Text, true),
     f("instrument", Ty::Text, true),
+    f("result", Ty::Text, false),
 ];
 pub(crate) const PHASE: &[Field] = &[
     f("id", Ty::PhaseId, true),
@@ -345,6 +346,19 @@ pub(crate) fn is_step_key(s: &str) -> bool {
 pub(crate) fn is_story_ref(s: &str) -> bool {
     s.split_once('/').is_some_and(|(t, p)| is_task_id(t) && is_phase_id(p))
 }
+
+/// `<milestone-slug>/<STEP>` — a milestone step as a consumer.
+pub(crate) fn is_step_ref(s: &str) -> bool {
+    s.split_once('/').is_some_and(|(m, k)| is_slug(m) && is_step_key(k))
+}
+
+/// A consumer the gate can check: a task, a task's phase, or a milestone step.
+pub(crate) fn is_consumer_ref(s: &str) -> bool {
+    is_task_id(s) || is_story_ref(s) || is_step_ref(s)
+}
+
+/// The phase states that count as open work (the brief shows them, the gate wants one).
+pub(crate) const OPEN_PHASE: &[&str] = &["building", "proving", "blocked"];
 
 pub(crate) fn is_owner(s: &str) -> bool {
     s.strip_prefix('@').is_some_and(is_slug)

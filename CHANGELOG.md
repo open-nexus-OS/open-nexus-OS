@@ -23,9 +23,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   target, instrument), its consumer and an estimate; from 2026-11-03 the gate refuses to start
   work without them.
 - **`nx ledger`** — the one writer of planning state: `brief`, `show`, `list`, `table` to read in a
-  few hundred tokens; `set`, `goal`, `phase`, `step`, `plan`, `new` to write (dates stamped, body
-  untouched, an edit the gate would reject is not written); `lint` as `just ledger-gate` in
-  `just check`. A SessionStart hook puts `nx ledger brief` into every new agent session; the
+  few hundred tokens; `set`, `goal`, `result`, `phase`, `step`, `plan`, `review`, `new` to write
+  (dates stamped, body untouched, an edit the gate would reject — single-document and
+  cross-document rules alike — is not written); `lint` as `just ledger-gate` in `just check`.
+- **The loops that close the work (rules 8–12).** A task in progress keeps a phase open while one
+  waits; the consumer is a task, a phase or a milestone step, never prose; `done` carries
+  `goal.result`, the measured value, and is refused while the consumer has not started; a
+  milestone step agrees with its tasks, and starting a task activates its steps. `nx ledger
+  review` counts a sprint's `completed`/`slipped` from the phases. Fatal for new work, notes for
+  the grandfathered ledgers.
+- **Protection zones moved.** `docs/rfcs/**` is working material and left the approval zones;
+  `tasks/**` entered them — a ledger's body needs approval to edit by hand, its frontmatter is
+  written through `nx ledger` without a prompt. A SessionStart hook puts `nx ledger brief` into every new agent session; the
   `plan-package` skill is the planning ritual. New task and RFC templates; the RFC index is
   derived (`nx ledger list --kind rfc`).
 
