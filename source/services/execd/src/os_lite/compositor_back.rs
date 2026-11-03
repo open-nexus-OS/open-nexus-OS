@@ -12,7 +12,8 @@
 //! app gave its last one to the dead compositor; with this one it attaches again and draws. A
 //! notice whose channel is full (a frozen app's, before the lifecycle authority thawed it) is
 //! OWED: the channel is armed writable on execd's waitset and the notice goes once it has room —
-//! never a wait on an app, never a lost notice.
+//! never a wait on an app, never a lost notice. Then the new compositor is told WHOM execd told
+//! (`OP_APPS_ALIVE`, Phase 3): the ghosts of every other owner are of apps that are gone.
 //! OWNERS: @runtime @ui
 //! STATUS: Functional
 //! API_STABILITY: Internal
@@ -21,14 +22,30 @@
 use super::reaper::Reaper;
 use super::{State, TrackedChild, IMG_APPHOST};
 use nexus_abi::Rights;
-use nexus_display_proto::surface_restart::encode_compositor_back;
+use nexus_display_proto::surface_restart::APPS_ALIVE_MAX;
+use nexus_display_proto::surface_restart::{encode_apps_alive, encode_compositor_back};
 use nexus_service_topology::slots::{app_child, execd as topo};
 
 impl TrackedChild {
-    pub(super) fn new(pid: u32, image_id: u8) -> Self {
-        Self { pid, image_id, exit: None, reported: false, events_send: None, back_owed: false }
+    pub(super) fn new(pid: u32, image_id: u8, sid: u64) -> Self {
+        Self {
+            pid,
+            image_id,
+            sid,
+            exit: None,
+            reported: false,
+            events_send: None,
+            back_owed: false,
+        }
     }
+}
 
+/// The kernel service id a child spawned under `name` carries (0: nameless).
+pub(super) fn sid_of(name: Option<&crate::identity::AppServiceName>) -> u64 {
+    name.map_or(0, |n| nexus_abi::service_id_from_name(n.as_str().as_bytes()))
+}
+
+impl TrackedChild {
     /// The child is gone: the SEND of its channel execd kept goes with it.
     pub(super) fn forget_events(&mut self) {
         if let Some(slot) = self.events_send.take() {
@@ -81,11 +98,62 @@ pub(super) fn handle(state: &mut State, sender_service_id: u64, reaper: Option<&
         .u64(u64::from(failed))
         .put(b")")
         .emit();
+    state.apps_alive_owed = !tell_alive(state) && arm_alive(reaper);
+}
+
+/// windowd's queue had no room for the list: execd wakes when it has (`retry_owed`).
+fn arm_alive(reaper: Option<&Reaper>) -> bool {
+    let armed = reaper.is_some_and(|r| r.arm_writable(topo::WINDOWD.send));
+    if !armed {
+        let _ = nexus_abi::debug_println("execd: FAIL apps alive owed (no writable arm)");
+    }
+    armed
+}
+
+/// `OP_APPS_ALIVE` to the new compositor: the kernel ids of every live app (the owners whose
+/// ghosts may wait for a rejoin). `false`: windowd's queue had no room — owed (`retry_owed`).
+/// More live apps than one frame carries: the first `APPS_ALIVE_MAX` are named (the rest's
+/// ghosts close; their rejoin opens a fresh window) — said.
+fn tell_alive(state: &State) -> bool {
+    let mut owners = [0u64; APPS_ALIVE_MAX];
+    let mut n = 0usize;
+    let live = state.children.iter().filter(|c| c.image_id == IMG_APPHOST && c.exit.is_none());
+    for child in live.filter(|c| c.sid != 0) {
+        if n == APPS_ALIVE_MAX {
+            let _ = nexus_abi::debug_println("execd: apps alive truncated (more than the frame)");
+            break;
+        }
+        if !owners[..n].contains(&child.sid) {
+            owners[n] = child.sid;
+            n += 1;
+        }
+    }
+    let mut frame = [0u8; 512];
+    let Some(len) = encode_apps_alive(&owners[..n], &mut frame) else { return true };
+    match nexus_ipc::exchange::send_nonblocking(topo::WINDOWD.send, &frame[..len]) {
+        Ok(()) => {
+            nexus_abi::DebugLine::default()
+                .put(b"execd: apps alive told (n=")
+                .u64(n as u64)
+                .put(b")")
+                .emit();
+            true
+        }
+        Err(nexus_ipc::IpcError::Kernel(nexus_abi::IpcError::QueueFull)) => false,
+        Err(nexus_ipc::IpcError::NoSpace) => false,
+        Err(_) => {
+            let _ = nexus_abi::debug_println("execd: FAIL apps alive (compositor unreachable)");
+            true
+        }
+    }
 }
 
 /// A wake of execd's waitset: every owed notice is tried again — a channel armed writable has
 /// room, or its app is gone. Cheap when nothing is owed (one pass over the children).
 pub(super) fn retry_owed(state: &mut State, reaper: Option<&Reaper>) {
+    if state.apps_alive_owed {
+        state.apps_alive_owed = !tell_alive(state) && arm_alive(reaper);
+    }
     for child in state.children.iter_mut().filter(|c| c.back_owed) {
         child.back_owed = false;
         let Some(send) = child.events_send.filter(|_| child.exit.is_none()) else { continue };

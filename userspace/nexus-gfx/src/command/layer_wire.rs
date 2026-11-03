@@ -39,6 +39,35 @@ pub const fn with_slot(flags: u32, slot: u8) -> u32 {
     (flags & !LAYER_SLOT_MASK) | ((slot as u32) << LAYER_SLOT_SHIFT)
 }
 
+/// A layer's `key` (RFC-0109, RFC-0114 §7): `owner << 16 | kind << 8 | index` — the window's
+/// wire key, what of the window the layer is, and which one of those. gpud reads a window's body
+/// off the key after a compositor restart (RFC-0112 Phase 3: the ghost's place on the screen).
+#[must_use]
+pub const fn layer_key(owner: u32, kind: u32, index: u32) -> u32 {
+    (owner << 16) | ((kind & 0xff) << 8) | (index & 0xff)
+}
+
+/// The window key a layer `key` names.
+#[must_use]
+pub const fn layer_key_owner(key: u32) -> u16 {
+    (key >> 16) as u16
+}
+
+/// What of its window a layer `key` is (`LAYER_KIND_BODY` …).
+#[must_use]
+pub const fn layer_key_kind(key: u32) -> u32 {
+    (key >> 8) & 0xff
+}
+
+/// Layer kinds in a key: the window's body (its surface's base layer).
+pub const LAYER_KIND_BODY: u32 = 1;
+pub const LAYER_KIND_REGION: u32 = 2;
+pub const LAYER_KIND_SLICE: u32 = 3;
+pub const LAYER_KIND_WASH: u32 = 4;
+pub const LAYER_KIND_SOLID: u32 = 5;
+pub const LAYER_KIND_BAR: u32 = 6;
+pub const LAYER_KIND_CARET: u32 = 7;
+
 /// Writes the record of `c` (a `CompositeLayer`) at `pos`; the position after it. `limit`: the
 /// serialized buffer's bound.
 pub(super) fn ser(
@@ -143,4 +172,19 @@ pub(super) fn deser(buf: &[u8], pos: usize) -> Result<(Command, usize), GfxError
         },
         pos + WORDS * 4,
     ))
+}
+
+#[cfg(test)]
+mod key_tests {
+    use super::*;
+
+    #[test]
+    fn a_layer_key_names_its_window_its_kind_and_its_index() {
+        let key = layer_key(0x1234, LAYER_KIND_BODY, 0);
+        assert_eq!(key, 0x1234_0100);
+        assert_eq!(layer_key_owner(key), 0x1234);
+        assert_eq!(layer_key_kind(key), LAYER_KIND_BODY);
+        let desk = layer_key(0xFFFF, LAYER_KIND_REGION, 0x1FF);
+        assert_eq!((layer_key_owner(desk), layer_key_kind(desk), desk & 0xff), (0xFFFF, 2, 0xff));
+    }
 }

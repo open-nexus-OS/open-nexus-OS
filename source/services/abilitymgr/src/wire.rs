@@ -144,7 +144,8 @@ fn dispatch_launch(broker: &mut Broker, frame: &[u8], grants: &mut dyn GrantSour
     if let Some(id) =
         crate::caps::is_singleton(&app).then(|| broker.live_instance_of(&app)).flatten()
     {
-        let state = broker.state(id).unwrap_or(AbilityState::Created);
+        let _ = broker.note_kept(id); // a kept instance runs: never `Created` on the wire
+        let state = broker.state(id).unwrap_or(AbilityState::Started);
         return Dispatched {
             response: resp_instance(OP_LAUNCH, STATUS_OK, id, state),
             event: Some(Event::LaunchKept { app_id: app, instance_id: id }),
@@ -469,11 +470,53 @@ mod tests {
             again.event,
             Some(Event::LaunchKept { app_id: "desktop-shell".into(), instance_id: id })
         );
+        // TASK-0348 P12: a kept instance runs — its reply never says `Created`, so the asker's
+        // wait ring ends on it instead of running out to its failsafe.
+        assert_eq!(again.response[9], AbilityState::Started.as_wire(), "state on the wire");
+        assert_eq!(broker.state(id), Some(AbilityState::Started));
         assert_eq!(broker.len(), 1, "nothing spawned");
         // Gone, it launches anew.
         broker.exited(40).expect("exited");
         let anew = dispatch(&mut broker, &encode_launch("desktop-shell", "main"));
         assert!(matches!(anew.event, Some(Event::Launched { .. })));
+    }
+
+    /// RFC-0112 (TASK-0348 P15): the shell died during the restart, and its death report came
+    /// after the new compositor's launch was answered with it — nobody asks again, so the broker
+    /// owes the role a launch; once the compositor has SEEN the kept window, a death is the
+    /// instance's own and owes nothing.
+    #[test]
+    fn a_kept_role_that_dies_before_it_is_seen_is_owed_a_launch() {
+        let mut broker = Broker::new();
+        let id = launched_id(&dispatch(&mut broker, &encode_launch("desktop-shell", "main")));
+        broker.bind_pid(id, 40).expect("bind");
+        let kept = dispatch(&mut broker, &encode_launch("desktop-shell", "main"));
+        assert!(matches!(kept.event, Some(Event::LaunchKept { .. })));
+        let died = dispatch(&mut broker, &encode_instance_exited(40, -11, 2));
+        assert!(matches!(died.event, Some(Event::Exited { .. })));
+        assert_eq!(broker.take_relaunch().as_deref(), Some("desktop-shell"));
+        assert_eq!(broker.take_relaunch(), None, "owed once");
+        let anew = dispatch(&mut broker, &encode_launch("desktop-shell", "main"));
+        assert!(matches!(anew.event, Some(Event::Launched { .. })));
+        assert_eq!(broker.len(), 1);
+    }
+
+    #[test]
+    fn test_reject_a_relaunch_for_a_seen_kept_role_or_an_ordinary_app() {
+        use crate::seen::Seen;
+        let mut broker = Broker::new();
+        let id = launched_id(&dispatch(&mut broker, &encode_launch("desktop-shell", "main")));
+        broker.bind_pid(id, 40).expect("bind");
+        dispatch(&mut broker, &encode_launch("desktop-shell", "main"));
+        broker.seen(id, Seen::Focused, 1_000).expect("seen");
+        dispatch(&mut broker, &encode_instance_exited(40, 0, 0));
+        assert_eq!(broker.take_relaunch(), None, "seen: its death is its own");
+        // An ordinary app is never kept, so its death never owes a launch.
+        let a = launched_id(&dispatch(&mut broker, &encode_launch("notes", "main")));
+        broker.bind_pid(a, 41).expect("bind");
+        dispatch(&mut broker, &encode_launch("notes", "main"));
+        dispatch(&mut broker, &encode_instance_exited(41, -11, 2));
+        assert_eq!(broker.take_relaunch(), None);
     }
 
     #[test]

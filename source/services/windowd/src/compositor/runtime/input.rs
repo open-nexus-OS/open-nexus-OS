@@ -347,18 +347,9 @@ impl DisplayServerRuntime {
         if upstream.wheel_delta_y != 0 {
             self.forward_wheel(self.state.cursor_x, self.state.cursor_y, upstream.wheel_delta_y);
         }
-        // RFC-0095: a capture key (one-shot, from inputd) goes to the shell — before the
-        // no-change short-circuit: like the wheel, the fact lives only in the staged frame.
-        if upstream.capture != 0 {
-            self.push_capture_key(upstream.capture);
-        }
-        // TASK-0066 / TASK-0348 P7: a tiling chord (one-shot fact from inputd) tiles the FOCUSED
-        // window — before the short-circuit too: a chord pressed with the pointer still and no
-        // key dispatched before it changes nothing in the mirrored state (the board's cycles
-        // 73–81 lost every chord here; QEMU's injector had typed first).
-        if upstream.wm_chord != 0 {
-            self.apply_chord(upstream.wm_chord);
-        }
+        // (A tiling chord or a capture key is no fact of a sample any more — TASK-0348 P17: it
+        // is an event on the key channel, `key_input.rs`, applied once in order; the board's
+        // cycles 73–81 lost every chord to this very short-circuit when it still rode here.)
         self.refresh_observer_state();
         if self.state == old_state {
             return STATUS_OK;

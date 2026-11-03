@@ -50,6 +50,11 @@ const fn field(id: &'static str, command: EditKey, chords: &'static [Chord]) -> 
     Shortcut { id, category: Category::Text, action: Action::Field(command), chords, active: true }
 }
 
+/// A focus move between fields (the keymap's `Tab` / `BackTab`), listed with the text commands.
+const fn focus(id: &'static str, action: Action, chords: &'static [Chord]) -> Shortcut {
+    Shortcut { id, category: Category::Text, action, chords, active: true }
+}
+
 /// The registry, in the order the page lists each category.
 pub const SHORTCUTS: &[Shortcut] = &[
     // Windows (windowd's `zones::CODE_*`).
@@ -69,7 +74,10 @@ pub const SHORTCUTS: &[Shortcut] = &[
     capture("capture.ui", 1, &[key(NONE, U::PRINT_SCREEN)]),
     capture("capture.screen", 2, &[key(SHIFT, U::PRINT_SCREEN)]),
     capture("capture.window", 3, &[key(ALT, U::PRINT_SCREEN)]),
-    // Text fields: moving, selecting, deleting, the clipboard, the history.
+    // Text fields: the focus between them, then moving, selecting, deleting, the clipboard, the
+    // history. Tab and Shift+Tab live here alone — the keymap tables carry no Tab row.
+    focus("text.focusNext", Action::FocusNext, &[key(NONE, U::TAB)]),
+    focus("text.focusPrevious", Action::FocusPrevious, &[key(SHIFT, U::TAB)]),
     field("text.left", EditKey::Left, &[key(NONE, U::LEFT_ARROW)]),
     field("text.right", EditKey::Right, &[key(NONE, U::RIGHT_ARROW)]),
     field("text.wordLeft", EditKey::WordLeft, &[key(CTRL, U::LEFT_ARROW)]),

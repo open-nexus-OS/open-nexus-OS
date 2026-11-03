@@ -240,6 +240,35 @@ impl ClientSurfaces {
         Ok(id)
     }
 
+    /// RFC-0112 Phase 3: a GHOST — a surface of the compositor before this one, adopted with
+    /// its buffer and the slot its last frame read. It is retiring from the start (it takes no
+    /// present, owes no ack) and shows that slot, `width` × `height` of its base, until its
+    /// owner's new surface presents. Refused like a create is, and when the shown part lies past
+    /// the buffer.
+    pub fn adopt(
+        &mut self,
+        (width, height): (u16, u16),
+        buffer: SurfaceBuffer,
+        slot: u8,
+    ) -> Result<u32, u8> {
+        let fits = buffer.source != 0
+            && (1..=SLOTS_MAX).contains(&buffer.slots)
+            && slot < buffer.slots
+            && width <= buffer.width
+            && height <= buffer.rows
+            && buffer.stride >= u32::from(buffer.width) * 4;
+        if !fits {
+            return Err(SURFACE_STATUS_MALFORMED);
+        }
+        let id = self.create(width, height, (height, 0), FORMAT_BGRA8888)?;
+        let s = self.get_mut(id).ok_or(SURFACE_STATUS_BAD_SURFACE)?;
+        s.buffer = Some(buffer);
+        s.last_seq = 1;
+        s.retiring = true;
+        s.ledger.latest = Some(slot);
+        Ok(id)
+    }
+
     /// gpud made the surface's buffer (`cap`: windowd's capability to it, for the app). It must
     /// hold the surface — its width and rows, one to `SLOTS_MAX` slots at a stride that holds its
     /// width; a retiring surface, or one that has its buffer, takes none.

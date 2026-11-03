@@ -29,9 +29,9 @@ hidrawd: chain I1 device event (raw HID polled)
 hidrawd: chain I2 wire sent to inputd
 
 # group: input-chord — TASK-0348 P7 the chord chain: a keyboard's events normalized by hidrawd
-# (K1), a registry chord recognized by inputd as a one-shot fact (K2), the fact pushed to windowd
+# (K1), a registry chord recognized by inputd (K2), the chord sent to windowd on the key channel
 # (K3; `inputd: hops chord (code= report>push=` times each chord from the device's report), the
-# fact received by windowd (K4; the wm-tile group says what it did). Fires when the `usb-visible`
+# chord received by windowd (K4; the wm-tile group says what it did). Fires when the `usb-visible`
 # lane's injector chords; on the board the log shows the last hop a human's chord reached:
 # just check-markers --groups input-chord
 hidrawd: chain K1 keyboard events normalized

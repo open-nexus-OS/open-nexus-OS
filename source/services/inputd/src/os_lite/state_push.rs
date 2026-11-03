@@ -42,20 +42,6 @@ impl LiveRouteRuntime {
                 // next (possibly move-throttled) push cannot replay it.
                 (self.pending_wheel_delta, self.visible_state.wheel_delta_y) = (0, 0);
                 self.input.clear_motion(); // the pointer's samples went with it (RFC-0113 §2)
-                if self.visible_state.wm_chord != 0 {
-                    // Chord chain hop K3 (TASK-0348 P7) and its time from the device's report.
-                    if !core::mem::replace(&mut self.chord_pushed_said, true) {
-                        let _ = nexus_abi::trace_line("inputd: chain K3 chord pushed to windowd");
-                    }
-                    if let Some((code, report_ns)) = self.input.key_witness().take_chord() {
-                        let hop_us = now_ns.saturating_sub(report_ns) / 1000;
-                        let _ = debug_println(&format!(
-                            "inputd: hops chord (code={code} report>push={hop_us}us)"
-                        ));
-                    }
-                }
-                // …and the one-shot key facts: delivered once, never replayed.
-                (self.visible_state.wm_chord, self.visible_state.capture) = (0, 0);
                 self.note_push_rate(now_ns);
                 self.last_windowd_push_state = Some(self.visible_state);
                 self.last_windowd_push_ns = now_ns;
@@ -80,11 +66,10 @@ impl LiveRouteRuntime {
             }
             Err(e) => {
                 // Unreachable windowd: the sample is spent for pacing purposes (the next
-                // event carries fresh state) — the timer never chases a dead route. Its one-shot
-                // facts were the dead compositor's: a chord replayed to the next one would act
-                // twice (the restart chord would restart it again), a wheel delta scroll twice.
+                // event carries fresh state) — the timer never chases a dead route. Its wheel
+                // delta was the dead compositor's: replayed to the next one it would scroll twice
+                // (the chords and capture keys ride the key channel, dropped there the same way).
                 (self.pending_wheel_delta, self.visible_state.wheel_delta_y) = (0, 0);
-                (self.visible_state.wm_chord, self.visible_state.capture) = (0, 0);
                 (self.last_windowd_push_state, self.last_windowd_push_ns) =
                     (Some(self.visible_state), now_ns);
                 self.input.clear_motion();

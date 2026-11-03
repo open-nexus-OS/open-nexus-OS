@@ -24,11 +24,13 @@ service — it draws no UI; UI elements live in the one component library (`wind
   remembers the pre-tile frame (Return), reflows on a work-area change. One verb,
   `CONTROL_WIN_ZONE` (own-window gated), carries every zone, Return and arrangement.
   `snap.rs` is deleted; the top edge FILLS the work area (no fullscreen gesture).
-- **Chords are inputd facts.** inputd tracks Super and the arrows, recognizes the fixed
+- **Chords are inputd events.** inputd tracks Super and the arrows, recognizes the fixed
   table (Super+Ctrl + ←/→ halves, ↑/F Fill, ↓/R Return, +Shift ←/→ top quarters, +Alt ←/→
-  bottom quarters) on the press, and sets `VisibleState.wm_chord` for exactly one state push;
-  the chord's key is never a keyboard dispatch (imed and apps never see it). windowd applies
-  the code to the focused app window (`ui.tile.chords` gates it). No new wire, no new route.
+  bottom quarters) on the press, and sends the code as a key-channel entry
+  (`KEY_INPUT_CHORD`, TASK-0348 P17; it rode the sampled `VisibleState.wm_chord` until
+  2026-11-03, where a quiet sample could coalesce it away); the chord's key is never a keyboard
+  dispatch (imed and apps never see it). windowd applies the code to the focused app window
+  (`ui.tile.chords` gates it). No new route.
 - **UI is the kit's.** `WinAppWindow` mounts the app-chip dropdown (`WinAppMenu`) for every
   window-kit app: the two glyph rows (`WinTileGlyph`, drawn from primitives, no text headers),
   Fullscreen, the inert "move to another device" entry, Minimize/Close — labels as props, no app

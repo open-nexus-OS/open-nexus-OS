@@ -6,10 +6,13 @@
 //! `now_ns`, the exit reason is ADR-0056 kernel truth, and every decision is
 //! a value — the OS layer only spawns and prints. Rules: a `clean` exit
 //! NEVER counts toward the crash window (RestartPolicy::OnFailure lets it
-//! rest; Always respawns it without burning budget); failures push into a
-//! bounded window and back off exponentially; `threshold` failures inside
-//! `window_s` park the service (`Blocked`, terminal until an operator/
-//! policy unblocks in a later PR).
+//! rest; Always respawns it without burning budget); a REQUESTED restart
+//! (`EXIT_RESTART_REQUESTED`, RFC-0112: the compositor's restart chord) is
+//! respawned at once and counts toward no window either — pressed again and
+//! again, the desktop always comes back; failures push into a bounded window
+//! and back off exponentially; `threshold` failures inside `window_s` park
+//! the service (`Blocked`, terminal until an operator/policy unblocks in a
+//! later PR).
 //! OWNERS: @runtime @reliability
 //! STATUS: Functional
 //! API_STABILITY: Unstable
@@ -17,7 +20,7 @@
 //! ADR: docs/adr/0057-service-restart-capability-re-resolve.md
 
 use crate::service_supervision::{BackoffSpec, RestartPolicy};
-use nexus_abi::ExitReason;
+use nexus_abi::{ExitReason, EXIT_RESTART_REQUESTED};
 
 /// Bounded crash-history depth; the SSOT threshold must fit inside it
 /// (compile-time-ish guard in `new`).
@@ -108,6 +111,12 @@ impl SupervisedChild {
         if self.restart == RestartPolicy::Never {
             self.state = EngineState::Stopped;
             return EngineDecision::Rest;
+        }
+        // RFC-0112: the service asked to be started again (the restart chord) — not a failure,
+        // so it burns no budget and waits for no backoff; a service that may restart does now.
+        if reason == ExitReason::Error && code == EXIT_RESTART_REQUESTED {
+            self.state = EngineState::WaitingRestart { due_ns: now_ns };
+            return EngineDecision::RestartAt { due_ns: now_ns, attempt: 0 };
         }
         // Prune failures older than the window, then count this one.
         let window_ns = (self.backoff.window_s as u64).saturating_mul(1_000_000_000);
@@ -214,6 +223,51 @@ mod tests {
             }
             other => panic!("expected clamped restart, got {other:?}"),
         }
+    }
+
+    /// RFC-0112: a requested restart (the compositor's chord) is respawned at once, as often as
+    /// it is asked for inside the crash window, and leaves the failure budget untouched.
+    #[test]
+    fn a_requested_restart_burns_no_budget_and_waits_for_no_backoff() {
+        let mut c = SupervisedChild::new(RestartPolicy::OnFailure, DEFAULT_BACKOFF);
+        for k in 0..8u64 {
+            let now = k * S;
+            assert_eq!(
+                c.on_exit(ExitReason::Error, EXIT_RESTART_REQUESTED, now),
+                EngineDecision::RestartAt { due_ns: now, attempt: 0 },
+                "request {k}"
+            );
+            assert!(c.restart_due(now));
+            c.on_restarted();
+        }
+        // The first real failure after eight requests is attempt 1, not a block.
+        assert_eq!(
+            c.on_exit(fault(), -22, 9 * S),
+            EngineDecision::RestartAt { due_ns: 9 * S + 500 * MS, attempt: 1 }
+        );
+    }
+
+    /// The same code from a service that never restarts stays stopped, and from a service whose
+    /// previous failures already blocked it stays blocked (no code reopens a parked service).
+    #[test]
+    fn test_reject_a_requested_restart_of_a_never_or_blocked_service() {
+        let mut never = SupervisedChild::new(RestartPolicy::Never, DEFAULT_BACKOFF);
+        assert_eq!(
+            never.on_exit(ExitReason::Error, EXIT_RESTART_REQUESTED, S),
+            EngineDecision::Rest
+        );
+        assert_eq!(never.state, EngineState::Stopped);
+        let mut c = SupervisedChild::new(RestartPolicy::OnFailure, DEFAULT_BACKOFF);
+        for k in 0..4u64 {
+            let _ = c.on_exit(fault(), -22, k * S);
+            c.on_restarted();
+        }
+        assert_eq!(c.on_exit(fault(), -22, 4 * S), EngineDecision::Blocked);
+        assert_eq!(
+            c.on_exit(ExitReason::Error, EXIT_RESTART_REQUESTED, 5 * S),
+            EngineDecision::Rest
+        );
+        assert_eq!(c.state, EngineState::Blocked);
     }
 
     #[test]

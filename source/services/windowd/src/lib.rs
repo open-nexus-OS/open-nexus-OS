@@ -40,6 +40,10 @@ pub mod click_count;
 /// host-tested (`test_reject_*` tables), like `window_scene`.
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod control_gate;
+/// Which ghost an owner's rejoin takes over, which ghosts a sweep closes (RFC-0112 Phase 3;
+/// pure, host-tested).
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
+mod ghost_pick;
 /// Frame-aligned input staging: motion coalesces, a button edge never does (pure, host-tested).
 pub mod input_stage;
 /// RFC-0113 / ADR-0090: the key-route gate — the key channel's sender, a key's target, the

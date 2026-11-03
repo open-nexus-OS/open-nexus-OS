@@ -99,6 +99,12 @@ pub enum AbiError {
     Unsupported,
 }
 
+/// The exit status a service ends with to be started again on purpose (RFC-0112: the
+/// compositor's restart chord): not a crash, not a clean shutdown — EX_TEMPFAIL, "try again".
+/// init's supervision restarts a service that exits with it at once and counts it toward no
+/// crash window (RFC-0087 §2, like a clean exit); a fault or any other code is a failure.
+pub const EXIT_RESTART_REQUESTED: i32 = 75;
+
 /// WHY a child died — kernel truth delivered alongside the exit code by
 /// `wait_with_reason`/`wait_nohang_with_reason` (ADR-0056). `Clean`/`Error`
 /// are the consumer-side split of a voluntary exit by its code; `Fault` and

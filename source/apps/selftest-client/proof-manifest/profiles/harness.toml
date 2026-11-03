@@ -192,12 +192,13 @@ env = { NEXUS_SELFTEST_PROFILE = "lowmem", QEMU_INPUT_SCENARIO = "lowmem", QEMU_
 [profile.many-windows]
 runner = "scripts/qemu-test.sh"
 extends = "usb-visible"
-# Then the compositor restarts over the twelve (RFC-0112) and every window comes back: the lane
-# ends once, AFTER the restart, the twelve are drawn AND the shell revealed the desktop again (an
-# ordered chain whose last step is a group, any order), and the pixel proof snapshots that frame
+# Then the compositor restarts over the twelve (RFC-0112) and every window comes back, four more
+# restarts follow (TASK-0348 P11) and a field takes focus on the fifth compositor (P14): the lane
+# ends once, AFTER the fifth restart chord, a field took focus AND its caret was drawn (an ordered
+# chain whose last step is a group, any order), and the pixel proof snapshots that frame
 # (`display-windows.png`), judged non-black and unlike the greeter's settled frame; its watcher
 # outlives the choreography.
-env = { QEMU_MEM = "1G", QEMU_INPUT_SCENARIO = "many-windows", QEMU_LADDER_ALSO_WAIT = "windowd: restart requested (chord)|windowd: windows drawn (n=12)&windowd: desktop revealed (seq=", QEMU_READY_GRACE_SECS = "900", NEXUS_PIXEL_PROOF_EXTRA = "windows=windowd: restart requested (chord)|windowd: windows drawn (n=12)&windowd: desktop revealed (seq=", NEXUS_PIXEL_PROOF_TIMEOUT = "940" }
+env = { QEMU_MEM = "1G", QEMU_INPUT_SCENARIO = "many-windows", QEMU_LADDER_ALSO_WAIT = "windowd: restart requested (chord)|windowd: restart requested (chord)|windowd: restart requested (chord)|windowd: restart requested (chord)|windowd: restart requested (chord)|apphost: text focus set&windowd: caret layer on", QEMU_READY_GRACE_SECS = "900", NEXUS_PIXEL_PROOF_EXTRA = "windows=windowd: restart requested (chord)|windowd: restart requested (chord)|windowd: restart requested (chord)|windowd: restart requested (chord)|windowd: restart requested (chord)|apphost: text focus set&windowd: caret layer on", NEXUS_PIXEL_PROOF_TIMEOUT = "940" }
 
 # TASK-0050 PR-3: real system-reset lane. The guest requests an SBI cold
 # reboot EARLY in bringup (sentinel discipline over statefs); QEMU restarts

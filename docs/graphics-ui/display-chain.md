@@ -5,7 +5,7 @@ role: guide
 subsystem: ui
 sources: [source/drivers/gpud/src/backend, source/drivers/gpud/src/service.rs, source/drivers/gpud/src/present_chain.rs, source/services/windowd/src/compositor, source/libs/nexus-display-proto/src]
 contracts: [RFC-0093, RFC-0098, RFC-0101, RFC-0110, RFC-0114, ADR-0038, ADR-0078, ADR-0092]
-verified: 2026-11-02
+verified: 2026-11-03
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -61,7 +61,7 @@ On the board the ring is one contiguous object made for the controller (it canno
 3. The ack echoes the seq and status and carries `frame_time::Shown`: when the frame reached the glass, the refresh period, the cadence. windowd's `frame_clock.rs` predicts the next shown time from it; clients waiting on `OP_SURFACE_FRAME_REQ` get that time.
 4. If the virtio device lost commands although every call succeeded (`present_lost`), the present is NACKed and windowd re-sends the damage.
 
-App surfaces are composed by reference: windowd asks for a buffer per surface (`OP_SURFACE_ALLOC` 18, `OP_SURFACE_FREE` 19; `OP_SURFACE_ADOPT` 20 is reserved for the restart). gpud makes it for the device that samples it and charges the owner (`surface_serve.rs`, `surfaces.rs`). A freed buffer is closed only after the last present that could read it retired.
+App surfaces are composed by reference: windowd asks for a buffer per surface (`OP_SURFACE_ALLOC` 18, `OP_SURFACE_FREE` 19). gpud makes it for the device that samples it and charges the owner (`surface_serve.rs`, `surfaces.rs`). A freed buffer is closed only after the last present that could read it retired. Across a compositor restart (RFC-0112 Phase 3) gpud keeps every object as an orphan with the place the last frame drew its body (`surfaces.rs: note_places`, read off the layer key's body kind); the new windowd adopts the shown ones before its first frame (`OP_SURFACE_ADOPT` 20, paged — `surface_adopt.rs`) and shows them as ghost windows with the apps' last pixels until each app presents again; the orphans no frame showed are released.
 
 ## The three displays
 

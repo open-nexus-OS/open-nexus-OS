@@ -60,6 +60,8 @@
   "sc.text.deleteWordBack": "왼쪽 단어 삭제",
   "sc.text.deleteWordForward": "오른쪽 단어 삭제",
   "sc.text.end": "끝으로",
+  "sc.text.focusNext": "다음 필드로",
+  "sc.text.focusPrevious": "이전 필드로",
   "sc.text.home": "처음으로",
   "sc.text.left": "한 글자 왼쪽",
   "sc.text.paste": "붙여넣기",

@@ -98,7 +98,7 @@ impl DisplayServerRuntime {
     }
 
     /// Source `buffer` goes back to gpud.
-    fn free_surface_buffer(&mut self, buffer: u32) {
+    pub(super) fn free_surface_buffer(&mut self, buffer: u32) {
         self.buffers.requests.push_back(Request::Free(buffer));
         self.flush_gpud_requests();
     }

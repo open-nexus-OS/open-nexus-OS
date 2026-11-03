@@ -322,6 +322,23 @@ sample without one — a pointer move in the same frame — no longer erases it)
 before its no-change short-circuit and hands it to the DESKTOP surface as
 `OP_SURFACE_CAPTURE_KEY` (retained until the channel takes it). No line is written per key.
 
+
+## Amendment 2026-11-03 (TASK-0348 P17, RFC-0113 §3): the facts leave the sampled state
+
+`VisibleState` loses `wm_chord` and `capture` (`STATE_LEN` 40 → 38, `VERSION` 4 → 5; the
+modifiers byte moves up). A sampled state is coalesced — windowd applies one sample per frame, and
+inputd pushes a sample only when something changed — and a one-shot fact riding it could be lost
+by that very rule: on the board (cycles 73–81) a chord pressed with the pointer still and no key
+typed before it changed nothing else in the sample, so windowd's no-change short-circuit dropped
+it. The rule every input stack keeps: samples coalesce, edges never. A window chord and a capture
+key are therefore EVENTS on the key channel (`OP_PUSH_KEY_INPUT`, `KEY_INPUT_CHORD = 4` with
+windowd's `zones::CODE_*` as the value, `KEY_INPUT_CAPTURE = 5` with the capture kind 1–3) —
+one entry per press, in order with the keys around it, sent blocking, applied once by windowd
+(`key_gate::system_key`), dropped like a key while no compositor runs (never replayed to the next
+one: the restart chord would restart it again). inputd's dispatch log carries them as
+`InputDispatch::Chord` / `CaptureKey`; `stamp_key_facts`, `take_wm_chord` and `take_capture_key`
+are gone; the chain hops K2/K3 and `inputd: hops chord` are emitted on the key send.
+
 ## Alternatives considered
 
 - Build live-input behavior directly inside `windowd` (rejected: authority blur and maintenance drift).

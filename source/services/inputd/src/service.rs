@@ -44,10 +44,8 @@ pub struct InputdService<R> {
     held_non_modifier_keys: [bool; 256],
     held_non_modifier_key_count: usize,
     /// A tiling chord recognized since the last state push (`zones::CODE_*`, 0 = none).
-    pending_wm_chord: u8,
     /// A capture key recognized since the last state push (RFC-0095: 1 Print, 2 Shift+Print,
     /// 3 Alt+Print; 0 = none).
-    pending_capture: u8,
     modifiers: ModifierState,
     witness: KeyWitness,
     text_focus: bool,
@@ -93,8 +91,6 @@ impl<R: RouteTarget> InputdService<R> {
             primary_pointer_held: false,
             held_non_modifier_keys: [false; 256],
             held_non_modifier_key_count: 0,
-            pending_wm_chord: 0,
-            pending_capture: 0,
             modifiers: ModifierState::default(),
             witness: KeyWitness::default(),
             text_focus: false,
@@ -183,33 +179,9 @@ impl<R: RouteTarget> InputdService<R> {
         self.modifiers.bits()
     }
 
-    /// The tiling chord recognized since the last call (one-shot), 0 = none.
-    pub fn take_wm_chord(&mut self) -> u8 {
-        core::mem::take(&mut self.pending_wm_chord)
-    }
-
-    /// The capture key recognized since the last call (one-shot, RFC-0095), 0 = none.
-    pub fn take_capture_key(&mut self) -> u8 {
-        core::mem::take(&mut self.pending_capture)
-    }
-
     /// The keys' witness (TASK-0348 P7): modifier mask, chord count, the last chord's report time.
     pub fn key_witness(&mut self) -> &mut KeyWitness {
         &mut self.witness
-    }
-
-    /// Writes this push's one-shot key facts — a tiling chord, a capture key — into the visible
-    /// state's fields (a field without a new fact keeps an undelivered one); `true` when there
-    /// is one, so the push goes out at once.
-    pub fn stamp_key_facts(&mut self, wm_chord: &mut u8, capture: &mut u8) -> bool {
-        let (chord, key) = (self.take_wm_chord(), self.take_capture_key());
-        if chord != 0 {
-            *wm_chord = chord;
-        }
-        if key != 0 {
-            *capture = key;
-        }
-        chord != 0 || key != 0
     }
 
     #[must_use]
@@ -362,20 +334,21 @@ impl<R: RouteTarget> InputdService<R> {
                 continue;
             }
             self.update_non_modifier_key_hold(usage, pressed);
-            // The registry's window and capture chords (RFC-0113 §7, exact modifiers): facts,
-            // not keys — they ride the state push to windowd and never reach imed or an app.
-            // Recognized on the press only.
+            // The registry's window and capture chords (RFC-0113 §7, exact modifiers): events
+            // for the key channel (TASK-0348 P17), never keys — they reach windowd in order with
+            // the keys around them and never imed or an app. Recognized on the press only.
             if pressed {
                 let keymap = self.keymap;
                 let letter = || keymap.letter(usage);
+                let t_ns = event.timestamp().raw();
                 match shortcuts::system_action(self.modifiers.chord_mods(), usage, letter) {
                     Some(shortcuts::Action::Window(code)) => {
-                        self.pending_wm_chord = code;
-                        self.witness.note_chord(code, event.timestamp().raw());
+                        self.witness.note_chord(code, t_ns);
+                        self.push_dispatch(InputDispatch::Chord { code, seq, t_ns })?;
                         continue;
                     }
                     Some(shortcuts::Action::Capture(kind)) => {
-                        self.pending_capture = kind;
+                        self.push_dispatch(InputDispatch::CaptureKey { kind, seq, t_ns })?;
                         continue;
                     }
                     _ => {}

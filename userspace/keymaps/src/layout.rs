@@ -66,6 +66,8 @@ impl Keymap {
         if let Some(entry) = shortcuts::lookup(modifiers.chord_mods(), usage, letter) {
             match entry.action {
                 Action::Field(key) => return Ok(KeyOutput::Action(KeyAction::Edit(key))),
+                Action::FocusNext => return Ok(KeyOutput::Action(KeyAction::Tab)),
+                Action::FocusPrevious => return Ok(KeyOutput::Action(KeyAction::BackTab)),
                 Action::NextInputSource => return Ok(KeyOutput::Action(KeyAction::ImeSwitch)),
                 Action::Window(_) | Action::Capture(_) => {}
             }

@@ -11,7 +11,9 @@
 //! the window a key would go to is not known until its app rejoins the new one — a key is
 //! dropped, never held for a window it may not belong to, and the outage named once. The
 //! layout's relay to imed (`OP_SET_LAYOUT`) lives here too — the composition engine follows
-//! `input.keymap`.
+//! `input.keymap`. The system's own keys — a window chord of the registry, a capture key — go
+//! the same way as EVENTS (TASK-0348 P17): applied once each by windowd, in order with the keys
+//! around them, never a one-shot fact on the sampled visible state (chain hops K2/K3).
 //! OWNERS: @runtime @ui
 //! STATUS: Functional
 //! API_STABILITY: Internal
@@ -21,7 +23,8 @@
 use super::*;
 use crate::key_channel::{ChannelKey, KeySource, KeyTranslator};
 use input_live_protocol::{
-    encode_push_key_input, KeyInput, SeqCheck, SeqStreams, KEY_INPUT_FRAME_MAX, MAX_KEY_INPUTS,
+    encode_push_key_input, KeyInput, SeqCheck, SeqStreams, KEY_INPUT_CAPTURE, KEY_INPUT_CHORD,
+    KEY_INPUT_FRAME_MAX, MAX_KEY_INPUTS,
 };
 
 /// Failure lines a boot prints before the counters speak alone.
@@ -59,6 +62,7 @@ impl KeyChannel {
                 fail_lines: 0,
                 sent_said: false,
                 broken: false,
+                chord_sent: false,
             },
             imed: None,
         }
@@ -81,6 +85,8 @@ struct Outbox {
     sent_said: bool,
     /// A send failed: the route is re-made before the next one.
     broken: bool,
+    /// A frame that windowd took carried a window chord (chain hop K3, `hops chord`).
+    chord_sent: bool,
 }
 
 impl Outbox {
@@ -107,6 +113,7 @@ impl Outbox {
         match sent {
             Ok(()) => {
                 self.outage_said = false;
+                self.chord_sent |= self.frame[..n].iter().any(|e| e.kind == KEY_INPUT_CHORD);
                 if !core::mem::replace(&mut self.sent_said, true) {
                     let _ = nexus_abi::trace_line("inputd: key channel to windowd open");
                 }
@@ -158,7 +165,7 @@ impl LiveRouteRuntime {
     /// order, in as few frames as they fit.
     pub(super) fn send_keys(&mut self) {
         let source = KeySource::of(self.input.layout());
-        let Self { input, keys, windowd_client, .. } = self;
+        let Self { input, keys, windowd_client, chord_seen_said, chord_pushed_said, .. } = self;
         if keys.out.broken || windowd_client.is_none() {
             // The declared leg (init pins it before inputd runs): no route ask in the key path.
             *windowd_client =
@@ -167,14 +174,49 @@ impl LiveRouteRuntime {
         }
         let client = windowd_client.as_ref();
         let KeyChannel { translator, out, .. } = keys;
+        let modifiers = input.modifier_bits();
         for dispatch in input.recent_dispatches() {
-            let InputDispatch::Keyboard { output, repeated, seq, t_ns, .. } = dispatch else {
-                continue;
+            let system = |kind: u8, value: u32, seq: u32, t_ns: u64| KeyInput {
+                kind,
+                sub: 0,
+                flags: 0,
+                modifiers,
+                seq,
+                t_ns,
+                value,
             };
-            let key = ChannelKey { output: *output, repeated: *repeated, seq: *seq, t_ns: *t_ns };
-            translator.feed(source, key, &mut |entry| out.push(entry, client));
+            match dispatch {
+                InputDispatch::Keyboard { output, repeated, seq, t_ns, .. } => {
+                    let key =
+                        ChannelKey { output: *output, repeated: *repeated, seq: *seq, t_ns: *t_ns };
+                    translator.feed(source, key, &mut |entry| out.push(entry, client));
+                }
+                // TASK-0348 P17: a window chord is an event on this channel — chain hop K2.
+                InputDispatch::Chord { code, seq, t_ns } => {
+                    if !core::mem::replace(chord_seen_said, true) {
+                        let _ = nexus_abi::trace_line("inputd: chain K2 chord recognized");
+                    }
+                    out.push(system(KEY_INPUT_CHORD, u32::from(*code), *seq, *t_ns), client);
+                }
+                InputDispatch::CaptureKey { kind, seq, t_ns } => {
+                    out.push(system(KEY_INPUT_CAPTURE, u32::from(*kind), *seq, *t_ns), client);
+                }
+                _ => {}
+            }
         }
         out.flush(client);
+        if core::mem::take(&mut out.chord_sent) {
+            // Chord chain hop K3 (TASK-0348 P7) and its time from the device's report.
+            if !core::mem::replace(chord_pushed_said, true) {
+                let _ = nexus_abi::trace_line("inputd: chain K3 chord pushed to windowd");
+            }
+            if let Some((code, report_ns)) = input.key_witness().take_chord() {
+                let hop_us = nsec().unwrap_or(0).saturating_sub(report_ns) / 1000;
+                let _ = debug_println(&format!(
+                    "inputd: hops chord (code={code} report>push={hop_us}us)"
+                ));
+            }
+        }
     }
 
     /// The held key's repeat, when it is due (the pacing timer woke for it).

@@ -60,6 +60,8 @@
   "sc.text.deleteWordBack": "左の1単語を削除",
   "sc.text.deleteWordForward": "右の1単語を削除",
   "sc.text.end": "末尾へ",
+  "sc.text.focusNext": "次のフィールドへ",
+  "sc.text.focusPrevious": "前のフィールドへ",
   "sc.text.home": "先頭へ",
   "sc.text.left": "1文字左へ",
   "sc.text.paste": "ペースト",

@@ -238,3 +238,59 @@ fn a_seeded_table_never_hands_out_an_earlier_id() {
     let mut zero = ClientSurfaces::starting_at(0);
     assert_eq!(zero.create(64, 64, (64, 0), FORMAT_BGRA8888), Ok(1), "never id 0");
 }
+
+/// RFC-0112: a compositor restarted late seeds the table past `u16`; the ids it hands out are
+/// found again whole, and the counter never falls back to 1 while it climbs.
+#[test]
+fn a_table_seeded_past_u16_hands_out_and_finds_wide_ids() {
+    let mut t = ClientSurfaces::starting_at(0x1_2D05);
+    let a = t.create(320, 240, (240, 0), FORMAT_BGRA8888).expect("a");
+    let b = t.create(320, 240, (240, 0), FORMAT_BGRA8888).expect("b");
+    assert_eq!((a, b), (0x1_2D05, 0x1_2D06));
+    assert!(t.get_by_id(a).is_some() && t.get_by_id(b).is_some());
+    assert!(t.get_by_id(a & 0xFFFF).is_none(), "the low half alone names no surface");
+    t.bind_buffer(a, buffer(0x7_0000, 320, 240), Some(40)).expect("binds a wide source");
+    assert_eq!(t.get_by_id(a).and_then(|s| s.shown()), None, "nothing shown before a present");
+    let mut t = ClientSurfaces::starting_at(u32::MAX);
+    let last = t.create(320, 240, (240, 0), FORMAT_BGRA8888).expect("last");
+    let wrapped = t.create(320, 240, (240, 0), FORMAT_BGRA8888).expect("wrapped");
+    assert_eq!((last, wrapped), (u32::MAX, 1), "a wrap skips 0");
+}
+
+/// RFC-0112 Phase 3: a ghost shows its adopted slot at once, presents no more and owes no ack;
+/// one past its buffer, of no slot, or too small is refused.
+#[test]
+fn a_ghost_shows_its_adopted_slot_and_takes_no_present() {
+    let mut t = ClientSurfaces::starting_at(700);
+    let b = buffer(0x1_0007, 1472, 2432);
+    let id = t.adopt((1440, 900), b, 1).expect("adopted");
+    let s = t.get_by_id(id).expect("live");
+    assert!(s.retiring && s.buffer_cap.is_none());
+    assert_eq!((s.width, s.height, s.rows, s.store_w), (1440, 900, 900, 0));
+    let shown = s.shown().expect("shown at once");
+    assert_eq!((shown.buffer.source, shown.slot, shown.generation), (0x1_0007, 1, 1));
+    let now = 5;
+    assert_eq!(t.present(id, (2, 0), &[], now), Err(SURFACE_STATUS_BAD_SURFACE), "no present");
+    let mut due = Vec::new();
+    t.take_releases(u32::MAX, &mut due);
+    assert!(due.is_empty(), "nothing owed");
+    assert!(t.bind_buffer(id, b, None).is_err(), "it has its buffer");
+    assert!(t.destroy(id).is_ok());
+}
+
+#[test]
+fn test_reject_a_ghost_past_its_buffer_or_of_no_slot() {
+    let mut t = ClientSurfaces::starting_at(700);
+    let b = buffer(0x1_0007, 1472, 2432);
+    assert_eq!(t.adopt((1473, 900), b, 1), Err(SURFACE_STATUS_MALFORMED), "wider than the buffer");
+    assert_eq!(
+        t.adopt((1440, 2433), b, 1),
+        Err(SURFACE_STATUS_MALFORMED),
+        "more rows than the buffer"
+    );
+    assert_eq!(t.adopt((1440, 900), b, 2), Err(SURFACE_STATUS_MALFORMED), "slot 2 of two");
+    let zero = SurfaceBuffer { source: 0, ..b };
+    assert_eq!(t.adopt((1440, 900), zero, 0), Err(SURFACE_STATUS_MALFORMED), "no object");
+    assert_eq!(t.adopt((8, 8), b, 0), Err(SURFACE_STATUS_MALFORMED), "below the minimum");
+    assert!(t.get_by_id(700).is_none(), "nothing registered");
+}

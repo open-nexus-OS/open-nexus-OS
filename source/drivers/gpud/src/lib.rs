@@ -36,6 +36,9 @@ pub mod markers;
 #[cfg(any(test, all(feature = "os-lite", target_os = "none")))]
 pub(crate) mod pressure;
 pub mod protocol;
+/// A restarted compositor adopts the objects kept for it (RFC-0112 Phase 3).
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+pub(crate) mod surface_adopt;
 #[cfg(any(test, all(feature = "os-lite", target_os = "none")))]
 pub(crate) mod surface_pages;
 /// `OP_SURFACE_ALLOC` / `OP_SURFACE_FREE` in the request loop (RFC-0114 §2).

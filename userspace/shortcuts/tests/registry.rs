@@ -121,6 +121,11 @@ fn inputd_takes_the_window_and_capture_chords_only() {
     assert_eq!(system_action(Mods::CTRL, U::C, || Some('c')), None);
     assert_eq!(system_action(Mods::NONE, U::LEFT_ARROW, || None), None);
     assert_eq!(system_action(Mods::CTRL, U::SPACE, || None), None);
+    // The focus moves are the keymap's (Tab / Shift+Tab), listed with the text commands.
+    assert_eq!(system_action(Mods::NONE, U::TAB, || None), None);
+    assert_eq!(lookup(Mods::NONE, U::TAB, || None).map(|e| e.action), Some(Action::FocusNext));
+    assert_eq!(lookup(Mods::SHIFT, U::TAB, || None).map(|e| e.action), Some(Action::FocusPrevious));
+    assert_eq!(lookup(Mods::ALT, U::TAB, || None), None, "Alt+Tab stays free");
     let copy = lookup(Mods::CTRL, U::C, || Some('c')).expect("ctrl c");
     assert_eq!(copy.action, Action::Field(EditKey::Copy));
 }
@@ -137,7 +142,14 @@ fn plain_typing_never_asks_for_the_letter() {
 #[test]
 fn every_window_and_capture_entry_is_acted_on() {
     for entry in SHORTCUTS {
-        if matches!(entry.action, Action::Window(_) | Action::Capture(_) | Action::Field(_)) {
+        if matches!(
+            entry.action,
+            Action::Window(_)
+                | Action::Capture(_)
+                | Action::Field(_)
+                | Action::FocusNext
+                | Action::FocusPrevious
+        ) {
             assert!(entry.active, "{}: its owner acts on every one", entry.id);
         }
     }

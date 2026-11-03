@@ -278,10 +278,11 @@ is the primary, the others act the same), `active` — compiled into the compone
   the surface wire's bits); at most one entry matches a press. A key is named by its place (HID
   usage: arrows, Home, Print) or by the letter the active layout types on it (Ctrl+Z is the key
   that types `z`; a layout without a Latin letter there takes the key's US letter). inputd
-  matches the window and capture chords before a key enters the text route (they become the
-  visible state's facts); the keymap matches the field commands and the input-source switch.
-  Plain keys a layout produces (Enter, Tab, Shift+Tab, Backspace, Escape) are layout data, not
-  registry entries.
+  matches the window and capture chords before a key enters the text route (events on the key
+  channel, §3 — TASK-0348 P17 replaced the visible state's one-shot facts); the keymap matches
+  the field commands, the focus moves (Tab, Shift+Tab: `text.focusNext`, `text.focusPrevious`,
+  2026-11-03) and the input-source switch. Plain keys a layout produces (Enter, Backspace,
+  Escape) are layout data, not registry entries.
 - **`active`.** Whether an owner acts on the match. A matched chord is consumed either way (it
   types nothing); an inactive one is listed dimmed. Every window, capture and field entry is
   active; the input-source switch (Ctrl+Space) is matched but not yet acted on.

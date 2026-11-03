@@ -8,7 +8,11 @@
 //! windowd feeds behind its focus. Every entry carries its source sequence and the time the
 //! system first saw the key (`seq`, `t_ns`): the field that applies it measures, every hop
 //! counts. inputd sends this frame BLOCKING — a full windowd queue holds inputd, it never drops a
-//! key (RFC-0113 §2). Fixed buffers on both ends: nothing is allocated per key.
+//! key (RFC-0113 §2). Fixed buffers on both ends: nothing is allocated per key. The system's own
+//! keys ride it too (TASK-0348 P17): a window chord of the shortcut registry and a capture key
+//! are EVENTS — each entry applied once, in order — never a one-shot fact on the sampled visible
+//! state, where a sample that changed nothing else could coalesce it away (the rule every input
+//! stack keeps: samples coalesce, edges never).
 //! OWNERS: @runtime @ui
 //! STATUS: Experimental
 //! API_STABILITY: Unstable
@@ -28,6 +32,16 @@ pub const KEY_INPUT_ACTION: u8 = 2;
 /// A composition source's key for the input method: `sub` is its wire `KEY_KIND_*`, `value` the
 /// character (text, dead) or the action code.
 pub const KEY_INPUT_COMPOSE: u8 = 3;
+/// A window chord of the shortcut registry (TASK-0066 / RFC-0113 §7): `value` is windowd's
+/// `zones::CODE_*` (1..=255) — windowd applies it to the focused window; no app sees its keys.
+pub const KEY_INPUT_CHORD: u8 = 4;
+/// A capture key (RFC-0095): `value` is `CAPTURE_KIND_UI` (Print: the screenshot UI), `_SCREEN`
+/// (Shift+Print) or `_WINDOW` (Alt+Print) — windowd hands it to the shell; no app sees the key.
+pub const KEY_INPUT_CAPTURE: u8 = 5;
+/// The capture kinds a `KEY_INPUT_CAPTURE` entry carries.
+pub const CAPTURE_KIND_UI: u32 = 1;
+pub const CAPTURE_KIND_SCREEN: u32 = 2;
+pub const CAPTURE_KIND_WINDOW: u32 = 3;
 
 /// The entry is an auto-repeat of a held key (inputd's repeat timer, not the device).
 pub const KEY_FLAG_REPEAT: u8 = 1;
@@ -63,9 +77,14 @@ impl KeyInput {
     /// Unicode scalar.
     #[must_use]
     pub fn is_valid(&self) -> bool {
-        let kind_ok = matches!(self.kind, KEY_INPUT_TEXT | KEY_INPUT_ACTION | KEY_INPUT_COMPOSE);
-        let text_ok = self.kind != KEY_INPUT_TEXT || char::from_u32(self.value).is_some();
-        kind_ok && text_ok && self.flags & !KNOWN_FLAGS == 0
+        let value_ok = match self.kind {
+            KEY_INPUT_TEXT => char::from_u32(self.value).is_some(),
+            KEY_INPUT_ACTION | KEY_INPUT_COMPOSE => true,
+            KEY_INPUT_CHORD => (1..=u32::from(u8::MAX)).contains(&self.value),
+            KEY_INPUT_CAPTURE => (CAPTURE_KIND_UI..=CAPTURE_KIND_WINDOW).contains(&self.value),
+            _ => false,
+        };
+        value_ok && self.flags & !KNOWN_FLAGS == 0
     }
 }
 
@@ -159,6 +178,52 @@ mod tests {
         let mut out = [KeyInput::default(); MAX_KEY_INPUTS];
         assert_eq!(decode_push_key_input(&buf[..n], &mut out), Some(4));
         assert_eq!(&out[..4], &inputs);
+    }
+
+    /// TASK-0348 P17: a window chord and a capture key are entries like any key — in order with
+    /// the keys around them, each applied once.
+    #[test]
+    fn system_keys_ride_the_channel_in_order() {
+        let inputs = [
+            text(3, 'a'),
+            KeyInput {
+                kind: KEY_INPUT_CHORD,
+                modifiers: 18,
+                seq: 4,
+                t_ns: 9,
+                value: 14,
+                ..KeyInput::default()
+            },
+            KeyInput {
+                kind: KEY_INPUT_CAPTURE,
+                seq: 5,
+                t_ns: 10,
+                value: CAPTURE_KIND_SCREEN,
+                ..KeyInput::default()
+            },
+        ];
+        let mut buf = [0u8; KEY_INPUT_FRAME_MAX];
+        let n = encode_push_key_input(&inputs, &mut buf).expect("encodes");
+        let mut out = [KeyInput::default(); MAX_KEY_INPUTS];
+        assert_eq!(decode_push_key_input(&buf[..n], &mut out), Some(3));
+        assert_eq!(&out[..3], &inputs);
+    }
+
+    #[test]
+    fn test_reject_a_chord_without_a_code_or_a_capture_kind_past_the_window() {
+        let no_code = KeyInput { kind: KEY_INPUT_CHORD, value: 0, ..KeyInput::default() };
+        let wide = KeyInput { kind: KEY_INPUT_CHORD, value: 256, ..KeyInput::default() };
+        let no_kind = KeyInput { kind: KEY_INPUT_CAPTURE, value: 0, ..KeyInput::default() };
+        let past = KeyInput {
+            kind: KEY_INPUT_CAPTURE,
+            value: CAPTURE_KIND_WINDOW + 1,
+            ..KeyInput::default()
+        };
+        for bad in [no_code, wide, no_kind, past] {
+            assert!(!bad.is_valid(), "{bad:?}");
+            let mut buf = [0u8; KEY_INPUT_FRAME_MAX];
+            assert_eq!(encode_push_key_input(&[bad], &mut buf), None);
+        }
     }
 
     #[test]

@@ -75,11 +75,12 @@ impl DisplayServerRuntime {
             return self.create_desktop_surface(&c, sender_sid);
         }
         // Multi-window (RFC-0065): the create binds to the slot ALREADY holding this client's
-        // event channel (a re-create resumes in place, keeping geometry + fullscreen), else to a
-        // free slot — never another app's window.
+        // event channel (a re-create resumes in place), else to the owner's GHOST (a rejoin after
+        // a compositor restart, RFC-0112), else to a free slot — never another app's window.
         let bound_idx = self
             .event_channel_for(nonce)
-            .and_then(|ch| self.apps.iter().position(|a| a.event_channel == Some(ch)));
+            .and_then(|ch| self.apps.iter().position(|a| a.event_channel == Some(ch)))
+            .or_else(|| self.take_ghost_slot(sender_sid, (width, height)));
         // FRESH launch (vs a re-create resuming its slot): only a fresh window plays the open
         // transition. A slot reserved by the launch's starting surface is a fresh launch too.
         let fresh_launch = bound_idx.is_none_or(|i| self.apps[i].starting);
@@ -95,8 +96,7 @@ impl DisplayServerRuntime {
         let was_starting = self.apps[idx].starting;
         if fresh_launch {
             self.end_cursor_wait();
-            // A NEW window follows its declared intent: clear the slot's stale WM override + modal flag.
-            self.apps[idx].reset_wm_state();
+            self.apps[idx].reset_wm_state(); // a NEW window follows its declared intent
         }
         let wid = crate::window_scene::WindowId::App(idx as u16);
         // The declared intent rides ATOMICALLY on the create frame; it binds to THIS slot only.

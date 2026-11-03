@@ -46,9 +46,9 @@ verified: 2026-11-03
 | 9 | `vfs` | 29 | vfs.toml |
 | 10 | `net` | 80 | net.toml |
 | 11 | `remote` | 21 | remote.toml |
-| 12 | `end` | 174 | board.toml, end.toml, ui.toml, usb.toml |
+| 12 | `end` | 182 | board.toml, end.toml, ui.toml, usb.toml |
 
-1231 markers in 15 files.
+1239 markers in 15 files.
 <!-- /gen:markers -->
 
 ## Declaring a marker
@@ -102,7 +102,7 @@ Check a chain group against any log: `just check-markers build/logs/<run>/uart.l
 - **Measurement** — numbers without a verdict (e.g. `KSELFTEST: ipc stats (`); the ladder pins the prefix only.
 - **Chain hops** — `<svc>: chain <X><n> …`, once per boot per hop, in groups the contract names
   (`input-route` I5–I6, `input-live` I1–I2, `input-chord` K1–K4: a keyboard chord from hidrawd
-  through inputd's fact to windowd). A `hops` line times a hop with numbers only, e.g.
+  through inputd to windowd on the key channel). A `hops` line times a hop with numbers only, e.g.
   `inputd: hops chord (code= report>push=`; on the board the last hop present names where a
   human's input stopped.
 - **Judged measurement** (RFC-0108) — `<service>: ux <name> <ok|warn|FAIL> (… budget_<unit>=<n>)`.

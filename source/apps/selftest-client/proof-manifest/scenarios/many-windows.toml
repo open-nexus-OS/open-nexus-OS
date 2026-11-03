@@ -7,7 +7,10 @@
 # taskbar activate a running app) — and wait for one frame that drew all twelve from their own
 # buffers (`windowd: windows drawn (n=12)`). Before RFC-0114 the fifth window was refused
 # (`surface create FAIL (window slots exhausted)`) and a ninth app's channel evicted a live one.
-# Then the compositor restarts over the twelve (RFC-0112, Phase 6) and every window comes back.
+# Then one app is hidden and frozen (TASK-0348 P13), the compositor restarts over the twelve
+# (RFC-0112, Phase 6) and every window comes back — the frozen one thawed; the restart is asked for
+# four more times (P11: a requested restart is never a crash), and a field takes focus on the
+# last compositor (P14: its surface ids are far past 65535 by then).
 # Every step waits for what it caused; the declared `settle_s` pauses are the frames that have none.
 # OWNERS: @ui @runtime
 # STATUS: Functional
@@ -242,10 +245,28 @@ do = { wait = true }
 expect = ["windowd: windows drawn (n=12)"]
 timeout_s = 30
 
+# -- a frozen app (TASK-0348 P13, RFC-0111 §4, ADR-0083) ---------------------------------------------
+# The focused window (the twelfth) is hidden by the minimize chord; hidden past its grace, its app
+# is frozen. It cannot read the compositor's notice frozen — the new compositor's start thaws it.
+[[step]]
+name = "hide the last window"
+settle_s = 1.0
+do = { chord = ["ctrl", "meta_l", "m"] }
+expect = ["windowd: wm chord (zone=minimize"]
+timeout_s = 20
+
+[[step]]
+name = "the hidden app freezes"
+do = { wait = true }
+expect = ["abilitymgr: suspend (inst="]
+timeout_s = 30
+
 # -- the compositor's restart (TASK-0348 Phase 6, RFC-0112) -----------------------------------------
 # The chord ends the compositor; init respawns it and re-pins every leg into it; execd tells every
-# app; the shell is asked for again and kept (no second desktop); and every window comes back from
-# its own app — one frame of the new compositor draws all twelve again. No window is launched anew.
+# app; the shell is asked for again and kept (no second desktop) — the pointer's wait ring ends on
+# that answer (P12), never by its failsafe; and every window comes back from its own app, the
+# frozen one thawed first (`thawed=1`) — one frame of the new compositor draws all twelve again.
+# No window is launched anew.
 [[step]]
 name = "restart the compositor"
 settle_s = 1.0
@@ -262,8 +283,14 @@ name = "the apps rejoin"
 do = { wait = true }
 expect = [
   "gpud: compositor restarted (owners=",
-  "abilitymgr: compositor up (thawed=",
+  "gpud: surfaces adopted (n=",
+  "windowd: restarted (ghosts=",
+  "execd: apps alive told (n=",
+  "windowd: ghosts swept (closed=",
+  "windowd: ghost taken over (slot=",
+  "abilitymgr: compositor up (thawed=1)",
   "abilitymgr: launch kept (app=desktop-shell",
+  "windowd: wait ring ended (by=kept)",
   "APPHOST: compositor back (reattached)",
   "apphost: surface re-created",
 ]
@@ -282,3 +309,66 @@ name = "the shell back"
 do = { wait = true }
 expect = ["windowd: desktop revealed (seq="]
 timeout_s = 120
+
+# -- asked for again and again (TASK-0348 P11) ------------------------------------------------------
+# A requested restart is no crash: init respawns the compositor at once every time and counts none
+# of them toward its crash window — five inside a minute, and the desktop comes back each time.
+[[step]]
+name = "restart again (2)"
+settle_s = 1.0
+do = { chord = ["ctrl", "meta_l", "shift", "backspace"] }
+expect = [
+  "windowd: restart requested (chord)",
+  "init: service restarted name=windowd",
+  "windowd: desktop revealed (seq=",
+]
+timeout_s = 120
+
+[[step]]
+name = "restart again (3)"
+settle_s = 1.0
+do = { chord = ["ctrl", "meta_l", "shift", "backspace"] }
+expect = [
+  "windowd: restart requested (chord)",
+  "init: service restarted name=windowd",
+  "windowd: desktop revealed (seq=",
+]
+timeout_s = 120
+
+[[step]]
+name = "restart again (4)"
+settle_s = 1.0
+do = { chord = ["ctrl", "meta_l", "shift", "backspace"] }
+expect = [
+  "windowd: restart requested (chord)",
+  "init: service restarted name=windowd",
+  "windowd: desktop revealed (seq=",
+]
+timeout_s = 120
+
+[[step]]
+name = "restart again (5)"
+settle_s = 1.0
+do = { chord = ["ctrl", "meta_l", "shift", "backspace"] }
+expect = [
+  "windowd: restart requested (chord)",
+  "init: service restarted name=windowd",
+  "windowd: desktop revealed (seq=",
+]
+timeout_s = 120
+
+[[step]]
+name = "twelve windows back after the fifth restart"
+do = { wait = true }
+expect = ["windowd: windows drawn (n=12)"]
+timeout_s = 240
+
+# -- a field on the fifth compositor (TASK-0348 P14) ------------------------------------------------
+# Its surface ids are seeded with the milliseconds since boot — far past 65535 now; the shell's
+# search field takes focus and the caret is drawn for a surface named by such an id.
+[[step]]
+name = "a field takes focus after the restarts"
+settle_s = 1.5
+do = { click = "search_pill" }
+expect = ["apphost: modal open (depth=1)", "apphost: text focus set", "windowd: caret layer on"]
+timeout_s = 40

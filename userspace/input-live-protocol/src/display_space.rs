@@ -59,7 +59,11 @@ mod tests {
     fn display_space_roundtrip_golden_bytes() {
         let f = encode_display_space(1920, 1080);
         assert_eq!(f, [b'I', b'N', VERSION, 0x85, 0x80, 0x07, 0x38, 0x04]);
-        assert_eq!(VERSION, 4, "v4: the update push carries the pointer's motion (v3: sequences)");
+        assert_eq!(
+            VERSION, 5,
+            "v5: no one-shot fact in the visible state — chords and capture keys are key-channel \
+             events (v4: the update push carries the pointer's motion; v3: sequences)"
+        );
         assert_eq!(decode_display_space(&f), Some((1920, 1080)));
         assert!(frame_has_op(&encode_get_display_space(), OP_GET_DISPLAY_SPACE));
     }

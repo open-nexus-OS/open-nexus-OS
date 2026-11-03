@@ -742,7 +742,7 @@ proves = "RFC-0112: a rejoined app made its surface again with the new composito
 
 [marker."gpud: compositor restarted (owners="]
 phase = "end"
-proves = "RFC-0112: a new compositor's framebuffer request let go of what the old one composed — its layer set, and every app surface unbound, closed and uncharged at once"
+proves = "RFC-0112: a new compositor asked for the framebuffer — gpud forgot the layer set the old one left and (Phase 3) kept every app surface as an orphan with its body's last place for the new one to adopt; counts the owners, the objects kept, and the objects released (being freed, or never adopted by the compositor before)"
 
 [marker."abilitymgr: compositor up (thawed="]
 phase = "end"
@@ -751,3 +751,41 @@ proves = "RFC-0112: the compositor's start notice (its kernel id alone) voided w
 [marker."abilitymgr: launch kept (app="]
 phase = "end"
 proves = "RFC-0112: a one-instance role (bundle_type shell / greeter / ime) asked to launch again answered the instance that runs — no second desktop"
+
+# TASK-0348 P11–P15 (RFC-0112): the restart's loose ends. The wait ring the shell's launch starts
+# ends on the running shell's answer; a kept role that dies unseen is launched anew.
+[marker."windowd: wait ring ended (by=kept)"]
+phase = "end"
+proves = "TASK-0348 P12 (RFC-0112): the pointer's wait ring a launch started ended on abilitymgr's KEPT answer — the role runs already, its surface comes with its rejoin — within one frame, not by the ring's failsafe"
+
+[marker."windowd: wait ring ended (by=failsafe)"]
+phase = "end"
+proves = "a launch produced neither a surface nor an answer within the ring's bound (4 s) — the pointer is given back; the many-windows lane forbids this after the restart (TASK-0348 P12)"
+
+[marker."abilitymgr: relaunch (app="]
+phase = "end"
+proves = "TASK-0348 P15 (RFC-0112): a one-instance role that answered a launch as the running instance died before the compositor saw its window — nobody would ask again, so the broker launched it anew"
+
+# TASK-0348 P9 (RFC-0112 Phase 3): the screen survives the restart. gpud keeps every app's object
+# with the place its body had; the new compositor adopts them as ghosts — the apps' own last
+# pixels where they were — until each app presents again; execd names the apps it told, and the
+# ghosts of every other owner close.
+[marker."gpud: surfaces adopted (n="]
+phase = "end"
+proves = "RFC-0112 Phase 3: the new compositor adopted every object a frame showed (bound again in its GPU context where the GPU beside the display reads them); the orphans no frame showed — minimized, hidden — were released: a minimized window has no ghost"
+
+[marker."windowd: restarted (ghosts="]
+phase = "end"
+proves = "RFC-0112 Phase 3 (Complete): the restarted compositor shows N ghosts — the windows of the compositor before, with their apps' own last pixels where they were — before its first frame; the many-windows lane requires N >= 12 after its restart over twelve windows"
+
+[marker."windowd: ghost taken over (slot="]
+phase = "end"
+proves = "RFC-0112 Phase 3: an app's rejoin (its create, by the kernel id captured there) took over its own ghost — the window stays where it was and the ghost's pixels show until the new surface presents; never another owner's ghost"
+
+[marker."windowd: ghosts swept (closed="]
+phase = "end"
+proves = "RFC-0112 Phase 3: execd's list of the apps it told reached the compositor (execd's kernel id alone) and the ghosts of every owner not on it closed — their apps are gone; the rest wait for their rejoin, never on a clock"
+
+[marker."execd: apps alive told (n="]
+phase = "end"
+proves = "RFC-0112 Phase 3: after the compositor-back notices execd told the new compositor the kernel ids of its live apps (n), so a ghost of a dead app never lingers"

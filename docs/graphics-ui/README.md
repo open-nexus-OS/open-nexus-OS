@@ -5,7 +5,7 @@ role: guide
 subsystem: ui
 sources: [source/services/windowd, source/drivers/gpud, source/services/app-host, userspace/apps/window-kit, source/services/imed, source/services/memd]
 contracts: [RFC-0067, RFC-0108, RFC-0109, RFC-0110, RFC-0113, RFC-0114, ADR-0068, ADR-0069, ADR-0071, ADR-0072, ADR-0075, ADR-0076, ADR-0078, ADR-0083, ADR-0086, ADR-0090, ADR-0092]
-verified: 2026-11-02
+verified: 2026-11-03
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -16,7 +16,7 @@ verified: 2026-11-02
 > **Purpose** — which service owns which part of the UI, from a key press to a pixel on the glass, and which contract defines each hop.
 > **Owns** — `source/services/windowd/`, `source/drivers/gpud/`, `source/services/app-host/`, `userspace/apps/window-kit/`, `source/services/imed/`, `source/services/memd/`
 > **Contracts** — [RFC-0067](../rfcs/RFC-0067-windowd-compositor-service-boundary-rasterizer-app-ui-extraction.md), [RFC-0114](../rfcs/RFC-0114-surfaces-are-shared-buffers-the-app-draws-where-the-gpu-reads-the-compositor-composes-by-reference.md), [ADR-0092](../adr/0092-a-surface-is-a-buffer-the-app-draws-and-the-gpu-reads-gpud-allocates-it-for-its-owner-windowd-composes-by-reference.md), [ADR-0075](../adr/0075-the-compositor-never-waits-on-a-client.md) — full list below
-> **Invariants** — windowd is a compositor service and draws no UI: window chrome and controls are widgets (`window-kit`, DSL apps). windowd never waits on a client. gpud and imed take identity from the kernel's `sender_service_id` and serve the privileged ops to windowd alone.
+> **Invariants** — windowd is a compositor service and draws no UI: chrome and controls are widgets (`window-kit`, DSL apps). windowd never waits on a client. gpud and imed take identity from the kernel's `sender_service_id` and serve privileged ops to windowd alone.
 > **Read next** — [display-chain.md](display-chain.md), [gpud-ring.md](gpud-ring.md), [nexus-gfx.md](nexus-gfx.md), [animation-stack.md](animation-stack.md), [../dev/ui/overview.md](../dev/ui/overview.md), [../dev/dsl/overview.md](../dev/dsl/overview.md)
 
 ## The stack at a glance
@@ -54,31 +54,31 @@ hidrawd ──HID batch──► inputd ──pointer / keys──► windowd �
 2. An app creates a surface (`OP_SURFACE_CREATE`). windowd asks gpud for its buffer (`OP_SURFACE_ALLOC`); gpud makes it for the app's kernel id and charges that app. windowd moves the capability to the app (`OP_SURFACE_BUFFERS`).
 3. app-host draws into the free slot, cleans the caches over it (`vmo_clean`) and presents the slot by number (`OP_SURFACE_PRESENT`) — no pixel crosses a syscall (`source/services/app-host/src/probe/surface_mem.rs`).
 4. windowd composes by reference: a layer names (buffer, slot, rows). It sends gpud one present (`OP_PRESENT_DAMAGE`, a serialized `nexus_gfx` command buffer of `CompositeLayer`, `LayerTransform` and `Damage` commands), at most two in flight (`compositor/runtime/gpud.rs`).
-5. gpud's frame planner (`userspace/nexus-gfx/src/frame/`) turns the layer set into GPU passes (QEMU's 2D device: the CPU executor) and scans out. gpud's ack is windowd's frame clock; once no frame in flight reads the app's other slot, windowd acks the app's present, which releases that slot.
+5. gpud's frame planner (`userspace/nexus-gfx/src/frame/`) turns the layer set into GPU passes (QEMU's 2D device: the CPU executor) and scans out. gpud's ack is windowd's frame clock; an app's present is acked once no frame in flight reads its other slot.
 
 Scroll physics and hover run in the app; windowd composes the layers the app declared (ADR-0076). The boundary is written at the top of `source/services/windowd/src/compositor/mod.rs`; leftover UI code in windowd is listed in [../dev/ui/windowd-cleanup-map.md](../dev/ui/windowd-cleanup-map.md).
 
 ## Input and text
 
 - Pointer: hidrawd → inputd (one accelerated step plus every report as a sample) → windowd (`OP_UPDATE_VISIBLE_STATE`). windowd applies one staged sample per frame (`source/services/windowd/src/input_stage.rs`) for the surface under the pointer.
-- Keys: inputd translates layout sources (us, de, dead keys) itself and sends text and edit actions on the ordered key channel (`OP_PUSH_KEY_INPUT`). A full queue holds inputd; it never drops a key. windowd hands them to the focused window. Composition sources go through imed, behind windowd (ADR-0090).
+- Keys: inputd translates layouts itself and sends text, edit actions and the registry's window and capture chords as events on the ordered key channel (`OP_PUSH_KEY_INPUT`; RFC-0113 §3). A full queue holds inputd; it never drops a key. windowd hands keys to the focused window and applies chords. Composition goes through imed (ADR-0090).
 - Caret: the app declares it (`OP_SURFACE_CARET`); windowd draws and blinks it as one layer, with no app wake.
 
 ## Lifecycle and memory
 
 - windowd states what is seen (focused, visible, hidden, gone) to abilitymgr (`source/services/windowd/src/seen.rs`). abilitymgr decides. A window hidden longer than `FREEZE_GRACE_NS` (5 s, `source/services/abilitymgr/src/seen.rs`) is frozen through its parent (ADR-0083).
-- The kernel tells memd its pressure level. memd forwards it to windowd, and windowd tells every app window (`OP_SURFACE_PRESSURE`; app-host raises `MemoryPressure`). memd picks the victim by band (foreground > visible > background > hidden > suspended), the longest there first; at `critical` it squeezes, then swaps a suspended app before a kill (ADR-0086–0088).
+- The kernel tells memd its pressure level; memd tells windowd, windowd every app window (`OP_SURFACE_PRESSURE`; app-host raises `MemoryPressure`). memd picks the victim by band (foreground > visible > background > hidden > suspended), the longest first; at `critical` it squeezes, swaps, then kills (ADR-0086–0088).
 - GPU memory comes from the one frame pool. Its ceiling is two thirds of RAM (`source/drivers/gpud/src/gpu_share.rs`). gpud charges each client's GPU memory to memd (`OP_GPU_CHARGE`, `source/drivers/gpud/src/charges.rs`).
 
 ## Screen capture
 
-screencapd begins a capture through windowd (`OP_SURFACE_CAPTURE`). windowd freezes the screen. gpud reads the frame back (`OP_READBACK`) into a frame object screencapd lent. screencapd crops it, encodes the PNG and has vfsd write it. The shell draws the capture UI (ADR-0071, `compositor/runtime/capture.rs`).
+screencapd begins a capture through windowd (`OP_SURFACE_CAPTURE`); windowd freezes the screen; gpud reads the frame back (`OP_READBACK`) into a frame object screencapd lent; screencapd crops, encodes the PNG and has vfsd write it. The shell draws the capture UI (ADR-0071, `compositor/runtime/capture.rs`).
 
 ## Frame pacing and the latency contract
 
-- Budgets live in one crate, `source/libs/nexus-ux-budgets/` (RFC-0108): 16.7 ms per frame, input to present 50 ms warn / 100 ms fail, app launch 300 ms warn / 1 s fail. The board's timing is the contract, not QEMU's.
-- gpud acks a present with the time it reached the glass, the refresh period and the cadence it holds. windowd predicts the next shown time from that (`source/services/windowd/src/frame_clock.rs`). Animating clients ask for a frame pulse (`OP_SURFACE_FRAME_REQ`) and step their motion to that time (RFC-0110).
-- windowd restarts: init respawns it, apps attach again (RFC-0112).
+- Budgets live in `source/libs/nexus-ux-budgets/` (RFC-0108): 16.7 ms per frame, input to present 50 ms warn / 100 ms fail, app launch 300 ms warn / 1 s fail. The board's timing is the contract, not QEMU's.
+- gpud's present ack carries the glass time, the refresh period and the cadence; windowd predicts the next shown time from it (`source/services/windowd/src/frame_clock.rs`). Animating clients ask for a frame pulse (`OP_SURFACE_FRAME_REQ`) and step to that time (RFC-0110).
+- windowd restarts: init respawns it; the new one adopts the apps' surfaces from gpud as ghosts (their last pixels in place), apps rejoin and take their ghost over; execd names the apps alive, so a dead app's ghost closes (RFC-0112).
 
 ## Contracts that define the stack
 

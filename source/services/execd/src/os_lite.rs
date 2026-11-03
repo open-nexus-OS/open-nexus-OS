@@ -259,8 +259,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     // RFC-0080: create the shared glyph-atlas VMO ONCE (RO-cloned per spawn).
     state.atlas_vmo = crate::atlas_vmo::create();
     let mut recv_frame = alloc::vec![0u8; nexus_abi::IPC_PAYLOAD_MAX]; // ONE buffer (P5b)
-                                                                       // TASK-0333 6a: one waitset over the server and child-death endpoints — a death frame wakes
-                                                                       // the sweep (an app's death reported to abilitymgr); unbound, RFC-0081's blocking wait.
+                                                                       // TASK-0333 6a: one waitset over the server and child-death endpoints (RFC-0081's wait).
     let mut reaper = Reaper::arm();
     let wait = if reaper.is_some() { Wait::NonBlocking } else { Wait::Blocking };
     loop {
@@ -298,24 +297,24 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
 struct TrackedChild {
     pid: u32,
     image_id: u8,
-    /// RFC-0081: exit code + ADR-0056 reason once reaped (sweep or `OP_WAIT_PID`); `None` while
-    /// running — `OP_WAIT_PID` answers from it after the sweep reaped the child.
+    /// Its kernel service id (`app:<bundle>`, RFC-0086; 0 nameless): the owner of its surfaces.
+    sid: u64,
+    /// RFC-0081: exit code + ADR-0056 reason once reaped; `None` while running.
     exit: Option<(i32, ExitReason)>,
     /// The crash-marker / minidump / nexus-log path ran for this exit (once).
     reported: bool,
     /// The SEND half of an app's event channel execd keeps (RFC-0112: `compositor_back`).
     events_send: Option<u32>,
-    /// Its compositor-back notice waits for room in that channel (`compositor_back`).
-    back_owed: bool,
+    back_owed: bool, // its compositor-back notice waits for room in that channel
 }
 
 struct State {
     children: Vec<TrackedChild>,
+    apps_alive_owed: bool, // RFC-0112 Phase 3: windowd's queue had no room for OP_APPS_ALIVE
     policy_nonce: u32,
     /// RFC-0080: cap slot of the SHARED atlas VMO (`atlas_vmo` module); RO-cloned per spawn.
     atlas_vmo: Option<u32>,
-    /// ADR-0080: the sealed image of each embedded ELF, made at its first spawn and kept
-    /// (`images.rs`) — every process of an image maps the same frames.
+    /// ADR-0080: each embedded ELF's sealed image, made at its first spawn (`images.rs`).
     images: [Option<u32>; images::IMAGE_IDS],
 }
 
@@ -323,19 +322,20 @@ impl State {
     fn new() -> Self {
         Self {
             children: Vec::new(),
+            apps_alive_owed: false,
             policy_nonce: 1,
             atlas_vmo: None,
             images: [None; images::IMAGE_IDS],
         }
     }
 
-    fn track_child(&mut self, pid: u32, image_id: u8) {
+    fn track_child(&mut self, pid: u32, image_id: u8, sid: u64) {
         // The bound drops the oldest EXITED row, never a live child (`children::evict_index`).
         let exited = self.children.iter().map(|c| c.exit.is_some());
         if let Some(i) = crate::children::evict_index(exited) {
             self.children.remove(i);
         }
-        self.children.push(TrackedChild::new(pid, image_id));
+        self.children.push(TrackedChild::new(pid, image_id, sid));
     }
 
     fn child_name(image_id: u8) -> &'static str {
@@ -954,7 +954,7 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
         nexus_abi::exec_vmo(image, stack_pages, 0, name.as_ref().map_or("", |n| n.as_str()), true);
     match spawned {
         Ok(pid) => {
-            state.track_child(pid as u32, image_id);
+            state.track_child(pid as u32, image_id, compositor_back::sid_of(name.as_ref()));
             apply_sched_recipe(pid as u32, image_id);
             if image_id == IMG_APPHOST {
                 crate::child_grants::grant_windowd_route(pid as u32);

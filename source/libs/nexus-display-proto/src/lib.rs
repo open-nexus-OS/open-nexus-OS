@@ -60,6 +60,8 @@ pub use grant::{
     decode_framebuffer_grant, encode_framebuffer_grant, encode_framebuffer_request,
     parse_display_request, FramebufferGrant, FRAMEBUFFER_GRANT_LEN, OP_FRAMEBUFFER_REQUEST,
 };
+/// A restarted compositor adopts the objects gpud kept — the ghosts (RFC-0112 Phase 3).
+pub mod surface_adopt;
 /// Surface buffers for an owner, windowd → gpud (RFC-0114 §1–§2).
 pub mod surface_alloc;
 /// The app's side of a surface buffer: its answer to a create, the present of a slot (RFC-0114 §3).

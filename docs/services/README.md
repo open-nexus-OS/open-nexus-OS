@@ -5,7 +5,7 @@ role: guide
 subsystem: app-platform
 sources: [source/services, source/libs/nexus-service-entry, source/libs/nexus-service-topology, source/libs/nexus-wire, config/service-layout.allow]
 contracts: [ADR-0017, ADR-0051, RFC-0005, RFC-0040, RFC-0003]
-verified: 2026-11-02
+verified: 2026-11-03
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->

@@ -14,9 +14,10 @@
 
 use super::*;
 
-/// The exit status a requested restart ends with: not a crash, but not a clean shutdown either —
-/// init's `OnFailure` supervision restarts on it (EX_TEMPFAIL, "try again").
-const RESTART_STATUS: i32 = 75;
+/// The exit status a requested restart ends with (EX_TEMPFAIL, "try again"): init's supervision
+/// respawns on it at once and counts it toward no crash window (TASK-0348 P11) — the chord may
+/// be pressed as often as the desktop is wanted back.
+const RESTART_STATUS: i32 = nexus_abi::EXIT_RESTART_REQUESTED;
 
 impl DisplayServerRuntime {
     /// The restart chord: windowd ends itself, init brings it back (RFC-0112).

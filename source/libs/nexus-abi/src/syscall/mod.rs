@@ -37,7 +37,7 @@ pub use types::*;
 // tested + host consumers like the supervision engine); the os glob above
 // already covers it there, so the explicit re-export is host-only.
 #[cfg(not(nexus_env = "os"))]
-pub use types::{ExitReason, Rights};
+pub use types::{ExitReason, Rights, EXIT_RESTART_REQUESTED};
 
 // Root-level shared items the submodules reach through their `use super::*`.
 #[cfg(nexus_env = "os")]

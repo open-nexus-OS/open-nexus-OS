@@ -80,6 +80,7 @@ use crate::present_acks as acks;
 mod caret;
 mod frame_pulse;
 mod framebuffer;
+mod ghosts;
 pub(crate) mod gpud;
 mod input;
 mod input_hover;
@@ -170,15 +171,11 @@ pub(crate) struct AppWindowSlot {
     pub(crate) intent_style: u8,
     pub(crate) intent_level: u8,
     pub(crate) intent_mode: u8,
-    /// Per-request sender service id captured at SURFACE_CREATE — resolves
-    /// `CONTROL_WIN_*` (app-chrome window controls) to the SENDING client's
-    /// window without any wire-visible window id (fail-closed: no match =
-    /// no action).
+    /// The sender's kernel id captured at SURFACE_CREATE: the window's owner — `CONTROL_WIN_*`
+    /// resolves to the SENDING client's window, never by a wire-visible id (fail-closed).
     pub(crate) owner_sid: u64,
-    /// WM mode OVERRIDE (`CONTROL_WIN_MODE` — the app-menu Split/Fullscreen/
-    /// Freeform actions): `None` = follow the app's DECLARED intent. Kept
-    /// separate so a surface re-create (which re-sends the static declared
-    /// intent) cannot revert a user-chosen mode; a FRESH launch resets it.
+    /// WM mode OVERRIDE (`CONTROL_WIN_MODE`): `None` = the app's DECLARED intent. Kept apart so a
+    /// re-create (it re-sends the declared intent) cannot revert a user's choice; a FRESH launch resets it.
     pub(crate) wm_mode: Option<u8>,
     /// TASK-0074 D4: app-modal (`CONTROL_WIN_MODAL`) — the owner's other windows take no input.
     pub(crate) app_modal: bool,
@@ -190,18 +187,15 @@ pub(crate) struct AppWindowSlot {
     /// The app's DEDICATED event channel (SEND cap slot, `OP_SURFACE_EVENTS`).
     #[cfg(nexus_env = "os")]
     pub(crate) event_channel: Option<u32>,
-    /// One-shot frame-pulse request (`OP_SURFACE_FRAME_REQ`, the Choreographer
-    /// contract): answered with ONE `OP_SURFACE_FRAME` after the next
-    /// composited frame, then cleared — the client re-requests while animating.
+    /// One-shot frame-pulse request (`OP_SURFACE_FRAME_REQ`, the Choreographer contract): ONE
+    /// `OP_SURFACE_FRAME` after the next composited frame, then cleared.
     pub(crate) frame_pulse_pending: bool,
     /// The surface its client dropped (a re-create) and its layers: shown until the new one
     /// presents (RFC-0114).
     pub(crate) retiring: Option<u32>,
     pub(crate) retiring_layers: surface_layers::SurfaceLayers,
-    /// Track C3: the window's CURRENT animated whole-layer transform
-    /// (open/close/minimize). Identity at rest; the `AnimationDriver` ticks it
-    /// on the frame clock and each tick owes ONE frame (no re-render): every
-    /// present carries it beside the untransformed layers (TASK-0336/0338).
+    /// Track C3: the window's CURRENT animated whole-layer transform (open/close/minimize).
+    /// Identity at rest; each `AnimationDriver` tick owes ONE frame (TASK-0336/0338).
     pub(crate) transform: WinTransform,
     /// Deferred WM action executed when the transition converges (close
     /// after fade-out, minimize after fly-to-taskbar).
@@ -210,6 +204,9 @@ pub(crate) struct AppWindowSlot {
     pub(crate) cursor_hint: u8,
     /// The window has its place: a new one takes the slot's in the cascade at its first frame.
     pub(crate) placed: bool,
+    /// A ghost (RFC-0112 Phase 3): the window of the compositor before this one, showing its
+    /// last pixels until its owner rejoins (`ghosts.rs`) or execd names the owner gone.
+    pub(crate) ghost: bool,
 }
 
 /// A window's animated whole-layer transform (identity = no visible change).
@@ -286,6 +283,7 @@ impl AppWindowSlot {
             pending_wm: None,
             cursor_hint: 0,
             placed: false,
+            ghost: false,
         }
     }
 }

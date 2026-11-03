@@ -60,6 +60,8 @@
   "sc.text.deleteWordBack": "删除左侧词",
   "sc.text.deleteWordForward": "删除右侧词",
   "sc.text.end": "移到末尾",
+  "sc.text.focusNext": "下一个字段",
+  "sc.text.focusPrevious": "上一个字段",
   "sc.text.home": "移到开头",
   "sc.text.left": "向左一个字符",
   "sc.text.paste": "粘贴",

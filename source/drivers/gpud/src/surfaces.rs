@@ -9,7 +9,9 @@
 //! the geometry every present's layers are checked against, the deferred free — an object windowd
 //! frees is unbound and closed only once the last frame that could read it retired. How a
 //! backend reads an object (a CPU mapping, a virgl resource, a binding in the GPU's MMU) is the
-//! backend's.
+//! backend's. After a compositor restart (RFC-0112 Phase 3) the table keeps every object as an
+//! ORPHAN with the place the last frame drew its body at: the new compositor adopts the placed
+//! ones (its ghosts) and gpud releases the rest.
 //! OWNERS: @gpu @ui
 //! STATUS: Functional
 //! API_STABILITY: Internal
@@ -21,7 +23,24 @@ use alloc::vec::Vec;
 
 use nexus_display_proto::surface_alloc::{self as wire, AllocRequest};
 use nexus_gfx::command::buffer::Command;
-use nexus_gfx::command::layer_wire::layer_slot;
+use nexus_gfx::command::layer_wire::{
+    layer_key_kind, layer_key_owner, layer_slot, LAYER_KIND_BODY,
+};
+
+/// Where the last present drew an object's body (RFC-0112 Phase 3): the ghost's place.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Place {
+    pub dst_x: u16,
+    pub dst_y: u16,
+    pub w: u16,
+    pub h: u16,
+    /// The slot that frame read.
+    pub slot: u8,
+    /// The body's index in the frame's draw order (back to front).
+    pub z: u8,
+    /// The window's wire key in that compositor (`0xFFFF`: the desktop).
+    pub window_key: u16,
+}
 
 /// An object's geometry: `slots` slots of `rows` rows at `stride` bytes; `width` the widest
 /// content a slot holds (its size class).
@@ -70,6 +89,18 @@ pub(crate) struct Surface {
     pub geometry: Geometry,
     /// windowd freed it: unbound and closed once the present of this seq retired.
     freeing_after: Option<u32>,
+    /// Where the last present drew its body (`None`: no frame shows it — minimized, hidden).
+    place: Option<Place>,
+    /// Its compositor died (RFC-0112): kept for the next one to adopt, composed by nobody until
+    /// then.
+    orphan: bool,
+}
+
+impl Surface {
+    /// Where the last present drew its body.
+    pub(crate) const fn place(&self) -> Option<Place> {
+        self.place
+    }
 }
 
 /// Every object gpud holds for an app.
@@ -91,6 +122,17 @@ impl Surfaces {
     /// Bytes every object spans.
     pub(crate) fn bytes(&self) -> u64 {
         self.live.iter().map(|s| s.geometry.len() as u64).fold(0, u64::saturating_add)
+    }
+
+    /// How many apps hold an object.
+    pub(crate) fn owners(&self) -> usize {
+        let mut seen: Vec<u64> = Vec::new();
+        for s in &self.live {
+            if !seen.contains(&s.owner) && seen.try_reserve(1).is_ok() {
+                seen.push(s.owner);
+            }
+        }
+        seen.len()
     }
 
     /// Bytes `owner`'s objects span (its charge).
@@ -119,7 +161,16 @@ impl Surfaces {
     pub(crate) fn insert(&mut self, owner: u64, vmo: u32, geometry: Geometry) -> Option<u32> {
         self.live.try_reserve(1).ok()?;
         let buffer = self.fresh_id();
-        self.live.push(Surface { buffer, owner, vmo, geometry, freeing_after: None });
+        let s = Surface {
+            buffer,
+            owner,
+            vmo,
+            geometry,
+            freeing_after: None,
+            place: None,
+            orphan: false,
+        };
+        self.live.push(s);
         Some(buffer)
     }
 
@@ -159,18 +210,101 @@ impl Surfaces {
         }
     }
 
-    /// A new compositor runs (RFC-0112): no frame of the old one is presented again, so every
-    /// object it composed leaves the table at once, handed to `gone` — the apps make theirs again
-    /// with the new compositor.
-    pub(crate) fn release_all(&mut self, gone: &mut dyn FnMut(Surface)) {
-        for s in self.live.drain(..) {
-            gone(s);
+    /// A present came in: where it draws each object's body — a `CompositeLayer` of the body
+    /// kind naming the object — in draw order; an object no body of this present names is shown
+    /// by no frame from now on (its window minimized, hidden, or gone).
+    pub(crate) fn note_places(&mut self, cmds: &[Command]) {
+        for s in &mut self.live {
+            s.place = None;
+        }
+        let mut z = 0u8;
+        for c in cmds {
+            let Command::CompositeLayer {
+                source,
+                flags,
+                dst_x,
+                dst_y,
+                width,
+                height,
+                content_w,
+                content_h,
+                key,
+                ..
+            } = c
+            else {
+                continue;
+            };
+            if *source == 0 || layer_key_kind(*key) != LAYER_KIND_BODY {
+                continue;
+            }
+            let Some(s) = self.live.iter_mut().find(|s| s.buffer == *source) else { continue };
+            let (w, h) = (
+                if *content_w > 0 { *content_w } else { *width },
+                if *content_h > 0 { *content_h } else { *height },
+            );
+            let fits = |v: u32| u16::try_from(v).ok();
+            if let (Some(dst_x), Some(dst_y), Some(w), Some(h)) =
+                (fits(*dst_x), fits(*dst_y), fits(w), fits(h))
+            {
+                let window_key = layer_key_owner(*key);
+                s.place =
+                    Some(Place { dst_x, dst_y, w, h, slot: layer_slot(*flags), z, window_key });
+            }
+            z = z.saturating_add(1);
+        }
+    }
+
+    /// A new compositor runs (RFC-0112 Phase 3): no frame of the old one is presented again.
+    /// What the last compositor left unadopted, and every object being freed, leaves the table
+    /// now (handed to `gone`); every other object is kept as an orphan for the new compositor to
+    /// adopt — with the place its body had. Returns how many are kept.
+    pub(crate) fn orphan_all(&mut self, gone: &mut dyn FnMut(Surface)) -> usize {
+        let mut i = 0;
+        while i < self.live.len() {
+            if self.live[i].orphan || self.live[i].freeing_after.is_some() {
+                gone(self.live.swap_remove(i));
+            } else {
+                self.live[i].orphan = true;
+                i += 1;
+            }
+        }
+        self.live.len()
+    }
+
+    /// The orphans no frame showed leave the table now (handed to `gone`): a window that was
+    /// minimized or hidden has no ghost.
+    pub(crate) fn release_unplaced_orphans(&mut self, gone: &mut dyn FnMut(Surface)) {
+        let mut i = 0;
+        while i < self.live.len() {
+            if self.live[i].orphan && self.live[i].place.is_none() {
+                gone(self.live.swap_remove(i));
+            } else {
+                i += 1;
+            }
+        }
+    }
+
+    /// The next orphan a frame showed, for the new compositor to adopt.
+    pub(crate) fn next_orphan(&self) -> Option<Surface> {
+        self.live.iter().find(|s| s.orphan && s.place.is_some()).copied()
+    }
+
+    /// Orphans a frame showed that are not adopted yet.
+    pub(crate) fn orphans_placed(&self) -> usize {
+        self.live.iter().filter(|s| s.orphan && s.place.is_some()).count()
+    }
+
+    /// The new compositor adopted `buffer`: composed again, by it.
+    pub(crate) fn adopted(&mut self, buffer: u32) {
+        if let Some(s) = self.live.iter_mut().find(|s| s.buffer == buffer) {
+            s.orphan = false;
         }
     }
 
     /// Whether every layer of a present that samples an object names a live one — not one being
-    /// freed — and lies inside it (its sample and its scroll band): the GPU never reads past an
-    /// object, a layer never names another context's id.
+    /// freed, not an orphan the compositor has not adopted — and lies inside it (its sample and
+    /// its scroll band): the GPU never reads past an object, a layer never names another
+    /// context's id.
     pub(crate) fn admits_commands(&self, cmds: &[Command]) -> bool {
         cmds.iter().all(|c| match c {
             Command::CompositeLayer {
@@ -186,7 +320,8 @@ impl Surfaces {
                 scroll_band_h,
                 ..
             } if *source != 0 => {
-                let Some(s) = self.get(*source).filter(|s| s.freeing_after.is_none()) else {
+                let live = |s: &&Surface| s.freeing_after.is_none() && !s.orphan;
+                let Some(s) = self.get(*source).filter(live) else {
                     return false;
                 };
                 let (w, h) = (
@@ -215,13 +350,24 @@ mod tests {
     }
 
     fn layer(source: u32, slot: u8, (x, row, w, h): (u32, u32, u32, u32)) -> Command {
+        body(source, slot, (x, row, w, h), (0, 0), 1)
+    }
+
+    /// A window body of `key` at `dst` (the kind the key names decides whether it is a body).
+    fn body(
+        source: u32,
+        slot: u8,
+        (x, row, w, h): (u32, u32, u32, u32),
+        (dst_x, dst_y): (u32, u32),
+        key: u32,
+    ) -> Command {
         Command::CompositeLayer {
             src_row_abs: row,
             src_x: x,
             width: w,
             height: h,
-            dst_x: 0,
-            dst_y: 0,
+            dst_x,
+            dst_y,
             opacity: 255,
             corner_radius: 0,
             shadow_blur: 0,
@@ -235,9 +381,13 @@ mod tests {
             layer_id: 1,
             content_epoch: 1,
             flags: nexus_gfx::command::layer_wire::with_slot(0, slot),
-            key: 1,
+            key,
             source,
         }
+    }
+
+    fn body_key(window: u32) -> u32 {
+        nexus_gfx::command::layer_wire::layer_key(window, LAYER_KIND_BODY, 0)
     }
 
     #[test]
@@ -315,18 +465,70 @@ mod tests {
         assert!(!t.admits_more(g.len(), ceiling));
     }
 
+    /// RFC-0112 Phase 3: a present places each object's body (draw order = z); a body of the
+    /// desktop carries the desktop key; a region layer places nothing; an object the next present
+    /// does not show loses its place.
     #[test]
-    fn a_new_compositor_releases_every_object_at_once() {
+    fn a_present_places_every_body_it_draws_and_unplaces_the_rest() {
+        let g = Geometry::for_request(&request(640, 480));
+        let mut t = Surfaces::new();
+        let a = t.insert(OWNER, 10, g).expect("a");
+        let b = t.insert(OWNER + 1, 11, g).expect("b");
+        let desk = t.insert(OWNER + 2, 12, g).expect("desk");
+        let region = nexus_gfx::command::layer_wire::layer_key(7, 2, 0);
+        t.note_places(&[
+            body(desk, 0, (0, 0, 640, 480), (0, 0), body_key(0xFFFF)),
+            body(a, 1, (0, 0, 640, 480), (100, 40), body_key(7)),
+            body(a, 1, (0, 0, 64, 64), (100, 40), region),
+            body(b, 0, (0, 0, 320, 240), (700, 300), body_key(9)),
+        ]);
+        let pa = t.get(a).and_then(Surface::place).expect("a placed");
+        assert_eq!(
+            (pa.dst_x, pa.dst_y, pa.w, pa.h, pa.slot, pa.z, pa.window_key),
+            (100, 40, 640, 480, 1, 1, 7)
+        );
+        let pd = t.get(desk).and_then(Surface::place).expect("desk placed");
+        assert_eq!((pd.z, pd.window_key), (0, 0xFFFF));
+        assert_eq!(t.get(b).and_then(Surface::place).map(|p| (p.z, p.window_key)), Some((2, 9)));
+        // b minimized: the next present draws a alone, spread over a wider frame.
+        let mut spread = body(a, 1, (0, 0, 640, 480), (100, 40), body_key(7));
+        if let Command::CompositeLayer { content_w, content_h, width, height, .. } = &mut spread {
+            (*content_w, *content_h, *width, *height) = (640, 480, 800, 600);
+        }
+        t.note_places(&[spread]);
+        assert_eq!(t.get(b).and_then(Surface::place), None, "no body drew b");
+        assert_eq!(t.get(a).and_then(Surface::place).map(|p| (p.w, p.h)), Some((640, 480)));
+    }
+
+    /// RFC-0112 Phase 3: a new compositor keeps every placed object as an orphan — nothing of it
+    /// is composed until adopted — and the unplaced orphans leave at the adopt; a second restart
+    /// before any adopt releases what the first left.
+    #[test]
+    fn a_new_compositor_keeps_the_placed_objects_as_orphans_until_adopted() {
         let mut table = Surfaces::new();
         let g = Geometry::for_request(&request(64, 64));
         let a = table.insert(OWNER, 11, g).expect("insert");
         let b = table.insert(OWNER + 1, 12, g).expect("insert");
-        assert!(table.free_after(a, 7), "one is being freed already");
+        let c = table.insert(OWNER + 1, 13, g).expect("insert");
+        assert!(table.free_after(c, 7), "one is being freed already");
+        table.note_places(&[body(a, 0, (0, 0, 64, 64), (10, 10), body_key(3))]);
         let mut gone = Vec::new();
-        table.release_all(&mut |s| gone.push(s.buffer));
-        gone.sort_unstable();
-        assert_eq!(gone, [a, b], "freed or not, every object goes");
+        assert_eq!(table.orphan_all(&mut |s| gone.push(s.buffer)), 2);
+        assert_eq!(gone, [c], "the freed one goes, the rest is kept");
+        assert_eq!(table.owners(), 2, "two apps hold the kept objects");
+        assert!(!table.admits_commands(&[layer(a, 0, (0, 0, 64, 64))]), "an orphan is nobody's");
+        assert_eq!(table.orphans_placed(), 1);
+        table.release_unplaced_orphans(&mut |s| gone.push(s.buffer));
+        assert_eq!(gone, [c, b], "b was shown by no frame: no ghost");
+        assert_eq!(table.next_orphan().map(|s| s.buffer), Some(a));
+        table.adopted(a);
+        assert_eq!((table.next_orphan(), table.orphans_placed()), (None, 0));
+        assert!(table.admits_commands(&[layer(a, 0, (0, 0, 64, 64))]), "adopted: composed again");
+        assert_eq!(table.owned_by(OWNER), g.len() as u64, "the charge stands");
+        // A third restart with nothing adopted in between: the orphans of the second go.
+        assert_eq!(table.orphan_all(&mut |s| gone.push(s.buffer)), 1);
+        assert_eq!(table.orphan_all(&mut |s| gone.push(s.buffer)), 0);
+        assert_eq!(gone, [c, b, a]);
         assert_eq!(table.bytes(), 0);
-        assert!(table.get(b).is_none());
     }
 }

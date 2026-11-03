@@ -25,7 +25,8 @@ pub use display_space::{
     OP_GET_DISPLAY_SPACE,
 };
 pub use key_input::{
-    decode_push_key_input, encode_push_key_input, KeyInput, KEY_FLAG_REPEAT, KEY_INPUT_ACTION,
+    decode_push_key_input, encode_push_key_input, KeyInput, CAPTURE_KIND_SCREEN, CAPTURE_KIND_UI,
+    CAPTURE_KIND_WINDOW, KEY_FLAG_REPEAT, KEY_INPUT_ACTION, KEY_INPUT_CAPTURE, KEY_INPUT_CHORD,
     KEY_INPUT_COMPOSE, KEY_INPUT_FRAME_MAX, KEY_INPUT_TEXT, MAX_KEY_INPUTS, OP_PUSH_KEY_INPUT,
 };
 /// The device streams' sequence numbers: stamped once, checked by every hop (RFC-0113 §1).
@@ -43,7 +44,7 @@ pub const MAGIC1: u8 = b'N';
 /// key channel (`OP_PUSH_KEY_INPUT`) carries text from inputd to windowd for a layout source.
 /// v4 (2026-10-30, RFC-0113 §2): the update push carries the pointer's motion since the last
 /// push behind the state (`motion_push`).
-pub const VERSION: u8 = 4;
+pub const VERSION: u8 = 5;
 
 pub const OP_PUSH_HID_BATCH: u8 = 1;
 pub const OP_GET_VISIBLE_STATE: u8 = 2;
@@ -76,7 +77,7 @@ pub const MAX_HID_BATCH_FRAME_LEN: usize = 256;
 /// returns `None` oversize, and dropping a burst was the input-storm collapse.
 pub const MAX_HID_BATCH_EVENTS: usize =
     (MAX_HID_BATCH_FRAME_LEN - HEADER_LEN - BATCH_HEAD_LEN) / EVENT_LEN;
-const STATE_LEN: usize = 40;
+const STATE_LEN: usize = 38;
 pub const VISIBLE_STATE_FRAME_LEN: usize = HEADER_LEN + STATE_LEN;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -138,16 +139,10 @@ pub struct VisibleState {
     pub cursor_overlay_visible: bool,
     pub cursor_x: i32,
     pub cursor_y: i32,
-    /// TASK-0066: a window-tiling CHORD the keyboard produced (windowd's `zones::CODE_*`,
-    /// 0 = none) — one-shot: inputd sets it for exactly one push, windowd applies it to the
-    /// focused window; apps never see the chord's keys. Appended (RFC-0052/0053 amendment).
-    pub wm_chord: u8,
-    /// RFC-0095: a CAPTURE KEY (1 Print = the screenshot UI, 2 Shift+Print = the screen,
-    /// 3 Alt+Print = the focused window; 0 = none) — one-shot like `wm_chord`: windowd hands it
-    /// to the desktop surface (the shell), apps never see the key. Appended (RFC-0053 amendment).
-    pub capture: u8,
     /// TASK-0346 P2: the modifiers held at this push (`nexus_display_proto::surface_input::MOD_*`
     /// bits) — a click's Shift extends a selection. State, not a fact: every push carries it.
+    /// (The one-shot facts that rode here — a tiling chord, a capture key — are key-channel
+    /// events since v5, TASK-0348 P17: a sample coalesces, an edge never.)
     pub modifiers: u8,
 }
 
@@ -347,9 +342,7 @@ fn encode_state_frame(op: u8, state: VisibleState) -> [u8; VISIBLE_STATE_FRAME_L
     out[39] = u8::from(state.wallpaper_visible);
     out[40] = u8::from(state.cursor_overlay_visible);
     out[41..45].copy_from_slice(&state.wheel_delta_y.to_le_bytes());
-    out[45] = state.wm_chord;
-    out[46] = state.capture;
-    out[47] = state.modifiers;
+    out[45] = state.modifiers;
     out
 }
 
@@ -407,9 +400,7 @@ fn decode_state_payload(frame: &[u8]) -> Option<VisibleState> {
         wallpaper_visible: frame[39] != 0,
         cursor_overlay_visible: frame[40] != 0,
         wheel_delta_y: i32::from_le_bytes([frame[41], frame[42], frame[43], frame[44]]),
-        wm_chord: frame[45],
-        capture: frame[46],
-        modifiers: frame[47],
+        modifiers: frame[45],
     })
 }
 
@@ -516,8 +507,6 @@ mod tests {
             wheel_up_visible: true,
             wheel_down_visible: false,
             wheel_delta_y: -7,
-            wm_chord: 3,
-            capture: 2,
             modifiers: 0b0_0011,
         };
         assert_eq!(decode_visible_state(&encode_visible_state(state)), Some(state));
@@ -525,14 +514,15 @@ mod tests {
     }
 
     /// Privacy (2026-10-08): the frame has no room for typed text — every byte is a flag,
-    /// the cursor, the wheel delta, the chord or the capture key. A v1 frame (which carried
-    /// 24 text bytes) is refused by its version, never misread.
+    /// the cursor, the wheel delta or the modifiers held; no one-shot fact either (TASK-0348 P17:
+    /// a chord or a capture key is a key-channel event). A v1 frame (which carried 24 text bytes)
+    /// is refused by its version, never misread.
     #[test]
     fn test_reject_v1_frames_and_text_in_the_visible_state() {
         assert_eq!(
             VISIBLE_STATE_FRAME_LEN,
-            HEADER_LEN + 40,
-            "flags, cursor, wheel, chord, capture key, the modifiers held — no text"
+            HEADER_LEN + 38,
+            "flags, cursor, wheel, the modifiers held — no text, no one-shot fact"
         );
         let mut v1 = encode_visible_state(VisibleState::default());
         v1[2] = 1;

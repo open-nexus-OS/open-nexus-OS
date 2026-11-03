@@ -239,7 +239,8 @@ impl DisplayServerRuntime {
     pub(crate) fn cursor_wait_tick(&mut self, now_ns: u64) -> bool {
         if self.cursor_wait_n > 0 && now_ns > self.cursor_wait_deadline_ns {
             self.cursor_wait_n = 0; // failsafe: the launch never surfaced
-                                    // TASK-0336: a starting surface whose launch never surfaced closes with it.
+            let _ = debug_println("windowd: wait ring ended (by=failsafe)");
+            // TASK-0336: a starting surface whose launch never surfaced closes with it.
             self.close_starting_surfaces();
         }
         if self.cursor_wait_n == 0 {

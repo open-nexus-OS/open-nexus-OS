@@ -21,9 +21,11 @@ matched and listed from there — never a second copy in a service, a language f
   a Latin letter there takes the key's US letter). One more or one fewer modifier is another
   chord: Super+Ctrl+Shift+F is no Fill.
 - **Matched in one place each:** inputd takes the window and capture chords before a key enters
-  the text route (`shortcuts::system_action` — they become facts on the visible state's push);
-  the keymap resolves the field commands and the input-source switch (`shortcuts::lookup`). The
-  plain keys a layout produces (Enter, Tab, Shift+Tab, Backspace, Escape) are layout data.
+  the text route (`shortcuts::system_action` — events on the key channel, `KEY_INPUT_CHORD` /
+  `KEY_INPUT_CAPTURE`, TASK-0348 P17); the keymap resolves the field commands, the focus moves
+  (Tab → `text.focusNext`, Shift+Tab → `text.focusPrevious`) and the input-source switch
+  (`shortcuts::lookup`). The plain keys a layout produces (Enter, Backspace, Escape) are layout
+  data; the keymap tables carry no Tab row.
 - **Listed:** Settings › Allgemeine Verwaltung › Eingabe › Tastaturkurzbefehle opens a window
   (DSL, app-modal over the settings window) — categories left, the category's chords right
   (`svc.shortcuts.list(category, locale)`, key caps German for `de*`, Latin otherwise), closed by

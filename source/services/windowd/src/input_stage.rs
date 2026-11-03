@@ -4,7 +4,8 @@
 //! CONTEXT: windowd's frame-aligned input staging (ADR-0028, the consumer half of the
 //! frame-aligned input model): inputd pushes one `VisibleState` sample per input event and
 //! windowd applies ONE sample per frame — motion coalesces (the newest position wins), wheel
-//! notches sum, a one-shot fact (a tiling chord, a capture key) survives a newer sample. A
+//! notches sum. No one-shot fact rides a sample (TASK-0348 P17: a tiling chord or a capture key
+//! is an event on the key channel — a sample coalesces, an edge never). A
 //! primary-button EDGE is never coalesced (RFC-0055's semantic-edge integrity: motion bursts
 //! may coalesce, a click stays individually observable): the sample that changes the button's
 //! level is applied as it came, at its own position, before anything newer is staged over it.
@@ -48,7 +49,7 @@ impl InputStage {
     /// its samples, when that sample changes the button's level (a press or a release): an edge
     /// ends the batch, and the caller applies the returned sample NOW, before the frame applies
     /// `state`. A sample at the same level is motion — `state` replaces it and carries its wheel
-    /// notches, one-shot facts and samples.
+    /// notches and samples.
     #[must_use]
     pub fn stage(
         &mut self,
@@ -62,12 +63,6 @@ impl InputStage {
             }
             Some(prev) => {
                 state.wheel_delta_y = state.wheel_delta_y.saturating_add(prev.wheel_delta_y);
-                if state.wm_chord == 0 {
-                    state.wm_chord = prev.wm_chord;
-                }
-                if state.capture == 0 {
-                    state.capture = prev.capture;
-                }
                 None
             }
             None => None,

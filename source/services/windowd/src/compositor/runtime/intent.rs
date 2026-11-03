@@ -21,7 +21,7 @@ impl DisplayServerRuntime {
     /// the v1 Desktop policy a `desktop`/`fullscreen` surface fills the display;
     /// otherwise it gets the default window body size. Reply rides the app event
     /// channel; if it is not attached yet the app's bounded wait falls back.
-    pub(crate) fn handle_surface_intent(&mut self, frame: &[u8]) {
+    pub(crate) fn handle_surface_intent(&mut self, frame: &[u8], sender_sid: u64) {
         let Some((style, level, mode, resizable, nonce)) = wire::decode_surface_intent(frame)
         else {
             return;
@@ -105,19 +105,27 @@ impl DisplayServerRuntime {
             "WINDOWD: surface intent style={style} level={level} mode={mode} -> {rw}x{rh}"
         ));
         // A fresh floating window shows its starting surface now (TASK-0336): the spawn, the
-        // mount and the first frame happen behind a window that is already there.
+        // mount and the first frame happen behind a window that is already there. A REJOIN after
+        // a compositor restart (RFC-0112 Phase 3) binds to the owner's ghost instead: its last
+        // pixels are the starting surface, and the create resumes in that slot.
         #[cfg(nexus_env = "os")]
         if !p.full_screen && !p.docked_bottom && level == wire::WIN_LEVEL_NORMAL {
             if let Some(ch) = self.event_channel_for(nonce) {
                 if !self.apps.iter().any(|a| a.event_channel == Some(ch)) {
-                    self.begin_starting_surface(
-                        ch,
-                        (u32::from(rw), u32::from(rh)),
-                        (style, level, mode, resizable),
-                    );
+                    if let Some(idx) = self.take_ghost_slot(sender_sid, (rw, rh)) {
+                        self.apps[idx].event_channel = Some(ch);
+                    } else {
+                        self.begin_starting_surface(
+                            ch,
+                            (u32::from(rw), u32::from(rh)),
+                            (style, level, mode, resizable),
+                        );
+                    }
                 }
             }
         }
+        #[cfg(not(nexus_env = "os"))]
+        let _ = sender_sid;
     }
 
     /// The frame a full-screen/maximized surface takes: `(y, height)`.

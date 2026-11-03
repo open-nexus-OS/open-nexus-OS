@@ -144,13 +144,17 @@ pub enum EditKey {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
     /// A window command: windowd's tiling code (`zones::CODE_*`, pinned by windowd's tests),
-    /// carried by the visible state's `wm_chord` byte.
+    /// carried as a key-channel event (`KEY_INPUT_CHORD`).
     Window(u8),
-    /// A screen capture: the visible state's `capture` byte — 1 the screenshot UI, 2 the screen,
-    /// 3 the focused window.
+    /// A screen capture, a key-channel event (`KEY_INPUT_CAPTURE`) — 1 the screenshot UI, 2 the
+    /// screen, 3 the focused window.
     Capture(u8),
     /// A command for the focused text field.
     Field(EditKey),
+    /// The focus moves to the next field (the keymap's `Tab`).
+    FocusNext,
+    /// The focus moves to the field before (the keymap's `BackTab`).
+    FocusPrevious,
     /// The next input source (keyboard layout or input method).
     NextInputSource,
 }
@@ -174,7 +178,7 @@ impl Action {
         match self {
             Self::Window(_) => Owner::Windowd,
             Self::Capture(_) => Owner::Shell,
-            Self::Field(_) => Owner::Field,
+            Self::Field(_) | Self::FocusNext | Self::FocusPrevious => Owner::Field,
             Self::NextInputSource => Owner::Inputd,
         }
     }

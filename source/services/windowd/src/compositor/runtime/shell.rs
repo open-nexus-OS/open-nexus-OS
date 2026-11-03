@@ -243,22 +243,36 @@ impl DisplayServerRuntime {
         }
     }
 
-    /// Drains abilitymgr's launch replies `[A,M,ver,OP_LAUNCH|0x80,status]` (waitset wake):
-    /// a refused launch ends the pointer's wait ring at once — the surface it waits for will
-    /// never arrive — instead of the ring running out its failsafe.
+    /// Drains abilitymgr's launch replies `[A,M,ver,OP_LAUNCH|0x80, status, inst:u32le, state]`
+    /// (waitset wake). A refused launch ends the pointer's wait ring at once — the surface it
+    /// waits for will never arrive — and so does a KEPT one (RFC-0112, TASK-0348 P12): the role
+    /// already runs (`state` past `Created`), its surface comes with its rejoin and may have come
+    /// before the ask; neither runs the ring out to its failsafe.
     #[cfg(nexus_env = "os")]
     pub(crate) fn drain_launch_replies(&mut self) {
-        let mut denied = 0u32;
+        /// abilitymgr's `AbilityState::Created` on the wire: a fresh instance whose surface the
+        /// ring waits for; any other state is an instance that runs already.
+        const LAUNCH_STATE_CREATED: u8 = 0;
+        let (mut denied, mut kept) = (0u32, 0u32);
         if let Some(client) = self.abilitymgr_client.as_ref() {
             let mut rsp = [0u8; 16];
             while let Ok(n) = client.recv_into(nexus_ipc::Wait::NonBlocking, &mut rsp) {
-                if n >= 5 && rsp[3] == 0x81 && rsp[4] != 0 {
+                if n < 5 || rsp[3] != 0x81 {
+                    continue;
+                }
+                if rsp[4] != 0 {
                     denied += 1;
+                } else if n >= 10 && rsp[9] != LAUNCH_STATE_CREATED {
+                    kept += 1;
                 }
             }
         }
         for _ in 0..denied {
             let _ = debug_println("windowd: launch denied");
+            self.end_cursor_wait();
+        }
+        for _ in 0..kept {
+            let _ = debug_println("windowd: wait ring ended (by=kept)");
             self.end_cursor_wait();
         }
     }

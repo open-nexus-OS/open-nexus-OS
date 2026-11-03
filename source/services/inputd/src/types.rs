@@ -50,4 +50,19 @@ pub enum InputDispatch {
         y: i32,
     },
     ImeHook(ImeHook),
+    /// A window chord of the shortcut registry (TASK-0066 / RFC-0113 §7), recognized on the press
+    /// with exactly its modifiers: `code` is windowd's `zones::CODE_*`. An EVENT for the key
+    /// channel (TASK-0348 P17), never a key for imed or an app.
+    Chord {
+        code: u8,
+        seq: u32,
+        t_ns: u64,
+    },
+    /// A capture key (RFC-0095): `kind` 1 Print (the screenshot UI), 2 Shift+Print (the screen),
+    /// 3 Alt+Print (the focused window). An event for the key channel, like the chord.
+    CaptureKey {
+        kind: u8,
+        seq: u32,
+        t_ns: u64,
+    },
 }

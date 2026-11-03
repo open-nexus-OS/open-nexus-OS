@@ -38,6 +38,10 @@ Component ScName {
         Text(@t("sc.capture.screen")).textSize(sm).fontWeight(medium).fg(onGlass)
     } else if $props.id == "capture.window" {
         Text(@t("sc.capture.window")).textSize(sm).fontWeight(medium).fg(onGlass)
+    } else if $props.id == "text.focusNext" {
+        Text(@t("sc.text.focusNext")).textSize(sm).fontWeight(medium).fg(onGlass)
+    } else if $props.id == "text.focusPrevious" {
+        Text(@t("sc.text.focusPrevious")).textSize(sm).fontWeight(medium).fg(onGlass)
     } else if $props.id == "text.left" {
         Text(@t("sc.text.left")).textSize(sm).fontWeight(medium).fg(onGlass)
     } else if $props.id == "text.right" {

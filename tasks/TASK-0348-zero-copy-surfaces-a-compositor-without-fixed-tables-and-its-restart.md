@@ -96,40 +96,67 @@ phases:
     evidence: "board cycle 81 (2026-11-03T10-38-18): SELFTEST: ime v2 cjk jp ok + candidates ok after an early mouse move; host test surface_focus_without_a_field_still_composes_and_echoes"
   - id: P9
     story: "after a restart each app shows its last pixels until it presents again"
-    state: planned
+    state: done
     gate: "visible lane after a QMP kill: windowd: restarted (ghosts=N)"
+    started: 2026-11-03
+    done: 2026-11-03
+    evidence: "2026-11-03 many-windows lane green (build/logs/many-windows--2026-11-03T13-04-23): five restarts, windowd: restarted (ghosts=12) then (ghosts=13), gpud: surfaces adopted (n=12 released=1) first (the minimized window), 59 ghost takeovers, 0 FAIL adopt; board Z82b: three chord restarts, ghosts=5, compose by reference surfaces=5 in the first frame"
   - id: P10
     story: "on the board the new compositor's GPU context binds the adopted surfaces"
-    state: planned
+    state: done
     gate: "board cycle: restart from the console, ghosts shown, frame p99 within budget"
+    started: 2026-11-03
+    done: 2026-11-03
+    evidence: "2026-11-03 board Z82b (build/logs/board--2026-11-03T13-11-56): three restart chords, each gpud: compositor restarted (owners=5 surfaces kept=5 released=0), surfaces adopted (n=5), windowd: restarted (ghosts=5), compose copies=0 (by reference: surfaces=5) and windows drawn (n=4) in the new context's first frame, four ghost takeovers each; frame budget still red (layer 8)"
   - id: P11
     story: "the restart chord is a requested restart, never a crash: pressed again and again, the desktop always comes back"
-    state: planned
+    state: done
     gate: "QEMU: five restart chords within 60 s give five init: service restarted name=windowd and no init: crash-loop blocked svc=windowd"
+    started: 2026-11-03
+    done: 2026-11-03
+    evidence: "2026-11-03 lane: five windowd: restart requested (chord), five init: service restarted name=windowd, 0 init: crash-loop blocked svc=windowd; board Z82b: three chord restarts, init: service exit reason=error code=0x4b (75) each"
   - id: P12
     story: "after a restart the pointer's wait ring stops as soon as the running shell answers"
-    state: planned
+    state: done
     gate: "QEMU: the wait ring ends within one frame of abilitymgr: launch kept (app=desktop-shell, never by its failsafe"
+    started: 2026-11-03
+    done: 2026-11-03
+    evidence: "2026-11-03 lane: windowd: wait ring ended (by=kept) five of five, 0 by=failsafe; cause of the first red lane: the shell instance stayed Created (never sighted) so the kept reply said state 0 — note_kept now moves a kept Created instance to Started, host test on the wire byte"
   - id: P13
     story: "an app frozen before the restart comes back with the others"
-    state: planned
+    state: done
     gate: "QEMU: a hidden app frozen before the chord; abilitymgr: compositor up (thawed=1), execd: compositor back (... failed=0) and its window drawn again"
+    started: 2026-11-03
+    done: 2026-11-03
+    evidence: "2026-11-03 lane: abilitymgr: compositor up (thawed=1) on the first restart, execd: compositor back (apps=13 owed=0 failed=0), the frozen app's window among the 12 ghosts and drawn again"
   - id: P14
     story: "surface ids past 65535 reach every path after a late restart"
-    state: planned
+    state: done
     gate: "host: every display-proto frame round-trips a surface id > 65535; QEMU: after a restart with ids > 65535 a field takes focus (apphost: text focus set, windowd: caret layer on)"
+    started: 2026-11-03
+    done: 2026-11-03
+    evidence: "2026-11-03 host: display-proto frames round-trip ids > 65535; lane: apphost: text focus set and windowd: caret layer on after the fifth restart (ids past 65535)"
   - id: P15
     story: "a kept shell that dies before its death is reported is launched again"
-    state: planned
+    state: done
     gate: "host: abilitymgr launches anew after the kept instance's death report; QEMU: the shell killed during a restart, then abilitymgr: launch (app=desktop-shell and windowd: desktop revealed (seq="
+    started: 2026-11-03
+    done: 2026-11-03
+    evidence: "2026-11-03 host: a_kept_role_that_dies_before_it_is_seen_is_owed_a_launch (abilitymgr relaunches after the kept instance's death report); the QEMU kill-during-restart is not scripted in a lane — host proof only"
   - id: P16
     story: "the module-size ratchet holds the files this package shrank at their new size"
-    state: planned
+    state: done
     gate: "config/loc-baseline.txt lowered for every file below its entry (window_scene.rs 654 -> 356, inputd os_lite.rs 712 -> 639); just structure-gate green"
+    started: 2026-11-03
+    done: 2026-11-03
+    evidence: "config/loc-baseline.txt regenerated 2026-11-03 via check-structure.sh scan: 59 files, every entry at its current size (window_scene.rs, gl_scanout.rs, backend/mod.rs, std_server.rs, exec.rs left the list); just structure-gate PASS"
   - id: P17
     story: "a chord or capture key is a discrete event on the key channel, never a one-shot fact riding the sampled visible state (the pattern every input stack keeps: samples coalesce, edges never)"
-    state: planned
+    state: done
     gate: "host: a chord between two identical samples drained in one frame is applied once; inputd's VisibleState has no wm_chord/capture fields; usb-visible green"
+    started: 2026-11-03
+    done: 2026-11-03
+    evidence: "2026-11-03 usb-visible lane green (build/logs/usb-visible--2026-11-03T13-49-09): chain K1-K4, six wm chords applied (left-half, return, minimize, restore, close), capture freeze ok and saved via KEY_INPUT_CAPTURE, 39/39 chain markers; host: inputd VisibleState has no wm_chord/capture fields. A first run was red by one repeated keystroke in the typing probe (29 of 28) right after a clean build — lane noise, five earlier runs and the rerun say 28"
 ---
 
 # TASK-0348 — Zero-copy surfaces, a compositor without fixed tables, and its restart

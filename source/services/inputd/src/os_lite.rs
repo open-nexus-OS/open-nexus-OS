@@ -607,19 +607,13 @@ impl LiveRouteRuntime {
         // and windowd coalesces frame-aligned regardless.
         let button_changed = previous_launcher_click != self.visible_state.launcher_click_visible;
         let focus_changed = previous_focus_visible != self.visible_state.focus_visible;
-        // TASK-0066 / RFC-0095: tiling chords and capture keys are one-shot facts on this push.
-        let (chord, capture) = (&mut self.visible_state.wm_chord, &mut self.visible_state.capture);
-        let key_fact = self.input.stamp_key_facts(chord, capture);
-        if *chord != 0 && !core::mem::replace(&mut self.chord_seen_said, true) {
-            // Chord chain hop K2 (TASK-0348 P7): a registry chord became a fact for this push.
-            let _ = nexus_abi::trace_line("inputd: chain K2 chord recognized");
-        }
+        // (A tiling chord or a capture key went out on the key channel above, TASK-0348 P17 —
+        // an event, not a fact of this sample.)
         let immediate_push = pointer_down_dispatched
             || pointer_wheel_delta != 0
             || keyboard_dispatched
             || button_changed
-            || focus_changed
-            || key_fact;
+            || focus_changed;
         self.push_visible_state_to_windowd(now_ns, immediate_push);
     }
 

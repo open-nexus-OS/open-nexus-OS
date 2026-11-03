@@ -212,6 +212,8 @@
   "sc.text.deleteWordBack": "Delete word left",
   "sc.text.deleteWordForward": "Delete word right",
   "sc.text.end": "To the end",
+  "sc.text.focusNext": "Next field",
+  "sc.text.focusPrevious": "Previous field",
   "sc.text.home": "To the start",
   "sc.text.left": "Character left",
   "sc.text.paste": "Paste",

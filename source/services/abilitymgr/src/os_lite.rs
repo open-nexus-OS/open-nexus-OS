@@ -165,17 +165,24 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> AbilitymgrResult<()> {
                         dispatch(&mut broker, frame, &mut grants)
                     };
                     if let Some(event) = out.event {
-                        emit_event(&event);
-                        // RFC-0065 launch chain, spawn hop (TASK-0080D): the
-                        // broker approved the launch — abilitymgr (the ONLY
-                        // spawner of apps, policy `proc.spawn`) now asks execd
-                        // for the process. Failures are markers, never silent.
-                        // The pid it answers binds the instance to the process
-                        // whose death the reaper will report (TASK-0333 6a).
-                        if let crate::wire::Event::Launched { app_id, instance_id } = &event {
-                            if let Some(pid) = spawn_app(app_id) {
-                                let _ = broker.bind_pid(*instance_id, pid);
-                            }
+                        settle_event(&mut broker, &event);
+                    }
+                    // RFC-0112 (TASK-0348 P15): a kept one-instance role died before the
+                    // compositor saw it — the asker expects it to run, so it is launched anew
+                    // here (the launch path, with its grants and its spawn), named.
+                    if let Some(app) = broker.take_relaunch() {
+                        DebugLine::new()
+                            .put(b"abilitymgr: relaunch (app=")
+                            .str(&app)
+                            .put(b")")
+                            .emit();
+                        let anew = dispatch(
+                            &mut broker,
+                            &crate::wire::encode_launch(&app, "main"),
+                            &mut grants,
+                        );
+                        if let Some(event) = anew.event {
+                            settle_event(&mut broker, &event);
                         }
                     }
                     // A one-way event (`OP_INSTANCE_EXITED`) has no answer.
@@ -397,6 +404,19 @@ fn spawn_app(app_id: &str) -> Option<u32> {
 /// (TASK-0324 P4f-1a / P7-d) — no route ask.
 fn route_abilitymgr_blocking() -> Option<KernelServer> {
     KernelServer::new_with_slots(topo::SERVER.recv, topo::SERVER.send).ok()
+}
+
+/// A dispatched event: its marker, and for a launch the spawn hop (RFC-0065 launch chain,
+/// TASK-0080D) — the broker approved the launch, abilitymgr (the ONLY spawner of apps, policy
+/// `proc.spawn`) asks execd for the process; failures are markers, never silent. The pid execd
+/// answers binds the instance to the process whose death the reaper will report (TASK-0333 6a).
+fn settle_event(broker: &mut Broker, event: &Event) {
+    emit_event(event);
+    if let Event::Launched { app_id, instance_id } = event {
+        if let Some(pid) = spawn_app(app_id) {
+            let _ = broker.bind_pid(*instance_id, pid);
+        }
+    }
 }
 
 /// Emits the deterministic UART marker for a lifecycle event.

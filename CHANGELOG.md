@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-11-03 (the screen survives the compositor's restart — TASK-0348 P9–P17)
+
+- **Ghosts (RFC-0112 Phase 3).** gpud keeps every app surface across a compositor restart as an
+  orphan with the place the last frame drew its body (`note_places` at present intake, by the
+  layer key's body kind), forgets only the layer set. The new windowd asks `OP_SURFACE_ADOPT`
+  (paged, `nexus_display_proto::surface_adopt`) before its first frame; each placed object comes
+  back bound in its GPU context and becomes a ghost window — the app's own last pixels where they
+  were, in the old stacking (`windowd: restarted (ghosts=N)`); objects no frame showed are
+  released (`gpud: surfaces adopted (n= released=)`: a minimized window has no ghost). An app's
+  rejoin takes over its own ghost by the kernel id captured at its create (`windowd: ghost taken
+  over (slot=`), never another owner's; execd names the apps it told (`OP_APPS_ALIVE` = 41,
+  `execd: apps alive told (n=`) and the ghosts of every other owner close
+  (`windowd: ghosts swept (closed=`) — never on a clock. Layer keys are one definition now
+  (`nexus_gfx::command::layer_wire::layer_key`).
+- **A requested restart is no crash (P11).** windowd ends with `EXIT_RESTART_REQUESTED` (75);
+  init's supervision respawns at once and counts it toward no crash window — the chord may be
+  pressed as often as the desktop is wanted back (the lane: five in a row, no
+  `init: crash-loop blocked`).
+- **The wait ring ends on the kept answer (P12).** `windowd: wait ring ended (by=kept)` within a
+  frame of `abilitymgr: launch kept`; a refused launch ends it too; `by=failsafe` is named and
+  forbidden after a restart.
+- **A frozen app comes back (P13).** The lane hides an app, lets it freeze
+  (`abilitymgr: suspend (inst=`) and restarts: `abilitymgr: compositor up (thawed=1)`.
+- **Surface ids past 65535 (P14).** Every display-proto frame round-trips a wide id (host);
+  after the fifth restart a field takes focus (`windowd: caret layer on`).
+- **A kept role that dies unseen is launched again (P15).** `abilitymgr: relaunch (app=` — the
+  broker owes a launch when a kept singleton dies before its window was sighted.
+- **Chords and capture keys are events (P17, RFC-0113 §3).** `KEY_INPUT_CHORD` / `KEY_INPUT_CAPTURE`
+  ride the key channel in order; `VisibleState` v5 has no `wm_chord`/`capture` fields (samples
+  coalesce, edges never — the root cause of the board's lost chords).
+- **The module-size ratchet** holds the files this package shrank at their new size (P16).
+- **A kept instance runs.** abilitymgr answered a repeated singleton launch with the instance's
+  recorded state, and the shell's stayed `Created` (its desktop surface is no window the sightings
+  move) — so windowd read the kept reply as a fresh launch and ran the wait ring to its failsafe.
+  `note_kept` moves a `Created` instance to `Started` (its process has a pid); the reply's state
+  byte is tested.
+- **Tab and Shift+Tab are registry shortcuts.** The focus moves between fields
+  (`text.focusNext`, `text.focusPrevious`, `Action::FocusNext/FocusPrevious`) are rows of the one
+  shortcut table, so the settings page lists them with the text commands in five languages; the
+  keymap tables carry no Tab row any more (the registry is consulted first), and Alt+Tab is free.
+
 ### Added - 2026-11-03 (the chord chain K1–K4 — TASK-0348 P7)
 
 - **A keyboard chord has a chain.** `hidrawd: chain K1 keyboard events normalized`,

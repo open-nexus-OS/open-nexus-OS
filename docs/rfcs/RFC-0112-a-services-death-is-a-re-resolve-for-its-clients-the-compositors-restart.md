@@ -25,7 +25,7 @@ links:
 
 # RFC-0112: A service's death is a re-resolve for its clients — the compositor's restart brings the desktop back with every app's band as a ghost until its next present
 
-> Status (migrated 2026-11-02): In Progress (seeded 2026-10-27 from TASK-0333 6d-4's assessment; amended 2026-10-31 from the code map of TASK-0348 — built as TASK-0348's Phase 6, after zero-copy surfaces; Phases 1–2 built and QEMU-proven 2026-11-02, Phase 3 next)
+> Status (migrated 2026-11-02): In Progress (seeded 2026-10-27 from TASK-0333 6d-4's assessment; amended 2026-10-31 from the code map of TASK-0348 — built as TASK-0348's Phase 6, after zero-copy surfaces; Phases 1–2 built and QEMU-proven 2026-11-02, Phase 3 built and proven on QEMU and the board 2026-11-03 — amendment (c))
 
 ## Status at a Glance
 
@@ -35,7 +35,10 @@ links:
   QEMU: the many-windows lane's restart; board cycle at the TASK-0348 checkpoint)
 - **Phase 2 (every client reconnects on EOF: shell, app-host, imed, inputd, screencapd, execd's
   children)**: ✅ (2026-11-02, QEMU: twelve windows and the shell rejoin — amendment (b))
-- **Phase 3 (the screen survives: gpud keeps the last frame, the bands come back as ghosts)**: ⬜
+- **Phase 3 (the screen survives: gpud keeps the last frame, the bands come back as ghosts)**: ✅
+  (2026-11-03, QEMU many-windows: five restarts, `windowd: restarted (ghosts=12)`, every ghost
+  taken over by its app, the wait ring ended by the kept answer; board: three chord restarts,
+  five objects adopted and composed by reference in the new context's first frame — amendment (c))
 
 Definition: "Complete" = `windowd: restarted (ghosts=N)` on the many-windows lane after the
 restart chord (with every app window present again from its app), and on the board the desktop
@@ -265,6 +268,36 @@ from the plan above, the build is the contract:
   - An app's re-attach (same kernel id) turns its ghost into its window again; a ghost whose app
     never comes back is dropped when abilitymgr reports the instance gone.
 
+## Amendment 2026-11-03 (c) — what Phase 3 built (TASK-0348 P9)
+
+- **gpud keeps the objects, not the frame.** At every present gpud records where the frame drew
+  each object's body — the `CompositeLayer` whose key names the body kind
+  (`nexus_gfx::command::layer_wire::layer_key`): destination, size, slot, draw index (z), and
+  the window key (`0xFFFF` the desktop). A new compositor's framebuffer request forgets the layer
+  set and marks every object an ORPHAN; what the compositor before never adopted, and every object
+  being freed, is released then. The retained scanout frame itself is not kept: the new windowd's
+  first frame draws the ghosts from the objects.
+- **`OP_SURFACE_ADOPT` (20)** is `[op]`; the answer `[0x94, restarted u8, count u8,
+  remaining u16, entries × 35 B]` in pages of at most 14 (`nexus_display_proto::surface_adopt`).
+  gpud answers windowd alone; each entry is the object as `Allocated` describes it plus its body's
+  place; the orphans no frame showed are released at the first page (a minimized window has no
+  ghost); on the board each adopted object is bound again in the new windowd's GPU context (the
+  old context took its bindings with it); the display's own binding never went.
+- **windowd adopts before its first frame** (after the grant and its GPU context, before
+  `ready`): each entry becomes a ghost — a window slot whose RETIRING surface is the adopted one
+  (`ClientSurfaces::adopt`: shows its slot at once, takes no present, owes no ack), framed where
+  the body was, shown in the old draw order; the desktop's object becomes the desktop's retiring
+  surface. `windowd: restarted (ghosts=N)` when a compositor ran before.
+- **A rejoin takes its ghost over**: a create without a bound channel binds to the owner's ghost
+  (the kernel id captured at the create; of the surface's size first, the topmost of those —
+  `ghost_pick`), never another owner's; the new surface presents into the slot and the ghost
+  retires the usual way (its object freed). A create of an owner without a ghost cascades.
+- **`OP_APPS_ALIVE` (41, execd → windowd)**: `[hdr, count u8, owner u64 × count]`, at most 60.
+  After its compositor-back notices execd names the kernel ids of its live apps; windowd (execd's
+  kernel id alone) closes the ghosts of every other owner — their apps are gone. A full queue
+  makes the list owed (windowd's send armed writable on execd's waitset). Rule 9's "sweep" is
+  this frame; nothing waits on a clock.
+
 ## Security considerations
 
 Re-pinning a SEND into another process's slot is init's existing power (declared_slots); the
@@ -302,6 +335,6 @@ windowd's kernel id only.
 - [x] Phase 1 built: REPLACE_DEAD; init re-mints, re-pins the fleet in one loop; execd re-pins
 - [x] Phase 2 built: `OP_SURFACE_CLOSED`, `OP_COMPOSITOR_BACK`, app-host's re-entrant bring-up,
       singleton launch (the many-windows lane's restart; amendment (b))
-- [ ] Phase 3 built: gpud keeps the frame and the objects, `OP_SURFACE_ADOPT`, ghosts with the
-      apps' own pixels
+- [x] Phase 3 built: gpud keeps the frame and the objects, `OP_SURFACE_ADOPT`, ghosts with the
+      apps' own pixels (2026-11-03, QEMU + board; amendment (c))
 - [x] Task linked (TASK-0348 Phase 6); markers in `scripts/qemu-test.sh` when built

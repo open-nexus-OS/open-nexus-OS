@@ -11,7 +11,10 @@
 //! on ONE ordered outbox (ADR-0075) — focus and keys travel one path, in one order. imed hears
 //! nothing while the source is a layout and no on-screen keyboard is in use. A key with nobody to
 //! take it (no window yet, a window without its channel) is counted and said once; a key a
-//! receiver could not be handed is LOST — counted and named (`WINDOWD: FAIL key input`).
+//! receiver could not be handed is LOST — counted and named (`WINDOWD: FAIL key input`). The
+//! system's own keys arrive here too (TASK-0348 P17): a window chord is applied to the focused
+//! window and a capture key handed to the shell — once each, in order, never a fact that a
+//! coalesced sample could drop (chain hop K4 says the chord arrived).
 //! OWNERS: @ui @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable
@@ -20,14 +23,14 @@
 
 use super::*;
 use input_live_protocol::{
-    decode_push_key_input, KeyInput, KEY_INPUT_ACTION, KEY_INPUT_COMPOSE, KEY_INPUT_TEXT,
-    MAX_KEY_INPUTS,
+    decode_push_key_input, KeyInput, KEY_INPUT_ACTION, KEY_INPUT_CAPTURE, KEY_INPUT_CHORD,
+    KEY_INPUT_COMPOSE, KEY_INPUT_TEXT, MAX_KEY_INPUTS,
 };
 use nexus_display_proto::surface_text::{self, TextStamp};
 use nexus_wire::imed as ime_wire;
 
 use crate::client_surface::Delivery;
-use crate::key_gate::{self, SessionStep};
+use crate::key_gate::{self, SessionStep, SystemKey};
 
 /// Failure lines a boot prints before it only counts (a key path that keeps failing is named by
 /// its first lines and its counter, not by a line per key).
@@ -91,6 +94,7 @@ impl DisplayServerRuntime {
             let handed = match input.kind {
                 KEY_INPUT_TEXT | KEY_INPUT_ACTION => self.deliver_key(input),
                 KEY_INPUT_COMPOSE => self.compose_key(input),
+                KEY_INPUT_CHORD | KEY_INPUT_CAPTURE => self.system_key(input),
                 _ => Handed::Lost,
             };
             match handed {
@@ -99,6 +103,17 @@ impl DisplayServerRuntime {
                 Handed::Lost => self.note_key_lost("undeliverable"),
             }
         }
+    }
+
+    /// The system's own key (TASK-0348 P17): a window chord tiles, minimizes, closes or restarts
+    /// (`apply_chord`), a capture key goes to the shell — needs no focused field, applied once.
+    fn system_key(&mut self, input: &KeyInput) -> Handed {
+        match key_gate::system_key(input.kind, input.value) {
+            Some(SystemKey::Chord(code)) => self.apply_chord(code),
+            Some(SystemKey::Capture(kind)) => self.push_capture_key(kind),
+            None => return Handed::Lost,
+        }
+        Handed::Delivered
     }
 
     /// A layout source's text or action to the window-focused surface, stamped with its key.

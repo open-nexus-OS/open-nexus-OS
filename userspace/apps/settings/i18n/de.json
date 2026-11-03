@@ -212,6 +212,8 @@
   "sc.text.deleteWordBack": "Wort links löschen",
   "sc.text.deleteWordForward": "Wort rechts löschen",
   "sc.text.end": "Zum Ende",
+  "sc.text.focusNext": "Nächstes Feld",
+  "sc.text.focusPrevious": "Vorheriges Feld",
   "sc.text.home": "Zum Anfang",
   "sc.text.left": "Zeichen nach links",
   "sc.text.paste": "Einfügen",

@@ -98,6 +98,11 @@ pub struct AbilityInstance {
     /// thaw or a freeze of a dead process is refused by the parent — and the death report
     /// ends it.
     pub dying: bool,
+    /// RFC-0112 (TASK-0348 P15): this running instance answered a launch of its one-instance
+    /// role (a new compositor asked for the shell it already had). Until the compositor sees its
+    /// window, its death is the restart's — the role is launched anew; once seen, its death is
+    /// its own.
+    pub kept_for_launch: bool,
 }
 
 /// Maximum concurrently-tracked instances (bounded resource).
@@ -131,12 +136,15 @@ pub struct Broker {
     next_id: u32,
     /// Instance ids in most-recently-used order (front = most recent).
     recents: Vec<u32>,
+    /// A one-instance role whose kept instance died before the compositor saw it (RFC-0112): the
+    /// asker was told to expect it — the OS loop launches it anew (`take_relaunch`).
+    relaunch_owed: Option<String>,
 }
 
 impl Broker {
     /// Creates an empty broker (ids start at 1).
     pub fn new() -> Self {
-        Self { instances: BTreeMap::new(), next_id: 1, recents: Vec::new() }
+        Self { instances: BTreeMap::new(), next_id: 1, recents: Vec::new(), relaunch_owed: None }
     }
 
     /// Launches a new instance in `Created` with no declared capabilities.
@@ -176,10 +184,29 @@ impl Broker {
                 pid: None,
                 hidden_since: None,
                 dying: false,
+                kept_for_launch: false,
             },
         );
         self.touch_recent(id);
         Ok(id)
+    }
+
+    /// The running instance `id` answered a launch of its role (RFC-0112): should it die before
+    /// the compositor sees its window, the role is launched anew. Its process runs (it has a
+    /// pid), so a `Created` state becomes `Started` — the reply's state tells the asker that the
+    /// instance runs already (TASK-0348 P12: the pointer's wait ring ends on it).
+    pub fn note_kept(&mut self, id: u32) -> Result<(), LifecycleError> {
+        let inst = self.instances.get_mut(&id).ok_or(LifecycleError::UnknownInstance)?;
+        inst.kept_for_launch = true;
+        if inst.state == AbilityState::Created {
+            inst.state = AbilityState::Started;
+        }
+        Ok(())
+    }
+
+    /// The role a kept instance's death left unlaunched, once (`None`: nothing owed).
+    pub fn take_relaunch(&mut self) -> Option<String> {
+        self.relaunch_owed.take()
     }
 
     /// Records the process execd spawned for `id` (TASK-0333 6a).
@@ -229,6 +256,11 @@ impl Broker {
         let mut inst = self.instances.remove(&id).ok_or(LifecycleError::UnknownInstance)?;
         inst.state = AbilityState::Stopped;
         self.recents.retain(|r| *r != id);
+        // RFC-0112 (TASK-0348 P15): a kept one-instance role that died before the compositor saw
+        // it — the asker expects it to run; nobody else will ask again.
+        if inst.kept_for_launch && crate::caps::is_singleton(&inst.app_id) {
+            self.relaunch_owed = Some(inst.app_id.clone());
+        }
         Ok(inst)
     }
 

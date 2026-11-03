@@ -199,15 +199,12 @@ pub(crate) const DARK_GLASS_SATURATION_PERCENT: u32 = 140;
 #[cfg(nexus_env = "os")]
 use loop_telemetry::LoopTelemetry;
 
-/// Dispatch ONE client request frame (input state, surface create/present/
-/// destroy/events, or an unknown op). The SINGLE source of truth for the
-/// windowd server protocol — called from BOTH recv sites (the drain batch AND
-/// the idle blocking recv). The idle recv previously handled only the two
-/// visible-state ops and answered everything else UNSUPPORTED: a client
-/// surface present arriving while the desktop was idle (the exact state after
-/// an app window opens and the user taps) was silently dropped — the "+ reacts
-/// only once" bug. Factoring both sites through here makes a missing branch
-/// impossible.
+/// Dispatch ONE client request frame (input state, surface create/present/destroy/events, or
+/// an unknown op): the SINGLE source of truth for the windowd server protocol, called from BOTH
+/// recv sites (the drain batch AND the idle blocking recv). The idle recv once handled only the
+/// two visible-state ops and answered everything else UNSUPPORTED — a present arriving while the
+/// desktop was idle was dropped (the "+ reacts only once" bug); one dispatch makes a missing
+/// branch impossible.
 #[cfg(nexus_env = "os")]
 fn dispatch_client_frame(
     runtime: &mut DisplayServerRuntime,
@@ -257,11 +254,10 @@ fn dispatch_client_frame(
         runtime.handle_key_input(frame, sender_sid);
     } else if frame.get(3).copied() == Some(nexus_display_proto::client_surface::OP_SURFACE_EVENTS)
     {
-        // ADR-0042 per-app event channel: the moved capability is the
-        // channel's SEND half, attached by the APP-HOST ITSELF and tagged with
-        // its nonce — SURFACE_CREATE repeats the nonce, so windowd binds
-        // channel↔surface deterministically (never by arrival order; N
-        // app-hosts connect concurrently). No reply; the marker is the proof.
+        // ADR-0042 per-app event channel: the moved capability is the channel's SEND half,
+        // attached by the APP-HOST ITSELF and tagged with its nonce — SURFACE_CREATE repeats the
+        // nonce, so windowd binds channel↔surface deterministically (never by arrival order). No
+        // reply; the marker is the proof.
         let nonce = nexus_display_proto::client_surface::decode_surface_events(frame);
         let send_slot = moved_cap.take().map(|cap| {
             let slot = cap.slot();
@@ -364,11 +360,14 @@ fn dispatch_client_frame(
     {
         // RFC-0095: screencapd's capture verb — the reply parks until gpud's readback answers.
         runtime.handle_surface_capture(frame, moved_cap.take(), sender_sid);
+    } else if frame.get(3).copied() == Some(nexus_display_proto::surface_restart::OP_APPS_ALIVE) {
+        // RFC-0112 Phase 3: execd names the apps it told — ghosts of every other owner close.
+        runtime.handle_apps_alive(frame, sender_sid);
     } else if frame.get(3).copied() == Some(nexus_display_proto::client_surface::OP_SURFACE_INTENT)
     {
         // Window intent (before create): the WM stores it + answers the content
         // rect on the app event channel. Data-only frame (no moved cap here).
-        runtime.handle_surface_intent(frame);
+        runtime.handle_surface_intent(frame, sender_sid);
     } else {
         let op = frame.get(3).copied().unwrap_or(0);
         let response = encode_status(op, STATUS_UNSUPPORTED);
@@ -400,6 +399,7 @@ pub fn service_main_loop() -> Result<(), &'static str> {
     let mut runtime = match DisplayServerRuntime::new_with_mode(visible_w, visible_h) {
         Ok(mut rt) => {
             rt.take_grant(gpu_composes, grant.atlas_rows);
+            rt.adopt_ghosts(); // RFC-0112 Phase 3: the compositor before's ghosts, if any
             let _ = nexus_service_entry::ready(&ready_marker(visible_w, visible_h));
             rt
         }
@@ -411,7 +411,7 @@ pub fn service_main_loop() -> Result<(), &'static str> {
     };
 
     // The granted framebuffer: the wallpaper into plane 0, the first frame, then the attach —
-    // gpud scans it out. Display-less (no grant): nothing to write, nothing to attach.
+    // gpud scans it out. Display-less (no grant): nothing to write or attach.
     if let Some(handle) = grant.framebuffer {
         let _ = debug_println("windowd: backend=gpu");
         runtime.register_framebuffer_vmo(handle);

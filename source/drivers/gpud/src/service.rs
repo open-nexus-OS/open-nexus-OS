@@ -408,9 +408,10 @@ fn service_requests(
                                     if trace {
                                         let _ = debug_println(crate::markers::GPUD_CHAIN_PARSE_OK);
                                     }
+                                    // RFC-0112 Phase 3: where this frame draws each body.
+                                    surfaces.table.note_places(scene_cb.commands());
                                     let t0 = nsec().unwrap_or(0);
-                                    // 5c-3 P4b: the board's GPU draws windowd's frames in
-                                    // windowd's context once it is open.
+                                    // 5c-3 P4b: the board's GPU draws in windowd's context.
                                     let frames = gpu.as_deref_mut().and_then(|g| g.frames());
                                     let st = crate::present_chain::present(
                                         display, frames, &scene_cb, trace,
@@ -511,15 +512,14 @@ fn service_requests(
                     nexus_display_proto::OP_READBACK => {
                         (crate::readback::serve(display, frame, moved_cap.take()), None)
                     }
-                    // RFC-0114 §2: an app surface's object for windowd; answered there (+ its cap).
-                    nexus_display_proto::surface_alloc::OP_SURFACE_ALLOC => {
+                    // RFC-0114 §2, RFC-0112 Phase 3: an app surface's object for windowd — made,
+                    // freed, or adopted after a restart; answered there (+ its cap).
+                    nexus_display_proto::surface_alloc::OP_SURFACE_ALLOC
+                    | nexus_display_proto::surface_alloc::OP_SURFACE_FREE
+                    | nexus_display_proto::surface_alloc::OP_SURFACE_ADOPT => {
                         let frames = gpu.as_deref_mut().and_then(|g| g.frames());
                         let ctx = surface_ctx(&server, display, frames, &mut charges, &teller);
-                        crate::surface_serve::alloc(ctx, &mut surfaces, sender, frame);
-                        continue;
-                    }
-                    nexus_display_proto::surface_alloc::OP_SURFACE_FREE => {
-                        crate::surface_serve::free(&mut surfaces, sender, frame);
+                        crate::surface_serve::serve(ctx, &mut surfaces, sender, frame);
                         continue;
                     }
                     nexus_display_proto::gpu_context::OP_GPU_CAPABILITIES

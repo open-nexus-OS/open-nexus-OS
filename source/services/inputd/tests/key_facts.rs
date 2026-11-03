@@ -1,10 +1,11 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: one-shot key FACTS, not keys — TASK-0066 tiling chords (Super+Ctrl+…) and RFC-0095
-//! capture keys (Print, Shift+Print, Alt+Print): inputd recognizes them on the press, parks the
-//! code for exactly one state push (`take_wm_chord`, `take_capture_key`, `stamp_key_facts`),
-//! and the key never becomes a keyboard dispatch (imed and the focused app never see it). A key
+//! CONTEXT: the system's own keys — TASK-0066 tiling chords (Super+Ctrl+…) and RFC-0095 capture
+//! keys (Print, Shift+Print, Alt+Print): inputd recognizes them on the press as EVENTS for the
+//! key channel (`InputDispatch::Chord` / `CaptureKey`, TASK-0348 P17 — one dispatch per press,
+//! in order with the keys around it, never a one-shot fact on the sampled visible state), and
+//! the key never becomes a keyboard dispatch (imed and the focused app never see it). A key
 //! without its modifiers stays an ordinary key. The chords are the shortcut registry's
 //! (RFC-0113 §7), matched with EXACTLY their modifiers.
 //! OWNERS: @runtime
@@ -35,6 +36,26 @@ fn fixture_server() -> WindowServer {
 
 fn keyboard_count(d: &[InputDispatch]) -> usize {
     d.iter().filter(|x| matches!(x, InputDispatch::Keyboard { .. })).count()
+}
+
+/// The window chord codes a press dispatched, in order (TASK-0348 P17: events, one per press).
+fn chord_codes(d: &[InputDispatch]) -> Vec<u8> {
+    d.iter()
+        .filter_map(|x| match x {
+            InputDispatch::Chord { code, .. } => Some(*code),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The capture kinds a press dispatched, in order.
+fn capture_kinds(d: &[InputDispatch]) -> Vec<u8> {
+    d.iter()
+        .filter_map(|x| match x {
+            InputDispatch::CaptureKey { kind, .. } => Some(*kind),
+            _ => None,
+        })
+        .collect()
 }
 
 /// HID boot report: byte 0 = modifier mask (bit0 LCtrl, bit1 LShift, bit2 LAlt, bit3 LGUI).
@@ -73,8 +94,9 @@ impl Rig {
         Self { inputd, hidrawd, keyboard, t: 100 }
     }
 
-    /// Presses `key` with `mods` held (one report), then releases everything.
-    fn chord(&mut self, mods: u8, key: u8) -> usize {
+    /// Presses `key` with `mods` held (one report), then releases everything: the press's
+    /// dispatches.
+    fn press(&mut self, mods: u8, key: u8) -> Vec<InputDispatch> {
         self.t += 100;
         let down = self
             .hidrawd
@@ -84,7 +106,7 @@ impl Rig {
                 &[mods, 0, key, 0, 0, 0, 0, 0],
             )
             .expect("down");
-        let keys = keyboard_count(&self.inputd.apply_hid_batch(&down).expect("down dispatches"));
+        let keys = self.inputd.apply_hid_batch(&down).expect("down dispatches");
         self.t += 100;
         let up = self
             .hidrawd
@@ -97,32 +119,60 @@ impl Rig {
         let _ = self.inputd.apply_hid_batch(&up);
         keys
     }
+
+    /// Presses `key` with `mods` held: `(keyboard dispatches, the chord code or 0)`.
+    fn chord(&mut self, mods: u8, key: u8) -> (usize, u8) {
+        let d = self.press(mods, key);
+        let codes = chord_codes(&d);
+        assert!(codes.len() <= 1, "one press, at most one chord: {codes:?}");
+        (keyboard_count(&d), codes.first().copied().unwrap_or(0))
+    }
+
+    /// Presses `key` with `mods` held: `(keyboard dispatches, the capture kind or 0)`.
+    fn capture(&mut self, mods: u8, key: u8) -> (usize, u8) {
+        let d = self.press(mods, key);
+        assert!(chord_codes(&d).is_empty(), "no capture key is a tiling chord");
+        let kinds = capture_kinds(&d);
+        assert!(kinds.len() <= 1, "one press, at most one capture key: {kinds:?}");
+        (keyboard_count(&d), kinds.first().copied().unwrap_or(0))
+    }
 }
 
 #[test]
 fn super_ctrl_chords_become_zone_codes_and_never_keys() {
     let mut rig = Rig::new();
-    assert_eq!(rig.chord(LCTRL | LGUI, LEFT), 0, "the chord's key is no keyboard dispatch");
-    assert_eq!(rig.inputd.take_wm_chord(), 1, "left half");
-    assert_eq!(rig.inputd.take_wm_chord(), 0, "one-shot");
-    assert_eq!(rig.chord(LCTRL | LGUI, RIGHT), 0);
-    assert_eq!(rig.inputd.take_wm_chord(), 2, "right half");
-    assert_eq!(rig.chord(LCTRL | LGUI | LSHIFT, LEFT), 0);
-    assert_eq!(rig.inputd.take_wm_chord(), 5, "top-left quarter");
-    assert_eq!(rig.chord(LCTRL | LGUI | LALT, RIGHT), 0);
-    assert_eq!(rig.inputd.take_wm_chord(), 8, "bottom-right quarter");
-    assert_eq!(rig.chord(LCTRL | LGUI, UP), 0);
-    assert_eq!(rig.inputd.take_wm_chord(), 9, "fill");
-    assert_eq!(rig.chord(LCTRL | LGUI, KEY_F), 0);
-    assert_eq!(rig.inputd.take_wm_chord(), 9, "F = fill");
-    assert_eq!(rig.chord(LCTRL | LGUI, DOWN), 0);
-    assert_eq!(rig.inputd.take_wm_chord(), 10, "return");
+    assert_eq!(rig.chord(LCTRL | LGUI, LEFT), (0, 1), "left half; the key is no keyboard dispatch");
+    assert_eq!(rig.chord(LCTRL | LGUI, RIGHT), (0, 2), "right half");
+    assert_eq!(rig.chord(LCTRL | LGUI | LSHIFT, LEFT), (0, 5), "top-left quarter");
+    assert_eq!(rig.chord(LCTRL | LGUI | LALT, RIGHT), (0, 8), "bottom-right quarter");
+    assert_eq!(rig.chord(LCTRL | LGUI, UP), (0, 9), "fill");
+    assert_eq!(rig.chord(LCTRL | LGUI, KEY_F), (0, 9), "F = fill");
+    assert_eq!(rig.chord(LCTRL | LGUI, DOWN), (0, 10), "return");
     // TASK-0333 6d/6e-1: the letter chords — the board's cycle 73 saw the arrows work and the
-    // letters not; the table must park both alike.
-    assert_eq!(rig.chord(LCTRL | LGUI, 0x10), 0, "M is no keyboard dispatch");
-    assert_eq!(rig.inputd.take_wm_chord(), 14, "M = minimize");
-    assert_eq!(rig.chord(LCTRL | LGUI, 0x1a), 0, "W is no keyboard dispatch");
-    assert_eq!(rig.inputd.take_wm_chord(), 15, "W = close");
+    // letters not; the table must dispatch both alike.
+    assert_eq!(rig.chord(LCTRL | LGUI, 0x10), (0, 14), "M = minimize, no keyboard dispatch");
+    assert_eq!(rig.chord(LCTRL | LGUI, 0x1a), (0, 15), "W = close, no keyboard dispatch");
+}
+
+/// TASK-0348 P17: the chord is an event of the dispatch log — carrying its press's stream
+/// sequence and time — and leaves with the log; it is never parked for a later state push
+/// (the gate of P17: two identical pointer samples around a chord apply it exactly once).
+#[test]
+fn a_chord_is_one_dispatch_with_its_press_and_rides_no_sample() {
+    let mut rig = Rig::new();
+    let d = rig.press(LCTRL | LGUI, 0x10);
+    let chords: Vec<_> = d
+        .iter()
+        .filter_map(|x| match x {
+            InputDispatch::Chord { code, seq, t_ns } => Some((*code, *seq, *t_ns)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(chords.len(), 1, "one press, one event");
+    assert_eq!(chords[0].0, 14, "M = minimize");
+    assert_eq!(chords[0].2, 200, "its press report's time");
+    assert!(chord_codes(rig.inputd.recent_dispatches()).is_empty(), "taken with the log");
+    assert!(chord_codes(&rig.press(0, 0)).is_empty(), "an empty report replays nothing");
 }
 
 /// TASK-0348 P7: the keys' witness names a second's modifier mask and chord count and the last
@@ -150,14 +200,10 @@ fn the_key_witness_counts_modifiers_and_chords_not_keys() {
 #[test]
 fn test_reject_chords_without_super() {
     let mut rig = Rig::new();
-    let _ = rig.chord(0, 0x04); // "a"
-    assert_eq!(rig.inputd.take_wm_chord(), 0);
-    let _ = rig.chord(LCTRL, LEFT);
-    assert_eq!(rig.inputd.take_wm_chord(), 0, "Ctrl alone is not the tiling modifier");
-    let _ = rig.chord(LGUI, LEFT);
-    assert_eq!(rig.inputd.take_wm_chord(), 0, "Super alone is not the tiling modifier");
-    let _ = rig.chord(LCTRL | LGUI, 0x04);
-    assert_eq!(rig.inputd.take_wm_chord(), 0, "Super+Ctrl+A is not in the table");
+    assert_eq!(rig.chord(0, 0x04).1, 0, "a letter");
+    assert_eq!(rig.chord(LCTRL, LEFT).1, 0, "Ctrl alone is not the tiling modifier");
+    assert_eq!(rig.chord(LGUI, LEFT).1, 0, "Super alone is not the tiling modifier");
+    assert_eq!(rig.chord(LCTRL | LGUI, 0x04).1, 0, "Super+Ctrl+A is not in the table");
 }
 
 /// RFC-0095: Print, Shift+Print and Alt+Print are capture keys — facts for windowd (which hands
@@ -165,35 +211,17 @@ fn test_reject_chords_without_super() {
 #[test]
 fn print_keys_become_capture_facts_and_never_keys() {
     let mut rig = Rig::new();
-    assert_eq!(rig.chord(0, PRINT), 0, "Print is no keyboard dispatch");
-    assert_eq!(rig.inputd.take_capture_key(), 1, "the screenshot UI");
-    assert_eq!(rig.inputd.take_capture_key(), 0, "one-shot");
-    assert_eq!(rig.chord(LSHIFT, PRINT), 0);
-    assert_eq!(rig.inputd.take_capture_key(), 2, "the screen");
-    assert_eq!(rig.chord(LALT, PRINT), 0);
-    assert_eq!(rig.inputd.take_capture_key(), 3, "the focused window");
-    assert_eq!(rig.inputd.take_wm_chord(), 0, "no capture key is a tiling chord");
+    assert_eq!(rig.capture(0, PRINT), (0, 1), "the screenshot UI; Print is no keyboard dispatch");
+    assert_eq!(rig.capture(LSHIFT, PRINT), (0, 2), "the screen");
+    assert_eq!(rig.capture(LALT, PRINT), (0, 3), "the focused window");
 }
 
 /// With Ctrl or Super held Print is no capture key (those chords stay free).
 #[test]
 fn test_reject_print_with_ctrl_or_super() {
     let mut rig = Rig::new();
-    let _ = rig.chord(LCTRL, PRINT);
-    assert_eq!(rig.inputd.take_capture_key(), 0, "Ctrl+Print");
-    let _ = rig.chord(LGUI, PRINT);
-    assert_eq!(rig.inputd.take_capture_key(), 0, "Super+Print");
-}
-
-/// The push stamps each new fact once; a field without a new fact keeps one not yet delivered.
-#[test]
-fn key_facts_stamp_once_and_keep_an_undelivered_fact() {
-    let mut rig = Rig::new();
-    let _ = rig.chord(LCTRL | LGUI, LEFT);
-    let (mut chord, mut capture) = (0u8, 3u8);
-    assert!(rig.inputd.stamp_key_facts(&mut chord, &mut capture), "a new chord");
-    assert_eq!((chord, capture), (1, 3), "the chord lands, the undelivered capture key stays");
-    assert!(!rig.inputd.stamp_key_facts(&mut chord, &mut capture), "nothing new: no push owed");
+    assert_eq!(rig.capture(LCTRL, PRINT).1, 0, "Ctrl+Print");
+    assert_eq!(rig.capture(LGUI, PRINT).1, 0, "Super+Print");
 }
 
 /// RFC-0113 §7: a chord matches only its very modifier set — one more modifier is no tile, no
@@ -201,14 +229,18 @@ fn key_facts_stamp_once_and_keep_an_undelivered_fact() {
 #[test]
 fn test_reject_a_chord_with_extra_modifiers() {
     let mut rig = Rig::new();
-    assert_eq!(rig.chord(LCTRL | LGUI | LSHIFT, KEY_F), 0, "Super+Ctrl+Shift+F types nothing");
-    assert_eq!(rig.inputd.take_wm_chord(), 0, "and fills nothing");
-    let _ = rig.chord(LCTRL | LGUI | LSHIFT | LALT, LEFT);
-    assert_eq!(rig.inputd.take_wm_chord(), 0, "Shift and Alt at once is no quarter");
-    let _ = rig.chord(LSHIFT | LALT, PRINT);
-    assert_eq!(rig.inputd.take_capture_key(), 0, "Shift+Alt+Print is no capture key");
-    let _ = rig.chord(LCTRL | LGUI | LSHIFT, UP);
-    assert_eq!(rig.inputd.take_wm_chord(), 0, "Super+Ctrl+Shift+Up is no fill");
+    assert_eq!(
+        rig.chord(LCTRL | LGUI | LSHIFT, KEY_F),
+        (0, 0),
+        "Super+Ctrl+Shift+F: no key, no fill"
+    );
+    assert_eq!(
+        rig.chord(LCTRL | LGUI | LSHIFT | LALT, LEFT).1,
+        0,
+        "Shift and Alt at once is no quarter"
+    );
+    assert_eq!(rig.capture(LSHIFT | LALT, PRINT).1, 0, "Shift+Alt+Print is no capture key");
+    assert_eq!(rig.chord(LCTRL | LGUI | LSHIFT, UP).1, 0, "Super+Ctrl+Shift+Up is no fill");
 }
 
 /// The registry's modifier bits ARE the surface wire's (a tap's modifiers and a chord's are one

@@ -7,7 +7,9 @@
 //! the frames read it (the display's own compositor, the GPU beside it), charges the app it is
 //! for and answers with the object's capability — all at allocation, never per frame. Only
 //! windowd is served (identity = the kernel's sender id). A freed object is unbound and closed
-//! when the last present that could read it retired (`retired`, at every ack).
+//! when the last present that could read it retired (`retired`, at every ack). A new compositor
+//! (RFC-0112 Phase 3) finds every object kept as an orphan with its body's last place and adopts
+//! the shown ones (`crate::surface_adopt`); `serve` dispatches the three ops.
 //! OWNERS: @gpu @ui
 //! STATUS: Functional
 //! API_STABILITY: Internal
@@ -31,12 +33,36 @@ pub(crate) struct SurfaceState {
     ceiling: u64,
     /// The last present received: a freed object is read by no frame after it.
     pub(crate) last_present: u32,
+    /// The cache line the device's writers clean in (one device makes every object).
+    pub(crate) cache_block: u16,
+    /// Compositors that asked for the framebuffer so far (RFC-0112): the second is a restart.
+    pub(crate) compositors: u32,
+    /// Objects the running compositor adopted so far (said once its last page went).
+    pub(crate) adopted: u32,
 }
 
 impl SurfaceState {
     pub(crate) fn new() -> Self {
         let ram = nexus_abi::mm_stats().map_or(0, |s| s.total.saturating_mul(4096));
-        Self { table: Surfaces::new(), ceiling: crate::gpu_share::ceiling_of(ram), last_present: 0 }
+        Self {
+            table: Surfaces::new(),
+            ceiling: crate::gpu_share::ceiling_of(ram),
+            last_present: 0,
+            cache_block: 0,
+            compositors: 0,
+            adopted: 0,
+        }
+    }
+}
+
+/// The surface ops on the request loop, by the frame's op byte: an object made, freed or
+/// adopted — each for windowd alone.
+pub(crate) fn serve(ctx: Ctx<'_>, state: &mut SurfaceState, sender: u64, frame: &[u8]) {
+    match frame.first().copied() {
+        Some(wire::OP_SURFACE_ALLOC) => alloc(ctx, state, sender, frame),
+        Some(wire::OP_SURFACE_FREE) => free(state, sender, frame),
+        Some(wire::OP_SURFACE_ADOPT) => crate::surface_adopt::adopt(ctx, state, sender, frame),
+        _ => {}
     }
 }
 
@@ -100,6 +126,7 @@ pub(crate) fn alloc(ctx: Ctx<'_>, state: &mut SurfaceState, sender: u64, frame: 
         return answer(refused(req.cookie, STATUS_QUOTA), None);
     }
     teller.charge(charges, req.owner_sid, Part::Surfaces, state.table.owned_by(req.owner_sid));
+    state.cache_block = cache_block(device);
     let a = Allocated {
         cookie: req.cookie,
         status: STATUS_OK,
@@ -108,7 +135,7 @@ pub(crate) fn alloc(ctx: Ctx<'_>, state: &mut SurfaceState, sender: u64, frame: 
         width: geometry.width,
         rows: geometry.rows,
         slots: geometry.slots,
-        cache_block: cache_block(device),
+        cache_block: state.cache_block,
     };
     let _ = nexus_abi::debug_println(&alloc::format!(
         "gpud: surface alloc ok (buffer={buffer} owner={:#x} {}x{} slots={} stride={} bytes={len} lazy={})",
@@ -154,33 +181,38 @@ pub(crate) fn retired(ctx: Ctx<'_>, state: &mut SurfaceState, seq: u32) {
 }
 
 /// A new compositor runs (RFC-0112: windowd's framebuffer request — every instance asks once,
-/// first): no frame of the old one is presented again. The layers it left are composed no more,
-/// and every app surface it composed is unbound from the display and the GPU, closed and
-/// uncharged at once — the apps make theirs again with the new compositor.
+/// first): no frame of the old one is presented again. The layers it left are composed no more.
+/// Its apps' objects are KEPT (Phase 3) — orphans with the place their body had, for the new
+/// compositor to adopt as its ghosts (`crate::surface_adopt`); what the compositor before it
+/// never adopted, and every object being freed, is unbound, closed and uncharged now.
 pub(crate) fn compositor_restarted(ctx: Ctx<'_>, state: &mut SurfaceState) {
     let Ctx { display, mut frames, charges, teller, .. } = ctx;
     display.forget_layers();
     if let Some(f) = frames.as_deref_mut() {
         f.forget_layers();
     }
+    state.compositors = state.compositors.saturating_add(1);
+    state.adopted = 0;
     let mut owners: alloc::vec::Vec<u64> = alloc::vec::Vec::new();
-    state.table.release_all(&mut |s: Surface| {
+    let mut released = 0u32;
+    let kept = state.table.orphan_all(&mut |s: Surface| {
         display.unbind_surface(s.buffer);
         if let Some(f) = frames.as_deref_mut() {
             f.unbind_surface(s.buffer);
         }
         let _ = nexus_abi::cap_close(s.vmo);
+        released += 1;
         if !owners.contains(&s.owner) && owners.try_reserve(1).is_ok() {
             owners.push(s.owner);
         }
     });
     for owner in &owners {
-        teller.charge(charges, *owner, Part::Surfaces, 0);
+        teller.charge(charges, *owner, Part::Surfaces, state.table.owned_by(*owner));
     }
-    if !owners.is_empty() {
+    if kept + released as usize > 0 {
         let _ = nexus_abi::debug_println(&alloc::format!(
-            "gpud: compositor restarted (owners={} surfaces released)",
-            owners.len()
+            "gpud: compositor restarted (owners={} surfaces kept={kept} released={released})",
+            state.table.owners()
         ));
     }
 }

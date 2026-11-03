@@ -87,21 +87,19 @@ fn a_double_click_inside_one_pass_keeps_all_four_edges() {
     );
 }
 
-/// Wheel notches sum across coalesced motion and are applied exactly once; a one-shot fact (a
-/// tiling chord, a capture key) survives a newer sample without one.
+/// Wheel notches sum across coalesced motion and are applied exactly once. (A tiling chord or a
+/// capture key is no field of a sample since TASK-0348 P17 — it is an event on the key channel,
+/// `tests/key_gate.rs`; nothing here can drop or double it.)
 #[test]
-fn wheel_notches_sum_and_one_shot_facts_survive_coalescing() {
+fn wheel_notches_sum_across_coalesced_motion() {
     let mut stage = InputStage::new();
     let mut first = at(10, 10, false);
     first.wheel_delta_y = 2;
-    first.wm_chord = 3;
     let mut second = at(12, 10, false);
     second.wheel_delta_y = -1;
-    second.capture = 1;
     let applied = drain(&mut stage, &[first, second, at(14, 10, false)]);
     assert_eq!(applied.len(), 1);
     assert_eq!(applied[0].wheel_delta_y, 1);
-    assert_eq!((applied[0].wm_chord, applied[0].capture), (3, 1));
     assert!(stage.take().is_none(), "a frame's sample is applied once");
 }
 

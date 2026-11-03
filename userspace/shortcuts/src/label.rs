@@ -23,6 +23,7 @@ struct Caps {
     backspace: &'static str,
     print: &'static str,
     space: &'static str,
+    tab: &'static str,
 }
 
 const GERMAN: Caps = Caps {
@@ -34,6 +35,7 @@ const GERMAN: Caps = Caps {
     backspace: "Rücktaste",
     print: "Druck",
     space: "Leertaste",
+    tab: "Tab",
 };
 
 const LATIN: Caps = Caps {
@@ -45,6 +47,7 @@ const LATIN: Caps = Caps {
     backspace: "Backspace",
     print: "Print",
     space: "Space",
+    tab: "Tab",
 };
 
 /// `lang` is a BCP-47-ish tag (`de-DE`, `de`, `en-US`, …); only its first subtag counts.
@@ -73,6 +76,7 @@ fn key_name(key: Key, caps: &Caps, out: &mut String) -> Option<()> {
             U::BACKSPACE => caps.backspace,
             U::PRINT_SCREEN => caps.print,
             U::SPACE => caps.space,
+            U::TAB => caps.tab,
             _ => return None,
         }),
     }

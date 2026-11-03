@@ -805,6 +805,19 @@ MANY_WINDOWS_MARKERS=(
   "abilitymgr: launch kept (app=desktop-shell"
   "APPHOST: compositor back (reattached)"
   "apphost: surface re-created"
+  # TASK-0348 P11–P14: a frozen app before the restart, the kept answer ends the wait ring,
+  # five requested restarts, a field focused on the fifth compositor.
+  "abilitymgr: suspend (inst="
+  "abilitymgr: compositor up (thawed=1)"
+  "windowd: wait ring ended (by=kept)"
+  "windowd: caret layer on"
+  # TASK-0348 P9 (RFC-0112 Phase 3): the screen survives — gpud keeps the objects, the new
+  # compositor adopts them as ghosts, a rejoin takes its ghost over, execd names the apps alive.
+  "gpud: surfaces adopted (n="
+  "windowd: restarted (ghosts="
+  "windowd: ghost taken over (slot="
+  "execd: apps alive told (n="
+  "windowd: ghosts swept (closed="
 )
 
 expected_sequence=(
@@ -3519,7 +3532,39 @@ if [[ "${PROFILE:-}" == "many-windows" ]]; then
     echo "[error] an app gave up its rejoin: $(grep -aE 'APPHOST: FAIL (rejoin|surface after rejoin)' "$UART_LOG" | head -n1)" >&2
     exit 1
   fi
-  echo "[PASS] compositor restart: twelve windows and the shell back, every app told and rejoined"
+  # TASK-0348 P11: a requested restart is never a crash — five chords, five respawns, no block.
+  restarts=$(grep -acF "init: service restarted name=windowd" "$UART_LOG" || true)
+  if [[ "${restarts:-0}" -lt 5 ]]; then
+    echo "[error] first_failed_phase=end missing_marker='init: service restarted name=windowd' x5 (saw ${restarts:-0})" >&2
+    exit 1
+  fi
+  if grep -aFq "init: crash-loop blocked svc=windowd" "$UART_LOG"; then
+    echo "[error] the restart chord burned init's crash budget: $(grep -aF 'init: crash-loop blocked svc=windowd' "$UART_LOG" | head -n1)" >&2
+    exit 1
+  fi
+  # TASK-0348 P12: after a restart the wait ring ends on the kept answer, never by its failsafe.
+  if tail -n "+$restart_at" "$UART_LOG" | grep -aFq "windowd: wait ring ended (by=failsafe)"; then
+    echo "[error] the pointer's wait ring ran out its failsafe after the restart (the kept answer must end it)" >&2
+    exit 1
+  fi
+  # TASK-0348 P14: a field took focus on the last compositor (its surface ids are past 65535).
+  last_restart_at=$(grep -aFn "init: service restarted name=windowd" "$UART_LOG" | tail -n1 | cut -d: -f1 || true)
+  if ! tail -n "+${last_restart_at:-1}" "$UART_LOG" | grep -aFq "windowd: caret layer on"; then
+    echo "[error] first_failed_phase=end missing_marker='windowd: caret layer on' after the last 'init: service restarted name=windowd'" >&2
+    exit 1
+  fi
+  # TASK-0348 P9 (RFC-0112 Phase 3): the first restarted compositor showed the twelve windows as
+  # ghosts (and the shell's desktop) before its first frame — the apps' own pixels, not a blank.
+  ghosts=$(grep -aoE "windowd: restarted \(ghosts=[0-9]+\)" "$UART_LOG" | head -n1 | grep -oE "[0-9]+" || true)
+  if [[ -z "$ghosts" || "$ghosts" -lt 12 ]]; then
+    echo "[error] first_failed_phase=end the first restarted compositor adopted ${ghosts:-no} ghosts (12 windows were shown)" >&2
+    exit 1
+  fi
+  if grep -aFq "windowd: FAIL adopt" "$UART_LOG"; then
+    echo "[error] a compositor refused gpud's adopt page: $(grep -aF 'windowd: FAIL adopt' "$UART_LOG" | head -n1)" >&2
+    exit 1
+  fi
+  echo "[PASS] compositor restart: twelve windows and the shell back as ghosts (${ghosts}), every app told and rejoined, five requested restarts, a field focused on the last"
 fi
 
 # No-fake-green (CLAUDE.md): the ladder above is a PRESENCE check — a proof

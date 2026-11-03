@@ -19,24 +19,26 @@ use nexus_display_proto::client_surface::{
     MATERIAL_OPAQUE,
 };
 use nexus_display_proto::surface_layers::{MAX_SCROLL_LAYERS, PATCH_SIDE};
+use nexus_gfx::command::layer_wire;
 use nexus_gfx::{Layer, RenderCommandEncoder};
 
 /// The key's owner of the desktop surface's layers — the desktop's key (RFC-0114 §7: windows
 /// are their own keys, `1..=0xFFFE`).
 pub(crate) const DESKTOP_OWNER: u32 = super::slots::DESKTOP_KEY as u32;
-/// Layer kinds in a key (`owner << 16 | kind << 8 | index`).
-pub(crate) const KIND_BODY: u32 = 1;
-pub(crate) const KIND_REGION: u32 = 2;
-pub(crate) const KIND_SLICE: u32 = 3;
-pub(crate) const KIND_WASH: u32 = 4;
-pub(crate) const KIND_SOLID: u32 = 5;
-pub(crate) const KIND_BAR: u32 = 6;
-/// The focused field's caret (RFC-0113 §5, `caret.rs`).
-pub(crate) const KIND_CARET: u32 = 7;
+/// Layer kinds in a key (`owner << 16 | kind << 8 | index`, `nexus_gfx::command::layer_wire`:
+/// gpud reads a window's body off the key after a restart, RFC-0112 Phase 3).
+pub(crate) const KIND_BODY: u32 = layer_wire::LAYER_KIND_BODY;
+pub(crate) const KIND_REGION: u32 = layer_wire::LAYER_KIND_REGION;
+pub(crate) const KIND_SLICE: u32 = layer_wire::LAYER_KIND_SLICE;
+pub(crate) const KIND_WASH: u32 = layer_wire::LAYER_KIND_WASH;
+pub(crate) const KIND_SOLID: u32 = layer_wire::LAYER_KIND_SOLID;
+pub(crate) const KIND_BAR: u32 = layer_wire::LAYER_KIND_BAR;
+/// RFC-0113 §5: the caret over the surface's field.
+pub(crate) const KIND_CARET: u32 = layer_wire::LAYER_KIND_CARET;
 
-/// A layer's key: who drew it, what it is, which one.
+/// A layer's key: the window's key, what of the window it is, which one of those.
 pub(crate) const fn key(owner: u32, kind: u32, index: u32) -> u32 {
-    (owner << 16) | (kind << 8) | (index & 0xff)
+    layer_wire::layer_key(owner, kind, index)
 }
 
 /// The backdrop blur of a region's glass level (the level is a blur bucket — materials.md).

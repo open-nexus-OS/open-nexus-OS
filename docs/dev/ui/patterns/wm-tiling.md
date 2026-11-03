@@ -30,9 +30,9 @@ right/bottom tile. `ui.tile.margin` (0 | 8 | 16 px) insets every tile; neighbour
 - **desktop shell** (`overlays/TilePreview.nx`): paints the candidate zone from
   `device.tilePreview` as a translucent pane over the work area — a full-bleed overlay with no
   handler.
-- **inputd**: the registry's window chords are facts on the state push
-  (`VisibleState.wm_chord`, one-shot; `shortcuts::system_action`); the chord's key never
-  reaches imed or an app.
+- **inputd**: the registry's window chords are events on the key channel
+  (`KEY_INPUT_CHORD`, one entry per press; `shortcuts::system_action`); the chord's key never
+  reaches imed or an app (TASK-0348 P17 — never a fact on a sampled state).
 - **window-kit**: `WinAppWindow` mounts `WinAppMenu` for every window-kit app when
   `$state.menu == "app"` (the app chip opens it): two `WinTileGlyph` rows without text
   headers (move & resize, fill & arrange), Vollbild, the inert "Auf anderes Gerät bewegen",

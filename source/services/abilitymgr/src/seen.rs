@@ -169,6 +169,9 @@ impl Broker {
             (Seen::Hidden, Background) => Some(inst.hidden_since.unwrap_or(now_ns)),
             _ => None,
         };
+        // RFC-0112: the compositor saw the kept instance's window — from here its death is its
+        // own, not the restart's.
+        inst.kept_for_launch = false;
         Ok((inst.state, order))
     }
 

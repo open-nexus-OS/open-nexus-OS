@@ -118,3 +118,31 @@ mod tests {
         );
     }
 }
+
+/// The system's own keys on the key channel (TASK-0348 P17): a window chord of the shortcut
+/// registry or a capture key, each an EVENT applied once.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SystemKey {
+    /// windowd's `zones::CODE_*` for the focused window.
+    Chord(u8),
+    /// RFC-0095: 1 the screenshot UI, 2 the screen, 3 the focused window — for the shell.
+    Capture(u8),
+}
+
+/// Classifies a key-channel entry by its kind and value: a chord carries a code (1..=255), a
+/// capture key one of its three kinds; anything else — a text or action key, an unknown kind, a
+/// value past its range — is `None` (fail-closed: the channel's decode refuses it before this).
+#[must_use]
+pub fn system_key(kind: u8, value: u32) -> Option<SystemKey> {
+    use input_live_protocol::{
+        CAPTURE_KIND_UI, CAPTURE_KIND_WINDOW, KEY_INPUT_CAPTURE, KEY_INPUT_CHORD,
+    };
+    let byte = u8::try_from(value).ok().filter(|v| *v != 0)?;
+    match kind {
+        KEY_INPUT_CHORD => Some(SystemKey::Chord(byte)),
+        KEY_INPUT_CAPTURE if (CAPTURE_KIND_UI..=CAPTURE_KIND_WINDOW).contains(&value) => {
+            Some(SystemKey::Capture(byte))
+        }
+        _ => None,
+    }
+}
