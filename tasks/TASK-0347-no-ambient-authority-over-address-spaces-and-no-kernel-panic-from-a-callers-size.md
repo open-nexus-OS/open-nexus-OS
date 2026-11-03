@@ -18,7 +18,6 @@ goal:
   target: "0: every path refused by name or answered ENOMEM"
   instrument: "KSELFTEST: ambient authority reject ok ("
 consumer: TASK-0348
-follow_ups: [TASK-0349]
 links:
   - label: ADR
     target: docs/adr/0091-no-ambient-authority-over-address-spaces-a-task-maps-and-spawns-only-into-its-own-the-kernel-bounds-what-a-caller-sizes.md

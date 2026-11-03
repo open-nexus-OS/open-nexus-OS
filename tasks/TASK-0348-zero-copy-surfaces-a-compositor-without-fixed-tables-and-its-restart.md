@@ -20,7 +20,6 @@ goal:
   instrument: "windowd: compose copies= · windowd: windows drawn (n="
 consumer: "every app window (app-host) and, next, the web engine's frames (TASK-0350)"
 depends_on: [TASK-0347]
-follow_ups: [TASK-0349, TASK-0350]
 implements: [RFC-0114, RFC-0112]
 links:
   - label: RFC
@@ -97,6 +96,30 @@ phases:
     story: "on the board the new compositor's GPU context binds the adopted surfaces"
     state: planned
     gate: "board cycle: restart from the console, ghosts shown, frame p99 within budget"
+  - id: P11
+    story: "the restart chord is a requested restart, never a crash: pressed again and again, the desktop always comes back"
+    state: planned
+    gate: "QEMU: five restart chords within 60 s give five init: service restarted name=windowd and no init: crash-loop blocked svc=windowd"
+  - id: P12
+    story: "after a restart the pointer's wait ring stops as soon as the running shell answers"
+    state: planned
+    gate: "QEMU: the wait ring ends within one frame of abilitymgr: launch kept (app=desktop-shell, never by its failsafe"
+  - id: P13
+    story: "an app frozen before the restart comes back with the others"
+    state: planned
+    gate: "QEMU: a hidden app frozen before the chord; abilitymgr: compositor up (thawed=1), execd: compositor back (... failed=0) and its window drawn again"
+  - id: P14
+    story: "surface ids past 65535 reach every path after a late restart"
+    state: planned
+    gate: "host: every display-proto frame round-trips a surface id > 65535; QEMU: after a restart with ids > 65535 a field takes focus (apphost: text focus set, windowd: caret layer on)"
+  - id: P15
+    story: "a kept shell that dies before its death is reported is launched again"
+    state: planned
+    gate: "host: abilitymgr launches anew after the kept instance's death report; QEMU: the shell killed during a restart, then abilitymgr: launch (app=desktop-shell and windowd: desktop revealed (seq="
+  - id: P16
+    story: "the module-size ratchet holds the files this package shrank at their new size"
+    state: planned
+    gate: "config/loc-baseline.txt lowered for every file below its entry (window_scene.rs 654 -> 356, inputd os_lite.rs 712 -> 639); just structure-gate green"
 ---
 
 # TASK-0348 — Zero-copy surfaces, a compositor without fixed tables, and its restart
