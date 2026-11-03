@@ -10,3 +10,4 @@ Current related docs:
 - `docs/dev/ui/foundations/quality/testing.md`
 - `docs/dev/ui/foundations/quality/goldens.md`
 - `docs/dev/ui/foundations/quality/performance-philosophy.md`
+- `docs/dev/ui/foundations/quality/latency-reference.md` — the reference numbers the UX gates measure against (TASK-0353 P1)

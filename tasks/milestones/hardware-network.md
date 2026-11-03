@@ -227,7 +227,7 @@ steps:
   - key: LU.1
     section: L
     story: "the frame cost, one window path, frame pacing, motion on the compositor, the shell at once, the artifacts' design — the UX lane's rest, paused for layer 6"
-    state: planned
+    state: active
     tasks: [TASK-0335, TASK-0336, TASK-0337, TASK-0343, TASK-0345, TASK-0353, TASK-0354, TASK-0355]
     gate: "frame p99 <= 16.7 ms on the board; 0 of 32 frames dropped per shell transition; tap to frame <= 50 ms on the top bar and the launcher"
   - key: L6a
