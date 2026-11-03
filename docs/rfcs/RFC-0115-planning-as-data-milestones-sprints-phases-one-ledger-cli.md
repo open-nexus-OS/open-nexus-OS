@@ -2,11 +2,11 @@
 schema: 1
 id: RFC-0115
 title: "Planning as data: milestones, weekly sprints, phases as user stories, and one ledger CLI"
-status: in_progress
-status_note: "seeded 2026-11-02; format, CLI, gate and migration built in the same run"
+status: done
+status_note: "format, nx ledger, gate, migration, docs as data (TASK-0349) and the reader Section 9 built in 2026-W45"
 owners: ["@tools-team"]
 created: 2026-11-02
-updated: 2026-11-02
+updated: 2026-11-03
 subsystem: devx
 tasks: [TASK-0349]
 depends_on: []
@@ -307,6 +307,24 @@ just ledger-gate                      # every document lints; part of `just chec
 # Section 9: tests/core/data-repo.test.ts parses and re-renders every document of this repo
 # byte for byte through its own schema and renderer — the two implementations cannot drift.
 ```
+
+## The reader: Section 9 (built 2026-11-02/03)
+
+The ops room outside this repository, built in the same sprint (2026-W45):
+
+- **Reads** every planning document through its own schema and renderer (byte-for-byte round
+  trip, `tests/core/data-repo.test.ts`), the docs wiki and the relations as a graph (local graph
+  store, 621 nodes); milestone roadmap, sprint board with `outcome`, burn-up, weekly closes,
+  reference classes (P50/P85 with sample size and lessons from `variance_note`), diagnostics.
+- **Proposes** — never writes: a whole draft task, milestone or sprint (`propose_plan`), one header
+  field, one body passage or a status, each validated against the rules above and shown as a diff
+  the human applies. No frontmatter change to an `in_progress` task (ownership rule).
+- **Chat** for the Monday planning and review (this RFC's weekly rhythm).
+- **Its own memory.** What the planning conversation learns and is not planning state — review
+  notes, decisions said in the chat, lessons not yet in a `variance_note` — Section 9 keeps in its
+  own graph store, next to the progress history it records per revision. That store is memory,
+  never the truth for planning state: anything a plan depends on is still proposed into the repo
+  (see the first alternative below).
 
 ## Alternatives considered
 

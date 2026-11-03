@@ -83,6 +83,8 @@ struct UsbSource {
     subscribed: bool,
     report_said: bool,
     refused_said: bool,
+    /// The keyboard's per-second witness (TASK-0348 P7): report counts and the modifier mask.
+    keyboard: crate::telemetry::KeyboardWitness,
 }
 
 impl UsbSource {
@@ -104,6 +106,7 @@ impl UsbSource {
             subscribed: false,
             report_said: false,
             refused_said: false,
+            keyboard: crate::telemetry::KeyboardWitness::new(),
         }
     }
 
@@ -125,10 +128,13 @@ impl UsbSource {
                     role(device.kind)
                 ));
             }
-            Ok(Heard::Reports { refused, .. }) => {
+            Ok(Heard::Reports { device, parsed, refused, modifiers }) => {
                 if !self.report_said {
                     let _ = debug_println("hidrawd: usb hid report seen");
                     self.report_said = true;
+                }
+                if matches!(device.kind, crate::HidDeviceKind::Keyboard) {
+                    self.keyboard.note(parsed, refused, modifiers);
                 }
                 if refused > 0 && !self.refused_said {
                     let _ = debug_println("hidrawd: usb hid report refused (not a boot report)");
@@ -172,10 +178,11 @@ impl HidSource for UsbSource {
                 nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
                 0,
             );
-            let Ok(n) = received else { return };
+            let Ok(n) = received else { break };
             let heard = self.core.on_frame(sender, &frame[..n.min(frame.len())], now, emit);
             self.heard(heard);
         }
+        self.keyboard.say_if_due(now.raw());
     }
 }
 

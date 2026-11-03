@@ -81,6 +81,37 @@ impl ModifierState {
     }
 }
 
+/// The keys' witness (TASK-0348 P7, chord chain K2/K3): the modifier bits held at any key event
+/// and the chords recognized since the last take — a mask and a count, never a key (RFC-0113
+/// §6) — and the last chord's code with its report time, for the hop line at its push.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct KeyWitness {
+    modifiers: u8,
+    chords: u32,
+    last_chord: Option<(u8, u64)>,
+}
+
+impl KeyWitness {
+    pub(crate) fn note_modifiers(&mut self, bits: u8) {
+        self.modifiers |= bits;
+    }
+
+    pub(crate) fn note_chord(&mut self, code: u8, report_ns: u64) {
+        self.chords = self.chords.saturating_add(1);
+        self.last_chord = Some((code, report_ns));
+    }
+
+    /// The window's modifier mask and chord count, cleared.
+    pub fn take_counts(&mut self) -> (u8, u32) {
+        (core::mem::take(&mut self.modifiers), core::mem::take(&mut self.chords))
+    }
+
+    /// The last chord as `(code, report_ns)`, once.
+    pub fn take_chord(&mut self) -> Option<(u8, u64)> {
+        self.last_chord.take()
+    }
+}
+
 pub(crate) fn is_modifier(usage: KeyboardUsage) -> bool {
     matches!(usage.raw(), 0xe0..=0xe7)
 }

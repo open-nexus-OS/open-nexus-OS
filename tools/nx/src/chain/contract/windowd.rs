@@ -109,6 +109,7 @@ impl Contract for WindowdContract {
         bus.emit_marker(id, "SELFTEST: ui v10 dialog ok");
         // TASK-0066 / ADR-0069: a Super+Ctrl chord (inputd's one-shot fact) tiled
         // the focused window and Return brought its frame back.
+        bus.emit_marker(id, "windowd: chain K4 chord recv");
         bus.emit_marker(id, "windowd: wm chord (zone=left-half id=app0)");
         bus.emit_marker(id, "windowd: wm tile (zone=left-half id=app0)");
         bus.emit_marker(id, "windowd: wm return (id=app0)");

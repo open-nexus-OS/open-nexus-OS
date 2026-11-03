@@ -482,6 +482,8 @@ pub(crate) struct DisplayServerRuntime {
     tile_edges: bool,
     tile_margin: u32,
     tile_chords: bool,
+    /// Chord chain hop K4 said once (TASK-0348 P7): a chord fact reached windowd.
+    chord_recv_said: bool,
     /// `SELFTEST: ui v7 tile ok` said once: a tile followed by a Return on this boot.
     tile_proof_said: bool,
     /// The tile-preview zone last pushed to the desktop surface (0 = none) — TASK-0066.
@@ -819,6 +821,7 @@ impl DisplayServerRuntime {
             tile_edges: true,
             tile_margin: 0,
             tile_chords: true,
+            chord_recv_said: false,
             tile_proof_said: false,
             tile_preview_sent: 0,
             region: region::RegionState::new(),

@@ -404,10 +404,10 @@ impl ImedCore {
         };
         // TASK-0074 D3: a surface with WINDOW focus but no text field (windowd's
         // `FIELD_KIND_NONE` relay) hears Escape — the modal's dismissal — and
-        // nothing else: no commit, no composition, no strip, no learning. Text
-        // typed there is dropped exactly as it is without any focus; the
-        // engine does not even see it (no half-typed accent can leak into the
-        // next field).
+        // nothing else is DELIVERED: no commit, no strip, no learning. TASK-0348 P8: the
+        // step still composes and echoes exactly as it does without any focus (the osk
+        // probe reads the echo whatever window the pointer woke before it ran); the next
+        // focus transition resets the engine, so no half-typed accent reaches a field.
         if let Some(focus) = self.focus.filter(|f| f.field_kind == wire::FIELD_KIND_NONE) {
             return match key {
                 ImeKey::Action(ImeAction::Escape) => (
@@ -418,7 +418,7 @@ impl ImedCore {
                     }),
                     empty_echo,
                 ),
-                _ => (None, empty_echo),
+                _ => (None, self.compose_undelivered(key)),
             };
         }
         // Password bypass: no composition, no preview, no learning — text
@@ -478,6 +478,21 @@ impl ImedCore {
             ImeKey::Dead(_) => None,
         };
         (pushes, echo)
+    }
+
+    /// The step's echo with the engine fed and nothing delivered — a window focus without a
+    /// field (TASK-0348 P8): composition is focus-independent, delivery is focus-gated, and
+    /// nothing is learned (no field, no bigram).
+    fn compose_undelivered(&mut self, key: ImeKey) -> StepEcho {
+        let outcome = self.engine.feed(key);
+        let commit = if outcome.handled {
+            CommitText::from_str(outcome.commit.as_str())
+        } else if let ImeKey::Text(ch) = key {
+            CommitText::from_char(ch)
+        } else {
+            CommitText::default()
+        };
+        StepEcho { commit }
     }
 
     /// Commits candidate `index` of the current page (windowd relay or the

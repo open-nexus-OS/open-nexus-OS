@@ -5,7 +5,7 @@ role: reference
 subsystem: devx
 sources: [source/apps/selftest-client/proof-manifest/markers, source/apps/selftest-client/proof-manifest/phases.toml, tools/nx/chains/markers.txt, scripts/qemu-test.sh, scripts/check-chain-markers.sh, config/fail-marker-allow.txt]
 contracts: [RFC-0013, RFC-0014, RFC-0038, RFC-0108]
-verified: 2026-11-02
+verified: 2026-11-03
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -100,6 +100,11 @@ Check a chain group against any log: `just check-markers build/logs/<run>/uart.l
 - **Explicit absence** — a lane without a device prints why, e.g. `init: usb plane none (no host
   controller)`; the ladder requires the honest absence line, not silence.
 - **Measurement** — numbers without a verdict (e.g. `KSELFTEST: ipc stats (`); the ladder pins the prefix only.
+- **Chain hops** — `<svc>: chain <X><n> …`, once per boot per hop, in groups the contract names
+  (`input-route` I5–I6, `input-live` I1–I2, `input-chord` K1–K4: a keyboard chord from hidrawd
+  through inputd's fact to windowd). A `hops` line times a hop with numbers only, e.g.
+  `inputd: hops chord (code= report>push=`; on the board the last hop present names where a
+  human's input stopped.
 - **Judged measurement** (RFC-0108) — `<service>: ux <name> <ok|warn|FAIL> (… budget_<unit>=<n>)`.
   Budgets live only in `source/libs/nexus-ux-budgets/src/lib.rs`; the rung is the prefix
   (`gpud: ux frame `), the verdict is judged by the FAIL scan and its allow-lists.

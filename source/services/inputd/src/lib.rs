@@ -33,6 +33,7 @@ mod wire;
 
 pub use config::{InitialPointerPosition, InputdConfig, QueueCapacity};
 pub use error::InputdError;
+pub use key_facts::KeyWitness;
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 pub use os_lite::service_main_loop;
 pub use pointer_state::{

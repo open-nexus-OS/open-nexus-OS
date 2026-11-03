@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-11-03 (the chord chain K1–K4 — TASK-0348 P7)
+
+- **A keyboard chord has a chain.** `hidrawd: chain K1 keyboard events normalized`,
+  `inputd: chain K2 chord recognized`, `inputd: chain K3 chord pushed to windowd`,
+  `windowd: chain K4 chord recv` — once per boot each, the `input-chord` group of
+  `tools/nx/chains/markers.txt`, required on the `usb-visible` lane. Per chord
+  `inputd: hops chord (code= report>push=…us)` times the fact from the device's report to the
+  push. Per second with keyboard traffic: `hidrawd: keyboard (reports= refused= mods=0x..)` and
+  `inputd: keys (mods=0x.. chords=)` — a modifier mask and counts, never a key (RFC-0113 §6). The
+  board's cycle 80 saw no chord reach windowd; cycle 81 named the hop: K1–K3 present, K4 absent.
+- **windowd applies a chord before its no-change short-circuit** (TASK-0348 P7). The chord fact
+  lives only in the staged frame, like the wheel and the capture key, and ran after
+  `self.state == old_state` returned — a chord pressed with the pointer still and no key
+  dispatched before it changed nothing in the mirrored state and was dropped (the board's cycles
+  73–81; QEMU's injector had typed first). Measurement:
+  `docs/board/measurements/2026-11-03-keyboard-chord-chain/`. P17 moves chords and capture keys
+  to the key channel as discrete events.
+- **imed composes under a window focus without a field** (TASK-0348 P8). A `FIELD_KIND_NONE`
+  focus still delivers only Escape and learns nothing, but the step now runs the engine and
+  echoes its commit as it does without any focus — the osk probe's `nn` + Enter reads ん whatever
+  window the pointer woke before it ran (board cycle 80: `SELFTEST: ime v2 cjk jp FAIL` after an
+  early mouse move). Test: `surface_focus_without_a_field_still_composes_and_echoes`.
+
 ### Changed - 2026-11-02 (docs as data — TASK-0349)
 
 - **One folder per subsystem.** `docs/` outside rfcs/adr/board/dev is now `architecture/` (map,

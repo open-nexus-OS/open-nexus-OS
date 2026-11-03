@@ -46,6 +46,8 @@ pub(crate) struct Batch {
     pub(crate) chain: HidrawChainTelemetry,
     raw_said: bool,
     normalized_said: bool,
+    /// Chord chain hop K1 said once (TASK-0348 P7): a keyboard's events were normalized.
+    keyboard_said: bool,
     sent_said: bool,
     failed_said: bool,
     /// Triage lines said for drains that normalized to nothing (bounded per boot).
@@ -62,6 +64,7 @@ impl Batch {
             chain: HidrawChainTelemetry::new(),
             raw_said: false,
             normalized_said: false,
+            keyboard_said: false,
             sent_said: false,
             failed_said: false,
             skip_lines: 0,
@@ -136,6 +139,12 @@ impl Emit for Batch {
         if !self.normalized_said && !events.is_empty() {
             let _ = debug_println("hidrawd: ingress adapter ready");
             self.normalized_said = true;
+        }
+        if !self.keyboard_said && !pointer && !events.is_empty() {
+            // Chord chain hop K1 (TASK-0348 P7): a keyboard's events are normalized and go out
+            // on the batch path below (what they were is not said — RFC-0113 §6).
+            let _ = debug_println("hidrawd: chain K1 keyboard events normalized");
+            self.keyboard_said = true;
         }
         if events.is_empty() {
             if pointer {

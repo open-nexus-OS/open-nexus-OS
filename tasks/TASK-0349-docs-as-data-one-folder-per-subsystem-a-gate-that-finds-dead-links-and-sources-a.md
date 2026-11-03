@@ -60,7 +60,18 @@ phases:
 
 ## The ask
 
-Who asked, in their words, and the outcome they want.
+The operator (2026-11-02): planning as data (RFC-0115) — progress visible during a session, a
+number at every gate, a named consumer, estimates from our own history — and the docs an agent
+reads cut to what the code does, with a gate that keeps them true.
+
+## Part of this package: the planning tooling (RFC-0115) and Section 9
+
+Built in the same sprint (2026-W45) and closed with this task (operator decision 2026-11-03):
+the schema-1 format and its rules, `nx ledger` (the one writer, `review`, `stale`, `relink`), the
+`ledger` gate in `just check`, the migration of every task, RFC and track, the three milestones,
+and the reader **Section 9** — the ops room that reads this repo byte for byte through its own
+renderer, shows milestone, sprint board, burn-up and reference classes, and proposes edits as
+diffs (RFC-0115 § The reader).
 
 ## Measured before the cut
 

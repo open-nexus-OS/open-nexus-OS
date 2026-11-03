@@ -352,6 +352,13 @@ impl DisplayServerRuntime {
         if upstream.capture != 0 {
             self.push_capture_key(upstream.capture);
         }
+        // TASK-0066 / TASK-0348 P7: a tiling chord (one-shot fact from inputd) tiles the FOCUSED
+        // window — before the short-circuit too: a chord pressed with the pointer still and no
+        // key dispatched before it changes nothing in the mirrored state (the board's cycles
+        // 73–81 lost every chord here; QEMU's injector had typed first).
+        if upstream.wm_chord != 0 {
+            self.apply_chord(upstream.wm_chord);
+        }
         self.refresh_observer_state();
         if self.state == old_state {
             return STATUS_OK;
@@ -476,10 +483,6 @@ impl DisplayServerRuntime {
             );
         }
 
-        // TASK-0066: a tiling chord (one-shot fact from inputd) tiles the FOCUSED window.
-        if upstream.wm_chord != 0 {
-            self.apply_chord(upstream.wm_chord);
-        }
         // Focus may have moved with this event (click-to-raise): keep imed's
         // window-focus relay current before the next key arrives (TASK-0074 D3).
         self.sync_surface_focus_to_imed();

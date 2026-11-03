@@ -193,6 +193,11 @@ impl DisplayServerRuntime {
     /// A keyboard chord (inputd's one-shot fact): the FOCUSED app window takes the zone —
     /// `ui.tile.chords` gates it, the desktop never tiles.
     pub(super) fn apply_chord(&mut self, code: u8) {
+        if !core::mem::replace(&mut self.chord_recv_said, true) {
+            // Chord chain hop K4 (TASK-0348 P7): inputd's fact reached windowd; the `wm chord` /
+            // `wm tile deny` lines say what it did.
+            let _ = debug_println("windowd: chain K4 chord recv");
+        }
         // The focused APP window, else the topmost on-screen one (a surface
         // re-create after a tile can park focus on the desktop for a frame).
         let app_of = |id: Option<WindowId>| match id {

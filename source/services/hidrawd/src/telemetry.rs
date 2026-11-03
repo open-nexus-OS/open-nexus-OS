@@ -13,6 +13,47 @@ extern crate alloc;
 use alloc::format;
 use nexus_abi::{debug_println, nsec};
 
+/// The keyboard's second (TASK-0348 P7): how many boot reports came, how many the parser refused,
+/// and the modifier bits they carried — a mask and counts, never a key (RFC-0113 §6). Said once
+/// a second while the keyboard is in use, so a board log shows whether a chord's modifiers ever
+/// left the device (chain K1 says that a keyboard batch went out at all).
+pub(crate) struct KeyboardWitness {
+    window_ns: u64,
+    reports: u32,
+    refused: u32,
+    modifiers: u8,
+}
+
+impl KeyboardWitness {
+    pub(crate) const fn new() -> Self {
+        Self { window_ns: 0, reports: 0, refused: 0, modifiers: 0 }
+    }
+
+    pub(crate) fn note(&mut self, parsed: u8, refused: u8, modifiers: u8) {
+        self.reports = self.reports.saturating_add(u32::from(parsed));
+        self.refused = self.refused.saturating_add(u32::from(refused));
+        self.modifiers |= modifiers;
+    }
+
+    /// The line, once a second that had keyboard traffic; the window then starts over.
+    pub(crate) fn say_if_due(&mut self, now_ns: u64) {
+        if self.window_ns == 0 {
+            self.window_ns = now_ns;
+            return;
+        }
+        if now_ns.saturating_sub(self.window_ns) < 1_000_000_000 {
+            return;
+        }
+        if self.reports > 0 || self.refused > 0 {
+            let _ = debug_println(&format!(
+                "hidrawd: keyboard (reports={} refused={} mods=0x{:02x})",
+                self.reports, self.refused, self.modifiers
+            ));
+        }
+        *self = Self { window_ns: now_ns, ..Self::new() };
+    }
+}
+
 pub(crate) struct HidrawChainTelemetry {
     pub(crate) last_report_ns: u64,
     pub(crate) rate_window_ns: u64,

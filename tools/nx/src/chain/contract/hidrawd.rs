@@ -51,6 +51,8 @@ impl Contract for HidrawdContract {
             bus.emit_marker(id, "hidrawd: chain I1 device event (raw HID polled)");
             bus.emit_marker(id, "hidrawd: ingress adapter ready");
             bus.emit_marker(id, "hidrawd: chain I2 wire sent to inputd");
+            // Chord chain hop K1 (TASK-0348 P7), string-identical to batch.rs.
+            bus.emit_marker(id, "hidrawd: chain K1 keyboard events normalized");
         }
 
         Ok(())

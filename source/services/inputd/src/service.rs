@@ -11,7 +11,7 @@
 extern crate alloc;
 
 use crate::config::InputdConfig;
-use crate::key_facts::{is_modifier, ModifierState};
+use crate::key_facts::{is_modifier, KeyWitness, ModifierState};
 use crate::route::RouteTarget;
 use crate::{ImeHook, InputDispatch, InputdError};
 use alloc::vec::Vec;
@@ -49,6 +49,7 @@ pub struct InputdService<R> {
     /// 3 Alt+Print; 0 = none).
     pending_capture: u8,
     modifiers: ModifierState,
+    witness: KeyWitness,
     text_focus: bool,
     ime_visible: bool,
     /// The held key's stream sequence — its repeats carry it (RFC-0113 §1).
@@ -95,6 +96,7 @@ impl<R: RouteTarget> InputdService<R> {
             pending_wm_chord: 0,
             pending_capture: 0,
             modifiers: ModifierState::default(),
+            witness: KeyWitness::default(),
             text_focus: false,
             ime_visible: false,
             repeat_seq: 0,
@@ -189,6 +191,11 @@ impl<R: RouteTarget> InputdService<R> {
     /// The capture key recognized since the last call (one-shot, RFC-0095), 0 = none.
     pub fn take_capture_key(&mut self) -> u8 {
         core::mem::take(&mut self.pending_capture)
+    }
+
+    /// The keys' witness (TASK-0348 P7): modifier mask, chord count, the last chord's report time.
+    pub fn key_witness(&mut self) -> &mut KeyWitness {
+        &mut self.witness
     }
 
     /// Writes this push's one-shot key facts — a tiling chord, a capture key — into the visible
@@ -350,6 +357,7 @@ impl<R: RouteTarget> InputdService<R> {
             let usage = KeyboardUsage::from_raw(event.code().raw() as u8);
             let pressed = event.value().raw() > 0;
             self.modifiers.apply_key(usage, pressed);
+            self.witness.note_modifiers(self.modifiers.bits());
             if is_modifier(usage) {
                 continue;
             }
@@ -363,6 +371,7 @@ impl<R: RouteTarget> InputdService<R> {
                 match shortcuts::system_action(self.modifiers.chord_mods(), usage, letter) {
                     Some(shortcuts::Action::Window(code)) => {
                         self.pending_wm_chord = code;
+                        self.witness.note_chord(code, event.timestamp().raw());
                         continue;
                     }
                     Some(shortcuts::Action::Capture(kind)) => {

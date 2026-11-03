@@ -168,6 +168,9 @@ struct LiveRouteRuntime {
     push_rate_count: u32,
     hid_rx_rate_window_ns: u64,
     hid_rx_rate_count: u32,
+    /// Chord chain hops K2/K3 said once (TASK-0348 P7): a chord recognized, a chord pushed.
+    chord_seen_said: bool,
+    chord_pushed_said: bool,
     /// Start of the current push-rate telemetry window (0 = not started).
     push_rate_window_ns: u64,
     /// Recycled HID-event decode buffer (capacity reused across batches —
@@ -268,6 +271,8 @@ impl LiveRouteRuntime {
             push_rate_count: 0,
             hid_rx_rate_window_ns: 0,
             hid_rx_rate_count: 0,
+            chord_seen_said: false,
+            chord_pushed_said: false,
             push_rate_window_ns: 0,
             hid_events_scratch: Vec::new(),
             wire_events_scratch: Vec::new(),
@@ -605,6 +610,10 @@ impl LiveRouteRuntime {
         // TASK-0066 / RFC-0095: tiling chords and capture keys are one-shot facts on this push.
         let (chord, capture) = (&mut self.visible_state.wm_chord, &mut self.visible_state.capture);
         let key_fact = self.input.stamp_key_facts(chord, capture);
+        if *chord != 0 && !core::mem::replace(&mut self.chord_seen_said, true) {
+            // Chord chain hop K2 (TASK-0348 P7): a registry chord became a fact for this push.
+            let _ = nexus_abi::trace_line("inputd: chain K2 chord recognized");
+        }
         let immediate_push = pointer_down_dispatched
             || pointer_wheel_delta != 0
             || keyboard_dispatched

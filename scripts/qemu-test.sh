@@ -3485,7 +3485,7 @@ if [[ "${MARKER_CONTRACT:-1}" == "1" ]]; then
     # TASK-0253B: the one lane whose device-event hops (I1/I2) must fire at every run — its
     # injector drives the USB devices; the simulated chain and the real one must agree.
     usb-visible)
-      bash "$ROOT/scripts/check-chain-markers.sh" --log "$UART_LOG" --groups input-route,input-live,ui-modal,wm-tile,clipboard,capture,gpu-core,display || exit 1
+      bash "$ROOT/scripts/check-chain-markers.sh" --log "$UART_LOG" --groups input-route,input-live,input-chord,ui-modal,wm-tile,clipboard,capture,gpu-core,display || exit 1
       ;;
     # TASK-0333 6f-3: the same injected USB input, without the modal/tiling/clipboard/capture
     # phases (the lane's own choreography is the real pressure's).

@@ -125,6 +125,26 @@ fn super_ctrl_chords_become_zone_codes_and_never_keys() {
     assert_eq!(rig.inputd.take_wm_chord(), 15, "W = close");
 }
 
+/// TASK-0348 P7: the keys' witness names a second's modifier mask and chord count and the last
+/// chord's report time — never a key (RFC-0113 §6) — so a board log shows the hop a chord lost.
+#[test]
+fn the_key_witness_counts_modifiers_and_chords_not_keys() {
+    let mut rig = Rig::new();
+    assert_eq!(rig.inputd.key_witness().take_counts(), (0, 0), "nothing yet");
+    assert_eq!(rig.inputd.key_witness().take_chord(), None);
+    let _ = rig.chord(LCTRL | LGUI, 0x1a); // W = close
+    let _ = rig.chord(LCTRL | LGUI, 0x10); // M = minimize
+    let _ = rig.chord(LSHIFT, 0x04); // Shift+A: a key, no chord
+    let (mods, chords) = rig.inputd.key_witness().take_counts();
+    assert_eq!(chords, 2, "W and M");
+    assert_eq!(mods, 0x13, "Shift|Ctrl|Super as the surface wire's bits — no key");
+    let (code, report_ns) = rig.inputd.key_witness().take_chord().expect("the last chord");
+    assert_eq!(code, 14, "M = minimize was the last chord");
+    assert_eq!(report_ns, 400, "its press report's time (the rig's third report)");
+    assert_eq!(rig.inputd.key_witness().take_counts(), (0, 0), "taken");
+    assert_eq!(rig.inputd.key_witness().take_chord(), None, "once");
+}
+
 /// Without Super the same keys are ordinary input: no chord parked, the key dispatches (or is
 /// an unproducible Ctrl chord the layout skips) — nothing silently becomes a tile.
 #[test]

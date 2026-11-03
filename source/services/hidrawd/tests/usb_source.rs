@@ -260,3 +260,22 @@ fn test_reject_attaches_past_the_bound() {
     assert_eq!(usb.on_frame(XHCID, &past, ts(1), &mut out), Err(Rejected::Full));
     assert_eq!(usb.attached(), MAX_USB_DEVICES);
 }
+
+/// TASK-0348 P7: a keyboard's drain names the modifier bits its boot reports carried — the
+/// witness line's mask, no key; a mouse's drain names none.
+#[test]
+fn a_keyboard_drain_names_its_modifier_bits() {
+    let mut usb = UsbHid::new(XHCID);
+    let mut out = Batches::default();
+    usb.on_frame(XHCID, &attach(1, wire::ROLE_KEYBOARD), ts(1), &mut out).expect("attach");
+    // Ctrl held, then Ctrl+Super with W: the mask is the OR over the drain's reports.
+    let frame = reports(1, &[&[0x01, 0, 0, 0, 0, 0, 0, 0], &[0x09, 0, 0x1a, 0, 0, 0, 0, 0]]);
+    let heard = usb.on_frame(XHCID, &frame, ts(2), &mut out);
+    assert!(
+        matches!(heard, Ok(Heard::Reports { parsed: 2, refused: 0, modifiers: 0x09, .. })),
+        "{heard:?}"
+    );
+    usb.on_frame(XHCID, &attach(2, wire::ROLE_MOUSE), ts(3), &mut out).expect("attach");
+    let heard = usb.on_frame(XHCID, &reports(2, &[&[0x01, 0, 0]]), ts(4), &mut out);
+    assert!(matches!(heard, Ok(Heard::Reports { modifiers: 0, .. })), "{heard:?}");
+}

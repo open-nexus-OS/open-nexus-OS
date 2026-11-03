@@ -50,6 +50,14 @@ impl LiveRouteRuntime {
                     self.hid_rx_rate_count
                 ));
             }
+            let (modifiers, chords) = self.input.key_witness().take_counts();
+            if modifiers != 0 || chords != 0 {
+                // TASK-0348 P7: the keyboard's second — the modifier bits any key event saw and
+                // the chords recognized (a mask and a count, no key: RFC-0113 §6).
+                let _ = debug_println(&format!(
+                    "inputd: keys (mods=0x{modifiers:02x} chords={chords})"
+                ));
+            }
             self.hid_rx_rate_window_ns = now_ns;
             self.hid_rx_rate_count = 0;
         }

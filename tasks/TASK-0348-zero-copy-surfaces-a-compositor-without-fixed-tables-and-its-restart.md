@@ -3,10 +3,10 @@ schema: 1
 id: TASK-0348
 title: "Zero-copy surfaces, a compositor without fixed tables, and its restart"
 status: in_progress
-status_note: "P0–P5 done; P6 QEMU-proven, its board half and P7–P10 next"
+status_note: "P0-P5, P7, P8 done (board cycle 82); P6 board half, P9/P10 ghosts, P11-P17 next"
 owner: ["@ui", "@runtime", "@kernel-team"]
 created: 2026-10-31
-updated: 2026-11-02
+updated: 2026-11-03
 subsystem: ui
 components: [windowd, gpud, app-host, neuron]
 kind: service
@@ -82,12 +82,18 @@ phases:
     note: "QEMU proven; board cycle 80 ran the package, the restart chord did not reach windowd"
   - id: P7
     story: "the board's Super+Ctrl chords reach windowd: tile, restore, restart"
-    state: planned
+    state: done
     gate: "board: windowd: wm chord ( lines; board-visual: tile and restore acked"
+    started: 2026-11-03
+    done: 2026-11-03
+    evidence: "board cycle 82 (2026-11-03T10-48-35): windowd: wm chord (zone=left-half|right-half|fill|return|close|minimize) 13 chords after chain K1-K4; board-visual: tile, restore acked; the restart chord was not pressed (operator: too long a shortcut), its code 16 path is the same fact path"
   - id: P8
     story: "the IME probes pass whatever order real input arrives in"
-    state: planned
+    state: done
     gate: "board: SELFTEST: ime v2 cjk jp ok with real input before and after the greeter"
+    started: 2026-11-03
+    done: 2026-11-03
+    evidence: "board cycle 81 (2026-11-03T10-38-18): SELFTEST: ime v2 cjk jp ok + candidates ok after an early mouse move; host test surface_focus_without_a_field_still_composes_and_echoes"
   - id: P9
     story: "after a restart each app shows its last pixels until it presents again"
     state: planned
@@ -120,6 +126,10 @@ phases:
     story: "the module-size ratchet holds the files this package shrank at their new size"
     state: planned
     gate: "config/loc-baseline.txt lowered for every file below its entry (window_scene.rs 654 -> 356, inputd os_lite.rs 712 -> 639); just structure-gate green"
+  - id: P17
+    story: "a chord or capture key is a discrete event on the key channel, never a one-shot fact riding the sampled visible state (the pattern every input stack keeps: samples coalesce, edges never)"
+    state: planned
+    gate: "host: a chord between two identical samples drained in one frame is applied once; inputd's VisibleState has no wm_chord/capture fields; usb-visible green"
 ---
 
 # TASK-0348 — Zero-copy surfaces, a compositor without fixed tables, and its restart

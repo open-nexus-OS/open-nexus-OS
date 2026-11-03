@@ -52,6 +52,28 @@ fn test_reject_surface_focus_without_a_field_never_delivers_text() {
     assert!(key(&mut core, wire::KEY_KIND_TEXT, u32::from('a'), 0).is_some());
 }
 
+/// TASK-0348 P8: with a window focus and no field the step still composes and ECHOES — the osk
+/// probe's `nn` + Enter reads ん whatever window the pointer woke before it ran (the board's
+/// cycle 80) — while delivery and learning stay off.
+#[test]
+fn surface_focus_without_a_field_still_composes_and_echoes() {
+    let mut core = ImedCore::new();
+    core.set_focus(9, true, wire::FIELD_KIND_NONE);
+    core.set_layout("jp");
+    for ch in "nn".chars() {
+        let (pushes, _) = core.key(wire::KEY_KIND_TEXT, u32::from(ch), 0);
+        assert_eq!(pushes, None, "nothing delivered to a window without a field");
+    }
+    let (pushes, echo) = core.key(wire::KEY_KIND_ACTION, 0, wire::ACTION_ENTER);
+    assert_eq!(pushes, None);
+    assert_eq!(echo.commit.as_str(), "ん", "the probe echo sees the step");
+    assert_eq!(core.learned_count(), 0, "no learning without a field");
+    // A plain key echoes itself the same way.
+    core.set_layout("de");
+    let (pushes, echo) = core.key(wire::KEY_KIND_TEXT, u32::from('a'), 0);
+    assert_eq!((pushes, echo.commit.as_str()), (None, "a"));
+}
+
 #[test]
 fn plain_text_commits_directly() {
     let mut core = focused();

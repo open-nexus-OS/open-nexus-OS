@@ -50,8 +50,9 @@ pub enum Heard {
     Refused(u8),
     /// An interface attached.
     Attached(UsbDevice),
-    /// A drain's reports of an interface: how many the parser took and refused.
-    Reports { device: UsbDevice, parsed: u8, refused: u8 },
+    /// A drain's reports of an interface: how many the parser took and refused, and — for a
+    /// keyboard — the modifier bits its reports carried (a mask, never a key: RFC-0113 §6).
+    Reports { device: UsbDevice, parsed: u8, refused: u8, modifiers: u8 },
     /// An interface went away; what it held was released.
     Detached(UsbDevice),
 }
@@ -134,7 +135,7 @@ impl UsbHid {
                 let reports = wire::reports(count, list).ok_or(Rejected::Malformed)?;
                 let device = self.find(attachment).ok_or(Rejected::UnknownDevice)?;
                 self.events.clear();
-                let (mut parsed, mut refused) = (0u8, 0u8);
+                let (mut parsed, mut refused, mut modifiers) = (0u8, 0u8, 0u8);
                 for report in reports {
                     match self.table.ingest_report_into(
                         device.device,
@@ -142,12 +143,19 @@ impl UsbHid {
                         report,
                         &mut self.events,
                     ) {
-                        Ok(_) => parsed = parsed.saturating_add(1),
+                        Ok(_) => {
+                            parsed = parsed.saturating_add(1);
+                            // A boot keyboard report's first byte is its modifier mask — the
+                            // keyboard witness line's bits (TASK-0348 P7), never a key.
+                            if matches!(device.kind, HidDeviceKind::Keyboard) {
+                                modifiers |= report.first().copied().unwrap_or(0);
+                            }
+                        }
                         Err(_) => refused = refused.saturating_add(1),
                     }
                 }
                 emit.emit(&frame_of(&device), u16::from(count), &self.events);
-                Ok(Heard::Reports { device, parsed, refused })
+                Ok(Heard::Reports { device, parsed, refused, modifiers })
             }
             wire::OP_DEVICE_DETACHED => {
                 let attachment = wire::decode_detached(frame).ok_or(Rejected::Malformed)?;

@@ -55,6 +55,9 @@ impl Contract for InputdContract {
             bus.emit_marker(id, "inputd: cursor move computed");
             bus.emit_marker(id, "inputd: windowd visible-state pushed");
             bus.emit_marker(id, "inputd: chain I5 delivered to windowd");
+            // Chord chain hops K2/K3 (TASK-0348 P7), string-identical to os_lite.rs.
+            bus.emit_marker(id, "inputd: chain K2 chord recognized");
+            bus.emit_marker(id, "inputd: chain K3 chord pushed to windowd");
         }
 
         bus.emit_marker(id, "inputd: ready");
