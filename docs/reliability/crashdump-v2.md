@@ -5,7 +5,7 @@ role: spec
 subsystem: observability
 sources: [userspace/crash/nxcd, userspace/crash/src, tools/nxsym, source/services/execd/src/crash_os.rs, source/services/execd/src/crash_store.rs, tools/nx/src/commands/crash.rs]
 contracts: [RFC-0031, RFC-0009, ADR-0056, ADR-0043]
-verified: 2026-11-02
+verified: 2026-11-03
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->

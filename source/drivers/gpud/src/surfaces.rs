@@ -146,6 +146,12 @@ impl Surfaces {
         self.bytes().saturating_add(len as u64) <= ceiling
     }
 
+    /// Whether one more object of `len` bytes keeps `owner`'s objects within its `budget`
+    /// (TASK-0352 P3): the limit per app, judged by the app's kernel id.
+    pub(crate) fn admits_more_for(&self, owner: u64, len: usize, budget: u64) -> bool {
+        self.owned_by(owner).saturating_add(len as u64) <= budget
+    }
+
     /// An id never 0 and never a live object's.
     fn fresh_id(&mut self) -> u32 {
         loop {
@@ -451,6 +457,22 @@ mod tests {
         assert_eq!(t.remove(a).map(|s| s.vmo), Some(10));
         assert_eq!(t.owned_by(OWNER), 0);
         assert!(t.remove(a).is_none(), "once");
+    }
+
+    /// TASK-0352 P3 (ADR-0093): an owner at its budget is refused by its own objects alone —
+    /// another owner with room still fits, and the refused owner's freed object makes room.
+    #[test]
+    fn test_reject_an_owner_past_its_budget_while_another_owner_fits() {
+        let g = Geometry::for_request(&request(640, 480));
+        let mut t = Surfaces::new();
+        let budget = 2 * g.len() as u64;
+        let a = t.insert(OWNER, 10, g).expect("a");
+        t.insert(OWNER, 11, g).expect("b");
+        assert!(!t.admits_more_for(OWNER, g.len(), budget), "a third of this owner's: past it");
+        assert!(t.admits_more_for(OWNER + 1, g.len(), budget), "another owner's first fits");
+        assert!(t.admits_more(g.len(), u64::MAX), "the ceiling is not what refused");
+        assert_eq!(t.remove(a).map(|s| s.vmo), Some(10));
+        assert!(t.admits_more_for(OWNER, g.len(), budget), "room again");
     }
 
     #[test]

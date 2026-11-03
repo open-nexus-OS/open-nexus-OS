@@ -37,7 +37,7 @@ verified: 2026-11-03
 |---|---|---|---|
 | 1 | `bringup` | 578 | board.toml, bringup.toml, ota.toml, ui.toml, usb.toml |
 | 2 | `ipc_kernel` | 27 | ipc_kernel.toml |
-| 3 | `mmio` | 15 | mmio.toml |
+| 3 | `mmio` | 17 | mmio.toml |
 | 4 | `routing` | 53 | routing.toml |
 | 5 | `ota` | 73 | ota.toml |
 | 6 | `policy` | 54 | policy.toml |
@@ -46,9 +46,9 @@ verified: 2026-11-03
 | 9 | `vfs` | 29 | vfs.toml |
 | 10 | `net` | 80 | net.toml |
 | 11 | `remote` | 21 | remote.toml |
-| 12 | `end` | 182 | board.toml, end.toml, ui.toml, usb.toml |
+| 12 | `end` | 188 | board.toml, end.toml, ui.toml, usb.toml |
 
-1239 markers in 15 files.
+1247 markers in 15 files.
 <!-- /gen:markers -->
 
 ## Declaring a marker

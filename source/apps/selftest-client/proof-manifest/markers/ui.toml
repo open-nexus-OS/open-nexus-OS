@@ -32,7 +32,7 @@ proves = "gpud charged a client with the GPU memory it holds for it (bytes=) and
 
 [marker."memd: gpu charge (client="]
 phase = "bringup"
-proves = "the memory authority took gpud's charge for the named client (total= every client's together)"
+proves = "the memory authority took gpud's charge for the named client (total= every client's together; processes= the app's banded instances the charge is for, TASK-0352 P2)"
 
 [marker."windowd: display mode from gpud ("]
 phase = "bringup"
@@ -682,6 +682,12 @@ proves = "the lifecycle authority froze a hidden app's process through its paren
 [marker."abilitymgr: launch (app=settings"]
 phase = "end"
 proves = "the lifecycle authority launched the settings app (a fresh instance)"
+
+# TASK-0352 P0 (ADR-0093): the instance table's bound, hit and named — the many-apps lane's
+# measurement of today's ceiling; P1 makes the table grow and forbids this line.
+[marker."abilitymgr: launch refused (app="]
+phase = "end"
+proves = "the lifecycle authority refused a launch by name because its instance table was full"
 
 [marker."apphost: text focus set"]
 phase = "end"

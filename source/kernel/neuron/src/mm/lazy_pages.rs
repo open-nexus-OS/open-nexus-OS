@@ -12,7 +12,9 @@
 //! stage (6f-2, ADR-0088): SWAPPED — the record left for the pager's disk in two phases (an export
 //! keeps the page a record, the pager's commit makes it swapped; a touch between cancels the
 //! export), the slot and the seal's counter in the swap map (`lazy_swap.rs`). Split out of
-//! `lazy.rs` (the rules) with the store beside it (`lazy_store.rs`).
+//! `lazy.rs` (the rules) with the store beside it (`lazy_store.rs`). The words are sparse
+//! (TASK-0352 P6, ADR-0093, `lazy_words.rs`): a chunk of them exists once a page in it holds
+//! something, so reserving an object costs its chunk table and nothing per page.
 //!
 //! NOT target-gated (a child of `lazy`).
 //!
@@ -32,6 +34,7 @@ use alloc::vec::Vec;
 
 use super::store::{PageMemory, Released, Spare, Store, StoreError};
 use super::swap::{SwapEntry, SwapError, SwapPages};
+use super::words::Words;
 use super::PAGE;
 
 /// A page's word: never touched (or purged, or dropped as zeroes).
@@ -67,6 +70,9 @@ pub enum CommitError {
     Swapped,
     /// The page lies past the object's end, or the frame does not fit the table's word.
     OutOfRange,
+    /// The page's chunk of the map does not exist yet and the kernel heap above its reserve
+    /// refuses it (ADR-0093, ADR-0091): the toucher hears `ENOMEM`.
+    NoHeap,
 }
 
 /// Why a swap step was refused.
@@ -102,7 +108,7 @@ pub enum SqueezeError {
 /// The pages of a lazy object: one word per 4 KiB page, and the store of its squeezed ones.
 #[derive(Debug)]
 pub struct LazyPages {
-    words: Vec<u32>,
+    words: Words,
     committed: usize,
     squeezed: usize,
     /// The records of the squeezed pages, made at the first squeeze, gone with the last record.
@@ -130,18 +136,13 @@ fn frame_word(pa: u64) -> Option<u32> {
 }
 
 impl LazyPages {
-    /// `pages` pages, none committed — `None` when the kernel heap cannot hold their words above
-    /// its reserve (ADR-0091): the caller sized the object, so the caller hears `ENOMEM`; the
-    /// kernel never panics over it.
+    /// `pages` pages, none committed — `None` when the kernel heap cannot hold the map's chunk
+    /// table above its reserve (ADR-0091): the caller sized the object, so the caller hears
+    /// `ENOMEM`; the kernel never panics over it. The words themselves cost nothing until a page
+    /// is touched (ADR-0093).
     #[must_use]
     pub fn try_new(pages: usize) -> Option<Self> {
-        let bytes = pages.checked_mul(core::mem::size_of::<u32>())?;
-        if !crate::kheap::admits(bytes) {
-            return None;
-        }
-        let mut words = Vec::new();
-        words.try_reserve_exact(pages).ok()?;
-        words.resize(pages, NONE);
+        let words = Words::try_new(pages, NONE)?;
         Some(Self { words, committed: 0, squeezed: 0, store: None, swap: SwapPages::new() })
     }
 
@@ -170,10 +171,16 @@ impl LazyPages {
         self.squeezed
     }
 
+    /// Kernel heap bytes the page map holds (ADR-0093): its chunk table and the chunks touched.
+    #[must_use]
+    pub fn heap_bytes(&self) -> usize {
+        self.words.heap_bytes()
+    }
+
     /// What page `index` holds, `None` past the end.
     #[must_use]
     pub fn state(&self, index: usize) -> Option<PageState> {
-        self.words.get(index).copied().map(decode)
+        self.words.get(index).map(decode)
     }
 
     /// The physical address of page `index`'s frame, when committed.
@@ -189,14 +196,14 @@ impl LazyPages {
     /// with the frame the page already has, a commit over a record with `Squeezed`.
     pub fn commit(&mut self, index: usize, pa: u64) -> Result<(), CommitError> {
         let word = frame_word(pa).ok_or(CommitError::OutOfRange)?;
-        let entry = self.words.get_mut(index).ok_or(CommitError::OutOfRange)?;
-        match decode(*entry) {
+        match self.state(index).ok_or(CommitError::OutOfRange)? {
             PageState::Absent => {}
             PageState::Frame(existing) => return Err(CommitError::Committed(existing)),
             PageState::Record(_) => return Err(CommitError::Squeezed),
             PageState::Swapped => return Err(CommitError::Swapped),
         }
-        *entry = word;
+        // The page's chunk may not exist yet (ADR-0093): its heap is the toucher's to be refused.
+        self.words.set(index, word).map_err(|_| CommitError::NoHeap)?;
         self.committed += 1;
         Ok(())
     }
@@ -204,15 +211,16 @@ impl LazyPages {
     /// Pages committed in `[first, first + count)`.
     #[must_use]
     pub fn committed_in(&self, first: usize, count: usize) -> usize {
-        let end = first.saturating_add(count).min(self.words.len());
+        let end = first.saturating_add(count);
         self.words
-            .get(first..end)
-            .map_or(0, |s| s.iter().filter(|&&w| matches!(decode(w), PageState::Frame(_))).count())
+            .iter()
+            .filter(|&(i, w)| i >= first && i < end && matches!(decode(w), PageState::Frame(_)))
+            .count()
     }
 
     /// Every committed frame, in page order (the object's death frees them).
     pub fn frames(&self) -> impl Iterator<Item = u64> + '_ {
-        self.words.iter().filter_map(|&w| match decode(w) {
+        self.words.iter().filter_map(|(_, w)| match decode(w) {
             PageState::Frame(pa) => Some(pa),
             _ => None,
         })
@@ -235,9 +243,7 @@ impl LazyPages {
     pub fn purge(&mut self) -> Vec<u64> {
         let mut frames: Vec<u64> = self.frames().collect();
         frames.extend(self.store_frames());
-        for word in self.words.iter_mut() {
-            *word = NONE;
-        }
+        self.words.clear();
         self.committed = 0;
         self.squeezed = 0;
         self.store = None;
@@ -297,7 +303,7 @@ impl LazyPages {
             self.store = None;
         }
         self.swap.commit(page, ctr, slot).map_err(SwapStateError::Swap)?;
-        self.words[index] = SWAPPED;
+        self.words.replace(index, SWAPPED);
         self.squeezed -= 1;
         Ok(released)
     }
@@ -318,7 +324,7 @@ impl LazyPages {
             return Err(SwapStateError::NotSwapped);
         }
         self.swap.remove(entry.index);
-        self.words[index] = word;
+        self.words.replace(index, word);
         self.committed += 1;
         Ok(())
     }
@@ -343,7 +349,7 @@ impl LazyPages {
             self.store = None;
         }
         let slot = placed.map_err(SqueezeError::Store)?;
-        self.words[index] = RECORD | slot;
+        self.words.replace(index, RECORD | slot);
         self.committed -= 1;
         self.squeezed += 1;
         Ok(pa)
@@ -356,7 +362,7 @@ impl LazyPages {
             PageState::Frame(pa) => pa,
             _ => return Err(SqueezeError::NotCommitted),
         };
-        self.words[index] = NONE;
+        self.words.replace(index, NONE);
         self.committed -= 1;
         Ok(pa)
     }
@@ -396,7 +402,7 @@ impl LazyPages {
         if store.records() == 0 {
             self.store = None;
         }
-        self.words[index] = word;
+        self.words.replace(index, word);
         self.squeezed -= 1;
         self.committed += 1;
         // A touch cancels an export the pager has not committed yet (ADR-0088).

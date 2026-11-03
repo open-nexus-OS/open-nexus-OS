@@ -5,7 +5,7 @@ role: reference
 subsystem: devx
 sources: [source/services/policyd, source/services/keystored, source/apps/selftest-client/proof-manifest/markers/policy.toml, source/kernel/neuron/src/cap]
 contracts: [RFC-0005, RFC-0008, RFC-0075, RFC-0091]
-verified: 2026-11-02
+verified: 2026-11-03
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->

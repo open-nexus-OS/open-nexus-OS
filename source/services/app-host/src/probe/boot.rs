@@ -40,7 +40,7 @@ pub(super) fn resolve_payload() -> Option<&'static [u8]> {
     };
     if status != nexus_abi::status::CODE_OK
         || len == 0
-        || len as usize > PAYLOAD_MAX_LEN
+        || len as usize > nexus_abi::payload_vmo::MAX_LEN
         || len % 8 != 0
     {
         raw_marker("APPHOST: FAIL payload (header status)");

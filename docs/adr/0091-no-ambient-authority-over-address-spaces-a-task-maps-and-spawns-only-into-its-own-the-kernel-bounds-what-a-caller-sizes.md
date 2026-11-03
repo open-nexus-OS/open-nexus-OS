@@ -3,7 +3,7 @@
 
 # ADR-0091: No ambient authority over address spaces — a task maps and spawns only into its own space; the kernel bounds what a caller sizes
 
-- Status: Proposed (2026-10-31, TASK-0347 — found while mapping the kernel for the memory model; Accepted with its board cycle)
+- Status: Accepted (2026-11-02, board cycle 80: `KSELFTEST: ambient authority reject ok (` on the board and every QEMU ladder; proposed 2026-10-31 by TASK-0347, found while mapping the kernel for the memory model)
 - Date: 2026-10-31
 - Links:
   - Tasks: `tasks/TASK-0347-no-ambient-authority-over-address-spaces-and-no-kernel-panic-from-a-callers-size.md`

@@ -5,7 +5,7 @@ role: reference
 subsystem: devx
 sources: [config/rustfmt.toml, rust-toolchain.toml, justfile, tools/arch-check, config/loc-baseline.txt]
 contracts: [RFC-0009, ADR-0017, ADR-0051]
-verified: 2026-11-02
+verified: 2026-11-03
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->

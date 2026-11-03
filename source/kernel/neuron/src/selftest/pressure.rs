@@ -35,6 +35,11 @@ pub(super) use squeeze::run_squeeze_selftest;
 #[path = "swap.rs"]
 mod swap;
 pub(super) use swap::run_swap_selftest;
+// TASK-0352 P5–P7 (ADR-0093): the tables grow — heap arenas, the sparse page map, the region,
+// capability and endpoint tables past their old constants.
+#[path = "tables.rs"]
+mod tables;
+pub(super) use tables::run_tables_selftests;
 
 /// Bootstrap cap slot above the process-ctl selftest's (55).
 const SINK_SLOT: usize = 56;

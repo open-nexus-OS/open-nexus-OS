@@ -9,7 +9,6 @@ default = ["std"]
 std = ["dep:thiserror"]
 os-lite = [
     "dep:nexus-service-entry",
-    "dep:nexus-abi",
     "dep:nexus-ipc",
     "nexus-ipc/os-lite",
     "nexus-ipc/kernel-ipc",
@@ -21,7 +20,9 @@ stack_pages = 0
 [dependencies]
 thiserror = { version = "2", optional = true }
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
-nexus-abi = { path = "../../libs/nexus-abi", optional = true }
+# TASK-0352 P2: the app's kernel service id (`app:<id>`, `service_id_from_name`) is derived
+# host and OS alike — the band feed names each process's owner for memd.
+nexus-abi = { path = "../../libs/nexus-abi" }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
 # TASK-0324 P4f-1a: capability slots have one home.
 nexus-service-topology = { path = "../../libs/nexus-service-topology" }

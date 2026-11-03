@@ -46,6 +46,16 @@ pub const HEADER_LEN: usize = 16;
 /// Offset within the VMO where the payload bytes begin.
 pub const DATA_OFFSET: usize = HEADER_LEN;
 
+/// The most payload bytes a bundle may bring (TASK-0352 P8, ADR-0093). The object execd makes
+/// for a launch is LAZY and [`VMO_LEN`] long: reserving it costs nothing, the bundle's own pages
+/// are what the launch commits — so a payload is sized by its bundle, up to this bound, which
+/// the reader holds the header's length against before it reads a byte (a 512 KiB object was the
+/// cap before; the settings bundle filled 93% of it).
+pub const MAX_LEN: usize = 16 * 1024 * 1024;
+
+/// The payload object's length: the header, then up to [`MAX_LEN`] payload bytes.
+pub const VMO_LEN: usize = DATA_OFFSET + MAX_LEN;
+
 /// The all-zero header. Write this over a REUSED VMO's header before arming it
 /// again: without it, the previous operation's `OK` is still a valid release
 /// signal for the next one.
@@ -89,6 +99,15 @@ pub fn fits(payload_len: usize, vmo_capacity: usize) -> bool {
 mod tests {
     use super::*;
     use crate::status::{VfsError, CODE_OK};
+
+    /// TASK-0352 P8: the object execd reserves holds the bound exactly — a bundle of `MAX_LEN`
+    /// fits, one byte more is refused before any byte is written.
+    #[test]
+    fn test_reject_a_payload_past_the_bundle_bound() {
+        assert!(fits(MAX_LEN, VMO_LEN));
+        assert!(!fits(MAX_LEN + 1, VMO_LEN));
+        assert!(MAX_LEN > 512 * 1024, "the old cap is gone");
+    }
 
     #[test]
     fn golden_bytes() {

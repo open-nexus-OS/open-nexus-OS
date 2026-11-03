@@ -275,7 +275,7 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
             // RFC-0004: pointer provenance / user range guard.
             // `sys_vmo_write` must reject user pointers outside the Sv39 user range deterministically,
             // without attempting to touch them.
-            const USER_VADDR_LIMIT: usize = 0x8000_0000;
+            const USER_VADDR_LIMIT: usize = crate::mm::USER_VADDR_LIMIT;
             let bad_write = table.dispatch(
                 SYSCALL_VMO_WRITE,
                 &mut sys_ctx,
@@ -722,14 +722,14 @@ fn run_ipc_send_unblocks_after_recv_selftest(ctx: &mut Context<'_>) {
     }
 }
 
-fn run_ipc_endpoint_quota_selftest(ctx: &mut Context<'_>) {
-    let _ = ctx;
+fn run_ipc_endpoint_quota_selftest(_ctx: &mut Context<'_>) {
     // IMPORTANT: Do not consume the global router endpoints during boot; init-lite needs to create
-    // endpoints for services. Validate the quota using an isolated local router instance.
+    // endpoints for services. An isolated local router; the table itself grows (ADR-0093), so the
+    // quota proven is the per-owner valve: one owner's endpoints end in NoSpace, the table does not.
     let mut local = crate::ipc::Router::new(0);
     let mut created: usize = 0;
     loop {
-        match local.create_endpoint(1, None) {
+        match local.create_endpoint(1, Some(0x7777)) {
             Ok(_) => {
                 created += 1;
                 if created > 4096 {
@@ -1218,8 +1218,8 @@ fn run_resource_sentinel_selftest(_ctx: &mut Context<'_>) {
             }
         };
     }
-    if table.allocate(cap).is_ok() {
-        log_error!(target: "selftest", "KSELFTEST: resource sentinel FAIL: cap table overflow");
+    if table.allocate(cap) != Ok(8) {
+        log_error!(target: "selftest", "KSELFTEST: resource sentinel FAIL: cap table grows");
         return;
     }
     for slot in slots {

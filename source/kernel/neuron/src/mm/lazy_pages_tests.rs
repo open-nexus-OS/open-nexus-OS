@@ -247,3 +247,41 @@ fn a_purge_forgets_the_swapped_pages() {
     assert!(pages.purge().is_empty(), "no frame: the page was on the pager's disk");
     assert_eq!((pages.swapped(), pages.state(1)), (0, Some(PageState::Absent)));
 }
+
+/// ADR-0093 (TASK-0352 P6): reserving a 1 GiB object costs its chunk table, a touch one chunk,
+/// and a chunk whose last page emptied is gone.
+#[test]
+fn reserving_costs_the_chunk_table_and_a_touch_costs_one_chunk() {
+    let mut pages = LazyPages::new(1 << 18);
+    let table = pages.heap_bytes();
+    assert!(table <= 64 * 1024, "1 GiB reserved costs {table} bytes of heap");
+    assert_eq!((pages.pages(), pages.committed()), (1 << 18, 0));
+    pages.commit(5, 0x8000_0000).unwrap();
+    pages.commit(1000, 0x8000_1000).unwrap();
+    assert_eq!(pages.heap_bytes(), table + 4096, "two pages of one chunk: one chunk");
+    pages.commit(1 << 17, 0x8000_2000).unwrap();
+    assert_eq!(pages.heap_bytes(), table + 2 * 4096);
+    assert_eq!(pages.frames().collect::<Vec<_>>(), [0x8000_0000, 0x8000_1000, 0x8000_2000]);
+    assert_eq!((pages.committed_in(0, 1024), pages.committed_in(1024, 1 << 18)), (2, 1));
+    assert_eq!(pages.uncommit(5), Ok(0x8000_0000));
+    assert_eq!(pages.uncommit(1000), Ok(0x8000_1000));
+    assert_eq!(pages.heap_bytes(), table + 4096, "a chunk whose last page emptied is gone");
+    assert_eq!(pages.purge(), [0x8000_2000]);
+    assert_eq!(pages.heap_bytes(), table);
+}
+
+/// A new chunk needs the heap above its reserve: while the pool refuses, a touch into a missing
+/// chunk is `NoHeap`, a touch into an existing one is not, and no object is reserved.
+#[test]
+fn test_reject_a_touch_while_the_pool_refuses() {
+    let mut pages = LazyPages::new(2048);
+    pages.commit(0, 0x8000_0000).unwrap();
+    let refuses = crate::kheap::refusal::PoolRefuses::new();
+    assert_eq!(pages.commit(1500, 0x8000_1000), Err(CommitError::NoHeap));
+    assert_eq!(pages.state(1500), Some(PageState::Absent), "a refused commit leaves no trace");
+    pages.commit(1, 0x8000_2000).unwrap();
+    assert!(LazyPages::try_new(8).is_none(), "the chunk table needs the pool");
+    drop(refuses);
+    pages.commit(1500, 0x8000_1000).unwrap();
+    assert_eq!(pages.committed(), 3);
+}

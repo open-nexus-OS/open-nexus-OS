@@ -5,7 +5,7 @@ role: reference
 subsystem: ui
 sources: [userspace/nexus-gfx/src, userspace/nexus-gfx/tests, tools/nxgpu]
 contracts: [RFC-0059, RFC-0067, RFC-0101, ADR-0072]
-verified: 2026-11-02
+verified: 2026-11-03
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->

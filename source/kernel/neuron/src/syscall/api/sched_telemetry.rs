@@ -115,6 +115,18 @@ pub(super) fn sched_telemetry_op(
             crate::mm::populate::filled()
         );
         log_top_spaces(spaces, tasks);
+        // TASK-0352 P0 (ADR-0093): the kernel heap at the same fence — the one table the frame
+        // record does not show, measured before it grows.
+        let (used, free) = (crate::kheap::used_bytes(), crate::kheap::free_bytes());
+        log_info!(
+            target: "mm",
+            "KINIT: kheap (size={} used={} free={} reserve={} arenas={})",
+            used + free,
+            used,
+            free,
+            crate::kheap::RESERVE,
+            crate::kheap::arena_count()
+        );
         // TASK-0333 6e-0 (ADR-0085, RFC-0100 §3): the watermarks of the booted pool — fractions
         // of each bank's boot-time free frames, floored, in order and below the total — and the
         // level the free frames mean now. The same code prints different absolutes per machine.
@@ -153,7 +165,7 @@ pub(super) fn sched_telemetry_op(
             // `Message` bigger to make most messages allocation-free, and a `Message` is moved on
             // every send, push, pop and error return — so whether the tier PAYS has to be a
             // number, not an argument. Nothing else prints this; only the OOM handler read it.
-            let kheap_used = crate::heap_used_bytes();
+            let kheap_used = crate::kheap::used_bytes();
             // TASK-0054C P4c-2: `handoff_hit` is GONE from this line rather than printed as a
             // hardcoded 0 — a field that cannot be non-zero is not telemetry, it is decoration.
             // What replaces it is the cost of the thing D3 would remove: mean/max ticks in the

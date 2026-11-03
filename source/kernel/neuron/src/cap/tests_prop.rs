@@ -101,3 +101,38 @@ proptest! {
         }
     }
 }
+
+/// TASK-0352 P7 (ADR-0093): the 257th capability lands in slot 256 — the table doubled — and a
+/// task's own object after that lands at the new top.
+#[test]
+fn a_full_table_grows_and_the_slots_keep_their_ends() {
+    let mut table = CapTable::new();
+    let cap = Capability { kind: CapabilityKind::EndpointFactory, rights: Rights::MANAGE };
+    for expected in 0..256 {
+        assert_eq!(table.allocate(cap), Ok(expected));
+    }
+    assert_eq!(table.capacity(), 256);
+    assert_eq!(table.allocate(cap), Ok(256), "the 257th grows the table");
+    assert_eq!(table.capacity(), 512);
+    assert_eq!(table.allocate_high(cap), Ok(511), "the task's own object lands at the new top");
+    assert_eq!(table.get(255).map(|c| c.rights), Ok(Rights::MANAGE), "the old slots are kept");
+    let mut small = CapTable::with_capacity(2);
+    assert_eq!((small.allocate_high(cap), small.allocate_high(cap)), (Ok(1), Ok(0)));
+    assert_eq!(small.allocate_high(cap), Ok(9), "2 + at least 8: the new top");
+}
+
+/// While the pool refuses, a full table stays full: `NoSpace`, and nothing is half grown.
+#[test]
+fn test_reject_a_growth_while_the_pool_refuses() {
+    let mut table = CapTable::with_capacity(4);
+    let cap = Capability { kind: CapabilityKind::EndpointFactory, rights: Rights::MANAGE };
+    for _ in 0..4 {
+        table.allocate(cap).unwrap();
+    }
+    let refuses = crate::kheap::refusal::PoolRefuses::new();
+    assert_eq!(table.allocate(cap), Err(CapError::NoSpace));
+    assert_eq!(table.allocate_high(cap), Err(CapError::NoSpace));
+    assert_eq!(table.capacity(), 4, "no half growth");
+    drop(refuses);
+    assert_eq!(table.allocate(cap), Ok(4));
+}

@@ -451,6 +451,19 @@ fn emit_event(event: &Event) {
                 .put(b")")
                 .emit();
         }
+        // TASK-0352 P1/P3 (ADR-0093): the app has its limit of instances — the refusal names the
+        // app, its instances and its limit; the other apps keep running (the lane counts this).
+        Event::LaunchRefused { app_id, instances, limit } => {
+            DebugLine::new()
+                .put(b"abilitymgr: launch refused (app=")
+                .str(app_id)
+                .put(b", instances=")
+                .u64(*instances as u64)
+                .put(b" limit=")
+                .u64(*limit as u64)
+                .put(b")")
+                .emit();
+        }
         Event::Transitioned { instance_id, to } => match to {
             AbilityState::Foreground => emit_inst_line(b"abilitymgr: fg (inst=", *instance_id),
             AbilityState::Background => emit_inst_line(b"abilitymgr: bg (inst=", *instance_id),

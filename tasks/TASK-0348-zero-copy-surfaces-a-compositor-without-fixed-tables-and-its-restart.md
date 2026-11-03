@@ -75,10 +75,11 @@ phases:
     evidence: build/logs/many-windows--2026-11-02T15-57-26
   - id: P6
     story: "the compositor restarts under twelve windows and every app rejoins"
-    state: proving
+    state: done
     gate: "QEMU: execd: compositor back (apps=13 owed=0 failed=0); board: the restart chord reaches windowd"
     started: 2026-11-02
-    evidence: build/logs/many-windows--2026-11-02T15-57-26
+    done: 2026-11-03
+    evidence: "2026-11-03 QEMU many-windows: execd: compositor back (apps=13 owed=0 failed=0) on every restart; board Z82b: three windowd: restart requested (chord) each followed by init: service restarted name=windowd and the desktop revealed"
     note: "QEMU proven; board cycle 80 ran the package, the restart chord did not reach windowd"
   - id: P7
     story: "the board's Super+Ctrl chords reach windowd: tile, restore, restart"

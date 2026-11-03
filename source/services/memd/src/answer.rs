@@ -32,7 +32,9 @@ pub enum Outcome {
     DrillDenied,
     /// gpud charged `client` with `bytes` of GPU memory (6e-4); `total` is every client's
     /// together, `None` when the table had no row for a ninth client.
-    GpuCharge { client: u64, bytes: u64, total: Option<u64> },
+    /// `processes`: the banded processes of that client (an app's instances, by the owner the
+    /// lifecycle authority pushes — TASK-0352 P2); the compositor has none.
+    GpuCharge { client: u64, bytes: u64, total: Option<u64>, processes: usize },
     /// A GPU charge from anyone but the GPU driver was dropped.
     GpuChargeDenied,
     /// The frame did not decode, or named a level this build does not know.
@@ -98,10 +100,10 @@ impl Memd {
                 if sender == 0 || sender != self.peers.abilitymgr {
                     return (0, Outcome::BandDenied);
                 }
-                let Some((pid, band)) = wire::decode_band(frame) else {
+                let Some((pid, band, owner)) = wire::decode_band(frame) else {
                     return (0, Outcome::Malformed);
                 };
-                (0, Outcome::Band(self.authority.on_band(pid, band)))
+                (0, Outcome::Band(self.authority.on_band(pid, band, owner)))
             }
             wire::OP_GPU_CHARGE => {
                 if sender == 0 || sender != self.peers.gpud {
@@ -111,7 +113,8 @@ impl Memd {
                     return (0, Outcome::Malformed);
                 };
                 let total = self.gpu.set(client, bytes).ok();
-                (0, Outcome::GpuCharge { client, bytes, total })
+                let processes = self.authority.table().processes_of(client);
+                (0, Outcome::GpuCharge { client, bytes, total, processes })
             }
             wire::OP_STATUS => {
                 if wire::decode_status(frame).is_none() {

@@ -18,9 +18,10 @@
 pub(crate) const CEILING_OF_RAM: (u64, u64) = (2, 3);
 /// The surfaces' reservation: this fraction of RAM.
 pub(crate) const SURFACES_OF_RAM: (u64, u64) = (1, 8);
-/// The most display planes a surface object spans: a lazy object's page table in the kernel is
-/// flat, four bytes a page (1 MiB at 128 planes, of an 8 MiB kernel heap) — a two-level table
-/// lifts this; and the GPU's window for the object holds it (`backend/gpu/desktop.rs`).
+/// The most display planes a surface object spans: the GPU's window for the object holds it
+/// (`backend/gpu/desktop.rs`) and the grant's 32-bit length does. (The kernel's page map of a
+/// lazy object was the other bound — four bytes a page, flat — until TASK-0352 P6 made it sparse;
+/// TASK-0351 P2 lifts this with the bindings.)
 pub(crate) const MAX_SURFACE_PLANES: u32 = 128;
 
 /// What a machine gives the GPU.
@@ -36,6 +37,14 @@ pub(crate) struct GpuShare {
 /// The GPU's ceiling on a machine of `ram` bytes.
 pub(crate) fn ceiling_of(ram: u64) -> u64 {
     ram.saturating_mul(CEILING_OF_RAM.0) / CEILING_OF_RAM.1
+}
+
+/// One owner's budget for surface objects on a machine of `ram` bytes (TASK-0352 P3, ADR-0093):
+/// the ceiling less the compositor's surface reservation. One app may hold every window the GPU
+/// can hold — but never the compositor's eighth; past its budget the app is refused by name, and
+/// the compositor and every other owner keep what they hold.
+pub(crate) fn owner_budget_of(ram: u64) -> u64 {
+    ceiling_of(ram).saturating_sub(ram.saturating_mul(SURFACES_OF_RAM.0) / SURFACES_OF_RAM.1)
 }
 
 impl GpuShare {
@@ -138,6 +147,17 @@ mod tests {
         let share = GpuShare::of_ram(64 << 30, PLANE, BOUNDS);
         assert_eq!(share.surface_planes, MAX_SURFACE_PLANES);
         assert!(u64::from(MAX_SURFACE_PLANES) * PLANE <= u64::from(u32::MAX));
+    }
+
+    /// An owner's budget is the ceiling less the compositor's eighth (TASK-0352 P3): on the 1 GiB
+    /// lane 40 windows of one app (504 MB measured) fit, and the compositor's reservation is
+    /// never one app's to take.
+    #[test]
+    fn an_owner_s_budget_leaves_the_compositor_s_eighth() {
+        let ram = 1u64 << 30;
+        assert_eq!(owner_budget_of(ram), ram * 2 / 3 - ram / 8);
+        assert!(owner_budget_of(ram) > 503_808_000);
+        assert_eq!(owner_budget_of(0), 0);
     }
 
     /// What the GPU holds stays under its ceiling: a buffer that would pass it is refused and

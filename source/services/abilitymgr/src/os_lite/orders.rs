@@ -84,7 +84,7 @@ impl Lifecycle {
 
     /// Pushes every band that differs from what memd last heard (TASK-0333 6e-2): NONBLOCK on
     /// the declared leg, committed only when the send was taken — memd not yet up or a full
-    /// queue leaves the band due for the next pass. Cheap: at most 32 instances.
+    /// queue leaves the band due for the next pass. Cheap: one pass over the instances.
     pub(super) fn publish_bands(&mut self, broker: &Broker) {
         let due = self.bands.changes(broker);
         if due.is_empty() {
@@ -94,10 +94,10 @@ impl Lifecycle {
             self.memd = KernelClient::new_with_slots(topo::MEMD.send, topo::MEMD.recv).ok();
         }
         let Some(client) = self.memd.as_ref() else { return };
-        for (pid, band) in due {
-            let frame = nexus_wire::memd::encode_band(pid, band);
+        for (pid, band, owner) in due {
+            let frame = nexus_wire::memd::encode_band(pid, band, owner);
             if client.send(&frame, Wait::NonBlocking).is_ok() {
-                self.bands.commit(pid, band);
+                self.bands.commit(pid, band, owner);
             }
         }
     }
@@ -207,7 +207,7 @@ impl Lifecycle {
             return;
         }
         let now = nexus_abi::nsec().unwrap_or(0);
-        match handle_seen(broker, frame, now, app_sid) {
+        match handle_seen(broker, frame, now, crate::bands::app_sid) {
             SeenOutcome::Malformed => emit_line("abilitymgr: seen malformed"),
             // A window of a process this service never launched (the shell's own surfaces are
             // not instances) — routine, not a fault; the compositor reports every app window.
@@ -325,17 +325,6 @@ fn order_execd_squeeze(pid: u32) -> Option<Squeezed> {
         }
         // An unrelated frame on the shared channel — keep waiting.
     }
-}
-
-/// The kernel service id execd gives an app's process (`app:<bundle_id>`, execd's `identity`):
-/// the key the compositor reports a window by.
-fn app_sid(app_id: &str) -> u64 {
-    let mut name = [0u8; 64];
-    let app = app_id.as_bytes();
-    let n = app.len().min(name.len() - 4);
-    name[..4].copy_from_slice(b"app:");
-    name[4..4 + n].copy_from_slice(&app[..n]);
-    nexus_abi::service_id_from_name(&name[..4 + n])
 }
 
 /// One order to execd on the declared leg, answered on execd's response endpoint — the spawn

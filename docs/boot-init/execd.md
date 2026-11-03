@@ -5,7 +5,7 @@ role: guide
 subsystem: app-platform
 sources: [source/services/execd, source/kernel/neuron/src/syscall/api/exec.rs, source/libs/nexus-wire/src/execd.rs]
 contracts: [ADR-0080, ADR-0081, ADR-0091, ADR-0073, RFC-0081, RFC-0111]
-verified: 2026-11-02
+verified: 2026-11-03
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -76,8 +76,9 @@ Order gate: `src/orders.rs` (host-tested, `test_reject_*`). Shared codec:
 1. Bound and decode the frame; reject malformed.
 2. Requester name must hash to the kernel `sender_service_id` (`execd: spawn denied (id mismatch)`).
 3. Exec check through init's control channel → policyd (`execd: spawn denied (policy)`).
-4. App-host only: fetch the app's permission grants (RFC-0111 §6), then arm a payload VMO at
-   bundlemgrd (`GET_PAYLOAD`).
+4. App-host only: fetch the app's permission grants (RFC-0111 §6), then arm a payload object at
+   bundlemgrd (`GET_PAYLOAD`): a lazy VMO of `nexus_wire::payload_vmo::VMO_LEN` (a 16 MiB bound,
+   ADR-0093) — the bundle's own pages are what the launch commits.
 5. `exec_vmo(image, stack, 0, name, killable=true)`; an app runs as `app:<bundle_id>`
    (RFC-0086 identity).
 6. Grants before resume: windowd route, payload VMO, event channel (execd keeps its SEND half),

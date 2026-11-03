@@ -5,7 +5,7 @@ role: reference
 subsystem: devx
 sources: [source/apps/selftest-client/proof-manifest, source/libs/nexus-proof-manifest, source/apps/selftest-client/build.rs, source/apps/selftest-client/src/os_lite/profile.rs, tools/qmp_scenario.py]
 contracts: [RFC-0038, RFC-0014, ADR-0027, ADR-0089]
-verified: 2026-11-02
+verified: 2026-11-03
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->

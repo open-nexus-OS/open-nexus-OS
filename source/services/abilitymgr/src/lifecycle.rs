@@ -69,7 +69,8 @@ pub enum LifecycleError {
     UnknownInstance,
     /// The requested transition is not allowed from the current state.
     InvalidTransition { from: AbilityState, to: AbilityState },
-    /// The instance table is at `MAX_INSTANCES`.
+    /// The app has `instances_per_app` instances already (TASK-0352 P1/P3, ADR-0093): the limit is
+    /// the app's, never the table's — the table grows with the apps.
     TooManyInstances,
 }
 
@@ -105,8 +106,11 @@ pub struct AbilityInstance {
     pub kept_for_launch: bool,
 }
 
-/// Maximum concurrently-tracked instances (bounded resource).
-pub const MAX_INSTANCES: usize = 32;
+/// Instances one app may have alive at once unless its manifest says less (TASK-0352 P1/P3,
+/// ADR-0093): a limit per app, refused by the app's name — the instance table itself has no
+/// constant (32 did, until the 33rd app). A runaway launch loop stops here; a desktop of forty
+/// windows of one app does not.
+pub const DEFAULT_INSTANCES_PER_APP: usize = 64;
 /// Maximum recents entries retained (MRU window).
 pub const MAX_RECENTS: usize = 16;
 
@@ -168,7 +172,7 @@ impl Broker {
         launch_ability: &str,
         granted_caps: &[&str],
     ) -> Result<u32, LifecycleError> {
-        if self.instances.len() >= MAX_INSTANCES {
+        if self.instances_of(app_id) >= Self::instances_per_app(app_id) {
             return Err(LifecycleError::TooManyInstances);
         }
         let id = self.next_id;
@@ -230,6 +234,19 @@ impl Broker {
         self.instances.values()
     }
 
+    /// Instances of `app_id` the table holds (every state until reaped).
+    pub fn instances_of(&self, app_id: &str) -> usize {
+        self.instances.values().filter(|i| i.app_id == app_id).count()
+    }
+
+    /// The instances `app_id` may have alive at once (TASK-0352 P3): [`DEFAULT_INSTANCES_PER_APP`]
+    /// today for every app — a one-instance role is answered by its running instance before any
+    /// launch (RFC-0112, `live_instance_of`), so its limit never bites a restart. A limit the
+    /// manifest declares is the follow-up (`max_instances`, a schema field: an RFC seed first).
+    pub fn instances_per_app(_app_id: &str) -> usize {
+        DEFAULT_INSTANCES_PER_APP
+    }
+
     /// The running instance of `app_id` — spawned, not dying — a launch of a one-instance role
     /// answers (RFC-0112).
     pub fn live_instance_of(&self, app_id: &str) -> Option<u32> {
@@ -246,8 +263,8 @@ impl Broker {
 
     /// The process behind an instance died (TASK-0333 6a): the instance goes to `Stopped`
     /// and leaves the table and recents — a dead process holds no slot (the table was a
-    /// launch counter before: `MAX_INSTANCES` launches, then `STATUS_FULL` for good). Returns
-    /// the instance as it was, so the caller can name it.
+    /// launch counter before: 32 launches, then `STATUS_FULL` for good). Returns the instance
+    /// as it was, so the caller can name it.
     pub fn exited(&mut self, pid: u32) -> Result<AbilityInstance, LifecycleError> {
         let id = self
             .instance_by_pid(pid)

@@ -47,6 +47,20 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         }
         Err(()) => emit_line(crate::markers::M_SELFTEST_VM_COMMIT_ON_TOUCH_FAIL),
     }
+    // TASK-0352 P8 (ADR-0093): the runtime's one 64 MiB heap, lazily committed — 32 MiB
+    // allocated and touched by a client that declared no heap size costs the pool the pages
+    // touched.
+    match crate::os_lite::heap::heap_32m_probe() {
+        Ok(proof) => {
+            emit_bytes(crate::markers::M_SELFTEST_HEAP_32M_OK.as_bytes());
+            emit_bytes(b"bytes=");
+            emit_u64(proof.bytes);
+            emit_bytes(b" committed_pages=");
+            emit_u64(proof.committed_pages);
+            emit_line(")");
+        }
+        Err(()) => emit_line(crate::markers::M_SELFTEST_HEAP_32M_FAIL),
+    }
     // TASK-0327B P4 H0b: these two prove a DEVICE capability's contract; a boot that granted
     // the selftest-client no device (the board has no virtio-net) skips them and says so —
     // a `FAIL` would blame the kernel for a plane the tree does not have.

@@ -5,7 +5,7 @@ role: reference
 subsystem: security
 sources: [source/services/vfsd/src/sandbox.rs, source/services/vfsd/src/namespace.rs, userspace/nexus-vfs, source/services/execd/src/lib.rs]
 contracts: [RFC-0042]
-verified: 2026-11-02
+verified: 2026-11-03
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->

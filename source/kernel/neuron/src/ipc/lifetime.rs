@@ -80,6 +80,11 @@ impl Router {
         self.endpoints.iter().filter(|ep| ep.alive).count()
     }
 
+    /// Live endpoints `owner` owns (the per-owner valve's count).
+    pub(super) fn owned_alive(&self, owner: WaiterId) -> usize {
+        self.endpoints.iter().filter(|ep| ep.alive && ep.owner == Some(owner)).count()
+    }
+
     /// Every live endpoint owned by `owner`, appended to `out` (what its exit closes).
     pub fn owned_alive_ids(&self, owner: WaiterId, out: &mut Vec<EndpointId>) {
         for (id, ep) in self.endpoints.iter().enumerate() {
@@ -111,12 +116,8 @@ impl Router {
         if self.endpoints.get(id as usize).is_none_or(|ep| ep.alive) {
             return Err(IpcError::NoSuchEndpoint);
         }
-        if let Some(owner_pid) = owner {
-            let count =
-                self.endpoints.iter().filter(|ep| ep.alive && ep.owner == Some(owner_pid)).count();
-            if count >= super::MAX_ENDPOINTS_PER_OWNER {
-                return Err(IpcError::NoSpace);
-            }
+        if owner.is_some_and(|pid| self.owned_alive(pid) >= super::MAX_ENDPOINTS_PER_OWNER) {
+            return Err(IpcError::NoSpace);
         }
         self.endpoints[id as usize] = Endpoint::with_depth(depth.clamp(1, 256), owner);
         Ok(id)

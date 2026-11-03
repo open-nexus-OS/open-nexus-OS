@@ -222,14 +222,13 @@ pub(crate) fn vmo_create_reserve(
 }
 
 /// A refused create keeps its cause across the ABI (ADR-0091, as ADR-0054 for maps): a length
-/// no memory could back is `EINVAL`, no frame or no kernel heap for it is `ENOMEM`, a full
-/// object table is `ENOSPC`.
+/// no memory could back is `EINVAL`, no frame or no kernel heap for it — the object table's
+/// growth included (ADR-0093) — is `ENOMEM`.
 fn create_error(err: crate::mm::vmo::VmoError) -> Error {
     use crate::mm::vmo::VmoError;
     match err {
         VmoError::BadLength => AddressSpaceError::InvalidArgs.into(),
         VmoError::Exhausted | VmoError::HeapExhausted => AddressSpaceError::OutOfFrames.into(),
-        VmoError::TableFull => Error::Capability(CapError::NoSpace),
         _ => Error::Capability(CapError::PermissionDenied),
     }
 }
@@ -423,7 +422,7 @@ pub(super) fn sys_vmo_write(ctx: &mut Context<'_>, args: &Args) -> SysResult<usi
     Ok(typed.len)
 }
 
-pub(super) const USER_VADDR_LIMIT: usize = 0x8000_0000;
+pub(super) use crate::mm::USER_VADDR_LIMIT;
 
 pub(super) fn align_len(len: usize) -> Option<usize> {
     if len == 0 {

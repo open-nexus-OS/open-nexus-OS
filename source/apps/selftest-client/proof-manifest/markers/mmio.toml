@@ -26,6 +26,13 @@ proves = "TASK-0333 6b-1 (ADR-0077, RFC-0100 §2): a lazy VMO's mapping reserves
 [marker."SELFTEST: vm commit on touch FAIL"]
 phase = "mmio"
 
+[marker."SELFTEST: heap 32m ok ("]
+phase = "mmio"
+proves = "TASK-0352 P8 (ADR-0093): every service's heap is the runtime's one 64 MiB region, mapped lazily (ADR-0077) — this client, which declares no heap size, allocated 32 MiB (past every service's old ceiling), touched every page and gave it back; committed_pages is what the pool paid: the pages touched, within a tenth"
+
+[marker."SELFTEST: heap 32m FAIL"]
+phase = "mmio"
+
 [marker."SELFTEST: dma buffer ok ("]
 phase = "mmio"
 proves = "RFC-0098 C4 (TASK-0286 P4b): the device capability carries its coherence (device=coherent on QEMU virt) and the harts' Zicbom block; a DmaBuffer over a real DmaVmo follows that coherence through ToDevice and Bidirectional round trips with every byte intact — on a non-coherent device its cbo.clean/cbo.flush run under the device's right (ADR-0079), on a coherent one nothing is maintained; a VMO is refused as a device"

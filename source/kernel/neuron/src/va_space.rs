@@ -23,15 +23,19 @@
 //!   design (determinism golden sequence, first-fit reuse, phase-aligned
 //!   holes, exhaustion leaves state untouched, bounded fuzz invariant)
 //! INVARIANTS: regions pairwise disjoint, va-sorted, in-window for
-//!   kernel-chosen kinds; fixed capacity — a `vm_map` that cannot be
-//!   RECORDED is REFUSED (never map without a record); Fixed records that
-//!   do not fit are COUNTED, never silently forgotten.
+//!   kernel-chosen kinds; the table grows with its use, bounded by the pool
+//!   (ADR-0093) — a `vm_map` that cannot be RECORDED is REFUSED (never map
+//!   without a record); Fixed records that do not fit are COUNTED, never
+//!   silently forgotten.
 
-/// Regions tracked per address space. Post-migration worst case (gpud) is
-/// ~33: MMIO + 6 queue/pool windows + 8 2D resources + 12 virgl backings +
-/// framebuffer + ~5 exec-time Fixed records. 64 = 2x headroom, 2.5 KiB
-/// embedded per address space, no kernel-heap churn.
-pub const MAX_REGIONS: usize = 64;
+use alloc::vec::Vec;
+
+/// Records the table grows by at least, each time it is full (TASK-0352 P7,
+/// ADR-0093): doubling from here. A typical service tracks ~33 (gpud: MMIO +
+/// queue/pool windows + 2D resources + virgl backings + framebuffer + exec-time
+/// Fixed records); the kernel heap above its reserve bounds the rest, never a
+/// constant (64 did, until the 29th app).
+const GROWTH: usize = 16;
 
 const PAGE: usize = 4096;
 /// One page, exported for the tracked-map shell.
@@ -77,7 +81,8 @@ pub struct VaRegion {
 pub enum VaError {
     /// No hole of the requested size/alignment left in the window (ENOMEM).
     WindowExhausted,
-    /// The region table is full (ENOSPC). State is untouched.
+    /// The region table could not grow: the kernel heap above its reserve refused one more
+    /// record (ADR-0093; ENOSPC). State is untouched.
     TableFull,
     /// Unmap: nothing recorded at this va (ENOENT).
     NotFound,
@@ -99,10 +104,9 @@ pub enum VaError {
 /// The window bounds are FIELDS (not consts) so the policy is testable with
 /// small windows on the host; the kernel constructs it with
 /// `mm::USER_VM_WINDOW`.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct VaSpace {
-    regions: [VaRegion; MAX_REGIONS],
-    len: usize,
+    regions: Vec<VaRegion>,
     /// Fixed records that did not fit — counted, never forgotten.
     untracked: usize,
     /// Peak region count (observability: exhaustion must be visible before
@@ -112,39 +116,27 @@ pub struct VaSpace {
     window_len: usize,
 }
 
-const EMPTY: VaRegion = VaRegion {
-    va: 0,
-    len: 0,
-    pa: 0,
-    flags: 0,
-    kind: RegionKind::Fixed,
-    vmo: 0,
-    offset: 0,
-    lazy: false,
-};
-
 impl VaSpace {
     #[must_use]
     pub const fn new(window_base: usize, window_len: usize) -> Self {
-        Self {
-            regions: [EMPTY; MAX_REGIONS],
-            len: 0,
-            untracked: 0,
-            peak: 0,
-            window_base,
-            window_len,
-        }
+        Self { regions: Vec::new(), untracked: 0, peak: 0, window_base, window_len }
     }
 
     #[must_use]
     pub fn region_count(&self) -> usize {
-        self.len
+        self.regions.len()
+    }
+
+    /// Records the table holds before it must grow (observability; the tests' seam).
+    #[must_use]
+    pub fn region_capacity(&self) -> usize {
+        self.regions.capacity()
     }
 
     /// The tracked regions in va-order (accounting reads them, TASK-0286 P5).
     #[must_use]
     pub fn regions(&self) -> &[VaRegion] {
-        &self.regions[..self.len]
+        &self.regions
     }
 
     #[must_use]
@@ -161,7 +153,7 @@ impl VaSpace {
     /// invariant walk). Out of range returns `(0, 0)`.
     #[must_use]
     pub fn region_at(&self, index: usize) -> (usize, usize) {
-        self.regions[..self.len].get(index).map_or((0, 0), |r| (r.va, r.len))
+        self.regions.get(index).map_or((0, 0), |r| (r.va, r.len))
     }
 
     fn window_end(&self) -> usize {
@@ -171,7 +163,7 @@ impl VaSpace {
     /// The regions overlapping `[va, va+len)`, as an index into the table.
     fn first_overlap(&self, va: usize, len: usize) -> Option<usize> {
         let end = va.checked_add(len)?;
-        self.regions[..self.len].iter().position(|r| va < r.va + r.len && r.va < end)
+        self.regions.iter().position(|r| va < r.va + r.len && r.va < end)
     }
 
     /// Largest free hole in the window (observability for ENOMEM logs).
@@ -179,7 +171,7 @@ impl VaSpace {
     pub fn largest_free_hole(&self) -> usize {
         let mut cursor = self.window_base;
         let mut best = 0;
-        for r in self.regions[..self.len].iter().filter(|r| r.va >= self.window_base) {
+        for r in self.regions.iter().filter(|r| r.va >= self.window_base) {
             if r.va > cursor {
                 best = best.max(r.va - cursor);
             }
@@ -204,7 +196,7 @@ impl VaSpace {
         // Candidate holes: before each in-window region, and after the last.
         // Regions are va-sorted, so walk gaps in order and take the first fit.
         let mut cursor = self.window_base;
-        for r in self.regions[..self.len].iter().filter(|r| r.va + r.len > self.window_base) {
+        for r in self.regions.iter().filter(|r| r.va + r.len > self.window_base) {
             if let Some(va) = fit(cursor, r.va.min(self.window_end()), len, align, phase) {
                 return Some(va);
             }
@@ -234,14 +226,25 @@ impl VaSpace {
         if self.first_overlap(region.va, region.len).is_some() {
             return Err(VaError::Occupied);
         }
-        if self.len == MAX_REGIONS {
+        self.reserve_one()?;
+        let at = self.regions.partition_point(|r| r.va < region.va);
+        self.regions.insert(at, region);
+        self.peak = self.peak.max(self.regions.len());
+        Ok(())
+    }
+
+    /// Room for one more record. The table grows with its use (ADR-0093): doubling, by at least
+    /// `GROWTH`, each growth above the kernel heap's reserve (ADR-0091) — or `TableFull`, and the
+    /// mapping that asked is refused, never half recorded.
+    fn reserve_one(&mut self) -> Result<(), VaError> {
+        if self.regions.len() < self.regions.capacity() {
+            return Ok(());
+        }
+        let more = self.regions.capacity().max(GROWTH);
+        let bytes = more.checked_mul(core::mem::size_of::<VaRegion>()).ok_or(VaError::TableFull)?;
+        if !crate::kheap::admits(bytes) || self.regions.try_reserve(more).is_err() {
             return Err(VaError::TableFull);
         }
-        let at = self.regions[..self.len].partition_point(|r| r.va < region.va);
-        self.regions.copy_within(at..self.len, at + 1);
-        self.regions[at] = region;
-        self.len += 1;
-        self.peak = self.peak.max(self.len);
         Ok(())
     }
 
@@ -259,7 +262,7 @@ impl VaSpace {
         }
         // Coalesce: the immediate left neighbour ends exactly at `va` with
         // contiguous pa and identical flags.
-        let at = self.regions[..self.len].partition_point(|r| r.va < va);
+        let at = self.regions.partition_point(|r| r.va < va);
         if at > 0 {
             let left = &mut self.regions[at - 1];
             if left.kind == RegionKind::Fixed
@@ -318,8 +321,8 @@ impl VaSpace {
     /// The region that contains `va` — what a page fault resolves (ADR-0077).
     #[must_use]
     pub fn find(&self, va: usize) -> Option<VaRegion> {
-        let at = self.regions[..self.len].partition_point(|r| r.va <= va);
-        let region = *self.regions[..self.len].get(at.checked_sub(1)?)?;
+        let at = self.regions.partition_point(|r| r.va <= va);
+        let region = *self.regions.get(at.checked_sub(1)?)?;
         (va - region.va < region.len).then_some(region)
     }
 
@@ -332,8 +335,8 @@ impl VaSpace {
         if len == 0 || va % PAGE != 0 || len % PAGE != 0 {
             return Err(VaError::BadInput);
         }
-        let at = self.regions[..self.len].partition_point(|r| r.va < va);
-        let Some(region) = self.regions[..self.len].get(at).copied().filter(|r| r.va == va) else {
+        let at = self.regions.partition_point(|r| r.va < va);
+        let Some(region) = self.regions.get(at).copied().filter(|r| r.va == va) else {
             return Err(VaError::NotFound);
         };
         if region.kind == RegionKind::Fixed {
@@ -349,9 +352,8 @@ impl VaSpace {
     /// Returns the removed region so the shell can clear its PTEs.
     pub fn remove_exact(&mut self, va: usize, len: usize) -> Result<VaRegion, VaError> {
         let region = self.peek_exact(va, len)?;
-        let at = self.regions[..self.len].partition_point(|r| r.va < va);
-        self.regions.copy_within(at + 1..self.len, at);
-        self.len -= 1;
+        let at = self.regions.partition_point(|r| r.va < va);
+        self.regions.remove(at);
         Ok(region)
     }
 
@@ -364,7 +366,7 @@ impl VaSpace {
             return false;
         };
         // A lazy region has no physical base: its object's id guards it (`any_backed_by_vmo`).
-        self.regions[..self.len]
+        self.regions
             .iter()
             .any(|r| r.kind != RegionKind::Fixed && !r.lazy && pa < r.pa + r.len && r.pa < end)
     }
@@ -374,20 +376,20 @@ impl VaSpace {
     /// space still maps would leave live PTEs onto recycled frames.
     #[must_use]
     pub fn any_backed_by_vmo(&self, id: u32) -> bool {
-        id != 0 && self.regions[..self.len].iter().any(|r| r.vmo == id)
+        id != 0 && self.regions.iter().any(|r| r.vmo == id)
     }
 
     /// Does any live region map the VMO `id` with WRITE? The seal's guard (ADR-0080): a sealed
     /// object may have no writer, so a writable mapping anywhere refuses the seal.
     #[must_use]
     pub fn any_backed_by_vmo_writable(&self, id: u32, write_flag: usize) -> bool {
-        id != 0 && self.regions[..self.len].iter().any(|r| r.vmo == id && r.flags & write_flag != 0)
+        id != 0 && self.regions.iter().any(|r| r.vmo == id && r.flags & write_flag != 0)
     }
 
     /// Every VMO a live region maps, each once (`0` = no object: MMIO, kernel-placed) — what
     /// a reaped task's space may leave orphaned (TASK-0333 6a, RFC-0100 §1).
-    pub fn vmo_ids(&self, out: &mut alloc::vec::Vec<u32>) {
-        for region in &self.regions[..self.len] {
+    pub fn vmo_ids(&self, out: &mut Vec<u32>) {
+        for region in &self.regions {
             if region.vmo != 0 && !out.contains(&region.vmo) {
                 out.push(region.vmo);
             }

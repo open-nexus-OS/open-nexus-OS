@@ -115,7 +115,8 @@ pub enum CapError {
     InvalidSlot,
     /// Insufficient rights for the requested operation.
     PermissionDenied,
-    /// No free capability slots are available in the table.
+    /// No free slot, and the kernel heap above its reserve refuses the table's growth
+    /// (ADR-0093).
     NoSpace,
 }
 
@@ -167,14 +168,16 @@ impl CapTable {
     /// (2026-07-22, TASK-0147 recorded follow-up): init's table ran AT the
     /// 128 ceiling by the end of wiring — every late `cap_clone` (allocates
     /// caller-side) failed NoSpace, silently breaking runtime `@mint-pair`
-    /// and app-launch legs. 256 × 16-byte entries = 4 KiB per task — still
-    /// bounded (DoS ceiling), with wiring headroom for new service pairs.
+    /// and app-launch legs. 256 × 16-byte entries = 4 KiB per task. Since
+    /// TASK-0352 P7 (ADR-0093) these are the FIRST 256: a full table doubles,
+    /// above the kernel heap's reserve (ADR-0091) — `NoSpace` is the heap's
+    /// refusal, never a constant's.
     const DEFAULT_CAP_SLOTS: usize = 256;
 
     /// Convenience constructor for the bootstrap task.
     pub fn new() -> Self {
         crate::log_trace!(target: "cap", "new enter");
-        // Keep this bounded to avoid untrusted inputs forcing unbounded growth (DoS).
+        // The first slots; the table grows with the task's use (ADR-0093).
         let table = Self::with_capacity(Self::DEFAULT_CAP_SLOTS);
         crate::log_trace!(target: "cap", "new exit");
         table
@@ -221,15 +224,35 @@ impl CapTable {
             .any(|cap| matches!(cap.kind, CapabilityKind::DeviceMmio { dma_noncoherent: true, .. }))
     }
 
-    /// Allocates the first free slot and inserts `cap`, returning the slot index.
+    /// Allocates the first free slot and inserts `cap`, returning the slot index. A full table
+    /// grows first (ADR-0093).
     pub fn allocate(&mut self, cap: Capability) -> Result<usize, CapError> {
-        for (index, entry) in self.slots.iter_mut().enumerate() {
-            if entry.is_none() {
-                *entry = Some(cap);
-                return Ok(index);
-            }
+        let index = match self.slots.iter().position(Option::is_none) {
+            Some(index) => index,
+            None => self.grow()?,
+        };
+        self.slots[index] = Some(cap);
+        Ok(index)
+    }
+
+    /// Slots the table holds, free or not (observability; the tests' seam).
+    pub fn capacity(&self) -> usize {
+        self.slots.len()
+    }
+
+    /// Doubles the table (TASK-0352 P7, ADR-0093): the first new slot's index — or `NoSpace`,
+    /// when the kernel heap above its reserve (ADR-0091) refuses the growth.
+    fn grow(&mut self) -> Result<usize, CapError> {
+        let first = self.slots.len();
+        let more = first.max(8);
+        let bytes = more
+            .checked_mul(core::mem::size_of::<Option<Capability>>())
+            .ok_or(CapError::NoSpace)?;
+        if !crate::kheap::admits(bytes) || self.slots.try_reserve(more).is_err() {
+            return Err(CapError::NoSpace);
         }
-        Err(CapError::NoSpace)
+        self.slots.resize_with(first + more, || None);
+        Ok(first)
     }
 
     /// Allocates the first free slot scanning from the TOP of the table
@@ -239,13 +262,13 @@ impl CapTable {
     /// init's deterministic child layout and a service's own early object
     /// creation can never race for the same slot.
     pub fn allocate_high(&mut self, cap: Capability) -> Result<usize, CapError> {
-        for (index, entry) in self.slots.iter_mut().enumerate().rev() {
-            if entry.is_none() {
-                *entry = Some(cap);
-                return Ok(index);
-            }
-        }
-        Err(CapError::NoSpace)
+        let index = match self.slots.iter().rposition(Option::is_none) {
+            Some(index) => index,
+            // A full table grows (ADR-0093); the task's own object lands at the new top.
+            None => self.grow().map(|_| self.slots.len() - 1)?,
+        };
+        self.slots[index] = Some(cap);
+        Ok(index)
     }
 
     /// Counts capabilities whose VMO range overlaps `[base, base + len)`.

@@ -7,7 +7,7 @@
 //! runs every one of them on the host.
 
 use crate::va_space::{
-    superpage_plan, MapChunk, RegionKind, VaError, VaRegion, VaSpace, MAX_REGIONS, SUPERPAGE,
+    superpage_plan, MapChunk, RegionKind, VaError, VaRegion, VaSpace, SUPERPAGE,
 };
 
 const PAGE: usize = 4096;
@@ -191,18 +191,28 @@ fn window_exhaustion_leaves_state_unchanged() {
     assert_eq!(s.largest_free_hole(), 0);
 }
 
-/// ⑤ The 65th region is refused with NO phantom entry.
+/// ⑤ The 65th region is recorded — the table grew (ADR-0093) — and while the pool refuses, a
+/// record that needs a growth is refused with NO phantom entry.
 #[test]
-fn table_full_refuses_without_phantom() {
+fn the_table_grows_past_sixty_four_and_a_refused_growth_leaves_no_phantom() {
     let mut s = space();
-    for i in 0..MAX_REGIONS {
+    for i in 0..65 {
         let va = BASE + i * 2 * PAGE; // gaps, so no coalescing possibility
         s.insert(vmo(va, PAGE, 0x8000_0000 + i * PAGE)).unwrap();
     }
-    let overflow_va = BASE + MAX_REGIONS * 2 * PAGE;
+    assert_eq!((s.region_count(), s.peak_regions()), (65, 65));
+    while s.region_count() < s.region_capacity() {
+        let i = s.region_count();
+        s.insert(vmo(BASE + i * 2 * PAGE, PAGE, 0x8000_0000 + i * PAGE)).unwrap();
+    }
+    let full = s.region_count();
+    let overflow_va = BASE + full * 2 * PAGE;
+    let refuses = crate::kheap::refusal::PoolRefuses::new();
     assert_eq!(s.insert(vmo(overflow_va, PAGE, 0x9000_0000)), Err(VaError::TableFull));
-    assert_eq!(s.region_count(), MAX_REGIONS);
-    assert_eq!(s.peak_regions(), MAX_REGIONS);
+    assert_eq!((s.region_count(), s.peak_regions()), (full, full), "no phantom");
+    drop(refuses);
+    s.insert(vmo(overflow_va, PAGE, 0x9000_0000)).unwrap();
+    assert_eq!(s.region_count(), full + 1);
 }
 
 /// ⑥ Bounded deterministic fuzz: after every op the invariant holds —
@@ -279,13 +289,15 @@ fn fixed_records_coalesce_and_overflow_counts() {
     s.record_fixed(0x2000_0000 + 1000 * PAGE, PAGE, 0x9000_0000 + 1000 * PAGE, 0x3);
     assert_eq!(s.region_count(), 2);
 
-    // Fill the table with scattered fixed records, then overflow: counted.
+    // Fill the table to its capacity with scattered fixed records; then the pool refuses the
+    // growth the next one needs: counted.
     let mut i = 0;
-    while s.region_count() < MAX_REGIONS {
+    while s.region_count() < s.region_capacity() {
         s.record_fixed(0x3000_0000 + i * 4 * PAGE, PAGE, 0xA000_0000 + i * PAGE, 0x7);
         i += 1;
     }
     let before = s.untracked_fixed();
+    let _refuses = crate::kheap::refusal::PoolRefuses::new();
     s.record_fixed(0x4000_0000, PAGE, 0xB000_0000, 0x7);
     assert_eq!(s.untracked_fixed(), before + 1, "overflow is counted, never forgotten");
 }

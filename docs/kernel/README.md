@@ -35,10 +35,9 @@ Drivers, filesystems, policy and the compositor are userspace services.
 
 ## Boot in one paragraph
 
-`source/kernel/neuron-boot/src/main.rs` (`_start`) applies the image's own relocations (the kernel
-is a static PIE), records the device tree from `a1` and builds the platform from it
-(`source/kernel/neuron/src/hal/platform.rs`), switches to the Sv39 high half and builds the frame
-pool from the tree's memory banks. `source/kernel/neuron/src/core/kmain.rs` then creates the
+`source/kernel/neuron-boot/src/main.rs` (`_start`) relocates the image (a static PIE), builds the
+platform from the device tree in `a1` (`source/kernel/neuron/src/hal/platform.rs`), switches to
+the Sv39 high half and builds the frame pool from the tree's memory banks. `source/kernel/neuron/src/core/kmain.rs` then creates the
 scheduler, capability tables, IPC router and syscall table, runs the in-kernel selftests
 (`source/kernel/neuron/src/selftest/`), starts the secondary harts over SBI HSM and spawns init.
 Full chain: [boot.md](../boot-init/boot.md).
@@ -49,7 +48,7 @@ Full chain: [boot.md](../boot-init/boot.md).
    hart's trap stack (found through `sscratch` → `HartLocal`).
 2. `__trap_rust` in `source/kernel/neuron/src/core/trap/handler.rs` dispatches by cause: S_SOFT
    (IPI), S_TIMER (tick, preemption), S_EXT (PLIC), page fault, or `ecall` → `handle_ecall`.
-3. `handle_ecall` reads the number from `a7` and arguments from `a0..a5`. A pending order from
+3. `handle_ecall` reads the number from `a7`, arguments from `a0..a5`; a pending order from
    another hart (kill, freeze; ADR-0082) runs first.
 4. Three lock classes (ADR-0049):
    - lock-free — only `nsec` (`lockfree_syscall` in
@@ -149,24 +148,22 @@ Retired numbers stay retired.
 
 - **Preemptive.** The `timer_irq` feature is on by default; the tick is 10 ms of the device tree's
   timebase. Per-hart deadlines arm the compare register earliest-first (ADR-0052).
-- **SMP.** Up to `MAX_CPUS` = 4 harts. The interactive launcher boots `SMP=4`; proof lanes default
-  to `SMP=1`, the `smp` profile runs 2. Every hart runs `cpu_main` and schedules from its own
-  run-queue set; cross-CPU operations (wake to home CPU, bounded steal) are serialized by the BKL.
-  Details: [smp.md](smp.md).
+- **SMP.** Up to `MAX_CPUS` = 4 harts. Every hart runs `cpu_main` on its own run-queue set;
+  cross-CPU operations (wake to home CPU, bounded steal) are serialized by the BKL. Lane defaults
+  and details: [smp.md](smp.md).
 - **QoS.** Four classes per CPU queue — `Idle`, `Normal`, `Interactive`, `PerfBurst` — round-robin
-  within a class, bounded capacity with a deterministic reject on saturation.
-- **Placement.** init applies a CPU mask per service at resume (`affinity_for` in
-  `source/init/nexus-init/src/affinity.rs`): the display and input chain on cpu0, background
-  services on cpu1–3 (ADR-0049). The `sched` syscall carries affinity and shares.
+  within a class, a deterministic reject when a queue is full.
+- **Placement.** init sets a CPU mask per service at resume (`affinity_for` in
+  `source/init/nexus-init/src/affinity.rs`): display and input on cpu0, background services on
+  cpu1–3 (ADR-0049). `sched` carries affinity and shares.
 - **No lock across a context switch.** The schedule decision copies the next frame into the
   hart-local staging slot under the BKL, the guard drops, then `sret` reads only hart-local state.
 
 ## Memory
 
 - **Frames.** A buddy allocator per memory bank (`source/kernel/neuron/src/mm/frames/`), one live
-  pool (`source/kernel/neuron/src/mm/frame_pool.rs`). The kernel reaches physical memory through
-  one direct map (`source/kernel/neuron/src/mm/phys.rs`). No fixed physical window exists
-  (`just fixed-windows`).
+  pool (`source/kernel/neuron/src/mm/frame_pool.rs`), reached through one direct map
+  (`source/kernel/neuron/src/mm/phys.rs`); no fixed physical window exists (`just fixed-windows`).
 - **VMOs.** A VMO is a list of pool blocks; capabilities name the object, never the frames. Kinds:
   anonymous, contiguous (only for a device holder), lazy. An object dies with its last capability
   and mapping (RFC-0100); `vmo_seal` makes it read-only for life; `vmo_share_readonly` mints a
@@ -174,10 +171,13 @@ Retired numbers stay retired.
 - **Commit on touch** (ADR-0077). A lazy VMO takes no frame at create; a page takes one zeroed
   frame at its first touch. The kernel touches user memory only through a checked range.
 - **Kernel-chosen addresses** (RFC-0085). `vm_map` and `mmio_map_auto` place a mapping inside the
-  managed window starting at `USER_VM_WINDOW_BASE` (`source/kernel/neuron/src/mm/mod.rs`) and
-  return the address; userspace never picks one. Placement policy is host-tested in
-  `source/kernel/neuron/src/va_space.rs`.
-- **W^X.** The page table refuses a writable and executable leaf; `vm_map` refuses EXECUTE.
+  managed window — from `USER_VM_WINDOW_BASE` to `USER_VADDR_LIMIT`, the whole user half
+  (`source/kernel/neuron/src/mm/mod.rs`) — and return the address; userspace never picks one.
+  Placement policy is host-tested in `source/kernel/neuron/src/va_space.rs`.
+- **Tables grow with their use** (ADR-0093). The kernel heap (`source/kernel/neuron/src/mm/kheap.rs`),
+  lazy page maps, regions, capabilities and endpoints grow from the pool, never bounded by a
+  constant; what the pool cannot give answers `ENOMEM`, never a panic.
+- **W^X.** The page table refuses a writable, executable leaf; `vm_map` refuses EXECUTE.
 - **DMA.** A device capability carries its DMA reach; `vmo_runs` is the only way a bus address
   leaves the kernel (`source/kernel/neuron/src/mm/dma_runs.rs`, `source/kernel/neuron/src/mm/dma_reach.rs`).
 - **Pressure** (ADR-0085). The pool reports a watermark level to one sink; memd decides
@@ -187,13 +187,13 @@ Retired numbers stay retired.
 
 - **One loader.** `exec_vmo` makes a process from a sealed image object (ADR-0080): text and
   read-only data mapped from the image's frames, data copied, `.bss` and stack lazy.
-- **Own space only** (ADR-0091). `spawn` starts a thread in the caller's own address space,
-  suspended for its parent; any other space is `EPERM`. No task maps into another's space.
+- **Own space only** (ADR-0091). `spawn` starts a thread in the caller's own space, suspended for
+  its parent; any other space is `EPERM`, and no task maps into another's.
 - **A process is its address space** (ADR-0082). The parent orders it whole — `task_resume`,
   `task_suspend`, `task_kill` — and a leader's exit takes its threads.
 - **Death is an event** (ADR-0073). Every kernel object dies with its last capability; a child's
-  exit is written into an endpoint the parent bound (`child_exit_bind`). execd reaps with
-  `wait_nohang` (RFC-0081); init supervises services. Release path: `source/kernel/neuron/src/task/reap.rs`.
+  exit lands in an endpoint the parent bound (`child_exit_bind`); execd reaps with `wait_nohang`
+  (RFC-0081). Release path: `source/kernel/neuron/src/task/reap.rs`.
 
 ## Capabilities
 
@@ -201,11 +201,11 @@ Retired numbers stay retired.
   factory, VMO, read-only VMO alias, device MMIO (window + PLIC line + DMA reach), IRQ, timer,
   waitset, fence, affinity control.
 - Rights: `SEND`, `RECV`, `MAP`, `MANAGE`, `WAIT`. A transfer or clone intersects rights with the
-  source; rights never grow.
-- Identity is the kernel's: `ipc_recv_v2` reports the sender's service id; payload strings are
-  never identity.
+  source's; they never grow.
+- Identity is the kernel's: `ipc_recv_v2` reports the sender's service id; a payload string never
+  is.
 - Device capabilities are minted by init from the device tree; MMIO maps are USER|RW, never EXEC.
-- Who holds which capability: [capabilities.md](../security/capabilities.md).
+- Holders: [capabilities.md](../security/capabilities.md).
 
 ## Platform from the device tree (RFC-0098)
 

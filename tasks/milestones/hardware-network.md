@@ -54,6 +54,7 @@ steps:
     story: "a driver bring-up starts with the measure-first playbook"
     state: done
     done: 2026-09-30
+    tasks: []
     gate: ".claude/skills/driver-bringup/"
   - key: B1.0
     section: B1
@@ -179,6 +180,7 @@ steps:
     story: "memory, GPU and SMP measured against the stock system, the FAIL gate reads the kernel"
     state: done
     done: 2026-10-10
+    tasks: []
     gate: "two measurement folders with verdicts"
   - key: L1
     section: L
@@ -224,10 +226,10 @@ steps:
     gate: "ux lines judged on every lane, 0 NACKs, hover and scroll without an app raster"
   - key: LU.1
     section: L
-    story: "the frame cost, one window path, frame pacing — the UX lane's rest, paused for layer 6"
+    story: "the frame cost, one window path, frame pacing, motion on the compositor, the shell at once, the artifacts' design — the UX lane's rest, paused for layer 6"
     state: planned
-    tasks: [TASK-0335, TASK-0336, TASK-0337, TASK-0343, TASK-0345]
-    gate: "frame p99 <= 16.7 ms on the board"
+    tasks: [TASK-0335, TASK-0336, TASK-0337, TASK-0343, TASK-0345, TASK-0353, TASK-0354, TASK-0355]
+    gate: "frame p99 <= 16.7 ms on the board; 0 of 32 frames dropped per shell transition; tap to frame <= 50 ms on the top bar and the launcher"
   - key: L6a
     section: L
     story: "what dies is freed: every kernel object dies with its last capability"
@@ -287,12 +289,14 @@ steps:
     section: L
     story: "the memory model: an owner's footprint includes its surfaces, per-app limits, no fixed process tables"
     state: planned
+    tasks: []
     gate: "a thirty-third app launches; a ninth app's surfaces are charged"
   - key: L8.2
     section: L
     story: "layer 8 on the GPU: direct scanout, apps rendering with the GPU, the passes a frame runs"
     state: planned
-    gate: "gpud: gpu gate scene ok on the board"
+    tasks: [TASK-0351]
+    gate: "board: gpud: gpu gate scene ok, frame p99 <= 16.7 ms with glass, <= 4 ns per textured pixel on the median"
   - key: L7
     section: L
     story: "SMP, the dynamic kernel: n harts from the device tree, scheduler and IPC off the lock"
@@ -303,6 +307,7 @@ steps:
     section: L
     story: "placement by load, cluster-aware, and the compute-distribution seam"
     state: planned
+    tasks: []
     gate: "per-hart utilisation gate on QEMU and the board"
   - key: N1
     section: NET

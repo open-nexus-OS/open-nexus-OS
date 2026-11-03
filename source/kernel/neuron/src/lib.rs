@@ -114,15 +114,15 @@ use core::ptr::NonNull;
 #[cfg(target_os = "none")]
 use core::ptr::{self, addr_of_mut};
 #[cfg(target_os = "none")]
-use linked_list_allocator::Heap;
 #[cfg(all(target_os = "none", not(debug_assertions)))]
 use spin::Mutex;
 
 // Global allocator using spin::Mutex instead of lock_api to avoid HPM CSR access
 
-// The kernel heap (`.bss.heap`, part of the image): task and capability tables, lazy objects'
-// page words, block lists, bank bitmaps — page tables and kernel stacks are frames now. A
-// caller-sized allocation stays above its last MiB (`kheap`, ADR-0091). 8 MiB since RFC-0075 8d.
+// Arena 0 of the kernel heap (`.bss.heap`, part of the image): task and capability tables, lazy
+// objects' page maps, block lists, bank bitmaps — page tables and kernel stacks are frames. The
+// pool gives every later arena (`kheap`, ADR-0093); a caller-sized allocation stays above the
+// last MiB (ADR-0091). 8 MiB since RFC-0075 8d.
 #[cfg(target_os = "none")]
 const HEAP_SIZE: usize = 8192 * 1024; // 8.00 MiB
 
@@ -140,7 +140,7 @@ type HeapLock<T> = crate::sync::dbg_mutex::DbgMutex<T>;
 type HeapLock<T> = Mutex<T>;
 
 #[cfg(target_os = "none")]
-struct SpinLockedHeap(HeapLock<Heap>);
+pub(crate) struct SpinLockedHeap(pub(crate) HeapLock<kheap::Arenas>);
 
 #[cfg(target_os = "none")]
 unsafe impl GlobalAlloc for SpinLockedHeap {
@@ -168,8 +168,8 @@ unsafe impl GlobalAlloc for SpinLockedHeap {
                 Layout::from_size_align(total_size, core::mem::align_of::<Header>()).unwrap();
             let mut alloc = self.0.lock();
             let base = match alloc.allocate_first_fit(full_layout) {
-                Ok(b) => b.as_ptr(),
-                Err(_) => ptr::null_mut(),
+                Some(b) => b.as_ptr(),
+                None => ptr::null_mut(),
             };
             if base.is_null() {
                 log_error!("ALLOC: fail");
@@ -191,11 +191,9 @@ unsafe impl GlobalAlloc for SpinLockedHeap {
         {
             // SAFETY: allocate_first_fit is safe to call; caller guarantees layout validity per GlobalAlloc contract
             let mut alloc = self.0.lock();
-            let result = alloc
+            alloc
                 .allocate_first_fit(layout)
-                .ok()
-                .map_or(ptr::null_mut(), |allocation| allocation.as_ptr());
-            result
+                .map_or(ptr::null_mut(), |allocation| allocation.as_ptr())
         }
     }
 
@@ -276,22 +274,7 @@ unsafe impl GlobalAlloc for SpinLockedHeap {
 
 #[cfg_attr(all(not(test), target_os = "none"), global_allocator)]
 #[cfg(target_os = "none")]
-static ALLOC: SpinLockedHeap = SpinLockedHeap(HeapLock::new(Heap::empty()));
-
-/// Kernel heap bytes currently handed out (TASK-0054C P3b). A plain lock +
-/// metadata read, no allocation: the same pair the OOM handler snapshots, made
-/// available at the telemetry fence so a change to `Message`'s size is a
-/// measured number instead of an argument.
-#[cfg(target_os = "none")]
-pub(crate) fn heap_used_bytes() -> usize {
-    ALLOC.0.lock().used()
-}
-
-/// Kernel heap bytes free (ADR-0091's reserve check, `mm::kheap`).
-#[cfg(target_os = "none")]
-pub(crate) fn heap_free_bytes() -> usize {
-    ALLOC.0.lock().free()
-}
+pub(crate) static ALLOC: SpinLockedHeap = SpinLockedHeap(HeapLock::new(kheap::Arenas::empty()));
 
 #[cfg(target_os = "none")]
 fn init_heap() {
@@ -299,7 +282,8 @@ fn init_heap() {
     unsafe {
         let start: *mut u8 = addr_of_mut!(HEAP.0) as *mut u8;
         let mut alloc = ALLOC.0.lock();
-        alloc.init(start, HEAP_SIZE);
+        // The image's heap is arena 0 (ADR-0093): the slots cannot be full here.
+        let _ = alloc.add(start, HEAP_SIZE);
     }
 }
 
@@ -327,7 +311,7 @@ fn alloc_error_handler(layout: core::alloc::Layout) -> ! {
     let _ = u.write_str(" heap_budget_free=");
     crate::trap::uart_write_hex(&mut u, heap_free);
     let _ = u.write_str(" heap_budget_total=");
-    crate::trap::uart_write_hex(&mut u, HEAP_SIZE);
+    crate::trap::uart_write_hex(&mut u, heap_used + heap_free);
 
     // Show current SATP to identify which AS we're in
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]

@@ -277,9 +277,11 @@ fn swap_in(carrier: &mut Carrier, pid: u32) {
 /// After a kernel-sourced squeeze or swap-out the pool is read again at once (ADR-0087/0088): a
 /// level still at `critical` takes the next step — the next frozen app, the swap-out, then the
 /// first kill — without waiting for a frame the kernel sends only on a level CHANGE. Bounded:
-/// each step marks a process.
+/// each step marks a process, so two steps per process known end it (ADR-0093: the table has no
+/// constant; its length is the bound).
 fn settle(authority: &mut Authority, orders: &mut dyn Orders, mut decision: Decision) {
-    for _ in 0..2 * crate::bands::MAX_PROCESSES {
+    let steps = 2 * authority.table().len().max(1);
+    for _ in 0..steps {
         if !matches!(decision, Decision::Squeeze { .. } | Decision::SwapOut { .. }) {
             return;
         }
@@ -357,9 +359,7 @@ fn say_band(event: BandEvent, carrier: &mut Carrier, ledger: &mut Ledger) -> boo
                 Applied::Entered | Applied::Moved { .. } | Applied::Gone { .. } => {
                     emit(&alloc::format!("memd: band (pid={pid} band={})", band_name(band)))
                 }
-                Applied::Full => {
-                    emit(&alloc::format!("memd: band dropped (pid={pid}; table full)"))
-                }
+                Applied::NoHeap => emit(&alloc::format!("memd: band dropped (pid={pid}; no heap)")),
                 Applied::UnknownBand => emit(&alloc::format!("memd: band malformed (pid={pid})")),
                 Applied::Unchanged | Applied::UnknownGone => {}
             }
@@ -461,19 +461,21 @@ pub fn service_main_loop() -> Result<()> {
                                     ));
                                 }
                             }
-                            Outcome::GpuCharge { client, bytes, total } => {
+                            Outcome::GpuCharge { client, bytes, total, processes } => {
                                 // 6e-4: the GPU's memory, charged to the client gpud holds it
-                                // for; the compositor by name, anyone else by kernel id.
+                                // for; the compositor by name, anyone else by kernel id — with
+                                // the banded processes the charge is for (TASK-0352 P2: an
+                                // app's instances share the owner gpud charges).
                                 let windowd = nexus_abi::service_id_from_name(b"windowd");
                                 match total {
                                     Some(total) if client == windowd => emit(&alloc::format!(
                                         "memd: gpu charge (client=windowd bytes={bytes} total={total})"
                                     )),
                                     Some(total) => emit(&alloc::format!(
-                                        "memd: gpu charge (client={client:#x} bytes={bytes} total={total})"
+                                        "memd: gpu charge (client={client:#x} bytes={bytes} total={total} processes={processes})"
                                     )),
                                     None => emit(&alloc::format!(
-                                        "memd: FAIL gpu charge (client={client:#x} table full)"
+                                        "memd: FAIL gpu charge (client={client:#x} no heap)"
                                     )),
                                 }
                             }

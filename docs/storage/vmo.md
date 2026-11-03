@@ -5,7 +5,7 @@ role: guide
 subsystem: storage
 sources: [source/libs/nexus-abi/src/syscall/memory.rs, source/libs/nexus-wire/src/payload_vmo.rs, userspace/nexus-ipc/src/armed_vmo.rs, userspace/memory]
 contracts: [RFC-0100, RFC-0097, RFC-0040, ADR-0077, ADR-0080, ADR-0079]
-verified: 2026-11-02
+verified: 2026-11-03
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -71,8 +71,10 @@ VMO op is two messages:
 
 ## Consumers
 
-- **App payloads:** execd arms a VMO at bundlemgrd and asks `GET_PAYLOAD`; bundlemgrd fills it
-  (payload first, header last); execd hands it to the child.
+- **App payloads:** execd arms a lazy VMO of `payload_vmo::VMO_LEN` (header + `MAX_LEN`, 16 MiB;
+  ADR-0093) at bundlemgrd and asks `GET_PAYLOAD`; bundlemgrd fills it (payload first, header
+  last) and only the bundle's pages are committed; execd hands it to the child, which holds the
+  header's length against `MAX_LEN` before it reads a byte.
 - **`pkg:/` reads > 4096 B:** the caller's VMO is forwarded vfsd → packagefsd → bundlemgrd; only
   bundlemgrd writes, after the entry hashes to its index digest.
 - **Home (nxfs) reads > 4096 B:** vfsd streams 64 KiB windows into the caller's VMO.

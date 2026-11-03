@@ -143,6 +143,11 @@ pub fn merge_runs(pieces: impl IntoIterator<Item = (usize, usize)>) -> Vec<(usiz
 mod pages;
 pub use pages::{CommitError, LazyPages, PageState, SqueezeError, SwapStateError};
 
+// The words of the page map, sparse: a chunk exists once a page in it holds something
+// (TASK-0352 P6, ADR-0093).
+#[path = "lazy_words.rs"]
+mod words;
+
 // The compressed store a lazy object's squeezed pages live in (6f-1, ADR-0087).
 #[path = "lazy_store.rs"]
 pub mod store;

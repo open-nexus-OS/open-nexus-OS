@@ -27,10 +27,14 @@ const GPUD: u64 = 0x6B0D;
 const STRANGER: u64 = 0x0BAD;
 const PEERS: Peers = Peers { abilitymgr: ABILITYMGR, harness: HARNESS, gpud: GPUD };
 
+/// The owner every pushed process has in these tests (an app's kernel service id).
+const OWNER: u64 = 0xA99;
+
 fn push(m: &mut Memd, pid: u32, band: u8) -> Outcome {
     let mut out = [0u8; wire::REPLY_MAX_BYTES];
     let mut orders = Recording::accepting();
-    let (n, outcome) = m.answer(&wire::encode_band(pid, band), ABILITYMGR, &mut out, &mut orders);
+    let (n, outcome) =
+        m.answer(&wire::encode_band(pid, band, OWNER), ABILITYMGR, &mut out, &mut orders);
     assert_eq!(n, 0, "a band push is never answered");
     outcome
 }
@@ -76,11 +80,11 @@ fn test_reject_kill_of_foreground_or_visible() {
     // Only the foreground and a visible window: critical finds nobody; emergency takes the
     // visible one and NEVER the foreground, however hard the pool is pressed.
     let mut t = Table::new();
-    t.apply(1, wire::BAND_FOREGROUND);
-    t.apply(2, wire::BAND_VISIBLE);
+    t.apply(1, wire::BAND_FOREGROUND, OWNER);
+    t.apply(2, wire::BAND_VISIBLE, OWNER);
     assert_eq!(t.victim(MEM_PRESSURE_CRITICAL), None, "critical never takes what is on screen");
     assert_eq!(t.victim(MEM_PRESSURE_EMERGENCY).map(|e| e.pid), Some(2));
-    t.apply(2, wire::BAND_GONE);
+    t.apply(2, wire::BAND_GONE, OWNER);
     assert_eq!(t.victim(MEM_PRESSURE_EMERGENCY), None, "the foreground is never a victim");
     assert_eq!(t.victim(MEM_PRESSURE_WARN), None, "warn kills nobody");
 }
@@ -161,7 +165,7 @@ fn a_kernel_level_judges_at_once_and_asks_again_when_proven() {
     // A kernel-sourced kill, proven, asks the loop to read the level again (one frame per
     // level CHANGE: a pool still at critical needs the next victim without a new frame).
     assert_eq!(
-        a.on_band(14, wire::BAND_GONE),
+        a.on_band(14, wire::BAND_GONE, OWNER),
         BandEvent::KillProven {
             pending: Pending {
                 pid: 14,
@@ -218,8 +222,12 @@ fn test_reject_band_from_anyone_but_the_lifecycle_authority() {
     let mut out = [0u8; wire::REPLY_MAX_BYTES];
     let mut orders = Recording::accepting();
     for sender in [STRANGER, HARNESS, 0] {
-        let (n, outcome) =
-            m.answer(&wire::encode_band(7, wire::BAND_SUSPENDED), sender, &mut out, &mut orders);
+        let (n, outcome) = m.answer(
+            &wire::encode_band(7, wire::BAND_SUSPENDED, OWNER),
+            sender,
+            &mut out,
+            &mut orders,
+        );
         assert_eq!((n, outcome), (0, Outcome::BandDenied), "sender {sender:#x}");
     }
     assert!(m.authority().table().is_empty(), "a denied band changes nothing");
@@ -244,20 +252,64 @@ fn test_reject_gpu_charge_from_anyone_but_gpud() {
     assert_eq!(n, 0, "a charge push is never answered");
     assert_eq!(
         outcome,
-        Outcome::GpuCharge { client: WINDOWD, bytes: 40 << 20, total: Some(40 << 20) }
+        Outcome::GpuCharge {
+            client: WINDOWD,
+            bytes: 40 << 20,
+            total: Some(40 << 20),
+            processes: 0
+        }
     );
     let (_, outcome) =
         m.answer(&wire::encode_gpu_charge(WINDOWD, 46 << 20), GPUD, &mut out, &mut orders);
     assert_eq!(
         outcome,
-        Outcome::GpuCharge { client: WINDOWD, bytes: 46 << 20, total: Some(46 << 20) },
+        Outcome::GpuCharge {
+            client: WINDOWD,
+            bytes: 46 << 20,
+            total: Some(46 << 20),
+            processes: 0
+        },
         "absolute, not a delta"
     );
     assert_eq!(m.gpu().of(WINDOWD), 46 << 20);
     let (_, outcome) = m.answer(&wire::encode_gpu_charge(WINDOWD, 0), GPUD, &mut out, &mut orders);
-    assert_eq!(outcome, Outcome::GpuCharge { client: WINDOWD, bytes: 0, total: Some(0) });
+    assert_eq!(
+        outcome,
+        Outcome::GpuCharge { client: WINDOWD, bytes: 0, total: Some(0), processes: 0 }
+    );
     assert!(m.gpu().is_empty(), "zero frees the row");
     assert!(orders.orders().is_empty(), "a charge orders nothing");
+}
+
+/// TASK-0352 P2 (ADR-0093): a charge to an app's kernel id is joined to the app's banded
+/// processes — forty instances of one app are forty processes behind one charge — and a band
+/// push of the owner-less shape (version 1's nine bytes) is malformed, never a process of nobody.
+#[test]
+fn test_reject_an_owner_less_band_push_and_a_charge_names_its_processes() {
+    let mut m = Memd::new(PEERS, true);
+    let mut out = [0u8; wire::REPLY_MAX_BYTES];
+    let mut orders = Recording::accepting();
+    let short = &wire::encode_band(7, wire::BAND_HIDDEN, OWNER)[..9];
+    assert_eq!(m.answer(short, ABILITYMGR, &mut out, &mut orders), (0, Outcome::Malformed));
+    assert_eq!(m.authority().table().len(), 0, "nothing entered");
+    for pid in 1..=40 {
+        assert!(matches!(push(&mut m, pid, wire::BAND_HIDDEN), Outcome::Band(_)));
+    }
+    let (_, outcome) =
+        m.answer(&wire::encode_gpu_charge(OWNER, 3 << 20), GPUD, &mut out, &mut orders);
+    assert_eq!(
+        outcome,
+        Outcome::GpuCharge { client: OWNER, bytes: 3 << 20, total: Some(3 << 20), processes: 40 }
+    );
+    let (_, other) =
+        m.answer(&wire::encode_gpu_charge(0xB00, 1 << 20), GPUD, &mut out, &mut orders);
+    assert_eq!(
+        other,
+        Outcome::GpuCharge { client: 0xB00, bytes: 1 << 20, total: Some(4 << 20), processes: 0 },
+        "a client without banded processes (the compositor, a stranger app)"
+    );
+    assert_eq!(m.authority().table().processes_of(OWNER), 40);
+    assert_eq!(m.authority().table().get(40).map(|e| e.owner), Some(OWNER));
 }
 
 #[test]
@@ -283,7 +335,7 @@ fn test_reject_malformed_frames_and_unknown_levels() {
     let mut m = scene();
     let mut out = [0u8; wire::REPLY_MAX_BYTES];
     let mut orders = Recording::accepting();
-    let short = &wire::encode_band(1, 1)[..6];
+    let short = &wire::encode_band(1, 1, OWNER)[..6];
     assert_eq!(m.answer(short, ABILITYMGR, &mut out, &mut orders), (0, Outcome::Malformed));
     assert_eq!(m.answer(&[], ABILITYMGR, &mut out, &mut orders), (0, Outcome::Malformed));
     let mut foreign = wire::encode_status();
@@ -305,17 +357,21 @@ fn test_reject_malformed_frames_and_unknown_levels() {
     assert!(orders.orders().is_empty());
 }
 
+/// TASK-0352 P1 (ADR-0093): the table has no constant — the 33rd process enters like the first —
+/// and a stranger's `GONE` is nothing.
 #[test]
-fn the_table_is_bounded_and_a_gone_stranger_is_nothing() {
+fn the_table_grows_past_thirty_two_and_a_gone_stranger_is_nothing() {
     let mut t = Table::new();
-    for pid in 1..=memd::bands::MAX_PROCESSES as u32 {
-        assert_eq!(t.apply(pid, wire::BAND_HIDDEN), Applied::Entered);
+    for pid in 1..=40u32 {
+        assert_eq!(t.apply(pid, wire::BAND_HIDDEN, OWNER), Applied::Entered, "pid {pid}");
     }
-    assert_eq!(t.apply(1000, wire::BAND_HIDDEN), Applied::Full);
-    assert_eq!(t.apply(1000, wire::BAND_GONE), Applied::UnknownGone);
-    assert_eq!(t.apply(1, wire::BAND_GONE), Applied::Gone { was: wire::BAND_HIDDEN });
-    assert_eq!(t.apply(1000, wire::BAND_HIDDEN), Applied::Entered, "a freed slot is reused");
-    assert_eq!(t.count_in(wire::BAND_HIDDEN), memd::bands::MAX_PROCESSES);
+    assert_eq!(t.len(), 40);
+    assert_eq!(t.apply(1000, wire::BAND_GONE, OWNER), Applied::UnknownGone);
+    assert_eq!(t.apply(1, wire::BAND_GONE, OWNER), Applied::Gone { was: wire::BAND_HIDDEN });
+    assert_eq!(t.get(1), None, "gone leaves no hole to find");
+    assert_eq!(t.apply(1000, wire::BAND_HIDDEN, OWNER), Applied::Entered);
+    assert_eq!(t.count_in(wire::BAND_HIDDEN), 40);
+    assert_eq!(t.victim(MEM_PRESSURE_CRITICAL).map(|e| e.pid), Some(2), "the oldest hidden");
 }
 
 #[test]

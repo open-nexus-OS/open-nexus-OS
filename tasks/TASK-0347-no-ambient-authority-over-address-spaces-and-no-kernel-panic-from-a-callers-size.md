@@ -2,21 +2,23 @@
 schema: 1
 id: TASK-0347
 title: "No ambient authority over address spaces, and no kernel panic from a caller's size"
-status: in_progress
-status_note: "board marker green in cycle 80 (2026-11-02); the closure sweep is open"
+status: done
+status_note: "closed 2026-11-03: ADR-0091 Accepted, CHANGELOG swept"
 owner: ["@kernel-team"]
 created: 2026-10-31
-updated: 2026-11-02
+updated: 2026-11-03
 subsystem: kernel
 kind: hardening
 novelty: first
 started: 2026-10-31
+done: 2026-11-03
 dates_source: git-reconstructed
 goal:
   metric: "syscalls that reach another address space or panic the kernel from a caller's input"
   baseline: "4 holes: as_map, as_create, spawn into any space or S-mode, a size or a fault panics"
   target: "0: every path refused by name or answered ENOMEM"
   instrument: "KSELFTEST: ambient authority reject ok ("
+  result: "0 of 4 paths left: as_create/as_map retired, spawn own-space only, sizes answered ENOMEM/EINVAL, faults MapError::OutOfMemory; KSELFTEST: ambient authority reject ok on every ladder and the board (cycle 80)"
 consumer: TASK-0348
 links:
   - label: ADR
@@ -58,8 +60,11 @@ phases:
     evidence: build/logs/board--2026-11-02T14-16-01
   - id: P4
     story: "closure: ledger, CHANGELOG and ADR-0091 status swept"
-    state: planned
+    state: done
     gate: "the docs sweep of CLAUDE.md's workflow"
+    started: 2026-11-03
+    done: 2026-11-03
+    evidence: "2026-11-03: ADR-0091 Accepted (board cycle 80), CHANGELOG § Security 2026-10-31 present, ledger closed"
 ---
 
 # TASK-0347 — No ambient authority over address spaces, no kernel panic from a caller's size

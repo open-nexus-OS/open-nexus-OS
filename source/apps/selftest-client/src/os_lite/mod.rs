@@ -26,6 +26,7 @@ mod dispatch;
 mod display_bootstrap;
 mod display_observer;
 mod dsoftbus;
+mod heap;
 mod ime_ranking;
 mod imed;
 mod imed_osk;

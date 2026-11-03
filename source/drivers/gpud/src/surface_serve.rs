@@ -31,6 +31,9 @@ pub(crate) struct SurfaceState {
     pub(crate) table: Surfaces,
     /// Every object together stays within the GPU's ceiling (two thirds of RAM, ADR-0078).
     ceiling: u64,
+    /// One owner's objects stay within its budget: the ceiling less the compositor's eighth
+    /// (TASK-0352 P3, ADR-0093) — the limit per app, refused by name.
+    owner_budget: u64,
     /// The last present received: a freed object is read by no frame after it.
     pub(crate) last_present: u32,
     /// The cache line the device's writers clean in (one device makes every object).
@@ -47,6 +50,7 @@ impl SurfaceState {
         Self {
             table: Surfaces::new(),
             ceiling: crate::gpu_share::ceiling_of(ram),
+            owner_budget: crate::gpu_share::owner_budget_of(ram),
             last_present: 0,
             cache_block: 0,
             compositors: 0,
@@ -90,6 +94,17 @@ pub(crate) fn alloc(ctx: Ctx<'_>, state: &mut SurfaceState, sender: u64, frame: 
     let len = geometry.len();
     if !state.table.admits_more(len, state.ceiling) {
         say_refused(req.owner_sid, "the gpu's ceiling");
+        return answer(refused(req.cookie, STATUS_QUOTA), None);
+    }
+    if !state.table.admits_more_for(req.owner_sid, len, state.owner_budget) {
+        say_refused(
+            req.owner_sid,
+            &alloc::format!(
+                "past its budget (held={} want={len} budget={})",
+                state.table.owned_by(req.owner_sid),
+                state.owner_budget
+            ),
+        );
         return answer(refused(req.cookie, STATUS_QUOTA), None);
     }
     let Some((device, lazy, needs_gpu)) = ctx.display.surface_device() else {

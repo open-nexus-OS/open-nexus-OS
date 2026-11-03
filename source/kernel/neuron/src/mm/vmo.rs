@@ -57,9 +57,6 @@ pub mod squeeze;
 /// Swapped pages (RFC-0100 §5, ADR-0088): a record exported, committed, brought back.
 pub mod swap;
 
-/// Objects the table holds at most (a slot is 40 bytes plus its block list).
-pub const MAX_OBJECTS: usize = 4096;
-
 /// How an object is backed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum VmoKind {
@@ -82,8 +79,6 @@ pub enum VmoError {
     BadLength,
     /// The pool could not back it; the frames taken so far went back.
     Exhausted,
-    /// `MAX_OBJECTS` live objects.
-    TableFull,
     /// No live object has this id.
     NoSuchObject,
     /// A squeezed page's record did not decode to one page (ADR-0087): the access fails, the
@@ -228,19 +223,24 @@ static TABLE: TableLock<VmoTable> = TableLock::new(VmoTable { objects: Vec::new(
 
 impl VmoTable {
     /// Stores the object in the lowest free slot, taking it out of `object` only then. Refused —
-    /// a full table, or no heap for a new slot (ADR-0091) — it stays with the caller, so its
-    /// frames can go back (returned inside the error it made every result 224 bytes wide).
+    /// no heap above the reserve for the table's growth (ADR-0093, ADR-0091) — it stays with the
+    /// caller, so its frames can go back (returned inside the error it made every result 224
+    /// bytes wide).
     fn insert(&mut self, object: &mut Option<VmoObject>) -> Result<VmoId, VmoError> {
         let index = match self.objects.iter().position(Option::is_none) {
             Some(i) => i,
-            None if self.objects.len() < MAX_OBJECTS => {
-                if self.objects.try_reserve(1).is_err() {
+            None => {
+                // The table grows with the objects, doubling, bounded by the pool.
+                let more = self.objects.capacity().max(8);
+                if self.objects.len() == self.objects.capacity()
+                    && (!crate::kheap::admits(more * core::mem::size_of::<Option<VmoObject>>())
+                        || self.objects.try_reserve(more).is_err())
+                {
                     return Err(VmoError::HeapExhausted);
                 }
                 self.objects.push(None);
                 self.objects.len() - 1
             }
-            None => return Err(VmoError::TableFull),
         };
         self.objects[index] = object.take();
         Ok(index as VmoId + 1)
@@ -491,6 +491,8 @@ fn commit_zeroed(
         // Squeezed (or swapped) between the look and the commit: the caller looks again.
         Err(Some(CommitError::Squeezed | CommitError::Swapped)) => Ok(None),
         Err(Some(CommitError::OutOfRange)) => Err(VmoError::BadLength),
+        // The page's chunk of the map found no heap above the reserve (ADR-0093, ADR-0091).
+        Err(Some(CommitError::NoHeap)) => Err(VmoError::HeapExhausted),
         // The object died between the look and the commit.
         Err(None) => Err(VmoError::NoSuchObject),
     }

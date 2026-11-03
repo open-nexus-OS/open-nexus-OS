@@ -8,11 +8,14 @@
 //! `declared`; hidden in its grace is `hidden`; frozen is `suspended`; a dead process is
 //! `gone`. The feed is a DIFF: after every change the broker went through, the bands that
 //! differ from what memd last heard are pushed, and a push memd could not take is retried
-//! on the next pass (the feed commits only what was sent). Pure, host-tested.
+//! on the next pass (the feed commits only what was sent). Every push names the process's
+//! OWNER (TASK-0352 P2, ADR-0093): the app's kernel service id, `app:<bundle id>` as execd
+//! names the process — the key gpud charges the app's surfaces by, so memd joins a charge to
+//! the processes it is for. Pure, host-tested.
 //! OWNERS: @ui @runtime
 //! STATUS: Functional
 //! API_STABILITY: Internal (the wire is `nexus_wire::memd`)
-//! TEST_COVERAGE: tests below (the mapping table, the diff, the retry)
+//! TEST_COVERAGE: tests below (the mapping table, the diff, the retry, the owner)
 
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
@@ -39,15 +42,30 @@ pub fn band_of(inst: &AbilityInstance) -> Option<(u32, u8)> {
     Some((pid, band))
 }
 
+/// The kernel service id execd gives an app's process (`app:<bundle_id>`, execd's `identity`):
+/// the key the compositor reports a window by and gpud charges the app's surfaces to.
+#[must_use]
+pub fn app_sid(app_id: &str) -> u64 {
+    let mut name = [0u8; 64];
+    let app = app_id.as_bytes();
+    let n = app.len().min(name.len() - 4);
+    name[..4].copy_from_slice(b"app:");
+    name[4..4 + n].copy_from_slice(&app[..n]);
+    nexus_abi::service_id_from_name(&name[..4 + n])
+}
+
 /// RFC-0111 §6: the one grant that lets an app run while hidden.
 fn runs_hidden(inst: &AbilityInstance) -> bool {
     inst.granted_caps.iter().any(|c| c == nexus_wire::policyd::PERMISSION_BACKGROUND)
 }
 
-/// What memd last heard, per process.
+/// One push due: the process, its band, its owner (the app's kernel service id).
+pub type Push = (u32, u8, u64);
+
+/// What memd last heard, per process: the band and the owner it was pushed with.
 #[derive(Debug, Default)]
 pub struct BandFeed {
-    last: BTreeMap<u32, u8>,
+    last: BTreeMap<u32, (u8, u64)>,
 }
 
 impl BandFeed {
@@ -58,27 +76,36 @@ impl BandFeed {
     }
 
     /// The pushes due: every process whose band differs from what memd last heard, and
-    /// `BAND_GONE` for every process memd heard of that the broker no longer holds.
+    /// `BAND_GONE` (with the owner memd heard) for every process memd heard of that the broker
+    /// no longer holds.
     #[must_use]
-    pub fn changes(&self, broker: &Broker) -> Vec<(u32, u8)> {
-        let now: BTreeMap<u32, u8> = broker.instances().filter_map(band_of).collect();
-        let mut due: Vec<(u32, u8)> = now
+    pub fn changes(&self, broker: &Broker) -> Vec<Push> {
+        let now: BTreeMap<u32, (u8, u64)> = broker
+            .instances()
+            .filter_map(|inst| {
+                band_of(inst).map(|(pid, band)| (pid, (band, app_sid(&inst.app_id))))
+            })
+            .collect();
+        let mut due: Vec<Push> = now
             .iter()
-            .filter(|(pid, band)| self.last.get(*pid) != Some(*band))
-            .map(|(pid, band)| (*pid, *band))
+            .filter(|(pid, (band, _))| self.last.get(*pid).map(|(b, _)| b) != Some(band))
+            .map(|(pid, (band, owner))| (*pid, *band, *owner))
             .collect();
         due.extend(
-            self.last.keys().filter(|pid| !now.contains_key(pid)).map(|pid| (*pid, BAND_GONE)),
+            self.last
+                .iter()
+                .filter(|(pid, _)| !now.contains_key(pid))
+                .map(|(pid, (_, owner))| (*pid, BAND_GONE, *owner)),
         );
         due
     }
 
     /// memd took the push: remember it (a `gone` forgets the process).
-    pub fn commit(&mut self, pid: u32, band: u8) {
+    pub fn commit(&mut self, pid: u32, band: u8, owner: u64) {
         if band == BAND_GONE {
             self.last.remove(&pid);
         } else {
-            self.last.insert(pid, band);
+            self.last.insert(pid, (band, owner));
         }
     }
 
@@ -147,21 +174,24 @@ mod tests {
         let mut broker = Broker::new();
         let a = launched(&mut broker, "notes", 41, &[]);
         let b = launched(&mut broker, "mail", 42, &[]);
+        let (notes, mail) = (app_sid("notes"), app_sid("mail"));
+        assert_ne!(notes, mail);
+        assert_eq!(notes, nexus_abi::service_id_from_name(b"app:notes"), "execd's name");
         let mut feed = BandFeed::new();
         let mut due = feed.changes(&broker);
         due.sort_unstable();
-        assert_eq!(due, [(41, BAND_FOREGROUND), (42, BAND_FOREGROUND)]);
-        for (pid, band) in due {
-            feed.commit(pid, band);
+        assert_eq!(due, [(41, BAND_FOREGROUND, notes), (42, BAND_FOREGROUND, mail)]);
+        for (pid, band, owner) in due {
+            feed.commit(pid, band, owner);
         }
         assert!(feed.changes(&broker).is_empty(), "nothing changed, nothing due");
         broker.seen(a, Seen::Focused, 1).expect("seen");
         broker.seen(b, Seen::Hidden, 1).expect("seen");
-        assert_eq!(feed.changes(&broker), [(42, BAND_HIDDEN)], "only the changed one");
-        feed.commit(42, BAND_HIDDEN);
+        assert_eq!(feed.changes(&broker), [(42, BAND_HIDDEN, mail)], "only the changed one");
+        feed.commit(42, BAND_HIDDEN, mail);
         broker.exited(42).expect("death");
-        assert_eq!(feed.changes(&broker), [(42, BAND_GONE)]);
-        feed.commit(42, BAND_GONE);
+        assert_eq!(feed.changes(&broker), [(42, BAND_GONE, mail)], "gone with its owner");
+        feed.commit(42, BAND_GONE, mail);
         assert_eq!(feed.len(), 1);
         assert!(feed.changes(&broker).is_empty());
     }
@@ -170,12 +200,13 @@ mod tests {
     fn a_push_memd_could_not_take_stays_due() {
         let mut broker = Broker::new();
         let a = launched(&mut broker, "notes", 41, &[]);
+        let notes = app_sid("notes");
         let mut feed = BandFeed::new();
-        assert_eq!(feed.changes(&broker), [(41, BAND_FOREGROUND)]);
+        assert_eq!(feed.changes(&broker), [(41, BAND_FOREGROUND, notes)]);
         // Not committed (the send failed): still due, and a later change is what is due then.
         broker.seen(a, Seen::Hidden, 1).expect("seen");
-        assert_eq!(feed.changes(&broker), [(41, BAND_HIDDEN)]);
-        feed.commit(41, BAND_HIDDEN);
+        assert_eq!(feed.changes(&broker), [(41, BAND_HIDDEN, notes)]);
+        feed.commit(41, BAND_HIDDEN, notes);
         assert!(feed.changes(&broker).is_empty());
     }
 }

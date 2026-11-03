@@ -31,7 +31,6 @@ os-lite = [
     # frees by size class, and the heap is back on the 4 MiB floor — the 8 and
     # 16 MiB raises only ever bought a few dozen more clicks. Proven by the
     # boot marker `apphost: heap steady`.
-    "nexus-service-entry/heap-4m",
     "nexus-service-entry/frame-arena",
     "nexus-service-entry/frame-arena-poison",
     "dep:nexus-abi",

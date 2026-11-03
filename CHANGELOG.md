@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-11-03 (the memory model used: no table bounded by a constant — TASK-0352)
+
+- **The kernel's tables grow (ADR-0093).** The kernel heap is arenas: the image's 8 MiB first,
+  then blocks from the frame pool in doubling sizes (`KHEAP: grew (arena= bytes= size=)`,
+  `KINIT: kheap (size= used= free= reserve= arenas=)`); a lazy object's page map is sparse — a
+  chunk of 1024 words appears on the first touch inside it and goes when empty, so reserving
+  512 MiB costs 2 KiB of heap instead of 512 KiB (`KSELFTEST: lazy sparse ok (`); the region
+  table of an address space, a task's capability table, the VMO object table and the IPC endpoint
+  table grow with their use under `kheap::admits` (`KSELFTEST: tables grow ok (regions=65
+  caps=257 … endpoints=385)`) — a growth the pool refuses answers `ENOMEM`/`ENOSPC`, never a
+  panic. A process's mapping window is the whole Sv39 user half (`KSELFTEST: vm window ok (`);
+  RFC-0085 amended.
+- **The services' tables grow with the apps.** abilitymgr's instance table and memd's band and
+  GPU-charge tables have no constant (32, 32, 8 before); the 33rd app launches, the ninth app's
+  surfaces are charged. The many-apps lane opens forty settings windows, each drawn
+  (`abilitymgr: launch (app=settings` × 40, no `init: FAIL mint-pair create` — the kernel's
+  384-endpoint table was the first to bite, at the 29th app).
+- **An owner's footprint includes its surfaces.** The band push names each process's owner
+  (memd wire v2: `[pid, band, owner]`), so memd joins gpud's surface charge to the app's
+  instances: `memd: gpu charge (client= bytes= total= processes=)`.
+- **Limits per app, refused by name.** 64 instances per app (`abilitymgr: launch refused (app=
+  instances= limit=)`, the other apps launch on) and, in gpud, one owner's surface objects
+  within the GPU's ceiling less the compositor's eighth (`gpud: FAIL surface alloc (owner= past
+  its budget (held= want= budget=))`).
+- **One heap, one payload bound.** Every service's heap is 64 MiB of `.bss` the kernel maps
+  lazily; the `heap-*` cargo features are gone (`SELFTEST: heap 32m ok (bytes= committed_pages=)`
+  from a client that declared no size). An app's payload object is a 16 MiB lazy VMO
+  (`nexus_wire::payload_vmo::{MAX_LEN, VMO_LEN}`, one SSOT for execd and app-host) — a bundle
+  costs its own pages, not a 512 KiB cap.
+
 ### Added - 2026-11-03 (the screen survives the compositor's restart — TASK-0348 P9–P17)
 
 - **Ghosts (RFC-0112 Phase 3).** gpud keeps every app surface across a compositor restart as an

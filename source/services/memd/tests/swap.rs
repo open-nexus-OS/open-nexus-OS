@@ -22,7 +22,8 @@ const PEERS: Peers = Peers { abilitymgr: ABILITYMGR, harness: HARNESS, gpud: 0x6
 fn push(m: &mut Memd, pid: u32, band: u8) {
     let mut out = [0u8; wire::REPLY_MAX_BYTES];
     let mut orders = Recording::accepting();
-    let (n, outcome) = m.answer(&wire::encode_band(pid, band), ABILITYMGR, &mut out, &mut orders);
+    let (n, outcome) =
+        m.answer(&wire::encode_band(pid, band, 0xA99), ABILITYMGR, &mut out, &mut orders);
     assert_eq!(n, 0);
     assert!(matches!(outcome, Outcome::Band(_)));
 }

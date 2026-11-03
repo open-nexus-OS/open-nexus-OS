@@ -81,6 +81,9 @@ pub(super) fn run_lifetime_selftests(ctx: &mut Context<'_>) {
     super::pressure::run_squeeze_selftest(ctx);
     // TASK-0333 6f-2 (ADR-0088): the swap stage — sealed out, parked, paged back, dropped.
     super::pressure::run_swap_selftest(ctx);
+    // TASK-0352 P5–P7 (ADR-0093): the heap grows by an arena, a reservation costs nothing per
+    // page, the region, capability and endpoint tables grow past their old constants.
+    super::pressure::run_tables_selftests(ctx);
     ctx.tasks.set_current(Pid::KERNEL);
 }
 

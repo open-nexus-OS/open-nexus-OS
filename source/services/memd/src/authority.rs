@@ -173,9 +173,9 @@ impl Authority {
         self.pending
     }
 
-    /// One band push from the lifecycle authority.
-    pub fn on_band(&mut self, pid: u32, band: u8) -> BandEvent {
-        let applied = self.table.apply(pid, band);
+    /// One band push from the lifecycle authority: `owner` the process's kernel service id.
+    pub fn on_band(&mut self, pid: u32, band: u8, owner: u64) -> BandEvent {
+        let applied = self.table.apply(pid, band, owner);
         if let Applied::Moved { from } = applied {
             if from == nexus_wire::memd::BAND_SUSPENDED {
                 self.resumed = self.resumed.saturating_add(1);

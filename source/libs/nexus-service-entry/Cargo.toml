@@ -7,13 +7,8 @@ license = "Apache-2.0"
 [features]
 default = []
 alloc-log = ["nexus-log"]
-heap-512k = []
-heap-768k = []
-heap-1m = []
-heap-2m = []
-heap-4m = []
-heap-8m = []
-heap-16m = []
+# TASK-0352 P8 (ADR-0093): no `heap-*` features — every service's heap is the one 64 MiB lazily
+# committed region (`lib.rs`), a page costs the pool only once touched.
 # ADR-0065: the frame arena is OPT-IN. Without it the region is zero-sized, so a
 # service's .bss and image are unchanged to the byte and the scope API is inert.
 frame-arena = []

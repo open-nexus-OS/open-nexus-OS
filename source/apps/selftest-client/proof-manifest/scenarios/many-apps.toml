@@ -1,0 +1,684 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: The many-apps lane's choreography (TASK-0352, ADR-0093): the apps' number is bounded
+# by memory alone. Log in, open the launcher, press its settings button forty times — every press
+# a new instance (the launcher launches; only the dock and the taskbar activate a running app).
+# The first 28 presses wait for their window (the app's first frame on its re-created surface);
+# the rest are acknowledged by the lifecycle authority's answer alone — a launch
+# (`abilitymgr: launch (app=settings`) or, while its instance table is still a 32-row constant,
+# a refusal by name (`abilitymgr: launch refused (app=settings`). The profile's wait decides which
+# the lane demands: P0 the refusal (today's ceiling, measured), P1 forty launches and no refusal.
+# Every step waits for what it caused; the declared `settle_s` pauses are the frames that have none.
+# OWNERS: @ui @runtime
+# STATUS: Functional
+# API_STABILITY: Unstable
+
+[scenario]
+profile = "many-apps"
+start_after = "SELFTEST: input window open"
+
+# The keyboard's first input after boot, acknowledged on its own (see usb-visible.toml).
+[[step]]
+name = "the keyboard reaches the greeter"
+do = { key = "a" }
+expect = ["inputd: live keyboard route on"]
+timeout_s = 10
+retry = 2
+
+[[step]]
+name = "log in"
+do = { login = true }
+expect = ["windowd: session shell visible"]
+timeout_s = 60
+
+[[step]]
+name = "open the launcher"
+do = { click = "launcher_button" }
+
+# Each press is acknowledged by the authority's answer; if none follows (the sheet closed), the
+# sheet opens and the button is pressed again. The launcher's sheet is shell glass above every
+# window, so its button stays pressable while the windows pile up under it.
+
+[[step]]
+name = "launch app 1"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 1 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch app 2"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 2 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch app 3"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 3 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch app 4"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 4 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch app 5"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 5 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch app 6"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 6 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch app 7"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 7 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch app 8"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 8 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch app 9"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 9 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch app 10"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 10 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch app 11"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 11 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch app 12"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 12 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch app 13"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 13 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch app 14"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 14 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch app 15"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 15 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch app 16"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 16 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch app 17"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 17 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch app 18"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 18 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch app 19"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 19 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch app 20"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 20 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch app 21"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 21 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch app 22"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 22 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch app 23"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 23 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch app 24"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 24 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch app 25"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 25 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch app 26"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 26 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch app 27"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 27 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch app 28"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 28 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+# TASK-0352 P1 (ADR-0093): no ceiling at 32 — the 29th to the 40th instance each get their window
+# like the first (the authority's table, memd's bands and the kernel's endpoint table grow).
+
+[[step]]
+name = "launch app 29"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 29 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch app 30"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 30 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch app 31"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 31 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch app 32"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 32 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch app 33"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 33 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch app 34"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 34 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch app 35"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 35 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch app 36"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 36 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch app 37"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 37 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch app 38"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 38 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch app 39"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 39 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+[[step]]
+name = "launch app 40"
+settle_s = 1.0
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 20
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "window 40 drawn"
+do = { wait = true }
+expect = ["apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120

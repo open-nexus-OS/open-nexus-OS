@@ -84,20 +84,21 @@ The v2 seams listed under scope boundaries.
 
 ## Constraints / invariants (hard requirements)
 
-- **Invariant**: the managed window `[0x5000_0000, 0x8000_0000)` contains
-  only kernel-chosen, region-tracked mappings; regions are pairwise
+- **Invariant**: the managed window `[0x5000_0000, USER_VADDR_LIMIT)` — the whole Sv39 user
+  half above the guard band since TASK-0352 P9 (ADR-0093); `[0x5000_0000, 0x8000_0000)` before —
+  contains only kernel-chosen, region-tracked mappings; regions are pairwise
   disjoint, va-sorted; fixed-VA maps into the window are refused (EPERM).
   This is what keeps the hole-finder sound without consulting the page table.
 - **Determinism**: allocation is first-fit over a sorted table — a golden
   op-sequence host test pins exact addresses byte-for-byte. Failures leave
   allocator state bit-identical.
-- **Bounded**: `MAX_REGIONS = 64` fixed capacity (2.5 KiB per AS, no heap
-  churn), O(64) operations, at most one TLB shootdown per unmap. Overflow is
-  asymmetric: a `vm_map` that cannot be RECORDED is REFUSED (ENOSPC, no fake
-  success); a kernel-placed Fixed record that does not fit is COUNTED
-  (`untracked`), never silently forgotten — refusing an exec over
-  bookkeeping would invert priorities, and Fixed records never feed the
-  hole-finder.
+- **Bounded**: the region table grows with its use — doubling from 16, each growth asked of the
+  kernel heap and the pool (`kheap::admits`), never a constant (TASK-0352 P7, ADR-0093; a fixed
+  `MAX_REGIONS = 64` before) — O(regions) operations, at most one TLB shootdown per unmap.
+  Overflow is asymmetric: a `vm_map` whose record the heap refuses is REFUSED (ENOSPC, no fake
+  success); a kernel-placed Fixed record the heap refuses is COUNTED (`untracked`), never
+  silently forgotten — refusing an exec over bookkeeping would invert priorities, and Fixed
+  records never feed the hole-finder.
 - **No fake success**: never map without a record, never record without a
   map; a mid-plan failure rolls back already-written leaves.
 - **Security floor**: caller's own AS only (no handle argument — no confused
@@ -111,14 +112,16 @@ The v2 seams listed under scope boundaries.
 ### Contract / interface (normative)
 
 **Window** (in `mm/mod.rs`, beside the arena SSOT):
-`USER_VM_WINDOW = [0x5000_0000, 0x8000_0000)` — 768 MiB. Above every
+`USER_VM_WINDOW = [0x5000_0000, USER_VADDR_LIMIT)` with `USER_VADDR_LIMIT = 0x40_0000_0000`,
+the top of the Sv39 user half — the whole user half above the guard band (TASK-0352 P9,
+ADR-0093: a reservation is sparse and costs no page, so the window is the address space's,
+not a budget's; it was `[0x5000_0000, 0x8000_0000)`, 768 MiB, until then). Above every
 inventoried fixed use (gpud's carve-outs end at 0x4400_0000; a guard band
-0x4400_0000–0x5000_0000 stays reserved), below `USER_VADDR_LIMIT`
-0x8000_0000 so every returned VA is sign-positive and can never collide
-with a negative errno in the one-usize return channel.
+0x4400_0000–0x5000_0000 stays reserved); every VA below 2^38 is sign-positive and can never
+collide with a negative errno in the one-usize return channel.
 
 **Policy** (`src/va_space.rs`, pure, un-gated, host-proven — the
-`image_allocs` family): `VaSpace { regions: [VaRegion; 64], len, untracked,
+`image_allocs` family): `VaSpace { regions: Vec<VaRegion>, untracked,
 peak, window_base, window_len }`, `RegionKind { Vmo, Mmio, Fixed }`,
 `find_hole(len, align, phase)` (lowest fit, phase-aware), `insert`,
 `remove_exact` (whole-region only), `record_fixed` (coalescing),

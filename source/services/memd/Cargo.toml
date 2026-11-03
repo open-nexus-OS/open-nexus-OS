@@ -32,7 +32,7 @@ features = ["os-lite"]
 nexus-abi = { path = "../../libs/nexus-abi" }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
 # 512 KiB: the pager's export buffer (32 KiB) and its slot books join the authority's tables.
-nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true, features = ["heap-512k"] }
+nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
 nexus-service-topology = { path = "../../libs/nexus-service-topology" }
 nexus-wire = { path = "../../libs/nexus-wire" }
 # TASK-0333 6f-2 (ADR-0088): the pager's slots on the `swap` partition, through blkd's block

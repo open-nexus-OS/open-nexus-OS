@@ -87,9 +87,9 @@ pub struct Router {
 }
 static_assertions::assert_not_impl_any!(Router: Send, Sync);
 
-// DoS hardening: keep endpoint creation bounded until we have explicit accounting/quotas.
-const MAX_ENDPOINTS: usize = 384;
-const MAX_ENDPOINTS_PER_OWNER: usize = 96;
+// A DoS valve per owner until the per-app budget (TASK-0352 P3) — not the table's size: the
+// table grows with the endpoints, bounded by the pool (ADR-0093; 384 bit at the 29th app).
+const MAX_ENDPOINTS_PER_OWNER: usize = 1024;
 
 #[cfg(feature = "failpoints")]
 static DENY_NEXT_SEND: AtomicBool = AtomicBool::new(false);
@@ -375,19 +375,16 @@ impl Router {
         owner: Option<WaiterId>,
     ) -> Result<EndpointId, IpcError> {
         let depth = depth.clamp(1, 256);
-        if self.endpoints.len() >= MAX_ENDPOINTS {
+        if owner.is_some_and(|pid| self.owned_alive(pid) >= MAX_ENDPOINTS_PER_OWNER) {
             return Err(IpcError::NoSpace);
         }
-        if let Some(owner_pid) = owner {
-            let mut count: usize = 0;
-            for ep in &self.endpoints {
-                if ep.alive && ep.owner == Some(owner_pid) {
-                    count += 1;
-                }
-            }
-            if count >= MAX_ENDPOINTS_PER_OWNER {
-                return Err(IpcError::NoSpace);
-            }
+        // ADR-0093: a full table doubles, above the kernel heap's reserve — or `ENOSPC`.
+        let more = self.endpoints.capacity().max(8);
+        if self.endpoints.len() == self.endpoints.capacity()
+            && (!crate::kheap::admits(more * core::mem::size_of::<Endpoint>())
+                || self.endpoints.try_reserve(more).is_err())
+        {
+            return Err(IpcError::NoSpace);
         }
         let id = self.endpoints.len() as EndpointId;
         self.endpoints.push(Endpoint::with_depth(depth, owner));

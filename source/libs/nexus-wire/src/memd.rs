@@ -18,10 +18,13 @@
 pub const MAGIC0: u8 = b'M';
 /// Envelope magic byte 1.
 pub const MAGIC1: u8 = b'D';
-/// Wire version.
-pub const VERSION: u8 = 1;
+/// Wire version — 2 since the band push names its owner (TASK-0352 P2, ADR-0093).
+pub const VERSION: u8 = 2;
 
 /// One app process's band changed (a one-way push from the lifecycle authority; never answered).
+/// The push names the process's OWNER too: its kernel service id (`app:<bundle id>`, shared by
+/// every instance of the app) — the key gpud charges the app's surfaces by (`OP_GPU_CHARGE`), so
+/// the authority joins a charge to the processes it is for.
 pub const OP_BAND: u8 = 1;
 /// The authority's state: the level, the sink, the bands it knows. Reply: [`encode_status_reply`].
 pub const OP_STATUS: u8 = 2;
@@ -113,10 +116,12 @@ pub const REPLY_MAX_BYTES: usize = 4 + 1 + 1 + 1 + 1 + 1 + 2 + 2 + 8 + 8;
 crate::frames! {
     protocol(magic0 = MAGIC0, magic1 = MAGIC1, version = VERSION);
 
-    /// Band push: `[M, D, ver, OP_BAND, pid:u32, band]`.
+    /// Band push: `[M, D, ver, OP_BAND, pid:u32, band, owner:u64]` — `owner` the process's
+    /// kernel service id (0 when the authority knows none).
     request fixed encode_band / decode_band (op = OP_BAND) {
         pid: u32le,
         band: u8,
+        owner: u64le,
     }
     /// Status: `[M, D, ver, OP_STATUS, 0]`.
     request fixed encode_status / decode_status (op = OP_STATUS) {
@@ -170,10 +175,32 @@ mod tests {
     use super::*;
 
     #[test]
-    fn band_push_round_trips_and_names_its_band() {
-        let f = encode_band(106, BAND_SUSPENDED);
-        assert_eq!(f, [b'M', b'D', 1, OP_BAND, 106, 0, 0, 0, BAND_SUSPENDED]);
-        assert_eq!(decode_band(&f), Some((106, BAND_SUSPENDED)));
+    fn band_push_round_trips_and_names_its_band_and_owner() {
+        let f = encode_band(106, BAND_SUSPENDED, 0x0102_0304_0506_0708);
+        assert_eq!(
+            f,
+            [
+                b'M',
+                b'D',
+                VERSION,
+                OP_BAND,
+                106,
+                0,
+                0,
+                0,
+                BAND_SUSPENDED,
+                0x08,
+                0x07,
+                0x06,
+                0x05,
+                0x04,
+                0x03,
+                0x02,
+                0x01
+            ]
+        );
+        assert!(f.len() <= REQUEST_MAX_BYTES);
+        assert_eq!(decode_band(&f), Some((106, BAND_SUSPENDED, 0x0102_0304_0506_0708)));
         assert_eq!(band_name(BAND_SUSPENDED), "suspended");
         assert_eq!(band_name(BAND_GONE), "gone");
         assert!(band_known(BAND_GONE) && band_known(BAND_FOREGROUND) && !band_known(5));
@@ -182,7 +209,7 @@ mod tests {
     #[test]
     fn gpu_charge_push_round_trips_and_fits_the_request_buffer() {
         let f = encode_gpu_charge(0xAB11_0000_0000_0001, 41_943_040);
-        assert_eq!(&f[..4], &[b'M', b'D', 1, OP_GPU_CHARGE]);
+        assert_eq!(&f[..4], &[b'M', b'D', VERSION, OP_GPU_CHARGE]);
         assert!(f.len() <= REQUEST_MAX_BYTES);
         assert_eq!(decode_gpu_charge(&f), Some((0xAB11_0000_0000_0001, 41_943_040)));
         assert_eq!(decode_gpu_charge(&f[..f.len() - 1]), None, "short");
@@ -193,17 +220,17 @@ mod tests {
     fn level_push_round_trips_and_is_the_longest_request() {
         let f = encode_level(1, SOURCE_DRILL, 4_338, 77_261);
         assert_eq!(f.len(), REQUEST_MAX_BYTES);
-        assert_eq!(&f[..6], &[b'M', b'D', 1, OP_LEVEL, 1, SOURCE_DRILL]);
+        assert_eq!(&f[..6], &[b'M', b'D', VERSION, OP_LEVEL, 1, SOURCE_DRILL]);
         assert_eq!(decode_level(&f), Some((1, SOURCE_DRILL, 4_338, 77_261)));
         assert_eq!(decode_level(&f[..f.len() - 1]), None, "short");
-        assert_eq!(decode_level(&encode_band(1, 2)), None, "another op");
+        assert_eq!(decode_level(&encode_band(1, 2, 0)), None, "another op");
         assert_eq!(source_name(SOURCE_KERNEL), "oom");
         assert_eq!(source_name(SOURCE_DRILL), "drill");
     }
 
     #[test]
     fn status_and_drill_round_trip() {
-        assert_eq!(encode_status(), [b'M', b'D', 1, OP_STATUS, 0]);
+        assert_eq!(encode_status(), [b'M', b'D', VERSION, OP_STATUS, 0]);
         assert_eq!(decode_status(&encode_status()), Some(()));
         let r = encode_status_reply(OP_STATUS, STATUS_OK, 2, 1, 3, 1, 7, 9, 4_338, 77_261);
         assert_eq!(r.len(), REPLY_MAX_BYTES);
@@ -219,12 +246,13 @@ mod tests {
 
     #[test]
     fn test_reject_short_foreign_and_mismatched_frames() {
-        let mut f = encode_band(1, BAND_HIDDEN);
+        let mut f = encode_band(1, BAND_HIDDEN, 7);
         assert!(decode_band(&f[..8]).is_none(), "short");
+        assert!(decode_band(&f[..9]).is_none(), "the owner-less push of version 1: short");
         f[0] = b'X';
         assert!(decode_band(&f).is_none(), "foreign magic");
         let mut s = encode_status();
-        s[2] = 2;
+        s[2] = VERSION + 1;
         assert!(decode_status(&s).is_none(), "foreign version");
         let r = encode_drill_reply(OP_DRILL, STATUS_OK, 1, 0);
         assert!(decode_drill_reply(OP_STATUS, &r).is_none(), "a reply to another op");

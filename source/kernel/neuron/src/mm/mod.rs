@@ -25,15 +25,22 @@ pub mod vm_ops;
 pub use address_space::{AddressSpaceError, AddressSpaceManager, AsHandle};
 pub use page_table::{MapError, PageFlags, PAGE_SIZE};
 
+/// The top of the Sv39 user half: no user address — a pointer a syscall checks, a mapping the
+/// window hands out — reaches it. Every user VA is below 2^38, sign-positive, and can never read
+/// as a -errno.
+pub const USER_VADDR_LIMIT: usize = 0x40_0000_0000;
+
 /// RFC-0085: the kernel-managed user mapping window. `vm_map`/`mmio_map_auto`
 /// allocate ONLY here; fixed-VA maps into it are refused (EPERM) — that
 /// invariant is what keeps the `va_space` hole-finder sound without ever
 /// consulting the page table. Bounds: above every inventoried fixed-VA use
 /// (gpud's legacy carve-outs end at 0x4400_0000; 0x4400_0000..0x5000_0000
-/// stays a reserved guard band) and below `USER_VADDR_LIMIT` (0x8000_0000),
-/// so every returned VA is sign-positive and can never read as a -errno.
+/// stays a reserved guard band) up to `USER_VADDR_LIMIT` — the whole user
+/// half (TASK-0352 P9, ADR-0093: the window was 768 MiB to 0x8000_0000; a
+/// reservation is sparse and costs no page, so the hole-finder's space is the
+/// address space's, not a budget's).
 pub const USER_VM_WINDOW_BASE: usize = 0x5000_0000;
-pub const USER_VM_WINDOW_LEN: usize = 0x3000_0000; // 768 MiB
+pub const USER_VM_WINDOW_LEN: usize = USER_VADDR_LIMIT - USER_VM_WINDOW_BASE;
 
 pub mod devices;
 pub mod frame_pool;

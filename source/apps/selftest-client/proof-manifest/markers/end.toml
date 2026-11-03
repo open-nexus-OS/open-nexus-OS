@@ -29,6 +29,11 @@ phase = "end"
 [marker."KSELFTEST: mm frames ("]
 phase = "end"
 
+# TASK-0352 P0 (ADR-0093): the kernel heap at the same fence — size, used, free and the reserve
+# a caller-sized allocation may not eat into (ADR-0091); the number the heap's growth is sized by.
+[marker."KINIT: kheap ("]
+phase = "end"
+
 # TASK-0333 6e-0 (ADR-0085, RFC-0100 §3): the watermarks of the booted pool — fractions of each
 # bank's boot-time free frames (25/10/5 %), summed and floored — are in order (warn > crit >
 # emerg > 0) and below the total, and the level the free frames mean now is named. The same
@@ -71,6 +76,31 @@ proves = "a parked child's private lazy pages are squeezed on its parent's order
 [marker."KSELFTEST: swap ok ("]
 phase = "end"
 proves = "a record leaves the kernel sealed under the boot's key and comes back only as the page and the export it was sealed for; a touch parks until the pager answers, a forged answer kills the waiter, a dead object frees its slots (ADR-0088)"
+
+# TASK-0352 P5 (ADR-0093): a caller-sized ask larger than everything the kernel heap has free
+# makes the heap grow by one arena of the frame pool — the size after is larger, the arena count
+# one more — instead of refusing while the pool still has frames.
+[marker."KSELFTEST: kheap grows ok ("]
+phase = "end"
+proves = "the kernel heap grows from the frame pool when a caller-sized allocation finds it short; its size is the pool's, not a constant's (ADR-0093)"
+
+# TASK-0352 P6 (ADR-0093): a lazy object of 512 MiB reserved costs the kernel heap its chunk
+# table (under 64 KiB; a word per page cost 512 KiB), a touched page costs one chunk of the map
+# and the chunk goes when its last page does.
+[marker."KSELFTEST: lazy sparse ok ("]
+phase = "end"
+proves = "reserving a lazy object costs nothing per page; touching a page costs one chunk of its map (ADR-0093)"
+
+# TASK-0352 P7 (ADR-0093): a region table records its 65th region, a capability table its 257th
+# capability, an endpoint table its 385th endpoint — the constants that refused them (64, 256,
+# 384: the last bit at the 29th app) are gone; the heap above its reserve is the bound.
+[marker."KSELFTEST: tables grow ok ("]
+phase = "end"
+proves = "the per-process region and capability tables and the endpoint table grow with their use, bounded by the pool, never by a constant (ADR-0093)"
+
+[marker."KSELFTEST: vm window ok ("]
+phase = "end"
+proves = "TASK-0352 P9 (ADR-0093, RFC-0085): a process's mapping window is the whole Sv39 user half (len=), not 768 MiB — a 2 GiB reservation finds its hole (at=) ending past the old window's end, and a page past 0x8000_0000 maps and translates (mapped=)"
 
 # TASK-0333 6e-2 (ADR-0086, RFC-0100 §3): the one memory authority answers the harness that the
 # kernel's pressure endpoint is bound to it (the sink of ADR-0085 has its listener) and names

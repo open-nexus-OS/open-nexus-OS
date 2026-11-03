@@ -603,7 +603,7 @@ USB_CLASS_MARKERS=(
   "hidrawd: usb hid subscribed"
 )
 case "${PROFILE:-full}" in
-  usb|usb-visible|lowmem|many-windows)
+  usb|usb-visible|lowmem|many-windows|many-apps)
     USB_MARKERS=(
       "init: usb host from pci (00:01.0 bar=0x400000000 irq=33)"
       "xhcid: controller ok (version=1.00 ports=8 slots=64 csz=32 scratch=0 irq=33)"
@@ -880,6 +880,12 @@ expected_sequence=(
   # ADR-0088 (TASK-0333 6f-2): the swap stage — sealed out under the boot's key, a touch parked
   # until the pager's answer, a forged answer refused (its waiter killed), the drop at death.
   "KSELFTEST: swap ok ("
+  # ADR-0093 (TASK-0352 P5–P7): the tables grow, bounded by the pool — the heap by an arena, a
+  # 512 MiB reservation costs its chunk table, the region/capability/endpoint tables past 64/256/384.
+  "KSELFTEST: kheap grows ok ("
+  "KSELFTEST: lazy sparse ok ("
+  "KSELFTEST: tables grow ok ("
+  "KSELFTEST: vm window ok ("
   # ADR-0080 (TASK-0333 6c-1b): a process runs from a sealed image — text and rodata shared,
   # data copied; the refusal matrix of the loader and the seal.
   "KSELFTEST: exec image shared ok ("
@@ -1273,6 +1279,7 @@ expected_sequence=(
   "SELFTEST: vm map roundtrip ok"
   # TASK-0333 6b-1 (ADR-0077): memory committed on first touch, proven from user mode.
   "SELFTEST: vm commit on touch ok ("
+  "SELFTEST: heap 32m ok ("
   "SELFTEST: dma buffer ok ("
   "SELFTEST: cap query vmo ok"
   "SELFTEST: ipc routing ok"
@@ -1476,7 +1483,7 @@ case "${PROFILE:-full}" in
   # gpud build provenance) on top of this ladder; the `full` display ladder
   # (input-startup incl. touchd) has had no lane since 2026-07 and its touchd
   # marker is a scheduler-determinism defect tracked in TASK-0324 P5.
-  headless|smp1|sdhci|usb|reset|display-gpu|dhcp|dhcp-strict|quic-required|os2vm|supply-chain|ota-tamper|ota-downgrade|visible|visible-fhd|visible-2d|usb-visible|lowmem|many-windows)
+  headless|smp1|sdhci|usb|reset|display-gpu|dhcp|dhcp-strict|quic-required|os2vm|supply-chain|ota-tamper|ota-downgrade|visible|visible-fhd|visible-2d|usb-visible|lowmem|many-windows|many-apps)
     # Use a reduced expected sequence for headless — omits display-gated
     # metrics, VFS, sandbox, and windowd markers. (The exec child-lifecycle/
     # minidump chain is NOT display-gated: it is appended for headless/smp1
@@ -1513,6 +1520,10 @@ case "${PROFILE:-full}" in
       "KSELFTEST: mem compress ok ("
       "KSELFTEST: task squeeze ok ("
       "KSELFTEST: swap ok ("
+      "KSELFTEST: kheap grows ok ("
+      "KSELFTEST: lazy sparse ok ("
+      "KSELFTEST: tables grow ok ("
+      "KSELFTEST: vm window ok ("
       "KSELFTEST: exec image shared ok ("
       "KSELFTEST: exec image reject ok ("
       "KSELFTEST: fence transfer ok"
@@ -1754,6 +1765,11 @@ case "${PROFILE:-full}" in
   # TASK-0348: the same USB plane and input chain, then twelve windows drawn in one frame.
   many-windows)
     expected_sequence+=("${USB_MARKERS[@]}" "${MANY_WINDOWS_MARKERS[@]}")
+    ;;
+  # TASK-0352 (ADR-0093): the same USB plane and input chain, then forty launches — the lane's
+  # own expectation (the refusal by name in P0, forty launches in P1) is the profile's wait.
+  many-apps)
+    expected_sequence+=("${USB_MARKERS[@]}")
     ;;
 esac
 
@@ -3502,7 +3518,7 @@ if [[ "${MARKER_CONTRACT:-1}" == "1" ]]; then
       ;;
     # TASK-0333 6f-3: the same injected USB input, without the modal/tiling/clipboard/capture
     # phases (the lane's own choreography is the real pressure's).
-    lowmem|many-windows)
+    lowmem|many-windows|many-apps)
       bash "$ROOT/scripts/check-chain-markers.sh" --log "$UART_LOG" --groups input-route,input-live,gpu-core,display || exit 1
       ;;
   esac

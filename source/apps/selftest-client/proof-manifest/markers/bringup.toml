@@ -215,7 +215,7 @@ proves = "kernel selftest: WRITE+EXECUTE leaf refused by the page table every us
 
 [marker."KSELFTEST: ambient authority reject ok ("]
 phase = "bringup"
-proves = "TASK-0347 (ADR-0091): no ambient authority over address spaces and no kernel panic from a caller's size — the retired as_create/as_map numbers (9/10) answer nothing (retired=2), spawn refuses another process's space and a supervisor task with EPERM (spawn=2), a lazy object larger than the memory that could back it is EINVAL (bound=1), and pool-sized lazy objects asked until the kernel heap reaches its reserve end in ENOMEM, then give their heap back (reserve=1)"
+proves = "TASK-0347 (ADR-0091): no ambient authority over address spaces and no kernel panic from a caller's size — the retired as_create/as_map numbers (9/10) answer nothing (retired=2), spawn refuses another process's space and a supervisor task with EPERM (spawn=2), a lazy object larger than the memory that could back it is EINVAL (bound=1); and since ADR-0093 (TASK-0352 P6) sixty-four pool-sized lazy objects cost the kernel heap their chunk tables only and give them back (sparse=1, heap_delta= under a quarter MiB), while a size no arena of the heap could hold is refused without asking the pool (refused=1)"
 
 [marker."KSELFTEST: spawn reasons ok"]
 phase = "bringup"

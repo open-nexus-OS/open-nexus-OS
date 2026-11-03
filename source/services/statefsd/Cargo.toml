@@ -38,7 +38,7 @@ ed25519-dalek = { version = "2", default-features = false, features = ["alloc"] 
 # Honest fix for the per-request Vec churn is buffer reuse (follow-up in
 # the 0049C ledger); an `alloc-fail svc=statefsd` line names the ceiling
 # if it is reached.
-nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true, features = ["heap-1m"] }
+nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
 # TASK-0324 P4f-1a: capability slots have one home.

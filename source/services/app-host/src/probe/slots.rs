@@ -50,8 +50,3 @@ pub(super) const EVENTS_SEND_CLONE_SLOT: u32 =
 /// loads enough that the grant lagged 3s on busy boots (same class as
 /// the content-rect budget).
 pub(super) const PAYLOAD_BUDGET_NS: u64 = 8_000_000_000;
-/// Upper payload bound accepted from the header (matches execd's VMO
-/// budget; anything larger is a malformed header by contract). Raised with
-/// execd's `PAYLOAD_VMO_BYTES` 256K→512K — settings' NXLC container hit 93%
-/// of the old bound.
-pub(super) const PAYLOAD_MAX_LEN: usize = 512 * 1024;

@@ -149,34 +149,16 @@ pub mod os {
     /// Result type expected from service OS entry functions.
     pub type ServiceResult<E> = core::result::Result<(), E>;
 
-    // Bring-up sizing: bounded heaps (kernel early-linear-map budget). Most
-    // services: 384KiB; proof clients 512/768KiB. windowd 2MiB (input bursts
-    // + greeter bake overflowed 1MiB). Shell app-host history: 4MiB (profile
-    // remounts page-faulted 2MiB), then 8MiB, then 16MiB — each raise bought
-    // a few dozen more clicks, because every structural interaction rebuilt a
-    // frame onto a bump that never frees. That story ended with ADR-0065
-    // (TASK-0077C): frame output lives in the generation arena below and
-    // durable state frees by size class, so app-host is back on the 4MiB
-    // floor and its heap is flat over a session — proven by the boot marker
-    // `apphost: heap steady`. The 50/75/90% watermark lines that warned of
-    // the old ceiling are gone with it.
-    const HEAP_SIZE: usize = if cfg!(feature = "heap-16m") {
-        16 * 1024 * 1024
-    } else if cfg!(feature = "heap-8m") {
-        8 * 1024 * 1024
-    } else if cfg!(feature = "heap-4m") {
-        4 * 1024 * 1024
-    } else if cfg!(feature = "heap-2m") {
-        2 * 1024 * 1024
-    } else if cfg!(feature = "heap-1m") {
-        1024 * 1024
-    } else if cfg!(feature = "heap-768k") {
-        768 * 1024
-    } else if cfg!(feature = "heap-512k") {
-        512 * 1024
-    } else {
-        384 * 1024
-    };
+    // ONE heap for every service (TASK-0352 P8, ADR-0093): 64 MiB of `.bss`, which the kernel
+    // maps as a lazy object (ADR-0077) — the reservation costs nothing, a page costs the pool
+    // only once it is touched, and the free lists' bitmap below is touched as sparsely as the
+    // heap. The per-service `heap-*` features this replaces were a history of ceilings: 384 KiB
+    // for most, 512/768 KiB for the proof clients, 2 MiB for windowd, 4 then 8 then 16 MiB for
+    // app-host — each raise bought a few dozen clicks on a bump that never freed, until ADR-0065
+    // (frame output in the generation arena, durable state freed by size class; `apphost: heap
+    // steady`) and 6b-3 (every service frees). A service that allocates past 64 MiB still fails
+    // its allocation, by name (`alloc-fail svc=`): the limit per app is memd's (RFC-0100 §3).
+    const HEAP_SIZE: usize = 64 * 1024 * 1024;
     static mut HEAP: [u8; HEAP_SIZE] = [0; HEAP_SIZE];
 
     /// The frame arena (ADR-0065), OPT-IN per service: a service that does not

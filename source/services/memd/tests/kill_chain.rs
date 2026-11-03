@@ -69,15 +69,15 @@ fn push_bands(
     heard: &mut Vec<u8>,
 ) -> usize {
     let mut proofs = 0;
-    for (pid, band) in feed.changes(broker) {
+    for (pid, band, owner) in feed.changes(broker) {
         if pid == PID {
             heard.push(band);
         }
-        if let BandEvent::KillProven { pending, .. } = memd.on_band(pid, band) {
+        if let BandEvent::KillProven { pending, .. } = memd.on_band(pid, band, owner) {
             assert_eq!(pending.pid, PID);
             proofs += 1;
         }
-        feed.commit(pid, band);
+        feed.commit(pid, band, owner);
     }
     proofs
 }

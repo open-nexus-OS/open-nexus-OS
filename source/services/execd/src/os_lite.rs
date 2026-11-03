@@ -141,9 +141,6 @@ pub(crate) const IMG_APPHOST: u8 = 4;
 /// SEND cap. Init PINS it here (TASK-0324 P4e-2); the boot line
 /// `init: execd bundle slot send=0xa` reports what the declaration says.
 const BUNDLE_SEND_SLOT: u32 = topo::BUNDLEMGRD.send;
-/// Payload VMO budget: header + 512KB NXLC container (transport CONTRACT,
-/// = app-host `PAYLOAD_MAX_LEN`; settings hit 93% of 256KB, probe alarms 90%).
-const PAYLOAD_VMO_BYTES: usize = 16 + 512 * 1024;
 /// P0.2 recv-wake regression gate: TWO one-way endpoints for the probe handshake —
 /// ping (execd SENDs, the child RECVs) and reply (the child SENDs, execd RECVs).
 /// Two endpoints because a single shared queue would let execd's reply-wait steal
@@ -1019,7 +1016,10 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
 /// Returns the ORIGINAL VMO cap (destined for child slot 7), or `None` on any failure
 /// (marked; the child fails closed at its header read).
 fn fetch_app_payload(app_id: &[u8]) -> Option<u32> {
-    let vmo = match nexus_abi::vmo_create(PAYLOAD_VMO_BYTES) {
+    // TASK-0352 P8 (ADR-0093): a LAZY object of the contract's length (`payload_vmo::VMO_LEN`,
+    // one SSOT with app-host's bound) — the reservation costs nothing, bundlemgrd's writes commit
+    // the bundle's own pages: the payload is sized by its bundle, not a 512 KiB cap.
+    let vmo = match nexus_abi::vmo_create_lazy(nexus_abi::payload_vmo::VMO_LEN) {
         Ok(v) => v,
         Err(_) => {
             emit_line("execd: FAIL app payload (vmo create)");

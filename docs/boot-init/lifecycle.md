@@ -5,7 +5,7 @@ role: guide
 subsystem: app-platform
 sources: [source/init/nexus-init/src/bootstrap/supervision.rs, source/init/nexus-init/src/service_supervision.rs, source/init/nexus-init/src/supervision_engine.rs, source/init/nexus-init/src/bootstrap/respawn.rs, source/init/nexus-init/src/bootstrap/windowd_respawn.rs, source/services/execd/src/os_lite]
 contracts: [ADR-0073, ADR-0056, ADR-0057, ADR-0062, RFC-0013, RFC-0112]
-verified: 2026-11-02
+verified: 2026-11-03
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->

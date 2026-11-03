@@ -81,7 +81,7 @@ vfsd = { path = "../../../source/services/vfsd", optional = true }
 execd = { path = "../../../source/services/execd", optional = true }
 nexus-init = { path = "../../../source/init/nexus-init", features = ["os-lite"], optional = true }
 
-nexus-service-entry = { path = "../../../source/libs/nexus-service-entry", optional = true, features = ["heap-512k"] }
+nexus-service-entry = { path = "../../../source/libs/nexus-service-entry", optional = true }
 nexus-abi = { path = "../../../source/libs/nexus-abi", optional = true }
 nexus-service-topology = { path = "../../libs/nexus-service-topology" }
 # RFC-0098 C2: the harness reads its boot mode/profile from /chosen of the tree init pins.
