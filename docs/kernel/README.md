@@ -5,7 +5,7 @@ role: guide
 subsystem: kernel
 sources: [source/kernel/neuron/src, source/kernel/neuron-boot/src]
 contracts: [RFC-0005, RFC-0021, RFC-0085, RFC-0098, RFC-0100, ADR-0049, ADR-0073, ADR-0077, ADR-0080, ADR-0082, ADR-0091]
-verified: 2026-11-02
+verified: 2026-11-03
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->

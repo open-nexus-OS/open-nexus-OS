@@ -131,9 +131,19 @@ held the frame — a hop line is that stage's measurement, never judged (no verd
   `gpud: hops frame (recv>drawn= drawn>shown=)` every 32 frames on screen (the board's ring) —
   the present received → drawn (its flip queued) → the flip landed at a blank. windowd's
   `sent>acked` is gpud's two hops plus the way between them.
-- The input chain: `apphost: hops input (rx>sent=)` every 16 inputs that asked for work — the
-  input received → its answer sent (a present or a motion; the wait for the previous present's
-  credit included); windowd's and gpud's frame hops carry it on.
+- The input chain: `windowd: hops input (staged>applied=)` each second with traffic — a batch's
+  first sample staged → the frame's sample applied and routed to its surface (TASK-0355 P0; the
+  way from the device to windowd is not stamped yet: RFC-0113's input carries no time);
+  `apphost: hops input (rx>sent=)` every 16 inputs that asked for work — the input received →
+  its answer sent (a present or a motion; the wait for the previous present's credit included);
+  windowd's and gpud's frame hops carry it on.
+- The motion chain (TASK-0354 P1): `apphost: hops motion (pulse>sent= ticks=)` once per Tier-2
+  motion episode, when the pulse finds no motion live — a pulse that found motion live → the
+  present that answered it; `ticks` counts the episode's wake-ups (every pulse that found motion
+  live, answered or not).
+- The frame's size (TASK-0351 P0): `layers=` on `gpud: gpu work` (layers composed per frame) and
+  `gpud: bindings (in_use= of= contexts=)` beside it every 32 frames — the bindings the live GPU
+  contexts hold of the room they have together.
 - Like the budget lines, a hop line carries times and counts only — no identity, no input's
   content.
 

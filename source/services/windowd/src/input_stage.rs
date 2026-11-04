@@ -72,6 +72,12 @@ impl InputStage {
         flushed
     }
 
+    /// Nothing staged since the last hand-out: the next `stage` starts a batch.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.pending.is_none()
+    }
+
     /// The frame's sample and its samples, once (`None` when nothing was staged since).
     pub fn take(&mut self) -> Option<(VisibleState, MotionBatch)> {
         let state = self.pending.take()?;

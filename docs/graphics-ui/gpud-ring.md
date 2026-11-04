@@ -5,7 +5,7 @@ role: reference
 subsystem: ui
 sources: [source/drivers/gpud/src/backend/virtqueue.rs, source/drivers/gpud/src/backend/virtqueue, source/drivers/gpud/src/backend/transport.rs, source/drivers/gpud/src/gl_scanout.rs, source/drivers/gpud/src/virgl.rs, source/drivers/gpud/src/markers.rs]
 contracts: [ADR-0032, ADR-0033, RFC-0063]
-verified: 2026-11-02
+verified: 2026-11-03
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->

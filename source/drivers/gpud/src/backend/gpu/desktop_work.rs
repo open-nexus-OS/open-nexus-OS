@@ -17,13 +17,15 @@
 
 use nexus_gfx::frame::{Target, Writes, PROGRAM_KINDS};
 
+use super::contexts::{Holdings, MAX_BINDINGS};
 use super::emit_fmt;
 
 /// Textured pixels by pass kind: the slot's, the glass scenes' (scratch), the blurs' (half and
 /// cache rows); the glass writes by cause (TASK-0336 P0: band, backdrop, moved, new, full); and
-/// the pixels by program (TASK-0335 P4: opaque, straight, rounded, shadow, blur).
+/// the pixels by program (TASK-0335 P4: opaque, straight, rounded, shadow, blur); and the layers
+/// the frames composed (TASK-0351 P0).
 #[derive(Clone, Copy, Debug, Default)]
-pub(super) struct Work([u64; 3], [u64; 5], [u64; PROGRAM_KINDS]);
+pub(super) struct Work([u64; 3], [u64; 5], [u64; PROGRAM_KINDS], u64);
 
 impl Work {
     /// A pass into `target` drew `px` textured pixels by program (`Board::work_by_program`).
@@ -39,11 +41,12 @@ impl Work {
         }
     }
 
-    /// A frame's glass writes, by cause.
-    pub(super) fn note_writes(&mut self, w: Writes) {
+    /// A frame's plan: its glass writes by cause, and the layers it composes.
+    pub(super) fn note_plan(&mut self, w: Writes, layers: usize) {
         for (acc, n) in self.1.iter_mut().zip([w.band, w.backdrop, w.moved, w.new, w.full]) {
             *acc += u64::from(n);
         }
+        self.3 += layers as u64;
     }
 
     /// Folds a frame's work into the window's.
@@ -57,15 +60,17 @@ impl Work {
         for (acc, w) in self.2.iter_mut().zip(frame.2) {
             *acc += w;
         }
+        self.3 += frame.3;
     }
 
-    /// The window's line: pixels per frame by kind and by program, and the GPU's wait per
-    /// pixel.
-    pub(super) fn emit(&self, frames: u64, wait_ns: u64) {
+    /// The window's lines: pixels per frame by kind and by program, the GPU's wait per pixel and
+    /// the layers per frame; then the bindings the live contexts hold (TASK-0351 P0: the board's
+    /// context binds every app surface — `of` is the room the contexts have together).
+    pub(super) fn emit(&self, frames: u64, wait_ns: u64, held: Holdings) {
         let total = self.0.iter().sum::<u64>().max(1);
         let p = self.2;
         emit_fmt(format_args!(
-            "gpud: gpu work (slot_px={} scene_px={} blur_px={} ns_per_px={} opaque_px={} straight_px={} rounded_px={} shadow_px={})",
+            "gpud: gpu work (slot_px={} scene_px={} blur_px={} ns_per_px={} opaque_px={} straight_px={} rounded_px={} shadow_px={} layers={})",
             self.0[0] / frames,
             self.0[1] / frames,
             self.0[2] / frames,
@@ -73,7 +78,14 @@ impl Work {
             p[0] / frames,
             p[1] / frames,
             p[2] / frames,
-            p[3] / frames
+            p[3] / frames,
+            self.3 / frames
+        ));
+        emit_fmt(format_args!(
+            "gpud: bindings (in_use={} of={} contexts={})",
+            held.bindings,
+            held.live * MAX_BINDINGS,
+            held.live
         ));
         // TASK-0336 P0: why the glasses were blurred again — the cause each cut aims at.
         let w = self.1;

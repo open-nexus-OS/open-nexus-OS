@@ -143,6 +143,9 @@ pub(super) struct DslApp {
     /// `probe/band.rs`), and the input chain's hop in the app: received → answered.
     pub(super) input_rx_ns: Option<u64>,
     pub(super) hop_input: nexus_ux_budgets::Hop,
+    /// The motion chain's hop in the app (RFC-0108 §hops, TASK-0354 P1): a pulse that found
+    /// motion live → its present, and the wake-ups of the episode.
+    pub(super) motion_hops: nexus_ux_budgets::chains::MotionHops,
     /// The focused field's input session (RFC-0113 §6): counts and key → present latencies,
     /// one aggregate when the focus leaves the field — never for a secure one.
     pub(super) input_session: nexus_ux_budgets::session::InputSession,

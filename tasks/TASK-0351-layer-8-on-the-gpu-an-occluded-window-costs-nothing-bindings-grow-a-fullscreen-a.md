@@ -2,7 +2,7 @@
 schema: 1
 id: TASK-0351
 title: "Layer 8 on the GPU: an occluded window costs nothing, bindings grow, a fullscreen app is scanned out directly and apps render with the GPU"
-status: draft
+status: in_progress
 owner: ["@ui", "@gpu"]
 created: 2026-11-03
 updated: 2026-11-03
@@ -11,6 +11,8 @@ components: [gpud, windowd, nexus-gfx, app-host]
 kind: service
 novelty: first
 estimate: 3
+started: 2026-11-03
+dates_source: recorded
 goal:
   metric: "windows one frame can hold; GPU bindings per board context; apps that render with the GPU; GPU ns per textured pixel; frame p99 and drops on the board"
   baseline: "64 layers per frame (topmost 62 windows, occluded bodies still drawn); 128 bindings per board GPU context; 0 GPU-rendered apps; no direct scanout (TASK-0348 'Not doing here'); 13 ns/px median, 25 ms GPU frame median (cycle 61) against the stock compositor's 1.9-3.7 ns/px"
@@ -26,8 +28,10 @@ links:
 phases:
   - id: P0
     story: "the frame cost with 12 and 30 windows and the binding use are measured on the board"
-    state: planned
+    state: proving
     gate: "board cycle: frame p99, ns_per_px, layers per frame and bindings in use logged for 12 and 30 windows"
+    started: 2026-11-03
+    note: "board--2026-11-03T19-13-30 measured 4 windows (frame drops 24 of 32 median, 6 ns/px, 16 layers, 49 of 128 bindings, 1 context); the 12- and 30-window series is still owed: first board cycle of package 3"
   - id: P1
     story: "a window hidden behind others costs the frame nothing"
     state: planned
@@ -57,6 +61,14 @@ phases:
 ## The ask
 
 ## Measured before the cut
+
+- Cycle 61 (2026-10-22): 13 ns/px median, 25 ms GPU frame median; the stock compositor 1.9–3.7 ns/px.
+- P0, board 2026-11-03 (`board--2026-11-03T19-13-30`, `docs/board/measurements/2026-11-03-motion-input-frame-baseline/`),
+  **4 windows at most** (the 12- and 30-window series is still owed — it opens package 3):
+  `ux frame` 26 FAIL / 1 warn of 27 windows, dropped 24 of 32 median, worst frame 102 ms median;
+  `gpu work` 6 ns/px median over 2.8 Mpx slot area median, `layers` median 16, max 19 of 64;
+  `bindings` in_use max 49 of 128 in 1 context; `windowd: hops frame` `sent>acked` 90 ms mean.
+  The tap's dominant hop (TASK-0355 P0) is this frame.
 
 ## Three lenses
 

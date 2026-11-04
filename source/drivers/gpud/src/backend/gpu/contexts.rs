@@ -146,6 +146,8 @@ impl Slot {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct Holdings {
     pub live: usize,
+    /// Bindings the live contexts hold together (TASK-0351 P0: of `live * MAX_BINDINGS`).
+    pub bindings: usize,
     pub lost: usize,
     pub quarantined: usize,
     pub bos: usize,
@@ -440,8 +442,10 @@ impl Contexts {
 
     pub(super) fn holdings(&self, gpu: &Gpu, bos: &Bos) -> Holdings {
         let count = |st: State| self.slots.iter().filter(|s| s.state == st).count();
+        let live = self.slots.iter().filter(|s| s.state == State::Live);
         Holdings {
             live: count(State::Live),
+            bindings: live.map(|s| s.space.bindings().count()).sum(),
             lost: count(State::Lost),
             quarantined: count(State::Quarantined),
             bos: bos.live(),

@@ -77,6 +77,11 @@ impl AtomicHop {
 /// sent to gpud, and sent → its credit back (gpud's work, its flip, the blank it waits for).
 static HOP_OWED_SENT: AtomicHop = AtomicHop::new();
 static HOP_SENT_ACKED: AtomicHop = AtomicHop::new();
+/// The input chain's hop in windowd (RFC-0108 §hops, TASK-0355 P0): a batch's first sample staged
+/// → the frame's sample applied (hit-tested, routed to its surface in the same step). The way
+/// from the device to windowd is not stamped yet (RFC-0113's input carries no time).
+static HOP_STAGED_APPLIED: AtomicHop = AtomicHop::new();
+static STAGED_NS: AtomicU64 = AtomicU64::new(0);
 /// A present's issue time by its seq (two in flight: a ring of four holds them).
 const ISSUE_RING: usize = 4;
 #[allow(clippy::declare_interior_mutable_const)]
@@ -160,6 +165,24 @@ pub(super) fn frame_sent_after(us: u64) {
 /// window.
 pub(super) fn take_frame_hops() -> [(u64, u64, u32); 2] {
     [HOP_OWED_SENT.take(), HOP_SENT_ACKED.take()]
+}
+
+/// A batch's first input sample was staged at `now_ns` (a later sample joins the batch).
+pub(super) fn input_staged(now_ns: u64) {
+    let _ = STAGED_NS.compare_exchange(0, now_ns.max(1), Ordering::Relaxed, Ordering::Relaxed);
+}
+
+/// The frame applied its staged sample at `now_ns`: the hop from the batch's first sample ends.
+pub(super) fn input_applied(now_ns: u64) {
+    let staged = STAGED_NS.swap(0, Ordering::Relaxed);
+    if staged != 0 {
+        HOP_STAGED_APPLIED.note(now_ns.saturating_sub(staged) / 1000);
+    }
+}
+
+/// The window's input hop `staged>applied` as `(mean_us, max_us, count)`, and a fresh window.
+pub(super) fn take_input_hops() -> (u64, u64, u32) {
+    HOP_STAGED_APPLIED.take()
 }
 
 /// A client's structure or motion frame was refused.

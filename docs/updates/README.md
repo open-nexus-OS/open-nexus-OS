@@ -5,7 +5,7 @@ role: guide
 subsystem: updates
 sources: [source/services/updated, source/services/bootctld, userspace/updates, tools/nx/src/commands/update.rs, tools/nx/src/cli_update.rs, userspace/apps/settings/ui/components/sections/UpdatesView.nx]
 contracts: [RFC-0089, RFC-0090, RFC-0012]
-verified: 2026-11-02
+verified: 2026-11-03
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->

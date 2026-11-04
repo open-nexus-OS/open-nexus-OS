@@ -2,7 +2,7 @@
 schema: 1
 id: TASK-0354
 title: "Compositor motion: a transition stated once, moved by windowd for every shown frame; springs in closed form that keep their velocity"
-status: draft
+status: in_progress
 owner: ["@ui"]
 created: 2026-11-03
 updated: 2026-11-03
@@ -11,11 +11,13 @@ components: [windowd, app-host, animation]
 kind: ui
 novelty: variant
 estimate: 3
+started: 2026-11-03
+dates_source: recorded
 goal:
   metric: "app-host wake-ups per frame of a Tier-2 transition; frames dropped per transition (32-frame window); closed-form spring deviation from RK4"
-  baseline: "1 app-host tick and 1 CPU raster per frame (Choreographer pulse, paint_row_picked_animated); drops per transition not measured; RK4 fixed-step springs restart on a retarget"
+  baseline: "board 2026-11-03 (board--2026-11-03T19-13-30): 10.3 wake-ups per sent frame, 77 ms median from pulse to the sent frame (114 ms weighted), 24 of 32 frames dropped (median window); RK4 fixed-step springs restart on a retarget"
   target: "0 app-host wake-ups between a transition's start and end; 0 of 32 frames dropped per transition on the board; closed-form within 0.5 px of RK4; velocity continuous on a retarget"
-  instrument: "apphost wake counter per transition · windowd frames(moved=) line · gpud: ux frame line · host tests"
+  instrument: "apphost: hops motion (pulse>sent= ticks=) · windowd frames(moved=) line · gpud: ux frame line · host tests"
 consumer: TASK-0353
 links:
   - label: Model
@@ -27,12 +29,16 @@ links:
 phases:
   - id: P0
     story: "a spring is solved in closed form at any time, and a retarget keeps its velocity"
-    state: planned
+    state: blocked
     gate: "host: max deviation closed-form vs RK4 <= 0.5 px for every token; velocity jump on retarget = 0"
+    note: "queued behind package 3 (TASK-0351) by the operator's order of 2026-11-03"
   - id: P1
     story: "the cost of today's motion is measured on the board: app-host wake-ups and CPU milliseconds per transition frame, frames dropped per shell transition"
-    state: planned
+    state: done
     gate: "board cycle (shared with TASK-0351 P0 and TASK-0355 P0): wake-ups per frame, CPU ms per transition frame and dropped frames of 32 logged for panel, launcher and window open/close"
+    started: 2026-11-03
+    done: 2026-11-03
+    evidence: build/logs/board--2026-11-03T19-13-30
   - id: P2
     story: "an app states a value change or transition once on a layer, and windowd moves the layer for the time each frame is shown"
     state: planned
@@ -55,7 +61,13 @@ Operator, 2026-11-03: the animation model as smooth as the reference class (iOS:
 
 - Tier 1 (window transform) already runs in windowd/GPU without a re-raster (TASK-0336, TASK-0338).
 - Tier 2 (in-surface `.animate`/`.transition`/`.effect`) ticks the app-host on every frame pulse and re-rasters on the CPU (`scene_raster/src/anim.rs`).
-- To measure in P1: app-host wake-ups and CPU ms per transition frame on the board.
+- P1, board 2026-11-03 (`board--2026-11-03T19-13-30`, `docs/board/measurements/2026-11-03-motion-input-frame-baseline/`):
+  52 motion episodes, 4 776 wake-ups for 462 sent frames — 10.3 wake-ups per frame; a transition
+  frame takes 77 ms from the pulse to its send (median of the episode means; weighted 114 ms, worst
+  6.4 s); 42 of 52 episodes woke more often than they presented; frames dropped 24 of 32 (median
+  window) while anything moved. A Tier-2 transition is a 10-fps thing on the app side. The lines do
+  not name which transition an episode was (panel, launcher, window): that attribution comes with
+  windowd's motion record in P2, which knows the layer.
 - The reference numbers (`docs/dev/ui/foundations/quality/latency-reference.md`, 2026-11-03): the
   reference laptop's panel is 60 Hz, so the unit of smoothness is 0 of 32 frames dropped at 16.7 ms;
   transitions are 200–400 ms springs, critically damped by default; micro-motion under 200 ms.

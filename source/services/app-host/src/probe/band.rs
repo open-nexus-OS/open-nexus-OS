@@ -418,6 +418,7 @@ impl super::DslApp {
         *seq = seq.wrapping_add(1);
         self.send_present(client, surface_id, (*seq, slot), &damage)?;
         self.note_input_answered();
+        self.motion_answered();
         // RFC-0113 §6: the keys this present shows are answered; a field the focus left says
         // its session. §5: the caret this frame places, to windowd (it draws and blinks it).
         self.input_session.presented(nsec_now());
@@ -529,6 +530,7 @@ impl super::DslApp {
         let _ = client.send(&buf[..len], Wait::Blocking);
         self.motion_dirty = false;
         self.note_input_answered();
+        self.motion_answered();
         // A scroll moved the field: its caret moves with it (RFC-0113 §5).
         self.sync_caret(client, surface_id);
     }

@@ -32,6 +32,10 @@ impl DisplayServerRuntime {
                 state.wheel_delta_y
             ));
         }
+        // RFC-0108 §hops (TASK-0355 P0): a batch is timed from its first sample.
+        if self.input_stage.is_empty() {
+            crate::compositor::frame_causes::input_staged(nexus_abi::nsec().unwrap_or(0));
+        }
         if let Some((edge, edge_motion)) = self.input_stage.stage(state, &motion) {
             self.apply_input_state(edge, edge_motion);
         }
@@ -45,6 +49,7 @@ impl DisplayServerRuntime {
     pub(crate) fn apply_staged_input(&mut self) -> bool {
         match self.input_stage.take() {
             Some((state, motion)) => {
+                crate::compositor::frame_causes::input_applied(nexus_abi::nsec().unwrap_or(0));
                 self.apply_input_state(state, motion);
                 true
             }

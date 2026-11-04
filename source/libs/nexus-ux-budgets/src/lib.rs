@@ -19,6 +19,9 @@
 #![cfg_attr(not(test), no_std)]
 #![forbid(unsafe_code)]
 
+/// The motion chain's hop in an app: a frame pulse → its present, and the episode's wake-ups
+/// (RFC-0108 §hops, TASK-0354 P1).
+pub mod chains;
 /// A text field's input session: counts and key → present latencies, one aggregate per session
 /// (RFC-0113 §6).
 pub mod session;

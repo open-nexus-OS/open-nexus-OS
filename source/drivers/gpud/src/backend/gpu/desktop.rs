@@ -461,7 +461,7 @@ impl Desktop {
         let mut split = [plan_ns, 0, 0, 0, 0];
         let mut witness = [0u64; 3];
         let mut work = super::desktop_work::Work::default();
-        work.note_writes(planned.writes);
+        work.note_plan(planned.writes, planned.layers);
         // At most two passes in flight: the context's two render-target data alternate per
         // pass (the firmware's, `render.rs`); a third pass in the queue would reuse the data of
         // one still drawing — cycle 40's lockup. Pass p waits for pass p − 2 before it is
@@ -581,7 +581,7 @@ impl Desktop {
                 ));
                 // TASK-0335 P0: the textured pixels per frame by pass kind and the GPU's time
                 // per pixel — the cost model every cut of this package is judged by.
-                s.work.emit(n, s.split[3]);
+                s.work.emit(n, s.split[3], dev.holdings());
                 *s = Stats::default();
             }
         }

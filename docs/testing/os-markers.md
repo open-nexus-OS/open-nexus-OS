@@ -103,8 +103,9 @@ Check a chain group against any log: `just check-markers build/logs/<run>/uart.l
 - **Chain hops** — `<svc>: chain <X><n> …`, once per boot per hop, in groups the contract names
   (`input-route` I5–I6, `input-live` I1–I2, `input-chord` K1–K4: a keyboard chord from hidrawd
   through inputd to windowd on the key channel). A `hops` line times a hop with numbers only, e.g.
-  `inputd: hops chord (code= report>push=`; on the board the last hop present names where a
-  human's input stopped.
+  `inputd: hops chord (code= report>push=`, `windowd: hops input (staged>applied=`,
+  `apphost: hops motion (pulse>sent= ticks=`; RFC-0108 §hops lists them all. On the board the
+  last hop present names where a human's input stopped.
 - **Judged measurement** (RFC-0108) — `<service>: ux <name> <ok|warn|FAIL> (… budget_<unit>=<n>)`.
   Budgets live only in `source/libs/nexus-ux-budgets/src/lib.rs`; the rung is the prefix
   (`gpud: ux frame `), the verdict is judged by the FAIL scan and its allow-lists.

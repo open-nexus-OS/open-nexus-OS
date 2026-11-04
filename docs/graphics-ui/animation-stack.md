@@ -3,9 +3,9 @@ schema: 1
 title: "Animation stack"
 role: guide
 subsystem: ui
-sources: [userspace/ui/animation, source/services/windowd/src/compositor/runtime/transitions.rs, source/services/windowd/src/compositor/runtime/frame_pulse.rs, source/services/app-host/src/probe/anim.rs, source/services/app-host/src/probe/scroll.rs, userspace/nexus-gfx/src/backend]
+sources: [userspace/ui/animation, source/services/windowd/src/compositor/runtime/transitions.rs, source/services/windowd/src/compositor/runtime/frame_pulse.rs, source/services/app-host/src/probe/anim.rs, source/services/app-host/src/probe/scroll.rs, source/services/app-host/src/probe/pulse.rs, userspace/nexus-gfx/src/backend]
 contracts: [ADR-0031, RFC-0059, RFC-0110, ADR-0076]
-verified: 2026-11-02
+verified: 2026-11-03
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -42,7 +42,7 @@ Tests: `userspace/ui/animation/tests/` (keyframe, spring, timeline ordering).
 | app-host (`probe/anim.rs`) | DSL `.animate` / `.transition` / `.effect` on a node | windowd's frame pulse | a per-node transform the CPU painter (`nexus-scene-raster`) applies in the app's own frame |
 | app-host (`probe/scroll.rs`) | every `.scroll(...)` container | the frame pulse | layer offsets windowd composes (ADR-0076) |
 
-The frame pulse (`compositor/runtime/frame_pulse.rs`): an animating client sends `OP_SURFACE_FRAME_REQ` once; windowd answers with one `OP_SURFACE_FRAME` after its next composited frame. The answer names when the client's next frame is shown and the time between frames on the glass. Nothing animates on a busy loop.
+The frame pulse (`compositor/runtime/frame_pulse.rs`): an animating client sends `OP_SURFACE_FRAME_REQ` once; windowd answers with one `OP_SURFACE_FRAME` after its next composited frame. The answer names when the client's next frame is shown and the time between frames on the glass. Nothing animates on a busy loop. In the app the pulse lands in `probe/pulse.rs`: the scroll physics and the DSL animations advance to that shown time, and the motion chain's hop is kept — `apphost: hops motion (pulse>sent= ticks=)` says per motion episode how long a pulse took to its present and how often the app woke (RFC-0108 §hops, `nexus_ux_budgets::chains`).
 
 ## Layers 2 and 3 — NexusGfx and the backend
 

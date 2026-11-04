@@ -5,7 +5,7 @@ role: guide
 subsystem: security
 sources: [policies, userspace/updates, source/boot/nxboot, source/services/bundlemgrd/src/volume.rs, source/services/keystored, source/services/updated]
 contracts: [ADR-0059, ADR-0060, ADR-0081, RFC-0089, RFC-0088, RFC-0016]
-verified: 2026-11-02
+verified: 2026-11-03
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->

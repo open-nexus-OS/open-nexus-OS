@@ -111,6 +111,14 @@ impl LoopTelemetry {
                      sent>acked={sa_avg}/{sa_max}/{sa_n})"
                 ));
             }
+            // RFC-0108 §hops (TASK-0355 P0): the input chain's hop in windowd — a batch's first
+            // sample staged → the frame's sample applied and routed.
+            let (ia_avg, ia_max, ia_n) = super::frame_causes::take_input_hops();
+            if ia_n > 0 {
+                let _ = debug_println(&alloc::format!(
+                    "windowd: hops input (staged>applied={ia_avg}/{ia_max}/{ia_n})"
+                ));
+            }
             // RFC-0110: the presents shown when windowd predicted — the time the clients'
             // frame pulses named — more than half a period late, or early; the cadence gpud holds.
             let (judged, cadence, period_ns) = runtime.frame_pace();
@@ -138,6 +146,7 @@ impl LoopTelemetry {
             let _ = super::frame_causes::take_work();
             let _ = super::frame_causes::take_refused();
             let _ = super::frame_causes::take_frame_hops();
+            let _ = super::frame_causes::take_input_hops();
         }
         self.rebase(now_ns, runtime);
         self.iters = 0;

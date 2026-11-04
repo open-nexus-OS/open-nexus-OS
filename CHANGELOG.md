@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-11-03 (the hops the measurement cycle reads — TASK-0351 P0, TASK-0354 P1, TASK-0355 P0)
+
+- **Three hop lines, no verdicts (RFC-0108 §hops amended).** `windowd: hops input
+  (staged>applied=)` times an input batch from its first staged sample to the frame that applied
+  and routed it; `apphost: hops motion (pulse>sent= ticks=)` says, once per Tier-2 motion
+  episode, what a frame pulse cost the app and how often it woke; `gpud: gpu work` gains
+  `layers=` per frame and `gpud: bindings (in_use= of= contexts=)` says what the board's GPU
+  contexts hold. Times and counts only — the lines the shared board cycle of the three tasks
+  reads before any cut. The first cycle's reading:
+  `docs/board/measurements/2026-11-03-motion-input-frame-baseline/` (a Tier-2 transition frame
+  costs the app 77 ms and ten wake-ups; a tap's time is the display's frame, not the staging).
+
 ### Added - 2026-11-03 (the memory model used: no table bounded by a constant — TASK-0352)
 
 - **The kernel's tables grow (ADR-0093).** The kernel heap is arenas: the image's 8 MiB first,

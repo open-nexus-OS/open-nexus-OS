@@ -5,7 +5,7 @@ role: reference
 subsystem: security
 sources: [source/services/ingressd, source/services/netstackd/src/os/facade/authz.rs, userspace/policy/src/expose.rs, userspace/policy/src/learn_gen.rs, tests/security_v2_host, tests/ingress_host]
 contracts: [RFC-0091, RFC-0092, ADR-0061]
-verified: 2026-11-02
+verified: 2026-11-03
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->

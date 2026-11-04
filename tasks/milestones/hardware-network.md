@@ -294,7 +294,7 @@ steps:
   - key: L8.2
     section: L
     story: "layer 8 on the GPU: direct scanout, apps rendering with the GPU, the passes a frame runs"
-    state: planned
+    state: active
     tasks: [TASK-0351]
     gate: "board: gpud: gpu gate scene ok, frame p99 <= 16.7 ms with glass, <= 4 ns per textured pixel on the median"
   - key: L7

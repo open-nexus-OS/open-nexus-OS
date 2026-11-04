@@ -167,6 +167,7 @@ impl DslApp {
             tap_render_span: None,
             input_rx_ns: None,
             hop_input: nexus_ux_budgets::Hop::new(),
+            motion_hops: nexus_ux_budgets::chains::MotionHops::new(),
             input_session: nexus_ux_budgets::session::InputSession::new(),
             taps_are_keystrokes: false,
             tap_present_owed: false,

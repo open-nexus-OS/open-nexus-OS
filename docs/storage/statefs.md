@@ -5,7 +5,7 @@ role: spec
 subsystem: storage
 sources: [userspace/statefs, source/services/statefsd, tools/fsck-statefs]
 contracts: [RFC-0018, RFC-0019, RFC-0072, ADR-0023, ADR-0043]
-verified: 2026-11-02
+verified: 2026-11-03
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
