@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-11-04 (the board cycles' gate values are a series — TASK-0351 P8, ADR-0094)
+
+- **`nx ledger series`**: `add <uart.log>` records one board cycle's gate lines (the gate scene's
+  cold, pipelined and hover frame, the median GPU time per pixel, the dropped frames and the
+  slowest one, the sweep's 16x16 frame and the full quad under a 16x16 damage) in
+  `docs/board/measurements/series.toml`; `nx ledger lint --fix` renders the table
+  (`series.md`) and gpud's `series.rs` from it, and `lint` fails while either is stale.
+- **gpud prints `last=`** on `gpu gate scene`, `gpu work`, `ux frame` and `gpu pass sweep` —
+  the last recorded cycle's value with its id — and the gate scene is `FAIL … slower than last:`
+  naming the cycle when a value is worse than the last by more than 10 %. The board's cycle of
+  2026-11-04 printed them and cut the gate line at the console's 256 bytes — the line is shorter
+  now (the bars and the wait's iterations live in the marker doc and the trace line).
+
+### Added - 2026-11-04 (one kernel, three executors — TASK-0351 P7, ADR-0094 Accepted)
+
+- **The blur's mathematics lives once**, in `nexus_gfx::frame::kernels`: the library radii,
+  each radius's scale, its gaussian's taps and weights. `nxgpu` emits the shaders' taps and
+  weights from it as overrides (`blur = R` in the pipeline manifests, the archives rebuilt), the
+  raster's gaussian reads the same table, and a kernel literal in a shader or under gpud is
+  refused by a test.
+- **One oracle** (`frame::oracle`) judges every executor's blur: the board's `gpu blur radii`
+  rung, the raster on the host and — new — the virtual GPU at every library radius,
+  `gpud: gpu blur golden ok (`, required by the visible lanes.
+- **Direct scanout and an app's own GPU context are contracts** (TASK-0351 P3/P4): RFC-0101 §8
+  names the frame the planner scans out directly (`frame::scanout::direct`, host-tested; the
+  contiguous surface and the flip follow on the board), §1 and ADR-0095 the context an app opens
+  at normal priority, charged to its footprint — the renderer is a task of its own.
+
+### Removed - 2026-11-04 (the dead CPU executors — TASK-0351 P7)
+
+- `userspace/ui/{renderer,shape,image,cursor,effects,msdf}`, `tests/ui_v4_host` and
+  `tests/ui_host_snap`: CPU renderers no product path has used since the GPU path landed. The
+  dual Kawase chain of nexus-effects was compared on paper against the kernel table's reduced
+  gaussian and not ported (ADR-0094 records why); `tests/ui_v10_goldens` keeps the golden
+  helpers it needed.
+
+### Changed - 2026-11-04 (a pass draws what its area holds — TASK-0351 P5, ADR-0094)
+
+- **gpud cuts every draw of a pass to the pass's area** before it is emitted
+  (`nexus_gfx::frame::clip_draw`): the hardware shaded the full quads a pass kept regardless of
+  its 16x16 damage (the sweep's `area16_us` at the full quad's cost, H1 of 2026-11-03). A shadow
+  or layer draw becomes its part inside the area with its texture shifted on the pixel grid; a
+  blur draw is already cut by its chain. The board's cycle of 2026-11-04 read the sweep after the
+  cut: a pass costs its fixed 5.7–5.9 ms whatever its area (the 16x16 quad, the full quad and
+  the full quad under a 16x16 damage alike), while the bringup rung's area pass in gpud's own
+  context costs 0.83 ms — the cut moves no number; the difference between the two pass emitters
+  is P5's next hypothesis.
+
 ### Added - 2026-11-04 (the stock sweep through our frame path — TASK-0351 P5, ADR-0094)
 
 - **gpud runs the stock stack's sweep at boot**, after the gate scene: the base alone, an opaque

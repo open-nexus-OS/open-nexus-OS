@@ -5,7 +5,7 @@
 //! OWNERS: @ui
 //! STATUS: Functional
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: Covered by tests/ui_v4_host/ (Fraction methods) + tests/ui_v3b_host/
+//! TEST_COVERAGE: Covered by tests/ui_v3b_host/ (the Fraction methods in the unit tests)
 //! ADR: docs/adr/0030-layout-engine-deterministic-pretext.md
 use crate::border::VisualStyle;
 use crate::direction::{Align, Direction, Justify, Overflow, Position, ZIndex};

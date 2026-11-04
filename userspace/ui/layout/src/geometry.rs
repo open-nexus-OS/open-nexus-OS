@@ -8,7 +8,7 @@
 //! OWNERS: @ui
 //! STATUS: Functional
 //! API_STABILITY: Internal
-//! TEST_COVERAGE: Covered by src/engine_tests.rs + tests/ui_v4_host/
+//! TEST_COVERAGE: Covered by src/engine_tests.rs
 //! ADR: docs/adr/0030-layout-engine-deterministic-pretext.md
 
 use crate::boxes::PlaceCtx;

@@ -23,25 +23,7 @@ use super::pieces::{Content, LayerDraws};
 use super::plan::{Frame, Planned};
 use crate::backend::gpu::quads::Quad;
 
-/// The radii the library blurs at (windowd's glass levels).
-pub const BLUR_RADII: [u32; 4] = [8, 20, 30, 40];
-
-/// The radius the library blurs `asked` at: the nearest, the smaller on a tie (the QEMU path's
-/// rule).
-pub fn blur_radius(asked: u32) -> u32 {
-    BLUR_RADII.iter().copied().min_by_key(|r| r.abs_diff(asked)).unwrap_or(20)
-}
-
-/// The resolution the library blurs at `radius` (a library radius): a pixel every `scale`
-/// full-resolution pixels — half for the smallest radius, quarter from 20 on (TASK-0215 5c-3
-/// P6, the stock stack's `glass-quarter`; RFC-0101 §8d). The pipelines' `scale` override.
-pub fn blur_scale(radius: u32) -> u32 {
-    if radius < 20 {
-        2
-    } else {
-        4
-    }
-}
+pub use super::kernels::{blur_radius, blur_scale, BLUR_RADII};
 
 /// The program kinds `Board::work_by_program` counts: opaque, straight, rounded, shadow, blur.
 pub const PROGRAM_KINDS: usize = 5;

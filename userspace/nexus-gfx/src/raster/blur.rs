@@ -1,10 +1,13 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! Backdrop blur primitives — a fast separable box blur and a higher-quality
-//! separable gaussian (the GPU-shader reference/fallback). Saturation is a
-//! separate opt-in pass ([`saturate`]) the caller applies afterward, so a
-//! backend that historically did not boost saturation keeps its exact output.
+//! Backdrop blur primitives — a fast separable box blur (the CPU executor's
+//! trick: constant cost a pixel, named here and judged by the gaussian) and the
+//! separable gaussian of the kernel table (`frame::kernels`, ADR-0094: the same
+//! weights the shader pipelines are built with, at full resolution — the oracle
+//! every executor's blur is judged by). Saturation is a separate opt-in pass
+//! ([`saturate`]) the caller applies afterward, so a backend that historically
+//! did not boost saturation keeps its exact output.
 //!
 //! Both passes are **allocation-free**: the caller supplies the row and column
 //! scratch slices. The live driver passes fixed stack buffers (no per-frame heap
@@ -16,9 +19,10 @@
 
 use super::surface::Surface;
 use super::RasterError;
+use crate::frame::kernels::{Gaussian, MAX_FULL_TAPS};
 
-/// Maximum supported gaussian kernel taps (`radius` up to 20 → `2·20 + 1`).
-const MAX_KERNEL: usize = 41;
+/// The gaussian kernel's taps (`radius` up to the table's largest → `2·40 + 1`).
+const MAX_KERNEL: usize = 2 * MAX_FULL_TAPS + 1;
 
 /// Separable box blur of `(x, y, w, h)`. The classic fast backdrop blur;
 /// `scratch_row` needs `≥ w·4` bytes and `scratch_col` `≥ h·4` bytes. Apply
@@ -148,10 +152,12 @@ pub fn blur_box(
     Ok(())
 }
 
-/// Separable gaussian blur (σ = radius/2) of `(x, y, w, h)`. Higher quality than
-/// [`blur_box`]; the same two-pass convolution a GPU compute shader runs, so it
-/// doubles as the CPU fallback and the GPU parity reference. Same scratch
-/// requirements as [`blur_box`]. Apply [`saturate`] separately for a boost.
+/// Separable gaussian blur of `(x, y, w, h)` with the kernel table's weights at
+/// full resolution (`Gaussian::full`: σ = radius/2, taps out to ±radius; a radius
+/// past the table's largest is held to it). The same convolution the shader
+/// pipelines run at reduced resolution, so it is the oracle their pictures are
+/// judged by (`frame::oracle`). Same scratch requirements as [`blur_box`]. Apply
+/// [`saturate`] separately for a boost.
 #[allow(clippy::too_many_arguments)]
 pub fn blur_gaussian(
     s: &mut Surface,
@@ -170,7 +176,8 @@ pub fn blur_gaussian(
     let height = s.height();
     let end_x = x.saturating_add(w).min(width);
     let end_y = y.saturating_add(h).min(height);
-    let r = radius as usize;
+    let weights = Gaussian::full(radius).weights();
+    let r = weights.taps();
     let pixels = (end_x - x) as usize;
     let rows = (end_y - y) as usize;
     if pixels == 0 || rows == 0 {
@@ -183,23 +190,12 @@ pub fn blur_gaussian(
         return Err(RasterError::ScratchTooSmall);
     }
 
-    // Precompute the normalized gaussian kernel.
-    let sigma = (r as f32) / 2.0_f32.max(0.5);
-    let kernel_size = (r * 2 + 1).min(MAX_KERNEL);
+    // The table's kernel, `-r..=r`.
     let mut kernel = [0.0_f32; MAX_KERNEL];
-    let mut sum = 0.0_f32;
-    for (i, k) in kernel.iter_mut().enumerate().take(kernel_size) {
-        let dx = (i as i32 - r as i32) as f32;
-        let weight = libm::expf(-dx * dx / (2.0 * sigma * sigma));
-        *k = weight;
-        sum += weight;
+    for (k, (_, w)) in kernel.iter_mut().zip(weights.iter()) {
+        *k = w;
     }
-    if sum > 0.0 {
-        for k in kernel.iter_mut().take(kernel_size) {
-            *k /= sum;
-        }
-    }
-    let k_len = kernel_size;
+    let k_len = 2 * r + 1;
     let buf = s.buf_mut();
 
     // Horizontal pass: convolve each row.

@@ -39,7 +39,7 @@ gpud's request loop (`service.rs`) drives one display behind the `Display` trait
 | 3 | `OP_SET_FRAMEBUFFER_VMO` (3) | attach; carries no capability (one that does is refused) | — |
 | 4 | `OP_REVEAL` (13) | the splash holds until the first present after this; that present's ack is `STATUS_REVEALED` | `display: first scanout ok` |
 
-Without gpud windowd says `windowd: display none (…)` and runs display-less at the layout maximum. Mode: the device tree's request (`/chosen/nexus,display-mode`) against the device's capability, through `resolve_display_mode`. On the board gpud uses the layout maximum, 1920x1080 at 60 Hz CEA timing. gpud does not read the monitor's EDID (`dc/edid.rs` parses it, unused).
+Without gpud windowd says `windowd: display none (…)` and runs display-less at the layout maximum. Mode: the device tree's request (`/chosen/nexus,display-mode`) against the device's capability (`resolve_display_mode`); the board uses the layout maximum, 1920x1080 at 60 Hz. EDID is parsed (`dc/edid.rs`), unused.
 
 ## Memory layout
 
@@ -56,12 +56,12 @@ On the board the ring is one contiguous object made for the controller (it canno
 
 ## A present
 
-1. windowd sends `OP_PRESENT_DAMAGE`: `[op, seq u32]` + a serialized `nexus_gfx::CommittedBuffer` — `CompositeLayer` per layer back to front, `LayerTransform` per moving window, `Damage`. At most two presents are in flight (`compositor/runtime/gpud.rs`). The ack window (`present_acks.rs`) credits only an outstanding seq. Before the encode, a window wholly under the opaque bodies above it is left out (`compositor/runtime/occlusion.rs`, RFC-0101 §8; `windowd: windows occluded (n=`) — on the GPU path only, where a glass back is drawn opaque.
+1. windowd sends `OP_PRESENT_DAMAGE`: `[op, seq u32]` + a serialized `nexus_gfx::CommittedBuffer` — `CompositeLayer` per layer back to front, `LayerTransform` per moving window, `Damage`. At most two presents are in flight (`compositor/runtime/gpud.rs`). The ack window (`present_acks.rs`) credits outstanding seqs only. Before the encode, a window wholly under the opaque bodies above it is left out (`compositor/runtime/occlusion.rs`, RFC-0101 §8; `windowd: windows occluded (n=`) — on the GPU path only, where a glass back is drawn opaque.
 2. gpud validates the commands (`nexus_gfx::command::validation`), executes them into the display and scans out (`present_chain.rs`). Hops: `G1 recv` → `G2 parse` → `G3 exec` → `G4 scanout`; the virgl path adds `G3b`/`G3c` ([gpud-ring.md](gpud-ring.md)).
 3. The ack echoes the seq and status and carries `frame_time::Shown`: when the frame reached the glass, the refresh period, the cadence. windowd's `frame_clock.rs` predicts the next shown time from it; clients waiting on `OP_SURFACE_FRAME_REQ` get that time.
-4. A present the virtio device lost (`present_lost`) is NACKed and windowd re-sends the damage.
+4. A present the virtio device lost (`present_lost`) is NACKed; windowd re-sends the damage.
 
-App surfaces are composed by reference: windowd asks for a buffer per surface (`OP_SURFACE_ALLOC` 18, `OP_SURFACE_FREE` 19). gpud makes it for the device that samples it and charges the owner (`surface_serve.rs`, `surfaces.rs`). On the board each surface is bound whole in windowd's GPU context, whose binding table grows from the heap (`VmSpace`, ADR-0093) over addresses up to the layout's GiB (`surface_va.rs`); `gpud: bindings (in_use= of=)` counts them. A freed buffer is closed only after the last present that could read it retired. Across a compositor restart (RFC-0112 Phase 3) gpud keeps every object as an orphan with the place its body was last drawn (`surfaces.rs: note_places`); the new windowd adopts the shown ones before its first frame (`OP_SURFACE_ADOPT` 20, `surface_adopt.rs`) as ghost windows with the apps' last pixels until each app presents again; the rest are released.
+App surfaces are composed by reference: windowd asks for a buffer per surface (`OP_SURFACE_ALLOC` 18, `OP_SURFACE_FREE` 19). gpud makes it for the sampling device and charges the owner (`surface_serve.rs`, `surfaces.rs`). On the board each surface is bound whole in windowd's GPU context; its binding table grows from the heap (`VmSpace`, ADR-0093) up to the layout's GiB (`surface_va.rs`); `gpud: bindings (in_use= of=)` counts them. A freed buffer closes after the last present that could read it retired. Across a compositor restart (RFC-0112 Phase 3) gpud keeps every object as an orphan with its last drawn place (`surfaces.rs: note_places`); the new windowd adopts the shown ones before its first frame (`OP_SURFACE_ADOPT` 20, `surface_adopt.rs`) as ghost windows until each app presents again; the rest are released.
 
 ## The three displays
 
@@ -77,13 +77,15 @@ App surfaces are composed by reference: windowd asks for a buffer per surface (`
 - `backend/flip_ring.rs` runs the three ring slots: one scanned, one latched (taken at the next frame boundary), one free. A present drawn while a flip is latched waits drawn; a third finds no slot and is refused.
 - A flip has landed when the latch reads clear, at the interrupt wake or the loop's next pass. Its time comes from the scan-line counter, not from the wake.
 - `backend/frame_pace.rs` (RFC-0110) holds a cadence of one to three periods (`CADENCE_MAX`), chosen from the second longest of the last 8 draws. A frame drawn early is held to the boundary before its slot, so frames land evenly apart.
-- The splash holds the glass until the first present after `OP_REVEAL` (`backend/splash_hold.rs`). A switch that did not take keeps the splash and acks no reveal.
+- The splash holds the glass until the first present after `OP_REVEAL` (`backend/splash_hold.rs`); a switch that did not take keeps it and acks no reveal.
 
 Board markers: `gpud: dc vblank ok (`, `gpud: dc flip ok (`, `gpud: dc flips (… cadence= paced= late=)`, `gpud: dc reveal flip ok (`; `gpud: FAIL dc present front` is forbidden (tearing).
 
+The gate lines are a series (ADR-0094): `last=` is the last recorded cycle's value (`nx ledger series add <uart.log>`, then `lint --fix`); 10 % worse is `FAIL … slower than last:` naming the cycle.
+
 ## Debugging a broken hop
 
-Find the first broken hop and prove it in the smallest place before rerunning QEMU:
+Find the first broken hop and prove it in the smallest place first:
 
 1. capability route and rights,
 2. request/reply on the wire (`nexus_display_proto` host tests),
@@ -91,4 +93,4 @@ Find the first broken hop and prove it in the smallest place before rerunning QE
 4. the downstream output (the `gpud: chain G…` hops),
 5. the observer marker.
 
-If QEMU misses a stable marker while host tests are green, the host tests do not cover that hop.
+A marker QEMU misses while host tests are green is a hop the host tests do not cover.

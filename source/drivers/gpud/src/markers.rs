@@ -112,6 +112,10 @@ pub const GPUD_FAIL_GL_SCANOUT_INIT: &str = "gpud: FAIL gl scanout init";
 pub const GPUD_LAYER_COMPOSITE_OK: &str = "gpud: layer composite ok";
 /// Layer-composite self-test reached the GPU but readback was wrong.
 pub const GPUD_LAYER_COMPOSITE_OFF: &str = "gpud: layer composite off";
+/// ADR-0094: the library's blur chain at every radius read back against the oracle (the kernel
+/// table's gaussian) — the deviation per radius in levels; `gpud: FAIL gpu blur golden (` names
+/// the first read outside the tolerance. Required by the visible lanes.
+pub const GPUD_BLUR_GOLDEN_OK: &str = "gpud: gpu blur golden ok (";
 /// G2 live: first window/layer GPU-composited onto the scanout render target
 /// from a CompositeLayer command (windowd → gpud).
 pub const GPUD_LAYER_COMPOSITE_LIVE: &str = "gpud: layer composite live";

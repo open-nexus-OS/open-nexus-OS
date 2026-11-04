@@ -24,16 +24,16 @@ its context (TASK-0215 5c-3 P3, RFC-0101 §7b).
 | 3 | `layer-straight` | `layer.wgsl` `main`, `straight=true` (a client's straight-alpha texel premultiplied), premultiplied over | 15 / 15 | 3 | translucent | 160 |
 | 4 | `layer-rounded` | `layer.wgsl` `main`, `straight=true`, `rounded=true` (the corners cut: the rounded rectangle's exact distance, a one-pixel band), premultiplied over | 34 / 34 | 3 | translucent | 360 |
 | 5 | `shadow` | `shadow.wgsl` `main`: the blurred rounded rectangle, knocked out under the layer; no texture, premultiplied over | 43 / 43 | 3 | translucent | 472 |
-| 6 | `blur-horizontal-20` | `blur.wgsl` `horizontal`, `radius=20`, `scale=4`: the backdrop into quarter resolution, a tap every four pixels, each fetch averaging four texels (11 fetches); replace | 49 / 49 | 3 | opaque | 512 |
-| 7 | `blur-vertical-20` | `blur.wgsl` `vertical`, `radius=20`, `scale=4`: the quarter-resolution result down, two taps a fetch (7 fetches), the saturation lifted; replace | 50 / 50 | 3 | opaque | 520 |
-| 8 | `blur-horizontal-8` | the horizontal pass at `radius=8`, `scale=2` (a subtle glass, half resolution); replace | 41 / 41 | 3 | opaque | 432 |
-| 9 | `blur-vertical-8` | the vertical pass at `radius=8`, `scale=2`; replace | 40 / 40 | 3 | opaque | 416 |
-| 10 | `blur-horizontal-30` | the horizontal pass at `radius=30`, `scale=4` (windowd's default glass); replace | 65 / 65 | 3 | opaque | 680 |
-| 11 | `blur-vertical-30` | the vertical pass at `radius=30`, `scale=4`; replace | 60 / 60 | 3 | opaque | 624 |
-| 12 | `blur-horizontal-40` | the horizontal pass at `radius=40`, `scale=4` (panels and overlays); replace | 89 / 89 | 3 | opaque | 936 |
-| 13 | `blur-vertical-40` | the vertical pass at `radius=40`, `scale=4`; replace | 70 / 70 | 3 | opaque | 728 |
+| 6 | `blur-horizontal-20` | `blur.wgsl` `horizontal`, `blur = 20` (the table: a tap every 4 pixels): the backdrop into quarter resolution, a tap every four pixels, each fetch averaging four texels (11 fetches); replace | 49 / 49 | 3 | opaque | 512 |
+| 7 | `blur-vertical-20` | `blur.wgsl` `vertical`, `blur = 20` (the table: a tap every 4 pixels): the quarter-resolution result down, two taps a fetch (7 fetches), the saturation lifted; replace | 50 / 50 | 3 | opaque | 520 |
+| 8 | `blur-horizontal-8` | the horizontal pass at `blur = 8` (the table: a tap every 2 pixels) (a subtle glass, half resolution); replace | 41 / 41 | 3 | opaque | 432 |
+| 9 | `blur-vertical-8` | the vertical pass at `blur = 8` (the table: a tap every 2 pixels); replace | 40 / 40 | 3 | opaque | 416 |
+| 10 | `blur-horizontal-30` | the horizontal pass at `blur = 30` (the table: a tap every 4 pixels) (windowd's default glass); replace | 65 / 65 | 3 | opaque | 680 |
+| 11 | `blur-vertical-30` | the vertical pass at `blur = 30` (the table: a tap every 4 pixels); replace | 60 / 60 | 3 | opaque | 624 |
+| 12 | `blur-horizontal-40` | the horizontal pass at `blur = 40` (the table: a tap every 4 pixels) (panels and overlays); replace | 89 / 89 | 3 | opaque | 936 |
+| 13 | `blur-vertical-40` | the vertical pass at `blur = 40` (the table: a tap every 4 pixels); replace | 70 / 70 | 3 | opaque | 728 |
 
-The archive: 10 012 bytes, FNV-1a 64 `0x853e5fe7d5cff61f`, code target `0x0024001d003400b6` (the
+The archive: 10 012 bytes, FNV-1a 64 `0xa76b797e79f83796`, code target `0x0024001d003400b6` (the
 board's core). Ids 8–13 (TASK-0215 5c-3 P4b) are the blur at the other radii windowd's glass asks;
 the wider ones carry more weights than the constant block's runs of four hold (a block holds 128
 values), so the codegen keeps their taps a group a lane and each weight one register. On the host
@@ -80,10 +80,10 @@ program every draw runs is an entry of its own. Code target `TGSI` v1 (`tgsi::CO
 | 4 | `layer-atlas` | `layer.wgsl`, `straight`, `rounded`, `atlas` (a client's surface from the atlas; the blurred backdrop drawn back; the blur cache's hits) | premultiplied | 21 |
 | 5 | `layer-premultiplied` | `layer.wgsl` (the pointer's sprite) | premultiplied | 3 |
 | 6 | `shadow` | `shadow.wgsl` | premultiplied | 27 |
-| 7–14 | `blur-horizontal-R`, `blur-vertical-R` | `blur.wgsl`, `radius` = 8, 20, 30, 40 (windowd's radii) | replace | 29/23, 65/41, 95/59, 125/71 |
+| 7–14 | `blur-horizontal-R`, `blur-vertical-R` | `blur.wgsl`, `blur` = 8, 20, 30, 40 (windowd's radii; the kernel table's taps and weights as its overrides, ADR-0094) | replace | 29/23, 35/29, 47/35, 65/41 |
 | 15 | `gradient` | `gradient.wgsl` (the pointer before its sprite) | premultiplied | 20 |
 
-The archive: 24 660 bytes, FNV-1a 64 `0xa747afcaf7d3cd00`. Rebuilding:
+The archive: 24 656 bytes, FNV-1a 64 `0x39d97e94f19f3c8c`. Rebuilding:
 
 ```text
 cargo run -p nxgpu -- library resources/gpu/pipelines/compositor-virgl.toml --out resources/gpu/pipelines/compositor-virgl.nxgp

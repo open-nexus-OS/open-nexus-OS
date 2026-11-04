@@ -5,7 +5,7 @@
 //!
 //! Renders a component's `LayoutNode` through the real `LayoutEngine` and a small
 //! `LayoutResult` painter into a raw BGRA buffer, then compares the bytes against
-//! a committed hex golden (via `ui_host_snap`). Regenerate goldens with
+//! a committed hex golden (`golden`). Regenerate goldens with
 //! `UPDATE_GOLDENS=1`. Also provides WCAG contrast + touch-target lints.
 //!
 //! The painter is structural but shape-aware: rounded-rect fills, square borders,
@@ -20,7 +20,9 @@ use nexus_layout_types::{
     Align, Direction, EdgeInsets, FlexItem, FxPx, Justify, LayoutNode, LineLayout, MeasureText,
     Overflow, PreparedTextHandle, Rgba8, Stack, TextContent, TextStyle, VisualStyle,
 };
-use ui_host_snap::{compare_hex_golden, hex_bytes, GoldenMode, SnapResult};
+pub mod golden;
+
+use golden::{compare_hex_golden, hex_bytes, GoldenMode, SnapResult};
 
 /// Fixture canvas size (px).
 pub const CANVAS_W: i32 = 160;
@@ -52,7 +54,7 @@ pub fn render_to_bgra(node: &LayoutNode) -> SnapResult<Vec<u8>> {
     let engine = LayoutEngine::new();
     let result: LayoutResult = engine
         .layout(node, FxPx::new(CANVAS_W), &NoText)
-        .map_err(|_| ui_host_snap::SnapshotError::Codec)?;
+        .map_err(|_| golden::SnapshotError::Codec)?;
 
     // The painter SSOT (`nexus-scene-raster`, promoted FROM this harness):
     // the goldens verify the shared implementation byte-for-byte — the

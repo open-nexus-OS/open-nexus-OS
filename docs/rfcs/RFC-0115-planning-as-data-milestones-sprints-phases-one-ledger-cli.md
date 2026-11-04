@@ -267,6 +267,8 @@ nx ledger new sprint --milestone … --capacity …
 nx ledger lint [--fix] [--notes]      # the gate; --fix renders canonically (and generated blocks)
 nx ledger stale                       # docs whose sources changed in a commit after `verified`
 nx ledger relink <old> <new|->        # a doc moved or merged: rewrite every reference; `-` drops links
+nx ledger series add <uart.log> [--id]  # a board cycle's gate values into docs/board/measurements/series.toml (TASK-0351 P8)
+nx ledger series show                 # the series as a table; `lint --fix` renders series.md and gpud's series.rs from it
 ```
 
 The CLI edits only the frontmatter; the body is preserved byte for byte (exceptions: `relink`

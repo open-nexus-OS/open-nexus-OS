@@ -54,6 +54,10 @@ proves = "windowd asked gpud for its GPU's capabilities, picked its pipeline lib
 phase = "bringup"
 proves = "QEMU's virgl context made its pipelines from windowd's library (gpud holds none of its own); the draw, gradient and layer-composite readbacks run on them"
 
+[marker."gpud: gpu blur golden ok ("]
+phase = "bringup"
+proves = "ADR-0094: the library's blur chain ran at every radius over the oracle's backdrop on the virtual GPU and every read came back within the kernel table's tolerance — the same oracle the raster (host) and the board's `gpu blur radii` rung are held to"
+
 [marker."windowd: display none ("]
 phase = "bringup"
 proves = "no gpud answered (no display device, e.g. the board before its controller driver): windowd runs display-less at the layout maximum and says so"
@@ -600,7 +604,7 @@ proves = "an app's first frame was acked, judged from its first instruction agai
 
 [marker."gpud: ux frame "]
 phase = "end"
-proves = "a 32-frame window on the board's GPU judged: frames past the panel's 16.7 ms are dropped frames (one is warn, four FAIL)"
+proves = "a 32-frame window on the board's GPU judged: frames past the panel's 16.7 ms are dropped frames (one is warn, four FAIL); `last=` the slowest frame of the last recorded board cycle (TASK-0351 P8)"
 
 [marker."windowd: ux input "]
 phase = "end"

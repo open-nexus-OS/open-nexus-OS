@@ -129,10 +129,13 @@ impl Quad {
         Self { x: x - blur + offset[0], y: y - blur + offset[1], w: qw, h: qh, push }
     }
 
-    /// The part (`px`, `py`, `pw`, `ph`) of this quad (a shadow's, TASK-0335 P2: the pieces
-    /// around an opaque layer): the quad covers the part, its push constants keep the whole
-    /// shape and name the part's offset from the quad's centre.
+    /// The part (`px`, `py`, `pw`, `ph`) of this layer or shadow quad (TASK-0335 P2: the pieces
+    /// around an opaque layer; TASK-0351 P5: a draw cut to its pass's area): the quad covers the
+    /// part, its push constants keep the whole shape and name the part's offset from the
+    /// shape's centre — the centre this quad names, so a part of a part is still a part of the
+    /// whole.
     pub const fn part_of(&self, (px, py, pw, ph): (f32, f32, f32, f32)) -> Self {
+        let (cx, cy) = (self.x - self.push[6], self.y - self.push[7]);
         let mut q = *self;
         q.x = px;
         q.y = py;
@@ -140,8 +143,8 @@ impl Quad {
         q.h = ph;
         q.push[4] = pw;
         q.push[5] = ph;
-        q.push[6] = px - (self.x + self.w * 0.5);
-        q.push[7] = py - (self.y + self.h * 0.5);
+        q.push[6] = px - cx;
+        q.push[7] = py - cy;
         q
     }
 

@@ -31,8 +31,6 @@ nexus-layout = { path = "../../../userspace/ui/layout" }
 nexus-layout-types = { path = "../../../userspace/ui/layout-types" }
 nexus-dsl-runtime = { path = "../../../userspace/dsl/runtime", default-features = false }
 nexus-dsl-ir = { path = "../../../userspace/dsl/ir", default-features = false }
-nexus-sdf = { path = "../../../userspace/ui/sdf" }
-nexus-effects = { path = "../../../userspace/ui/effects" }
 animation = { path = "../../../userspace/ui/animation" }
 # Gate 2: the windowd↔gpud wire SSOT (opcodes/status/cursor magics + control
 # frame codecs), shared with gpud so neither end hand-mirrors the other.

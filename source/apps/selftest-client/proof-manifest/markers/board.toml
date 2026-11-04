@@ -219,11 +219,13 @@ proves = "TASK-0333 6b-2b (ADR-0078, RFC-0100 §2): windowd's first frame drawn 
 
 # TASK-0215 5c-4: the gate scene — the stock stack's `glass-quarter` (the base plane and a
 # screen-sized glass blurred at quarter size) drawn by windowd's executor before its first frame;
-# `gpud: FAIL gpu gate scene (` is its FAIL form (the cold frame above the stock's 23.3 ms).
+# `gpud: FAIL gpu gate scene (` is its FAIL form (the cold frame above the stock's 23.3 ms, the
+# hover frame above 8.3 ms, or — TASK-0351 P8 — `slower than last:` a value worse than the last
+# recorded cycle's `last=cold/pipelined/hover@<cycle>` by more than 10 %).
 [marker."gpud: gpu gate scene ok ("]
 phase = "bringup"
 emit_when = { profile = "board-headless" }
-proves = "TASK-0215 5c-4: our frame of the stock stack's gate scene on the board's GPU — the wallpaper and a screen-sized glass at radius 40 blurred at quarter resolution, drawn in windowd's context from the frame plan: the cold frame (the glass blurred into its cache, four passes) below the stock stack's 23.3 ms for the same picture, and the warm frame (a pointer-sized change, the glass read from its cache) beside it"
+proves = "TASK-0215 5c-4: our frame of the stock stack's gate scene on the board's GPU — the wallpaper and a screen-sized glass at radius 40 blurred at quarter resolution, drawn in windowd's context from the frame plan: the cold frame (the glass blurred into its cache, four passes) below the stock stack's 23.3 ms for the same picture, and the warm frame (a pointer-sized change, the glass read from its cache) beside it; TASK-0351 P8: neither worse than the last recorded board cycle's (`last=cold/pipelined/hover@<cycle>`, docs/board/measurements/series.toml) by more than 10 %"
 
 [marker."gpud: gpu frame us ("]
 phase = "bringup"
@@ -235,7 +237,7 @@ proves = "TASK-0215 5c-3 P4b: what a desktop frame on the GPU costs over a 32-fr
 [marker."gpud: gpu pass sweep ("]
 phase = "bringup"
 emit_when = { profile = "board-headless" }
-proves = "TASK-0351 P5: our frame path's fixed cost and slope beside the stock stack's (docs/board/measurements/2026-10-10-gpu-stock-baseline: a 16x16 frame 0.64 ms, the full textured quad 4.43 ms, blended 7.17 ms) — medians of five frames each: the base alone, an opaque quad of 16x16, 240x135, 480x270 and 960x540 with the pass limited to it, the opaque and the blended full-screen quad, and the full quad unchanged under a 16x16 damage (whether the pass's area reaches the hardware)"
+proves = "TASK-0351 P5: our frame path's fixed cost and slope beside the stock stack's (docs/board/measurements/2026-10-10-gpu-stock-baseline: a 16x16 frame 0.64 ms, the full textured quad 4.43 ms, blended 7.17 ms) — medians of five frames each: the base alone, an opaque quad of 16x16, 240x135, 480x270 and 960x540 with the pass limited to it, the opaque and the blended full-screen quad, and the full quad unchanged under a 16x16 damage (whether the pass's area reaches the hardware); `last=q16/area16` the last recorded cycle's (TASK-0351 P8)"
 
 # TASK-0215 5b (RFC-0101 Phase 4b): dynamic geometry — three quads at positions and tints the
 # device chose; the vertex buffer, tints, state-load data, PPP blocks and the stream's per-draw

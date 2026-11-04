@@ -297,6 +297,8 @@ fn every_registry_field_chord_resolves_in_every_layout() {
         for entry in SHORTCUTS {
             let want = match entry.action {
                 Action::Field(key) => KeyOutput::Action(KeyAction::Edit(key)),
+                Action::FocusNext => KeyOutput::Action(KeyAction::Tab),
+                Action::FocusPrevious => KeyOutput::Action(KeyAction::BackTab),
                 Action::NextInputSource => KeyOutput::Action(KeyAction::ImeSwitch),
                 Action::Window(_) | Action::Capture(_) => continue,
             };

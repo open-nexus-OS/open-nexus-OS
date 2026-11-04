@@ -1,0 +1,51 @@
+# The board cycles' gate values (ADR-0094, TASK-0351 P8): one table per cycle, written by
+# `nx ledger series add <uart.log>`; `nx ledger lint --fix` renders series.md and the device
+# server's `series.rs` (the last cycle as `last=`) from it. Never edited by hand.
+
+[[cycle]]
+id = "2026-11-02T14-16-01"
+cold_us = 45198
+pipelined_us = 36604
+hover_us = 12885
+ns_per_px = 6
+ux_dropped = 568
+ux_frames = 1120
+ux_max_us = 163510
+q16_us = 0
+area16_us = 0
+
+[[cycle]]
+id = "2026-11-03T17-28-06"
+cold_us = 46404
+pipelined_us = 34113
+hover_us = 13167
+ns_per_px = 6
+ux_dropped = 536
+ux_frames = 992
+ux_max_us = 200891
+q16_us = 0
+area16_us = 0
+
+[[cycle]]
+id = "2026-11-03T19-13-30"
+cold_us = 48505
+pipelined_us = 35803
+hover_us = 12739
+ns_per_px = 6
+ux_dropped = 595
+ux_frames = 864
+ux_max_us = 174889
+q16_us = 0
+area16_us = 0
+
+[[cycle]]
+id = "2026-11-04T12-28-47"
+cold_us = 45229
+pipelined_us = 36367
+hover_us = 13099
+ns_per_px = 3
+ux_dropped = 712
+ux_frames = 1728
+ux_max_us = 150610
+q16_us = 5899
+area16_us = 6859

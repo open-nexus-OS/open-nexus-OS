@@ -35,7 +35,7 @@ verified: 2026-11-04
 <!-- gen:markers -->
 | # | phase | markers | declared in |
 |---|---|---|---|
-| 1 | `bringup` | 579 | board.toml, bringup.toml, ota.toml, ui.toml, usb.toml |
+| 1 | `bringup` | 580 | board.toml, bringup.toml, ota.toml, ui.toml, usb.toml |
 | 2 | `ipc_kernel` | 27 | ipc_kernel.toml |
 | 3 | `mmio` | 17 | mmio.toml |
 | 4 | `routing` | 53 | routing.toml |
@@ -48,7 +48,7 @@ verified: 2026-11-04
 | 11 | `remote` | 21 | remote.toml |
 | 12 | `end` | 189 | board.toml, end.toml, ui.toml, usb.toml |
 
-1249 markers in 15 files.
+1250 markers in 15 files.
 <!-- /gen:markers -->
 
 ## Declaring a marker

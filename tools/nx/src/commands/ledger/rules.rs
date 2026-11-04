@@ -49,6 +49,7 @@ pub(crate) fn lint(repo: &Repo) -> Vec<Problem> {
         }));
     }
     out.extend(docs::code_refs(&repo.root));
+    out.extend(super::series::problems(&repo.root));
     out
 }
 

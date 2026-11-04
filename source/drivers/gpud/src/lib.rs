@@ -89,6 +89,10 @@ pub(crate) mod virgl_context;
 #[cfg(feature = "virgl")]
 pub mod virgl_vector;
 
+/// The blur golden on the virtual GPU (ADR-0094): the library's chain at every radius over the
+/// oracle's backdrop, read back against the kernel table. Empty unless the virgl OS build is
+/// active.
+mod virgl_blur_golden;
 /// GPU layer compositor (G2): the CompositeLayer draw op (content texture +
 /// transform + opacity + rounded mask + shadow), a retained-layer compositor model.
 #[cfg(feature = "virgl")]

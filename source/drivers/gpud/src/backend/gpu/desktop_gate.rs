@@ -4,7 +4,12 @@
 //! The gate scene (TASK-0215 5c-4, split out of `desktop.rs` under the module-size ratchet):
 //! the stock stack's `glass-quarter` — the base plane and a screen-sized glass at radius 40 —
 //! drawn by windowd's executor before the compositor's first frame, cold and warm, against the
-//! stock's 23.3 ms.
+//! stock's 23.3 ms — and against the last recorded board cycle (TASK-0351 P8): the line carries
+//! `last=cold/pipelined/hover@<cycle>` from `series.rs`, and a value worse than the last by
+//! more than its margin is the FAIL form naming the cycle (`slower than last: …`). "Slower than before" has a number
+//! and a date, never a feeling.
+
+use alloc::string::String;
 
 use nexus_gfx::command::buffer::Command;
 use nexus_gfx::frame::layers::ORIGIN_ABOVE;
@@ -12,6 +17,7 @@ use nexus_gfx::frame::layers::ORIGIN_ABOVE;
 use super::desktop::{Desktop, Refusal};
 use super::device_v2::Device;
 use super::emit_fmt;
+use super::series::{LAST, MARGIN_PERCENT};
 use crate::gpu_context::FrameTarget;
 
 /// The stock stack's bar for its `glass-quarter` scene (the wallpaper and a screen-sized glass
@@ -21,6 +27,30 @@ const GATE_BAR_US: u64 = 23_300;
 /// The bar for a hover frame (TASK-0215 5d): a pointer-sized change over the cached glass —
 /// the stock stack's smallest frame, 8.3 ms (the same folder).
 const HOVER_BAR_US: u64 = 8_300;
+
+/// `v` worse than the last cycle's `last` by more than the margin (`0` = never recorded).
+pub(super) fn regressed(v: u64, last: u64) -> bool {
+    last != 0 && v > last + last * MARGIN_PERCENT / 100
+}
+
+/// The names of the gate's values slower than the last cycle's, `cold pipelined hover`.
+fn slower(cold_us: u64, piped_us: u64, hover_us: u64) -> String {
+    let Some(l) = LAST else { return String::new() };
+    let mut out = String::new();
+    for (name, v, last) in [
+        ("cold", cold_us, l.cold_us),
+        ("pipelined", piped_us, l.pipelined_us),
+        ("hover", hover_us, l.hover_us),
+    ] {
+        if regressed(v, last) {
+            if !out.is_empty() {
+                out.push(' ');
+            }
+            out.push_str(name);
+        }
+    }
+    out
+}
 
 impl Desktop {
     /// The gate scene (TASK-0215 5c-4, 5d): the stock stack's `glass-quarter` — the base plane
@@ -94,20 +124,32 @@ impl Desktop {
         let hover_us = warm_us.iter().copied().min().unwrap_or(u64::MAX);
         let scene_met = cold_us.min(piped_us) < GATE_BAR_US;
         let hover_met = hover_us < HOVER_BAR_US;
-        if scene_met && hover_met {
+        // TASK-0351 P8: the last recorded cycle beside the values, a regression its FAIL. The
+        // line stays under the console's 256 bytes (`DEBUG_LINE_CAP`): the FAIL form carries
+        // neither the bars (the marker doc's) nor the wait's iterations (the trace line's).
+        let (last, cycle) = LAST
+            .map_or(((0, 0, 0), "none"), |l| ((l.cold_us, l.pipelined_us, l.hover_us), l.cycle));
+        let slower = slower(cold_us, piped_us, hover_us);
+        if scene_met && hover_met && slower.is_empty() {
             emit_fmt(format_args!(
-                "gpud: gpu gate scene ok (cold_us={cold_us} pipelined_us={piped_us} warm_us={}/{}/{} hover_us={hover_us} passes={cold_passes}/{warm_passes} pass_wait_us={wait_us} iters={iters} irqs={irqs} bar={GATE_BAR_US} hover_bar={HOVER_BAR_US})",
-                warm_us[0], warm_us[1], warm_us[2]
+                "gpud: gpu gate scene ok (cold_us={cold_us} pipelined_us={piped_us} hover_us={hover_us} warm_us={}/{}/{} passes={cold_passes}/{warm_passes} wait_us={wait_us} iters={iters} irqs={irqs} bar={GATE_BAR_US}/{HOVER_BAR_US} last={}/{}/{}@{cycle})",
+                warm_us[0], warm_us[1], warm_us[2], last.0, last.1, last.2
             ));
         } else {
             let above = match (scene_met, hover_met) {
-                (false, false) => "the scene above its bar and the hover frame above its bar",
-                (false, true) => "the scene above its bar",
-                _ => "the hover frame above its bar",
+                (false, false) => "scene and hover above their bars",
+                (false, true) => "scene above its bar",
+                (true, false) => "hover above its bar",
+                (true, true) => "",
+            };
+            let (and, regression) = match (above.is_empty(), slower.is_empty()) {
+                (false, false) => (" and ", "slower than last: "),
+                (true, false) => ("", "slower than last: "),
+                _ => ("", ""),
             };
             emit_fmt(format_args!(
-                "gpud: FAIL gpu gate scene (cold_us={cold_us} pipelined_us={piped_us} bar={GATE_BAR_US} hover_us={hover_us} hover_bar={HOVER_BAR_US}: {above}; warm_us={}/{}/{} passes={cold_passes}/{warm_passes} pass_wait_us={wait_us} iters={iters} irqs={irqs})",
-                warm_us[0], warm_us[1], warm_us[2]
+                "gpud: FAIL gpu gate scene (cold_us={cold_us} pipelined_us={piped_us} hover_us={hover_us} last={}/{}/{}@{cycle}: {above}{and}{regression}{slower}; warm_us={}/{}/{} passes={cold_passes}/{warm_passes} wait_us={wait_us})",
+                last.0, last.1, last.2, warm_us[0], warm_us[1], warm_us[2]
             ));
         }
         // TASK-0351 P5: the stock sweep through our path, one line of medians — a measurement

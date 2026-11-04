@@ -19,6 +19,7 @@ use nexus_gfx::frame::{Target, Writes, PROGRAM_KINDS};
 
 use super::contexts::Holdings;
 use super::emit_fmt;
+use super::series::LAST;
 
 /// Textured pixels by pass kind: the slot's, the glass scenes' (scratch), the blurs' (half and
 /// cache rows); the glass writes by cause (TASK-0336 P0: band, backdrop, moved, new, full); and
@@ -70,7 +71,7 @@ impl Work {
         let total = self.0.iter().sum::<u64>().max(1);
         let p = self.2;
         emit_fmt(format_args!(
-            "gpud: gpu work (slot_px={} scene_px={} blur_px={} ns_per_px={} opaque_px={} straight_px={} rounded_px={} shadow_px={} layers={})",
+            "gpud: gpu work (slot_px={} scene_px={} blur_px={} ns_per_px={} opaque_px={} straight_px={} rounded_px={} shadow_px={} layers={} last={})",
             self.0[0] / frames,
             self.0[1] / frames,
             self.0[2] / frames,
@@ -79,7 +80,8 @@ impl Work {
             p[1] / frames,
             p[2] / frames,
             p[3] / frames,
-            self.3 / frames
+            self.3 / frames,
+            LAST.map_or(0, |l| l.ns_per_px)
         ));
         emit_fmt(format_args!(
             "gpud: bindings (in_use={} of={} contexts={})",
@@ -92,4 +94,18 @@ impl Work {
             w[0], w[1], w[2], w[3], w[4]
         ));
     }
+}
+
+/// RFC-0108: the window judged — frames past the budget are dropped frames; `last=` the slowest
+/// frame of the last recorded board cycle (TASK-0351 P8).
+pub(super) fn emit_ux(ux: &nexus_ux_budgets::FrameWindow) {
+    emit_fmt(format_args!(
+        "gpud: ux frame {} (dropped={} of={} max_us={} budget_us={} last={})",
+        ux.verdict().as_str(),
+        ux.dropped,
+        ux.frames,
+        ux.max_us,
+        nexus_ux_budgets::FRAME_US,
+        LAST.map_or(0, |l| l.ux_max_us)
+    ));
 }

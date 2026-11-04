@@ -24,6 +24,7 @@ use nexus_gfx::core::types::TileRect;
 use super::desktop::{Desktop, Refusal};
 use super::device_v2::Device;
 use super::emit_fmt;
+use super::series::LAST;
 use crate::gpu_context::FrameTarget;
 
 /// Frames a case runs; the line carries their median.
@@ -124,8 +125,9 @@ impl Desktop {
         self.drawn = [0; 3];
         self.cleaned.forget();
         let (base, q, full, area16, blended) = run?;
+        let (q16_last, area16_last) = LAST.map_or((0, 0), |l| (l.q16_us, l.area16_us));
         emit_fmt(format_args!(
-            "gpud: gpu pass sweep (base_us={base} q16_us={} q240_us={} q480_us={} q960_us={} full_us={full} area16_us={area16} blended_us={blended} frames={FRAMES})",
+            "gpud: gpu pass sweep (base_us={base} q16_us={} q240_us={} q480_us={} q960_us={} full_us={full} area16_us={area16} blended_us={blended} frames={FRAMES} last={q16_last}/{area16_last})",
             q[0], q[1], q[2], q[3]
         ));
         Ok(())

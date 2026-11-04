@@ -3,7 +3,7 @@
 
 # ADR-0094: One kernel, three executors — an effect's mathematics is defined once in nexus-gfx, the shaders and the raster interpret it, the raster is the oracle, performance is a series
 
-- Status: Proposed (2026-11-04, TASK-0351 P5/P7/P8 prove it)
+- Status: Accepted (2026-11-04 — TASK-0351 P7 built the table and the goldens, P8 the series; the board cycle reads them)
 - Date: 2026-11-04
 - Links:
   - Tasks: `tasks/TASK-0351-layer-8-on-the-gpu-an-occluded-window-costs-nothing-bindings-grow-a-fullscreen-a.md`
@@ -43,10 +43,15 @@ not a new renderer. An effect's mathematics living in each executor contradicts 
 the raster is the reference the others are judged by; a gate's value is a series.**
 
 - **One kernel.** Each effect's mathematics is a table in nexus-gfx (`frame::kernels`): the
-  blur as its chain (the scales, the tap offsets and weights per radius — the dual filter from
-  nexus-effects, harvested, not re-derived), the rounded corner as its coverage function, the
-  shadow as its falloff. The table is pure and host-tested on its own terms (weights sum to one,
-  the deviation from the gaussian reference per radius, the chain's cost in taps per pixel).
+  blur as its chain (the library radii, the scale each runs at, the gaussian's taps and weights
+  per radius — `Gaussian { radius, scale }`, its `Weights` normalised, its fetch count), the
+  rounded corner as its coverage function, the shadow as its falloff. The table is pure and
+  host-tested on its own terms (weights sum to one, the deviation from the gaussian reference
+  per radius, the chain's cost in taps per pixel). Built 2026-11-04 (P7): the blur table with
+  the oracle beside it (`frame::oracle` — the scene, the reads, the expected pixels and the
+  tolerance every executor's blur is judged by); the corner's coverage and the shadow's falloff
+  stay the signed-distance functions the shaders and the raster already share through
+  `nexus-sdf`, a table entry when one of them next changes.
 - **Three interpreters.** The WGSL reads the kernel through its uniforms (or `nxgpu` emits the
   constants from the table at build time — never a literal typed into a shader); the raster
   reads the same table; a future executor reads it too. An executor may hold a trick of its
@@ -64,9 +69,13 @@ the raster is the reference the others are judged by; a gate's value is a series
   margin is `FAIL` naming that cycle. The cycles' values are a table under
   `docs/board/measurements/` the ledger reads; "why is this slower than before" is answered by a
   cycle number, not by wondering.
-- **Harvest, then delete.** A crate whose knowledge is not yet in a kernel table is not deleted;
-  nexus-effects goes when its dual Kawase chain and its shadow are in `frame::kernels` and the
-  raster runs them. Out of scope: the planner (what is drawn; RFC-0101 §8 stays), the executors'
+- **Harvest, then delete.** A crate whose knowledge is not yet in a kernel table is not deleted
+  before that knowledge is recorded. nexus-effects (2026-11-04, P7): its dual Kawase chain was
+  compared on paper against the table's reduced gaussian and NOT ported — at three iterations
+  it fetches about 27 texels per full-resolution pixel where the gaussian at scale 2 (radius
+  below 20) or 4 fetches about two, so the chain the frame runs is the cheaper one; the
+  comparison is this record, the crate is deleted with the other dead executors (`ui/renderer`,
+  `ui/shape`, `ui/image`, `ui/cursor`, `ui/msdf`, `tests/ui_v4_host`, `tests/ui_host_snap`). Out of scope: the planner (what is drawn; RFC-0101 §8 stays), the executors'
   pass structure, the DSL's own raster (`nexus_svg`, text) — this ADR is about the effects a
   frame composes with.
 
@@ -80,11 +89,17 @@ the raster is the reference the others are judged by; a gate's value is a series
   constants); the raster gains a dual-filter path and a tolerance contract; one lane compares
   readbacks (virgl in QEMU) and is slower than a marker check; the series needs a table the
   ledger reads and a `last=` field on the gate lines.
-- **Follow-ups**: TASK-0351 P7 (the kernel table: the blur taps shared by the shaders and the
-  raster, the dual filter harvested from nexus-effects into it, the crate deleted, no effect
-  mathematics left outside nexus-gfx; the golden raster-against-readback), P8 (the gate values
-  as a series with `last=`); RFC-0101 §8 gains the kernel table as its contract; RFC-0108 §hops
-  gains the `last=` field. The dual filter is NOT the frame-time lever: the board's frames of
+- **Built** (2026-11-04): TASK-0351 P7 — the kernel table (`frame::kernels`), the shaders'
+  taps and weights emitted from it by `nxgpu` as overrides (`blur = R` in the pipeline
+  manifests; a kernel literal in a shader or under `source/drivers/gpud` is refused by
+  `test_reject_a_kernel_literal_outside_the_table`), the raster's gaussian reading the same
+  table, the oracle (`frame::oracle`) judging the board's `gpu blur radii` rung, the virtual
+  GPU's `gpud: gpu blur golden ok (` (required by the visible lanes) and the raster on the host
+  (`tests/frame_oracle.rs`); P8 — the series (`nx ledger series add <uart.log>` →
+  `docs/board/measurements/series.toml` → `series.md` and gpud's `series.rs` by `lint --fix`,
+  `last=` on `gpu gate scene`, `gpu work`, `ux frame` and `gpu pass sweep`, a regression past
+  10 % the gate's FAIL naming the cycle). RFC-0101 §8 carries the kernel table as its contract;
+  RFC-0108 §hops the `last=` field. The dual filter is NOT the frame-time lever: the board's frames of
   2026-11-03 spent under 3 % of their pixels on blur and 6–9 ms a pass regardless of area —
   TASK-0351 P5 measures the frame's fixed cost against the stock sweep (`gpud: gpu pass sweep`)
   and cuts there; this ADR's series rule is what made the two numbers comparable.

@@ -103,8 +103,14 @@ pub(crate) enum LedgerAction {
     /// Rewrite every reference to a moved or merged doc (`-`: drop the `links` records to a
     /// deleted one) and list what still names the old path.
     Relink { old: String, new: String },
+    /// The board cycles' gate values as a series (TASK-0351 P8): `add` reads one cycle's gate
+    /// lines from its UART log into `docs/board/measurements/series.toml`; `show` prints it.
+    Series {
+        #[command(subcommand)]
+        action: SeriesAction,
+    },
     /// The gate: every planning document and doc parses, follows the rules and is canonical;
-    /// every doc a code comment names exists.
+    /// every doc a code comment names exists; the files rendered from the series are current.
     Lint {
         /// Render every document canonically first.
         #[arg(long)]
@@ -136,4 +142,16 @@ pub(crate) enum NewKind {
         #[arg(long)]
         goal: Option<String>,
     },
+}
+
+#[derive(Subcommand, Debug)]
+pub(crate) enum SeriesAction {
+    /// Record the cycle a UART log holds (its id: the log's `board--<id>` folder, or `--id`).
+    Add {
+        log: String,
+        #[arg(long)]
+        id: Option<String>,
+    },
+    /// The series as a table.
+    Show,
 }

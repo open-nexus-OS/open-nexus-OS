@@ -77,8 +77,8 @@ a bundle through `packagefsd` and reads it back through `vfsd`. Details: [e2e.md
 
 ## Host goldens and conformance (`tests/`)
 
-Deterministic renderer and app suites with checked-in goldens: `tests/ui_host_snap`,
-`tests/ui_v10_goldens`, `tests/dsl_goldens`, `tests/dsl_apps_conformance`, … Example:
+Deterministic renderer and app suites with checked-in goldens: `tests/ui_v10_goldens`,
+`tests/dsl_goldens`, `tests/dsl_apps_conformance`, … Example:
 `tests/dsl_apps_conformance/tests/calculator_pixels.rs`. The shell conformance tests read the same
 `scenarios/targets.toml` points the QEMU injector clicks, so a moved widget fails here first
 ([proof-manifest.md](proof-manifest.md)).

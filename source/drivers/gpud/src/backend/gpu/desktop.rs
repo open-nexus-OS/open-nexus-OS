@@ -570,15 +570,7 @@ impl Desktop {
                     s.split[3] / n / 1000,
                     s.split[4] / n / 1000
                 ));
-                // RFC-0108: the window judged — frames past 16.7 ms are dropped frames.
-                emit_fmt(format_args!(
-                    "gpud: ux frame {} (dropped={} of={} max_us={} budget_us={})",
-                    s.ux.verdict().as_str(),
-                    s.ux.dropped,
-                    s.ux.frames,
-                    s.ux.max_us,
-                    nexus_ux_budgets::FRAME_US
-                ));
+                super::desktop_work::emit_ux(&s.ux);
                 // TASK-0335 P0: the textured pixels per frame by pass kind and the GPU's time
                 // per pixel — the cost model every cut of this package is judged by.
                 s.work.emit(n, s.split[3], dev.holdings());

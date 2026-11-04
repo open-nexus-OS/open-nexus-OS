@@ -54,9 +54,6 @@ nexus-gfx = { path = "../../../userspace/nexus-gfx" }
 nexus-display-proto = { path = "../../libs/nexus-display-proto" }
 # TASK-0251 P2: the board's display registers through `nexus_driverkit::Mmio` (`nexus_hal::Bus`).
 nexus-hal = { path = "../../libs/nexus-hal" }
-# RFC-0067 P5: the CPU vector fallback rasterizes via the one SDF math SSOT
-# (nexus-sdf fixed-point AA), matching the GPU shaders + the compositor.
-nexus-sdf = { path = "../../../userspace/ui/sdf" }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 nexus-service-topology = { path = "../../libs/nexus-service-topology" }
 nexus-ux-budgets = { path = "../../libs/nexus-ux-budgets" }

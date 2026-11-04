@@ -144,6 +144,14 @@ held the frame — a hop line is that stage's measurement, never judged (no verd
 - The frame's size (TASK-0351 P0): `layers=` on `gpud: gpu work` (layers composed per frame) and
   `gpud: bindings (in_use= of= contexts=)` beside it every 32 frames — the bindings the live GPU
   contexts hold of the room they have together.
+- **The series** (TASK-0351 P8, ADR-0094): the board's gate lines carry the last recorded board
+  cycle's value beside their own — `last=` on `gpud: gpu gate scene` (`cold/pipelined/hover@<cycle>`), `gpud: gpu work` (`ns_per_px`), `gpud: ux frame` (the slowest frame) and
+  `gpud: gpu pass sweep` (`q16/area16`); `0` = never recorded. The values come from
+  `docs/board/measurements/series.toml`, written by `nx ledger series add <uart.log>` and
+  rendered into gpud's `series.rs` by `nx ledger lint --fix`. The gate scene is `FAIL … slower
+  than last: <cold|pipelined|hover>` when a value is worse than the last cycle's by more than
+  10 % — a regression names the cycle it entered. Every line stays under the console's 256
+  bytes (`DEBUG_LINE_CAP`): the first cycle's `last=` line was cut there.
 - Like the budget lines, a hop line carries times and counts only — no identity, no input's
   content.
 

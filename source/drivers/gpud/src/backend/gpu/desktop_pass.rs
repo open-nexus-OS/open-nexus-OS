@@ -4,8 +4,10 @@
 //! A desktop frame's passes on the device (TASK-0215 5c-3 P4b/P5, split out of `desktop.rs`
 //! under the module-size ratchet): the layout's lines cleaned for the device (a scroll's new rows
 //! alone, TASK-0335 P4), the frame's pass memory as the emitter's sink, a texture's descriptor in
-//! fresh lines, and one pass — its descriptors, the draws that touch its area emitted, submitted
-//! and waited, stamped at each step for the frame's time split.
+//! fresh lines, and one pass — its descriptors, the draws that touch its area cut to it
+//! (`nexus_gfx::frame::clip_draw`, TASK-0351 P5: the area reaches the hardware as the quads,
+//! not only as the back end's clip) and emitted, submitted and waited, stamped at each step for
+//! the frame's time split.
 
 use nexus_display_proto::layout::{self, PLANE_ROWS, STRIDE_BYTES};
 use nexus_driverkit::gpu::{GpuVa, QueueKind, TimelinePoint};
@@ -16,7 +18,7 @@ use nexus_gfx::backend::gpu::texstate::{descriptor_bytes, format, swizzle, Image
 use nexus_gfx::backend::v2::{
     Batch, ClientId, ContextId, GfxDevice, RenderStreams, RenderTarget, Stream,
 };
-use nexus_gfx::frame::{Board, PassSpec, Tex};
+use nexus_gfx::frame::{clip_draw, Board, PassSpec, Tex};
 
 use super::desktop::{
     Pipes, Refusal, CACHE_VA, FRAME_VA, HALF_VA, LAYOUT_VA, MAX_DRAWS, PASS_TIMEOUT_NS, SCRATCH_VA,
@@ -98,17 +100,6 @@ impl CleanedRows {
             }
         }
     }
-}
-
-/// Whether `q` covers any of the pass area's pixels (inclusive corners) — a draw that does not
-/// writes none of them.
-fn touches(q: &Quad, (x0, y0, x1, y1): (u32, u32, u32, u32)) -> bool {
-    q.w > 0.0
-        && q.h > 0.0
-        && q.x < (x1 + 1) as f32
-        && q.x + q.w > x0 as f32
-        && q.y < (y1 + 1) as f32
-        && q.y + q.h > y0 as f32
 }
 
 /// The frame's pass memory: the PDS heap's lines in the bundle's PDS arena, everything else in
@@ -264,18 +255,17 @@ fn emit_and_wait(
     wait: bool,
 ) -> Result<(TimelinePoint, [u64; 6], usize), Refusal> {
     let e0 = now_ns();
-    // The draws that touch the pass's area — one outside it writes no pixel (the back end's
-    // clip; TASK-0335 P4: a frame inside a window skips the shadows, the corners and the layers
-    // elsewhere; the last draw stands in when none does) — their descriptors first: the emitter
-    // asks for a draw more than once.
+    // The draws that touch the pass's area, cut to it — one outside it writes no pixel (TASK-0335
+    // P4: a frame inside a window skips the shadows, the corners and the layers elsewhere; the
+    // last draw stands in when none does), one across it is shaded only where the area is
+    // (TASK-0351 P5) — their descriptors first: the emitter asks for a draw more than once.
+    let cut = |i: usize| board.draw(spec, i).map(|d| (d, clip_draw(&d, spec.area)));
     let mut kept = [0u16; MAX_DRAWS];
     let mut tex = [0u64; MAX_DRAWS];
     let mut m = 0usize;
     for i in 0..n {
-        let d = board.draw(spec, i).ok_or("a draw of the plan")?;
-        if !touches(&d.quad, spec.area) && (m > 0 || i + 1 < n) {
-            continue;
-        }
+        let (whole, part) = cut(i).ok_or("a draw of the plan")?;
+        let Some(d) = part.or_else(|| (m == 0 && i + 1 == n).then_some(whole)) else { continue };
         pipes.get(d.pipe).ok_or("a pipeline the library lacks")?;
         tex[m] = descriptor(dev, who, rings, (d.tex, buffers), t.texture_va)?;
         kept[m] = i as u16;
@@ -283,7 +273,7 @@ fn emit_and_wait(
     }
     // Every draw was checked above; an empty quad keeps the closure total.
     let draw = |j: usize| {
-        let d = board.draw(spec, usize::from(kept[j]));
+        let d = cut(usize::from(kept[j])).map(|(whole, part)| part.unwrap_or(whole));
         let pipeline = d.and_then(|d| pipes.get(d.pipe)).unwrap_or(&pipes.opaque);
         let quad = d.map_or(Quad::layer(0.0, 0.0, 0.0, 0.0, [0.0; 4], 0.0), |d| d.quad);
         Draw { pipeline, quad, texture_va: tex[j] }

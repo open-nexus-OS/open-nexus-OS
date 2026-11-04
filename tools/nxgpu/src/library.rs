@@ -18,11 +18,14 @@
 //! entry = "main"                      # the default
 //! stage = "fragment"                  # the default; "vertex" on the virtual GPU
 //! overrides = { tinted = false }      # bools and numbers, keyed as the pipeline's constants
+//! blur = 20                           # a blur pass: the kernel table's overrides at this
+//!                                     # library radius (`taps`, `w0..=w10`; ADR-0094)
 //! blend = "replace"                   # or "premultiplied"; none for a vertex program
 //! budget = 3
 //! ```
 
 use nexus_gfx::backend::gpu::CoreId;
+use nexus_gfx::frame::kernels::{Gaussian, BLUR_RADII, MAX_TAPS};
 use nexus_gfx::shader::ir::Stage;
 use nexus_gfx::shader::library::{self, EntrySpec};
 use nexus_gfx::shader::rogue::codegen::Layout;
@@ -41,8 +44,28 @@ pub struct Pipeline {
     pub entry: String,
     pub stage: Stage,
     pub overrides: Vec<(String, f64)>,
+    /// A blur pass's library radius: the kernel table's overrides are added to `overrides`.
+    pub blur: Option<u32>,
     pub blend: Blend,
     pub budget: u16,
+}
+
+/// The blur shader's overrides for the kernel `g` (`blur.wgsl`: `taps` and the normalised
+/// weights `w0..=w10` from the centre out), from the kernel table — never typed into a manifest.
+pub fn blur_overrides(g: Gaussian) -> Vec<(String, f64)> {
+    let w = g.weights();
+    let mut o = vec![("taps".to_string(), f64::from(w.taps() as u32))];
+    o.extend((0..=MAX_TAPS).map(|k| (format!("w{k}"), f64::from(w.at(k as i32)))));
+    o
+}
+
+/// A pipeline's overrides with its blur kernel's, when it has one.
+pub fn overrides_of(p: &Pipeline) -> Vec<(String, f64)> {
+    let mut o = p.overrides.clone();
+    if let Some(radius) = p.blur {
+        o.extend(blur_overrides(Gaussian::library(radius)));
+    }
+    o
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -96,7 +119,8 @@ pub fn parse_manifest(text: &str) -> Result<Manifest, String> {
         let toml::Value::Table(p) = v else {
             return Err("manifest: a pipeline is not a table".into());
         };
-        let known = ["id", "name", "source", "entry", "stage", "overrides", "blend", "budget"];
+        let known =
+            ["id", "name", "source", "entry", "stage", "overrides", "blur", "blend", "budget"];
         if let Some(k) = p.keys().find(|k| !known.contains(&k.as_str())) {
             return Err(format!("pipeline: unknown key `{k}`"));
         }
@@ -135,8 +159,16 @@ pub fn parse_manifest(text: &str) -> Result<Manifest, String> {
                 overrides.push((k.clone(), x));
             }
         }
+        let blur = match p.get("blur") {
+            None => None,
+            Some(toml::Value::Integer(r)) if BLUR_RADII.contains(&(*r as u32)) => Some(*r as u32),
+            Some(_) => {
+                return Err(format!("{what}: `blur` must be a library radius {BLUR_RADII:?}"))
+            }
+        };
         pipelines.push(Pipeline {
             id: int(p, "id", &what, u64::from(u32::MAX))? as u32,
+            blur,
             entry: match p.get("entry") {
                 None => "main".into(),
                 Some(_) => string(p, "entry", &what)?,
@@ -208,8 +240,8 @@ pub fn build(
     let mut built = Vec::with_capacity(manifest.pipelines.len());
     for p in &manifest.pipelines {
         let src = source(&p.source)?;
-        let overrides: Vec<(&str, f64)> =
-            p.overrides.iter().map(|(k, v)| (k.as_str(), *v)).collect();
+        let all = overrides_of(p);
+        let overrides: Vec<(&str, f64)> = all.iter().map(|(k, v)| (k.as_str(), *v)).collect();
         if manifest.target == tgsi::CODE_TARGET {
             let (part, b) = shader_text(p, &src, &overrides)?;
             parts.push(part);

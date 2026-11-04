@@ -17,12 +17,11 @@ Goldens are deterministic proof artifacts (images, hashes, or derived views) use
 - avoid nondeterminism (wallclock, random seeds, host locale)
 - store goldens near the feature’s tests (or in a well-known `goldens/` subtree)
 
-## TASK-0054 BGRA snapshot goldens
+## The host CPU renderer goldens (retired 2026-11-04)
 
-`TASK-0054` / `RFC-0046` uses repo-owned goldens under
-`tests/ui_host_snap/goldens/` for the host CPU renderer proof floor.
-
-Rules:
+TASK-0054's `tests/ui_host_snap` goldens went with the renderer they proved (ADR-0094: one
+raster, `nexus-gfx`'s, is the oracle every executor's picture is judged by —
+`userspace/nexus-gfx/tests/frame_oracle.rs`). Their rules carry over to every golden suite:
 
 - equality is based on canonical decoded BGRA8888 pixels,
 - PNG files are deterministic artifacts only,
@@ -33,11 +32,11 @@ Rules:
 
 ## TASK-0073 design-system component goldens + a11y lints
 
-`tests/ui_v10_goldens/` proves the design-system primitives (RFC-0070). It reuses the
-`ui_host_snap` golden machinery (canonical BGRA hex compare + `UPDATE_GOLDENS=1` gate):
+`tests/ui_v10_goldens/` proves the design-system primitives (RFC-0070) with the golden
+machinery above (canonical BGRA hex compare + `UPDATE_GOLDENS=1` gate):
 
 - **Pipeline:** component builder → `LayoutNode` → `LayoutEngine` → a small structural
-  `LayoutResult` painter (rounded fills + square borders) → `ui_renderer::Frame` → BGRA hex golden
+  `LayoutResult` painter (rounded fills + square borders) → a BGRA frame → BGRA hex golden
   under `tests/ui_v10_goldens/goldens/`. The painter is intentionally structural — backdrop blur and
   text are validated separately, so goldens lock **geometry + resolved colors** deterministically.
 - **Coverage:** core primitives (GlassButton variants + hover/pressed/disabled/focus states, Badge,

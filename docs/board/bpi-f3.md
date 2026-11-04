@@ -9,7 +9,10 @@ is what a developer needs to reach it; the boot chain we build on it is Block 1'
 full read-out of the stock system (2026-09-22) is
 `measurements/2026-09-22-stock-system/README.md`. The eMMC, its SDHCI host, the storage bus's
 DMA reach and QEMU's SD stand-in (2026-09-24, TASK-0246 P0) are
-`measurements/2026-09-24-emmc-sdhci/README.md`.
+`measurements/2026-09-24-emmc-sdhci/README.md`. The board cycles' gate values are a series
+(`measurements/series.md`, generated): `nx ledger series add build/logs/board--<id>/uart.log`
+records a cycle, and the next image prints the last one as `last=` on its gate lines
+(ADR-0094, TASK-0351 P8).
 
 ## Hardware (what matters to us)
 

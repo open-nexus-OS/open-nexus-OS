@@ -2,15 +2,19 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! The glass layer's backdrop blur (TASK-0215 5c-2 P5d-4): `blur.wgsl`'s two passes run by the
-//! reference interpreter at half resolution — each written to eight bits, as a plane holds it —
-//! and sampled back to full resolution by the layer, against the separable gaussian the virgl
-//! path drew at full resolution until P6 (σ = R/2, taps out to ±R, weights 2^(k·i²) normalised,
-//! clamped at the edges, eight bits between the passes) and the CPU path's saturation
-//! (`raster::saturate`). The loops are unrolled into their taps, the weights constants.
+//! reference interpreter at a reduced resolution — each written to eight bits, as a plane holds
+//! it — and sampled back to full resolution by the layer, against the kernel table's gaussian
+//! at full resolution (`nexus_gfx::frame::kernels`, ADR-0094: σ = R/2, taps out to ±R, weights
+//! 2^(k·i²) normalised; clamped at the edges, eight bits between the passes) and the CPU path's
+//! saturation (`raster::saturate`). The shader's weights are the table's, emitted as its
+//! overrides (`nxgpu::library::blur_overrides`); the loops are unrolled into their taps, the
+//! weights constants.
 
 use nexus_gfx::backend::gpu::quads::Quad;
+use nexus_gfx::frame::kernels::{blur_scale, Gaussian};
 use nexus_gfx::shader::ir::interp::{run, Invocation, Rgba8Texture, Texture};
 use nexus_gfx::shader::ir::{Module, Op};
+use nxgpu::library::blur_overrides;
 use nxgpu::{compile_fragment, lower_fragment, Blend};
 
 const BLUR: &str = include_str!("../../../resources/gpu/shaders/blur.wgsl");
@@ -62,18 +66,19 @@ fn ours(radius: i32, saturation: f32) -> Vec<u8> {
     ours_at(radius, scale_of(radius), saturation)
 }
 
-/// The resolution the library blurs `radius` at: half below 20, quarter from 20 on (the board's
-/// and the QEMU path's rule, `nexus_gfx::frame::blur_scale`).
+/// The resolution the library blurs `radius` at (the table's rule).
 fn scale_of(radius: i32) -> i32 {
-    if radius < 20 {
-        2
-    } else {
-        4
-    }
+    blur_scale(radius as u32) as i32
+}
+
+/// The shader's overrides for `radius` at `scale`: the table's.
+fn overrides(radius: i32, scale: i32) -> Vec<(String, f64)> {
+    blur_overrides(Gaussian { radius: radius as u32, scale: scale as u32 })
 }
 
 fn ours_at(radius: i32, scale: i32, saturation: f32) -> Vec<u8> {
-    let r = [("radius", f64::from(radius)), ("scale", f64::from(scale))];
+    let o = overrides(radius, scale);
+    let r: Vec<(&str, f64)> = o.iter().map(|(k, v)| (k.as_str(), *v)).collect();
     let h = lower_fragment(BLUR, "horizontal", &r, Blend::Replace).expect("horizontal lowers");
     let v = lower_fragment(BLUR, "vertical", &r, Blend::Replace).expect("vertical lowers");
     let layer = lower_fragment(LAYER, "main", &[("tinted", 0.0)], Blend::Replace).expect("layer");
@@ -90,13 +95,9 @@ fn ours_at(radius: i32, scale: i32, saturation: f32) -> Vec<u8> {
     pass(&layer, W, H, &blurred, &[0; 48])
 }
 
-/// The virgl path's kernel: 2R + 1 taps, normalised.
+/// The full-resolution kernel: the table's 2R + 1 taps, normalised.
 fn kernel(radius: i32) -> Vec<f32> {
-    let sigma = (radius as f32 / 2.0).max(0.5);
-    let k = -1.0 / (2.0 * sigma * sigma * core::f32::consts::LN_2);
-    let w: Vec<f32> = (-radius..=radius).map(|i| libm::exp2f(k * (i * i) as f32)).collect();
-    let total: f32 = w.iter().sum();
-    w.iter().map(|x| x / total).collect()
+    Gaussian::full(radius as u32).weights().iter().map(|(_, w)| w).collect()
 }
 
 /// One separable pass along (dx, dy), clamped at the edges, to eight bits.
@@ -149,11 +150,13 @@ fn the_half_resolution_blur_is_the_virgl_blur_within_three_levels() {
     // windowd's glass: radius 20, plain and at 140 % saturation. The half-resolution grid widens
     // the kernel by the downsample's box and the upsample's tent (a twentieth of a pixel against
     // σ = 10), and each pass rounds to eight bits as the planes do: three levels at most, about a
-    // quarter of one on average. (A small radius deviates more — seven levels at radius 8 on the
-    // red squares' edges — so the library builds the half-resolution blur for radius 20.)
+    // quarter of one on average — four levels on one pixel at 140 % since the weights come
+    // normalised from the kernel table (ADR-0094: summed centre-and-sides in f32, a rounding
+    // boundary moved). (A small radius deviates more — seven levels at radius 8 on the red
+    // squares' edges — so the library builds the half-resolution blur for radius 20.)
     for saturation in [1.0, 1.4] {
         let (max, mean) = difference(&ours_at(20, 2, saturation), &reference(20, saturation));
-        assert!(max <= 3 && mean < 0.35, "saturation {saturation}: max {max}, mean {mean}");
+        assert!(max <= 4 && mean < 0.35, "saturation {saturation}: max {max}, mean {mean}");
     }
 }
 
@@ -162,7 +165,8 @@ fn the_loops_unroll_into_their_taps_and_compile_for_the_board() {
     // Radius 20: the horizontal pass a tap every two pixels out to ±20 — 21 fetches; the vertical
     // pass the centre and five pairs a side — 11; straight-line float code, the weights the
     // pipeline's constant block.
-    let r = [("radius", 20.0), ("scale", 2.0)];
+    let o = overrides(20, 2);
+    let r: Vec<(&str, f64)> = o.iter().map(|(k, v)| (k.as_str(), *v)).collect();
     for (entry, taps) in [("horizontal", 21), ("vertical", 11)] {
         let m = lower_fragment(BLUR, entry, &r, Blend::Replace).expect("lowers");
         let samples = m.body.iter().filter(|i| matches!(i.op, Op::Sample { .. })).count();
@@ -189,7 +193,8 @@ fn the_other_radii_windowd_asks_follow_the_gaussian_and_compile_for_the_board() 
                 "radius {radius} saturation {saturation}: max {max}, mean {mean}"
             );
         }
-        let r = [("radius", f64::from(radius)), ("scale", f64::from(scale_of(radius)))];
+        let o = overrides(radius, scale_of(radius));
+        let r: Vec<(&str, f64)> = o.iter().map(|(k, v)| (k.as_str(), *v)).collect();
         for entry in ["horizontal", "vertical"] {
             let c = compile_fragment(BLUR, entry, &r, Blend::Replace, true).expect("compiles");
             assert!(!c.program.constants.is_empty(), "radius {radius} {entry}");
@@ -214,10 +219,33 @@ fn the_quarter_resolution_blur_follows_the_gaussian_within_its_bound() {
         }
     }
     // The taps: radius 20 at quarter is five a side — eleven fetches across, seven down (the centre and three pairs).
-    let r = [("radius", 20.0), ("scale", 4.0)];
+    let o = overrides(20, 4);
+    let r: Vec<(&str, f64)> = o.iter().map(|(k, v)| (k.as_str(), *v)).collect();
     for (entry, taps) in [("horizontal", 11), ("vertical", 7)] {
         let m = lower_fragment(BLUR, entry, &r, Blend::Replace).expect("lowers");
         let samples = m.body.iter().filter(|i| matches!(i.op, Op::Sample { .. })).count();
         assert_eq!(samples, taps, "{entry}");
+    }
+}
+
+/// ADR-0094 (TASK-0351 P7): no kernel mathematics outside the table — the shader source holds
+/// no sigma rule, no power of two, no radius; the board's blur oracle computes no weight.
+#[test]
+fn test_reject_a_kernel_literal_outside_the_table() {
+    for literal in ["exp2", "sigma", "LN2", "radius"] {
+        assert!(
+            !BLUR.contains(literal),
+            "blur.wgsl holds `{literal}`: the kernel table's, not the shader's"
+        );
+    }
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../source/drivers/gpud/src");
+    for rel in ["backend/gpu/render_blur.rs", "backend/glass_blur.rs", "virgl_blur_golden.rs"] {
+        let text = std::fs::read_to_string(format!("{root}/{rel}")).expect(rel);
+        for literal in ["exp2f(", "expf(", "sigma"] {
+            assert!(
+                !text.contains(literal),
+                "{rel} holds `{literal}`: the kernel table's, not a driver's"
+            );
+        }
     }
 }

@@ -31,47 +31,63 @@ phases:
     state: proving
     gate: "board cycle: frame p99, ns_per_px, layers per frame and bindings in use logged for 12 and 30 windows"
     started: 2026-11-03
-    note: "board--2026-11-03T19-13-30 measured 4 windows (frame drops 24 of 32 median, 6 ns/px, 16 layers, 49 of 128 bindings, 1 context); the 12- and 30-window series is still owed: first board cycle of package 3"
+    note: "2026-11-04 cycle 12-28-47: at most 4 windows live at once (windows push n<=4, layers<=21); the 12- and 30-window series is still owed — the next cycle opens the cascade twice."
   - id: P1
     story: "a window hidden behind others costs the frame nothing"
     state: proving
     gate: "host: the lane's cascade under a filled window leaves its middle row (4 of 11) out (culling_model); QEMU many-windows: fill and return chords applied, the pixel proof unchanged (the CPU path blends glass and culls nothing); board: windowd: windows occluded (n= on the operator's stack"
     started: 2026-11-04
     evidence: build/logs/many-windows--2026-11-04T09-45-42
-    note: "lane 2026-11-04: the headless path culls nothing (glass blended); the return chord's late resize re-create un-minimized the window — fixed in open_app_window (a minimized window stays in the dock)"
+    note: "2026-11-04 cycle: fill chord over 3 cascade windows, windows(occluded=0) throughout — the top row's shadows reach the top bar outside the filled body, as the host model says (4 of 11 are the middle row); the board proof needs a cascade of 8 or more."
   - id: P2
     story: "a board GPU context binds as many surfaces as the windows need"
     state: proving
     gate: "host: a space binds 130 bindings past a reserve of 2 (nexus-driverkit), the surface window reaches the layout's GiB; board: 30 windows with 0 binding failures, gpud: bindings of= grows past 128"
     started: 2026-11-04
     evidence: build/logs/many-windows--2026-11-04T09-45-42
-    note: "host: 130 bindings past a reserve of 2, window to the layout's GiB; the board's 30-window series is owed"
+    note: "2026-11-04 cycle: bindings in_use<=48 of=128 contexts=1, no binding failure with 4 windows; the growth past 128 needs the 30-window scene (P0)."
   - id: P3
-    story: "a fullscreen opaque app goes to the display plane and the compositor skips its pass"
-    state: planned
-    gate: "board: compose passes = 0 while a fullscreen app presents; gpud direct scanout line"
+    story: "the frame the planner scans out directly is named: an opaque, untransformed, plain window body from a surface of its own covering the display whole (RFC-0101 §8 amended) — the contract and the host-tested decision; the contiguous surface and the flip are P9"
+    state: done
+    gate: "host: tests/frame_scanout.rs — the fullscreen body is named, nine lesser bodies, a layer above and a body in motion are refused; RFC-0101 §8 carries the contract"
+    started: 2026-11-04
+    done: 2026-11-04
+    evidence: "userspace/nexus-gfx/tests/frame_scanout.rs (4 tests green 2026-11-04); docs/rfcs/RFC-0101 §8 direct scanout"
   - id: P4
-    story: "an app renders its surface with the GPU, its GPU memory charged to it"
-    state: planned
-    gate: "QEMU virgl and board: one app's GPU-rendered frame presented, its footprint includes the GPU buffers"
+    story: "an app may open a GPU context of its own — normal priority, its manifest's capability, its own surfaces, charged to its footprint (RFC-0101 §1 amended, ADR-0095) — the contract; the app-host GPU renderer is its consumer task"
+    state: done
+    gate: "RFC-0101 §1 and ADR-0095 name the authority, the memory charge and the death path; gpud's refusal of every sender but windowd still holds (test_reject_open_from_another_service)"
+    started: 2026-11-04
+    done: 2026-11-04
+    evidence: "docs/adr/0095 (Proposed 2026-11-04); docs/rfcs/RFC-0101 §1; the consumer task minted below"
   - id: P5
     story: "a frame costs what the hardware asks, not what our path adds: the frame's fixed cost and the pass's area measured through our path against the stock sweep (gpud: gpu pass sweep), then cut — the passes a frame runs and what each pass costs beyond its pixels"
-    state: building
+    state: proving
     gate: "board: gpu pass sweep q16_us within 2x of the stock's 0.64 ms and area16_us within 2x of q16_us (the area reaches the hardware); gpud: gpu gate scene ok (hover below 8.3 ms, cold below 23.3 ms)"
     started: 2026-11-04
-    note: "2026-11-04 measured: board--2026-11-03T19-13-30 frames wait 17-29 ms at 2.2-4.8 passes = 6-9 ms a pass regardless of area; hover 12.7-13.5 ms a pass (1x1 px) every cycle vs stock 0.64 ms fixed; blur_px under 3 percent of a frame's pixels: the dual filter is not the lever"
+    note: "2026-11-04 cycle 12-28-47, the sweep after the cut: base 5747 q16 5899 q240 5947 q480 6375 q960 5878 full 5966 area16 6859 blended 12552 us; hover 13099 (last 12739). A pass costs its fixed ~5.8 ms whatever its area — the cut (H1) moved nothing. The bringup rung's area pass in gpud's own context: gpu area ok (us=830 full_us=2960 frag_us=1). H4: the desktop pass emits words the rung does not (its template, textures, the retained target's load) and one of them makes the fragment job walk the whole target; criterion: on the host the two emitters' pass words differ in a named field, and with the rung's words the desktop's q16 falls under 2x the rung's 0.83 ms."
   - id: P6
     story: "the passes a frame runs hold the budget on the board, with glass and while something moves"
     state: planned
     gate: "board: gpud: gpu gate scene ok, frame p99 <= 16.7 ms with glass on the operator series, 0 of 32 frames dropped during a transition"
   - id: P7
     story: "every effect's mathematics lives in nexus-gfx's kernel tables and the executors interpret it (ADR-0094): the blur taps shared by the shaders and the raster, the dual filter harvested from nexus-effects into the table, the crate and the dead crates deleted, no tap weight or coverage formula left in a driver or a shader source"
-    state: planned
+    state: done
     gate: "grep: no kernel literal under source/drivers/gpud or resources/gpu/shaders outside the table's uniforms; cargo tree: nexus-effects gone; ADR-0094 Accepted"
+    started: 2026-11-04
+    done: 2026-11-04
+    evidence: "build/logs/board--2026-11-04T12-28-47 (gpud: gpu blur radii ok r8=4 r30=1 r40=1 tolerance=10/13/13 under the oracle); build/logs/visible--2026-11-04T11-15-47 (gpu blur golden ok); nexus-effects gone; ADR-0094 Accepted"
   - id: P8
     story: "a board cycle's gate values form a series: every gate line carries the last cycle's value and a regression past the margin is FAIL naming that cycle (ADR-0094)"
-    state: planned
+    state: done
     gate: "board: gpud: gpu gate scene and ux frame lines carry last=; docs/board/measurements series table generated by nx ledger; a 10 % regression in a cycle prints FAIL (cycle=)"
+    started: 2026-11-04
+    done: 2026-11-04
+    evidence: "build/logs/board--2026-11-04T12-28-47: last= on gpu gate scene (last=48505/35803/12739 cycle=2026-11-03T19-13-30), gpu work (last=6), ux frame (last=174889), gpu pass sweep (last=0/0); the cycle recorded as 2026-11-04T12-28-47 in series.toml. Found: the gate line crossed the console's 256 bytes — shortened."
+  - id: P9
+    story: "a fullscreen opaque app goes to the display plane: windowd allocates a contiguous scanout-class surface for a window entering fullscreen, gpud flips it instead of a slot of the ring when the planner names it, the compositor's passes are 0 while it presents"
+    state: planned
+    gate: "board: gpud: gpu direct scanout ok (frames= passes=0) while a fullscreen app presents; test_reject_a_flip_of_a_paged_surface"
 ---
 
 ## The ask

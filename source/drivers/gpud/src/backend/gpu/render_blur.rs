@@ -6,9 +6,10 @@
 //! resolution, the vertical pass with the saturation, the rounded layer sampling the result back
 //! over the glass — each a library pipeline on a pass limited to its quad, each reading its
 //! texture through our own descriptor (`texstate`): the plane as a stride texture, then the
-//! vertical result's rectangle of it. The CPU writes the backdrop (red stripes, a green ramp
-//! down, a blue one across), so the expected pixels are the virgl path's full-resolution
-//! gaussian of it (σ = R/2, taps out to ±R) with the CPU path's saturation, computed here. The
+//! vertical result's rectangle of it. The CPU writes the oracle's backdrop
+//! (`nexus_gfx::frame::oracle`, ADR-0094: the scene, the reads, the expected pixels — the
+//! kernel table's full-resolution gaussian with the glass's saturation — and the tolerance are
+//! the one oracle every executor's blur is judged by; the virtual GPU runs the same golden). The
 //! intermediates live in rows of the same plane below the picture: a pass names its area, so
 //! nothing else of the plane changes. (In the frame they are the context's GPU-only buffers.)
 //! Since 5c-3 P4b the chain runs at every radius windowd's glass asks — 20 in the pipeline
@@ -21,20 +22,15 @@ use alloc::string::String;
 use nexus_gfx::backend::gpu::pipelines::Placed;
 use nexus_gfx::backend::gpu::quads::{Bump, Need, Placer, Quad, Template};
 use nexus_gfx::backend::gpu::texstate::{descriptor_bytes, format, swizzle, Image, Sampler};
+use nexus_gfx::frame::oracle::{
+    backdrop_rect, backdrop_row, expected, tolerance, CORNER, GLASS, READS, SATURATION,
+};
 
 use super::device_v2::Device;
 use super::render_cost::{cost, named, peek, run, Pass, Rig, HEIGHT, STRIDE, WIDTH};
 use super::render_template::{clear_bgr, write_bound, COST_TAILS, GENERAL_ARENA};
 use crate::backend::display::{Display, GpuCanvas};
 
-/// The glass: a 256x192 layer at (512, 96), corner radius 16; windowd's glass blur (saturation
-/// 140 %).
-const GLASS: (u32, u32, u32, u32) = (512, 96, 256, 192);
-const CORNER: f32 = 16.0;
-const SATURATION: f32 = 1.4;
-/// The backdrop the CPU writes: the glass and 48 pixels around it (the widest taps reach 40
-/// pixels, a bilinear fetch one more).
-const MARGIN: u32 = 48;
 /// The radii the chain runs at besides 20 (the pipeline gate's): windowd's other glass levels.
 const OTHER_RADII: [u32; 3] = [8, 30, 40];
 /// The intermediates, below the picture: the horizontal result at (512, 640) — the glass's
@@ -42,21 +38,6 @@ const OTHER_RADII: [u32; 3] = [8, 30, 40];
 /// vertical one at (800, 640).
 const ACROSS: (u32, u32) = (512, 640);
 const DOWN: (u32, u32) = (800, 640);
-/// The reads: inside the glass (its centre, near its left and top edges, a point low right) and
-/// its corner pixel, which the rounded layer leaves out — the pass's clear there, as for the
-/// rounded probe (a pass clears its area: loading what the plane held is the frame's, 5c-3).
-const READS: [(u32, u32); 5] = [(640, 192), (520, 192), (640, 100), (700, 260), (512, 96)];
-/// Levels a read may differ from the full-resolution formula at `radius`: the reduced chain's
-/// deviation on the host (`tools/nxgpu/tests/blur.rs`: seven levels at radius 8 at half
-/// resolution, ten at 20, 30 and 40 at quarter) and the texture unit's filter fractions (three).
-fn tolerance(radius: u32) -> u8 {
-    3 + match radius {
-        8 => 7,
-        // Quarter resolution from radius 20 on (P6): ten levels on the host at the checker's
-        // edges.
-        _ => 10,
-    }
-}
 
 /// What the chain cost and read.
 pub(super) struct Blur {
@@ -70,58 +51,15 @@ pub(super) struct Blur {
     pub deviation: u8,
 }
 
-/// The backdrop's colour (R, G, B) at a plane pixel of its rectangle.
-fn backdrop(x: u32, y: u32) -> [u8; 3] {
-    let (x0, y0) = (GLASS.0 - MARGIN, GLASS.1 - MARGIN);
-    let red = if (x / 16) % 2 == 0 { 220 } else { 30 };
-    let across = (x - x0) * 255 / (GLASS.2 + 2 * MARGIN - 1);
-    [red, (y - y0) as u8, across as u8]
-}
-
-/// The virgl path's kernel: 2R + 1 weights 2^(k·i²), k = −1/(2σ² ln 2), σ = R/2, normalised.
-fn kernel(radius: u32) -> alloc::vec::Vec<f32> {
-    let sigma = (radius as f32 / 2.0).max(0.5);
-    let k = -1.0 / (2.0 * sigma * sigma * core::f32::consts::LN_2);
-    let mut w: alloc::vec::Vec<f32> = (0..=2 * radius)
-        .map(|i| {
-            let d = i as f32 - radius as f32;
-            libm::exp2f(k * d * d)
-        })
-        .collect();
-    let total: f32 = w.iter().sum();
-    w.iter_mut().for_each(|x| *x /= total);
-    w
-}
-
-/// The expected bytes (B, G, R) at `(x, y)` inside the glass: the full-resolution gaussian of
-/// the backdrop at `radius`, saturated.
-fn expected((x, y): (u32, u32), radius: u32) -> [u8; 3] {
-    let w = kernel(radius);
-    let mut c = [0.0f32; 3];
-    for (j, wj) in w.iter().enumerate() {
-        for (i, wi) in w.iter().enumerate() {
-            let p = backdrop(x + i as u32 - radius, y + j as u32 - radius);
-            for (acc, v) in c.iter_mut().zip(p) {
-                *acc += wi * wj * f32::from(v);
-            }
-        }
-    }
-    let grey = 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
-    let s = |v: f32| libm::roundf(grey + (v - grey) * SATURATION).clamp(0.0, 255.0) as u8;
-    [s(c[2]), s(c[1]), s(c[0])]
-}
-
 /// The backdrop written into the plane (memory order B, G, R, A), each row cleaned.
 fn write_backdrop(display: &mut dyn Display, canvas: &GpuCanvas) -> bool {
     let Some(bytes) = display.gpu_canvas_bytes(canvas.row) else { return false };
-    let (x0, y0) = ((GLASS.0 - MARGIN) as usize, GLASS.1 - MARGIN);
-    let w = (GLASS.2 + 2 * MARGIN) as usize;
-    for y in y0..GLASS.1 + GLASS.3 + MARGIN {
-        let at = y as usize * STRIDE + x0 * 4;
-        let Some(row) = bytes.get_mut(at..at + 4 * w) else { return false };
-        for (i, px) in row.chunks_exact_mut(4).enumerate() {
-            let [r, g, b] = backdrop((x0 + i) as u32, y);
-            px.copy_from_slice(&[b, g, r, 0xff]);
+    let (x0, y0, w, h) = backdrop_rect();
+    for y in y0..y0 + h {
+        let at = y as usize * STRIDE + x0 as usize * 4;
+        let Some(row) = bytes.get_mut(at..at + 4 * w as usize) else { return false };
+        if backdrop_row(y, row) != row.len() {
+            return false;
         }
         if canvas.block != 0 {
             nexus_abi::cache_clean(row, canvas.block);

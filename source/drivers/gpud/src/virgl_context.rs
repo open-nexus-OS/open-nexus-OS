@@ -119,5 +119,10 @@ impl VirtioGpuBackend {
                 let _ = nexus_abi::debug_println("gpud: virgl composite submit fail");
             }
         }
+        // ADR-0094 (TASK-0351 P7): the blur chain at every library radius against the oracle
+        // the raster and the board are held to — the line is the golden's own.
+        if self.virgl_blur_golden().is_err() {
+            let _ = nexus_abi::debug_println("gpud: FAIL gpu blur golden (submit)");
+        }
     }
 }

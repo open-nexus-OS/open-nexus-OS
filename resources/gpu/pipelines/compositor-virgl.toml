@@ -65,7 +65,7 @@ id = 7
 name = "blur-horizontal-8"
 source = "../shaders/blur.wgsl"
 entry = "horizontal"
-overrides = { radius = 8, scale = 2 }
+blur = 8
 blend = "replace"
 budget = 29
 
@@ -74,7 +74,7 @@ id = 8
 name = "blur-vertical-8"
 source = "../shaders/blur.wgsl"
 entry = "vertical"
-overrides = { radius = 8, scale = 2 }
+blur = 8
 blend = "replace"
 budget = 23
 
@@ -83,7 +83,7 @@ id = 9
 name = "blur-horizontal-20"
 source = "../shaders/blur.wgsl"
 entry = "horizontal"
-overrides = { radius = 20, scale = 4 }
+blur = 20
 blend = "replace"
 budget = 35
 
@@ -92,7 +92,7 @@ id = 10
 name = "blur-vertical-20"
 source = "../shaders/blur.wgsl"
 entry = "vertical"
-overrides = { radius = 20, scale = 4 }
+blur = 20
 blend = "replace"
 budget = 29
 
@@ -101,7 +101,7 @@ id = 11
 name = "blur-horizontal-30"
 source = "../shaders/blur.wgsl"
 entry = "horizontal"
-overrides = { radius = 30, scale = 4 }
+blur = 30
 blend = "replace"
 budget = 47
 
@@ -110,7 +110,7 @@ id = 12
 name = "blur-vertical-30"
 source = "../shaders/blur.wgsl"
 entry = "vertical"
-overrides = { radius = 30, scale = 4 }
+blur = 30
 blend = "replace"
 budget = 35
 
@@ -119,7 +119,7 @@ id = 13
 name = "blur-horizontal-40"
 source = "../shaders/blur.wgsl"
 entry = "horizontal"
-overrides = { radius = 40, scale = 4 }
+blur = 40
 blend = "replace"
 budget = 65
 
@@ -128,7 +128,7 @@ id = 14
 name = "blur-vertical-40"
 source = "../shaders/blur.wgsl"
 entry = "vertical"
-overrides = { radius = 40, scale = 4 }
+blur = 40
 blend = "replace"
 budget = 41
 

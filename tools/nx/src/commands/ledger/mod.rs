@@ -3,7 +3,8 @@
 //
 //! CONTEXT: `nx ledger` — the one writer of planning state (RFC-0115): milestones, sprints, tasks,
 //!          tracks and RFCs as canonical frontmatter; brief/show/list/table to read, set/phase/
-//!          step/goal/result/plan/review/new to write, lint as the gate.
+//!          step/goal/result/plan/review/new to write, series for the board cycles' gate values
+//!          (TASK-0351 P8), lint as the gate.
 //! OWNERS: @tools-team
 //! STATUS: Functional
 //! API_STABILITY: Unstable
@@ -16,11 +17,12 @@ mod gen;
 mod model;
 mod repo;
 mod rules;
+mod series;
 mod upkeep;
 mod view;
 mod yaml;
 
-use crate::cli_ledger::{LedgerAction, LedgerArgs, NewKind};
+use crate::cli_ledger::{LedgerAction, LedgerArgs, NewKind, SeriesAction};
 use crate::error::{ExecResult, ExitClass, NxError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -108,6 +110,14 @@ pub(crate) fn handle_ledger(args: LedgerArgs) -> ExecResult {
             }
         },
         LedgerAction::Lint { fix, notes } => lint(&mut repo, fix, notes),
+        LedgerAction::Series { action } => match action {
+            SeriesAction::Add { log, id } => {
+                series::add_log(&root, std::path::Path::new(&log), id.as_deref())
+                    .map_err(fail)
+                    .and_then(ok)
+            }
+            SeriesAction::Show => series::show(&root).map_err(fail).and_then(ok),
+        },
         LedgerAction::Stale => upkeep::stale_report(&repo).map_err(fail).and_then(ok),
         LedgerAction::Relink { old, new } => {
             upkeep::relink(&mut repo, &old, &new).map_err(fail).and_then(ok)
@@ -138,6 +148,11 @@ fn lint(repo: &mut repo::Repo, fix: bool, notes: bool) -> ExecResult {
         }
         if fixed > 0 {
             println!("rendered {fixed} document(s) canonically");
+        }
+        let rendered =
+            series::write(&repo.root).map_err(|e| NxError::new(ExitClass::Internal, e))?;
+        if !rendered.is_empty() {
+            println!("rendered {} from the series", rendered.join(", "));
         }
     }
     let problems = rules::lint(repo);

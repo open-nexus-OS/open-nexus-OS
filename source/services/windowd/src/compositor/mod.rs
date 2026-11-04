@@ -15,7 +15,7 @@
 //!
 //! CONTEXT: OS-lite display server main loop for `windowd` — retained-mode compositor with
 //! tile-based damage tracking, two-pass renderer (shadow-pass → content-pass → cursor),
-//! SDF anti-aliased shapes, backdrop blur via nexus-effects, coalesced cursor damage,
+//! SDF anti-aliased shapes, backdrop blur via the nexus-gfx raster, coalesced cursor damage,
 //! paint-only fast-path, and GPU-first rendering pipeline (Phase 6c).
 //! control/data-plane separation: windowd heap = control plane,
 //! shared 16MB VMO = data plane (4-plane: wallpaper / retained-scene / slot-A / slot-B).
@@ -42,7 +42,7 @@
 //!
 //! DEPENDENCIES:
 //!   - nexus-layout, nexus-layout-types: layout computation
-//!   - nexus-effects: shadow types, cache infrastructure (blur is zero-allocation inline)
+//!   - nexus-gfx raster: the blur and shadow primitives (zero-allocation inline; ADR-0094)
 //!   - nexus-sdf: rendering primitives
 //!   - nexus-abi, nexus-ipc: kernel IPC
 //!   - input-live-protocol: VisibleState wire format
@@ -182,7 +182,7 @@ const _: () = assert!(TILES_Y as u32 * TILE_SIZE >= DISPLAY_HEIGHT);
 pub(crate) const TILE_COUNT: usize = TILES_X * TILES_Y;
 pub(crate) const TILE_DIRTY_WORDS: usize = (TILE_COUNT + 63) / 64;
 // Shadow arena/scratch budget contract: documented bounded-memory ceilings for
-// the zero-alloc shadow blur (nexus-effects ShadowArena) integration.
+// the zero-alloc shadow blur integration (the raster's; nexus-effects retired, ADR-0094).
 #[allow(dead_code)]
 #[cfg(nexus_env = "os")]
 pub(crate) const WINDOWD_SHADOW_ARENA_SIZE: usize = 8 * 1024;

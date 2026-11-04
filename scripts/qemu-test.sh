@@ -3024,6 +3024,13 @@ if [[ "${GPU_MODE:-}" == "virgl" ]]; then
       exit 1
     fi
   done
+  # ADR-0094 (TASK-0351 P7): the library's blur chain at every radius read back against the
+  # oracle the raster and the board are held to — the kernel table's picture on the virtual GPU.
+  if ! grep -aFq "gpud: gpu blur golden ok (" "$UART_LOG"; then
+    echo "[error] first_failed_phase=bringup missing_marker='gpud: gpu blur golden ok ('" >&2
+    grep -aF "gpud: FAIL gpu blur golden" "$UART_LOG" >&2 || echo "[error] (no blur golden line at all)" >&2
+    exit 1
+  fi
 fi
 
 # TASK-0324 P0 display truth: judge what the HOST display showed. The launcher's

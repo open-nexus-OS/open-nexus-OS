@@ -28,19 +28,25 @@
 
 pub mod board;
 pub mod chain;
+pub mod clip;
 pub mod damage;
 pub mod glass;
+pub mod kernels;
 pub mod layers;
 pub mod merge;
 pub mod occlude;
+pub mod oracle;
 pub mod pieces;
 pub mod plan;
+pub mod scanout;
 
 pub use board::{
-    blur_radius, blur_scale, drawn_px, Board, DrawSpec, GlassCount, PassKind, PassSpec, Pipe,
-    Target, Tex, BLUR_RADII, PROGRAM_KINDS,
+    drawn_px, Board, DrawSpec, GlassCount, PassKind, PassSpec, Pipe, Target, Tex, PROGRAM_KINDS,
 };
+pub use clip::clip_draw;
 pub use damage::{Area, History, HISTORY};
 pub use glass::{CacheStep, GlassCache, WriteCause};
+pub use kernels::{blur_radius, blur_scale, Gaussian, Weights, BLUR_RADII};
 pub use layers::{FrameLayer, RetainedLayers, Taken, Transform, MAX_LAYERS};
 pub use plan::{Frame, Glass, LayerStep, Planned, Writes};
+pub use scanout::direct;
