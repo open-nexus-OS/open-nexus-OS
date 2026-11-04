@@ -74,6 +74,24 @@ pub fn opaque_rect(l: &FrameLayer, back: bool) -> Option<Px> {
     (w > 0 && h > 0).then_some((l.dst_x + r, l.dst_y + r, w, h))
 }
 
+/// The cross of a rounded rectangle of corner `radius`: its middle column (full height, the
+/// corner squares' width cut off both sides) and its middle row (full width, the corner squares'
+/// height cut off top and bottom) — every pixel of both lies inside the rounded rectangle at
+/// coverage one, so an opaque body hides everything under its cross (the compositor's culling,
+/// TASK-0351 P1: tighter than [`opaque_rect`], which keeps one band inset all around). `None`
+/// parts when the rectangle is too small for them.
+pub fn cross(r: Px, radius: u32) -> [Option<Px>; 2] {
+    let some = |p: Px| (p.2 > 0 && p.3 > 0).then_some(p);
+    if r.2 == 0 || r.3 == 0 {
+        return [None, None];
+    }
+    let c = radius.min(r.2 / 2).min(r.3 / 2);
+    [
+        some((r.0 + c, r.1, r.2.saturating_sub(2 * c), r.3)),
+        some((r.0, r.1 + c, r.2, r.3.saturating_sub(2 * c))),
+    ]
+}
+
 /// `r` minus `occ`: the band above the occluder, the band below it, the band to its left and
 /// the band to its right (each the full width or the occluder's rows), the empty ones `None`.
 /// Without an occluder, or one that misses `r`, the rectangle itself.
@@ -113,9 +131,95 @@ pub fn on_grid(occ: Px, origin: (u32, u32), scale: u32) -> Option<Px> {
     (x1 > x0 && y1 > y0).then_some((x0, y0, x1 - x0, y1 - y0))
 }
 
+/// Pieces of a rectangle kept apart while the occluders are taken off it: past this the
+/// coverage test gives up and says `false` (never a hole — an uncertain window is drawn).
+pub const COVER_PIECES: usize = 64;
+
+/// Whether the union of `occluders` holds every pixel of `r` (the compositor's culling, TASK-0351
+/// P1): `r` is taken apart occluder by occluder — each piece minus the occluder is its at most
+/// four bands — until nothing is left (`true`) or every occluder is spent (`false`). Exact for
+/// any arrangement of rectangles; bounded by [`COVER_PIECES`] pieces, past which it is `false`.
+pub fn covered(r: Px, occluders: &[Px]) -> bool {
+    if r.2 == 0 || r.3 == 0 {
+        return true;
+    }
+    let mut pieces = [None::<Px>; COVER_PIECES];
+    pieces[0] = Some(r);
+    let mut n = 1;
+    for &o in occluders {
+        if o.2 == 0 || o.3 == 0 {
+            continue;
+        }
+        let mut next = [None::<Px>; COVER_PIECES];
+        let mut m = 0;
+        for p in pieces[..n].iter().flatten() {
+            for band in cut(*p, Some(o)).into_iter().flatten() {
+                if m == COVER_PIECES {
+                    return false;
+                }
+                next[m] = Some(band);
+                m += 1;
+            }
+        }
+        pieces = next;
+        n = m;
+        if n == 0 {
+            return true;
+        }
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_body_s_cross_leaves_exactly_its_corner_squares_uncovered() {
+        let r = (100, 100, 800, 600);
+        let [col, row] = cross(r, 12);
+        assert_eq!(col, Some((112, 100, 776, 600)));
+        assert_eq!(row, Some((100, 112, 800, 576)));
+        let cross_rects: alloc::vec::Vec<Px> = [col, row].into_iter().flatten().collect();
+        assert!(!covered(r, &cross_rects), "the corners are not in the cross");
+        let corners =
+            [(100, 100, 12, 12), (888, 100, 12, 12), (100, 688, 12, 12), (888, 688, 12, 12)];
+        let mut all = cross_rects.clone();
+        all.extend(corners);
+        assert!(covered(r, &all), "cross and corner squares make the rectangle");
+        // A window well inside the body's cross is covered by it.
+        assert!(covered((200, 200, 300, 200), &cross_rects));
+        // A radius past the half side leaves no cross.
+        assert_eq!(cross((0, 0, 10, 10), 5), [None, None]);
+        assert_eq!(cross(r, 0), [Some(r), Some(r)]);
+    }
+
+    #[test]
+    fn a_rectangle_under_two_halves_is_covered_and_under_one_is_not() {
+        let r = (100, 100, 800, 600);
+        assert!(covered(r, &[(100, 100, 400, 600), (500, 100, 400, 600)]));
+        assert!(covered(r, &[(0, 0, 2000, 2000)]), "one bigger occluder");
+        assert!(covered(r, &[r]), "itself");
+        assert!(!covered(r, &[(100, 100, 400, 600)]), "half of it shows");
+        assert!(!covered(r, &[]), "nothing above it");
+        assert!(covered((5, 5, 0, 9), &[]), "an empty rectangle shows nothing");
+    }
+
+    #[test]
+    fn test_reject_coverage_with_a_gap() {
+        let r = (0, 0, 100, 100);
+        // Four quarters that leave a one-pixel column between the left and the right ones.
+        let occ = [(0, 0, 49, 50), (50, 0, 50, 50), (0, 50, 49, 50), (50, 50, 50, 50)];
+        assert!(!covered(r, &occ));
+        let closed = [(0, 0, 50, 50), (50, 0, 50, 50), (0, 50, 50, 50), (50, 50, 50, 50)];
+        assert!(covered(r, &closed));
+        // Rounded corners: the body's own inset is the occluder — its corners stay uncovered.
+        assert!(!covered(r, &[(8, 8, 84, 84)]));
+        // Past the piece bound the answer is `false`, never a hole.
+        let many: alloc::vec::Vec<Px> =
+            (0..COVER_PIECES as u32).map(|i| (i * 3, i * 3, 1, 1)).collect();
+        assert!(!covered(r, &many));
+    }
 
     #[test]
     fn a_rectangle_minus_an_occluder_is_its_four_bands_disjoint_and_complete() {

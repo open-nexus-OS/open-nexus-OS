@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: Where an app surface object lies in windowd's GPU context on the board (RFC-0114 §1)
-//! — pure, host-tested. The tail of the context's private GiB (the scratches already open its
-//! directory, so an object costs no directory more), one first-fit range per object on a 2 MiB
-//! boundary (a page table of its own each), a freed object's range reused.
+//! — pure, host-tested. From the tail of the context's private GiB (the scratches already open
+//! its directory) up to the layout's GiB (TASK-0351 P2, ADR-0093: the windows are bounded by
+//! memory, not by this window — a GiB entered costs one directory), one first-fit range per
+//! object on a 2 MiB boundary (a page table of its own each), a freed object's range reused.
 //! OWNERS: @gpu
 //! STATUS: Functional
 //! API_STABILITY: Internal
@@ -12,10 +13,11 @@
 
 use alloc::vec::Vec;
 
-/// The window: past the frame's own buffer in the private GiB (`backend/gpu/desktop.rs`), to its
-/// end — 768 MiB, some 26 windows of a full-HD surface with two slots.
+/// The window: past the frame's own buffer in the private GiB (`backend/gpu/desktop.rs`), to the
+/// layout's GiB (`LAYOUT_VA`) — 127 GiB of addresses; the first GiB's tail alone holds some 26
+/// full-HD two-slot surfaces, so the 27th window enters the second GiB.
 pub(crate) const VA_START: u64 = 0x20_1000_0000;
-pub(crate) const VA_END: u64 = 0x20_4000_0000;
+pub(crate) const VA_END: u64 = 0x40_0000_0000;
 /// Each object starts on a page table's boundary.
 pub(crate) const VA_ALIGN: u64 = 2 << 20;
 

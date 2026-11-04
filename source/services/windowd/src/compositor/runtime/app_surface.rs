@@ -31,6 +31,13 @@ impl DisplayServerRuntime {
         // The surface's DECLARED level resolves its z-band (overlay = above all floating
         // windows); an overlay never steals window focus.
         self.windows.set_role(wid, presentation.role);
+        // A window the user minimized stays in the dock when its app re-creates the surface (the
+        // answer to a resize from before the minimize — the many-windows lane's return chord
+        // followed by the minimize chord, 2026-11-04): the new surface is its body once it is
+        // restored; showing it here took the window out of the dock behind the user's back.
+        if self.windows.is_minimized(wid) {
+            return;
+        }
         if presentation.role == crate::window_scene::WindowRole::Overlay {
             self.windows.show_unfocused(wid);
         } else {

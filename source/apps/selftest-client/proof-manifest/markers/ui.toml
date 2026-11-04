@@ -720,6 +720,13 @@ proves = "TASK-0348 (RFC-0114 §6): a frame left for gpud naming app surfaces by
 phase = "end"
 proves = "TASK-0348 (RFC-0114 §7): a frame left for gpud drawing N app windows, each from its own buffer — more than this boot drew before; no window slot array, event-channel table or feed bound stops the count at a fixed number"
 
+# TASK-0351 P1: a window whose body and shadow lie wholly under the opaque bodies of the windows
+# above it is left out of the frame — no body, no layers, no read of its surface. One line per new
+# high of windows one frame left out; the many-windows lane fills the work area with the twelfth.
+[marker."windowd: windows occluded (n="]
+phase = "end"
+proves = "TASK-0351 P1: a frame left for gpud without N app windows that the windows above them cover — an occluded window costs the frame nothing (RFC-0101 §8's occlusion rule, applied by the compositor)"
+
 # TASK-0348 Phase 6 (RFC-0112, amendment 2026-11-02): the compositor's restart, step by step. The
 # chord asks for it; init respawns windowd, re-pins its legs and every client's leg into it over
 # the dead capabilities, and tells execd; execd re-pins every app's windowd slots and tells each

@@ -6,9 +6,9 @@
 //! read-only WHOLE at allocation: every page named (and so committed), the tables written, the
 //! MMU's caches flushed once. No frame ever enters a page or waits on a flush for it, and nothing
 //! of it is cleaned here: the app cleans what it drew (`vmo_clean`) before it presents, the kernel
-//! cleaned the zeroes. Its addresses come from the tail of the context's private GiB — the GiB
-//! the scratches already open, so no directory more — a first-fit range per object on 2 MiB
-//! boundaries (a table of its own each). A frame samples `(source, slot, row, x)` at the object's
+//! cleaned the zeroes. Its addresses come from the tail of the context's private GiB and on up
+//! to the layout's (`surface_va`; a GiB entered costs one directory) — a first-fit range per
+//! object on 2 MiB boundaries (a table of its own each). A frame samples `(source, slot, row, x)` at the object's
 //! address plus `(slot × rows + row) × stride + x × 4` (`descriptor`).
 //! OWNERS: @gpu @ui
 //! STATUS: Functional

@@ -27,6 +27,10 @@ static POINTER: AtomicU32 = AtomicU32::new(0);
 static MOVED: AtomicU32 = AtomicU32::new(0);
 static KEEPALIVE: AtomicU32 = AtomicU32::new(0);
 static SHAPE: AtomicU32 = AtomicU32::new(0);
+/// The window's most of app bodies one frame drew, and of bodies left out as covered by the
+/// windows above them (TASK-0351 P1).
+static WINDOWS_DRAWN: AtomicU32 = AtomicU32::new(0);
+static WINDOWS_OCCLUDED: AtomicU32 = AtomicU32::new(0);
 /// TASK-0335 P2: the damage queued (rectangles, their pixels) against what left for gpud
 /// (the merged rectangles' pixels) — a bounding box that swallows the screen between two
 /// small changes shows here as `flushed_px` far above `queued_px`.
@@ -214,6 +218,17 @@ pub(super) fn take_damage() -> (u32, u64, u64) {
         QUEUED_PX.swap(0, Ordering::Relaxed),
         FLUSHED_PX.swap(0, Ordering::Relaxed),
     )
+}
+
+/// One frame's app windows: `drawn` bodies, `occluded` left out as covered.
+pub(super) fn windows(drawn: u32, occluded: u32) {
+    WINDOWS_DRAWN.fetch_max(drawn, Ordering::Relaxed);
+    WINDOWS_OCCLUDED.fetch_max(occluded, Ordering::Relaxed);
+}
+
+/// The window's most of `(drawn, occluded)` app windows a frame had, and a fresh window.
+pub(super) fn take_windows() -> (u32, u32) {
+    (WINDOWS_DRAWN.swap(0, Ordering::Relaxed), WINDOWS_OCCLUDED.swap(0, Ordering::Relaxed))
 }
 
 /// The window's counts `(content, blit, pointer, moved, keepalive, shape)`, and a fresh window.

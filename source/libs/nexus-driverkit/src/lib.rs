@@ -17,7 +17,9 @@
 //! TEST_COVERAGE: golden host tests (`cargo test -p nexus-driverkit`) — the deterministic
 //!   oracle; QEMU proves the gpud/windowd integration later.
 //!
-//! DESIGN: This crate is **pure, `no_std`, and allocation-free** — [`SubmitRing`] is a fixed
+//! DESIGN: This crate is **pure and `no_std`**, allocation-free but for one table — the GPU
+//! context's binding table ([`gpu::VmSpace`]), which grows from the heap as a context binds
+//! (ADR-0093, TASK-0351 P2) — [`SubmitRing`] is a fixed
 //! 32-slot busy-bitmask + round-robin allocator (a faithful generalisation of gpud's ring),
 //! [`BufferBudget`] is bounded counters, [`Qos`] is an enum + depth policy, [`DmaBuffer`]
 //! (TASK-0286 P4b) moves DMA memory between CPU and device ownership by value and does the
@@ -46,6 +48,8 @@
 
 #![cfg_attr(not(test), no_std)]
 #![forbid(unsafe_code)]
+
+extern crate alloc;
 
 mod buffers;
 mod dma;

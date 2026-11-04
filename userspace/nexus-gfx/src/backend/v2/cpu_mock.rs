@@ -33,7 +33,7 @@ use crate::backend::gpu::pipelines::{
 use crate::command::buffer::Command;
 use crate::sync::timeline::Timeline;
 
-/// Bindings a mock context holds.
+/// The room a mock context's binding table starts with (it grows from the heap, ADR-0093).
 pub const MOCK_BINDINGS: usize = 32;
 /// The mock's page.
 pub const MOCK_PAGE: u32 = 4096;
@@ -43,7 +43,7 @@ const LINE: u32 = 64;
 struct Context {
     owner: ClientId,
     priority: Priority,
-    space: VmSpace<MOCK_BINDINGS>,
+    space: VmSpace,
     resets: u32,
     /// The device lost it (a fault): nothing new runs in it.
     lost: bool,
@@ -228,7 +228,7 @@ impl GfxDevice for CpuMockDevice {
         let context = Context {
             owner: client,
             priority,
-            space: VmSpace::new(self.caps.va_bits, self.caps.page_size),
+            space: VmSpace::with_reserve(self.caps.va_bits, self.caps.page_size, MOCK_BINDINGS),
             resets: 0,
             lost: false,
             pipelines: PipelineTable::default(),

@@ -48,6 +48,9 @@ pub(crate) struct BufferState {
     /// that left drew on this boot (RFC-0114 §7: the tables grow with the windows).
     pub(super) frame_windows: usize,
     windows_drawn: usize,
+    /// App windows this frame left out, covered by the windows above them (TASK-0351 P1).
+    pub(super) frame_occluded: usize,
+    windows_occluded: usize,
     releases: Vec<(u32, u32, u64)>,
     requests: VecDeque<Request>,
     /// The desktop surface its client dropped and its layers, shown until its successor
@@ -64,6 +67,8 @@ impl BufferState {
             frame_reads: Vec::new(),
             frame_windows: 0,
             windows_drawn: 0,
+            frame_occluded: 0,
+            windows_occluded: 0,
             releases: Vec::new(),
             requests: VecDeque::new(),
             desktop_retiring: None,
@@ -360,6 +365,13 @@ impl DisplayServerRuntime {
         if drawn > self.buffers.windows_drawn {
             self.buffers.windows_drawn = drawn;
             let _ = debug_println(&alloc::format!("windowd: windows drawn (n={drawn})"));
+        }
+        // A new most of windows one frame left out as covered (TASK-0351 P1): the proof that an
+        // occluded window costs the frame nothing.
+        let occluded = core::mem::take(&mut self.buffers.frame_occluded);
+        if occluded > self.buffers.windows_occluded {
+            self.buffers.windows_occluded = occluded;
+            let _ = debug_println(&alloc::format!("windowd: windows occluded (n={occluded})"));
         }
     }
 

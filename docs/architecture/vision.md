@@ -5,7 +5,7 @@ role: guide
 subsystem: devx
 sources: [source/kernel/neuron, source/services]
 contracts: [RFC-0005, ADR-0001]
-verified: 2026-11-03
+verified: 2026-11-04
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->

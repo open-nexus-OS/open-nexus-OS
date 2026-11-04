@@ -17,7 +17,7 @@
 
 use nexus_gfx::frame::{Target, Writes, PROGRAM_KINDS};
 
-use super::contexts::{Holdings, MAX_BINDINGS};
+use super::contexts::Holdings;
 use super::emit_fmt;
 
 /// Textured pixels by pass kind: the slot's, the glass scenes' (scratch), the blurs' (half and
@@ -65,7 +65,7 @@ impl Work {
 
     /// The window's lines: pixels per frame by kind and by program, the GPU's wait per pixel and
     /// the layers per frame; then the bindings the live contexts hold (TASK-0351 P0: the board's
-    /// context binds every app surface — `of` is the room the contexts have together).
+    /// context binds every app surface — `of` is the room their tables have before growing, P2).
     pub(super) fn emit(&self, frames: u64, wait_ns: u64, held: Holdings) {
         let total = self.0.iter().sum::<u64>().max(1);
         let p = self.2;
@@ -83,9 +83,7 @@ impl Work {
         ));
         emit_fmt(format_args!(
             "gpud: bindings (in_use={} of={} contexts={})",
-            held.bindings,
-            held.live * MAX_BINDINGS,
-            held.live
+            held.bindings, held.binding_room, held.live
         ));
         // TASK-0336 P0: why the glasses were blurred again — the cause each cut aims at.
         let w = self.1;

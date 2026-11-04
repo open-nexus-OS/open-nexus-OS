@@ -90,6 +90,7 @@ mod key_input;
 mod marker_emit;
 mod motion;
 mod observer;
+mod occlusion;
 mod present;
 mod presentation;
 mod pressure;

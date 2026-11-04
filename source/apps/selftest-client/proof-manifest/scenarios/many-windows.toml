@@ -245,6 +245,27 @@ do = { wait = true }
 expect = ["windowd: windows drawn (n=12)"]
 timeout_s = 30
 
+# -- an occluded window costs the frame nothing (TASK-0351 P1) --------------------------------------
+# The focused window (the twelfth) fills the work area: its opaque body covers the eleven below it
+# but for its four corner squares, and every window whose body and shadow lie under it is left out
+# of the frame (`windowd: windows occluded (n=`; the model in windowd's `surface_presentation.rs`
+# pins the count for this cascade). Returned to its place, all twelve are drawn again. This lane
+# composes on the CPU, where a glass body is blended and hides nothing: `windows occluded` is the
+# GPU path's line (virgl, the board), not expected here.
+[[step]]
+name = "fill the work area with the last window"
+settle_s = 1.0
+do = { chord = ["ctrl", "meta_l", "up"] }
+expect = ["windowd: wm chord (zone=fill"]
+timeout_s = 20
+
+[[step]]
+name = "return the last window to its place"
+settle_s = 1.0
+do = { chord = ["ctrl", "meta_l", "down"] }
+expect = ["windowd: wm chord (zone=return"]
+timeout_s = 20
+
 # -- a frozen app (TASK-0348 P13, RFC-0111 §4, ADR-0083) ---------------------------------------------
 # The focused window (the twelfth) is hidden by the minimize chord; hidden past its grace, its app
 # is frozen. It cannot read the compositor's notice frozen — the new compositor's start thaws it.

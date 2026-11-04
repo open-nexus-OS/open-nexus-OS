@@ -517,3 +517,78 @@ impl crate::compositor::shell_window::ShellWindow {
         assert_eq!(bar_geometry(&titled, true), bar_geometry(&plain, true));
     }
 }
+
+/// The model of TASK-0351 P1's culling on the lane's desktop (`compositor/runtime/occlusion.rs`
+/// applies the same two halves — `nexus_gfx::frame::occlude::cross` and `covered` — to the live
+/// windows): twelve windows of the default size cascaded on the 1280×800 display, the twelfth
+/// filling the work area. The compositor module is OS-only; the rule is pinned here on the host.
+#[cfg(test)]
+mod culling_model {
+    use nexus_gfx::frame::occlude::{covered, cross, Px};
+
+    use super::{cascade_origin, SHELL_TOPBAR_H};
+    use crate::zones::{zone_frame, Zone};
+
+    const BAR: i32 = SHELL_TOPBAR_H as i32;
+    const RADIUS: u32 = 12;
+    /// The body's shadow: its blur and its offset (`compositor/runtime/mod.rs`: 18, 5).
+    const SHADOW_PAD: u32 = 18 + 5;
+    const DISPLAY: (u32, u32) = (1280, 800);
+    const AREA: (u32, u32) = (1280, 760);
+
+    /// The body with its shadow, on the display.
+    fn extent((x, y): (i32, i32), (w, h): (u32, u32)) -> Px {
+        let (x, y) = (x.max(0) as u32, y.max(0) as u32);
+        let x0 = x.saturating_sub(SHADOW_PAD);
+        let y0 = y.saturating_sub(SHADOW_PAD);
+        let x1 = (x + w + SHADOW_PAD).min(DISPLAY.0);
+        let y1 = (y + h + SHADOW_PAD).min(DISPLAY.1);
+        (x0, y0, x1 - x0, y1 - y0)
+    }
+
+    /// Front to back: how many of `bodies` (topmost first, as `(origin, size)`) are left out.
+    fn culled(bodies: &[((i32, i32), (u32, u32))]) -> usize {
+        let mut occluders: Vec<Px> = Vec::new();
+        let mut n = 0;
+        for &(o, s) in bodies {
+            if covered(extent(o, s), &occluders) {
+                n += 1;
+                continue;
+            }
+            occluders
+                .extend(cross((o.0 as u32, o.1 as u32, s.0, s.1), RADIUS).into_iter().flatten());
+        }
+        n
+    }
+
+    #[test]
+    fn twelve_cascaded_windows_hide_none_of_each_other() {
+        let frame = (960, 570);
+        let bodies: Vec<_> =
+            (0..12).rev().map(|i| (cascade_origin(i, frame, AREA, BAR), frame)).collect();
+        assert_eq!(culled(&bodies), 0, "every cascaded window shows a strip of itself");
+    }
+
+    #[test]
+    fn a_filled_window_leaves_the_cascade_s_middle_row_out() {
+        let frame = (960, 570);
+        let (fx, fy, fw, fh) = zone_frame(Zone::Fill, DISPLAY.0, AREA.1, BAR, 0);
+        let mut bodies = vec![((fx, fy), (fw, fh))];
+        bodies.extend((0..11).rev().map(|i| (cascade_origin(i, frame, AREA, BAR), frame)));
+        let n = culled(&bodies);
+        // The cascade runs three rows deep. The top row's shadow reaches into the top bar and the
+        // bottom row's into the dock strip — neither is under the filled body, so both rows stay
+        // drawn; the middle row (indices 1, 4, 7, 10) lies wholly under it and costs nothing.
+        assert_eq!(n, 4, "the cascade's middle row under the filled window costs nothing");
+    }
+
+    #[test]
+    fn test_reject_culling_a_window_that_peeks_out() {
+        // A window one pixel wider than the cover above it shows a column: drawn.
+        let cover = ((100, 100), (800, 600));
+        let peek = ((99, 100), (800, 600));
+        assert_eq!(culled(&[cover, peek]), 0);
+        // Inside the cover's cross: left out.
+        assert_eq!(culled(&[cover, ((200, 200), (400, 300))]), 1);
+    }
+}

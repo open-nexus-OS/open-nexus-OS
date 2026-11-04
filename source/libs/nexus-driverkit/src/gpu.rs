@@ -9,8 +9,10 @@
 //! CONTEXT: isolation is the GPU MMU's, never a parser's (RFC-0033 keeps validation out of
 //! the kernel): a batch may name only addresses bound in its context, and the space refuses
 //! what the MMU could not hold — an unaligned, overlapping or out-of-range binding. Pure and
-//! `no_std`, allocation-free (a fixed binding table), so the host is the oracle; the device
-//! server (gpud, Phase 2) programs the MMU from the bindings this space accepted.
+//! `no_std`, so the host is the oracle; the device server (gpud, Phase 2) programs the MMU from
+//! the bindings this space accepted. The binding table is the crate's one allocation (ADR-0093,
+//! TASK-0351 P2): it grows from the heap as a context binds — the reserve a caller names is the
+//! old fixed size — and `Full` means the heap refused one entry more, never a constant.
 //! OWNERS: @gpu @drivers
 //! STATUS: Functional (contract; the device consumer is TASK-0329 G1)
 //! API_STABILITY: Unstable until RFC-0101 Phase 2
@@ -18,6 +20,8 @@
 //! INVARIANTS: a binding (a range of a buffer: address, length and offset page-aligned) is
 //!   non-empty, inside the space and disjoint from every other; a lookup resolves a whole range
 //!   inside ONE binding or nothing.
+
+use alloc::vec::Vec;
 
 /// The three queue kinds of every submit (§2). A device declares which it executes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -137,7 +141,7 @@ pub enum VmError {
     OutOfRange,
     /// The range overlaps a binding.
     Overlap,
-    /// The binding table is full.
+    /// No heap for one binding more (the table grows from the heap; ADR-0093).
     Full,
     /// No binding holds the range.
     Unbound,
@@ -171,18 +175,34 @@ impl Binding {
     }
 }
 
-/// A context's GPU address space: at most `N` bindings, page-aligned, disjoint, in range.
+/// A context's GPU address space: its bindings, page-aligned, disjoint, in range — as many as
+/// the heap holds (a freed entry is reused before the table grows).
 #[derive(Clone, Debug)]
-pub struct VmSpace<const N: usize> {
+pub struct VmSpace {
     va_bits: u8,
     page: u64,
-    table: [Option<Binding>; N],
+    table: Vec<Option<Binding>>,
 }
 
-impl<const N: usize> VmSpace<N> {
-    /// An empty space of `va_bits` width over pages of `page_size` bytes.
+impl VmSpace {
+    /// An empty space of `va_bits` width over pages of `page_size` bytes, with room for no
+    /// binding yet (the first bind takes it from the heap).
     pub const fn new(va_bits: u8, page_size: u32) -> Self {
-        Self { va_bits, page: page_size as u64, table: [const { None }; N] }
+        Self { va_bits, page: page_size as u64, table: Vec::new() }
+    }
+
+    /// An empty space with room for `reserve` bindings taken now (a device's expected use, so a
+    /// context's first bindings cost no growth); a heap that refuses the reserve leaves the
+    /// space empty and the growth to the binds.
+    pub fn with_reserve(va_bits: u8, page_size: u32, reserve: usize) -> Self {
+        let mut space = Self::new(va_bits, page_size);
+        let _ = space.table.try_reserve_exact(reserve);
+        space
+    }
+
+    /// Bindings the table holds room for without growing.
+    pub fn room(&self) -> usize {
+        self.table.capacity()
     }
 
     /// One past the highest address.
@@ -207,13 +227,13 @@ impl<const N: usize> VmSpace<N> {
         if self.table.iter().flatten().any(|b| b.overlaps(&binding)) {
             return Err(VmError::Overlap);
         }
-        match self.table.iter_mut().find(|slot| slot.is_none()) {
-            Some(slot) => {
-                *slot = Some(binding);
-                Ok(())
-            }
-            None => Err(VmError::Full),
+        if let Some(slot) = self.table.iter_mut().find(|slot| slot.is_none()) {
+            *slot = Some(binding);
+            return Ok(());
         }
+        self.table.try_reserve(1).map_err(|_| VmError::Full)?;
+        self.table.push(Some(binding));
+        Ok(())
     }
 
     /// Unbinds the binding that starts at `va`.
@@ -241,9 +261,9 @@ impl<const N: usize> VmSpace<N> {
         self.table.iter().flatten()
     }
 
-    /// Unbinds everything (a context's destruction).
+    /// Unbinds everything (a context's destruction); the table's room is kept for the next.
     pub fn clear(&mut self) {
-        self.table = [const { None }; N];
+        self.table.clear();
     }
 
     /// Bound bytes — what the client is charged for (M4).
@@ -277,7 +297,7 @@ mod tests {
 
     #[test]
     fn a_binding_resolves_its_whole_range_and_nothing_beyond() {
-        let mut space = VmSpace::<4>::new(40, PAGE);
+        let mut space = VmSpace::new(40, PAGE);
         space.bind(binding(0x10000, 0x4000, 7)).unwrap();
         assert_eq!(space.resolve(GpuVa(0x10000), 0x4000).unwrap().bo, 7);
         assert_eq!(space.resolve(GpuVa(0x11000), 0x100).unwrap().bo, 7);
@@ -289,7 +309,7 @@ mod tests {
 
     #[test]
     fn two_ranges_of_one_buffer_resolve_to_their_own_offsets() {
-        let mut space = VmSpace::<4>::new(40, PAGE);
+        let mut space = VmSpace::new(40, PAGE);
         space.bind(Binding { offset: 0x3000, ..binding(0x10000, 0x2000, 7) }).unwrap();
         space.bind(Binding { offset: 0x1000, ..binding(0x80000, 0x1000, 7) }).unwrap();
         let low = space.resolve(GpuVa(0x11000), 0x10).unwrap();
@@ -300,7 +320,7 @@ mod tests {
 
     #[test]
     fn test_reject_bind_overlapping_range() {
-        let mut space = VmSpace::<4>::new(40, PAGE);
+        let mut space = VmSpace::new(40, PAGE);
         space.bind(binding(0x10000, 0x4000, 1)).unwrap();
         assert_eq!(space.bind(binding(0x13000, 0x2000, 2)), Err(VmError::Overlap));
         assert_eq!(space.bind(binding(0x0f000, 0x2000, 2)), Err(VmError::Overlap));
@@ -309,7 +329,7 @@ mod tests {
 
     #[test]
     fn test_reject_unaligned_binding() {
-        let mut space = VmSpace::<4>::new(40, PAGE);
+        let mut space = VmSpace::new(40, PAGE);
         assert_eq!(space.bind(binding(0x10800, 0x1000, 1)), Err(VmError::Unaligned));
         assert_eq!(space.bind(binding(0x10000, 0x0800, 1)), Err(VmError::Unaligned));
         assert_eq!(space.bind(binding(0x10000, 0, 1)), Err(VmError::Unaligned));
@@ -318,26 +338,37 @@ mod tests {
     }
 
     #[test]
-    fn test_reject_bind_outside_space() {
-        let mut space = VmSpace::<4>::new(32, PAGE);
+    fn test_reject_a_binding_past_the_address_range() {
+        let mut space = VmSpace::new(32, PAGE);
         assert_eq!(space.bind(binding(0xFFFF_F000, 0x2000, 1)), Err(VmError::OutOfRange));
         assert_eq!(space.bind(binding(u64::MAX - 0xFFF, 0x1000, 1)), Err(VmError::OutOfRange));
         assert_eq!(space.bind(binding(0xFFFF_F000, 0x1000, 1)), Ok(()), "the last page fits");
     }
 
+    /// TASK-0351 P2: the table is bounded by the heap, not by its reserve — a board context
+    /// binds every app surface (RFC-0114), and the old constant was 128.
     #[test]
-    fn test_reject_too_many_bindings() {
-        let mut space = VmSpace::<2>::new(40, PAGE);
-        space.bind(binding(0x1000, 0x1000, 1)).unwrap();
-        space.bind(binding(0x3000, 0x1000, 2)).unwrap();
-        assert_eq!(space.bind(binding(0x5000, 0x1000, 3)), Err(VmError::Full));
+    fn a_space_binds_past_its_reserve_and_reuses_a_freed_entry() {
+        let mut space = VmSpace::with_reserve(40, PAGE, 2);
+        assert!(space.room() >= 2);
+        for i in 0..130u64 {
+            assert_eq!(space.bind(binding(0x1000 + i * 0x2000, 0x1000, i as u32)), Ok(()), "{i}");
+        }
+        assert_eq!(space.bindings().count(), 130);
+        // A freed entry is taken before the table grows.
+        let room = space.room();
+        space.unbind(GpuVa(0x1000)).unwrap();
+        assert_eq!(space.bind(binding(0x1000, 0x1000, 200)), Ok(()));
+        assert_eq!(space.room(), room);
+        // Destruction keeps the room for the slot's next context.
         space.clear();
-        assert_eq!(space.bind(binding(0x5000, 0x1000, 3)), Ok(()));
+        assert_eq!(space.bindings().count(), 0);
+        assert_eq!(space.room(), room);
     }
 
     #[test]
     fn test_reject_lookup_of_an_unbound_va() {
-        let space = VmSpace::<4>::new(40, PAGE);
+        let space = VmSpace::new(40, PAGE);
         assert_eq!(space.resolve(GpuVa(0x1000), 16), Err(VmError::Unbound));
         assert_eq!(space.resolve(GpuVa(u64::MAX), 16), Err(VmError::OutOfRange));
     }

@@ -245,8 +245,9 @@ constraints and hand the client a capability to the memory.
   64: the desktop's base and bar and every drawn window's body first, the declared layers
   fair-shared — a frame draws the topmost 62 windows; a minimized window spends none, an occluded
   one still spends its body until occlusion culling, TASK-0350). gpud's board buffer table grows
-  with the surfaces; one board context binds 128 ranges (the driverkit's `VmSpace`, room for
-  ~80 windows; growing it is TASK-0350's, with the board's GPU path).
+  with the surfaces; a board context's binding table (the driverkit's `VmSpace`) starts with
+  room for 128 ranges and grows from the heap past it (TASK-0351 P2, ADR-0093); the surfaces'
+  addresses run from the private GiB's tail to the layout's GiB.
 - **Proof**: `windowd: windows drawn (n=N)` — a new high of app windows that one frame, once it
   left for gpud, drew from their own buffers.
 

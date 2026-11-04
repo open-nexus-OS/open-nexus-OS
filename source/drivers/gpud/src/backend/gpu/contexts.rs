@@ -35,9 +35,10 @@ use super::space::Space;
 /// Contexts the device holds at once (a render context with its transfer queue holds about 60
 /// pages of the firmware's 1024).
 pub(super) const MAX_CONTEXTS: usize = 8;
-/// Bindings one context holds: the render bundle binds 37 ranges, the desktop 7, and every app
-/// surface one (RFC-0114) — room for some 80 windows.
-pub(super) const MAX_BINDINGS: usize = 128;
+/// The room a context's binding table starts with (TASK-0351 P2: the table grows from the heap
+/// past it, ADR-0093): the render bundle binds 37 ranges, the desktop 7, and every app surface
+/// one (RFC-0114) — some 80 windows before the first growth.
+pub(super) const BINDINGS_RESERVED: usize = 128;
 /// A point: its context's number in bits 40..63, its queue in 32..39, the sequence below.
 const QUEUE_SHIFT: u32 = 32;
 const CONTEXT_SHIFT: u32 = 40;
@@ -62,7 +63,7 @@ pub(super) struct Slot {
     state: State,
     pub owner: ClientId,
     pub priority: Priority,
-    pub space: VmSpace<MAX_BINDINGS>,
+    pub space: VmSpace,
     pub mmu: Option<Space>,
     pub transfer: Option<Queue>,
     pub render: Option<Render>,
@@ -146,8 +147,10 @@ impl Slot {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct Holdings {
     pub live: usize,
-    /// Bindings the live contexts hold together (TASK-0351 P0: of `live * MAX_BINDINGS`).
+    /// Bindings the live contexts hold together (TASK-0351 P0), and the room their tables have
+    /// for them without growing (P2: the room grows with the bindings, the heap its bound).
     pub bindings: usize,
+    pub binding_room: usize,
     pub lost: usize,
     pub quarantined: usize,
     pub bos: usize,
@@ -190,7 +193,11 @@ impl Contexts {
                 state: State::Free,
                 owner: ClientId(0),
                 priority: Priority::Low,
-                space: VmSpace::new(40, nexus_gfx::backend::gpu::mmu::PAGE as u32),
+                space: VmSpace::with_reserve(
+                    40,
+                    nexus_gfx::backend::gpu::mmu::PAGE as u32,
+                    BINDINGS_RESERVED,
+                ),
                 mmu: None,
                 transfer: None,
                 render: None,
@@ -445,7 +452,8 @@ impl Contexts {
         let live = self.slots.iter().filter(|s| s.state == State::Live);
         Holdings {
             live: count(State::Live),
-            bindings: live.map(|s| s.space.bindings().count()).sum(),
+            bindings: live.clone().map(|s| s.space.bindings().count()).sum(),
+            binding_room: live.map(|s| s.space.room()).sum(),
             lost: count(State::Lost),
             quarantined: count(State::Quarantined),
             bos: bos.live(),

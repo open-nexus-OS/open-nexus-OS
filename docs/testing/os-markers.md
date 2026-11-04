@@ -5,7 +5,7 @@ role: reference
 subsystem: devx
 sources: [source/apps/selftest-client/proof-manifest/markers, source/apps/selftest-client/proof-manifest/phases.toml, tools/nx/chains/markers.txt, scripts/qemu-test.sh, scripts/check-chain-markers.sh, config/fail-marker-allow.txt]
 contracts: [RFC-0013, RFC-0014, RFC-0038, RFC-0108]
-verified: 2026-11-03
+verified: 2026-11-04
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -46,9 +46,9 @@ verified: 2026-11-03
 | 9 | `vfs` | 29 | vfs.toml |
 | 10 | `net` | 80 | net.toml |
 | 11 | `remote` | 21 | remote.toml |
-| 12 | `end` | 188 | board.toml, end.toml, ui.toml, usb.toml |
+| 12 | `end` | 189 | board.toml, end.toml, ui.toml, usb.toml |
 
-1247 markers in 15 files.
+1248 markers in 15 files.
 <!-- /gen:markers -->
 
 ## Declaring a marker

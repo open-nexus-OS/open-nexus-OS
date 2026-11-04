@@ -51,6 +51,9 @@ pub(super) struct SceneScratch {
     demand: Vec<usize>,
     share: Vec<usize>,
     transforms: Vec<(u32, (i32, i32, u32, u32))>,
+    /// Per window slot: left out of this frame, covered by the windows above it (TASK-0351 P1).
+    culled: Vec<bool>,
+    occluders: Vec<nexus_gfx::frame::occlude::Px>,
 }
 
 impl SceneScratch {
@@ -62,6 +65,8 @@ impl SceneScratch {
             demand: Vec::new(),
             share: Vec::new(),
             transforms: Vec::new(),
+            culled: Vec::new(),
+            occluders: Vec::new(),
         }
     }
 }
@@ -245,12 +250,33 @@ impl DisplayServerRuntime {
         // Back-to-front window order from the z/focus stack (window_scene SSOT):
         // the composite loop below draws exactly these, in exactly this order.
         let (win_order, win_n) = self.windows.order(self.capture.frozen());
+        // Every live window's transform as this present draws it (TASK-0336/0338): carried with
+        // the layers, so a moved frame and its transform take effect together — the present is
+        // the only way a transform reaches the display.
+        let transforms = &mut scratch.transforms;
+        self.present_transforms(transforms);
+        // A window covered by the windows above it is left out of the frame (TASK-0351 P1,
+        // `occlusion.rs`): walked front to back, each body at its transform.
+        let culled = &mut scratch.culled;
+        let occluded = super::occlusion::cull(
+            win_order[..win_n].iter().rev().filter_map(|wid| {
+                let WindowId::App(slot) = *wid else { return None };
+                let sn = &app_snaps[usize::from(slot)];
+                let p = sn.glass.as_ref().filter(|_| sn.solid.is_none())?;
+                let t = transforms.iter().find(|(k, _)| *k == sn.key).map(|(_, t)| *t);
+                Some((usize::from(slot), p, t.unwrap_or(super::occlusion::IDENTITY)))
+            }),
+            (mode.width, mode.height),
+            app_snaps.len(),
+            culled,
+            &mut scratch.occluders,
+        );
         // What this frame reads (RFC-0114 §5): every drawn window's shown surface, the desktop's.
         for wid in &win_order[..win_n] {
             let read = match *wid {
                 WindowId::App(slot) => app_snaps
                     .get(usize::from(slot))
-                    .filter(|sn| sn.solid.is_none())
+                    .filter(|sn| sn.solid.is_none() && !culled[usize::from(slot)])
                     .and_then(|sn| sn.shown),
                 WindowId::Desktop => desktop_layer.and(desktop_shown_id),
             };
@@ -258,11 +284,6 @@ impl DisplayServerRuntime {
                 self.note_frame_reads(id);
             }
         }
-        // Every live window's transform as this present draws it (TASK-0336/0338): carried with
-        // the layers, so a moved frame and its transform take effect together — the present is
-        // the only way a transform reaches the display.
-        let transforms = &mut scratch.transforms;
-        self.present_transforms(transforms);
         // RFC-0113 §5: the focused field's caret, over the surface that holds it.
         let caret = self.caret_draw();
         // The frame's layer bound shared out (RFC-0109): the bodies first, then each drawn
@@ -271,7 +292,7 @@ impl DisplayServerRuntime {
         let desktop_quota = app_snaps.len();
         let quotas = &mut scratch.quotas;
         layer_quotas(
-            (app_snaps, &win_order[..win_n]),
+            (app_snaps, &win_order[..win_n], culled),
             desktop_surface.as_ref(),
             caret_owner,
             (&mut scratch.demand, &mut scratch.share, quotas),
@@ -366,6 +387,10 @@ impl DisplayServerRuntime {
                     // slices, washes. Nothing declared ⇒ the body alone.
                     WindowId::App(slot) => {
                         let sn = &app_snaps[usize::from(slot)];
+                        // Covered by the windows above it: nothing of it (TASK-0351 P1).
+                        if culled[usize::from(slot)] {
+                            continue;
+                        }
                         // The window as ONE solid surface (TASK-0336): its starting or closing
                         // surface — a patch spread over the frame, opaque; nothing else of it.
                         if let Some(s) = sn.solid {
@@ -515,6 +540,8 @@ impl DisplayServerRuntime {
         }
         self.scene_scratch = scratch;
         self.buffers.frame_windows = drawn;
+        self.buffers.frame_occluded = occluded;
+        crate::compositor::frame_causes::windows(drawn as u32, occluded as u32);
         self.scene_cb.serialize_into(out).map_err(|_| WindowdError::InvalidDamage)
     }
 }
@@ -525,7 +552,7 @@ impl DisplayServerRuntime {
 /// last layer and counts in that surface's demand (`caret`: its window slot, `Some(None)` the
 /// desktop) — left out, every share was exactly the declared layers and the caret the one dropped.
 fn layer_quotas(
-    (snaps, order): (&[AppSceneSnap], &[WindowId]),
+    (snaps, order, culled): (&[AppSceneSnap], &[WindowId], &[bool]),
     desktop: Option<&super::surface_layers_encode::LayerSnap>,
     caret: Option<Option<u16>>,
     (demand, share, quotas): (&mut Vec<usize>, &mut Vec<usize>, &mut Vec<LayerQuota>),
@@ -539,6 +566,9 @@ fn layer_quotas(
     for wid in order {
         let WindowId::App(slot) = *wid else { continue };
         let Some(sn) = snaps.get(usize::from(slot)) else { continue };
+        if culled.get(usize::from(slot)).is_some_and(|c| *c) {
+            continue;
+        }
         bodies += usize::from(sn.glass.is_some() || sn.solid.is_some());
         if sn.solid.is_none() {
             let holds_caret = caret == Some(Some(slot));

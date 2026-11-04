@@ -64,6 +64,8 @@ state is in TASK-0352 § Measured.
 | app payload | 512 KiB VMO | a 16 MiB lazy object (`payload_vmo::VMO_LEN`), written pages only | the header's length past `MAX_LEN` is malformed |
 | abilitymgr instances | 32 | `BTreeMap`; 64 per app | `abilitymgr: launch refused (app= instances= limit=)` |
 | memd bands / GPU charge rows | 32 / 8 | `Vec`; each band entry names its owner | `memd: band dropped (pid=; no heap)` |
+| GPU bindings per board context | 128 (`VmSpace<128>`) | `Vec` with a reserve of 128, grown from the heap per bind; a freed entry reused (TASK-0351 P2) | `VmError::Full` → the surface refused by name (`gpud: FAIL surface alloc`) |
+| app-surface GPU addresses | 768 MiB (the private GiB's tail) | to the layout's GiB, a directory per GiB entered | `surface alloc` refused by name |
 | gpud surfaces per owner | the GPU's ceiling only | the ceiling less the compositor's eighth per owner | `gpud: FAIL surface alloc (owner= past its budget` |
 
 ## Consequences

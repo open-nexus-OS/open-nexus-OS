@@ -796,6 +796,11 @@ MANY_WINDOWS_MARKERS=(
   "apphost: surface mapped ("
   "windowd: compose copies=0 ("
   "windowd: windows drawn (n=12)"
+  # TASK-0351 P1: the twelfth window fills the work area and returns to its place before the
+  # restarts. This lane composes on the CPU, where a glass body is blended and hides nothing, so
+  # `windowd: windows occluded (n=` is the GPU path's line (virgl, the board), not this ladder's.
+  "windowd: wm chord (zone=fill"
+  "windowd: wm chord (zone=return"
   "windowd: restart requested (chord)"
   "init: service restarted name=windowd"
   "init: windowd re-pinned (clients=0x"

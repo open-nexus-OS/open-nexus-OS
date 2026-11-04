@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed - 2026-11-04 (a minimized window stays in the dock when its app re-creates its surface)
+
+- **windowd** showed a window again whenever its app re-created the surface — a resize answered
+  after the user had minimized the window (the many-windows lane's return chord, then the
+  minimize chord) took it out of the dock and kept its app from freezing. A re-create of a
+  minimized window now registers the surface and leaves the window where the user put it.
+
+### Changed - 2026-11-04 (an occluded window costs the frame nothing — TASK-0351 P1)
+
+- **windowd leaves a covered window out of the frame.** Before the scene is encoded the windows
+  are walked front to back; one whose body and shadow lie wholly under the union of the opaque
+  bodies above it (RFC-0101 §8's rule: the cross of a solid body or of a glass body whose back
+  the GPU draws, at full opacity and identity) sends no layer, spends no layer of the budget and
+  has its surface not read. The coverage test is exact (`nexus_gfx::frame::occlude::covered`,
+  `cross`). Lines: `windowd: windows occluded (n=` per new high, `windows(drawn= occluded=)` on
+  the loop line. The many-windows lane fills the work area with the twelfth window and returns
+  it (the CPU path blends glass and culls nothing; the line is the GPU path's); the host model
+  pins the cascade under a filled window at its middle row left out (the top and bottom rows'
+  shadows reach into the bars).
+- **A board GPU context binds as many surfaces as the windows need** (TASK-0351 P2, ADR-0093's
+  rule): the driverkit's `VmSpace` keeps its bindings in a table that grows from the heap — the
+  reserve is the old constant, 128, a freed entry is reused, `Full` means the heap refused — and
+  the app surfaces' addresses run from the private GiB's tail up to the layout's GiB instead of
+  ending at 768 MiB. `gpud: bindings (… of=)` names the tables' room, which grows with them.
+
 ### Added - 2026-11-03 (the hops the measurement cycle reads — TASK-0351 P0, TASK-0354 P1, TASK-0355 P0)
 
 - **Three hop lines, no verdicts (RFC-0108 §hops amended).** `windowd: hops input
