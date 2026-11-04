@@ -55,6 +55,10 @@ pub(crate) struct Gpu {
     waits: Waitset,
     /// Interrupts served since bind.
     pub(super) irqs: u32,
+    /// The most a timer-ended wait slice returned after its deadline in the current wait (reset
+    /// by `wait_until`): the kernel's wake-to-run latency, the pass's fixed cost on the board
+    /// before ADR-0096 (TASK-0351 P5; the trace line's `late_us`).
+    pub(super) late_ns: u64,
     /// The kernel timeline fence the null job's completions are signalled on.
     pub(super) fence: Cap,
     /// Backing pages free once the ladder gave its spaces back: what the device holds with no
@@ -227,6 +231,7 @@ impl Gpu {
             timer,
             waits,
             irqs: 0,
+            late_ns: 0,
             fence,
             baseline_free: 0,
             cleanup_busy: 0,
@@ -321,6 +326,7 @@ impl Gpu {
             Ok(0) => true,
             Ok(_) => {
                 let _ = self.timer.drain();
+                self.late_ns = self.late_ns.max(now_ns().saturating_sub(deadline_ns));
                 false
             }
             Err(_) => false,
@@ -345,6 +351,7 @@ impl Gpu {
         deadline_ns: u64,
         mut done: impl FnMut(&mut Gpu) -> bool,
     ) -> bool {
+        self.late_ns = 0;
         loop {
             if done(self) {
                 return true;

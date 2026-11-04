@@ -29,6 +29,54 @@ fn qos_ordering() {
 }
 
 #[test]
+fn a_wake_of_a_class_above_the_running_task_is_ready_above() {
+    // ADR-0096: with a Normal task running, an Interactive wake is "above" — the trap exit
+    // preempts for it; the next pick is the woken task, after which nothing is above.
+    let mut sched = Scheduler::new();
+    assert!(!sched.ready_above_current(), "nothing runs: nothing is above");
+    assert!(matches!(sched.enqueue(Pid::from_raw(1), QosClass::Normal), EnqueueOutcome::Enqueued));
+    assert_eq!(sched.schedule_next(), Some(Pid::from_raw(1)));
+    assert!(!sched.ready_above_current());
+    assert!(matches!(
+        sched.enqueue(Pid::from_raw(4), QosClass::Interactive),
+        EnqueueOutcome::Enqueued
+    ));
+    assert!(sched.ready_above_current());
+    sched.yield_current();
+    assert_eq!(sched.schedule_next(), Some(Pid::from_raw(4)));
+    assert!(!sched.ready_above_current(), "the Normal task behind it is not above");
+}
+
+#[test]
+fn test_reject_a_wake_of_the_same_or_a_lower_class_as_above() {
+    // ADR-0096: a Normal or Idle wake never preempts a running Normal task — it waits its turn
+    // in the round-robin, as before; only a strictly higher class is above.
+    let mut sched = Scheduler::new();
+    assert!(matches!(sched.enqueue(Pid::from_raw(1), QosClass::Normal), EnqueueOutcome::Enqueued));
+    assert_eq!(sched.schedule_next(), Some(Pid::from_raw(1)));
+    assert!(matches!(sched.enqueue(Pid::from_raw(2), QosClass::Normal), EnqueueOutcome::Enqueued));
+    assert!(matches!(sched.enqueue(Pid::from_raw(3), QosClass::Idle), EnqueueOutcome::Enqueued));
+    assert!(!sched.ready_above_current());
+    // An Interactive task running: a second Interactive wake is its equal, PerfBurst is above.
+    assert!(matches!(
+        sched.enqueue(Pid::from_raw(5), QosClass::Interactive),
+        EnqueueOutcome::Enqueued
+    ));
+    sched.yield_current();
+    assert_eq!(sched.schedule_next(), Some(Pid::from_raw(5)));
+    assert!(matches!(
+        sched.enqueue(Pid::from_raw(6), QosClass::Interactive),
+        EnqueueOutcome::Enqueued
+    ));
+    assert!(!sched.ready_above_current());
+    assert!(matches!(
+        sched.enqueue(Pid::from_raw(7), QosClass::PerfBurst),
+        EnqueueOutcome::Enqueued
+    ));
+    assert!(sched.ready_above_current());
+}
+
+#[test]
 fn deterministic_timeslice() {
     let sched = Scheduler::new();
     assert_eq!(sched.timeslice_ns(), crate::determinism::fixed_tick_ns());

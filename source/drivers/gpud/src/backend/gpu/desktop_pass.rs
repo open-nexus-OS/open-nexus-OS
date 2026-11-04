@@ -331,6 +331,9 @@ fn emit_and_wait(
         frag
     });
     let w1 = now_ns();
+    // The most a timer-ended slice of this wait woke after its deadline: the kernel's
+    // wake-to-run latency (ADR-0096), on the trace line beside the iterations.
+    let late_us = dev.gpu.late_ns / 1000;
     dev.serve_firmware();
     let irqs = u64::from(dev.gpu.irqs.wrapping_sub(irq0));
     if trace {
@@ -342,7 +345,7 @@ fn emit_and_wait(
             let _ = write!(line, "{}{at}:{irq}:{words}", if i == 0 { "" } else { " " });
         }
         emit_fmt(format_args!(
-            "gpud: gpu pass trace (iters={iters} irqs={irqs} us_at:irqs:words[g=1,f=2]= {line})"
+            "gpud: gpu pass trace (iters={iters} irqs={irqs} late_us={late_us} us_at:irqs:words[g=1,f=2]= {line})"
         ));
     }
     let stamps = [s0 - e0, w0 - s0, w1 - w0, now_ns().saturating_sub(w1), iters, irqs];

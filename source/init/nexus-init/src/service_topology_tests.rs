@@ -20,6 +20,19 @@ fn affinity_ssot_masks_are_sane() {
     assert_eq!(super::affinity_for("logd"), 0b1110);
 }
 
+#[test]
+fn the_soft_realtime_chain_is_one_list_for_placement_and_class() {
+    // ADR-0096: the services init raises to Interactive are exactly the ones it pins to the
+    // soft-realtime hart (ADR-0049); an app or a background service is never one of them.
+    for d in ["gpud", "windowd", "inputd", "hidrawd", "xhcid", "touchd", "imed"] {
+        assert!(super::soft_realtime(d), "{d}");
+        assert_eq!(super::affinity_for(d), 0b0001, "{d}");
+    }
+    for s in ["logd", "policyd", "execd", "app-host", "launcher", "nexus-init", "selftest-client"] {
+        assert!(!super::soft_realtime(s), "{s}");
+    }
+}
+
 use super::*;
 
 #[test]

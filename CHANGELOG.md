@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-11-04 (a wake preempts — TASK-0351 P5, ADR-0096)
+
+- **The kernel switches to a woken task of a higher class at the trap exit** — after a device
+  interrupt's delivery, after the timers' and IPC deadlines' delivery on the tick, and at the end of
+  a syscall that woke one (`Scheduler::ready_above_current`). Before, a wake only enqueued: a
+  driver ran when the running task blocked or the 10 ms rotation reached it, which the board's
+  cycle of 2026-11-04 read as a desktop pass of 5.8–13 ms whatever its area while the same
+  firmware drew gpud's bring-up passes in under a millisecond on an idle CPU.
+- **init raises the soft-realtime chain to `Interactive`** before its wake and on a respawn —
+  gpud, windowd, inputd, hidrawd, xhcid, touchd, imed, the one list ADR-0049's placement reads
+  (`service_topology::soft_realtime`); `init: qos interactive (n= fail=)` counts it. touchd no
+  longer lowers itself to `Normal`. Apps and background services stay `Normal`.
+- **gpud's pass trace carries `late_us=`**: the most a timer-ended wait slice woke after its
+  deadline — the kernel's wake-to-run latency, the number the next board cycle reads beside the
+  sweep.
+
 ### Added - 2026-11-04 (the board cycles' gate values are a series — TASK-0351 P8, ADR-0094)
 
 - **`nx ledger series`**: `add <uart.log>` records one board cycle's gate lines (the gate scene's

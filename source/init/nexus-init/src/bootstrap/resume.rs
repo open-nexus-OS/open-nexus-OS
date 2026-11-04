@@ -51,7 +51,27 @@ pub(crate) fn apply_affinity(chan_name: &str, pid: u32) {
     }
 }
 
-/// One RFC-0068-style summary line for the whole placement pass.
+/// ADR-0096: the soft-realtime chain's scheduler class, `Interactive`, set right before the
+/// service's wake — init is the one raiser (a service may only lower itself). A `Normal` service
+/// is left as spawned. Counted like the placement; a refusal is a per-item line.
+static QOS_RAISED: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+static QOS_FAILED: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+
+pub(crate) fn apply_qos(chan_name: &str, pid: u32) {
+    if !crate::service_topology::soft_realtime(chan_name) {
+        return;
+    }
+    if nexus_abi::task_qos_set_for(pid, nexus_abi::QosClass::Interactive).is_ok() {
+        QOS_RAISED.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    } else {
+        QOS_FAILED.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        debug_write_str("init: qos FAIL svc=");
+        debug_write_str(chan_name);
+        debug_write_byte(b'\n');
+    }
+}
+
+/// One RFC-0068-style summary line for the whole placement pass, and one for the classes.
 pub(crate) fn affinity_summary() {
     debug_write_str("init: affinity applied n=0x");
     debug_write_hex(AFFINITY_APPLIED.load(core::sync::atomic::Ordering::Relaxed));
@@ -59,6 +79,11 @@ pub(crate) fn affinity_summary() {
     debug_write_hex(AFFINITY_CLAMPED.load(core::sync::atomic::Ordering::Relaxed));
     debug_write_str(" fail=0x");
     debug_write_hex(AFFINITY_FAILED.load(core::sync::atomic::Ordering::Relaxed));
+    debug_write_byte(b'\n');
+    debug_write_str("init: qos interactive n=0x");
+    debug_write_hex(QOS_RAISED.load(core::sync::atomic::Ordering::Relaxed));
+    debug_write_str(" fail=0x");
+    debug_write_hex(QOS_FAILED.load(core::sync::atomic::Ordering::Relaxed));
     debug_write_byte(b'\n');
 }
 
@@ -155,6 +180,7 @@ fn resume_non_drivers_where(ctrls: &[CtrlChannel], pred: impl Fn(&str) -> bool) 
             continue;
         }
         apply_affinity(chan.svc_name, chan.pid);
+        apply_qos(chan.svc_name, chan.pid);
         match nexus_abi::task_resume(chan.pid) {
             Ok(()) => {}
             Err(e) => {
@@ -186,6 +212,7 @@ pub(crate) fn resume_drivers(
 ) {
     for chan in ctrls.iter().filter(|c| is_driver(c.svc_name)) {
         apply_affinity(chan.svc_name, chan.pid);
+        apply_qos(chan.svc_name, chan.pid);
         match nexus_abi::task_resume(chan.pid) {
             Ok(()) => {
                 if il(init_misc, init_fold, chan.svc_name) {

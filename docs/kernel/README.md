@@ -31,13 +31,11 @@ verified: 2026-11-03
 | sync objects | timers, waitsets, fences | `source/kernel/neuron/src/timer.rs`, `source/kernel/neuron/src/waitset.rs`, `source/kernel/neuron/src/fence.rs` |
 | platform | device-tree parse, PLIC, console, timer source | `source/kernel/neuron/src/hal/`, `source/kernel/neuron/src/core/boot_fdt.rs` |
 
-Drivers, filesystems, policy and the compositor are userspace services.
-
 ## Boot in one paragraph
 
-`source/kernel/neuron-boot/src/main.rs` (`_start`) relocates the image (a static PIE), builds the
-platform from the device tree in `a1` (`source/kernel/neuron/src/hal/platform.rs`), switches to
-the Sv39 high half and builds the frame pool from the tree's memory banks. `source/kernel/neuron/src/core/kmain.rs` then creates the
+`source/kernel/neuron-boot/src/main.rs` (`_start`) relocates the static PIE, builds the platform
+from the device tree in `a1`, switches to the Sv39 high half and builds the frame pool from the
+tree's memory banks. `source/kernel/neuron/src/core/kmain.rs` then creates the
 scheduler, capability tables, IPC router and syscall table, runs the in-kernel selftests
 (`source/kernel/neuron/src/selftest/`), starts the secondary harts over SBI HSM and spawns init.
 Full chain: [boot.md](../boot-init/boot.md).
@@ -45,31 +43,26 @@ Full chain: [boot.md](../boot-init/boot.md).
 ## How a syscall enters
 
 1. `ecall` traps into `source/kernel/neuron/src/arch/riscv/trap.S`, which saves the frame on the
-   hart's trap stack (found through `sscratch` → `HartLocal`).
+   hart's trap stack (through `sscratch`).
 2. `__trap_rust` in `source/kernel/neuron/src/core/trap/handler.rs` dispatches by cause: S_SOFT
    (IPI), S_TIMER (tick, preemption), S_EXT (PLIC), page fault, or `ecall` → `handle_ecall`.
 3. `handle_ecall` reads the number from `a7`, arguments from `a0..a5`; a pending order from
    another hart (kill, freeze; ADR-0082) runs first.
 4. Three lock classes (ADR-0049):
-   - lock-free — only `nsec` (`lockfree_syscall` in
-     `source/kernel/neuron/src/syscall/api/mod.rs`) runs before any lock;
+   - lock-free — only `nsec` (`lockfree_syscall`) runs before any lock;
    - phased — `vmo_create`, `exec_vmo`, `vm_unmap`, `vmo_clean` run their expensive middle with the
      big kernel lock dropped (`source/kernel/neuron/src/core/trap/phased.rs`);
-   - everything else runs under the BKL (`KernelGuard` in
-     `source/kernel/neuron/src/core/trap/runtime.rs`).
+   - everything else runs under the BKL (`KernelGuard`).
 5. `SyscallTable::dispatch` (`source/kernel/neuron/src/syscall/mod.rs`) calls the handler in
-   `source/kernel/neuron/src/syscall/api/`. The window is 128 numbers; registering outside it fails
-   the boot.
+   `source/kernel/neuron/src/syscall/api/`; the window is 128 numbers.
 6. The result goes back in `a0`: a value, or `-errno` (`source/kernel/neuron/src/core/trap/errno.rs`).
-   Map failures keep their identity across the ABI (ADR-0054): `EEXIST` occupied, `EFAULT`
-   non-canonical, `ENOMEM` no hole, `ENOENT` nothing mapped, `EPERM` rights or W^X.
-
-Userspace calls them through `source/libs/nexus-abi/`.
+   Map failures keep their identity (ADR-0054): `EEXIST` occupied, `EFAULT` non-canonical,
+   `ENOMEM` no hole, `ENOENT` nothing mapped, `EPERM` rights or W^X.
 
 ## Syscalls
 
-The authoritative list is the `SYSCALL_*` constants in `source/kernel/neuron/src/syscall/mod.rs`.
-Retired numbers stay retired.
+The authoritative list is the `SYSCALL_*` constants in `source/kernel/neuron/src/syscall/mod.rs`;
+retired numbers stay retired.
 
 <!-- gen:syscalls -->
 | # | syscall | what |
@@ -153,9 +146,13 @@ Retired numbers stay retired.
   and details: [smp.md](smp.md).
 - **QoS.** Four classes per CPU queue — `Idle`, `Normal`, `Interactive`, `PerfBurst` — round-robin
   within a class, a deterministic reject when a queue is full.
-- **Placement.** init sets a CPU mask per service at resume (`affinity_for` in
-  `source/init/nexus-init/src/affinity.rs`): display and input on cpu0, background services on
-  cpu1–3 (ADR-0049). `sched` carries affinity and shares.
+- **A wake preempts (ADR-0096).** A wake of a class above the running task's switches to it at
+  the trap exit — after an interrupt, a timer or a syscall that woke it
+  (`Scheduler::ready_above_current`). init raises the soft-realtime chain
+  (`service_topology::soft_realtime`) to `Interactive` before its wake; everything else runs
+  `Normal` and may only lower itself.
+- **Placement.** init pins the soft-realtime chain to cpu0 and background services to cpu1–3 at
+  resume (`affinity_for`, ADR-0049); `sched` carries affinity and shares.
 - **No lock across a context switch.** The schedule decision copies the next frame into the
   hart-local staging slot under the BKL, the guard drops, then `sret` reads only hart-local state.
 
@@ -169,10 +166,10 @@ Retired numbers stay retired.
   and mapping (RFC-0100); `vmo_seal` makes it read-only for life; `vmo_share_readonly` mints a
   read-only alias. Userspace view: [vmo.md](../storage/vmo.md).
 - **Commit on touch** (ADR-0077). A lazy VMO takes no frame at create; a page takes one zeroed
-  frame at its first touch. The kernel touches user memory only through a checked range.
+  frame at its first touch.
 - **Kernel-chosen addresses** (RFC-0085). `vm_map` and `mmio_map_auto` place a mapping inside the
   managed window — from `USER_VM_WINDOW_BASE` to `USER_VADDR_LIMIT`, the whole user half
-  (`source/kernel/neuron/src/mm/mod.rs`) — and return the address; userspace never picks one.
+  (`source/kernel/neuron/src/mm/mod.rs`) and return the address.
   Placement policy is host-tested in `source/kernel/neuron/src/va_space.rs`.
 - **Tables grow with their use** (ADR-0093). The kernel heap (`source/kernel/neuron/src/mm/kheap.rs`),
   lazy page maps, regions, capabilities and endpoints grow from the pool, never bounded by a
