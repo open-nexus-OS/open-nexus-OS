@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-11-04 (the stock sweep through our frame path — TASK-0351 P5, ADR-0094)
+
+- **gpud runs the stock stack's sweep at boot**, after the gate scene: the base alone, an opaque
+  quad of 16x16 to 960x540 with the pass limited to it, the opaque and the blended full-screen
+  quad, and the full quad unchanged under a 16x16 damage — medians of five frames each, one
+  line `gpud: gpu pass sweep (…)` read against the stock's 2026-10-10 numbers (a 16x16 frame
+  0.64 ms). The board's 2026-11-03 frames spent 6–9 ms a pass regardless of area and the hover
+  frame 12.7–13.5 ms: the frame's fixed cost, not its pixels, is what P5 cuts.
+
 ### Fixed - 2026-11-04 (a minimized window stays in the dock when its app re-creates its surface)
 
 - **windowd** showed a window again whenever its app re-created the surface — a resize answered

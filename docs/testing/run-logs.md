@@ -5,7 +5,7 @@ role: reference
 subsystem: devx
 sources: [scripts/qemu-test.sh, scripts/qemu-launcher.sh, scripts/build.sh, scripts/hypothesis-log.sh, tools/os2vm.sh, tools/uart-filter.py]
 contracts: [RFC-0107, ADR-0063]
-verified: 2026-11-03
+verified: 2026-11-04
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->

@@ -55,15 +55,17 @@ phases:
     state: planned
     gate: "QEMU virgl and board: one app's GPU-rendered frame presented, its footprint includes the GPU buffers"
   - id: P5
-    story: "a textured pixel costs what the stock compositor's does: the blur's dual filter defined once as a kernel table in nexus-gfx (harvested from nexus-effects), run by the shaders and the raster alike, the raster the oracle (ADR-0094)"
-    state: planned
-    gate: "host: the raster and the virgl readback agree within the kernel's tolerance for every radius; board: gpud: gpu work ns_per_px <= 4 on the median (cycle 61: 13; stock 1.9-3.7)"
+    story: "a frame costs what the hardware asks, not what our path adds: the frame's fixed cost and the pass's area measured through our path against the stock sweep (gpud: gpu pass sweep), then cut — the passes a frame runs and what each pass costs beyond its pixels"
+    state: building
+    gate: "board: gpu pass sweep q16_us within 2x of the stock's 0.64 ms and area16_us within 2x of q16_us (the area reaches the hardware); gpud: gpu gate scene ok (hover below 8.3 ms, cold below 23.3 ms)"
+    started: 2026-11-04
+    note: "2026-11-04 measured: board--2026-11-03T19-13-30 frames wait 17-29 ms at 2.2-4.8 passes = 6-9 ms a pass regardless of area; hover 12.7-13.5 ms a pass (1x1 px) every cycle vs stock 0.64 ms fixed; blur_px under 3 percent of a frame's pixels: the dual filter is not the lever"
   - id: P6
     story: "the passes a frame runs hold the budget on the board, with glass and while something moves"
     state: planned
     gate: "board: gpud: gpu gate scene ok, frame p99 <= 16.7 ms with glass on the operator series, 0 of 32 frames dropped during a transition"
   - id: P7
-    story: "every effect's mathematics lives in nexus-gfx's kernel tables and the executors interpret it: nexus-effects harvested and deleted, no tap weight or coverage formula left in a driver or a shader source (ADR-0094)"
+    story: "every effect's mathematics lives in nexus-gfx's kernel tables and the executors interpret it (ADR-0094): the blur taps shared by the shaders and the raster, the dual filter harvested from nexus-effects into the table, the crate and the dead crates deleted, no tap weight or coverage formula left in a driver or a shader source"
     state: planned
     gate: "grep: no kernel literal under source/drivers/gpud or resources/gpu/shaders outside the table's uniforms; cargo tree: nexus-effects gone; ADR-0094 Accepted"
   - id: P8
@@ -83,6 +85,20 @@ phases:
   `gpu work` 6 ns/px median over 2.8 Mpx slot area median, `layers` median 16, max 19 of 64;
   `bindings` in_use max 49 of 128 in 1 context; `windowd: hops frame` `sent>acked` 90 ms mean.
   The tap's dominant hop (TASK-0355 P0) is this frame.
+- **P5, read 2026-11-04 from the same log — the frame's cost follows its passes, not its pixels.**
+  `gpu frame us` windows: wait 17.0–28.7 ms a frame at 2.2–4.8 passes = 6.0–9.1 ms a pass over
+  0.98–1.78 Mpx of area; the first frame (one opaque full-screen pass, 2.07 Mpx) 6.85 ms; the
+  gate scene's hover frame (ONE pass over a 1x1 damage) 12.7–13.5 ms in every cycle of the day,
+  its cold frame 46–48 ms serialized / 34–36 ms pipelined (`FAIL gpu gate scene` since cycle 61).
+  `blur_px` is 0.1–3 % of a frame's pixels. The stock stack's sweep (2026-10-10): a 16x16 frame
+  0.64 ms, the full textured quad 4.43 ms, blended 7.17 ms, 1.8 ns a pixel. **Our fixed cost a
+  pass is some 20 times the stock's; the dual filter would cut nothing.** P5 is re-aimed at the
+  fixed cost and at whether a pass's area reaches the hardware (`gpud: gpu pass sweep`, the stock
+  sweep through our path, at boot after the gate scene). Hypotheses for the next cycle: H1 the
+  pass's area is not honoured by the hardware (`area16_us` ≈ `full_us`, not ≈ `q16_us`); H2 a
+  fixed cost of several ms a pass in our submit/wait path (`q16_us` ≫ 0.64 ms while the slope
+  `full_us − q16_us` ≈ the stock's 3.8 ms); H3 the wait loop's period adds up to 1.4 ms
+  (`pass_wait_us` iters). Decision: whichever holds names P5's first cut.
 
 ## Three lenses (architecture-review, 2026-11-04)
 

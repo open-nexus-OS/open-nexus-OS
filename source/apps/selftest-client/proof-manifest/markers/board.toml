@@ -230,6 +230,13 @@ phase = "bringup"
 emit_when = { profile = "board-headless" }
 proves = "TASK-0215 5c-3 P4b: what a desktop frame on the GPU costs over a 32-frame window — the average and the slowest frame, the texture clean, passes and draws per frame, the glass written, read and left unblurred (a measurement)"
 
+# TASK-0351 P5 (ADR-0094): the stock stack's sweep of 2026-10-10 through our frame path, after
+# the gate scene — a measurement, no verdict.
+[marker."gpud: gpu pass sweep ("]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+proves = "TASK-0351 P5: our frame path's fixed cost and slope beside the stock stack's (docs/board/measurements/2026-10-10-gpu-stock-baseline: a 16x16 frame 0.64 ms, the full textured quad 4.43 ms, blended 7.17 ms) — medians of five frames each: the base alone, an opaque quad of 16x16, 240x135, 480x270 and 960x540 with the pass limited to it, the opaque and the blended full-screen quad, and the full quad unchanged under a 16x16 damage (whether the pass's area reaches the hardware)"
+
 # TASK-0215 5b (RFC-0101 Phase 4b): dynamic geometry — three quads at positions and tints the
 # device chose; the vertex buffer, tints, state-load data, PPP blocks and the stream's per-draw
 # records written by the device from the open driver's word layouts, drawn with the library's

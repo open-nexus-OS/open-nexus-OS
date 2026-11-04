@@ -80,10 +80,14 @@ the raster is the reference the others are judged by; a gate's value is a series
   constants); the raster gains a dual-filter path and a tolerance contract; one lane compares
   readbacks (virgl in QEMU) and is slower than a marker check; the series needs a table the
   ledger reads and a `last=` field on the gate lines.
-- **Follow-ups**: TASK-0351 P5 (the dual filter as a kernel table, the raster and the shader
-  from it, the golden raster-against-readback), P7 (nexus-effects harvested and deleted, no
-  effect mathematics left outside nexus-gfx), P8 (the gate values as a series with `last=`);
-  RFC-0101 §8 gains the kernel table as its contract; RFC-0108 §hops gains the `last=` field.
+- **Follow-ups**: TASK-0351 P7 (the kernel table: the blur taps shared by the shaders and the
+  raster, the dual filter harvested from nexus-effects into it, the crate deleted, no effect
+  mathematics left outside nexus-gfx; the golden raster-against-readback), P8 (the gate values
+  as a series with `last=`); RFC-0101 §8 gains the kernel table as its contract; RFC-0108 §hops
+  gains the `last=` field. The dual filter is NOT the frame-time lever: the board's frames of
+  2026-11-03 spent under 3 % of their pixels on blur and 6–9 ms a pass regardless of area —
+  TASK-0351 P5 measures the frame's fixed cost against the stock sweep (`gpud: gpu pass sweep`)
+  and cuts there; this ADR's series rule is what made the two numbers comparable.
 
 ## Alternatives considered
 

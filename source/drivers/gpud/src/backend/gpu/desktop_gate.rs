@@ -110,6 +110,11 @@ impl Desktop {
                 warm_us[0], warm_us[1], warm_us[2]
             ));
         }
+        // TASK-0351 P5: the stock sweep through our path, one line of medians — a measurement
+        // whose refusal costs the desktop nothing.
+        if let Err(e) = self.sweep(dev, target) {
+            emit_fmt(format_args!("gpud: gpu pass sweep skipped ({e})"));
+        }
         Ok(())
     }
 }

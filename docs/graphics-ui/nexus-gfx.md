@@ -5,7 +5,7 @@ role: reference
 subsystem: ui
 sources: [userspace/nexus-gfx/src, userspace/nexus-gfx/tests, tools/nxgpu]
 contracts: [RFC-0059, RFC-0067, RFC-0101, ADR-0072]
-verified: 2026-11-03
+verified: 2026-11-04
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -31,7 +31,7 @@ verified: 2026-11-03
 | `command/render_encoder.rs` | `RenderCommandEncoder`: tiles, blits, SDF rects and gradients, drop shadow, backdrop blur, cursor blend, `composite_layer` / `composite_layer_full` |
 | `command/layer.rs`, `command/layer_wire.rs` | the compositor layer SSOT: `Layer` with opacity, radius, shadow, backdrop; the `CompositeLayer` record |
 | `command/validation.rs` | bounded checks of extents, counts, sizes and rects |
-| `frame/` | the frame planner: the retained layer set (`layers.rs`), damage per plane (`damage.rs`), occlusion (`occlude.rs`), the glass cache and its re-blur geometry (`glass.rs`, `chain.rs`, `merge.rs`), the plan (`plan.rs`), and the plan as the board GPU's passes (`board.rs`, `pieces.rs`) |
+| `frame/` | the frame planner: the retained layer set (`layers.rs`), damage per plane (`damage.rs`), occlusion (`occlude.rs`: the planner's single-occluder cut and the compositor's exact culling, `cross` + `covered`), the glass cache and its re-blur geometry (`glass.rs`, `chain.rs`, `merge.rs`), the plan (`plan.rs`), and the plan as the board GPU's passes (`board.rs`, `pieces.rs`) |
 | `raster/` | the canonical software rasterizer: `fill`, `blit`, `blur`, `blend` over a borrowed `Surface` |
 | `shader/ir/` | the GPU program IR: builder, validator, reference interpreter |
 | `shader/rogue/`, `shader/tgsi/` | code generators: the board GPU's encoding, and shader text for QEMU's host renderer |
