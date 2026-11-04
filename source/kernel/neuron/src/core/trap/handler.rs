@@ -178,17 +178,7 @@ pub fn handle_ecall(frame: &mut TrapFrame, table: &SyscallTable, ctx: &mut api::
             });
         }
     }
-    // ADR-0096: a task of a class above the caller's that this syscall woke (an IPC send, a
-    // notify, a fence signal) runs at this trap exit: the caller is requeued behind its class
-    // and the pick is the higher class's. The caller's saved frame already holds its return
-    // value and its advanced pc, so only the pick is staged here; the load below does the rest.
-    // A caller the syscall blocked or switched away from is no longer current and is left be.
-    if ctx.tasks.current_pid() == old_pid && ctx.scheduler.ready_above_current() {
-        ctx.scheduler.yield_current();
-        if let Some(next) = ctx.scheduler.schedule_next() {
-            ctx.tasks.set_current(next);
-        }
-    }
+    super::pending::stage_wake(ctx, old_pid);
     // Load the next task's frame into the live trap frame.
     let new_pid = ctx.tasks.current_pid();
     uart_dbg_block!({
@@ -383,7 +373,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                         .unwrap_or(1);
                     let cpu = crate::smp::cpu_current_id();
                     // ADR-0096: a task of a class above the running task's that a timer or an
-                    // IPC deadline woke here runs now, whatever the rotation says.
+                    // IPC deadline woke runs now, whatever the rotation says.
                     if crate::smp::preempt_tick_and_rotate(cpu, slice_ticks)
                         || scheduler.ready_above_current()
                     {
@@ -411,20 +401,8 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
             // the same exclusivity guarantee as the timer path (no S-mode kernel
             // code is concurrently borrowing the router/tasks/scheduler).
             const SSTATUS_SPP: usize = 1 << 8;
-            if frame.sstatus & SSTATUS_SPP == 0 {
-                if let Ok(mut kernel) = KernelGuard::acquire() {
-                    let (scheduler, tasks, router, spaces, _timer, _ht, _ws, _fences) =
-                        kernel.parts();
-                    crate::irq::dispatch_external(router, tasks, scheduler);
-                    // ADR-0096: a driver of a class above the interrupted task's that this
-                    // interrupt woke runs now — the GPU's or the input line's wake reaches
-                    // gpud/hidrawd within interrupt latency, not at the next tick (the
-                    // board's passes cost the tick, not the GPU: TASK-0351 P5).
-                    if scheduler.ready_above_current() {
-                        super::pending::preempt_current_user_task(frame, tasks, scheduler, spaces);
-                    }
-                    return;
-                }
+            if frame.sstatus & SSTATUS_SPP == 0 && super::pending::deliver_external(frame) {
+                return;
             }
             // S-mode interrupt (this hart's idle loop — it may hold the BKL
             // itself, so no delivery here): claim into the per-hart stash, the

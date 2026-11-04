@@ -27,7 +27,7 @@ use nexus_gfx::backend::v2::{BoId, ClientId, ContextId, DeviceError, GfxDevice, 
 use nexus_gfx::command::buffer::Command;
 use nexus_gfx::frame::{Area, Board, CacheStep, Frame, History, Pipe, Target as To, BLUR_RADII};
 
-use super::desktop_pass::{clean_rows, run_pass};
+use super::desktop_pass::{clean_rows, run_pass, Kept};
 use super::desktop_surface::{bind, buffer};
 use super::device_v2::Device;
 use super::emit_fmt;
@@ -194,6 +194,8 @@ pub(crate) struct Desktop {
     cache: Target,
     pipes: Pipes,
     rings: Rings,
+    /// The draws the pass being emitted keeps (TASK-0351 P10).
+    kept: Kept,
     pub(crate) frame: Frame,
     /// The frames' damage (RFC-0101 §8, TASK-0215 5c-3 P5) and the frame each slot was last
     /// drawn at (0: never): a slot is brought up to date by the frames it missed.
@@ -297,6 +299,7 @@ impl Desktop {
             cache: cache_t,
             pipes,
             rings,
+            kept: Kept::new(),
             frame,
             history: History::new(),
             drawn: [0; 3],
@@ -450,7 +453,7 @@ impl Desktop {
         let clean_us = (now_ns().saturating_sub(c0) / 1000).saturating_sub(enter_us);
         let (display, layout_rows, who) = (self.display, self.layout_rows, (self.client, self.ctx));
         let (scratch, half, cache) = (self.scratch, self.half, self.cache);
-        let Self { frame, rings, pipes, captured, streams, .. } = self;
+        let Self { frame, rings, kept, pipes, captured, streams, .. } = self;
         let board = Board::new(frame, planned, display, layout_rows, HALF_ROWS)
             .with_base(target.base_row)
             .with_area(area.unwrap_or((0, 0, 0, 0)));
@@ -490,6 +493,7 @@ impl Desktop {
                 &t,
                 pipes,
                 rings,
+                kept,
                 &board,
                 &spec,
                 (to, buffers),

@@ -5,7 +5,7 @@ title: "Compositor motion: a transition stated once, moved by windowd for every 
 status: in_progress
 owner: ["@ui"]
 created: 2026-11-03
-updated: 2026-11-03
+updated: 2026-11-04
 subsystem: ui
 components: [windowd, app-host, animation]
 kind: ui
@@ -29,9 +29,12 @@ links:
 phases:
   - id: P0
     story: "a spring is solved in closed form at any time, and a retarget keeps its velocity"
-    state: blocked
+    state: done
     gate: "host: max deviation closed-form vs RK4 <= 0.5 px for every token; velocity jump on retarget = 0"
-    note: "queued behind package 3 (TASK-0351) by the operator's order of 2026-11-03"
+    started: 2026-11-04
+    done: 2026-11-04
+    evidence: "cargo test -p animation --test spring_closed_form_tests (7/7, 2026-11-04)"
+    note: "2026-11-04 built: animation::Spring (spring.rs) closed form under/critical/overdamped in f64 via libm; retarget keeps (x, v); settled = SpringSim thresholds. Host spring_closed_form_tests 7/7: compositor dampings (default 100/10, enter 260/24, exit 380/34, critical 200, overdamped 100/40) within 0.5 px of RK4 at 60 Hz; every damping incl. reduced 1000/100 within 0.05 px of RK4 at 1 kHz (the 60 Hz RK4 is 2.7 px off for the stiff spring: its error, not the closed form's); velocity jump on retarget = 0 exactly (the restarted RK4 jumps). The tokens' own springs (response, damping) are P3; P0 proves the solver over every damping regime."
   - id: P1
     story: "the cost of today's motion is measured on the board: app-host wake-ups and CPU milliseconds per transition frame, frames dropped per shell transition"
     state: done
@@ -41,8 +44,9 @@ phases:
     evidence: build/logs/board--2026-11-03T19-13-30
   - id: P2
     story: "an app states a value change or transition once on a layer, and windowd moves the layer for the time each frame is shown"
-    state: planned
+    state: blocked
     gate: "board: apphost wake-ups during a transition = 0; app CPU raster per transition frame = 0; host test_reject_a_motion_on_a_layer_the_sender_does_not_own, test_reject_an_unknown_motion_token"
+    note: "2026-11-04: opens with the RFC-0109 amendment (a declared layer carries a motion record) once TASK-0351's board cycle has judged P5/P10 — the operator's order: the frame budget first, then motion on it"
   - id: P3
     story: "the motion tokens are springs (response, damping), and reduced motion still resolves to the end state"
     state: planned

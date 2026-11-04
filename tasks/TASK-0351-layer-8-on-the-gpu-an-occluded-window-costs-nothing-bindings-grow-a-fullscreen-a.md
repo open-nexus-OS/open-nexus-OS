@@ -88,6 +88,13 @@ phases:
     story: "a fullscreen opaque app goes to the display plane: windowd allocates a contiguous scanout-class surface for a window entering fullscreen, gpud flips it instead of a slot of the ring when the planner names it, the compositor's passes are 0 while it presents"
     state: planned
     gate: "board: gpud: gpu direct scanout ok (frames= passes=0) while a fullscreen app presents; test_reject_a_flip_of_a_paged_surface"
+  - id: P10
+    story: "the emit costs what its draws write: a pass's draws are walked once per frame (the plan's wallpaper pieces and each layer's draws in order) and the emitter indexes a kept list instead of asking the plan per draw"
+    state: proving
+    gate: "host: the walked draws equal the indexed walk for the cascade, the glass and the twelve-window scenes (frame_board), and the walk touches each layer once; board: gpud: gpu frame us split emit per draw <= 15 us at 12 windows"
+    started: 2026-11-04
+    evidence: build/logs/headless--2026-11-04T13-54-39
+    note: "2026-11-04 built: Board::walk (frame/walk.rs) + gpud Kept list; host frame_board_walk: 12 windows 178 draws, walk 4.9 us/draw vs 73 us/draw asked per draw (debug build, x86) — parity for window, glass-over-cascade, twelve windows. P11 (passes pipelined) needed no work: desktop.rs frame_of already pipelined=true. Kernel P5 files split for the LOC ratchet: sched/class.rs, trap/pending.rs deliver_external + stage_wake (handler.rs 1106->1084, sched/mod.rs 634->608). Board gate: gpu frame us split emit / draws <= 15 us."
 ---
 
 ## The ask

@@ -109,3 +109,85 @@ impl SpringSim {
         self.target
     }
 }
+
+/// A spring solved in closed form (TASK-0354 P0): its state at any time since it was stated,
+/// from the position and velocity it started with — no step, no accumulated error, the same
+/// answer for the same time on every core (`libm`). A retarget restarts the solution from the
+/// state at its time, so the velocity is continuous. [`SpringSim`] is the stepped twin; the
+/// closed form stays within half a pixel of it at 60 Hz for every damping
+/// (`spring_closed_form_tests`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Spring {
+    config: SpringConfig,
+    from: f32,
+    v0: f32,
+    target: f32,
+    t0_ns: u64,
+}
+
+impl Spring {
+    /// A spring from `from` to `to`, stated at `now_ns`, starting at the config's velocity.
+    pub fn new(from: f32, to: f32, config: SpringConfig, now_ns: u64) -> Self {
+        Self { config, from, v0: config.initial_velocity, target: to, t0_ns: now_ns }
+    }
+
+    /// The position and the velocity at `now_ns` (a time before the start is the start).
+    pub fn at(&self, now_ns: u64) -> (f32, f32) {
+        let t = now_ns.saturating_sub(self.t0_ns) as f64 * 1e-9;
+        let (y, v) = solve(
+            (self.from - self.target) as f64,
+            self.v0 as f64,
+            (self.config.stiffness as f64, self.config.damping as f64, self.config.mass as f64),
+            t,
+        );
+        ((y + self.target as f64) as f32, v as f32)
+    }
+
+    /// Aims the spring at `to` from where it is at `now_ns`, keeping its velocity.
+    pub fn retarget(&mut self, to: f32, now_ns: u64) {
+        let (x, v) = self.at(now_ns);
+        *self = Self { config: self.config, from: x, v0: v, target: to, t0_ns: now_ns };
+    }
+
+    pub fn target(&self) -> f32 {
+        self.target
+    }
+
+    /// Whether the spring has come to rest at `now_ns` (the stepped twin's thresholds).
+    pub fn settled(&self, now_ns: u64) -> bool {
+        let (x, v) = self.at(now_ns);
+        (x - self.target).abs() < 0.005 && v.abs() < 0.05
+    }
+}
+
+/// The solution of `m y'' + d y' + k y = 0` from `(y0, v0)` after `t` seconds: the offset from
+/// the target and its velocity, in the underdamped, critically damped or overdamped form. A
+/// spring without stiffness or mass is at its target.
+fn solve(y0: f64, v0: f64, (k, d, m): (f64, f64, f64), t: f64) -> (f64, f64) {
+    if !(k.is_finite() && m.is_finite() && t.is_finite()) || k <= 0.0 || m <= 0.0 || t < 0.0 {
+        return (0.0, 0.0);
+    }
+    let w0 = libm::sqrt(k / m);
+    let zeta = d.max(0.0) / (2.0 * libm::sqrt(k * m));
+    if zeta < 1.0 - 1e-6 {
+        let wd = w0 * libm::sqrt(1.0 - zeta * zeta);
+        let e = libm::exp(-zeta * w0 * t);
+        let (c, s) = (libm::cos(wd * t), libm::sin(wd * t));
+        let (a, b) = (y0, (v0 + zeta * w0 * y0) / wd);
+        let y = e * (a * c + b * s);
+        let v = e * ((wd * b - zeta * w0 * a) * c - (wd * a + zeta * w0 * b) * s);
+        (y, v)
+    } else if zeta <= 1.0 + 1e-6 {
+        let e = libm::exp(-w0 * t);
+        let b = v0 + w0 * y0;
+        let y = (y0 + b * t) * e;
+        (y, (b - w0 * (y0 + b * t)) * e)
+    } else {
+        let sq = libm::sqrt(zeta * zeta - 1.0);
+        let (r1, r2) = (-w0 * (zeta - sq), -w0 * (zeta + sq));
+        let c1 = (v0 - r2 * y0) / (r1 - r2);
+        let c2 = y0 - c1;
+        let (e1, e2) = (libm::exp(r1 * t), libm::exp(r2 * t));
+        (c1 * e1 + c2 * e2, c1 * r1 * e1 + c2 * r2 * e2)
+    }
+}

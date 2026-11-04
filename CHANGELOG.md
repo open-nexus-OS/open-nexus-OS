@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-11-04 (a spring solved in closed form — TASK-0354 P0)
+
+- **`animation::Spring`**: a spring's position and velocity at any time since it was stated,
+  solved in closed form (underdamped, critical, overdamped) — no step, no accumulated error, the
+  same answer for the same time on every core (`libm`). A retarget restarts the solution from the
+  state at its time, so the velocity is continuous; the stepped RK4 twin (`SpringSim`) restarted
+  at a retarget forgot it. Within half a pixel of RK4 at 60 Hz for the compositor's dampings,
+  within a twentieth of a pixel of RK4 at 1 kHz for every damping (`spring_closed_form_tests`).
+  The compositor's per-shown-time motion (TASK-0354 P2) reads it.
+
+### Changed - 2026-11-04 (the emit walks the plan once — TASK-0351 P10)
+
+- **A pass's draws are walked once per frame** (`Board::walk`, `nexus-gfx/src/frame/walk.rs`):
+  the wallpaper's pieces, then each layer's draws from a `LayerDraws` built when the walk reaches
+  the layer. gpud keeps the walked draws, cut to the pass's area, with their descriptors
+  (`desktop_pass::Kept`) and the emitter indexes them. Before, the executor asked the plan per
+  draw — twice — and each ask walked the layers from the start: the board's cycle of 2026-11-04
+  read 49 to 94 µs of CPU a draw, growing with the windows (203 draws: 19 ms before the submit).
+  On the host the walk over twelve windows costs a sixteenth of asking per draw
+  (`frame_board_walk`); `work_by_program` walks too.
+- **The kernel's wake switch has its own modules**: the class question in `sched/class.rs`
+  (`ready_above_current`, `set_current_qos`), the device interrupt's delivery and the syscall
+  exit's staged pick in `trap/pending.rs` (`deliver_external`, `stage_wake`) — the trap handler
+  and the scheduler back inside their module-size baseline.
+
 ### Changed - 2026-11-04 (a wake preempts — TASK-0351 P5, ADR-0096)
 
 - **The kernel switches to a woken task of a higher class at the trap exit** — after a device

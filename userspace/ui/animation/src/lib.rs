@@ -3,7 +3,8 @@
 
 #![allow(clippy::unwrap_used)]
 
-//! CONTEXT: Animation engine: timeline, spring physics (RK4), keyframe interpolation.
+//! CONTEXT: Animation engine: timeline, spring physics (closed form at any time, and the stepped
+//! RK4 twin), keyframe interpolation.
 //! OWNERS: @ui
 //! STATUS: Experimental
 //! API_STABILITY: Unstable
@@ -24,5 +25,5 @@ pub use keyframe::{Easing, KeyframeTrack};
 pub use motion::{MotionCategory, MotionToken};
 pub use property::{AnimProp, LayerId, SceneUpdate};
 pub use scroll::{ScrollConfig, ScrollMomentum};
-pub use spring::{SpringConfig, SpringSim};
+pub use spring::{Spring, SpringConfig, SpringSim};
 pub use timeline::AnimationDriver;

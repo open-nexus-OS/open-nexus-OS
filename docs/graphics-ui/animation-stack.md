@@ -26,7 +26,7 @@ ADR-0031 explains the three layers. This page maps them to the code as it runs n
 | module | content |
 |---|---|
 | `timeline.rs` | `AnimationDriver`: active animations (at most 16), `tick(now_ns)`, reduced motion caps durations at 100 ms |
-| `spring.rs` | `SpringSim`, fixed-timestep RK4 — the same dt gives the same position on x86_64 and riscv64 |
+| `spring.rs` | `Spring`, the spring solved in closed form at any time (TASK-0354 P0: no step, a retarget keeps the velocity, `libm` for the same answer on every core); `SpringSim`, its stepped RK4 twin — the closed form is within half a pixel of it at 60 Hz (`spring_closed_form_tests`) |
 | `keyframe.rs` | `KeyframeTrack` with linear and ease curves |
 | `property.rs` | `AnimProp`, `SceneUpdate`, `Easing`, `SpringConfig` |
 | `motion.rs` | the closed motion-token catalog the DSL's `.animate` / `.transition` / `.effect` validate against; durations and curves come from `nexus-theme-tokens` |

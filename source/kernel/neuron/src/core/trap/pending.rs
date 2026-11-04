@@ -41,6 +41,39 @@ pub(crate) fn run_pending_guarded(frame: &mut TrapFrame, kernel: &mut KernelGuar
     run_pending_for_current(frame, tasks, router, scheduler, spaces, hart_timers, waitsets, fences)
 }
 
+/// The syscall exit's switch (ADR-0096): a task of a class above the caller's that this
+/// syscall woke (an IPC send, a notify, a fence signal) runs at this trap exit — the caller is
+/// requeued behind its class and the pick is the higher class's. The caller's saved frame
+/// already holds its return value and its advanced pc, so only the pick is staged; the
+/// epilogue's load does the rest. A caller the syscall blocked or switched away from is no
+/// longer current and is left be.
+pub(crate) fn stage_wake(ctx: &mut crate::syscall::api::Context<'_>, old_pid: crate::types::Pid) {
+    if ctx.tasks.current_pid() == old_pid && ctx.scheduler.ready_above_current() {
+        ctx.scheduler.yield_current();
+        if let Some(next) = ctx.scheduler.schedule_next() {
+            ctx.tasks.set_current(next);
+        }
+    }
+}
+
+/// A device interrupt that arrived in user mode: delivered to its driver under the BKL, and
+/// (ADR-0096) a driver of a class above the interrupted task's that it woke runs now — the
+/// GPU's or the input line's wake reaches gpud/hidrawd within interrupt latency, not at the
+/// next tick (the board's passes cost the tick, not the GPU: TASK-0351 P5). `false` when the
+/// BKL could not be taken: the source stays stashed for the idle loop.
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+pub(crate) fn deliver_external(frame: &mut TrapFrame) -> bool {
+    let Ok(mut kernel) = KernelGuard::acquire() else {
+        return false;
+    };
+    let (scheduler, tasks, router, spaces, _timer, _ht, _ws, _fences) = kernel.parts();
+    crate::irq::dispatch_external(router, tasks, scheduler);
+    if scheduler.ready_above_current() {
+        preempt_current_user_task(frame, tasks, scheduler, spaces);
+    }
+    true
+}
+
 /// Preempts the running user task on a timer tick: re-enqueue it, pick the next
 /// runnable task (round-robin within its QoS class), and load that task's saved
 /// frame so the trap epilogue resumes it. Resolves cooperative-scheduler starvation

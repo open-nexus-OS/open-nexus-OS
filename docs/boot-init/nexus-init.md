@@ -5,7 +5,7 @@ role: guide
 subsystem: app-platform
 sources: [source/init/nexus-init, source/libs/nexus-service-topology, scripts/system-volume-services.txt]
 contracts: [ADR-0062, ADR-0060, ADR-0081, ADR-0057, RFC-0093, RFC-0087]
-verified: 2026-11-03
+verified: 2026-11-04
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -33,7 +33,7 @@ Non-goals: business logic of any service (belongs in `userspace/<crate>`), app s
 
 | Where | What |
 |---|---|
-| `src/*.rs` (top level) | Pure, host-tested decisions: `boot_graph.rs` (boot targets → resume sets), `stage.rs` (when a stage may be signalled), `ready_table.rs` (`@ready` bookkeeping), `route_table.rs` + `route_park.rs` (routes, stale marks, parked asks), `service_supervision.rs` + `supervision_engine.rs` (restart policy, backoff, crash-loop cap), `respawn_plan.rs` (what a respawn re-pins), `service_source.rs` (bootfs vs. system volume), `service_topology.rs` (re-export of `nexus-service-topology`), `affinity.rs` (CPU placement). |
+| `src/*.rs` (top level) | Pure, host-tested decisions: `boot_graph.rs` (boot targets → resume sets), `stage.rs` (when a stage may be signalled), `ready_table.rs` (`@ready` bookkeeping), `route_table.rs` + `route_park.rs` (routes, stale marks, parked asks), `service_supervision.rs` + `supervision_engine.rs` (restart policy, backoff, crash-loop cap), `respawn_plan.rs` (what a respawn re-pins), `service_source.rs` (bootfs vs. system volume), `service_topology.rs` (re-export of `nexus-service-topology`), `affinity.rs` (CPU placement and, the same list, the soft-realtime chain init raises to `Interactive`, ADR-0096). |
 | `src/os_payload.rs` | Public types (`ServiceImage`, `InitError`) and thin wrappers. |
 | `src/bootstrap/` | The OS orchestration, one module per phase or plane: bootfs and device tree (`bootfs.rs`, `device_tree.rs`, `pci.rs`, `boot_disk.rs`), spawning (`spawn.rs`, `volume_spawn.rs`), planes and grants (`core_plane.rs`, `blk_plane.rs`, `device_planes.rs`, `soc_glue.rs`), wiring (`endpoints.rs`, `distribute.rs`, `declared_slots.rs`, `declared_routes.rs`, `wiring.rs`, `execd_wiring.rs`), resume and stages (`resume.rs`, `stage_signal.rs`, `handshake.rs`), the runtime loop (`responder.rs`, `route_reply.rs`, `policyd.rs`), supervision (`supervision.rs`, `respawn.rs`, `windowd_respawn.rs`, `persist.rs`). `orchestrator.rs` (`run_bootstrap`) sequences them. |
 

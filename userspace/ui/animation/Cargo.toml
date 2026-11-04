@@ -11,3 +11,4 @@ path = "src/lib.rs"
 
 [dependencies]
 nexus-theme-tokens = { path = "../theme-tokens" }
+libm = "0.2"

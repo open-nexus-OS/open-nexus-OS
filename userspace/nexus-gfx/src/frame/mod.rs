@@ -39,6 +39,7 @@ pub mod oracle;
 pub mod pieces;
 pub mod plan;
 pub mod scanout;
+pub mod walk;
 
 pub use board::{
     drawn_px, Board, DrawSpec, GlassCount, PassKind, PassSpec, Pipe, Target, Tex, PROGRAM_KINDS,
@@ -50,3 +51,4 @@ pub use kernels::{blur_radius, blur_scale, Gaussian, Weights, BLUR_RADII};
 pub use layers::{FrameLayer, RetainedLayers, Taken, Transform, MAX_LAYERS};
 pub use plan::{Frame, Glass, LayerStep, Planned, Writes};
 pub use scanout::direct;
+pub use walk::Draws;

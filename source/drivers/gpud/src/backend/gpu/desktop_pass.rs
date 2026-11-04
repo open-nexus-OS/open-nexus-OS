@@ -9,6 +9,7 @@
 //! not only as the back end's clip) and emitted, submitted and waited, stamped at each step for
 //! the frame's time split.
 
+use alloc::vec::Vec;
 use nexus_display_proto::layout::{self, PLANE_ROWS, STRIDE_BYTES};
 use nexus_driverkit::gpu::{GpuVa, QueueKind, TimelinePoint};
 use nexus_gfx::backend::gpu::quads::{
@@ -18,7 +19,7 @@ use nexus_gfx::backend::gpu::texstate::{descriptor_bytes, format, swizzle, Image
 use nexus_gfx::backend::v2::{
     Batch, ClientId, ContextId, GfxDevice, RenderStreams, RenderTarget, Stream,
 };
-use nexus_gfx::frame::{clip_draw, Board, PassSpec, Tex};
+use nexus_gfx::frame::{clip_draw, Board, DrawSpec, PassSpec, Tex};
 
 use super::desktop::{
     Pipes, Refusal, CACHE_VA, FRAME_VA, HALF_VA, LAYOUT_VA, MAX_DRAWS, PASS_TIMEOUT_NS, SCRATCH_VA,
@@ -186,16 +187,13 @@ pub(super) fn run_pass(
     t: &Template<'_>,
     pipes: &Pipes,
     rings: &mut Rings,
+    kept: &mut Kept,
     board: &Board<'_>,
     spec: &PassSpec,
     (target, buffers): (Target, &SurfaceBuffers),
     (trace, wait): (bool, bool),
     last: Option<TimelinePoint>,
 ) -> Result<(usize, [u64; 6], TimelinePoint), Refusal> {
-    let n = board.draws(spec);
-    if n == 0 || n > MAX_DRAWS {
-        return Err("a pass of no draws or more than the executor holds".into());
-    }
     for attempt in 0..2 {
         rings.begin();
         let ran = emit_and_wait(
@@ -204,10 +202,9 @@ pub(super) fn run_pass(
             base,
             t,
             pipes,
-            rings,
+            (rings, kept),
             board,
             spec,
-            n,
             (target, buffers),
             trace,
             wait,
@@ -238,6 +235,38 @@ pub(super) fn run_pass(
 
 /// The emit's refusal when the rings hold no line (retried once after the last pass).
 const NO_ROOM: &str = "the pass's emit: no room in the pass memory";
+/// A pass the plan gives no draw for, or more than the executor holds (`MAX_DRAWS`).
+const NO_DRAWS: &str = "a pass of no draws or more than the executor holds";
+
+/// The draws a pass keeps (TASK-0351 P10): walked once from the plan (`Board::walk`), each cut
+/// to the pass's area, with its texture's descriptor — the emitter indexes them instead of
+/// asking the plan per draw, twice. Allocated once for `MAX_DRAWS`, reused by every pass.
+pub(super) struct Kept {
+    draws: Vec<DrawSpec>,
+    tex: Vec<u64>,
+}
+
+impl Kept {
+    pub(super) fn new() -> Self {
+        Self { draws: Vec::with_capacity(MAX_DRAWS), tex: Vec::with_capacity(MAX_DRAWS) }
+    }
+}
+
+/// Keeps draw `d`: its pipeline checked, its texture's descriptor written.
+fn keep(
+    dev: &mut Device,
+    who: (ClientId, ContextId),
+    (rings, kept): (&mut Rings, &mut Kept),
+    pipes: &Pipes,
+    t: &Template<'_>,
+    (d, buffers): (DrawSpec, &SurfaceBuffers),
+) -> Result<(), Refusal> {
+    pipes.get(d.pipe).ok_or("a pipeline the library lacks")?;
+    let tex = descriptor(dev, who, rings, (d.tex, buffers), t.texture_va)?;
+    kept.tex.push(tex);
+    kept.draws.push(d);
+    Ok(())
+}
 
 #[allow(clippy::too_many_arguments)]
 fn emit_and_wait(
@@ -246,10 +275,9 @@ fn emit_and_wait(
     base: &RenderStreams<'_>,
     t: &Template<'_>,
     pipes: &Pipes,
-    rings: &mut Rings,
+    (rings, kept): (&mut Rings, &mut Kept),
     board: &Board<'_>,
     spec: &PassSpec,
-    n: usize,
     (target, buffers): (Target, &SurfaceBuffers),
     trace: bool,
     wait: bool,
@@ -258,25 +286,31 @@ fn emit_and_wait(
     // The draws that touch the pass's area, cut to it — one outside it writes no pixel (TASK-0335
     // P4: a frame inside a window skips the shadows, the corners and the layers elsewhere; the
     // last draw stands in when none does), one across it is shaded only where the area is
-    // (TASK-0351 P5) — their descriptors first: the emitter asks for a draw more than once.
-    let cut = |i: usize| board.draw(spec, i).map(|d| (d, clip_draw(&d, spec.area)));
-    let mut kept = [0u16; MAX_DRAWS];
-    let mut tex = [0u64; MAX_DRAWS];
-    let mut m = 0usize;
-    for i in 0..n {
-        let (whole, part) = cut(i).ok_or("a draw of the plan")?;
-        let Some(d) = part.or_else(|| (m == 0 && i + 1 == n).then_some(whole)) else { continue };
-        pipes.get(d.pipe).ok_or("a pipeline the library lacks")?;
-        tex[m] = descriptor(dev, who, rings, (d.tex, buffers), t.texture_va)?;
-        kept[m] = i as u16;
-        m += 1;
+    // (TASK-0351 P5) — walked once from the plan with their descriptors (TASK-0351 P10).
+    kept.draws.clear();
+    kept.tex.clear();
+    let mut last = None;
+    let mut n = 0usize;
+    for whole in board.walk(spec) {
+        n += 1;
+        if n > MAX_DRAWS {
+            return Err(NO_DRAWS.into());
+        }
+        last = Some(whole);
+        let Some(d) = clip_draw(&whole, spec.area) else { continue };
+        keep(dev, who, (rings, kept), pipes, t, (d, buffers))?;
     }
+    if kept.draws.is_empty() {
+        let whole = last.ok_or(NO_DRAWS)?;
+        keep(dev, who, (rings, kept), pipes, t, (whole, buffers))?;
+    }
+    let m = kept.draws.len();
     // Every draw was checked above; an empty quad keeps the closure total.
     let draw = |j: usize| {
-        let d = cut(usize::from(kept[j])).map(|(whole, part)| part.unwrap_or(whole));
+        let d = kept.draws.get(j);
         let pipeline = d.and_then(|d| pipes.get(d.pipe)).unwrap_or(&pipes.opaque);
         let quad = d.map_or(Quad::layer(0.0, 0.0, 0.0, 0.0, [0.0; 4], 0.0), |d| d.quad);
-        Draw { pipeline, quad, texture_va: tex[j] }
+        Draw { pipeline, quad, texture_va: kept.tex.get(j).copied().unwrap_or(0) }
     };
     let mut sink = FrameSink { dev: &mut *dev, who };
     let emitted = emit_draws(t, m, &draw, rings, &mut sink).map_err(|e| match e {

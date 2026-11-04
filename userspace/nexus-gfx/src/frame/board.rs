@@ -21,6 +21,7 @@ use super::merge::{mergeable, Written};
 use super::occlude::{self, Px};
 use super::pieces::{Content, LayerDraws};
 use super::plan::{Frame, Planned};
+use super::walk::Draws;
 use crate::backend::gpu::quads::Quad;
 
 pub use super::kernels::{blur_radius, blur_scale, BLUR_RADII};
@@ -136,8 +137,8 @@ pub struct GlassCount {
 /// The frame's plan lowered for the board.
 pub struct Board<'a> {
     frame: &'a Frame,
-    layers: usize,
-    display: (u32, u32),
+    pub(super) layers: usize,
+    pub(super) display: (u32, u32),
     /// The layout's rows: a source past them is not read.
     layout_rows: u32,
     /// Rows the half-resolution scratch holds.
@@ -149,7 +150,7 @@ pub struct Board<'a> {
     area: (u32, u32, u32, u32),
     /// The glass layers written this frame, in walk order.
     writes: [u8; MAX_LAYERS],
-    write_count: usize,
+    pub(super) write_count: usize,
     pub glass: GlassCount,
     /// Each write's re-blur geometry, at the half rows the frame packed it to (TASK-0335 P3).
     chains: [Option<Chain>; MAX_LAYERS],
@@ -304,6 +305,12 @@ impl<'a> Board<'a> {
         }
     }
 
+    /// The pass's draws walked once, in the indexed walk's order (TASK-0351 P10): the executor
+    /// that keeps them asks the plan's layers once a frame, not once a draw.
+    pub fn walk(&self, pass: &PassSpec) -> Draws<'_, 'a> {
+        Draws::new(self, pass)
+    }
+
     /// A chain's blur draw: horizontal into the half scratch, vertical into the cache rows;
     /// `cut` clips the quad to that area (a shared pass).
     fn blur_draw(c: &Chain, vertical: bool, cut: Option<PassArea>) -> DrawSpec {
@@ -327,7 +334,7 @@ impl<'a> Board<'a> {
     /// rounded and shadow draws, and of its blurs — which program a frame's time goes to.
     pub fn work_by_program(&self, pass: &PassSpec) -> [u64; PROGRAM_KINDS] {
         let mut px = [0u64; PROGRAM_KINDS];
-        for d in (0..self.draws(pass)).filter_map(|i| self.draw(pass, i)) {
+        for d in self.walk(pass) {
             let k = match d.pipe {
                 Pipe::Opaque => 0,
                 Pipe::Straight => 1,
@@ -351,7 +358,7 @@ impl<'a> Board<'a> {
     }
 
     /// Piece `p` of the wallpaper around the opaque layer over it (TASK-0335 P2).
-    fn wallpaper_piece(&self, upto: usize, p: Px) -> DrawSpec {
+    pub(super) fn wallpaper_piece(&self, upto: usize, p: Px) -> DrawSpec {
         let whole = self.wallpaper();
         let (w, h) = self.display;
         if p == (0, 0, w, h) {
@@ -368,7 +375,7 @@ impl<'a> Board<'a> {
     /// The largest opaque rectangle (`occlude::opaque_rect`: an opaque layer's, or a glass's
     /// whose back is drawn) of the layers `from..upto` that touches `target`: what hides part
     /// of a draw of `target` in a scene pass up to `upto`.
-    fn occluder(&self, target: Px, from: usize, upto: usize) -> Option<Px> {
+    pub(super) fn occluder(&self, target: Px, from: usize, upto: usize) -> Option<Px> {
         let mut best: Option<Px> = None;
         for k in from..upto.min(self.layers) {
             let Some((l, cache)) = self.layer(k) else { continue };
@@ -391,7 +398,7 @@ impl<'a> Board<'a> {
 
     /// The draws of layer `j` in a scene pass up to `upto`: its glass back, its shadow, its
     /// content — in pieces around the opaque layer above it.
-    fn layer_draws(&self, j: usize, upto: usize) -> Option<LayerDraws> {
+    pub(super) fn layer_draws(&self, j: usize, upto: usize) -> Option<LayerDraws> {
         let (l, cache) = self.layer(j)?;
         let back = match cache {
             Some(CacheStep::Read(row) | CacheStep::Write(row)) => Some(row),
