@@ -3,7 +3,7 @@
 
 #![cfg_attr(not(test), no_std)]
 
-//! `Refresher` — the design-system pull-to-refresh wrapper (handoff
+//! `Refresher` — the design-system pull-to-refresh wrapper (design
 //! `Refresher`, ArkUI `SwipeRefresher` counterpart). This is the VIEW: it
 //! composes the reveal zone (a spinner whose visible height follows the pull
 //! `progress`) above the wrapped content. The PULL PHYSICS (drag tracking,

@@ -58,7 +58,7 @@ pub(crate) struct AppEffectHost {
     pub(crate) action_sym: Option<u32>,
     pub(crate) icon_sym: Option<u32>,
     /// App-icon artwork gradient stops (`iconTop`/`iconBottom`), split from
-    /// the manifest's packed `icon = "symbol|#top|#bottom"` (design-handoff
+    /// the manifest's packed `icon = "symbol|#top|#bottom"` (design
     /// app icons: gradient tile + white glyph). Absent when the page never
     /// reads them.
     pub(crate) icon_top_sym: Option<u32>,

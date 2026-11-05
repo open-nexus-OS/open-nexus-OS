@@ -636,7 +636,7 @@ fn grow_and_size_mods_reach_the_layout_tree() {
     );
 }
 
-/// Drop-down panels (design_handoff_launcher): `SetPanel("control")` opens
+/// Drop-down panels (design artifacts: launcher): `SetPanel("control")` opens
 /// the Control-Center panel as an `.overlay()` layer — 328 wide, anchored at
 /// the RIGHT edge below the top bar; dispatching the same panel again
 /// toggles it closed. The overlay layer spans the full viewport (the
@@ -676,7 +676,7 @@ fn real_shell_control_panel_overlays_top_right() {
             .expect("lays out")
             .boxes
     };
-    // 328 = Control Center width (design_handoff_panels §3; was 340), right-anchored.
+    // 328 = Control Center width (design artifacts: panels §3; was 340), right-anchored.
     let panel_box = |bs: &[nexus_layout::LayoutBox]| {
         bs.iter()
             .find(|b| b.rect.width.as_i32() == 328 && b.rect.x.as_i32() > 850)
@@ -709,7 +709,7 @@ fn real_shell_control_panel_overlays_top_right() {
     assert!(panel_box(&layout_boxes(&view)).is_none(), "panel toggled closed");
 }
 
-/// Mobile-first width classes (design_handoff_launcher): the SAME shell page
+/// Mobile-first width classes (design artifacts: launcher): the SAME shell page
 /// selects a different dock family per `device.sizeClass`. compact (phone,
 /// <640) = full-width dock row + bare nav row; regular (tablet portrait,
 /// <1024) = launcher + dock pill centred with the nav row below; wide

@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// WLAN panel (design_handoff_panels §6): 300 wide, radius 30, top right,
+// WLAN panel (design artifacts: panels §6): 300 wide, radius 30, top right,
 // DESKTOP mode only — in touch modes its contents fold into the Control
 // Center, which is why nothing here duplicates a tile the CC already owns
 // except "Nur Kabel", a wired-networking choice the CC has no room for.

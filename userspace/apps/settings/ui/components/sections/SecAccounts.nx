@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Accounts. Demo data from the handoff's `_tree()` — there is no account
+// Accounts. Demo data from the design's `_tree()` — there is no account
 // service behind this yet, so every row is a value row and the two switches
 // are `DemoStore` fields.
 

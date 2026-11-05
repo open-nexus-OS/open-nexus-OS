@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The launcher LAYER (design_handoff_launcher §9/§10): the launcher is an
+// The launcher LAYER (design artifacts: launcher §9/§10): the launcher is an
 // OVERLAY over the shell home, not a route — the desktop stays visible (and
 // sharp) behind the windowed menu, and opening it closes any drop-down panel
 // for free because it rides the same `PanelStore.panel` exclusivity:
@@ -10,7 +10,7 @@
 // The windowed state has NO scrim — the invisible overlay backdrop is the
 // outside-tap closer (`SetPanel("")`), exactly like PanelHost. The window
 // sits horizontally centred, 32px above the taskbar (the overlay's parent
-// ends at the taskbar top; 32 + 56 = the handoff's 88px bottom clearance).
+// ends at the taskbar top; 32 + 56 = the design's 88px bottom clearance).
 
 Component LauncherHost {
     if $state.panel == "launcher" && device.profile == desktop {

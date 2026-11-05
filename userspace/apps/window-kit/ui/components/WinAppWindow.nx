@@ -37,7 +37,7 @@
 // `WinAppMenu` as an overlay under the chip whenever `$state.menu == "app"` —
 // every window-kit app gets the tiling rows, fullscreen, minimize and close
 // without copying the dropdown. The overlay fills the body (right below the
-// chrome): a 6px lead = the handoff's `top: calc(100% + 6px)`; the backdrop
+// chrome): a 6px lead = the design's `top: calc(100% + 6px)`; the backdrop
 // closes (`WinMenu("")`), the panel eats its taps (`WinNoop`). The four text
 // rows' labels are props (a library owns no i18n). An app's own menus
 // (`more…`) stay the app's, and must not mount a backdrop while `menu ==

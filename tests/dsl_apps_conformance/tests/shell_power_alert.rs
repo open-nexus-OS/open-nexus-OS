@@ -80,6 +80,17 @@ fn tap(view: &mut View, device: &FixtureEnv, symbols: &[String], (x, y): (i32, i
     .expect("tap runs");
 }
 
+/// The overlay layer's `.transition` intent on screen: its pre-order number and its identity value.
+fn transition_of(view: &View) -> (usize, i32) {
+    use nexus_dsl_runtime::AnimKind;
+    let root = view.overlays().entries().last().map(|e| e.box_id).expect("an overlay layer");
+    view.animations()
+        .iter()
+        .find(|(id, i)| *id == root && i.kind == AnimKind::Transition)
+        .map(|(id, i)| (*id, i.value))
+        .expect("the layer enters with a transition")
+}
+
 fn power(view: &View, field: &str) -> Value {
     view.runtime.field("SystemStore", field).cloned().expect("power field")
 }
@@ -144,10 +155,15 @@ fn power_button_opens_the_alert_and_cancel_escape_confirm_close_it() {
         common::inject_point("confirm_button"),
         "the injector's Confirm target moved"
     );
+    let alert_enter = transition_of(&view);
     tap(&mut view, &device, &symbols, confirm);
     assert_eq!(power(&view, "powerPrompt"), Value::Bool(false));
     assert_eq!(power(&view, "toast"), Value::Str("power".to_string()));
     assert_eq!(view.overlays().modal_depth(), 0);
+    // The toast takes the alert's pre-order number (overlays are numbered last), yet it is another
+    // node: its enter carries another identity, so the host starts its own motion (TASK-0354 P6).
+    let toast_enter = transition_of(&view);
+    assert_ne!(toast_enter.1, alert_enter.1, "the toast's enter is its own, not the alert's");
     let toast = view.overlays().transients().next().cloned().expect("toast up");
     assert_eq!(toast.dismiss_after_ms, Some(4000));
     view.dismiss_at(&BaseTokens, &device, &locale, &mut host, &toast.path, DismissReason::Timeout)

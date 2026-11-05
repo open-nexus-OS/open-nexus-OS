@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The Erscheinungsbild button (design_handoff_panels §3): ONE 34px circle that
+// The Erscheinungsbild button (design artifacts: panels §3): ONE 34px circle that
 // shows the theme it is IN — a moon on indigo while dark, a sun on amber while
 // light — and switches to the other on tap.
 //
@@ -11,7 +11,7 @@
 // also what keeps it correct across a re-mount: the host re-emits with the new
 // env, this re-renders, and no local copy can go stale.
 //
-// The gradients are the handoff's literals. They are not roles: their whole
+// The gradients are the design's literals. They are not roles: their whole
 // job is to be recognisably "night" and "day", which is the opposite of
 // something that should re-theme.
 

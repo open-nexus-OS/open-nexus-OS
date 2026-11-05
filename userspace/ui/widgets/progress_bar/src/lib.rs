@@ -3,7 +3,7 @@
 
 #![cfg_attr(not(test), no_std)]
 
-//! `ProgressBar` — the design-system progress track (handoff `ProgressBar`):
+//! `ProgressBar` — the design-system progress track (design `ProgressBar`):
 //! a glass track with an accent-blue fill. Determinate (`value` 0–100) or
 //! indeterminate (a sliding pip whose position is the motion `phase` —
 //! the motion system advances it; a static build renders one frame).
@@ -55,7 +55,7 @@ impl ProgressBar {
         Self::default()
     }
 
-    /// Determinate progress, clamped to 0–100 (handoff `value`).
+    /// Determinate progress, clamped to 0–100 (design `value`).
     pub fn value(mut self, percent: u32) -> Self {
         self.value = percent.min(100);
         self.indeterminate = false;
@@ -80,13 +80,13 @@ impl ProgressBar {
         self
     }
 
-    /// Track height in px (handoff `height`; default 6).
+    /// Track height in px (design `height`; default 6).
     pub fn height(mut self, px: i32) -> Self {
         self.height = FxPx::new(px.max(2));
         self
     }
 
-    /// Fill color token (defaults to `Info` — the handoff blue).
+    /// Fill color token (defaults to `Info` — the design blue).
     pub fn color(mut self, color: ColorToken) -> Self {
         self.color = color;
         self

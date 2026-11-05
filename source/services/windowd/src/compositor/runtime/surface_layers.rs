@@ -4,8 +4,9 @@
 //! CONTEXT: windowd compositor runtime — a client surface's declared layers (RFC-0109) taken
 //! in: the STRUCTURE (`OP_SURFACE_TREE`, kept for the surface's next present when it fits the
 //! surface) and the MOTION (`OP_SURFACE_MOTION`, in effect at once), each from the surface's own
-//! client only; and a present's damage — onto the screen where it shows (the frames sample the
-//! app's own buffer, RFC-0114: nothing is copied). The state and the geometry are `crate::layer_geometry` (host-tested); the encode is
+//! client only — a motion layer naming a token outside the curated set refuses the structure
+//! whole (TASK-0354 P2); and a present's damage — onto the screen where it shows (the frames
+//! sample the app's own buffer, RFC-0114: nothing is copied). The state and the geometry are `crate::layer_geometry` (host-tested); the encode is
 //! `surface_layers_encode`. windowd runs no scroll physics and decides no hover (ADR-0076).
 //! OWNERS: @ui
 //! STATUS: Functional
@@ -13,7 +14,7 @@
 //! TEST_COVERAGE: the geometry in `crate::layer_geometry`; the handlers on the QEMU lanes.
 
 use super::*;
-use crate::layer_geometry::{owns, store_damage};
+use crate::layer_geometry::{owns, store_damage, STORE_DAMAGE_MAX};
 pub(crate) use crate::layer_geometry::{SurfaceLayers, TreeChange};
 use nexus_display_proto::surface_layers::{self as proto, SurfaceMotion, SurfaceTree};
 
@@ -71,6 +72,16 @@ impl DisplayServerRuntime {
         let Some(s) = self.client_surfaces.get_by_id(surface_id).copied() else { return };
         let checked = proto::validate_tree(&tree, s.width, s.height, s.rows, s.store_w);
         let layers = self.surface_layers_mut(owner);
+        // A motion layer's curve is a curated token's (TASK-0354 P2): another is refused whole.
+        if checked.is_ok() && !crate::motion_geometry::tokens_known(&tree) {
+            crate::compositor::frame_causes::layers_refused();
+            if layers.first_refusal() {
+                let _ = debug_println(&alloc::format!(
+                    "windowd: surface tree refused (id={surface_id} reason=UnknownMotionToken)"
+                ));
+            }
+            return;
+        }
         match checked {
             Ok(()) => layers.stage(tree),
             Err(why) => {
@@ -137,17 +148,17 @@ impl DisplayServerRuntime {
             }
         };
         let whole = (0, 0, screen.2, screen.3);
-        if rects.is_empty() || change == TreeChange::Structure {
+        if rects.is_empty() || change.whole {
             queue(self, whole);
         }
-        if let TreeChange::Bands(mask) = change {
-            for (k, s) in layers.tree.scrolls().iter().enumerate() {
-                if mask & (1 << k) != 0 {
-                    queue(
-                        self,
-                        (u32::from(s.vx), u32::from(s.vy), u32::from(s.vw), u32::from(s.vh)),
-                    );
-                }
+        // TASK-0351 P15 / TASK-0354 P2: a region that moved damages where it was and is, a region
+        // or a motion layer that came or went where it is or was — never the whole surface.
+        for r in change.rects() {
+            queue(self, *r);
+        }
+        for (k, s) in layers.tree.scrolls().iter().enumerate() {
+            if change.bands & (1 << k) != 0 {
+                queue(self, (u32::from(s.vx), u32::from(s.vy), u32::from(s.vw), u32::from(s.vh)));
             }
         }
         for r in rects {
@@ -158,7 +169,7 @@ impl DisplayServerRuntime {
             }
             if y + h > base_h {
                 let top = y.max(base_h);
-                let mut views = [(0, 0, 0, 0); proto::MAX_SCROLL_LAYERS];
+                let mut views = [(0, 0, 0, 0); STORE_DAMAGE_MAX];
                 let n = store_damage(&layers, (x, top, w, y + h - top), &mut views);
                 for v in &views[..n] {
                     queue(self, *v);

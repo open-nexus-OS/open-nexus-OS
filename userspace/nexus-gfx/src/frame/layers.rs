@@ -8,7 +8,7 @@
 //! board's executor draws the same set.
 
 use super::damage::Area;
-use crate::command::buffer::Command;
+use crate::command::buffer::{Command, SCALE_ONE};
 
 /// The set's capacity — the frame's layer budget: every window its body, its regions, its scroll
 /// layers' slices and its washes (RFC-0109), the desktop's base, regions and bar, fair-shared
@@ -155,34 +155,51 @@ pub struct Transform {
     pub dy: i16,
     /// Multiplies the layer's opacity (`255` = unchanged).
     pub opacity: u8,
-    /// Scale about the layer's centre, percent (`100` = unchanged).
-    pub scale_pct: u16,
+    /// Scale in 1/10000 (`SCALE_ONE` = unchanged) about `origin`.
+    pub scale: u16,
+    /// The point every layer of the transform scales about (display pixels): a group's layers
+    /// stay together while it grows.
+    pub origin: (i16, i16),
+}
+
+/// `a / b` rounded to the nearest integer, halves away from zero (`b > 0`).
+fn div_round(a: i64, b: i64) -> i64 {
+    if a >= 0 {
+        (a + b / 2) / b
+    } else {
+        -((-a + b / 2) / b)
+    }
 }
 
 impl Transform {
     /// At rest: nothing moved, faded or scaled.
-    pub const IDENTITY: Self = Self { dx: 0, dy: 0, opacity: 255, scale_pct: 100 };
+    pub const IDENTITY: Self =
+        Self { dx: 0, dy: 0, opacity: 255, scale: SCALE_ONE as u16, origin: (0, 0) };
 
-    /// The transform applied: moved, its opacity multiplied, scaled about its centre — the
+    /// The transform applied: scaled about its origin, then moved, its opacity multiplied — the
     /// content band keeps its size, so the executor spreads it over the scaled layer.
     pub fn apply(&self, l: &mut FrameLayer) {
-        l.dst_x = (l.dst_x as i32 + i32::from(self.dx)).max(0) as u32;
-        l.dst_y = (l.dst_y as i32 + i32::from(self.dy)).max(0) as u32;
         l.opacity = l.opacity * u32::from(self.opacity) / 255;
-        if self.scale_pct != 100 && self.scale_pct > 0 {
-            let nw = (l.width * u32::from(self.scale_pct) / 100).max(1);
-            let nh = (l.height * u32::from(self.scale_pct) / 100).max(1);
+        let (mut x, mut y) = (i64::from(l.dst_x), i64::from(l.dst_y));
+        if u32::from(self.scale) != SCALE_ONE && self.scale > 0 {
+            let s = i64::from(self.scale);
+            let one = i64::from(SCALE_ONE);
+            let nw = div_round(i64::from(l.width) * s, one).max(1) as u32;
+            let nh = div_round(i64::from(l.height) * s, one).max(1) as u32;
             if l.content_w == 0 {
                 l.content_w = l.width;
             }
             if l.content_h == 0 {
                 l.content_h = l.height;
             }
-            l.dst_x = (l.dst_x as i32 + (l.width as i32 - nw as i32) / 2).max(0) as u32;
-            l.dst_y = (l.dst_y as i32 + (l.height as i32 - nh as i32) / 2).max(0) as u32;
+            let (ox, oy) = (i64::from(self.origin.0), i64::from(self.origin.1));
+            x = ox + div_round((x - ox) * s, one);
+            y = oy + div_round((y - oy) * s, one);
             l.width = nw;
             l.height = nh;
         }
+        l.dst_x = (x + i64::from(self.dx)).max(0) as u32;
+        l.dst_y = (y + i64::from(self.dy)).max(0) as u32;
     }
 }
 
@@ -280,12 +297,23 @@ impl RetainedLayers {
             self.transform_count = 0;
         }
         for c in cmds {
-            if let Command::LayerTransform { layer_id, dx, dy, opacity, scale_pct } = *c {
+            if let Command::LayerTransform {
+                layer_id,
+                dx,
+                dy,
+                opacity,
+                scale,
+                origin_x,
+                origin_y,
+            } = *c
+            {
+                let i16_of = |v: i32| v.clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16;
                 let t = Transform {
-                    dx: dx.clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16,
-                    dy: dy.clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16,
+                    dx: i16_of(dx),
+                    dy: i16_of(dy),
                     opacity: opacity.min(255) as u8,
-                    scale_pct: scale_pct.clamp(1, 400) as u16,
+                    scale: scale.clamp(100, 40_000) as u16,
+                    origin: (i16_of(origin_x), i16_of(origin_y)),
                 };
                 let _ = self.set_transform(layer_id, t);
             }
@@ -411,8 +439,9 @@ impl RetainedLayers {
     /// identity (moved, scaled or faded). A glass of a window in motion keeps its last blur
     /// (TASK-0336 P3: blur at rest) — what moves is not re-blurred until it stops.
     pub fn in_motion(&self, layer_id: u32) -> bool {
-        self.transform_of(layer_id)
-            .is_some_and(|t| t.dx != 0 || t.dy != 0 || t.opacity != 255 || t.scale_pct != 100)
+        self.transform_of(layer_id).is_some_and(|t| {
+            t.dx != 0 || t.dy != 0 || t.opacity != 255 || u32::from(t.scale) != SCALE_ONE
+        })
     }
 
     /// The highest content generation of the set (`0`: no layer is stamped).

@@ -6,7 +6,7 @@
 // `ui.locale` · `region.country` · `input.keymap` · `time.zone` ·
 // `time.format` · `ime.personalization`.
 //
-// The handoff buries these Selects one level deeper, inside the "Systemsprache"
+// The design buries these Selects one level deeper, inside the "Systemsprache"
 // and "Tastatur & Eingabe" sub-pages. "Tastaturkurzbefehle" opens its own
 // window over the settings window (TASK-0346, `ShortcutsWindow`). They sit on the section root here
 // because the sub-pages are Phase 2 and these are the controls that actually
@@ -14,7 +14,7 @@
 // the wrong half to defer.
 //
 // TWO handlers per select row, both dispatching the same event: one on the
-// row wrapper so the whole 52px row is the target (the handoff's rule), one
+// row wrapper so the whole 52px row is the target (the design's rule), one
 // on the trigger itself so the deepest node under the pill also answers.
 //
 // "Automatisch stellen", "Autokorrektur" and "Diktat" are `DemoStore`

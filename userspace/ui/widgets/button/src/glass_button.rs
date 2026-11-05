@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! `GlassButton` — the design-system button (handoff `GlassButton`): 6 variants
+//! `GlassButton` — the design-system button (design `GlassButton`): 6 variants
 //! × 4 sizes × interaction state, resolved from theme tokens. A pure builder
 //! that produces the styled container `LayoutNode` (delegating the box to the
 //! low-level [`Button`] primitive) and exposes the resolved foreground so the
@@ -20,7 +20,7 @@ const GLASS_FILL_ALPHA: u8 = 170;
 const GLASS_BLUR_RADIUS: u32 = 20;
 const GLASS_SATURATION: u32 = 140;
 
-/// Visual variant (handoff `GlassButtonProps.variant`).
+/// Visual variant (design `GlassButtonProps.variant`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ButtonVariant {
     /// Filled primary action.
@@ -38,7 +38,7 @@ pub enum ButtonVariant {
     Secondary,
 }
 
-/// Size preset (handoff `GlassButtonProps.size`).
+/// Size preset (design `GlassButtonProps.size`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ButtonSize {
     Sm,

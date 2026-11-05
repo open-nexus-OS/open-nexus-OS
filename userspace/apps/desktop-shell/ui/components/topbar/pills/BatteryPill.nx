@@ -1,8 +1,8 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The battery pill (design_handoff_panels §2, desktop): glyph plus the
-// percentage — the one status the handoff spells out in the bar rather than
+// The battery pill (design artifacts: panels §2, desktop): glyph plus the
+// percentage — the one status the design spells out in the bar rather than
 // leaving to an icon, because "how much is left" is a number, not a shape.
 
 Component BatteryPill {

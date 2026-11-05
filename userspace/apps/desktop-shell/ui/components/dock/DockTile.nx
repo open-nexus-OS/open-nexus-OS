@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// One dock app icon (design_handoff_launcher dock pill entry, `AppIcon sm`,
+// One dock app icon (design artifacts: launcher dock pill entry, `AppIcon sm`,
 // LAUNCHER-SPEC §2/§8): tile 48, radius 13, no label — per-app artwork
 // sprite, gradient tile, or the uniform glass tile. `running` renders the
 // 4×4 dot under the tile (§7: app runs in the background, tap brings it

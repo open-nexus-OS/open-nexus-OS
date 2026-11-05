@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Weekday header (design_handoff_panels §5): Monday first, as the handoff and
+// Weekday header (design artifacts: panels §5): Monday first, as the design and
 // the locale require. Seven equal `.grow(1)` columns, the same recipe the day
 // cells use, so the two rows stay in column with each other.
 //

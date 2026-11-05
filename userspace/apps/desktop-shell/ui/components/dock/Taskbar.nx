@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The DESKTOP taskbar (design_handoff_launcher §6): full-width, 56px,
+// The DESKTOP taskbar (design artifacts: launcher §6): full-width, 56px,
 // panel glass, no radius — bare launcher glyph 36×36 left · app icons xs
 // (40) DIRECTLY on the bar (gap 4, no labels) + 1×28 divider + mini player
 // centre · three bare 32×32 nav buttons right. The taskbar is a WINDOW

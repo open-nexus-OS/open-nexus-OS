@@ -5,7 +5,7 @@ title: "Layer 8 on the GPU: an occluded window costs nothing, bindings grow, a f
 status: in_progress
 owner: ["@ui", "@gpu"]
 created: 2026-11-03
-updated: 2026-11-04
+updated: 2026-11-05
 subsystem: ui
 components: [gpud, windowd, nexus-gfx, app-host]
 kind: service
@@ -34,11 +34,12 @@ phases:
     note: "2026-11-04 cycle 12-28-47: at most 4 windows live at once (windows push n<=4, layers<=21); the 12- and 30-window series is still owed — the next cycle opens the cascade twice."
   - id: P1
     story: "a window hidden behind others costs the frame nothing"
-    state: proving
+    state: done
     gate: "host: the lane's cascade under a filled window leaves its middle row (4 of 11) out (culling_model); QEMU many-windows: fill and return chords applied, the pixel proof unchanged (the CPU path blends glass and culls nothing); board: windowd: windows occluded (n= on the operator's stack"
     started: 2026-11-04
-    evidence: build/logs/many-windows--2026-11-04T09-45-42
-    note: "2026-11-04 cycle: fill chord over 3 cascade windows, windows(occluded=0) throughout — the top row's shadows reach the top bar outside the filled body, as the host model says (4 of 11 are the middle row); the board proof needs a cascade of 8 or more."
+    done: 2026-11-05
+    evidence: build/logs/board--2026-11-04T18-14-55
+    note: "windowd: windows occluded (n=2) on the operator's stack (n=1 on 2026-11-04T16-36-48)"
   - id: P2
     story: "a board GPU context binds as many surfaces as the windows need"
     state: proving
@@ -65,7 +66,7 @@ phases:
     state: proving
     gate: "board: gpu pass sweep q16_us within 2x of the stock's 0.64 ms and area16_us within 2x of q16_us (the area reaches the hardware); gpud: gpu gate scene ok (hover below 8.3 ms, cold below 23.3 ms)"
     started: 2026-11-04
-    note: "Cycle 12-28-47 read against the kernel: a pass's fixed 5.8-13 ms is the wake-to-run latency (irq/timer deliver = enqueue only, S_EXT returns without a switch, rotation on the 10 ms tick, every service Normal; the trace's 1 ms slices woke 0.3-5.1 ms late; bring-up passes 0.5-0.8 ms on an idle CPU). ADR-0096 built: Scheduler::ready_above_current + preempt at S_EXT/S_TIMER/ecall exit; init raises the soft-realtime chain (service_topology::soft_realtime) to Interactive; gpud trace line late_us=. Criterion for the next cycle: late_us ~0, q16_us < 2x the area rung (1.7 ms), hover_us < 8300. Parked with numbers: emit ~90 us a draw on the CPU (H10); HSR for opaque windows (opaque_px+straight_px vs slot_px, ~2 % overdraw at 4 windows); FP16 never emitted; FBCDC off; TQ unused in the desktop; sched host tests are target-only (pre-existing gap)."
+    note: "board 2026-11-05T13-12-18: q16 915 us and area16 748 us meet the sweep half; gpu gate scene FAIL on cold 44.8 ms against 23.3 (hover 3.3 ms)"
   - id: P6
     story: "the passes a frame runs hold the budget on the board, with glass and while something moves"
     state: planned
@@ -94,7 +95,42 @@ phases:
     gate: "host: the walked draws equal the indexed walk for the cascade, the glass and the twelve-window scenes (frame_board), and the walk touches each layer once; board: gpud: gpu frame us split emit per draw <= 15 us at 12 windows"
     started: 2026-11-04
     evidence: build/logs/headless--2026-11-04T13-54-39
-    note: "2026-11-04 built: Board::walk (frame/walk.rs) + gpud Kept list; host frame_board_walk: 12 windows 178 draws, walk 4.9 us/draw vs 73 us/draw asked per draw (debug build, x86) — parity for window, glass-over-cascade, twelve windows. P11 (passes pipelined) needed no work: desktop.rs frame_of already pipelined=true. Kernel P5 files split for the LOC ratchet: sched/class.rs, trap/pending.rs deliver_external + stage_wake (handler.rs 1106->1084, sched/mod.rs 634->608). Board gate: gpu frame us split emit / draws <= 15 us."
+    note: "board 2026-11-05T13-12-18: emit 15.6-27 us per draw at 13-45 draws (no 12-window run)"
+  - id: P12
+    story: "the pass's fixed cost is located by the firmware's own clock: every traced pass prints the firmware's utilisation deltas (idle, active, blocked), the commands it executed and the interrupts it took, and the sweep prints the area and passes each case actually drew — the hover pass and the sweep's q16 against the rung's 0.5 ms through the same firmware"
+    state: done
+    gate: "board: gpud: gpu pass fw (of=hover|q16|area16 …) and gpud: gpu pass sweep drawn (…) on the cycle's log; the reader names where the pass's time goes (GPU active vs idle vs blocked, or a drawn area larger than the damage) with a number"
+    started: 2026-11-04
+    done: 2026-11-05
+    evidence: build/logs/board--2026-11-05T13-12-18
+    note: "gpu pass fw and sweep drawn on every cycle since 2026-11-04; the reading: the passes drew 1920x1080 for a 16x16 damage (cut by P13, q16 5857 -> 915 us); the firmware's util counters stay at +0"
+  - id: P13
+    story: "the gate and the sweep measure what the desktop's frames draw: after the cold frame the slot is the GPU's own (no stale slot, no dirty base), so the hover pass and the sweep's quads are limited to their damage - the cycle-39 'fragment latency' re-read as the fragment stage shading the whole screen"
+    state: proving
+    gate: "board: gpud: gpu pass sweep drawn q16=16x16 and area16=16x16 (not 1920x1080), gpu gate scene hover_us below 2000; host: frame_board a second frame on a drawn slot with a 1-px damage draws no full-screen piece"
+    started: 2026-11-04
+    note: "board 2026-11-05T13-12-18: sweep drawn 16x16 (met); gate scene hover 3293 us against 2000"
+  - id: P14
+    story: "a window's content costs its pixels once: a scroll band whose viewport lies on an opaque pane is rastered on the pane's pixel and declared opaque (BAND_OPAQUE), so the compositor draws the slice opaque and cuts the pane, the body, the glass back and the wallpaper under it - and the pane is the design's opaque surface-pane (the artifact's token)"
+    state: proving
+    gate: "host: nexus-gfx frame_window_cost an opaque slice over a pane adds no blended pixel and the pane under it is cut; app-host a band on a pane is opaque, a band touching the pane's corner or on a translucent pane is not; board: gpud: gpu work straight_px below a third of opaque_px through the typing and window windows, ux frame max_us below 40000 in every window"
+    started: 2026-11-04
+    note: "board 2026-11-05T13-12-18: straight_px 0.9-1.1 of opaque_px, ux frame max 37 ms"
+  - id: P15
+    story: "A transition's frame damages the rectangle that moved, in the app and in the compositor: app-host names the animated nodes' columns (the row painter still paints whole rows; a row-only contributor widens to full width), and windowd takes a structure whose regions only moved as those regions' old and new rectangles — not the whole surface, which a sliding glass panel re-declared every frame. The motion line says what each frame cost: raster per frame and its rows, damage per present, the tokens that ran."
+    state: building
+    gate: "board: ux frame windows with a panel or launcher open: gpu blend kinds body per frame below 600000 and slot_px below 1500000 (was body 1.1-1.8 Mpx, slot 2.5-4.5 Mpx); apphost hops motion px per present below 400000 for a panel slide; host: band_math Cols, layer_geometry moved-region and ux-budgets episode tests green"
+    started: 2026-11-04
+    note: "board 2026-11-05T13-12-18: panels slide as motion layers (TASK-0354 P2); launcher open slot 2.76 Mpx and body 1.19 Mpx, Control Center slot 1.18 Mpx and body 469k (met)"
+  - id: P16
+    story: "A launch's wait ring costs what it shows: it steps every 90 ms on the compositor loop's one-shot wake (the caret's timer), never on a present's completion - on a display without a vertical blank a completion returned in 150 us, windowd looped at 668 Hz and the launching app starved (usb-visible 11-07-04 and 12-35-43)"
+    state: proving
+    gate: "QEMU usb-visible: launch settings and the chords green, windowd loop hz below 60 while the ring turns (was 668); host: wake_clock tests; board: the ring turns while an app launches"
+    started: 2026-11-05
+  - id: P17
+    story: "a display without a vertical blank completes a present no sooner than its mode's refresh: on QEMU's virtio GPU windowd's transitions, motion layers and frame pulses run at the display's cadence instead of spinning on completions that return in microseconds"
+    state: planned
+    gate: "QEMU usb-visible: windowd loop hz below 70 during a window's open transition (was 346, moved=331, usb-visible--2026-11-05T13-08-48); board unchanged (vblank-paced)"
 ---
 
 ## The ask

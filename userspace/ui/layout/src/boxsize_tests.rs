@@ -270,7 +270,7 @@ mod tests {
     }
 
     /// The target is a RATIO of the container box, not "as large as fits" —
-    /// the handoff puts a 23px label in a ~75px key.
+    /// the design puts a 23px label in a ~75px key.
     #[test]
     fn textfit_target_rides_the_container_box() {
         assert_eq!(chosen_px(&fit_layout(30, 10, 90, "7", 400, 100)), 30);
@@ -281,7 +281,7 @@ mod tests {
     }
 
     /// A run too wide for its box steps DOWN — this is what reproduces the
-    /// handoff's 52/38/30 display ramp without hard-coding digit counts.
+    /// design's 52/38/30 display ramp without hard-coding digit counts.
     #[test]
     fn textfit_steps_down_until_the_run_fits() {
         // MockMeasure: width = char_width * chars, independent of size, so a

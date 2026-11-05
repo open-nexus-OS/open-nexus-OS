@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// One properties-pane row (design handoff `ListItem` in the "Eigenschaften"
+// One properties-pane row (design artifacts `ListItem` in the "Eigenschaften"
 // pane): leading icon, label, value right-aligned in the STRONG on-glass
 // role — the value is the information, the label only names it. 50px row
 // height and a hairline between rows come from the design's list metrics.

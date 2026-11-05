@@ -1,13 +1,13 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The mute button (design_handoff_panels `.rbtn.mute`): the 34px circle beside
+// The mute button (design artifacts: panels `.rbtn.mute`): the 34px circle beside
 // every volume slider. Muted is a filled red state with a struck-through
-// speaker, not a dimmed one — the handoff treats silence as an ACTIVE
+// speaker, not a dimmed one — the design treats silence as an ACTIVE
 // condition worth seeing across the room.
 //
 // Muted IS `volume == 0` — one field in `ControlStore` backs Control Center,
-// the Sound panel and the top bar, so the three can never disagree (handoff §6:
+// the Sound panel and the top bar, so the three can never disagree (design §6:
 // "ein gemeinsamer Lautstärke-Zustand"). Reading the volume rather than a Bool
 // beside it is what makes that true even when the slider writes the value
 // directly (TASK-0077B P2b).

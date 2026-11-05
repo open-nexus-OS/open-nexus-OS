@@ -347,6 +347,29 @@ impl<'a> Board<'a> {
         px
     }
 
+    /// The blended pixels (the straight and rounded programs) a scene pass draws, by the kind
+    /// of layer they belong to (`layer_wire::layer_key_kind`: 1 body, 2 region, 3 slice, 4
+    /// wash, 5 solid, 6 bar, 7 caret; 0 a layer without a key) — TASK-0351 P14: which layers
+    /// the board blends.
+    pub fn blended_by_kind(&self, pass: &PassSpec) -> [u64; 8] {
+        let mut px = [0u64; 8];
+        let PassKind::Scene { upto } = pass.kind else { return px };
+        let upto = upto.min(self.layers);
+        for j in 0..upto {
+            let Some((l, _)) = self.layer(j) else { continue };
+            let Some(d) = self.layer_draws(j, upto) else { continue };
+            let kind = (crate::command::layer_wire::layer_key_kind(l.key) as usize).min(7);
+            for i in 0..d.count() {
+                if let Some(s) = d.draw(i) {
+                    if matches!(s.pipe, Pipe::Straight | Pipe::Rounded) {
+                        px[kind] += drawn_px(&s, pass.area);
+                    }
+                }
+            }
+        }
+        px
+    }
+
     /// The whole wallpaper as one draw.
     fn wallpaper(&self) -> DrawSpec {
         let (w, h) = self.display;

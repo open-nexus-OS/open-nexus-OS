@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The paged app grid (design_handoff_launcher §11): a horizontal
+// The paged app grid (design artifacts: launcher §11): a horizontal
 // `.scroll(paged)` strip of viewport-width page cells — the HOST snaps the
 // offset to whole pages (glide ease), the wheel turns ±1 page (360ms lock)
 // and fires `PageNext`/`PagePrev` so `$state.page` tracks the snap; a dot
@@ -9,7 +9,7 @@
 // ONE store list with `take(skip(...))`.
 //
 // Cell width/columns/per-page are PER-ARM CONSTANTS (the DSL has no
-// container measurement; the handoff's measured `cols = floor(w/144)`
+// container measurement; the design's measured `cols = floor(w/144)`
 // degrades honestly to the fixed-mode numbers):
 //   desktop (overlay parent unpadded, 1280 wide) → cells 1280, 8 cols, 24/page
 //   touch wide (parent padded 28×2 → 1224)       → cells 1224, 8 cols, 24/page

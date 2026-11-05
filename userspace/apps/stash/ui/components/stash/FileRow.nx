@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// One file-list row (design handoff 02: Name · Datum · Größe columns):
+// One file-list row (design artifacts 02: Name · Datum · Größe columns):
 // tapping SELECTS the file (toggle) — the properties pane and the floating
 // action bar react to that selection. Accent fill marks the selected row.
 //

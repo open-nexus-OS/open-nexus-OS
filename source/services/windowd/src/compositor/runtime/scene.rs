@@ -16,7 +16,8 @@
 use super::surface_buffers::Owner;
 use super::*;
 use crate::compositor::shell_window::BodySource;
-use crate::layer_geometry::{fair_shares, LayerQuota};
+use crate::frame_transform::FrameTransform;
+use crate::layer_quota::{fair_shares, LayerQuota};
 use crate::surface_regions::SurfaceRegions;
 use crate::window_scene::WindowId;
 
@@ -50,7 +51,7 @@ pub(super) struct SceneScratch {
     quotas: Vec<LayerQuota>,
     demand: Vec<usize>,
     share: Vec<usize>,
-    transforms: Vec<(u32, (i32, i32, u32, u32))>,
+    transforms: Vec<(u32, FrameTransform)>,
     /// Per window slot: left out of this frame, covered by the windows above it (TASK-0351 P1).
     culled: Vec<bool>,
     occluders: Vec<nexus_gfx::frame::occlude::Px>,
@@ -98,6 +99,9 @@ impl DisplayServerRuntime {
         // buffer, the slot of its newest present — what this frame reads is recorded with its
         // seq once it left (`frame_reads_sent`), the release rule's input.
         self.begin_frame_reads();
+        // TASK-0354 P2: the surfaces' motion layers move for the time this frame is shown.
+        let at = self.transition_time(nexus_abi::nsec().unwrap_or(0));
+        self.stamp_motions(at);
         // Snapshot all `self` reads needed inside the encoder block so the
         // mutable borrow of `self.scene_cb` does not conflict with field reads.
         let mode = self.mode;
@@ -208,6 +212,7 @@ impl DisplayServerRuntime {
                     base,
                     owner: key,
                     layer_id: key,
+                    live: super::surface_motion::live(&layers, at),
                 }),
                 solid: super::solid_surface::SolidSnap::of(&self.apps[idx], fullscreen),
             };
@@ -245,6 +250,7 @@ impl DisplayServerRuntime {
                 base: size,
                 owner: super::surface_layers_encode::DESKTOP_OWNER,
                 layer_id: 0,
+                live: super::surface_motion::live(&desktop_layers, at),
             }
         });
         // Back-to-front window order from the z/focus stack (window_scene SSOT):
@@ -255,6 +261,7 @@ impl DisplayServerRuntime {
         // the only way a transform reaches the display.
         let transforms = &mut scratch.transforms;
         self.present_transforms(transforms);
+        self.motion_transforms(transforms, at);
         // A window covered by the windows above it is left out of the frame (TASK-0351 P1,
         // `occlusion.rs`): walked front to back, each body at its transform.
         let culled = &mut scratch.culled;
@@ -264,7 +271,7 @@ impl DisplayServerRuntime {
                 let sn = &app_snaps[usize::from(slot)];
                 let p = sn.glass.as_ref().filter(|_| sn.solid.is_none())?;
                 let t = transforms.iter().find(|(k, _)| *k == sn.key).map(|(_, t)| *t);
-                Some((usize::from(slot), p, t.unwrap_or(super::occlusion::IDENTITY)))
+                Some((usize::from(slot), p, t.unwrap_or(FrameTransform::IDENTITY)))
             }),
             (mode.width, mode.height),
             app_snaps.len(),
@@ -285,7 +292,7 @@ impl DisplayServerRuntime {
             }
         }
         // RFC-0113 §5: the focused field's caret, over the surface that holds it.
-        let caret = self.caret_draw();
+        let caret = self.caret_draw(at);
         // The frame's layer bound shared out (RFC-0109): the bodies first, then each drawn
         // surface's declared layers — and the caret it holds — within its max-min fair share.
         let caret_owner = caret.map(|c| c.owner);
@@ -371,9 +378,9 @@ impl DisplayServerRuntime {
 
             // 1b. The windows' transforms (`Command::LayerTransform`, by key), before their
             //     layers: every live window's — a present with layers names them all.
-            for &(key, (dx, dy, opacity, scale)) in transforms.iter() {
+            for &(key, t) in transforms.iter() {
                 encoder
-                    .try_layer_transform(key, (dx, dy), opacity, scale)
+                    .try_layer_transform(key, (t.dx, t.dy), t.opacity, t.scale, t.origin)
                     .map_err(|_| WindowdError::InvalidDamage)?;
             }
 
@@ -501,6 +508,15 @@ impl DisplayServerRuntime {
                     l.encode(
                         &mut encoder,
                         super::surface_layers_encode::Pass::DesktopAbove,
+                        (mode.width, mode.height),
+                        &mut quotas[desktop_quota],
+                    );
+                    // 2c. In front of everything (RFC-0109 §motion layers): the layers the shell
+                    //     declared in front — its modal over its scrim, its toast — above the
+                    //     windows, the bar and the panels.
+                    l.encode(
+                        &mut encoder,
+                        super::surface_layers_encode::Pass::DesktopFront,
                         (mode.width, mode.height),
                         &mut quotas[desktop_quota],
                     );

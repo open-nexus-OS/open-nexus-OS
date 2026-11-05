@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The drop-down layer (design_handoff_panels §2, "Öffnungsregeln"): an
+// The drop-down layer (design artifacts: panels §2, "Öffnungsregeln"): an
 // invisible full-bleed backdrop that closes on an outside tap, with the open
 // panel anchored under the bar — left-anchored panels at the leading edge,
 // right-anchored ones at the trailing edge, both 12px in.
@@ -11,7 +11,7 @@
 // panel ends up reachable in one mode and not the other.
 //
 // Anchoring is flex, not coordinates: `.overlay()` has no anchor API, so the
-// leading `Stack{}.height(8)` IS the handoff's `top:44` (36px bar + 8) and the
+// leading `Stack{}.height(8)` IS the design's `top:44` (36px bar + 8) and the
 // `Spacer` between the two groups IS `left:12` / `right:12`. Declared inside
 // the middle content region on purpose, so the bar keeps painting ABOVE the
 // panels and pill-to-pill switching works.

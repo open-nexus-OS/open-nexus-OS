@@ -9,7 +9,7 @@
 //
 // The appearance arm comes first because it is a sub-page: `Personalisierung
 // › Erscheinungsbild` replaces the row list with a custom view instead of
-// pushing another one, exactly like the handoff's `view: 'appearance'` row.
+// pushing another one, exactly like the design's `view: 'appearance'` row.
 
 Component SectionView {
     if $state.section == "personal" && $state.subPage == "appearance" {

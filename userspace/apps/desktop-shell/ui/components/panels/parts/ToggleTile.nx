@@ -1,17 +1,17 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The toggle tile (design_handoff_panels `.tbtn`) — the panels' central
+// The toggle tile (design artifacts: panels `.tbtn`) — the panels' central
 // building block: full width, a 26px icon circle, and a two-line text column
 // (label + a SUB-LABEL that states the tile's current state in words). The
-// tile owns that swap — `subOn`/`subOff`, mirroring the handoff's own
+// tile owns that swap — `subOn`/`subOff`, mirroring the design's own
 // `data-on`/`data-off` — so no call site has to branch just to word a state.
 // Control Center uses four, WiFi one ("Nur Kabel"), Battery one ("Kein
 // Standby").
 //
 // Active is a filled accent tile, not a tinted one: `rgba(accent,.88)` with a
 // glow. The accent travels as a HEX PROP through `.bgGradient(c, c)` — the
-// sanctioned literal-colour path — because two of the five accents the handoff
+// sanctioned literal-colour path — because two of the five accents the design
 // names (teal `#14b8a6`, violet `#8b5cf6`) are not theme roles and inventing
 // roles for one tile's palette would put product colour in the design system.
 //

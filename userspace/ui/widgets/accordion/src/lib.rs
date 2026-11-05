@@ -3,7 +3,7 @@
 
 #![cfg_attr(not(test), no_std)]
 
-//! `Accordion` — the design-system disclosure group (handoff `Accordion`): a
+//! `Accordion` — the design-system disclosure group (design `Accordion`): a
 //! glass container of collapsible sections; each header shows a chevron
 //! (▲ open · ▼ closed via the built-in triangle shapes) and reveals its content
 //! when open. A pure builder producing a `LayoutNode::Stack` column (the

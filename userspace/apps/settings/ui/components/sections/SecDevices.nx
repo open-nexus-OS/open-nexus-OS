@@ -1,10 +1,10 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Verbundene Geräte. Demo data from the handoff's `_tree()`; the switch is a
+// Verbundene Geräte. Demo data from the design's `_tree()`; the switch is a
 // `DemoStore` field with automatic two-way binding.
 //
-// The handoff's "Drucker & Scanner" chevron row is a VALUE row here — its
+// The design's "Drucker & Scanner" chevron row is a VALUE row here — its
 // sub-page lands in Phase 2, and a chevron that pushes nothing would promise
 // a screen that does not exist.
 

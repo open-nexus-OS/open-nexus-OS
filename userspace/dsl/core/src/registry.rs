@@ -113,7 +113,7 @@ pub const MODIFIERS: &[ModifierSpec] = &[
     ModifierSpec { name: "scroll", args: &[ModArg::Token], class: FieldClass::Layout },
     // -- overlay (layout, APPEND-ONLY id): `.overlay()` lifts THIS container
     // OUT OF FLOW as a full-bleed layer over its parent's content (drop-down
-    // panels, dialogs — design_handoff_launcher). Anchor inside the layer
+    // panels, dialogs — design artifacts: launcher). Anchor inside the layer
     // with ordinary flex (rows/Spacer/justify); paint and hit-testing prefer
     // the layer naturally (later node ids win).
     // TASK-0074 D1: an optional KIND — `.overlay(modal)` (bounded modal stack:
@@ -150,7 +150,7 @@ pub const MODIFIERS: &[ModifierSpec] = &[
     // container into an n-column GRID (the engine's `LayoutNode::Grid`,
     // row-major, n equal 1fr tracks). On a `List(...)` the items become the
     // grid cells — the data-driven launcher/workspace grids
-    // (design_handoff_launcher §3.2/§9/§11); the `Grid` widget is the
+    // (design artifacts: launcher §3.2/§9/§11); the `Grid` widget is the
     // static-content sugar over the same lowering. `.gap()` stays the
     // COLUMN gap; `.rowGap(n)` sets the row gap (same spacing scale, defaults
     // to the column gap).
@@ -167,7 +167,7 @@ pub const MODIFIERS: &[ModifierSpec] = &[
     // `.textFit(pct, min, max)` — BOX-RELATIVE type (append-only id). THIS
     // container derives one font size from its own content-box height and
     // hands it to its text descendants, like an inherited CSS `font-size`.
-    // A ratio, not "as large as fits": the calculator handoff puts a 23px
+    // A ratio, not "as large as fits": the calculator design puts a 23px
     // label in a ~75px key (~30%). Percent + two raw-px clamps.
     ModifierSpec {
         name: "textFit",
@@ -255,6 +255,7 @@ pub const MOTION_TOKENS: &[&str] = &[
     "wiggle",
     "pulse",
     "slideDown",
+    "pushInline",
 ];
 
 /// Whether `name` is a valid motion token.

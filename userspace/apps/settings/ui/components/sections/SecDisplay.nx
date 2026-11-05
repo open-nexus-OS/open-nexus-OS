@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Monitore. Demo data from the handoff's `_tree()` — the real display mode
+// Monitore. Demo data from the design's `_tree()` — the real display mode
 // travels fw_cfg → windowd (RFC-0074) and is not settable from here yet, so
 // resolution and refresh rate are value rows, not controls.
 

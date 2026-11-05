@@ -56,7 +56,7 @@ impl DisplayServerRuntime {
             // fraction `set_window_mode(freeform)` applies (¾ wide, ⅚ tall),
             // so a window that asks before it exists and one the user later
             // flips to freeform land on the same geometry. ⅚ rather than ¾
-            // for the HEIGHT: the design handoffs draw 900×600-proportioned
+            // for the HEIGHT: the design artifacts draw 900×600-proportioned
             // windows, and at ¾ (526 rows) a settings/file-manager sidebar
             // could not seat its full section list.
             //

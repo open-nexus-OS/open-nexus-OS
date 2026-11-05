@@ -26,9 +26,20 @@ use super::series::LAST;
 /// the pixels by program (TASK-0335 P4: opaque, straight, rounded, shadow, blur); and the layers
 /// the frames composed (TASK-0351 P0).
 #[derive(Clone, Copy, Debug, Default)]
-pub(super) struct Work([u64; 3], [u64; 5], [u64; PROGRAM_KINDS], u64);
+pub(super) struct Work([u64; 3], [u64; 5], [u64; PROGRAM_KINDS], u64, [u64; 8]);
 
 impl Work {
+    /// The slot pass's blended pixels by layer kind (`Board::blended_by_kind`, TASK-0351 P14);
+    /// a pass into any other target counts nothing and `px` is never asked.
+    pub(super) fn note_kinds(&mut self, target: Target, px: impl FnOnce() -> [u64; 8]) {
+        if target != Target::Slot {
+            return;
+        }
+        for (acc, n) in self.4.iter_mut().zip(px()) {
+            *acc += n;
+        }
+    }
+
     /// A pass into `target` drew `px` textured pixels by program (`Board::work_by_program`).
     pub(super) fn note(&mut self, target: Target, px: [u64; PROGRAM_KINDS]) {
         let k = match target {
@@ -62,6 +73,9 @@ impl Work {
             *acc += w;
         }
         self.3 += frame.3;
+        for (acc, w) in self.4.iter_mut().zip(frame.4) {
+            *acc += w;
+        }
     }
 
     /// The window's lines: pixels per frame by kind and by program, the GPU's wait per pixel and
@@ -82,6 +96,19 @@ impl Work {
             p[3] / frames,
             self.3 / frames,
             LAST.map_or(0, |l| l.ns_per_px)
+        ));
+        // TASK-0351 P14: which layers the slot pass blends — the pixels the cut aims at.
+        let k = self.4;
+        emit_fmt(format_args!(
+            "gpud: gpu blend kinds (keyless={} body={} region={} slice={} wash={} solid={} bar={} caret={})",
+            k[0] / frames,
+            k[1] / frames,
+            k[2] / frames,
+            k[3] / frames,
+            k[4] / frames,
+            k[5] / frames,
+            k[6] / frames,
+            k[7] / frames
         ));
         emit_fmt(format_args!(
             "gpud: bindings (in_use={} of={} contexts={})",

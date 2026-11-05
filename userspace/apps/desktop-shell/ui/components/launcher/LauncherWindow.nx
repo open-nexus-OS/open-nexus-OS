@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The WINDOWED start menu (design_handoff_launcher §9, desktop default):
+// The WINDOWED start menu (design artifacts: launcher §9, desktop default):
 // 720×520 fixed, radius 24, padding 24, panel glass, real drop shadow — the
 // desktop behind it stays sharp (no scrim; LauncherHost owns the backdrop).
 // Head = search + expand button (→ fullscreen state), "Alle Apps" section

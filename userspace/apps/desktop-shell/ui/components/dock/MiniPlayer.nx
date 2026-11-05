@@ -1,9 +1,9 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The dock mini player (design_handoff_launcher `Player`): card glass,
+// The dock mini player (design artifacts: launcher `Player`): card glass,
 // 24×24 album square, track title + artist column, round play button.
-// Demo now-playing content (mirrors the handoff's static demo) until the
+// Demo now-playing content (mirrors the design's static demo) until the
 // media service lands; it then binds the island's now-playing state.
 
 Component MiniPlayer {

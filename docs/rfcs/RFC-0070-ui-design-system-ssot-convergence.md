@@ -8,7 +8,7 @@ owners: ["@ui", "@runtime"]
 created: 2026-07-05
 links:
   - label: "Design contract"
-    target: "`docs/dev/design_handoff_open_nexus_os/` (54 components / 67 interfaces, tokens, 4 glass levels, motion, 7 templates, 5-surface notifications)."
+    target: "the design artifacts (design system) (54 components / 67 interfaces, tokens, 4 glass levels, motion, 7 templates, 5-surface notifications)."
   - label: "Prep artifacts"
     target: "`docs/dev/ui/components/inventory.md`, `docs/dev/ui/foundations/visual/token-reconciliation.md`."
   - label: "Builds on"
@@ -21,6 +21,10 @@ links:
 
 # RFC-0070: UI design-system SSOT convergence — one declarative component library, one token source, one reactive path
 
+> Amendment 2026-11-05: the operator's **design artifacts** are the design SSOT; the repository's
+> handoff copies (`docs/dev/` and the apps' `docs/`) no longer apply and were removed. Every
+> reference to a handoff section now names the artifact package holding it.
+>
 > Status (migrated 2026-11-02): **Draft** (2026-07-05) — architecture spine for TASK-0073 (primitives) + TASK-0074 (app shell/modals). User decision 2026-07-05: full convergence, staged; no façade — one SSOT; promote the best impl, not the incumbent; Apple production-grade, not the minimal solution.
 
 ## Problem — the same UI exists three times, and a fourth is about to be added
@@ -38,7 +42,7 @@ inventory for the per-component breakdown):
 
 At the **token** layer the same fracture exists **four** ways: authored `.nxtheme.toml`, a
 hardcoded typed `BaseTokens` that silently drifts from it, windowd's build-time `ThemeTokens`,
-and the handoff CSS contract.
+and the design artifacts' CSS contract.
 
 TASK-0073 as drafted (2025-12) would add a **fifth/fourth** parallel structure (`ui/design` +
 `ui/kit` folders) and re-derive tokens again. That is the double-structure trap. This RFC defines
@@ -55,7 +59,7 @@ instead of bypassing it.
 
 ### D2 — One component library SSOT (no façade)
 
-The canonical library is the **promoted** `userspace/ui/widgets/`, organized by the 7 handoff
+The canonical library is the **promoted** `userspace/ui/widgets/`, organized by the 7 design-artifact
 groups (`core/controls/inputs/feedback/navigation/overlays/window`). Every one of the 54
 components is a `LayoutNode` builder + typed variant/size/state enums + id-based interaction +
 A11y role. **No `ui/design` and no `ui/kit`** — motion/spacing/type/color are tokens (D3), not a
@@ -64,11 +68,11 @@ declarative trees + layout + tokens; `nexus-gfx` = drawing.**
 
 ### D3 — One token SSOT, generated typed contract
 
-`.nxtheme.toml` is the single runtime source, extended to carry the full handoff contract
+`.nxtheme.toml` is the single runtime source, extended to carry the full design-artifact contract
 (theme-varying colors + glass materials per theme; theme-invariant type/spacing/radius/shadow/
 motion/z scales authored once). `nexus-theme-tokens` typed enums and their `Tokens` impl are
 **generated from the toml** (build.rs) — the hardcoded `BaseTokens` is deleted; windowd's
-`ThemeTokens` folds into the same bake. Handoff CSS becomes reference + the golden the runtime is
+`ThemeTokens` folds into the same bake. The design artifacts' CSS becomes reference + the golden the runtime is
 checked against. Details + the `accent`-semantics decision: `token-reconciliation.md`.
 
 ### D4 — One glass primitive (extend the existing SSOT, don't add one)

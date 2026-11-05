@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The windowed start menu's identity footer (design_handoff_launcher §9):
+// The windowed start menu's identity footer (design artifacts: launcher §9):
 // hairline on top, avatar + user name left, settings/power actions right.
 // Window mode only — the fullscreen launcher has no footer (§10). Power
 // closes the launcher (session actions land with the session product).

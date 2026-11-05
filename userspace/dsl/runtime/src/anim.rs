@@ -56,9 +56,12 @@ pub struct AnimIntent {
     /// `animation::MotionToken` id (append-only stable wire id).
     pub token: u8,
     /// Committed snapshot of the driving `value:` / `trigger:` expression at
-    /// emit time. For `.transition` (no expr) this is 1 = "present in the tree
-    /// this frame". The host animates when this changes vs the last emit of
-    /// the same node.
+    /// emit time. For `.transition` (no expr) it is the node's IDENTITY —
+    /// present (never 0) and which node: a stable hash of its place in the tree
+    /// ([`transition_identity`]). The host animates when this changes vs the
+    /// last emit of the same pre-order number: the same node re-emitted keeps
+    /// it, another node landing on that number (a modal closing as a toast
+    /// opens — overlays are numbered last) differs, and enters.
     ///
     /// What gets folded in here depends on `kind`, because the two modifiers
     /// ask different questions of the same expression (see `emit::stamp_anim`):
@@ -72,9 +75,41 @@ pub struct AnimIntent {
     pub value: i32,
 }
 
+/// A `.transition`'s intent value: the node's identity — a stable FNV-1a hash of its child-index
+/// path in the emitted scene, never 0 (0 reads as absent). Two nodes at one pre-order number in two
+/// emits (the numbering is positional: an overlay is numbered after every in-flow node) hash apart
+/// when their paths differ; the same node keeps its value across re-emits.
+#[must_use]
+pub fn transition_identity(path: &[u32]) -> i32 {
+    let mut h: u32 = 0x811c_9dc5;
+    for &i in path {
+        for b in i.to_le_bytes() {
+            h ^= u32::from(b);
+            h = h.wrapping_mul(0x0100_0193);
+        }
+    }
+    (h | 1) as i32
+}
+
 impl AnimIntent {
     #[must_use]
     pub fn new(kind: AnimKind, token: u8, value: i32) -> Self {
         Self { kind, token, value }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::transition_identity;
+
+    /// A transition names its node by its place: two places, two identities; the same place, the
+    /// same identity across emits; never 0 (absent).
+    #[test]
+    fn a_transition_names_its_node_by_its_place() {
+        let alert = transition_identity(&[0, 3, 0]);
+        let toast = transition_identity(&[0, 3, 4]);
+        assert_ne!(alert, toast, "two nodes, two identities");
+        assert_eq!(alert, transition_identity(&[0, 3, 0]), "the same node keeps its identity");
+        assert!([alert, toast, transition_identity(&[])].iter().all(|v| *v != 0), "never absent");
     }
 }

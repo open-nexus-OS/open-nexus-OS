@@ -79,6 +79,25 @@ impl SurfaceMem {
         self.forwarded = true;
     }
 
+    /// The buffer this one replaces (a re-create at the same size: a store that outgrew its rows)
+    /// holds its newest frame in its shown slot: its rows — base and store — come over into the
+    /// slot this one draws first, so nothing is painted again. The rows copied (`None`: the old
+    /// buffer showed nothing, or its rows are not this one's width).
+    pub(crate) fn carry_from(&mut self, old: &SurfaceMem) -> Option<u32> {
+        let shown = old.shown?;
+        if old.layout.width != self.layout.width {
+            return None;
+        }
+        let rows = old.layout.rows.min(self.layout.rows);
+        let len = self.layout.width as usize * 4;
+        for y in 0..rows {
+            let (from, to) = (old.layout.row_at(shown, y)?, self.layout.row_at(self.draw, y)?);
+            let src = old.map.bytes().get(from..from + len)?;
+            self.map.bytes_mut().get_mut(to..to + len)?.copy_from_slice(src);
+        }
+        Some(rows)
+    }
+
     /// Row `y` of the slot being drawn: its `width × 4` bytes (`None` past the slot).
     pub(crate) fn row_mut(&mut self, y: u32) -> Option<&mut [u8]> {
         let at = self.layout.row_at(self.draw, y)?;

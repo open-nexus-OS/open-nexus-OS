@@ -302,7 +302,7 @@ pub const WIDGETS: &[WidgetSpec] = &[
         bind: None,
     },
     // Navigation/selection leaves the kit always had but the DSL could not
-    // name (settings design handoff). `Select` is the CLOSED trigger only —
+    // name (settings design artifacts). `Select` is the CLOSED trigger only —
     // a glass pill showing the current value plus a chevron; the open option
     // panel is an app-owned `.overlay()`, exactly as the kit crate documents.
     // `Breadcrumbs` renders the whole trail as ONE node, so it shows the path

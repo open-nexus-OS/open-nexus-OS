@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Control Center (design_handoff_panels §3): 328 wide, radius 30, anchored top
+// Control Center (design artifacts: panels §3): 328 wide, radius 30, anchored top
 // right. The touch modes' one hub — in tablet/phone the WiFi, Ton and Batterie
 // panels do not exist and their contents fold in here, which is why this is
 // the only panel present in every mode.
@@ -12,7 +12,7 @@
 // `ControlStore`, and both read their current value from `device.*` so a
 // re-mount cannot leave them showing the wrong side of the switch.
 //
-// Section order and spacing are the handoff's; the paddings are the 4px grid's
+// Section order and spacing are the design's; the paddings are the 4px grid's
 // nearest step to it (16 for the sides, 12/16 top and bottom against 10/14).
 
 Component ControlCenterPanel {

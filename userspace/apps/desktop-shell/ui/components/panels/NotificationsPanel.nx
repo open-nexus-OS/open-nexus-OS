@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Mitteilungszentrale (design_handoff_panels §4): 330 wide, radius 26,
+// Mitteilungszentrale (design artifacts: panels §4): 330 wide, radius 26,
 // anchored top left. Header with "Alle löschen", the stacked mail card, then
 // individual cards.
 //

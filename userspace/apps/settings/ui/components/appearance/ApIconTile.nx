@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // One "App-Icons & Widgets" tile: three sample icon chips in the variant's
-// treatment, its name and a one-line description (handoff block 3).
+// treatment, its name and a one-line description (design block 3).
 //
 // KNOWN NON-PARITY, recorded in docs/dev/ui/design-token-audit.md: the
-// handoff derives Dunkel/Klar/Getönt from ONE source SVG through
+// design derives Dunkel/Klar/Getönt from ONE source SVG through
 // `mix-blend-mode: screen | luminosity` plus grayscale/contrast filters. The
 // painter has no blend modes and no filter stage, so each variant is
 // approximated by its base fill plus the glyph ink the variant implies. The

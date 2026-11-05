@@ -3,7 +3,7 @@
 //
 // stash on `WinAppWindow` (RFC-0084). The app had NO conformance test before
 // this — it compiled only as a side effect of the boot lane. What is pinned
-// here is the design-handoff behavior that is easy to break silently: which
+// here is the design behavior that is easy to break silently: which
 // regions paint a panel, that the properties pane and the action bar both
 // react to selection, and that settings mode really replaces the content
 // instead of drawing over it.

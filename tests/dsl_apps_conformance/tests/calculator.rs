@@ -86,7 +86,7 @@ fn every_key_is_a_full_cell_and_tappable_to_its_edges() {
         .expect("lays out")
         .boxes;
 
-    // The handoff grid: 4 columns over a 360px content box with 12px gaps =
+    // The design grid: 4 columns over a 360px content box with 12px gaps =
     // 81px cells, five 84px rows — less the window-kit bar the surface carries
     // since TASK-0337 (one window path: windowd draws no title bar), which
     // leaves ~72px rows. A label is ~23px: anything under 64 is a label, not a key.
@@ -130,7 +130,7 @@ fn every_key_is_a_full_cell_and_tappable_to_its_edges() {
     }
 }
 
-/// The `0` key spans two tracks (handoff `grid-column: span 2`).
+/// The `0` key spans two tracks (design `grid-column: span 2`).
 #[test]
 fn the_zero_key_spans_two_tracks() {
     let (nxir, symbols) = mounted();
@@ -170,7 +170,7 @@ fn the_zero_key_spans_two_tracks() {
     );
 }
 
-/// AC/C is two-stage (handoff: first press clears the entry, second the state).
+/// AC/C is two-stage (design: first press clears the entry, second the state).
 #[test]
 fn clear_is_two_stage() {
     let (nxir, symbols) = mounted();

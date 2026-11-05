@@ -49,3 +49,51 @@ ux_frames = 1728
 ux_max_us = 150610
 q16_us = 5899
 area16_us = 6859
+
+[[cycle]]
+id = "2026-11-04T15-27-23"
+cold_us = 48867
+pipelined_us = 36761
+hover_us = 12700
+ns_per_px = 3
+ux_dropped = 360
+ux_frames = 1376
+ux_max_us = 98740
+q16_us = 5857
+area16_us = 6015
+
+[[cycle]]
+id = "2026-11-04T16-36-48"
+cold_us = 58821
+pipelined_us = 34576
+hover_us = 3269
+ns_per_px = 3
+ux_dropped = 328
+ux_frames = 1408
+ux_max_us = 100838
+q16_us = 733
+area16_us = 1010
+
+[[cycle]]
+id = "2026-11-04T16-47-39"
+cold_us = 45355
+pipelined_us = 35515
+hover_us = 3150
+ns_per_px = 4
+ux_dropped = 108
+ux_frames = 352
+ux_max_us = 95273
+q16_us = 1339
+area16_us = 684
+
+[[cycle]]
+id = "2026-11-04T17-02-18"
+cold_us = 45004
+pipelined_us = 36782
+hover_us = 3144
+ns_per_px = 4
+ux_dropped = 249
+ux_frames = 640
+ux_max_us = 100240
+q16_us = 673
+area16_us = 667

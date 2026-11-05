@@ -5,7 +5,7 @@ role: guide
 subsystem: devx
 sources: [source, userspace, tools/arch-check, tools/nx]
 contracts: [ADR-0001, ADR-0080, ADR-0081]
-verified: 2026-11-04
+verified: 2026-11-05
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->

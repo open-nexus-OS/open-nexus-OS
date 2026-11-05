@@ -198,7 +198,7 @@ fn a_body_may_write_any_number_of_panels() {
 
 /// A panel in a body can pick its own glass LEVEL. This is what the flag design
 /// could not express without one prop per level, and it is what the file-manager
-/// handoff needs: content and properties are `windowPane` (a pane on window
+/// design needs: content and properties are `windowPane` (a pane on window
 /// glass), not `panel` (a tile on the wallpaper).
 #[test]
 fn a_body_panel_chooses_its_own_glass_level() {

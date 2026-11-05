@@ -3,7 +3,7 @@
 
 #![cfg_attr(not(test), no_std)]
 
-//! `Avatar` — the design-system avatar (handoff `Avatar`): a circular (or
+//! `Avatar` — the design-system avatar (design `Avatar`): a circular (or
 //! rounded-square) image with an initials fallback on a glass backing, plus an
 //! optional presence status. A pure builder producing a `LayoutNode::Stack`
 //! tile; the presence dot is exposed as data (a corner overlay the compositor

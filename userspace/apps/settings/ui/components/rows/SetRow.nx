@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// One settings row (handoff `ListItem`): leading icon · title · subtitle ·
+// One settings row (design `ListItem`): leading icon · title · subtitle ·
 // trailing control · optional chevron.
 //
 // NOT the `ListItem` widget: that kit builder takes title/subtitle/chevron but
@@ -10,7 +10,7 @@
 // here and the control arrives through the `trailing` slot.
 //
 // `minHeight` rather than a fixed height: a row with a subtitle is two lines
-// and one without is one, exactly as the handoff's `Beschreibungen anzeigen`
+// and one without is one, exactly as the design's `Beschreibungen anzeigen`
 // switch implies. 52 keeps even the one-line form above the 44px touch floor.
 //
 // The row paints no hit surface of its own — the caller wraps the instance in

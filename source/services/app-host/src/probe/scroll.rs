@@ -65,12 +65,15 @@ pub(super) struct ScrollLayer {
     pub(super) covered: bool,
     /// Its virtual band in the store.
     pub(super) band: super::band::Band,
+    /// The flat opaque pixel its band starts from (`band_ground`, TASK-0351 P14): the band is
+    /// declared opaque and composed without a blend. `None`: painted from transparent.
+    pub(super) ground: Option<nexus_layout_types::Rgba8>,
 }
 
 impl ScrollLayer {
     fn new(root: usize, viewport: (i32, i32, i32, i32), axis: Axis, extent: i32) -> Self {
         let config = match axis {
-            // A slightly softer ease than the wheel's so a page turn reads as the handoff's
+            // A slightly softer ease than the wheel's so a page turn reads as the design's
             // ~0.42 s glide, not a snap.
             Axis::Paged => animation::ScrollConfig { rate_per_s: 10.0, fling_friction_per_s: 4.0 },
             _ => animation::ScrollConfig::default(),
@@ -87,6 +90,7 @@ impl ScrollLayer {
             end_fired: false,
             covered: false,
             band: super::band::Band::default(),
+            ground: None,
         };
         layer.physics.set_extent(layer.viewport_len() as f32, extent as f32);
         layer
@@ -139,7 +143,7 @@ impl super::DslApp {
         let mut next: [Option<ScrollLayer>; MAX_SCROLL_LAYERS] = [None; MAX_SCROLL_LAYERS];
         let mut n = 0;
         self.flat_views.clear();
-        for b in &self.layout.boxes {
+        for (bi, b) in self.layout.boxes.iter().enumerate() {
             let nexus_layout_types::Overflow::Scroll(axis) = b.overflow else { continue };
             if b.scroll_root.is_some() || b.rect.width.0 <= 0 || b.rect.height.0 <= 0 {
                 continue; // nested in another's content: a clip, not a layer
@@ -184,6 +188,12 @@ impl super::DslApp {
             layer.physics.set_extent(layer.viewport_len() as f32, extent as f32);
             layer.offset = layer.offset.clamp(0, layer.max_offset());
             layer.end_fired = false;
+            // The ground its rows start from; rows painted on another ground are painted again.
+            let ground = crate::band_ground::ground(&self.layout.boxes, bi, viewport);
+            if layer.ground != ground {
+                layer.ground = ground;
+                layer.band.valid_len = 0;
+            }
             // Content that left (the list got shorter) is held no more.
             let end = extent.max(0) as u32;
             layer.band.valid_len =
@@ -205,6 +215,17 @@ impl super::DslApp {
             g
         };
         let changed = geometry(&self.scroll_layers) != geometry(&next);
+        // TASK-0351 P14: how many bands start from an opaque ground (composed without a blend)
+        // — once per geometry change, never per frame.
+        let grounded =
+            |s: &[Option<ScrollLayer>]| s.iter().flatten().filter(|l| l.ground.is_some()).count();
+        if changed || grounded(&self.scroll_layers) != grounded(&next) {
+            raw_marker(&alloc::format!(
+                "apphost: scroll bands (n={} grounded={})",
+                next.iter().flatten().count(),
+                grounded(&next)
+            ));
+        }
         self.scroll_layers = next;
         self.cover_layers();
         changed

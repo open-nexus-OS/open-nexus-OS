@@ -5,7 +5,7 @@ role: guide
 subsystem: storage
 sources: [userspace/nxfs, source/services/nxfsd, source/services/vfsd/src/write_vmo_os.rs, source/services/vfsd/src/splice_os.rs, tools/fsck-nxfs]
 contracts: [RFC-0071, RFC-0072, RFC-0073, ADR-0043, ADR-0044]
-verified: 2026-11-02
+verified: 2026-11-05
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->

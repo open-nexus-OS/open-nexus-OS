@@ -3,7 +3,7 @@
 
 #![cfg_attr(not(test), no_std)]
 
-//! `Badge` — the design-system status chip (handoff `Badge`): 8 variants,
+//! `Badge` — the design-system status chip (design `Badge`): 8 variants,
 //! resolved from theme tokens. A pure builder producing a small pill
 //! `LayoutNode::Stack` around caller-provided content (text), with the resolved
 //! foreground exposed so the caller colors the label. DSL-emittable.
@@ -21,7 +21,7 @@ const GLASS_FILL_ALPHA: u8 = 170;
 const GLASS_BLUR_RADIUS: u32 = 12;
 const GLASS_SATURATION: u32 = 140;
 
-/// Visual variant (handoff `BadgeProps.variant`).
+/// Visual variant (design `BadgeProps.variant`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BadgeVariant {
     #[default]

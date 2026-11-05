@@ -5,13 +5,13 @@
 //
 // The three-zone body is the KIT's; this page fills the slots AND writes its
 // own surfaces. Every region opens with a `Panel` on the `windowPane` level
-// (the handoff's `--glass-window-pane-bg`) — the kit paints nothing, so
+// (the design's `--glass-window-pane-bg`) — the kit paints nothing, so
 // "how many panels, at which level, where" is a line of app markup rather than
 // a prop axis. The settings mode uses that directly: a second `Panel` stacked
 // inside the content pane, which the old Bool flag could only express by
 // turning the region's panel off and hand-rolling both.
 //
-// Everything else is the design handoff (`docs/design_handoff_files_window`):
+// Everything else is the design artifacts (the design artifacts (files window)):
 // window-kit chrome with active tool states, a search field that filters the
 // listing, a breadcrumb with the object count and sort controls, real file
 // rows (svc.files.list → vfsd ReadDir, TASK-0291) with honest loading/error
@@ -25,7 +25,7 @@
 // Together those two mean a fullscreen window can never show the wallpaper —
 // the panes then frost an opaque slab instead of the desktop behind it. A
 // freeform window takes base_alpha 168 and a real `LayerBackdrop`, which is
-// what the handoff draws: a floating glass window over the wallpaper.
+// what the design draws: a floating glass window over the wallpaper.
 //
 // `style: plain` still suppresses windowd's own title bar — this page owns its
 // chrome through `WinTopBar`.
@@ -81,7 +81,7 @@ Page StashPage {
                 Stack { }
                     .height(1)
                     .bg(divider)
-                // Account footer (handoff: `Avatar` + name + sub above a
+                // Account footer (design: `Avatar` + name + sub above a
                 // `borderTop`). `Avatar` derives its initials from `name`, so
                 // the page binds the display name it already has.
                 Stack {
@@ -156,7 +156,7 @@ Page StashPage {
                     Spacer
                 } else {
                     // ── FILE CONTENT ─────────────────────────────────
-                    // Breadcrumb, three levels like the handoff
+                    // Breadcrumb, three levels like the design
                     // (Dieser PC › Bilder › Urlaub 2026). No new state: the
                     // middle crumb is `backLabel`, which every nav arm and the
                     // folder-open in `Pick` already write as "the label we came
@@ -356,7 +356,7 @@ Page StashPage {
                                 if $state.fileCount == 0 {
                                     // "Keine Objekte gefunden" vs "der Ordner ist
                                     // leer" are DIFFERENT statements, and the
-                                    // handoff makes both. `stash.noResults` shipped
+                                    // design makes both. `stash.noResults` shipped
                                     // in all five locales and was referenced by no
                                     // line of markup; an active query now picks it.
                                     if $state.searchQuery != "" {
@@ -454,7 +454,7 @@ Page StashPage {
                                             }
                                             on Tap -> dispatch(TrashSel)
                                         }
-                                        // Divider before "Mehr" (design handoff).
+                                        // Divider before "Mehr" (design artifacts).
                                         Stack { }
                                             .width(1)
                                             .height(34)
@@ -487,7 +487,7 @@ Page StashPage {
                     Text(@t("stash.propsEmpty")).textSize(xs).fg(onGlassMuted)
                 } else {
                     Stack {
-                        // Handoff property icons: folder · box (size) ·
+                        // Design property icons: folder · box (size) ·
                         // calendar (created) · square-pen (modified) · lock (id).
                         WinPropRow { label: @t("stash.propKind"), value: $state.selKind, icon: "folder" }
                         WinPropRow { label: @t("stash.propSize"), value: $state.selSize, icon: "shippingbox" }
@@ -509,7 +509,7 @@ Page StashPage {
         // ANCHORING. `.overlay()` has no anchor API — the layer fills the
         // parent's content box and you position INSIDE it with ordinary flex.
         // The menus used to sit at y=0, i.e. ON TOP of the chrome they belong
-        // to. A leading spacer of chrome-height + 6 puts them where the handoff
+        // to. A leading spacer of chrome-height + 6 puts them where the design
         // draws a dropdown (`top: calc(100% + 6px)`), and the row's `Spacer`
         // keeps "Mehr" and its submenus under the ⋯ (right). The app-chip
         // window menu is the kit's (`WinAppWindow` mounts it, TASK-0066); this

@@ -16,4 +16,6 @@ pub mod layer;
 pub mod layer_wire;
 pub mod pass;
 pub mod render_encoder;
+/// The `LayerTransform` record on the scene wire (RFC-0101 §8).
+pub(crate) mod transform_wire;
 pub mod validation;

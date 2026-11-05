@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Geräte Info. The handoff's demo device with ONE correction: the OS version
+// Geräte Info. The design's demo device with ONE correction: the OS version
 // row shows this repo's real version, not the mockup's "3.2". A version
 // string is the one value on this screen a reader would take literally.
 

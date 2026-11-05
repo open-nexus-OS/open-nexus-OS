@@ -7,22 +7,22 @@ version = 1
 # override only what varies; everything else resolves here via the qualifier
 # chain (see ThemeRuntime::resolve / resolve_material).
 #
-# Contract source: docs/dev/design_handoff_open_nexus_os/reference/tokens/*.css
+# Contract source: the design artifacts (design system)
 # reconciled per docs/dev/ui/foundations/visual/token-reconciliation.md.
-# `accent` is the interactive blue (handoff --color-info); the neutral handoff
+# `accent` is the interactive blue (design --color-info); the neutral design
 # `--color-accent` grey maps to `surfaceAlt`.
 [tokens]
 # interactive accent + on-accent
 accent = "#3b82f6"
 accentFg = "#ffffff"
-# surfaces / content (handoff :root — foreground oklch(0.145)=#0a0a0a; the
-# grey handoff --color-accent #e9ebef is our SurfaceVariant/hover wash)
+# surfaces / content (design :root — foreground oklch(0.145)=#0a0a0a; the
+# grey design --color-accent #e9ebef is our SurfaceVariant/hover wash)
 bg = "#ffffff"
 fg = "#0a0a0a"
 surface = "#ffffff"
 surfaceAlt = "#e9ebef"
 border = "#0000001a"
-# translucent hairline per handoff --glass-divider rgba(0,0,0,.10)
+# translucent hairline per design --glass-divider rgba(0,0,0,.10)
 divider = "#0000001a"
 muted = "#ececf0"
 mutedFg = "#717182"
@@ -32,17 +32,17 @@ dangerFg = "#ffffff"
 destructive = "#d4183d"
 destructiveFg = "#ffffff"
 warning = "#f59e0b"
-# handoff says white-on-warning, but amber #f59e0b + white is ~2.1 contrast —
+# design says white-on-warning, but amber #f59e0b + white is ~2.1 contrast —
 # near-black ink is the same deliberate a11y tightening as `success` below.
 warningFg = "#0a0a0a"
 # success uses green-600 (not green-500) so white text clears WCAG UI contrast
-# (3.0) — a deliberate a11y tightening of the handoff #22c55e (which was 2.28).
+# (3.0) — a deliberate a11y tightening of the design #22c55e (which was 2.28).
 success = "#16a34a"
 successFg = "#ffffff"
 info = "#3b82f6"
 infoFg = "#ffffff"
 focusRing = "#3b82f6"
-# brand / chrome (handoff)
+# brand / chrome (design)
 primary = "#030213"
 primaryFg = "#ffffff"
 card = "#ffffff"
@@ -55,7 +55,7 @@ inputBg = "#f3f3f5"
 switchBg = "#cbced4"
 islandBg = "#000000"
 notifDot = "#ef4444"
-# sidebar (handoff)
+# sidebar (design)
 sidebar = "#fafafa"
 sidebarFg = "#0a0a0a"
 sidebarPrimary = "#030213"
@@ -63,7 +63,7 @@ sidebarPrimaryFg = "#fafafa"
 sidebarAccent = "#f5f5f5"
 sidebarAccentFg = "#171717"
 sidebarBorder = "#e5e5e5"
-# charts (handoff, light — oklch→hex, see token-reconciliation.md)
+# charts (design, light — oklch→hex, see token-reconciliation.md)
 chart1 = "#f54900"
 chart2 = "#009689"
 chart3 = "#104e64"
@@ -71,10 +71,10 @@ chart4 = "#ffb900"
 chart5 = "#fe9a00"
 # text-on-glass + interaction washes (RGBA hex; light theme = dark ink).
 # RFC-0082: the three `glassText*` roles are REACHABLE (ColorToken::
-# OnGlass/OnGlassMuted/OnGlassStrong) and carry the login handoff's ink —
+# OnGlass/OnGlassMuted/OnGlassStrong) and carry the login design's ink —
 # a hair blue-black (20,20,26) rather than pure black, which is what reads
 # correctly on a photographic wallpaper. The HUE is ours on purpose; the
-# ALPHAS are the handoff's (--glass-text-primary .80 / -secondary .40 /
+# ALPHAS are the design's (--glass-text-primary .80 / -secondary .40 /
 # -strong .92) after the rounder .95/.68/1.0 was found to be undocumented
 # drift that flattened the primary/secondary step.
 glassTextPrimary = "#14141acc"
@@ -82,7 +82,7 @@ glassTextSecondary = "#14141a66"
 glassTextStrong = "#14141aeb"
 glassHover = "#00000014"
 glassActive = "#0000001f"
-# On-glass control ink (RFC-0082 — the login handoff's --nx-* contract).
+# On-glass control ink (RFC-0082 — the login design's --nx-* contract).
 # `glassIcon` = icon stroke, `glassPlaceholder` = empty-field text,
 # `glassFocus` = the border a focused glass control takes, `glassFill` = the
 # FLAT translucent fill of a control sitting INSIDE glass (a submit button in
@@ -92,7 +92,7 @@ glassIcon = "#14141acc"
 glassPlaceholder = "#14141a80"
 glassFocus = "#14141a80"
 glassFill = "#ffffff99"
-# A RAISED control on glass: the handoff's rgba(255,255,255,.16) function
+# A RAISED control on glass: the design's rgba(255,255,255,.16) function
 # keys — stronger than `glassSubtle` (6% in dark), weaker than a solid fill.
 # On light surfaces the same role is an ink wash, not a white one.
 glassFillStrong = "#0000001f"
@@ -120,9 +120,9 @@ glassTint = "#ffffff"
 glassEdge = "#ffffff54"
 # shadow tint (semantic ColorToken::Shadow)
 shadow = "#00000060"
-# modal/sheet backdrop dim (handoff --glass-scrim rgba(0,0,0,.28))
+# modal/sheet backdrop dim (design --glass-scrim rgba(0,0,0,.28))
 scrim = "#00000047"
-# Range slider (design_handoff_panels `--track` / `--fill`). The track is a
+# Range slider (design artifacts: panels `--track` / `--fill`). The track is a
 # groove — dark in BOTH themes, only shallower here over a light surface — and
 # the fill is the bright cap riding in it, white in both. That inverted pair is
 # why these are their own roles instead of borrowed neutrals.
@@ -132,14 +132,14 @@ sliderIcon = "#00000073"
 
 # ── Length scales (theme-invariant; authored once here) ──────────────────────
 # Semantic small/medium/large map to LengthToken::{Radius,Spacing}{Small,Medium,
-# Large}. The finer handoff scale (radius sm/md/lg/xl/2xl/3xl/full; the 4px
+# Large}. The finer design scale (radius sm/md/lg/xl/2xl/3xl/full; the 4px
 # spacing scale) is added as consumers need it — see token-reconciliation.md.
 [spacing]
 small = 8
 medium = 16
 large = 24
 
-# Handoff radius scale: sm=6, base/lg=10 (the control/card look), 2xl=16.
+# Design radius scale: sm=6, base/lg=10 (the control/card look), 2xl=16.
 [radius]
 small = 6
 medium = 10
@@ -155,7 +155,7 @@ quick = 280
 base = 400
 slow = 500
 
-# Font sizes in px (handoff type scale). base = body text.
+# Font sizes in px (design type scale). base = body text.
 # `hero` (RFC-0082) is the lock-screen/clock numeral step — the only rung the
 # baked ladder serves from a Digits-only face, so it is for numerals, not prose.
 [typography]
@@ -171,7 +171,7 @@ display = 36
 hero = 120
 
 # Line-height ×100 (150 = 1.50), consumed as LineHeight::Relative.
-# `flat` is the display-type step (handoff clock `line-height:1.05`): big
+# `flat` is the display-type step (design clock `line-height:1.05`): big
 # numerals need a band barely taller than the glyphs, or the block floats.
 [leading]
 flat = 105
@@ -192,16 +192,16 @@ island = 50
 [material.surface]
 type = "opaque"
 
-# ── Liquid-glass materials (handoff: panel / card / subtle / window / overlay) ─
+# ── Liquid-glass materials (design: panel / card / subtle / window / overlay) ─
 # Materials resolve through the qualifier chain (resolve_material): base carries
 # the light values; dark/highcontrast override. tint/edge/border alphas are
 # floats (0..1); blur in dp with a downsample perf factor.
-# RFC-0082: `panel` and `card` carry the LOGIN handoff's glass recipe — they
+# RFC-0082: `panel` and `card` carry the LOGIN design's glass recipe — they
 # are the two levels that sit directly on the wallpaper (dock, control center,
 # launcher, and now the lock surface). `edgeHighlightAlpha` is the `inset 0 1px
 # 0` TOP-SHINE line, not a full-height wash: the painter draws it as one pixel
 # row and caps the soft gradient it also feeds (see `Mods::visual`).
-# design_handoff_panels: panels are blur(72px) saturate(180%) — deeper than
+# design artifacts: panels: panels are blur(72px) saturate(180%) — deeper than
 # the 40 this level carried, so a drop-down reads as frosted rather than
 # merely tinted. `.material(panel)` is shared with the dock and taskbar,
 # which is the point: one panel material, one depth.
@@ -228,7 +228,7 @@ borderColor = "#ffffff"
 borderAlpha = 0.70
 
 [material.glassSubtle]
-# Handoff --glass-subtle-bg: plain rgba(255,255,255,.70) — NO border; blur
+# Design --glass-subtle-bg: plain rgba(255,255,255,.70) — NO border; blur
 # aligned to the --glass-blur-sm step (the old 12 sat between scale steps).
 type = "glass"
 blurRadiusDp = 8
@@ -255,21 +255,18 @@ borderColor = "#ffffff"
 borderAlpha = 0.90
 
 [material.glassWindowPane]
-# --glass-window-pane-bg: linear-gradient(160deg, #ffffff@.96, #fafbfd@.88).
-# The CONTENT / PROPERTIES pane inside a window — NOT `glassPanel`. A pane sits
-# on the window's own glass, a panel sits straight on the wallpaper, so the two
-# cannot share a recipe: the pane is a two-stop gradient at much higher
-# transmission, and its border is an INK hairline in light mode (the handoff's
-# --glass-window-pane-border rgba(0,0,0,.07)) rather than a white edge.
+# The design system's `surface-pane` (the design artifacts, 2026-11-03): the CONTENT /
+# PROPERTIES pane inside a window is OPAQUE — one step lighter than the window, in its cool
+# hue, flat, no shine — "opaque so the window blur under it is occluded and never computed".
+# A flat opaque pane is what lets a scroll band on it start from the pane's pixel and be
+# composed without a blend (TASK-0351 P14, `band_ground`); its border stays an ink hairline.
 type = "glass"
-blurRadiusDp = 20
-downsampleFactor = 2
-tintColor = "#ffffff"
-tintAlpha = 0.96
-tintBottomColor = "#fafbfd"
-tintBottomAlpha = 0.88
+blurRadiusDp = 0
+downsampleFactor = 8
+tintColor = "#fcfdff"
+tintAlpha = 1.0
 edgeHighlightColor = "#ffffff"
-edgeHighlightAlpha = 0.70
+edgeHighlightAlpha = 0.0
 borderColor = "#000000"
 borderAlpha = 0.07
 
@@ -344,7 +341,7 @@ path = "resources/icons/lucide/icons"
 "menu" = "menu"
 "arrow.up" = "arrow-up"
 "arrow.down" = "arrow-down"
-# Window chrome (design_handoff_open_nexus_os window frame) + window apps.
+# Window chrome (design artifacts: design system window frame) + window apps.
 "ellipsis" = "ellipsis"
 "sidebar.left" = "panel-left"
 "sidebar.right" = "panel-right"
@@ -369,7 +366,7 @@ path = "resources/icons/lucide/icons"
 "minimize" = "minimize"
 "columns.2" = "columns-2"
 "arrow.counterclockwise" = "rotate-ccw"
-# File-manager window (design_handoff_files_window). The first four were USED by
+# File-manager window (design artifacts: files window). The first four were USED by
 # stash/settings without an entry here — a symbol name travels as a prop STRING,
 # so the checker never sees it and `registry/widgets.rs` painted its honest grey
 # placeholder box instead. Kept as their own block so the omission stays visible.
@@ -377,15 +374,15 @@ path = "resources/icons/lucide/icons"
 "arrow.clockwise" = "refresh-cw"
 "arrow.uturn.backward" = "undo-2"
 "calendar" = "calendar"
-# The handoff uses BOTH ellipses: vertical in the window toolbar ("Mehr"),
+# The design uses BOTH ellipses: vertical in the window toolbar ("Mehr"),
 # horizontal in the floating action bar. They are different glyphs, not a
 # rotation, so both are imported.
 "ellipsis.vertical" = "ellipsis-vertical"
 "doc.text" = "file-text"
 "shippingbox" = "box"
 "square.pencil" = "square-pen"
-# Settings window (design_handoff_os_settings_window). Its row glyphs are the
-# one part of the handoff nothing else in the shell needed: connectivity,
+# Settings window (design artifacts: settings window). Its row glyphs are the
+# one part of the design nothing else in the shell needed: connectivity,
 # peripherals, audio in/out, security and device info. Names follow the same
 # SwiftUI-style vocabulary as the block above ("*.slash" for a struck-through
 # variant, matching "wifi"/"bell").
@@ -418,7 +415,7 @@ path = "resources/icons/lucide/icons"
 "cursorarrow" = "mouse-pointer-2"
 "face.smiling" = "smile"
 "app.window" = "app-window"
-# Status panels + topbar (design_handoff_panels). The Control Center, WiFi,
+# Status panels + topbar (design artifacts: panels). The Control Center, WiFi,
 # Sound and Battery drop-downs need the muted/level variants of glyphs already
 # here, the three energy-profile marks, and the topbar's mail/chat pair.
 # `.1` follows the same "weaker variant" suffix idea as the `.slash` block.

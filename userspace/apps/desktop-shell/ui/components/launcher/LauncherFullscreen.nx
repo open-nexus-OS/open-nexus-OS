@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The FULLSCREEN launcher (design_handoff_launcher §10): the touch shell's
+// The FULLSCREEN launcher (design artifacts: launcher §10): the touch shell's
 // only launcher state and the desktop expand state ("launcher-big"). Covers
 // the work area with panel glass over the wallpaper, centred greeting +
 // date, search, then the PAGED xl grid (§11 — horizontal pages, page dots,

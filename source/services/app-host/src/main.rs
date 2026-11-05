@@ -76,6 +76,14 @@ mod file_filter;
 // (RFC-0109). Same one-cfg shape as `file_filter`: the drawing is in `probe/band.rs`.
 #[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
 mod band_math;
+// The ground a scroll band starts from (TASK-0351 P14): one flat opaque box under the
+// viewport, else transparent. Same one-cfg shape: the raster is in `probe/band.rs`.
+#[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
+mod band_ground;
+// A `.transition` node as a motion layer the compositor moves (TASK-0354 P2): its subtree, its
+// extent, where its enter starts. Same one-cfg shape: the raster is in `probe/motion_layers.rs`.
+#[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
+mod motion_math;
 // Where the paint-time hover wash goes. Same one-cfg shape as `file_filter`:
 // `probe/` is RISC-V-only, so a pure decision that belongs to it lives here
 // instead, where host tests can actually reach it.

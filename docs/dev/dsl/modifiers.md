@@ -98,7 +98,7 @@ Two properties are worth stating because they are contracts, not accidents:
 | `.fg(t)` | color token | foreground/tint (text, icons) |
 | `.borderColor(t)` | color token | border color |
 | `.border(t)` | `thin\|hairline\|medium\|thick` | border width (listed again under Shape below) |
-| `.opacity(n)` | `0..255` | node opacity (`Fraction`, `OPAQUE = 255` — **not** a percentage; `.opacity(102)` is the handoff's 0.4) |
+| `.opacity(n)` | `0..255` | node opacity (`Fraction`, `OPAQUE = 255` — **not** a percentage; `.opacity(102)` is the design's 0.4) |
 | `.material(m)` | material token | glass surface (panel/card/subtle/window/overlay) — tint + `--glass-shine` wash + `inset 0 1px 0` top-shine + 1px hairline, all from the theme (`Style::glass` is the single definition) |
 | `.bgGradient(top, bottom)` | two exprs → `"#rrggbb[aa]"` | vertical linear background gradient (`linear-gradient(to bottom, …)`); wins over `.bg`. Args are EXPRESSIONS so both literals and props work — app-icon artwork colors ride the manifest → enumerate → props. Row-based painter: one lerped flat color per row, exact and alloc-free. |
 | `.bgFade(top, bottom)` | two color tokens | the same vertical fill from TOKENS, so it re-themes (`.bgGradient` keeps taking raw hex because artwork colors are data). Use `transparent` as a stop for a legibility fade. |
@@ -108,9 +108,9 @@ Two properties are worth stating because they are contracts, not accidents:
 
 | Modifier | Args | Meaning |
 |---|---|---|
-| `.rounded(v)` | radius token (`sm` 6 \| `md` 8 \| `lg` 10 \| `xl` 14 \| `xxl` 16 \| `full`) **or** `Int` px | corner radius, uniform on all four corners. Takes raw px for the same reason `.width` does: the design handoffs treat their literal radii (30 · 26 · 24 · 20 · 18 · 15 · 13 · 11) as geometry contract, and a five-rung scale cannot carry them. Prefer the token where one fits. |
+| `.rounded(v)` | radius token (`sm` 6 \| `md` 8 \| `lg` 10 \| `xl` 14 \| `xxl` 16 \| `full`) **or** `Int` px | corner radius, uniform on all four corners. Takes raw px for the same reason `.width` does: the design artifacts treat their literal radii (30 · 26 · 24 · 20 · 18 · 15 · 13 · 11) as geometry contract, and a five-rung scale cannot carry them. Prefer the token where one fits. |
 | `.border(t)` | length token | border width |
-| `.shadow(t)` | shadow token (`sm\|md\|lg\|xl\|xxl`) | elevation — the design-handoff scale (md `0 4 12 .15` … xxl `0 25 50 .25`), painted as an analytic soft rounded-rect shadow behind the box |
+| `.shadow(t)` | shadow token (`sm\|md\|lg\|xl\|xxl`) | elevation — the design scale (md `0 4 12 .15` … xxl `0 25 50 .25`), painted as an analytic soft rounded-rect shadow behind the box |
 
 ## Typography (class: layout — text metrics affect measurement)
 
@@ -124,7 +124,7 @@ Two properties are worth stating because they are contracts, not accidents:
 | `.truncate(n)` | `Int` lines | multi-line clamp — **not implemented** (nothing wraps, so there is only ever one line). Single-line clipping needs no opt-in: the painter marks ANY run wider than its own box with `…`. |
 
 **Why `.textFit` is a ratio, and why it sits on the container.** A design
-handoff does not say "make the label as large as fits" — it says a 23px label
+design does not say "make the label as large as fits" — it says a 23px label
 sits in a ~75px key, i.e. ~30% of the box. `.textFit(30, 11, 52)` states exactly
 that, so the label tracks the key at every window size instead of at three
 breakpoints. Two consequences worth knowing:
@@ -140,7 +140,7 @@ breakpoints. Two consequences worth knowing:
 
 After the height gives the target, each text steps DOWN through the ladder
 until its run fits its own width. That is what reproduces the calculator
-handoff's 52/38/30 display ramp without hard-coding digit counts: a long number
+design's 52/38/30 display ramp without hard-coding digit counts: a long number
 simply stops fitting at the larger rungs.
 
 **What the type ramp can actually render** (RFC-0082). The platform bakes a
@@ -208,7 +208,7 @@ Reduced-motion behavior is part of each token's contract.
 `.animate` binds a property to whether its driving value is **non-zero**, not to
 the fact that the value moved. The host seeds the node at
 `MotionToken::resting(prop, value != 0)`, so for every opacity-primary token
-(`snappy`, `smooth`, `emphasized`, `fade`, `fadeScale`):
+(`snappy`, `smooth`, `emphasized`, `fade`):
 
 | `value:` | resting opacity |
 |---|---|
@@ -239,7 +239,7 @@ folding rules) and `tests/dsl_apps_conformance/tests/calculator_pixels.rs`
 
 **Status: implemented** (Tier 2, TASK-0062/0075). The token argument is validated
 against the curated motion set (`snappy, smooth, emphasized, fade, slideUp,
-fadeScale, wiggle, pulse`); an intent is bound at runtime and interpolated by the
+fadeScale, wiggle, pulse, slideDown, pushInline`); an intent is bound at runtime and interpolated by the
 app-host `AnimationDriver` on the compositor frame pulse, then painted per-node.
 See `docs/dev/ui/foundations/animation.md` (token→physics mapping, scope, demo).
 Whole-window/layer compositor transforms are the open Track C (Tier 1).

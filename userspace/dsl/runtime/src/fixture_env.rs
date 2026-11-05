@@ -102,7 +102,7 @@ impl FixtureEnv {
             posture: "",
             orientation,
             shell_mode: "tablet",
-            // The touch width classes (design_handoff_launcher): landscape
+            // The touch width classes (design artifacts: launcher): landscape
             // (≥1024) = wide, portrait = regular. Hosts override from the
             // REAL surface width; this preset mirrors that mapping.
             size_class: if matches!(orientation, "landscape") { "wide" } else { "regular" },

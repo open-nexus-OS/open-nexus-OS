@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// One navigation-sidebar row (design handoff `Sidebar`): icon + title
+// One navigation-sidebar row (design artifacts `Sidebar`): icon + title
 // (+ optional subtitle), accent-filled when active. Tap dispatches
 // `WinMenuPick(id)` — the app's reducer routes nav ids (by convention
 // prefixed "nav.") to its section state.
@@ -11,11 +11,11 @@
 // the icon to a two-pixel sliver — which is what the settings sidebar looked
 // like the first time it shipped twelve German section names.
 //
-// Two-line rows (title + smaller description, the handoff's DEFAULT sidebar
+// Two-line rows (title + smaller description, the design's DEFAULT sidebar
 // form) are 38px with tight leading; `sub: ""` = the compact one-line row
-// (32px, the handoff's "Sidebar kompakt"). Both carry `.hitSlop(3)` so the
+// (32px, the design's "Sidebar kompakt"). Both carry `.hitSlop(3)` so the
 // input target stays at ~44px even where the visual row is denser — the
-// handoff's own sidebar rows are ~35px.
+// design's own sidebar rows are ~35px.
 
 Component WinSideItem {
     props: {

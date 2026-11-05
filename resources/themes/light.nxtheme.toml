@@ -2,7 +2,7 @@
 name = "light"
 version = 1
 
-# Light overrides only what differs from base; the handoff neutrals, brand,
+# Light overrides only what differs from base; the design neutrals, brand,
 # sidebar, chart and text-on-glass tokens + the liquid-glass materials all
 # resolve from base via the qualifier chain (base is the light-leaning default).
 # See docs/dev/ui/foundations/visual/token-reconciliation.md.
@@ -14,7 +14,7 @@ fg = "#0a0a0a"
 surface = "#ffffff"
 surfaceAlt = "#e9ebef"
 border = "#0000001a"
-# Handoff `--glass-divider` is rgba(0,0,0,.10) — TRANSLUCENT, so a hairline
+# Design `--glass-divider` is rgba(0,0,0,.10) — TRANSLUCENT, so a hairline
 # reads the same over a pane, a card and the wallpaper. The opaque `#d4d4d4`
 # it used to carry only ever looked right on a solid white surface.
 divider = "#0000001a"

@@ -1,13 +1,13 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// One folder-colour swatch: the handoff's 44×34 folder glyph — a back flap in
+// One folder-colour swatch: the design's 44×34 folder glyph — a back flap in
 // the light tint with the body in the base colour — plus its caption
 // (block 4).
 //
 // PURELY VISUAL. Nothing below the UI consumes a folder colour yet, so the
 // choice lives in `AppearanceStore` and stops there. It is in the app because
-// the handoff's appearance page is one page, not because the feature exists.
+// the design's appearance page is one page, not because the feature exists.
 
 Component ApFolderTile {
     props: {

@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! Window chrome primitives (handoff `WindowButton`/`WindowControls`/
+//! Window chrome primitives (design `WindowButton`/`WindowControls`/
 //! `WindowPane`): the title-bar icon button, the minimise·maximise·close
 //! cluster, and the inner content card. Pure builders producing
 //! `LayoutNode::Stack`s from theme tokens + the [`Icon`] primitive. DSL-emittable.
@@ -19,7 +19,7 @@ use nexus_theme_tokens::{ColorToken, LengthToken, Tokens, TypographyToken};
 use nexus_widget_icon::{Icon, Symbol};
 use nexus_widget_text::Text;
 
-/// Chrome-button treatment (handoff `WindowButton` active/danger).
+/// Chrome-button treatment (design `WindowButton` active/danger).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum WindowButtonKind {
     /// Ghost (transparent at rest).

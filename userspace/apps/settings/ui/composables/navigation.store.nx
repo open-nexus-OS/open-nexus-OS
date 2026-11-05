@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// NAVIGATION domain: which of the handoff's content modes is on screen.
+// NAVIGATION domain: which of the design's content modes is on screen.
 //
 //   mode      "overview" (the 12-card grid) | "browse" (one section)
 //   section   the selected section value, mirrored by the sidebar
@@ -21,7 +21,7 @@
 // events should leave the menus closed. `WinMenu("")` on an already-closed
 // menu is a no-op in both branches of its toggle.
 
-// The LANDING state is the handoff's initial state, verbatim
+// The LANDING state is the design's initial state, verbatim
 // (OsSettingsWindow.dc.html: `nav: 'connections', mode: 'browse'`): the app
 // opens on the FIRST SECTION, not on the overview — the overview is a mode
 // the user enters via the app chip, the sidebar header or the ⋯ menu.

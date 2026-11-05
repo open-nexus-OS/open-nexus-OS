@@ -1,12 +1,12 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// One card of the overview grid (handoff LAYOUT.md §"Content — overview
+// One card of the overview grid (design LAYOUT.md §"Content — overview
 // grid"): a 30×30 icon chip plus title and description on a `subtle` card.
 //
 // The card carries NO width of its own: the tap wrapper in `OverviewGrid` is
 // the flex item, and modifiers on a component reference are rejected
-// (RFC-0084 rule 10), so the sizing that answers the handoff's
+// (RFC-0084 rule 10), so the sizing that answers the design's
 // `repeat(auto-fill, minmax(208px, 1fr))` lives on that wrapper.
 
 Component OverviewCard {

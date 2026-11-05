@@ -3,7 +3,7 @@
 
 #![cfg_attr(not(test), no_std)]
 
-//! `AppIcon` — the design-system app-icon tile (handoff `AppIcon`): three
+//! `AppIcon` — the design-system app-icon tile (design `AppIcon`): three
 //! rendering variants (`native` shaped tile · `wrapped` glass backing ·
 //! `freestanding` bare) × five sizes, wrapping a caller-provided icon node.
 //! A pure builder producing a `LayoutNode::Stack` tile. The notification `badge`
@@ -20,11 +20,11 @@ use nexus_style::Style;
 use nexus_theme_tokens::{ColorToken, LengthToken, Tokens};
 
 /// Translucency of the wrapped variant's glass backing (0..255).
-const GLASS_FILL_ALPHA: u8 = 38; // ~0.15, the handoff --glass-icon-bg
+const GLASS_FILL_ALPHA: u8 = 38; // ~0.15, the design --glass-icon-bg
 const GLASS_BLUR_RADIUS: u32 = 12;
 const GLASS_SATURATION: u32 = 140;
 
-/// Rendering variant (handoff `AppIconProps.variant`).
+/// Rendering variant (design `AppIconProps.variant`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AppIconVariant {
     /// Icon fills the rounded tile directly (first-party, shaped icons).
@@ -36,7 +36,7 @@ pub enum AppIconVariant {
     Freestanding,
 }
 
-/// Size preset (handoff `AppIconProps.size`).
+/// Size preset (design `AppIconProps.size`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AppIconSize {
     Xs,

@@ -161,7 +161,7 @@ fn label_grows_in_steps_with_the_window() {
     assert!(distinct.len() >= 3, "expected several visible steps, got {sizes:?}");
 }
 
-/// A long number must SHRINK to stay inside its box — the handoff's
+/// A long number must SHRINK to stay inside its box — the design's
 /// 52 / 38 / 30 display ramp, derived instead of hard-coded.
 #[test]
 fn a_longer_number_steps_the_display_down() {
@@ -172,11 +172,11 @@ fn a_longer_number_steps_the_display_down() {
 }
 
 /// The requirement, stated as the calculator actually experiences it: a key
-/// at the handoff's own size gets the handoff's own type step, and a key in a
+/// at the design's own size gets the design's own type step, and a key in a
 /// big window gets a genuinely bigger one.
 #[test]
-fn keypad_label_matches_the_handoff_and_grows_from_there() {
-    // Handoff: 392x616 window, ~98x91 key, 23px label. 21 is the baked rung
+fn keypad_label_matches_the_design_and_grows_from_there() {
+    // Design: 392x616 window, ~98x91 key, 23px label. 21 is the baked rung
     // nearest 23 — the ladder cannot be more exact than its rungs.
     assert_eq!(fitted_px(30, 11, 52, "7", 98, 91), 21);
     // A key twice as tall must land on a visibly larger rung.

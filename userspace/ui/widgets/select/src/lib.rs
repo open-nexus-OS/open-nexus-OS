@@ -3,7 +3,7 @@
 
 #![cfg_attr(not(test), no_std)]
 
-//! `Select` — the design-system dropdown trigger (handoff `Select`): a bordered
+//! `Select` — the design-system dropdown trigger (design `Select`): a bordered
 //! glass pill showing the selected value (or placeholder) with a trailing
 //! chevron. A pure builder producing the CLOSED trigger `LayoutNode::Stack`; the
 //! open option panel is an overlay (Popover/Menu, W4), so the app opens it on the

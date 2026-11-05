@@ -495,7 +495,7 @@ pub fn service_main_loop() -> Result<(), &'static str> {
         runtime.drain_launch_replies();
         runtime.pump_presentation();
         runtime.pump_capture(nsec().unwrap_or(0));
-        runtime.pump_caret();
+        runtime.pump_clock();
         #[cfg(nexus_env = "os")]
         loop_stats.note_apply(applied);
         #[cfg(not(nexus_env = "os"))]

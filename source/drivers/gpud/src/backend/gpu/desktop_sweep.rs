@@ -21,6 +21,8 @@
 use nexus_gfx::command::buffer::{Command, LAYER_OPAQUE};
 use nexus_gfx::core::types::TileRect;
 
+use nexus_gfx::backend::types::Rect;
+
 use super::desktop::{Desktop, Refusal};
 use super::device_v2::Device;
 use super::emit_fmt;
@@ -36,6 +38,28 @@ const QUADS: [(u32, u32); 4] = [(16, 16), (240, 135), (480, 270), (960, 540)];
 pub(super) fn median(v: &mut [u64; FRAMES]) -> u64 {
     v.sort_unstable();
     v[FRAMES / 2]
+}
+
+/// A case's median frame in microseconds, and the area and passes its last frame drew.
+#[derive(Clone, Copy, Debug)]
+struct Case {
+    us: u64,
+    rect: Rect,
+    passes: usize,
+}
+
+impl Default for Case {
+    fn default() -> Self {
+        Self { us: 0, rect: Rect { x: 0, y: 0, width: 0, height: 0 }, passes: 0 }
+    }
+}
+
+impl core::fmt::Display for Case {
+    /// `WxH+X+Y/passes` — the drawn area and the passes of the case's last frame.
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let r = &self.rect;
+        write!(f, "{}x{}+{}+{}/{}", r.width, r.height, r.x, r.y, self.passes)
+    }
 }
 
 impl Desktop {
@@ -79,21 +103,31 @@ impl Desktop {
         Command::Damage { rect, origin: 0 }
     }
 
-    /// `FRAMES` frames of `cmds`, every pass waited, none counted: the median frame.
+    /// `FRAMES` frames of `cmds`, every pass waited, none counted: the median frame, and what
+    /// the last frame drew (its area and passes — TASK-0351 P12: whether a case's area is the
+    /// damage's). `trace` names the case whose last frame's pass is traced (`gpu pass fw`).
     fn case(
         &mut self,
         dev: &mut Device,
         cmds: &[Command],
         target: &FrameTarget<'_>,
-    ) -> Result<u64, Refusal> {
+        trace: Option<&'static str>,
+    ) -> Result<Case, Refusal> {
         let none = super::surface_buffers::SurfaceBuffers::new();
         let mut us = [0u64; FRAMES];
-        for u in &mut us {
-            let (_, t, _) =
-                self.frame_of(dev, cmds, target, (true, false, false), (false, &none))?;
+        let mut drawn = (Rect { x: 0, y: 0, width: 0, height: 0 }, 0);
+        for (i, u) in us.iter_mut().enumerate() {
+            let traced = trace.filter(|_| i + 1 == FRAMES);
+            if let Some(of) = traced {
+                self.trace_of = of;
+            }
+            let (rect, t, passes) =
+                self.frame_of(dev, cmds, target, (true, traced.is_some(), false), (false, &none))?;
             *u = t;
+            drawn = (rect, passes);
         }
-        Ok(median(&mut us))
+        self.trace_of = "hover";
+        Ok(Case { us: median(&mut us), rect: drawn.0, passes: drawn.1 })
     }
 
     /// The sweep, after the gate scene: its line, then the set cleared and every slot forgotten.
@@ -104,21 +138,32 @@ impl Desktop {
     ) -> Result<(), Refusal> {
         let run = (|| {
             let whole = self.damage(self.display);
-            let base = self.case(dev, &[whole.clone()], target)?;
-            let mut quads = [0u64; 4];
-            for (q, side) in quads.iter_mut().zip(QUADS) {
-                *q = self.case(dev, &[self.quad(target, side, true), self.damage(side)], target)?;
+            let base = self.case(dev, &[whole.clone()], target, None)?;
+            let mut quads = [Case::default(); 4];
+            for (i, (q, side)) in quads.iter_mut().zip(QUADS).enumerate() {
+                let trace = (i == 0).then_some("q16");
+                *q = self.case(
+                    dev,
+                    &[self.quad(target, side, true), self.damage(side)],
+                    target,
+                    trace,
+                )?;
             }
-            let full =
-                self.case(dev, &[self.quad(target, self.display, true), whole.clone()], target)?;
+            let full = self.case(
+                dev,
+                &[self.quad(target, self.display, true), whole.clone()],
+                target,
+                None,
+            )?;
             // The full quad unchanged, the damage a pointer's: the pass limited to 16x16.
             let area16 = self.case(
                 dev,
                 &[self.quad(target, self.display, true), self.damage((16, 16))],
                 target,
+                Some("area16"),
             )?;
             let blended =
-                self.case(dev, &[self.quad(target, self.display, false), whole], target)?;
+                self.case(dev, &[self.quad(target, self.display, false), whole], target, None)?;
             Ok::<_, Refusal>((base, quads, full, area16, blended))
         })();
         self.frame.layers.clear();
@@ -127,8 +172,14 @@ impl Desktop {
         let (base, q, full, area16, blended) = run?;
         let (q16_last, area16_last) = LAST.map_or((0, 0), |l| (l.q16_us, l.area16_us));
         emit_fmt(format_args!(
-            "gpud: gpu pass sweep (base_us={base} q16_us={} q240_us={} q480_us={} q960_us={} full_us={full} area16_us={area16} blended_us={blended} frames={FRAMES} last={q16_last}/{area16_last})",
-            q[0], q[1], q[2], q[3]
+            "gpud: gpu pass sweep (base_us={} q16_us={} q240_us={} q480_us={} q960_us={} full_us={} area16_us={} blended_us={} frames={FRAMES} last={q16_last}/{area16_last})",
+            base.us, q[0].us, q[1].us, q[2].us, q[3].us, full.us, area16.us, blended.us
+        ));
+        // What each case's last frame drew: its area (the slot's lack and the damage) and its
+        // passes — a q16 drawn whole is a measurement of the base, not of the quad.
+        emit_fmt(format_args!(
+            "gpud: gpu pass sweep drawn (base={} q16={} q240={} q480={} q960={} full={} area16={} blended={})",
+            base, q[0], q[1], q[2], q[3], full, area16, blended
         ));
         Ok(())
     }

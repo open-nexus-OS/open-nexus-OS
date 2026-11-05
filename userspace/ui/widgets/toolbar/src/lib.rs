@@ -3,7 +3,7 @@
 
 #![cfg_attr(not(test), no_std)]
 
-//! `Toolbar` — the design-system top bar (handoff `Toolbar`): a frosted bar with
+//! `Toolbar` — the design-system top bar (design `Toolbar`): a frosted bar with
 //! leading and trailing slots and a leading-or-centered title (+ optional
 //! subtitle). A pure builder producing a `LayoutNode::Stack` row. DSL-emittable.
 
@@ -19,7 +19,7 @@ use nexus_style::Style;
 use nexus_theme_tokens::{ColorToken, LengthToken, Tokens, TypographyToken};
 use nexus_widget_text::Text;
 
-/// Surface treatment (handoff `ToolbarProps.variant`).
+/// Surface treatment (design `ToolbarProps.variant`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ToolbarVariant {
     /// Frosted bar with a bottom hairline.

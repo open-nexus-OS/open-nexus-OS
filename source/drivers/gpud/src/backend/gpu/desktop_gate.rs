@@ -98,6 +98,11 @@ impl Desktop {
         // The base is cleaned once, for the cold frame; the warm frames (three: the glass read,
         // a pointer-sized change — the frame's floor) find it clean.
         self.pass_witness = [0; 3];
+        // TASK-0351 P13: the cold frame draws the slot whole; from then on the slot is the
+        // GPU's own and the base clean — a warm frame's pass is limited to its damage, as the
+        // desktop's frames are (a target that stayed stale drew every warm frame full-screen:
+        // cycle 39's "fragment latency" was the fragment stage shading the whole screen).
+        let warm_target = FrameTarget { base_dirty: false, slot_stale: false, ..*target };
         let drawn = self
             .frame_of(dev, &cold, target, (true, false, false), (target.base_dirty, &none))
             .and_then(|(_, cold_us, cold_passes)| {
@@ -105,14 +110,19 @@ impl Desktop {
                 let mut warm_passes = 0;
                 for (i, w) in warm_us.iter_mut().enumerate() {
                     // The last warm frame's pass is traced: its wait iteration by iteration.
-                    let (_, us, passes) =
-                        self.frame_of(dev, &warm, target, (true, i == 2, false), (false, &none))?;
+                    let (_, us, passes) = self.frame_of(
+                        dev,
+                        &warm,
+                        &warm_target,
+                        (true, i == 2, false),
+                        (false, &none),
+                    )?;
                     (*w, warm_passes) = (us, passes);
                 }
                 // The cold frame again, its passes pipelined (the base counted dirty so the
                 // glass is blurred again): one wait for four passes.
                 let (_, piped_us, _) =
-                    self.frame_of(dev, &cold, target, (true, false, true), (true, &none))?;
+                    self.frame_of(dev, &cold, &warm_target, (true, false, true), (true, &none))?;
                 Ok((cold_us, cold_passes, warm_us, warm_passes, piped_us))
             });
         self.frame.layers.clear();
@@ -154,7 +164,7 @@ impl Desktop {
         }
         // TASK-0351 P5: the stock sweep through our path, one line of medians — a measurement
         // whose refusal costs the desktop nothing.
-        if let Err(e) = self.sweep(dev, target) {
+        if let Err(e) = self.sweep(dev, &warm_target) {
             emit_fmt(format_args!("gpud: gpu pass sweep skipped ({e})"));
         }
         Ok(())

@@ -165,12 +165,18 @@ impl DslApp {
             vis_anim: alloc::vec::Vec::new(),
             vis_text: alloc::vec::Vec::new(),
             tap_render_span: None,
+            damage_cols: crate::band_math::Cols::Unclaimed,
             input_rx_ns: None,
             hop_input: nexus_ux_budgets::Hop::new(),
             motion_hops: nexus_ux_budgets::chains::MotionHops::new(),
             input_session: nexus_ux_budgets::session::InputSession::new(),
             taps_are_keystrokes: false,
             tap_present_owed: false,
+            motion_layers: [None; super::motion_layers::MAX_MOTION_LAYERS],
+            motion_seq: 0,
+            motion_repaint: None,
+            motion_rows: None,
+            carried: None,
         };
         // Seed the animation state from the mounted scene: resting
         // transforms for value-tracked nodes, enter transitions for

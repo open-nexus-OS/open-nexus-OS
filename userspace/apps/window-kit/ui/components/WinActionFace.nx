@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The VISUAL of one floating-action-bar button (design handoff
+// The VISUAL of one floating-action-bar button (design artifacts
 // `WindowActionBar`): icon over label, column layout, pill-shaped hit area.
 // `kind`: "" default · "primary" filled accent circle behind the icon ·
 // "danger" red.

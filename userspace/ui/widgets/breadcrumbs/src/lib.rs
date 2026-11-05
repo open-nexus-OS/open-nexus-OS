@@ -3,7 +3,7 @@
 
 #![cfg_attr(not(test), no_std)]
 
-//! `Breadcrumbs` — the design-system path trail (handoff `Breadcrumbs`):
+//! `Breadcrumbs` — the design-system path trail (design `Breadcrumbs`):
 //! chevron-separated crumbs with the current (last) page bold and
 //! non-interactive, earlier crumbs in accent. A pure builder producing a
 //! `LayoutNode::Stack` row. DSL-emittable.

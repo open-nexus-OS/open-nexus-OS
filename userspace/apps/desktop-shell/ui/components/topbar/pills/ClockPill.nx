@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The clock pill (design_handoff_panels §2) — the Kalender opener. Desktop
+// The clock pill (design artifacts: panels §2) — the Kalender opener. Desktop
 // shows time · date, the touch modes only the time: the same trigger, trimmed
 // to the room the mode has.
 //

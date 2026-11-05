@@ -103,7 +103,7 @@ const FACES: &[FaceSpec] = &[
     FaceSpec { name: "FONT21_SEMI", px: 21.0, weight: 600, charset: Charset::Latin },
     FaceSpec { name: "FONT36_SEMI", px: 36.0, weight: 600, charset: Charset::Latin },
     FaceSpec { name: "FONT120_LIGHT", px: 120.0, weight: 300, charset: Charset::Digits },
-    // The caption rung (`xs` = 11 px). Every design handoff builds density out
+    // The caption rung (`xs` = 11 px). Every design artifacts builds density out
     // of an 11 px sub-label under a 13 px label; without a rung here BOTH
     // resolved to 13 and the hierarchy collapsed into one size. `Latin` keeps
     // it cheap — the expensive faces are the Full/CJK ones, which are

@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The page indicator (design_handoff_launcher §11): centred dot row under
+// The page indicator (design artifacts: launcher §11): centred dot row under
 // the paged grid — inactive 7×7, the ACTIVE page an 18×7 pill, radius 4,
 // clickable (dot tap → `SetPage(k)` → the store's scrollToPage effect
 // glides there). Dot k exists iff page k has content; the thresholds mirror

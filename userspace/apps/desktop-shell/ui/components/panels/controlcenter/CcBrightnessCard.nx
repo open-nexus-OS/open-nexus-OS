@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Brightness card (design_handoff_panels §3, row 3): the caption row over a
+// Brightness card (design artifacts: panels §3, row 3): the caption row over a
 // slider paired with the Erscheinungsbild button.
 //
 // The slider is LIVE: a tap along the track writes `brightness` (TASK-0077B

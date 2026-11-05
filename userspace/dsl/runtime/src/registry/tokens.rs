@@ -205,7 +205,7 @@ pub fn border_width(name: &str) -> Option<FxPx> {
 
 #[must_use]
 pub fn radius(name: &str) -> FxPx {
-    // Design-handoff radius scale (reference/tokens/spacing.css): sm 6,
+    // Design radius scale (reference/tokens/spacing.css): sm 6,
     // md 8, lg 10, xl 14, 2xl 16 — the previous 4/8/12/16 drifted from it.
     FxPx::new(match name {
         "sm" => 6,

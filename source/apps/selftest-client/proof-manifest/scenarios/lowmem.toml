@@ -40,8 +40,7 @@ do = { click = "launcher_button" }
 [[step]]
 name = "launch settings"
 do = { click = "launch_settings" }
-expect = ["windowd: transition open", "apphost: ux launch ", "apphost: resized"]
-then = ["WINDOWD: surface presented id="]
+expect = ["windowd: transition open", "apphost: ux launch "]
 timeout_s = 120
 
 # Hidden: the window saves its record, the grace (5 s) freezes the process; the guest's own

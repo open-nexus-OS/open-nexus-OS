@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The content header: the handoff's `Breadcrumbs` trail —
+// The content header: the design's `Breadcrumbs` trail —
 // `Einstellungen › Sektion › Unterseite`.
 //
 // KNOWN NON-PARITY, decided rather than faked: the kit's `Breadcrumbs` builds

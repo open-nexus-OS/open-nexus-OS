@@ -60,11 +60,14 @@ pub enum MotionToken {
     /// [`MotionToken::SlideUp`], for a surface anchored BELOW its trigger
     /// (a top-bar panel falls out of the bar; it does not rise into it).
     SlideDown = 8,
+    /// Enter from the leading edge: a surface pushed in from the side it is anchored to (the
+    /// system toast at the left edge — design artifacts: system toast).
+    PushInline = 9,
 }
 
 impl MotionToken {
     /// Every token, in id order (checker + docs iterate this).
-    pub const ALL: [MotionToken; 9] = [
+    pub const ALL: [MotionToken; 10] = [
         MotionToken::Snappy,
         MotionToken::Smooth,
         MotionToken::Emphasized,
@@ -74,6 +77,7 @@ impl MotionToken {
         MotionToken::Wiggle,
         MotionToken::Pulse,
         MotionToken::SlideDown,
+        MotionToken::PushInline,
     ];
 
     /// Canonical `.nx` token name.
@@ -89,6 +93,7 @@ impl MotionToken {
             MotionToken::Wiggle => "wiggle",
             MotionToken::Pulse => "pulse",
             MotionToken::SlideDown => "slideDown",
+            MotionToken::PushInline => "pushInline",
         }
     }
 
@@ -120,57 +125,56 @@ impl MotionToken {
             MotionToken::Fade
             | MotionToken::SlideUp
             | MotionToken::SlideDown
-            | MotionToken::FadeScale => MotionCategory::Transition,
+            | MotionToken::FadeScale
+            | MotionToken::PushInline => MotionCategory::Transition,
             MotionToken::Wiggle | MotionToken::Pulse => MotionCategory::Effect,
         }
     }
 
     /// The theme duration step this token eases over (0 ms under a
-    /// reduced-motion theme ⇒ the driver jumps to the final frame).
+    /// reduced-motion theme ⇒ the driver jumps to the final frame) — the design
+    /// artifacts' timings: the panels and the launcher enter in `quick` (their
+    /// 0.28–0.30 s), a dialog and the system toast in `slow` (0.5 s, a spring).
     #[must_use]
     pub const fn duration(self) -> MotionDurationToken {
         match self {
             MotionToken::Snappy => MotionDurationToken::Swift,
             MotionToken::Pulse
             | MotionToken::Fade
-            | MotionToken::FadeScale
+            | MotionToken::SlideUp
             | MotionToken::SlideDown => MotionDurationToken::Quick,
-            MotionToken::Smooth | MotionToken::SlideUp | MotionToken::Wiggle => {
-                MotionDurationToken::Base
+            MotionToken::Smooth | MotionToken::Wiggle => MotionDurationToken::Base,
+            MotionToken::Emphasized | MotionToken::FadeScale | MotionToken::PushInline => {
+                MotionDurationToken::Slow
             }
-            MotionToken::Emphasized => MotionDurationToken::Slow,
         }
     }
 
-    /// The theme curve vocabulary this token belongs to (documentation +
-    /// future GPU-side spring seeding; the CPU keyframe path uses
-    /// [`Self::easing`]).
+    /// The theme curve this token follows (the design artifacts' motion: an
+    /// entrance springs or settles, a fade is smooth).
     #[must_use]
     pub const fn curve(self) -> MotionCurveToken {
         match self {
             MotionToken::Snappy => MotionCurveToken::SpringSoft,
-            MotionToken::Emphasized | MotionToken::FadeScale => MotionCurveToken::Spring,
-            MotionToken::SlideUp | MotionToken::SlideDown => MotionCurveToken::Glide,
+            MotionToken::Emphasized | MotionToken::FadeScale | MotionToken::PushInline => {
+                MotionCurveToken::Spring
+            }
+            MotionToken::SlideUp | MotionToken::SlideDown => MotionCurveToken::Enter,
             MotionToken::Smooth | MotionToken::Fade | MotionToken::Wiggle | MotionToken::Pulse => {
                 MotionCurveToken::Smooth
             }
         }
     }
 
-    /// The deterministic CPU easing for the keyframe path.
+    /// The easing every driver evaluates — the app's keyframe track and the
+    /// compositor's motion layers alike: the token's curve, exactly (a spring's
+    /// overshoot included); effects oscillate through explicit keyframes, linear
+    /// between them.
     #[must_use]
     pub const fn easing(self) -> Easing {
         match self {
-            // Springs approximate to ease-out on the deterministic CPU track
-            // (overshoot is the GPU spring path, Track C).
-            MotionToken::Snappy
-            | MotionToken::Emphasized
-            | MotionToken::SlideUp
-            | MotionToken::SlideDown
-            | MotionToken::FadeScale => Easing::EaseOut,
-            MotionToken::Smooth | MotionToken::Fade => Easing::EaseInOut,
-            // Effects oscillate through explicit keyframes: linear between them.
             MotionToken::Wiggle | MotionToken::Pulse => Easing::Linear,
+            _ => Easing::Curve(self.curve()),
         }
     }
 
@@ -178,19 +182,26 @@ impl MotionToken {
     #[must_use]
     pub const fn primary_prop(self) -> AnimProp {
         match self {
-            MotionToken::SlideUp | MotionToken::SlideDown => AnimProp::TranslateY,
-            MotionToken::Wiggle => AnimProp::TranslateX,
+            MotionToken::SlideUp | MotionToken::SlideDown | MotionToken::FadeScale => {
+                AnimProp::TranslateY
+            }
+            MotionToken::Wiggle | MotionToken::PushInline => AnimProp::TranslateX,
             MotionToken::Pulse => AnimProp::ScaleX,
             // snappy/smooth/emphasized/fade/fadeScale drive opacity first.
             _ => AnimProp::Opacity,
         }
     }
 
-    /// The secondary property (`fadeScale` scales while it fades).
+    /// The secondary property: every entrance of the design artifacts grows
+    /// in a little while it travels (a panel from 0.97/0.96, a dialog from 0.94,
+    /// the toast from 0.96).
     #[must_use]
     pub const fn secondary_prop(self) -> Option<AnimProp> {
         match self {
-            MotionToken::FadeScale => Some(AnimProp::ScaleX),
+            MotionToken::FadeScale
+            | MotionToken::SlideUp
+            | MotionToken::SlideDown
+            | MotionToken::PushInline => Some(AnimProp::ScaleX),
             _ => None,
         }
     }
@@ -223,25 +234,27 @@ impl MotionToken {
                     0.0
                 }
             }
-            // Both slide tokens rest IN place (0) when present; absent, they
-            // sit on the side they travel FROM — SlideUp below, SlideDown
-            // above.
-            AnimProp::TranslateY => {
-                if present {
-                    0.0
-                } else if matches!(self, MotionToken::SlideDown) {
-                    SLIDE_DOWN_PX
-                } else {
-                    SLIDE_PX
-                }
-            }
-            AnimProp::ScaleX | AnimProp::ScaleY => {
-                if matches!(self, MotionToken::FadeScale) && !present {
-                    FADE_SCALE_FROM
-                } else {
-                    1.0
-                }
-            }
+            // The travel tokens rest IN place (0) when present; absent, they
+            // sit on the side they travel FROM — SlideUp and a dialog below,
+            // SlideDown above, the toast at the leading edge.
+            AnimProp::TranslateY | AnimProp::TranslateX if present => 0.0,
+            AnimProp::TranslateY => match self {
+                MotionToken::SlideDown => SLIDE_DOWN_PX,
+                MotionToken::FadeScale => DIALOG_RISE_PX,
+                MotionToken::SlideUp => SLIDE_PX,
+                _ => 0.0,
+            },
+            AnimProp::TranslateX => match self {
+                MotionToken::PushInline => PUSH_INLINE_PX,
+                _ => 0.0,
+            },
+            AnimProp::ScaleX | AnimProp::ScaleY if present => 1.0,
+            AnimProp::ScaleX | AnimProp::ScaleY => match self {
+                MotionToken::FadeScale => FADE_SCALE_FROM,
+                MotionToken::SlideUp => SLIDE_UP_SCALE,
+                MotionToken::SlideDown | MotionToken::PushInline => SLIDE_DOWN_SCALE,
+                _ => 1.0,
+            },
             _ => prop.identity(),
         }
     }
@@ -253,8 +266,17 @@ pub const SLIDE_PX: f32 = 16.0;
 /// offset is negative — and shorter, because it falls out of a 36px bar rather
 /// than rising from the bottom of the screen.
 pub const SLIDE_DOWN_PX: f32 = -10.0;
-/// FadeScale's absent-state scale (grows to 1.0 on enter, per animation.md).
-pub const FADE_SCALE_FROM: f32 = 0.92;
+/// A dialog's rise (px): it comes up 10 px while it grows in (design artifacts:
+/// overlay entrance).
+pub const DIALOG_RISE_PX: f32 = 10.0;
+/// The toast's push (px): in from the leading edge.
+pub const PUSH_INLINE_PX: f32 = -16.0;
+/// FadeScale's absent-state scale: a dialog grows in from 0.94.
+pub const FADE_SCALE_FROM: f32 = 0.94;
+/// SlideUp's absent-state scale (a panel rising into place).
+pub const SLIDE_UP_SCALE: f32 = 0.97;
+/// SlideDown's and the toast's absent-state scale.
+pub const SLIDE_DOWN_SCALE: f32 = 0.96;
 
 #[cfg(test)]
 mod tests {
@@ -320,9 +342,70 @@ mod tests {
         assert_eq!(MotionToken::SlideUp.resting(AnimProp::TranslateY, false), SLIDE_PX);
         assert_eq!(MotionToken::SlideDown.resting(AnimProp::TranslateY, false), SLIDE_DOWN_PX);
         assert!(SLIDE_DOWN_PX < 0.0, "a drop-down starts above its resting place");
-        // Only fadeScale scales in; every other token rests unscaled.
+        // The entrances grow in (design artifacts); value tokens rest unscaled.
         assert_eq!(MotionToken::FadeScale.resting(AnimProp::ScaleX, false), FADE_SCALE_FROM);
         assert_eq!(MotionToken::Snappy.resting(AnimProp::ScaleX, false), 1.0);
+    }
+
+    /// TASK-0354 P3: every token follows its design curve exactly — sampled at named times
+    /// against values an independent solver computed from the artifacts' `cubic-bezier` points
+    /// (the panels' entrance settles fast; a dialog's spring passes 1 and comes back).
+    #[test]
+    fn the_tokens_follow_the_design_curves_at_named_times() {
+        let at = |token: MotionToken, t: f32| token.easing().ease(t);
+        let close = |a: f32, b: f32| (a - b).abs() < 0.005;
+        for (t, want) in [(0.1, 0.4944), (0.25, 0.8256), (0.5, 0.9718), (0.75, 0.9977)] {
+            assert!(close(at(MotionToken::SlideDown, t), want), "slideDown at {t}");
+            assert!(close(at(MotionToken::SlideUp, t), want), "slideUp at {t}");
+        }
+        for (t, want) in [(0.1, 0.3781), (0.25, 0.7914), (0.5, 1.0465), (0.75, 1.0279)] {
+            assert!(close(at(MotionToken::FadeScale, t), want), "fadeScale at {t}");
+            assert!(close(at(MotionToken::PushInline, t), want), "pushInline at {t}");
+        }
+        for (t, want) in [(0.1, 0.0259), (0.25, 0.2366), (0.5, 0.7756), (0.75, 0.9594)] {
+            assert!(close(at(MotionToken::Fade, t), want), "fade at {t}");
+        }
+        for token in MotionToken::ALL {
+            assert!(close(at(token, 0.0), 0.0) && close(at(token, 1.0), 1.0), "{token:?} ends");
+        }
+    }
+
+    /// Every entrance of the design artifacts: where it starts and in which theme step it runs.
+    #[test]
+    fn every_entrance_starts_where_the_design_draws_it() {
+        use AnimProp::{ScaleX, TranslateX, TranslateY};
+        let from = |t: MotionToken, p| t.resting(p, false);
+        assert_eq!(
+            (from(MotionToken::SlideUp, TranslateY), from(MotionToken::SlideUp, ScaleX)),
+            (16.0, 0.97)
+        );
+        assert_eq!(
+            (from(MotionToken::SlideDown, TranslateY), from(MotionToken::SlideDown, ScaleX)),
+            (-10.0, 0.96)
+        );
+        assert_eq!(
+            (from(MotionToken::FadeScale, TranslateY), from(MotionToken::FadeScale, ScaleX)),
+            (10.0, 0.94)
+        );
+        assert_eq!(
+            (from(MotionToken::PushInline, TranslateX), from(MotionToken::PushInline, ScaleX)),
+            (-16.0, 0.96)
+        );
+        assert_eq!(MotionToken::PushInline.primary_prop(), TranslateX);
+        for t in [
+            MotionToken::SlideUp,
+            MotionToken::SlideDown,
+            MotionToken::FadeScale,
+            MotionToken::PushInline,
+        ] {
+            assert_eq!(t.secondary_prop(), Some(ScaleX), "{t:?} grows in while it travels");
+            assert_eq!(t.resting(TranslateY, true) + t.resting(TranslateX, true), 0.0);
+            assert_eq!(t.resting(ScaleX, true), 1.0);
+        }
+        assert_eq!(MotionToken::SlideDown.duration(), MotionDurationToken::Quick);
+        assert_eq!(MotionToken::SlideUp.duration(), MotionDurationToken::Quick);
+        assert_eq!(MotionToken::FadeScale.duration(), MotionDurationToken::Slow);
+        assert_eq!(MotionToken::PushInline.duration(), MotionDurationToken::Slow);
     }
 
     /// A property the token does not drive rests at ITS identity, never at 0 —

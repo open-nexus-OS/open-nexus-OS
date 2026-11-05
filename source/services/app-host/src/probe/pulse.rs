@@ -58,7 +58,21 @@ impl DslApp {
     }
 }
 
-/// The episode's line (RFC-0108 §hops): times and counts, no verdict.
-fn say_motion((n, avg, max, ticks): nexus_ux_budgets::chains::EpisodeLine) {
-    raw_marker(&alloc::format!("apphost: hops motion (pulse>sent={avg}/{max}/{n} ticks={ticks})"));
+/// The episode's line (RFC-0108 §hops): times and counts, no verdict — the pulse → sent hop,
+/// the wake-ups, the raster per frame and its rows, the damage per present, the tokens that ran
+/// (TASK-0351 P15: where a transition frame's time goes).
+fn say_motion(e: nexus_ux_budgets::chains::Episode) {
+    let mut names = alloc::string::String::new();
+    for t in animation::MotionToken::ALL {
+        if e.tokens & (1 << (t as u32)) != 0 {
+            if !names.is_empty() {
+                names.push(',');
+            }
+            names.push_str(t.name());
+        }
+    }
+    raw_marker(&alloc::format!(
+        "apphost: hops motion (pulse>sent={}/{}/{} ticks={} paint_us={}/{} rows={} px={} tokens={names})",
+        e.mean_us, e.max_us, e.frames, e.ticks, e.paint_mean_us, e.paint_max_us, e.rows, e.px
+    ));
 }

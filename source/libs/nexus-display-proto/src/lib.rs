@@ -45,13 +45,17 @@ pub mod layout;
 /// The ONE pixel readback, windowd → gpud (RFC-0095).
 pub mod readback;
 pub use readback::{OP_READBACK, READBACK_FREEZE};
+/// RFC-0109 §motion layers: a declared layer the compositor moves (TASK-0354 P2).
+pub mod motion_layer;
 /// Screen capture on windowd's surface endpoint + the capture-key push (RFC-0095).
 pub mod surface_capture;
 /// RFC-0113 §5: the focused field's caret, drawn and blinked by the compositor.
 pub mod surface_caret;
 pub mod surface_input;
-/// RFC-0109: the surface's structure and motion (scroll layers, wash layers).
+/// RFC-0109: the surface's structure and motion (scroll layers, wash layers, motion layers).
 pub mod surface_layers;
+/// RFC-0109: the motion frame (scroll offsets, wash layers), re-exported by `surface_layers`.
+pub mod surface_layers_motion;
 #[cfg(test)]
 mod surface_layers_tests;
 /// RFC-0113 §2: the pointer's motion history — every sample of a frame, on both input hops.

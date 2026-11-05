@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # CONTEXT: window-kit — the shared DSL component library for the
-# design-handoff WINDOW look (top chrome with slots, menu items, floating
+# design WINDOW look (top chrome with slots, menu items, floating
 # action bar, sidebar rows, property rows). `bundle_type = "library"`:
 # contributes `Component` declarations ONLY (TASK-0081 C3); consuming apps
 # name it in `dependencies` and the components compile INTO their .nxir.
@@ -27,7 +27,7 @@
 #   (inert), minimize, close — labels via props menuFullscreen/menuMoveDevice/
 #   menuMinimize/menuClose. Apps mount no app-chip dropdown of their own.
 #
-# OVERLAYS (TASK-0074 / ADR-0068 — the design handoff's Alert · Modal · Toast
+# OVERLAYS (TASK-0074 / ADR-0068 — the design artifacts' Alert · Modal · Toast
 # as `.overlay(modal|transient)` compositions; the runtime owns confinement,
 # ESC/backdrop/timeout dismissal, windowd owns ONE routing verb):
 #   WinAlert   props id/title/message/cancelLabel/confirmLabel/destructive

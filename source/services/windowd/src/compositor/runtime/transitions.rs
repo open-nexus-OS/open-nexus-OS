@@ -14,6 +14,7 @@
 //! API_STABILITY: Unstable
 
 use super::*;
+use animation::Easing;
 
 /// The window-transform layer-id namespace in windowd's own `AnimationDriver`
 /// (distinct from the chrome proof layers' small consts).
@@ -32,6 +33,9 @@ const OPEN_SCALE_FROM: f32 = 0.92;
 const CLOSE_SCALE_TO: f32 = 0.92;
 /// Minimize fly target scale.
 const MIN_SCALE_TO: f32 = 0.15;
+/// The minimize's length (ns): a fixed, short exit that ends exactly — a spring's tail left the
+/// window waiting small and faded above the taskbar before it went (board 2026-11-05).
+const MINIMIZE_NS: u64 = 260_000_000;
 
 impl DisplayServerRuntime {
     #[inline]
@@ -119,15 +123,27 @@ impl DisplayServerRuntime {
         let layer = Self::wt_layer(idx);
         let now = nexus_abi::nsec().unwrap_or(0);
         self.animation_driver.reset_clock(now);
-        self.animation_driver.spring_to(layer, AnimProp::TranslateX, cur.dx, target_x, EXIT_SPRING);
-        self.animation_driver.spring_to(layer, AnimProp::TranslateY, cur.dy, target_y, EXIT_SPRING);
-        self.animation_driver.spring_to(layer, AnimProp::Opacity, cur.opacity, 0.15, EXIT_SPRING);
-        self.animation_driver.spring_to(
+        // Timed, not sprung: it accelerates into the taskbar and ends at its length, the window
+        // faded out over the last part — it is gone the moment it arrives (the deferred
+        // `minimize_window` runs on that frame), nothing waits at the bottom.
+        let fly = |d: &mut animation::AnimationDriver, prop, from: f32, to: f32| {
+            d.keyframe_to(
+                layer,
+                prop,
+                alloc::vec![(0.0, from), (1.0, to)],
+                MINIMIZE_NS,
+                Easing::EaseIn,
+            );
+        };
+        fly(&mut self.animation_driver, AnimProp::TranslateX, cur.dx, target_x);
+        fly(&mut self.animation_driver, AnimProp::TranslateY, cur.dy, target_y);
+        fly(&mut self.animation_driver, AnimProp::ScaleX, cur.scale, MIN_SCALE_TO);
+        self.animation_driver.keyframe_to(
             layer,
-            AnimProp::ScaleX,
-            cur.scale,
-            MIN_SCALE_TO,
-            EXIT_SPRING,
+            AnimProp::Opacity,
+            alloc::vec![(0.0, cur.opacity), (0.55, cur.opacity * 0.9), (1.0, 0.0)],
+            MINIMIZE_NS,
+            Easing::Linear,
         );
         let _ = debug_println("windowd: transition minimize");
     }
@@ -244,14 +260,16 @@ impl DisplayServerRuntime {
     /// faded, scaled about the centre — plus a drag's offset; in the wire's units (px, px,
     /// `0..=255`, percent). Every present carries it (`Command::LayerTransform`), the only way
     /// it reaches the display (TASK-0338).
-    pub(super) fn wire_transform(&self, idx: usize) -> (i32, i32, u32, u32) {
+    pub(super) fn wire_transform(&self, idx: usize) -> crate::frame_transform::FrameTransform {
         let t = self.apps[idx].transform;
         let (ddx, ddy) = self.apps[idx].drag_offset.unwrap_or((0, 0));
-        (
-            t.dx as i32 + ddx,
-            t.dy as i32 + ddy,
-            (t.opacity * 255.0).clamp(0.0, 255.0) as u32,
-            (t.scale * 100.0).clamp(1.0, 400.0) as u32,
+        let win = &self.apps[idx].win;
+        // Scaled about the window's own centre: its body, regions and slices together.
+        crate::frame_transform::FrameTransform::of_window(
+            (t.dx as i32 + ddx, t.dy as i32 + ddy),
+            t.opacity,
+            t.scale,
+            (win.x, win.y, win.w, win.h),
         )
     }
 
@@ -259,7 +277,10 @@ impl DisplayServerRuntime {
     /// into `out` (cleared first): a mounted, replaced or starting window's as it draws now. A
     /// present with layers names every window's (the planner holds none it does not name), so
     /// a window's key never inherits another's fade (RFC-0114 §7, TASK-0338).
-    pub(super) fn present_transforms(&self, out: &mut Vec<(u32, (i32, i32, u32, u32))>) {
+    pub(super) fn present_transforms(
+        &self,
+        out: &mut Vec<(u32, crate::frame_transform::FrameTransform)>,
+    ) {
         out.clear();
         for (idx, a) in self.apps.iter().enumerate() {
             if a.surface_id.is_some() || a.retiring.is_some() || a.starting {

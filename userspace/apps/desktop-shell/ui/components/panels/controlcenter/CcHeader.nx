@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Control-Center header (design_handoff_panels §3, row 1): three 30px glyph
+// Control-Center header (design artifacts: panels §3, row 1): three 30px glyph
 // buttons and the user avatar, pushed right.
 //
 // Ausschalten asks through the kit's `WinAlert` (TASK-0074: `PowerAsk` opens

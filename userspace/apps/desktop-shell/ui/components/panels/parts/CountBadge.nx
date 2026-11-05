@@ -1,9 +1,9 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The counter badge (design_handoff_panels `.n-badge`) on the stacked mail
+// The counter badge (design artifacts: panels `.n-badge`) on the stacked mail
 // card: a red capsule with a white count. The vertical `#ff5b52 → #ff3b30`
-// gradient is the handoff's literal — a badge is a fixed system colour in
+// gradient is the design's literal — a badge is a fixed system colour in
 // every theme, so it does not go through a role.
 
 Component CountBadge {

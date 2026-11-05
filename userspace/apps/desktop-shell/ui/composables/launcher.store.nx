@@ -18,7 +18,7 @@ Store LauncherStore {
     launching: Str = "",
     clock: Str = "--:--",
     date: Str = "",
-    // The fullscreen pager's ACTIVE page (design_handoff_launcher §11).
+    // The fullscreen pager's ACTIVE page (design artifacts: launcher §11).
     // Wheel turns arrive as host-fired PageNext/PagePrev triggers (the host
     // only fires when a turn actually happened, so ±1 stays in range); a dot
     // tap SETS the page and the effect glides the viewport there.

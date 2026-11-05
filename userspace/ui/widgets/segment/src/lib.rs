@@ -3,7 +3,7 @@
 
 #![cfg_attr(not(test), no_std)]
 
-//! `Segment` — the design-system segmented control (handoff `Segment`): a glass
+//! `Segment` — the design-system segmented control (design `Segment`): a glass
 //! pill with a sliding thumb behind the active option. A pure builder producing
 //! a `LayoutNode::Stack` row of option slots; the active slot carries the thumb
 //! fill. Options are caller-provided nodes (they own their labels/ids), so the
@@ -18,7 +18,7 @@ use nexus_layout_types::{
 use nexus_style::Style;
 use nexus_theme_tokens::{ColorToken, LengthToken, Tokens};
 
-/// Size preset (handoff `SegmentProps.size`).
+/// Size preset (design `SegmentProps.size`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SegmentSize {
     Sm,

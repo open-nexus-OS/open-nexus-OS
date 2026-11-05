@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// One dropdown-menu row (design handoff `Menu`): optional icon + label,
+// One dropdown-menu row (design artifacts `Menu`): optional icon + label,
 // `kind` selects the treatment — "" plain · "danger" red · "check" a
 // trailing checkmark · "sub" a trailing chevron (cascading submenu; the
 // app's `WinMenuPick` reducer switches `menu` to the submenu id).

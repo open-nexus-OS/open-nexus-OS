@@ -3,7 +3,7 @@
 
 #![cfg_attr(not(test), no_std)]
 
-//! `Pagination` — the design-system page navigation (handoff `Pagination`):
+//! `Pagination` — the design-system page navigation (design `Pagination`):
 //! prev/next affordances plus numbered page pills with ellipsis truncation for
 //! large ranges (the current page tints accent). A pure builder producing a
 //! `LayoutNode::Stack` row. `visible_pages` is the deterministic truncation.

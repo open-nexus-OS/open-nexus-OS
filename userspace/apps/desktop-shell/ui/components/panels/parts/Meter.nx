@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The battery meter (design_handoff_panels `.meter`): a 6px groove with a
+// The battery meter (design artifacts: panels `.meter`): a 6px groove with a
 // green fill, in the Control Center's fixed 80px slot and again full-width in
 // the Battery panel. The caller sizes the groove; the meter fills its share.
 //

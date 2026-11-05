@@ -50,7 +50,7 @@ const GPUD_STATUS_OK: u8 = nexus_display_proto::STATUS_OK;
 // gpud route slots: declared in nexus-service-topology, pinned there by init (P4a).
 pub(crate) const GPUD_WIRED_SEND_SLOT: u32 = nexus_service_topology::slots::windowd::GPUD.send;
 pub(crate) const GPUD_WIRED_RECV_SLOT: u32 = nexus_service_topology::slots::windowd::GPUD.recv;
-/// Shell chrome contract (design-handoff shell — the DSL shell draws these,
+/// Shell chrome contract (design shell — the DSL shell draws these,
 /// windowd reserves/overlays them): the top bar is ALWAYS above app windows
 /// (windows sit BEHIND it; its strip stays clickable), the desktop taskbar
 /// is reserved in the desktop profile (windows never cover it) while the
@@ -103,6 +103,7 @@ mod slots;
 mod surface_buffers;
 mod surface_layers;
 mod surface_layers_encode;
+mod surface_motion;
 pub(crate) mod text_input;
 mod tiling;
 mod transitions;

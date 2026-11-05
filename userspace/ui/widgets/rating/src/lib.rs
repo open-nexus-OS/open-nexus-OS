@@ -3,7 +3,7 @@
 
 #![cfg_attr(not(test), no_std)]
 
-//! `Rating` — the design-system star rating (handoff `Rating`): a row of star
+//! `Rating` — the design-system star rating (design `Rating`): a row of star
 //! [`Icon`]s, filled up to the value (warning tint) and muted beyond. A pure
 //! builder producing a `LayoutNode::Stack` row; the `id` is the interaction id
 //! (the app maps a tapped star index → value). DSL-emittable — and the first

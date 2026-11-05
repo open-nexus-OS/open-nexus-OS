@@ -3,7 +3,7 @@
 
 #![cfg_attr(not(test), no_std)]
 
-//! `Banner` — the design-system inline status strip (handoff `Banner`,
+//! `Banner` — the design-system inline status strip (design `Banner`,
 //! ArkUI `ExceptionPrompt` counterpart): a glass bar with a status accent
 //! stripe, optional title + message, an optional action label and a dismiss
 //! affordance. INLINE (it takes layout space) — the floating sibling is
@@ -21,7 +21,7 @@ use nexus_theme_tokens::{ColorToken, LengthToken, MaterialToken, Tokens, Typogra
 use nexus_widget_panel::Panel;
 use nexus_widget_text::Text;
 
-/// Status accent (handoff `BannerProps.variant`).
+/// Status accent (design `BannerProps.variant`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BannerVariant {
     #[default]
@@ -85,13 +85,13 @@ impl Banner {
         self
     }
 
-    /// Action label (handoff `action`); give it an id for hit-testing.
+    /// Action label (design `action`); give it an id for hit-testing.
     pub fn action(mut self, label: impl Into<String>) -> Self {
         self.action = Some(label.into());
         self
     }
 
-    /// Shows the dismiss affordance (handoff `onDismiss` presence).
+    /// Shows the dismiss affordance (design `onDismiss` presence).
     pub fn dismissible(mut self, on: bool) -> Self {
         self.dismissible = on;
         self

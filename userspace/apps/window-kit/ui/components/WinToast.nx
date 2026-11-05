@@ -1,9 +1,12 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The design handoff's SYSTEM TOAST (5-surface routing, "System ack"): a
+// The design artifacts' SYSTEM TOAST (5-surface routing, "System ack"): a
 // transient confirmation at the LEFT edge — glyph, title, one line — that
-// needs no action and leaves by itself after 3–5 s. A transient layer
+// needs no action and leaves by itself after 3–5 s. It sits BELOW the shell's
+// 36px top bar (12px under it): drawn in front of everything (RFC-0109 §motion
+// layers), it must never cover the bar. It slides in from the left edge,
+// growing from 0.96 on the spring (`pushInline`). A transient layer
 // (TASK-0074 / ADR-0068): it confines nothing; the HOST's one-shot timer fires
 // `on Dismiss` after `.dismissAfter(ms)` (the DSL holds no clock), a tap on
 // the card dismisses it early — both through `ToastDismiss(id)`, the ONE way
@@ -22,7 +25,7 @@ Component WinToast {
     }
     Stack {
         Stack { }
-            .height(12)
+            .height(48)
         Stack {
             Stack {
                 Panel {
@@ -54,6 +57,6 @@ Component WinToast {
     }
     .overlay(transient)
     .dismissAfter(4000)
-    .transition(slideUp)
+    .transition(pushInline)
     on Dismiss -> dispatch(ToastDismiss($props.id))
 }

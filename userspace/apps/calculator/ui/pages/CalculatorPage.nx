@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The calculator, rebuilt to `docs/design_handoff_calculator` and responsive
+// The calculator, rebuilt to the design artifacts (calculator) and responsive
 // at EVERY window size: the keypad divides exactly on both axes
 // (`.basis(0).grow(1)`) and every label sizes itself from its own key
 // (`.textFit`), so keys stay square-ish and the type steps up as the window
@@ -58,10 +58,10 @@ Page CalculatorPage {
                 .material(windowPane)
                 .rounded(16)
                 // SPACING IS IN 4px STEPS, not pixels (`registry::spacing` = step * 4) —
-                // writing the handoff's raw 16/14 here made the pane pad 64px and gap
+                // writing the design's raw 16/14 here made the pane pad 64px and gap
                 // 56px, which squeezed the keypad rows down to their text height. Radii,
                 // `.minHeight` and `.basis` DO take raw px; only padding/gap are stepped.
-                // Handoff 18/16/16 + gap 14 -> 4/4/4 steps (16px) + 3 steps (12px).
+                // Design 18/16/16 + gap 14 -> 4/4/4 steps (16px) + 3 steps (12px).
                 .paddingTop(4)
                 .paddingX(4)
                 .paddingBottom(4)

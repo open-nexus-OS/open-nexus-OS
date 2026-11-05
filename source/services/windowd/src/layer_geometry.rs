@@ -12,8 +12,10 @@
 //! API_STABILITY: Internal
 //! TEST_COVERAGE: `mod tests` below
 
+use nexus_display_proto::client_surface::{LayerDesc, MAX_SURFACE_LAYERS};
 use nexus_display_proto::surface_layers::{
-    self as proto, ScrollLayerDesc, SurfaceMotion, SurfaceTree, Wash, AXIS_VERTICAL,
+    self as proto, MotionLayerDesc, ScrollLayerDesc, SurfaceMotion, SurfaceTree, Wash,
+    AXIS_VERTICAL, MAX_MOTION_LAYERS,
 };
 
 /// A surface's declared layers.
@@ -27,17 +29,79 @@ pub(crate) struct SurfaceLayers {
     pub(crate) motion: SurfaceMotion,
     /// A refusal was said for this surface (once per surface: a broken client must not flood).
     refusal_said: bool,
+    /// When each motion layer's motion started (ns, the shown time of the frame that first drew
+    /// it; `0`: not drawn yet) — carried by id across structures (`motion_geometry`).
+    pub(crate) starts: [u64; MAX_MOTION_LAYERS],
+    /// The shown time of the last frame that drew these layers (`motion_geometry::frame_owed`).
+    pub(crate) drawn_at: u64,
 }
 
-/// What a present's structure changed on the screen.
+/// The most rectangles a structure change names before it counts as the whole surface: every
+/// region and every motion layer of the structure before it and after it.
+pub(crate) const CHANGED_MAX: usize = 2 * (MAX_SURFACE_LAYERS + MAX_MOTION_LAYERS);
+
+/// How far a region's drop shadow reaches past its rectangle (`material_glass`: blur 24, 8 down).
+const SHADOW_REACH: u32 = 32;
+
+/// What a present's structure changed on the screen: the whole surface (viewports, bands' shapes,
+/// patches — or more rectangles than it names), the rectangles that changed (a region moved or
+/// re-dressed: where it was and is — TASK-0351 P15, a panel sliding under the bar damages its own
+/// columns, not every pixel of the desktop; a region or a motion layer that came or went: where
+/// it is or was — TASK-0354 P2), and the bands whose content changed (bit `k`: scroll layer
+/// `k`'s valid range).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum TreeChange {
-    /// Nothing.
-    None,
-    /// Only the content some bands hold (bit `k`: scroll layer `k`'s valid range).
-    Bands(u8),
-    /// Regions, viewports, bands or patches: the whole surface.
-    Structure,
+pub(crate) struct TreeChange {
+    pub(crate) whole: bool,
+    rects: [Rect; CHANGED_MAX],
+    count: usize,
+    pub(crate) bands: u8,
+}
+
+impl TreeChange {
+    pub(crate) const NONE: Self =
+        Self { whole: false, rects: [(0, 0, 0, 0); CHANGED_MAX], count: 0, bands: 0 };
+    pub(crate) const STRUCTURE: Self = Self { whole: true, ..Self::NONE };
+
+    /// The rectangles that changed (surface pixels).
+    pub(crate) fn rects(&self) -> &[Rect] {
+        &self.rects[..self.count]
+    }
+
+    /// One more changed rectangle; past the bound the change is the whole surface.
+    fn push(&mut self, r: Rect) {
+        match self.rects.get_mut(self.count) {
+            Some(slot) => {
+                *slot = r;
+                self.count += 1;
+            }
+            None => self.whole = true,
+        }
+    }
+
+    #[cfg(test)]
+    const fn bands(bands: u8) -> Self {
+        Self { bands, ..Self::NONE }
+    }
+}
+
+/// A rectangle in surface pixels.
+type Rect = (u32, u32, u32, u32);
+
+/// Region `l`'s rectangle on the screen, its drop shadow included.
+fn region_rect(l: &LayerDesc) -> Rect {
+    let (x, y, w, h) = (u32::from(l.x), u32::from(l.y), u32::from(l.w), u32::from(l.h));
+    if l.shadow_alpha == 0 {
+        return (x, y, w, h);
+    }
+    let (x0, y0) = (x.saturating_sub(SHADOW_REACH), y.saturating_sub(SHADOW_REACH));
+    (x0, y0, x + w + SHADOW_REACH - x0, y + h + SHADOW_REACH - y0)
+}
+
+/// The least rectangle holding `a` and `b`.
+fn span(a: Rect, b: Rect) -> Rect {
+    let (x0, y0) = (a.0.min(b.0), a.1.min(b.1));
+    let (x1, y1) = ((a.0 + a.2).max(b.0 + b.2), (a.1 + a.3).max(b.1 + b.3));
+    (x0, y0, x1 - x0, y1 - y0)
 }
 
 impl SurfaceLayers {
@@ -52,6 +116,8 @@ impl SurfaceLayers {
             wash_count: 0,
         },
         refusal_said: false,
+        starts: [0; MAX_MOTION_LAYERS],
+        drawn_at: 0,
     };
 
     /// A new surface: nothing declared yet (fail-closed — no region, no band, no wash).
@@ -59,10 +125,12 @@ impl SurfaceLayers {
         *self = Self::EMPTY;
     }
 
-    /// The present: the waiting structure takes effect. Says what changed on the screen.
+    /// The present: the waiting structure takes effect — its motion layers keep their starts by
+    /// id (`motion_geometry::carry_starts`). Says what changed on the screen.
     pub(crate) fn activate(&mut self) -> TreeChange {
-        let Some(next) = self.pending.take() else { return TreeChange::None };
+        let Some(next) = self.pending.take() else { return TreeChange::NONE };
         let change = structure_change(&self.tree, &next);
+        self.starts = crate::motion_geometry::carry_starts(&self.tree, &self.starts, &next);
         self.tree = next;
         change
     }
@@ -83,45 +151,94 @@ impl SurfaceLayers {
         !core::mem::replace(&mut self.refusal_said, true)
     }
 
+    /// Whether these layers owe a frame for a motion layer: not drawn yet, or still moving in the
+    /// last frame drawn (`motion_geometry::frame_owed`).
+    pub(crate) fn motion_frame_owed(&self) -> bool {
+        crate::motion_geometry::frame_owed(&self.tree, &self.starts, self.drawn_at)
+    }
+
     /// The motion's offset of scroll layer `k` (0 when the motion names none yet).
     pub(crate) fn offset(&self, k: usize) -> i32 {
         self.motion.offsets().get(k).copied().unwrap_or(0)
     }
 
-    /// The most layers this declaration composes in a frame — its regions, its scroll layers'
-    /// pieces at their offsets, its washes: the surface's demand on the frame's bound.
+    /// The most layers this declaration composes in a frame — its motion layers' own pixels and
+    /// backdrops, its regions, its scroll layers' pieces at their offsets, its washes: the
+    /// surface's demand on the frame's bound.
     pub(crate) fn demand(&self) -> usize {
         let mut out = [Piece::default(); MAX_PIECES];
         let slices: usize = (0..self.tree.scrolls().len())
             .map(|k| pieces(&self.tree.scrolls()[k], self.offset(k), &mut out))
             .sum();
-        self.tree.regions().len() + slices + self.motion.washes().len()
+        let backdrops = self.tree.motions().iter().filter(|m| m.backdrop().is_some()).count();
+        self.tree.motions().len()
+            + backdrops
+            + self.tree.regions().len()
+            + slices
+            + self.motion.washes().len()
     }
 }
 
-/// What `next` changes against `now`: only valid ranges → the bands; anything else → all.
+/// What `next` changes against `now`: the same regions moved or re-dressed → where each was and
+/// is; regions or motion layers that came or went → where each is or was (a layer with a
+/// backdrop: all — its backdrop spans the surface); valid ranges → the bands; viewports, bands'
+/// shapes and patches → all.
 fn structure_change(now: &SurfaceTree, next: &SurfaceTree) -> TreeChange {
     let same_but_valid = |a: &ScrollLayerDesc, b: &ScrollLayerDesc| {
         ScrollLayerDesc { valid_start: 0, valid_len: 0, ..*a }
             == ScrollLayerDesc { valid_start: 0, valid_len: 0, ..*b }
     };
-    if now.regions() != next.regions()
-        || now.patches() != next.patches()
+    if now.patches() != next.patches()
         || now.scrolls().len() != next.scrolls().len()
         || now.scrolls().iter().zip(next.scrolls()).any(|(a, b)| !same_but_valid(a, b))
     {
-        return TreeChange::Structure;
+        return TreeChange::STRUCTURE;
     }
-    let mut bands = 0u8;
+    let mut change = TreeChange::NONE;
+    if now.regions().len() == next.regions().len() {
+        for (a, b) in now.regions().iter().zip(next.regions()) {
+            if a != b {
+                change.push(span(region_rect(a), region_rect(b)));
+            }
+        }
+    } else {
+        unmatched(now.regions(), next.regions(), |l| change.push(region_rect(l)));
+    }
+    // A motion layer is the same while its place, its pixels and what it claims are: its
+    // duration falling to 0 (the app's note that the motion is over) changes nothing on screen.
+    let key = |m: &MotionLayerDesc| MotionLayerDesc { duration_ms: 0, ..*m };
+    let (old, new) = (now.motions(), next.motions());
+    let mut keys = [MotionLayerDesc::EMPTY; 2 * MAX_MOTION_LAYERS];
+    for (slot, m) in keys.iter_mut().zip(old.iter().chain(new)) {
+        *slot = key(m);
+    }
+    let (old_keys, new_keys) = keys.split_at(old.len());
+    unmatched(old_keys, &new_keys[..new.len()], |m| match m.backdrop() {
+        Some(_) => change.whole = true,
+        None => change.push(m.rest()),
+    });
     for (k, (a, b)) in now.scrolls().iter().zip(next.scrolls()).enumerate() {
         if (a.valid_start, a.valid_len) != (b.valid_start, b.valid_len) {
-            bands |= 1 << k;
+            change.bands |= 1 << k;
         }
     }
-    if bands == 0 {
-        TreeChange::None
-    } else {
-        TreeChange::Bands(bands)
+    change
+}
+
+/// Every entry of `a` with no equal entry in `b` and every entry of `b` with none in `a` — each
+/// equal pair matched once (a list may hold the same entry twice).
+fn unmatched<T: PartialEq>(a: &[T], b: &[T], mut each: impl FnMut(&T)) {
+    let mut used = [false; MAX_SURFACE_LAYERS + MAX_MOTION_LAYERS];
+    for x in a {
+        match b.iter().enumerate().position(|(j, y)| !used[j] && y == x) {
+            Some(j) => used[j] = true,
+            None => each(x),
+        }
+    }
+    for (j, y) in b.iter().enumerate() {
+        if !used[j] {
+            each(y);
+        }
     }
 }
 
@@ -179,9 +296,15 @@ pub(crate) fn pieces(s: &ScrollLayerDesc, offset: i32, out: &mut [Piece; MAX_PIE
 /// `None` when nothing of it is visible or its parent is not declared.
 pub(crate) fn wash_place(w: &Wash, layers: &SurfaceLayers, base: (u32, u32)) -> Option<Piece> {
     let (x, y) = (i64::from(w.x), i64::from(w.y));
-    let (rect, clip) = match usize::from(w.parent) {
-        0 => ((x, y), (0, 0, i64::from(base.0), i64::from(base.1))),
-        k => {
+    let (rect, clip) = match (w.motion_parent(), usize::from(w.parent)) {
+        // A motion layer's wash: relative to its rest, clipped to it (it moves with the layer).
+        (Some(m), _) => {
+            let (mx, my, mw, mh) = layers.tree.motions().get(m)?.rest();
+            let (mx, my) = (i64::from(mx), i64::from(my));
+            ((mx + x, my + y), (mx, my, i64::from(mw), i64::from(mh)))
+        }
+        (None, 0) => ((x, y), (0, 0, i64::from(base.0), i64::from(base.1))),
+        (None, k) => {
             let s = layers.tree.scrolls().get(k - 1)?;
             let o = i64::from(layers.offset(k - 1));
             let (vx, vy) = (i64::from(s.vx), i64::from(s.vy));
@@ -212,22 +335,31 @@ pub(crate) fn owns(owner_sid: u64, sender_sid: u64) -> bool {
     owner_sid != 0 && owner_sid == sender_sid
 }
 
-/// The screen damage of a present's rectangle in the surface's STORE (a band's rows): the
-/// viewports of the scroll layers whose band it touches, in surface coordinates. Patches
-/// change nothing on the screen by themselves (a wash using one is motion).
+/// Screen rectangles one store rectangle of a present can damage: a band's viewport each, a motion
+/// layer's rest each.
+pub(crate) const STORE_DAMAGE_MAX: usize = proto::MAX_SCROLL_LAYERS + MAX_MOTION_LAYERS;
+
+/// The screen damage of a present's rectangle in the surface's STORE: the viewports of the scroll
+/// layers whose band it touches and the rests of the motion layers whose pixels it touches, in
+/// surface coordinates (a moving layer is redrawn where it is by the planner, TASK-0354 P2).
+/// Patches change nothing on the screen by themselves (a wash using one is motion).
 pub(crate) fn store_damage(
     layers: &SurfaceLayers,
     rect: (u32, u32, u32, u32),
-    out: &mut [(u32, u32, u32, u32); proto::MAX_SCROLL_LAYERS],
+    out: &mut [(u32, u32, u32, u32); STORE_DAMAGE_MAX],
 ) -> usize {
+    let touches = |b: Rect| {
+        rect.0 < b.0 + b.2 && b.0 < rect.0 + rect.2 && rect.1 < b.1 + b.3 && b.1 < rect.1 + rect.3
+    };
     let mut n = 0;
+    for m in layers.tree.motions() {
+        if touches((u32::from(m.sx), u32::from(m.sy), u32::from(m.w), u32::from(m.h))) {
+            out[n] = m.rest();
+            n += 1;
+        }
+    }
     for s in layers.tree.scrolls() {
-        let b = s.band_rect();
-        let touches = rect.0 < b.0 + b.2
-            && b.0 < rect.0 + rect.2
-            && rect.1 < b.1 + b.3
-            && b.1 < rect.1 + rect.3;
-        if touches && s.valid_len > 0 {
+        if touches(s.band_rect()) && s.valid_len > 0 {
             out[n] = (u32::from(s.vx), u32::from(s.vy), u32::from(s.vw), u32::from(s.vh));
             n += 1;
         }
@@ -235,278 +367,6 @@ pub(crate) fn store_damage(
     n
 }
 
-/// Max-min fair shares of the frame's layers (RFC-0109 failure model): `demand[i]` is what
-/// surface `i` declares, `rest` what the planner's set holds beside the bodies. When everything
-/// fits each surface keeps its demand; otherwise the smaller demands stay whole and the rest is
-/// split evenly among the larger — a surface over the bound loses its own last layers, never
-/// another window's.
-pub(crate) fn fair_shares(rest: usize, demand: &[usize], share: &mut [usize]) {
-    let n = demand.len().min(share.len());
-    // `usize::MAX` marks a surface whose share is still open.
-    share[..n].fill(usize::MAX);
-    let (mut left, mut open) = (rest, n);
-    while open > 0 {
-        let even = left / open;
-        let smallest = (0..n)
-            .filter(|&i| share[i] == usize::MAX)
-            .min_by_key(|&i| demand[i])
-            .filter(|&i| demand[i] <= even);
-        let Some(i) = smallest else {
-            // Every open demand exceeds the even split: each takes it, the remainder in order.
-            let mut extra = left - even * open;
-            for s in share[..n].iter_mut().filter(|s| **s == usize::MAX) {
-                *s = even + usize::from(extra > 0);
-                extra = extra.saturating_sub(1);
-            }
-            return;
-        };
-        share[i] = demand[i];
-        left -= demand[i];
-        open -= 1;
-    }
-}
-
-/// One surface's share of the frame's layers as its encode spends it: a layer past the share is
-/// not composed, and counted.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct LayerQuota {
-    left: usize,
-    dropped: usize,
-}
-
-impl LayerQuota {
-    pub(crate) const fn new(share: usize) -> Self {
-        Self { left: share, dropped: 0 }
-    }
-
-    /// Sets one layer of the share aside BEFORE the surface spends it, for a layer drawn over
-    /// the surface (the caret): a tight frame drops the surface's own last layer, never that one.
-    /// `false` (not counted) when the share is empty — the surface is not drawn as layers.
-    pub(crate) fn set_aside(&mut self) -> bool {
-        if self.left == 0 {
-            return false;
-        }
-        self.left -= 1;
-        true
-    }
-
-    /// Whether one more layer fits the share (counted as dropped when it does not).
-    pub(crate) fn take(&mut self) -> bool {
-        if self.left == 0 {
-            self.dropped += 1;
-            return false;
-        }
-        self.left -= 1;
-        true
-    }
-
-    /// The layers the surface lost to its share this frame.
-    pub(crate) const fn dropped(&self) -> usize {
-        self.dropped
-    }
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use nexus_display_proto::surface_layers::{Patch, AXIS_HORIZONTAL};
-
-    fn vertical() -> ScrollLayerDesc {
-        ScrollLayerDesc {
-            vx: 310,
-            vy: 120,
-            vw: 1080,
-            vh: 700,
-            axis: AXIS_VERTICAL,
-            flags: 0,
-            bx: 0,
-            by: 869,
-            strip_len: 1400,
-            strips: 1,
-            valid_start: 0,
-            valid_len: 1400,
-        }
-    }
-
-    #[test]
-    fn the_visible_window_is_one_piece_inside_the_ring() {
-        let mut out = [Piece::default(); MAX_PIECES];
-        let n = pieces(&vertical(), 300, &mut out);
-        assert_eq!(n, 1);
-        assert_eq!(out[0], Piece { src: (0, 869 + 300), dst: (310, 120), size: (1080, 700) });
-    }
-
-    #[test]
-    fn the_window_across_the_ring_wrap_is_two_pieces() {
-        let mut s = vertical();
-        s.valid_start = 1000;
-        let mut out = [Piece::default(); MAX_PIECES];
-        // Content 1100..1800 sits at ring rows 1100..1400 and 0..400.
-        let n = pieces(&s, 1100, &mut out);
-        assert_eq!(n, 2);
-        assert_eq!(out[0], Piece { src: (0, 869 + 1100), dst: (310, 120), size: (1080, 300) });
-        assert_eq!(out[1], Piece { src: (0, 869), dst: (310, 420), size: (1080, 400) });
-    }
-
-    /// The band behind the viewport: only what the ring holds is drawn — never an evicted range.
-    #[test]
-    fn test_reject_showing_content_outside_the_valid_range() {
-        let mut s = vertical();
-        s.valid_start = 0;
-        s.valid_len = 900;
-        let mut out = [Piece::default(); MAX_PIECES];
-        let n = pieces(&s, 500, &mut out);
-        assert_eq!(n, 1);
-        assert_eq!(out[0].size, (1080, 400), "content 500..900 only");
-        s.valid_len = 0; // covered
-        assert_eq!(pieces(&s, 500, &mut out), 0);
-        s.valid_start = 5000;
-        s.valid_len = 1400; // the ring moved on: nothing of 500..1200 is there
-        assert_eq!(pieces(&s, 500, &mut out), 0);
-    }
-
-    #[test]
-    fn a_folded_horizontal_ring_cuts_at_its_strips() {
-        let s = ScrollLayerDesc {
-            vx: 0,
-            vy: 100,
-            vw: 1920,
-            vh: 600,
-            axis: AXIS_HORIZONTAL,
-            flags: 0,
-            bx: 0,
-            by: 1096,
-            strip_len: 1920,
-            strips: 2,
-            valid_start: 0,
-            valid_len: 3840,
-        };
-        let mut out = [Piece::default(); MAX_PIECES];
-        let n = pieces(&s, 1000, &mut out);
-        assert_eq!(n, 2);
-        assert_eq!(out[0], Piece { src: (1000, 1096), dst: (0, 100), size: (920, 600) });
-        assert_eq!(out[1], Piece { src: (0, 1696), dst: (920, 100), size: (1000, 600) });
-    }
-
-    #[test]
-    fn a_wash_follows_its_scroll_layer_and_is_clipped_to_its_viewport() {
-        let mut layers = SurfaceLayers::EMPTY;
-        layers.tree.scrolls[0] = vertical();
-        layers.tree.scroll_count = 1;
-        layers.tree.patches[0] = Patch { x: 1400, y: 853 };
-        layers.tree.patch_count = 1;
-        layers.motion.offsets[0] = 400;
-        layers.motion.offset_count = 1;
-        // A row at content y 420: on the surface at 120 + 420 - 400 = 140.
-        let w = Wash { parent: 1, patch: 0, radius: 10, opacity: 38, x: 0, y: 420, w: 1080, h: 41 };
-        let p = wash_place(&w, &layers, (1440, 853)).expect("visible");
-        assert_eq!(p, Piece { src: (1401, 854), dst: (310, 140), size: (1080, 41) });
-        // A row half above the viewport: cut at its top.
-        let w = Wash { y: 390, ..w };
-        let p = wash_place(&w, &layers, (1440, 853)).expect("visible");
-        assert_eq!((p.dst, p.size), ((310, 120), (1080, 31)));
-        // A row scrolled out: nothing.
-        let w = Wash { y: 100, ..w };
-        assert_eq!(wash_place(&w, &layers, (1440, 853)), None);
-        // A wash on the base: base coordinates.
-        let w = Wash { parent: 0, x: 20, y: 30, w: 200, h: 44, ..w };
-        assert_eq!(wash_place(&w, &layers, (1440, 853)).map(|p| p.dst), Some((20, 30)));
-    }
-
-    /// RFC-0109: a structure takes effect with the present of the pixels it names — never before;
-    /// a motion is checked against the structure about to be in effect; a refusal is said once.
-    #[test]
-    fn a_structure_takes_effect_with_its_present() {
-        let mut layers = SurfaceLayers::EMPTY;
-        let mut tree = SurfaceTree::EMPTY;
-        tree.scrolls[0] = vertical();
-        tree.scroll_count = 1;
-        layers.stage(tree);
-        assert_eq!(layers.latest_tree(), tree);
-        assert_eq!(layers.tree, SurfaceTree::EMPTY, "not before its present");
-        assert_eq!(layers.activate(), TreeChange::Structure);
-        assert_eq!(layers.tree, tree);
-        assert_eq!(layers.activate(), TreeChange::None, "nothing waiting");
-        assert!(layers.first_refusal());
-        assert!(!layers.first_refusal(), "said once");
-        layers.clear();
-        assert_eq!(layers.tree, SurfaceTree::EMPTY);
-        assert!(layers.first_refusal(), "a new surface may be refused again");
-    }
-
-    /// A band's new rows show in its scroll layer's viewport; a patch's in nothing.
-    #[test]
-    fn store_rows_damage_the_viewport_of_their_band() {
-        let mut layers = SurfaceLayers::EMPTY;
-        layers.tree.scrolls[0] = vertical();
-        layers.tree.scroll_count = 1;
-        let mut out = [(0, 0, 0, 0); proto::MAX_SCROLL_LAYERS];
-        assert_eq!(store_damage(&layers, (0, 1000, 1080, 64), &mut out), 1);
-        assert_eq!(out[0], (310, 120, 1080, 700));
-        assert_eq!(store_damage(&layers, (1400, 853, 16, 16), &mut out), 0, "a patch");
-        layers.tree.scrolls[0].valid_len = 0; // covered: nothing of the band shows
-        assert_eq!(store_damage(&layers, (0, 1000, 1080, 64), &mut out), 0);
-    }
-
-    /// RFC-0109: a client declares layers on its own surface only.
-    #[test]
-    fn test_reject_layers_for_a_surface_the_sender_does_not_own() {
-        assert!(owns(0x51, 0x51));
-        assert!(!owns(0x51, 0x52), "another client's surface");
-        assert!(!owns(0, 0), "an unnamed creator owns nothing");
-    }
-
-    #[test]
-    fn a_new_valid_range_changes_its_band_alone() {
-        let mut now = SurfaceTree::EMPTY;
-        now.scrolls[0] = vertical();
-        now.scroll_count = 1;
-        let mut next = now;
-        next.scrolls[0].valid_start = 64;
-        assert_eq!(structure_change(&now, &next), TreeChange::Bands(1));
-        let mut moved = now;
-        moved.scrolls[0].vy = 130;
-        assert_eq!(structure_change(&now, &moved), TreeChange::Structure);
-        assert_eq!(structure_change(&now, &now), TreeChange::None);
-    }
-
-    /// A heavy surface beside light ones keeps every layer while the frame holds them all.
-    #[test]
-    fn every_declared_layer_is_composed_while_the_frame_holds_them() {
-        let mut share = [0; 5];
-        fair_shares(58, &[32, 3, 3, 3, 0], &mut share);
-        assert_eq!(share, [32, 3, 3, 3, 0]);
-        let mut layers = SurfaceLayers::EMPTY;
-        layers.tree.scrolls[0] = vertical();
-        layers.tree.scroll_count = 1;
-        assert_eq!(layers.demand(), 1, "one scroll layer, its window in one piece");
-    }
-
-    /// RFC-0109: past the planner's set the greediest surfaces lose their own last layers; a
-    /// surface declaring little keeps everything, and the frame stays inside the bound.
-    #[test]
-    fn test_reject_a_surface_crowding_out_another_window() {
-        let mut share = [0; 5];
-        fair_shares(58, &[32, 32, 32, 3, 3], &mut share);
-        assert_eq!(&share[3..], &[3, 3], "the light windows keep theirs");
-        assert_eq!(share[..3].iter().sum::<usize>(), 52);
-        assert!(share[..3].iter().all(|&s| s == 17 || s == 18), "split evenly: {share:?}");
-        let mut quota = LayerQuota::new(share[0]);
-        let kept = (0..32).filter(|_| quota.take()).count();
-        assert_eq!((kept, quota.dropped()), (share[0], 32 - share[0]));
-    }
-
-    /// RFC-0113 §5: the caret's layer set aside first is kept when the frame is tight — the
-    /// surface loses its own last layer instead; an empty share sets nothing aside.
-    #[test]
-    fn a_layer_set_aside_survives_a_tight_share() {
-        let mut quota = LayerQuota::new(3);
-        assert!(quota.set_aside(), "the caret's layer");
-        assert!(quota.take() && quota.take(), "two of the surface's layers fit");
-        assert!(!quota.take(), "its third is the one dropped");
-        assert_eq!(quota.dropped(), 1);
-        let mut empty = LayerQuota::new(0);
-        assert!(!empty.set_aside());
-        assert_eq!(empty.dropped(), 0, "an undrawn surface counts no drop");
-    }
-}
+#[path = "layer_geometry_tests.rs"]
+mod tests;

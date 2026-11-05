@@ -24,6 +24,8 @@ const RING_SLOT_BASE: u8 = 6;
 const UPLOAD_EARLY_REPLIES: usize = 16;
 /// Ring rotation step (~90ms → 8 frames ≈ 0.72s per revolution).
 const CURSOR_RING_STEP_NS: u64 = 90_000_000;
+/// The ring's sprites per turn.
+const RING_FRAMES: u8 = crate::assets::CURSOR_RING_FRAMES.len() as u8;
 /// Wait-ring failsafe: give up on a launch that never surfaces.
 const CURSOR_WAIT_TIMEOUT_NS: u64 = 4_000_000_000;
 
@@ -231,11 +233,14 @@ impl DisplayServerRuntime {
         self.cursor_wait_n = self.cursor_wait_n.saturating_sub(1);
     }
 
-    /// Completion-driven wait-ring advance (one 2-byte fire-and-forget SELECT per ring STEP,
-    /// ~90 ms, plus a pointer-rect damage blit per completion). Returns whether the ring is
-    /// live. The wait ends when the launched surface arrives or abilitymgr's reply says the
-    /// launch failed (`drain_launch_replies`); the failsafe deadline only bounds a launch
-    /// that produced neither.
+    /// The wait ring's advance, run once per loop pass: one 2-byte fire-and-forget SELECT (and
+    /// the pointer rect's damage for a software pointer) per ring STEP (~90 ms), nothing between
+    /// steps. The loop's one-shot wake (`crate::wake_clock`, armed by `pump_clock`) brings the
+    /// next step, never a present's completion: on a display without a vertical blank those
+    /// return in microseconds, and the ring spun and starved the app it waited for. Returns
+    /// whether the ring is live. The wait ends when the launched surface arrives or
+    /// abilitymgr's reply says the launch failed (`drain_launch_replies`); the failsafe
+    /// deadline only bounds a launch that produced neither.
     pub(crate) fn cursor_wait_tick(&mut self, now_ns: u64) -> bool {
         if self.cursor_wait_n > 0 && now_ns > self.cursor_wait_deadline_ns {
             self.cursor_wait_n = 0; // failsafe: the launch never surfaced
@@ -267,18 +272,7 @@ impl DisplayServerRuntime {
                 return false; // still no sprites at gpud — plain wait
             }
         }
-        // Completion-paced (TASK-0324 P7-c): the ring advances on display-ring completions,
-        // so every tick re-presents the pointer rect — that present's completion is the next
-        // tick. Between sprite steps the blit is a no-op-sized cursor rect; without it the
-        // loop would go idle and the ring would freeze on its current sprite.
-        self.queue_cursor_damage(
-            self.state.cursor_x,
-            self.state.cursor_y,
-            self.state.cursor_x,
-            self.state.cursor_y,
-        );
-        let step =
-            ((now_ns / CURSOR_RING_STEP_NS) % crate::assets::CURSOR_RING_FRAMES.len() as u64) as u8;
+        let (step, _) = crate::wake_clock::ring_step(now_ns, CURSOR_RING_STEP_NS, RING_FRAMES);
         if !self.cursor_ring_active || step != self.cursor_ring_frame {
             if !self.cursor_ring_active {
                 let _ = debug_println("windowd: cursor ring on");
@@ -287,17 +281,31 @@ impl DisplayServerRuntime {
             self.cursor_ring_frame = step;
             let _ =
                 self.send_gpud_fire_forget(&[GPU_SELECT_CURSOR_SHAPE_OP, RING_SLOT_BASE + step]);
-            if self.hw_cursor_active {
-                return true;
+            // A pointer layer of the display's own shows the sprite as selected; one drawn by
+            // gpud's pass needs the pointer rect presented.
+            if !self.hw_cursor_active {
+                self.queue_cursor_damage(
+                    self.state.cursor_x,
+                    self.state.cursor_y,
+                    self.state.cursor_x,
+                    self.state.cursor_y,
+                );
             }
-            self.queue_cursor_damage(
-                self.state.cursor_x,
-                self.state.cursor_y,
-                self.state.cursor_x,
-                self.state.cursor_y,
-            );
         }
         true
+    }
+
+    /// When the wait ring owes the loop a wake: its next sprite or its failsafe, whichever comes
+    /// first (`None` while no launch waits).
+    pub(crate) fn cursor_wait_wake_ns(&self, now_ns: u64) -> Option<u64> {
+        if self.cursor_wait_n == 0 {
+            return None;
+        }
+        let (_, next) = crate::wake_clock::ring_step(now_ns, CURSOR_RING_STEP_NS, RING_FRAMES);
+        crate::wake_clock::earliest(
+            Some(next),
+            Some(self.cursor_wait_deadline_ns.saturating_add(1)),
+        )
     }
 
     pub(super) fn upload_cursor_bitmap_to_gpud(&mut self) {

@@ -28,7 +28,7 @@ pub struct AppIconSprite {
 }
 
 /// The baked sprite for an app id at an exact tile size (88/64/56/48/40 — the
-/// design_handoff_launcher named sizes xl/·/md/sm/xs), or the LARGEST baked
+/// design artifacts: launcher named sizes xl/·/md/sm/xs), or the LARGEST baked
 /// size as a fallback (the painter samples nearest, so any box size renders).
 /// Keep the ladder in lock-step with `SIZES` in `build.rs`.
 /// `None` = the app ships no `icon_svg` artwork.

@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// A Control-Center header button (design_handoff_panels `.hbtn`): a 30px
+// A Control-Center header button (design artifacts: panels `.hbtn`): a 30px
 // circle carrying only a glyph — no resting background, the hover wash the
 // interaction chain paints is the whole affordance.
 //

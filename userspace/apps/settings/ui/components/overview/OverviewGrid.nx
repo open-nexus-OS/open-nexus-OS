@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The overview: all twelve sections as cards (handoff LAYOUT.md §"Content —
+// The overview: all twelve sections as cards (design LAYOUT.md §"Content —
 // overview grid"). This is the app's landing mode — the sidebar header, the
 // breadcrumb root and the ⋯ menu all return here.
 //
@@ -16,7 +16,7 @@
 //
 // So the rows are written out. The cards carry `grow(1)` and no minimum, so
 // each row divides its pane evenly at any window width instead of
-// overflowing. Restoring the handoff's `auto-fill minmax(208px, 1fr)` needs
+// overflowing. Restoring the design's `auto-fill minmax(208px, 1fr)` needs
 // real flex-wrap in the engine — recorded in
 // `docs/dev/ui/design-token-audit.md`.
 //

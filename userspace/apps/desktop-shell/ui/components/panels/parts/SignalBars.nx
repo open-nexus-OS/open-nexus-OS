@@ -1,14 +1,14 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// WiFi signal strength (design_handoff_panels `.bars`): three 3px bars rising
+// WiFi signal strength (design artifacts: panels `.bars`): three 3px bars rising
 // 7 · 10 · 13, bottom-aligned, with the bars above the level dimmed rather
 // than hidden — the silhouette stays the same width and height at every
 // strength, so a list of networks does not jitter as levels differ.
 //
 // Drawn from `Stack` primitives because the icon set has no level variants:
 // lucide ships `wifi` and `wifi-off`, not `wifi-1/2/3`. Three boxes are also
-// closer to the handoff than three separate glyphs would be.
+// closer to the design than three separate glyphs would be.
 
 Component SignalBars {
     props: {

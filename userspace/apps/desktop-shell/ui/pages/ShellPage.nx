@@ -1,9 +1,9 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The shell home (design_handoff_launcher, TOUCH base — the boot default;
+// The shell home (design artifacts: launcher, TOUCH base — the boot default;
 // `ui/platform/desktop/pages/ShellPage.nx` overrides with the desktop
-// taskbar). Two independent axes (the handoff's one driving concept):
+// taskbar). Two independent axes (the design's one driving concept):
 // desktop MODE is the explicit Control-Center toggle (→ the platform
 // override), WIDTH picks between the touch layouts via `device.sizeClass`
 // (mobile-first): compact = phone (<640), regular = tablet portrait

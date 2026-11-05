@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: pure pager decisions for `.scroll(paged)` viewports (the
-//! launcher pager, design_handoff_launcher §11): which page a wheel notch
+//! launcher pager, design artifacts: launcher §11): which page a wheel notch
 //! turns to, and where a page index sits in pixels. `probe/scroll.rs` owns
 //! the physics + lock TIMING; the DECISION lives here so host tests can
 //! reach it (`probe/` is RISC-V-only — the `hover_wash` pattern).

@@ -3,7 +3,7 @@
 
 #![cfg_attr(not(test), no_std)]
 
-//! `ListItem` — the design-system settings/list row (handoff `ListItem`): a
+//! `ListItem` — the design-system settings/list row (design `ListItem`): a
 //! leading node, a title with an optional subtitle, and a trailing control. A
 //! pure builder producing a `LayoutNode::Stack` row. `destructive` renders the
 //! title in the danger color; `show_chevron` is exposed as data (the disclosure

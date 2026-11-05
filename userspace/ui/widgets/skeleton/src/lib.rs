@@ -4,7 +4,7 @@
 #![cfg_attr(not(test), no_std)]
 
 //! `Skeleton` / `SkeletonText` — the design-system loading placeholders
-//! (handoff `Skeleton`, `SkeletonText`): dimmed glass blocks sized to the
+//! (design `Skeleton`, `SkeletonText`): dimmed glass blocks sized to the
 //! loading content; `circle` for avatars; `SkeletonText` stacks lines with
 //! the last one shortened. The shimmer highlight is the motion `phase`
 //! (0–100 sweep position) — the motion system advances it; a static build
@@ -207,7 +207,7 @@ impl SkeletonText {
         let mut rows = alloc::vec::Vec::with_capacity(self.lines as usize);
         for i in 0..self.lines {
             let last = i + 1 == self.lines;
-            // The final line is visibly shorter (handoff: paragraph shape).
+            // The final line is visibly shorter (design: paragraph shape).
             let w = if last && self.lines > 1 { self.width.0 * 60 / 100 } else { self.width.0 };
             rows.push(Skeleton::new().width(w).height(self.line_height.0).build(tokens));
         }

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use alloc::vec::Vec;
+use nexus_theme_tokens::MotionCurveToken;
 
 /// Easing functions for keyframe interpolation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -14,6 +15,71 @@ pub enum Easing {
     EaseOut,
     /// Slow start and end, fast middle.
     EaseInOut,
+    /// A design curve evaluated exactly: the theme's `cubic-bezier` control points, a spring's
+    /// overshoot included (the eased value may pass 1 before it settles there).
+    Curve(MotionCurveToken),
+}
+
+impl Easing {
+    /// The eased progress at linear progress `t` (clamped to `0..=1`) — the one curve every
+    /// driver evaluates: the app's keyframe track and the compositor's motion layers (TASK-0354
+    /// P2) answer the same time with the same value.
+    #[must_use]
+    pub fn ease(self, t: f32) -> f32 {
+        let t = t.clamp(0.0, 1.0);
+        match self {
+            Easing::Linear => t,
+            Easing::EaseIn => t * t,
+            Easing::EaseOut => t * (2.0 - t),
+            Easing::EaseInOut => {
+                if t < 0.5 {
+                    2.0 * t * t
+                } else {
+                    -1.0 + (4.0 - 2.0 * t) * t
+                }
+            }
+            Easing::Curve(c) => cubic_bezier(c.control_points(), t),
+        }
+    }
+}
+
+/// `cubic-bezier(x1, y1, x2, y2)` at linear progress `t`: the `y` of the curve's point whose `x`
+/// is `t` — the timing function as a style sheet evaluates it. Newton's method from `t`, bisection
+/// where the slope is flat; a few dozen multiplications, deterministic.
+#[must_use]
+pub fn cubic_bezier([x1, y1, x2, y2]: [f32; 4], t: f32) -> f32 {
+    let (cx, cy) = (3.0 * x1, 3.0 * y1);
+    let (bx, by) = (3.0 * (x2 - x1) - cx, 3.0 * (y2 - y1) - cy);
+    let (ax, ay) = (1.0 - cx - bx, 1.0 - cy - by);
+    let x_at = |s: f32| ((ax * s + bx) * s + cx) * s;
+    let y_at = |s: f32| ((ay * s + by) * s + cy) * s;
+    let mut s = t;
+    for _ in 0..8 {
+        let err = x_at(s) - t;
+        if err.abs() < 1e-6 {
+            return y_at(s);
+        }
+        let slope = (3.0 * ax * s + 2.0 * bx) * s + cx;
+        if slope.abs() < 1e-6 {
+            break;
+        }
+        s -= err / slope;
+    }
+    let (mut lo, mut hi) = (0.0f32, 1.0f32);
+    s = t;
+    for _ in 0..40 {
+        let x = x_at(s);
+        if (x - t).abs() < 1e-6 {
+            break;
+        }
+        if x < t {
+            lo = s;
+        } else {
+            hi = s;
+        }
+        s = 0.5 * (lo + hi);
+    }
+    y_at(s)
 }
 
 /// A keyframe track: interpolates between keyframes over a fixed duration.
@@ -85,18 +151,7 @@ impl KeyframeTrack {
     }
 
     fn apply_easing(&self, t: f32) -> f32 {
-        match self.easing {
-            Easing::Linear => t,
-            Easing::EaseIn => t * t,
-            Easing::EaseOut => t * (2.0 - t),
-            Easing::EaseInOut => {
-                if t < 0.5 {
-                    2.0 * t * t
-                } else {
-                    -1.0 + (4.0 - 2.0 * t) * t
-                }
-            }
-        }
+        self.easing.ease(t)
     }
 
     fn interpolate(&self, progress: f32) -> f32 {

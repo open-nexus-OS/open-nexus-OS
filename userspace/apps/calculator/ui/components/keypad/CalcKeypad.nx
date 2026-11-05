@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The 4x5 keypad (handoff: `grid-template-columns:repeat(4,1fr);
+// The 4x5 keypad (design: `grid-template-columns:repeat(4,1fr);
 // grid-template-rows:repeat(5,1fr); gap:10px`, and the keypad takes ALL the
 // height the display leaves).
 //
@@ -11,7 +11,7 @@
 // there. `.basis(0)` gives both axes the exact division, and `.basis(10).grow(2)`
 // spans two tracks across the gap.
 //
-// UNITS: `.gap` is in 4px STEPS (handoff 10px -> 3 steps = 12px), while
+// UNITS: `.gap` is in 4px STEPS (design 10px -> 3 steps = 12px), while
 // `.basis` is RAW px like `.width` — so the span's basis is 12, matching the
 // gap it straddles in pixels, not in steps.
 //

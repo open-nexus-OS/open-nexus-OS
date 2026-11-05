@@ -7,6 +7,192 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed - 2026-11-05 (a launch's wait ring no longer spins the compositor — TASK-0351 P16)
+
+- **The wait ring steps on windowd's one-shot wake, never on a present's completion.** It advanced
+  on every display-ring completion and re-presented the pointer rect to get the next one. Since a
+  pass costs its pixels (TASK-0351 P13/P14) that present returns in about 150 µs on QEMU, which has
+  no vertical blank: windowd looped at 668 Hz while an app launched and, with the soft-realtime
+  chain above the apps (ADR-0096), the launching app never ran (`usb-visible`: `launch settings`
+  failed twice). The ring now steps every 90 ms on the loop's one timer, shared with the caret
+  (`windowd/src/wake_clock.rs`, host-tested); between steps nothing is presented, and a pointer
+  layer of the display's own takes the new sprite without a present. On the board a launch no
+  longer costs a pointer present per vertical blank.
+- **The visible lanes wait for a launch's one surface.** Their launch steps waited for
+  `apphost: resized` — the app re-creating its surface at the same size after its first frame,
+  which TASK-0354 P2 removed (the store is planned before the surface is made). `usb-visible`,
+  `lowmem`, `many-apps` and `many-windows` now end a launch on its first frame (app-host's launch
+  line); a tile and its return still wait for the resize they cause.
+
+### Changed - 2026-11-05 (two decisions accepted on the board)
+
+- **ADR-0096 (a wake preempts) and ADR-0097 (windowd moves the declared layers) are Accepted**,
+  and RFC-0109 is complete: board cycle 2026-11-05T13-12-18 woke slices 0 µs late, and painted the
+  panels', the launcher's and the top-bar panels' enters once with no app raster per frame.
+
+### Removed - 2026-11-05 (the design handoffs: the design artifacts are the SSOT — TASK-0353 P0)
+
+- **The repository's design handoff copies are gone** — `docs/dev/` and the apps' `docs/` (the
+  design system, launcher, panels, login, settings window, files window and calculator packages:
+  191 files of HTML, CSS, screenshots and READMEs). They no longer applied; the operator's design
+  artifacts are the one design contract (RFC-0070 amendment). Every comment, doc and test that
+  cited a handoff section now names the artifact package holding it (`design artifacts: panels §2`);
+  four tests renamed (`…_matches_the_design…`). Nothing read the folders at build or test time.
+
+### Changed - 2026-11-05 (the motion is the design artifacts' motion, on the compositor — TASK-0354 P3)
+
+- **Every motion token follows its design curve exactly** (`animation::Easing::Curve`, a
+  `cubic-bezier` solver): the theme's curves were declared and then approximated by a quadratic
+  ease-out, which covered 90% of a panel's travel at 68% of its time — the design's entrance
+  covers it at 33%. App and compositor evaluate one function. Values from the design artifacts:
+  panels and launcher enter in 280 ms on `(0.16, 1, 0.3, 1)` growing from 0.97/0.96; dialogs rise
+  10 px from 0.94 on the spring (`fadeScale`) over a scrim that fades in quicker; the system toast
+  enters from the left edge (`pushInline`, new token); a fade is smooth.
+- **The compositor scales a layer about its centre**: `Command::LayerTransform` carries a scale in
+  1/10000 (no 1% jumps) and an origin every layer of the group scales about — a window's body,
+  regions and slices no longer drift apart while it opens or closes (RFC-0101 amendment). Motion
+  layers state their starting scale and their backdrop's fade (`from_scale`, `backdrop_ms`; the
+  entry grew to 32 bytes, RFC-0109): a growing entrance stays on the compositor instead of the CPU.
+- **A different node at the same place enters on its own**: a `.transition` intent carries the
+  node's identity (a hash of its place in the tree), so a toast opening as an alert closes — the
+  two land on one pre-order number — starts its own motion instead of continuing the alert's.
+
+### Changed - 2026-11-04 (windowd moves a declared layer: a `.transition` enter is stated once — TASK-0354 P2)
+
+- **A `.transition` enter on the desktop is a motion layer the compositor moves** (RFC-0109
+  amendment §motion layers, RFC-0110, ADR-0097). app-host paints the node's subtree once, at
+  rest, into its store — the base is painted without it, so what lies under a panel shows while
+  it fades in — and states the motion once with the structure: the curated token (the curve), the
+  duration, the offset and opacity it starts from, and the regions, scroll layers and washes that
+  are part of it. windowd evaluates the motion for each frame's predicted shown time and carries
+  it as a `Command::LayerTransform` — the window transitions' path: gpud redraws where the layer
+  was and is and keeps a moving glass's last blur. The app is not woken and paints nothing per
+  frame; a close paints nothing (the base never held the panel); the layer stays while its node
+  is mounted (a change inside it paints its store rows). Where painting apart composes to the
+  same pixels (a transparent page base: the shell, the greeter) and the token moves and fades;
+  a scaling token, a reduced-motion theme, a full store and window surfaces keep the app's path.
+- **The wire** (`nexus-display-proto::motion_layer`, `surface_layers_motion`): the structure's
+  fourth count byte carries up to four motion layers of 28 bytes; a wash rides a motion layer
+  (`parent = 0x80 | m`). Bounds checked whole: rest in the base, pixels in the store sharing none,
+  ≤ 1000 ms, travel within the surface, claims inside the layer and claimed once; windowd refuses
+  an unknown token (host tests incl. `test_reject_a_motion_target_outside_the_layer_s_range`,
+  `test_reject_an_unknown_motion_token`, `test_reject_a_claim_outside_a_motion_layer_or_claimed_twice`).
+- **A region or a motion layer that comes or goes damages its rectangle** (its shadow with it),
+  no longer the whole surface: a panel opening is not a full-screen frame (`layer_geometry`).
+- **Modals and toasts are always in front** (RFC-0109 amendment 2026-11-05, ADR-0097): an
+  `.overlay(modal|transient)` root is a motion layer windowd draws after the windows, the top bar
+  and the panels — and presses there are the shell's; the board had the power alert and the toast
+  behind the windows. Layers may overlap (drawn in the app's paint order — the alert beside an open
+  Control Center no longer falls back to the CPU path). A root that is one flat fill over the
+  surface (the alert's scrim) is the layer's backdrop: one patch texel windowd spreads and fades,
+  the store holds only the sheet — the alert no longer paints a full screen for its scrim. The
+  wire's two reserved bytes and one flag bit carry it (`MOTION_FRONT`, `backdrop`,
+  `backdrop_opacity`; `test_reject_a_backdrop_naming_a_missing_patch`). The system toast sits
+  below the 36 px top bar: in front, it never covers the bar.
+- **What a motion layer holds never damages the base** (TASK-0354 P5, `layout_diff::changed_rows`):
+  a layout change splits into the base's rows and the layers' — a modal opening or closing over
+  its scrim repaints no base row, a change inside an open panel paints the panel's store rows only
+  (`what_a_motion_layer_holds_never_damages_the_base`).
+- **A store that outgrows the surface's rows keeps what it drew**: the re-create at the same size
+  copies the rows (`SurfaceMem::carry_from`) instead of painting the surface again — the
+  launcher's first open re-created and painted the whole desktop (a tap answered after 977 ms on
+  the board).
+- **Measured before (board 2026-11-04T18-14-55):** a panel's or the launcher's enter was a CPU
+  raster of 160–725 ms per frame (`apphost: hops motion paint_us=`), the greeter's two enters one
+  frame of 678 ms; a painter row costs on the host 160 ns for a glass fill, 6.8 µs with an `xxl`
+  shadow and 8–20 µs per stroked line icon (`scene_raster/tests/row_cost_bench.rs`) — the reason
+  the motion leaves the CPU instead of the painter growing caches.
+- **A clock tick repaints the clock's rows, not the surface** (`probe/clock.rs`, `overlay.rs`):
+  every minute the shell's bar clock and the greeter's clock re-laid the page out and repainted
+  all of it — most of a second of CPU on the board, once a minute; the tick now takes the layout
+  diff's rows (`relayout_bounded`), a modal's timeout still repaints everything.
+- **A surface is made once at start**: every app re-created its surface on its first loop turn
+  (a replan flag that started set and was never cleared by the create) and painted it twice; the
+  create now clears it — the plan the surface was made for fits.
+- `windowd` modules split by responsibility (module-size ratchet): `layer_quota` (the frame's
+  layer bound), `layer_geometry_tests`; app-host `probe/store.rs` (the store plan, out of
+  `band.rs`).
+
+### Changed - 2026-11-04 (a transition's damage is the moved rectangle — TASK-0351 P15)
+
+- **A transition frame names the animated nodes' rectangle, not full-width rows**
+  (`app-host::band_math::Cols`, `probe/anim/damage.rs`). The row painter still repaints the
+  rows an animated node crosses whole, but the present's damage claims only the columns the
+  node moved in: a 330-wide panel sliding under the bar damages 330 columns of its rows, not
+  1920. windowd cuts the rect at the screen and invalidates only the glass over it; the
+  planner redraws, and re-blurs, that much. The claim is opt-in: the animation tick claims
+  columns, and every row-only contributor — a tap's layout diff, a drag, a text edit, a widget
+  loop, a node without a box — widens the frame to full width (host tests, `test_reject_*`).
+  The board's last cycle located the cost: with a panel or the launcher open, the slot pass
+  blended 1.1–1.7 Mpx a frame of `body` (the desktop surface over the wallpaper) and drew
+  2.5–4.5 Mpx in all — the full-width rows under the sliding panel.
+- **windowd: a structure whose regions only moved damages those regions** (`layer_geometry`,
+  `TreeChange { whole, regions, bands }`): a sliding glass panel is a region that app-host
+  re-declares every frame, and windowd took every re-declared structure as the whole surface —
+  the real reason a panel's frames drew 2.5–4.5 Mpx (the app-side column claim alone changed
+  nothing on the board, cycle 17-02-18). Now a region that moved or changed its look damages
+  its old and new rectangle united; a region that appears or goes, a viewport, a band's shape
+  or a patch stays a whole-surface change (host test, the bound past the last region).
+- **`apphost: hops motion (… paint_us= rows= px= tokens=)`**: the motion episode's line says
+  what each frame cost on the app side — the CPU raster per frame (mean/max) and its rows, the
+  damage each present declared, and which motion tokens ran (`nexus_ux_budgets::chains::Episode`).
+  The 17-02-18 cycle's episodes took 65–443 ms from a pulse to the frame's send: the line now
+  splits that into raster and the rest.
+- **`gpud: gpu blend kinds (…)`** beside `gpu work`: the slot pass's blended pixels per frame
+  by layer kind (body, region, slice, wash, solid, bar, caret) — which layers the blend is.
+  **`apphost: scroll bands (n= grounded=)`** says how many bands have an opaque ground (P14).
+- **Measured 2026-11-04T16-47-39 (P13, P14 on the board):** the sweep's quads are their damage
+  (`q16=16x16`, `area16=16x16`, was 1920×1080); `q16_us` 1339 (was 5857), `area16_us` 684
+  (was 6015), hover 3150 (was 12700). The bands are grounded (`grounded=2`), the slice kind
+  blends 0 in every window; the blend that remains is the desktop body under the panels — P15.
+
+### Changed - 2026-11-04 (a window's content costs its pixels once — TASK-0351 P14)
+
+- **A scroll band on an opaque pane is opaque** (`app-host::band_ground`, RFC-0109 §
+  `BAND_OPAQUE` — set for the first time): when a scroll container's viewport lies on one flat
+  opaque box (the design's `surface-pane`, or the container's own fill) with nothing painted in
+  between, inside that box's straight cross and clear of its border, the band's rows start from
+  that box's pixel instead of transparent and the layer is declared `BAND_OPAQUE`. windowd
+  composes the slice without a blend and the planner cuts the pane, the window body, the glass
+  back and the wallpaper under it. A rounded corner under the viewport, a border, a gradient, a
+  translucent fill or a box painted between keeps the band transparent (host tests
+  `test_reject_*`). A band whose ground changed is painted again.
+- **The window pane is the design's opaque `surface-pane`** (the design artifacts, taken into
+  `glassWindowPane` of the base and dark themes): flat `#fcfdff` / `#2c313d` at full alpha, no
+  blur, no shine — "opaque so the window blur under it is occluded and never computed". The
+  board's last cycle drew as many blended pixels as opaque ones per frame (`gpu work
+  straight_px` ≈ `opaque_px`): every app's list, page and field slice was blended over a pane
+  that was drawn under it for nothing, at 4.9 ns a blended pixel against 1.2 opaque.
+- **Host gate** (`nexus-gfx tests/frame_window_cost.rs`): an opaque slice over the pane adds no
+  blended pixel and replaces the pane's pixels under it; a transparent slice blends its whole
+  area; a spread body (a live resize's frame) is one rounded draw no pane cuts (named, not cut).
+
+### Changed - 2026-11-04 (the gate and the sweep measure area-limited passes — TASK-0351 P13)
+
+- **The gate's warm frames and the sweep's cases draw their damage, not the screen**: the
+  gate scene and the stock sweep ran every frame against the desktop's first target, whose slot
+  the CPU had drawn (`slot_stale`) — so every warm frame, every `q16` and `area16` case redrew
+  the slot whole (`Area::Full`), and the "fixed cost of a pass whatever its area" (5.9 ms) was
+  the wallpaper's two megapixels; cycle 39's "fragment job started 11.7 ms after the geometry"
+  was the fragment stage shading a full-screen glass pass. After the cold frame the gate uses a
+  target whose slot is the GPU's own and whose base is clean (`desktop_gate.rs`), as the
+  desktop's frames do. The sweep's `q16_us`/`area16_us` and the gate's `hover_us` of earlier
+  cycles measured full-screen passes and are not comparable with the next cycle's; ADR-0096's
+  measured paragraph says so.
+
+### Added - 2026-11-04 (the pass by the firmware's clock — TASK-0351 P12)
+
+- **`gpud: gpu pass fw (of=… wait_us= exec=+ irqs=+ util_idle=+ util_active=+ util_blocked=+
+  state=a>b)`** on every traced pass: the commands the firmware executed and the interrupts it
+  took between the kick and the fragment's end, and its utilisation block's counters — the time
+  it spent idle, active and blocked by its own clock (`Loaded::view`). The trace and fw lines
+  name what they are of: the gate's hover pass, the sweep's `q16` and `area16`.
+- **`gpud: gpu pass sweep drawn (base=WxH+X+Y/passes …)`**: the area and the passes each sweep
+  case's last frame actually drew — a 16x16 case drawn whole measures the base, not the quad.
+  The board's cycle of 2026-11-04 left the sweep unchanged after the kernel's wake switch (a
+  pass of 5.9 ms whatever its area, the hover pass 12.7 ms in one pass, the rung's area pass 0.5
+  ms through the same firmware): the next cycle reads where the time goes before the next cut.
+
 ### Added - 2026-11-04 (a spring solved in closed form — TASK-0354 P0)
 
 - **`animation::Spring`**: a spring's position and velocity at any time since it was stated,

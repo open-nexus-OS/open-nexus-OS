@@ -12,7 +12,7 @@ designed-in seam, not yet implemented.
 | What the login window LOOKS like | the greeter APP | `userspace/apps/greeter/` (a DSL app; SystemUI only NAMES it via `product.toml`'s `greeter = "…"`) |
 | What a user's session means as a SHELL | SystemUI (library) | `resolve_product(product_id)` — the user's `product` string names a product manifest |
 | Rendering, hit-testing, input relay | `windowd` | `compositor/runtime/greeter.rs`, `session_client.rs`, `interaction.rs` |
-| Pre-session launch enforcement | `abilitymgr` | `handoff.rs` `SessionGate` + os-lite live gate |
+| Pre-session launch enforcement | `abilitymgr` | `design.rs` `SessionGate` + os-lite live gate |
 
 windowd renders and relays only — it never forges session state. sessiond never
 knows what "desktop chrome" is — it stores an opaque SystemUI product id.
@@ -49,7 +49,7 @@ knows what "desktop chrome" is — it stores an opaque SystemUI product id.
 ## Flow
 
 1. Boot: windowd brings up the desktop base (wallpaper, present) exactly as
-   before; after the framebuffer handoff its session probe asks sessiond
+   before; after the framebuffer design its session probe asks sessiond
    (250 ms cadence, ~6 s bound).
 2. `sessiond: greeter (n=…)` → windowd launches the greeter APP
    (`compositor/runtime/session.rs`, `STATE_GREETER ⇒ launch_app("greeter")`).

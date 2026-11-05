@@ -78,14 +78,12 @@ timeout_s = 30
 name = "open the launcher"
 do = { click = "launcher_button" }
 
-# The window's first surface presents its first frame (app-host's launch line), then the window
-# is re-created at its intended size: the step ends on that second surface's first frame — `then`,
-# after its resize (the first surface's frame came before it).
+# The window's one surface is laid out for its store when it is created (TASK-0354 P2: no second,
+# same-size surface after the first frame): the step ends on its first frame, app-host's launch line.
 [[step]]
 name = "launch settings"
 do = { click = "launch_settings" }
-expect = ["windowd: transition open", "apphost: ux launch ", "apphost: resized"]
-then = ["WINDOWD: surface presented id="]
+expect = ["windowd: transition open", "apphost: ux launch "]
 timeout_s = 120
 
 # A tile and its return each re-create the window's surface (destroyed → created → the app resized
@@ -155,13 +153,11 @@ timeout_s = 15
 retry = 1
 retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
 
-# Restored before its first frame; then the same re-creation as any launch — the hide below waits
-# for the second surface.
+# Restored before its first frame; the step ends on that first frame (one surface, as any launch).
 [[step]]
 name = "the record comes back"
 do = { wait = true }
-expect = ["SELFTEST: app restore ok (", "apphost: ux launch ", "apphost: resized"]
-then = ["WINDOWD: surface presented id="]
+expect = ["SELFTEST: app restore ok (", "apphost: ux launch "]
 timeout_s = 120
 
 # -- the kill (TASK-0333 6e-2, 6f-3): hidden once more, the drill squeezes, swaps out and kills it;

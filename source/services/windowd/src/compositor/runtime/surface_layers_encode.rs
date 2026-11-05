@@ -2,17 +2,26 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: windowd compositor runtime — the ONE encoder of a client surface's declared layers
-//! (RFC-0109), for an app window and for the desktop alike: its material regions (the R1 seam),
-//! each uncovered scroll layer's slices (the band's visible window in its pieces, at the offset
-//! the client's motion declared) and its wash layers (a patch spread over a rectangle, at its
-//! declared opacity). Every layer carries a key unique in the frame — the planner's match from
-//! one frame to the next (RFC-0101 §8 amended).
+//! (RFC-0109), for an app window and for the desktop alike: its motion layers' own pixels (drawn
+//! where the base would hold them, from the store — TASK-0354 P2), its material regions (the R1
+//! seam; a region a motion layer claims samples the layer's pixels), each uncovered scroll
+//! layer's slices (the band's visible window in its pieces, at the offset the client's motion
+//! declared) and its wash layers (a patch spread over a rectangle, at its declared opacity).
+//! Whatever belongs to a moving motion layer carries its transform id (`motion_geometry::
+//! layer_id`) — the present's `Command::LayerTransform` moves and fades it on the GPU; a layer's
+//! backdrop (a modal's scrim: one patch spread over the surface) fades with it below its pixels.
+//! A layer declared in front and what is its own come last: in a window after its body's
+//! layers, on the desktop in a pass of their own above the windows, the bar and the panels
+//! (`Pass::DesktopFront` — the shell's modal and toast). Every layer carries a key unique in the
+//! frame — the planner's match from one frame to the next (RFC-0101 §8 amended).
 //! OWNERS: @ui
 //! STATUS: Functional
 //! API_STABILITY: Internal
 //! TEST_COVERAGE: the geometry in `surface_layers.rs`; the encode on the QEMU lanes.
 
-use crate::layer_geometry::{pieces, wash_place, LayerQuota, Piece, SurfaceLayers, MAX_PIECES};
+use crate::layer_geometry::{pieces, wash_place, Piece, SurfaceLayers, MAX_PIECES};
+use crate::layer_quota::LayerQuota;
+use crate::motion_geometry::{backdrop_id, layer_id as motion_id, region_owner, scroll_owner};
 use crate::surface_regions::SurfaceRegions;
 use nexus_display_proto::client_surface::{
     LayerDesc, GLASS_CARD, GLASS_OVERLAY, GLASS_PANEL, GLASS_SUBTLE, MATERIAL_GLASS,
@@ -63,6 +72,10 @@ pub(crate) enum Pass {
     /// The desktop above the windows (the shell's panels — the Control Center, the launcher):
     /// its panel regions and what lies inside one.
     DesktopAbove,
+    /// The desktop in front of everything: the layers it declared in front (its modal, its
+    /// toast) with their backdrops, regions, slices and washes — above the windows, the bar and
+    /// the panels.
+    DesktopFront,
 }
 
 /// A surface's layers as this frame composes them — a copy taken before the encoder borrows the
@@ -80,6 +93,8 @@ pub(crate) struct LayerSnap {
     pub(crate) owner: u32,
     /// The window transform's id (the window's key; `0` = the desktop).
     pub(crate) layer_id: u32,
+    /// The motion layers moving this frame (bit `k`: layer `k`, `surface_motion::live`).
+    pub(crate) live: u8,
 }
 
 type Rect = (u32, u32, u32, u32);
@@ -91,7 +106,27 @@ fn inside(inner: Rect, outer: Rect) -> bool {
         && inner.1 + inner.3 <= outer.1 + outer.3
 }
 
+/// The first store key index of the motion layers' own pixels (slices use `k * MAX_PIECES + j`).
+const MOTION_KEY_BASE: u32 = 0x80;
+/// The first wash key index of the motion layers' backdrops (washes use their index).
+const BACKDROP_KEY_BASE: u32 = 0x80;
+
 impl LayerSnap {
+    /// The transform id of what belongs to motion layer `motion` (`None`: to no motion layer):
+    /// the motion's while it moves, the surface's own at rest.
+    fn id_of(&self, motion: Option<usize>) -> u32 {
+        match motion {
+            Some(k) if self.live & (1 << k) != 0 => motion_id(self.owner, k),
+            _ => self.layer_id,
+        }
+    }
+
+    /// Whether what belongs to motion layer `motion` is drawn in front (`None`: to no layer — the
+    /// base's, never in front).
+    fn in_front(&self, motion: Option<usize>) -> bool {
+        motion.and_then(|k| self.layers.tree.motions().get(k)).is_some_and(|m| m.front)
+    }
+
     /// Whether a rectangle of the surface lies inside one of its panel-level glass regions.
     fn in_panel(&self, r: Rect) -> bool {
         self.layers.tree.regions().iter().any(|l| {
@@ -104,14 +139,15 @@ impl LayerSnap {
     /// Whether this pass draws something at `r` of the surface.
     fn drawn_in(&self, pass: Pass, r: Rect) -> bool {
         match pass {
-            Pass::Window => true,
+            Pass::Window | Pass::DesktopFront => true,
             Pass::DesktopBelow => !self.in_panel(r),
             Pass::DesktopAbove => self.in_panel(r),
         }
     }
 
     /// Encodes this pass's part of the surface's layers within the surface's share of the frame
-    /// (`quota`, RFC-0109): past it the surface's last layers are not composed, and counted.
+    /// (`quota`, RFC-0109): past it the surface's last layers are not composed, and counted. A
+    /// window's layers declared in front follow all its others; the desktop's are their own pass.
     pub(crate) fn encode(
         &self,
         enc: &mut RenderCommandEncoder<'_>,
@@ -119,27 +155,135 @@ impl LayerSnap {
         mode: (u32, u32),
         quota: &mut LayerQuota,
     ) {
-        self.encode_regions(enc, pass, mode, quota);
-        self.encode_slices(enc, pass, mode, quota);
-        self.encode_washes(enc, pass, mode, quota);
+        match pass {
+            Pass::Window => {
+                self.encode_part(enc, pass, false, mode, quota);
+                self.encode_part(enc, pass, true, mode, quota);
+            }
+            Pass::DesktopFront => self.encode_part(enc, pass, true, mode, quota),
+            Pass::DesktopBelow | Pass::DesktopAbove => {
+                self.encode_part(enc, pass, false, mode, quota);
+            }
+        }
+    }
+
+    /// The part of this pass's layers that is (`front`) or is not in front.
+    fn encode_part(
+        &self,
+        enc: &mut RenderCommandEncoder<'_>,
+        pass: Pass,
+        front: bool,
+        mode: (u32, u32),
+        quota: &mut LayerQuota,
+    ) {
+        self.encode_motions(enc, pass, front, mode, quota);
+        self.encode_regions(enc, pass, front, mode, quota);
+        self.encode_slices(enc, pass, front, mode, quota);
+        self.encode_washes(enc, pass, front, mode, quota);
+    }
+
+    /// Each motion layer's own pixels (TASK-0354 P2), from the store, where the base would hold
+    /// them — over its backdrop, when it has one: drawn with the base — first in a window, in the
+    /// desktop's pass below the windows — or, in front, after everything.
+    fn encode_motions(
+        &self,
+        enc: &mut RenderCommandEncoder<'_>,
+        pass: Pass,
+        front: bool,
+        mode: (u32, u32),
+        quota: &mut LayerQuota,
+    ) {
+        if pass == Pass::DesktopAbove {
+            return;
+        }
+        for (k, m) in self.layers.tree.motions().iter().enumerate() {
+            if m.front != front {
+                continue;
+            }
+            if let Some((patch, opacity)) = m.backdrop() {
+                self.encode_backdrop(enc, k, (patch, opacity), mode, quota);
+            }
+            let p = Piece {
+                src: (u32::from(m.sx), u32::from(m.sy)),
+                dst: (u32::from(m.x), u32::from(m.y)),
+                size: (u32::from(m.w), u32::from(m.h)),
+            };
+            let draw = Draw {
+                opacity: 255,
+                radius: 0,
+                opaque: false,
+                spread: None,
+                band: (0, 0),
+                key: key(self.owner, KIND_SLICE, MOTION_KEY_BASE + k as u32),
+                layer_id: self.id_of(Some(k)),
+            };
+            self.composite(enc, &p, draw, mode, quota);
+        }
+    }
+
+    /// Motion layer `k`'s backdrop: patch `patch` spread over the whole surface at `opacity` —
+    /// fading with the layer (its own transform id: the layer's opacity, not its offset).
+    fn encode_backdrop(
+        &self,
+        enc: &mut RenderCommandEncoder<'_>,
+        k: usize,
+        (patch, opacity): (usize, u8),
+        mode: (u32, u32),
+        quota: &mut LayerQuota,
+    ) {
+        let Some(at) = self.layers.tree.patches().get(patch) else { return };
+        let p =
+            Piece { src: (u32::from(at.x) + 1, u32::from(at.y) + 1), dst: (0, 0), size: self.base };
+        let interior = u32::from(PATCH_SIDE) - 2;
+        let layer_id =
+            if self.live & (1 << k) != 0 { backdrop_id(self.owner, k) } else { self.layer_id };
+        let draw = Draw {
+            opacity: u32::from(opacity),
+            radius: 0,
+            opaque: false,
+            spread: Some((interior, interior)),
+            band: (0, 0),
+            key: key(self.owner, KIND_WASH, BACKDROP_KEY_BASE + k as u32),
+            layer_id,
+        };
+        self.composite(enc, &p, draw, mode, quota);
     }
 
     fn encode_regions(
         &self,
         enc: &mut RenderCommandEncoder<'_>,
         pass: Pass,
+        front: bool,
         mode: (u32, u32),
         quota: &mut LayerQuota,
     ) {
-        for (i, l) in self.layers.tree.regions().iter().enumerate() {
+        let tree = &self.layers.tree;
+        for (i, l) in tree.regions().iter().enumerate() {
+            // A region a motion layer claims is the layer's pixels, in the store (TASK-0354 P2) —
+            // and in front with the layer.
+            let owner = region_owner(tree, i);
+            if self.in_front(owner) != front {
+                continue;
+            }
             let glass = l.material == MATERIAL_GLASS;
             let draw = match pass {
                 Pass::Window => glass || l.material == MATERIAL_OPAQUE,
                 // The desktop base is opaque already: only its glass regions are layers.
                 Pass::DesktopBelow => glass && l.glass_level != GLASS_PANEL,
                 Pass::DesktopAbove => glass && l.glass_level == GLASS_PANEL,
+                Pass::DesktopFront => glass,
             };
-            let Some((row, col, _)) = self.regions.place(u32::from(l.y)) else { continue };
+            let src = match owner.and_then(|k| tree.motions().get(k)) {
+                Some(m) => {
+                    let (x, y) = m.store_of(u32::from(l.x), u32::from(l.y));
+                    self.regions.store_place(x, y)
+                }
+                None => self
+                    .regions
+                    .place(u32::from(l.y))
+                    .map(|(row, col, _)| (row, col + u32::from(l.x))),
+            };
+            let Some((row, src_x)) = src else { continue };
             if !draw || !quota.take() {
                 continue;
             }
@@ -147,7 +291,7 @@ impl LayerSnap {
                 enc,
                 crate::compositor::shell_window::MaterialLayerParams {
                     src_row_abs: row,
-                    src_x: col + u32::from(l.x),
+                    src_x,
                     width: u32::from(l.w),
                     height: u32::from(l.h),
                     dst_x: self.origin.0 + u32::from(l.x),
@@ -155,7 +299,7 @@ impl LayerSnap {
                     corner_radius: u32::from(l.radius),
                     shadow_alpha: u32::from(l.shadow_alpha),
                     blur_radius: region_blur(l),
-                    layer_id: self.layer_id,
+                    layer_id: self.id_of(owner),
                     opaque: l.material == MATERIAL_OPAQUE,
                     key: key(self.owner, KIND_REGION, i as u32),
                     source: (self.regions.source, self.regions.slot, self.regions.generation),
@@ -170,12 +314,14 @@ impl LayerSnap {
         &self,
         enc: &mut RenderCommandEncoder<'_>,
         pass: Pass,
+        front: bool,
         mode: (u32, u32),
         quota: &mut LayerQuota,
     ) {
         for (k, s) in self.layers.tree.scrolls().iter().enumerate().take(MAX_SCROLL_LAYERS) {
             let viewport = (u32::from(s.vx), u32::from(s.vy), u32::from(s.vw), u32::from(s.vh));
-            if !self.drawn_in(pass, viewport) {
+            let motion = scroll_owner(&self.layers.tree, k);
+            if self.in_front(motion) != front || !self.drawn_in(pass, viewport) {
                 continue;
             }
             let band = s.band_rect();
@@ -183,6 +329,7 @@ impl LayerSnap {
             let Some((band_row, _)) = self.regions.store_place(band.0, band.1) else { continue };
             let mut out = [Piece::default(); MAX_PIECES];
             let n = pieces(s, self.layers.offset(k), &mut out);
+            let layer_id = self.id_of(motion);
             for (j, p) in out[..n].iter().enumerate() {
                 let draw = Draw {
                     opacity: 255,
@@ -191,6 +338,7 @@ impl LayerSnap {
                     spread: None,
                     band: (band_row, band.3),
                     key: key(self.owner, KIND_SLICE, (k * MAX_PIECES + j) as u32),
+                    layer_id,
                 };
                 self.composite(enc, p, draw, mode, quota);
             }
@@ -201,20 +349,26 @@ impl LayerSnap {
         &self,
         enc: &mut RenderCommandEncoder<'_>,
         pass: Pass,
+        front: bool,
         mode: (u32, u32),
         quota: &mut LayerQuota,
     ) {
         for (i, w) in self.layers.motion.washes().iter().enumerate() {
             let Some(p) = wash_place(w, &self.layers, self.base) else { continue };
-            // A wash belongs to the pass of its parent's viewport (the base: its own rectangle).
-            let home = match usize::from(w.parent) {
-                0 => (p.dst.0, p.dst.1, p.size.0, p.size.1),
-                k => match self.layers.tree.scrolls().get(k - 1) {
-                    Some(s) => (u32::from(s.vx), u32::from(s.vy), u32::from(s.vw), u32::from(s.vh)),
+            // A wash belongs to the pass of its parent's viewport (the base or a motion layer: its
+            // own rectangle) and moves with what its parent moves with.
+            let (home, motion) = match (w.motion_parent(), usize::from(w.parent)) {
+                (Some(m), _) => ((p.dst.0, p.dst.1, p.size.0, p.size.1), Some(m)),
+                (None, 0) => ((p.dst.0, p.dst.1, p.size.0, p.size.1), None),
+                (None, k) => match self.layers.tree.scrolls().get(k - 1) {
+                    Some(s) => (
+                        (u32::from(s.vx), u32::from(s.vy), u32::from(s.vw), u32::from(s.vh)),
+                        scroll_owner(&self.layers.tree, k - 1),
+                    ),
                     None => continue,
                 },
             };
-            if !self.drawn_in(pass, home) {
+            if self.in_front(motion) != front || !self.drawn_in(pass, home) {
                 continue;
             }
             let interior = u32::from(PATCH_SIDE) - 2;
@@ -225,6 +379,7 @@ impl LayerSnap {
                 spread: Some((interior, interior)),
                 band: (0, 0),
                 key: key(self.owner, KIND_WASH, i as u32),
+                layer_id: self.id_of(motion),
             };
             self.composite(enc, &p, draw, mode, quota);
         }
@@ -261,7 +416,7 @@ impl LayerSnap {
                 dst_y,
                 opacity: draw.opacity,
                 corner_radius: draw.radius,
-                layer_id: self.layer_id,
+                layer_id: draw.layer_id,
                 content_epoch: self.regions.generation,
                 scroll_band_top_abs: draw.band.0,
                 scroll_band_h: draw.band.1,
@@ -280,7 +435,7 @@ impl LayerSnap {
 
 /// How a piece is drawn and which layer it is: its opacity and corner radius, whether it is
 /// opaque, for a patch the interior spread over it, for a slice its band (the absolute top row
-/// and the height), and its key.
+/// and the height), its key, and the transform id it carries.
 #[derive(Clone, Copy)]
 struct Draw {
     opacity: u32,
@@ -289,4 +444,5 @@ struct Draw {
     spread: Option<(u32, u32)>,
     band: (u32, u32),
     key: u32,
+    layer_id: u32,
 }

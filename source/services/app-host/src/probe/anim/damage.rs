@@ -1,0 +1,45 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! The damage an animated node leaves (TASK-0351 P15): its rows AND its columns.
+//!
+//! A `.transition(slideDown)` moves a 330-wide panel down the desktop. The row painter repaints
+//! the rows it crosses whole — a row is the unit of the retained raster — but what CHANGED in
+//! them is the panel's rectangle, and that is what the present names (`band_math::Cols`): the
+//! compositor then redraws, and re-blurs the glass over, 330 columns a frame instead of 1920.
+//! The iOS rule, in our terms: a transition changes the difference between A and B, not
+//! everything the difference's rows hold. Split out of `anim.rs` (structure ratchet).
+
+impl super::super::DslApp {
+    /// Grow `span` by `node_id`'s CURRENT painted row extent — its layout box transformed by
+    /// the node's active `NodeAnim` (scale can overpaint the box; translate moves it), ±1 row
+    /// rounding pad, clamped to the layout (a scroll layer's content runs below the surface) —
+    /// and claim its columns the same way. A node without a layout box (mid-relayout) falls
+    /// back to all of it, rows and columns — correctness over thrift.
+    pub(super) fn grow_anim_span(&mut self, node_id: usize, span: &mut Option<(i32, i32)>) {
+        let bottom = self.layout_bottom();
+        let (x0, x1, y0, y1) = match self.layout.boxes.iter().find(|b| b.node_id == node_id) {
+            Some(b) => {
+                let (x, y, w, h) = (b.rect.x.0, b.rect.y.0, b.rect.width.0, b.rect.height.0);
+                let (nx, ny, nw, nh) = match self.anim.anims.iter().find(|a| a.node_id == node_id) {
+                    Some(a) => a.transform_rect(x, y, w, h),
+                    None => (x, y, w, h),
+                };
+                (nx - 1, nx + nw + 1, ny - 1, ny + nh + 1)
+            }
+            None => {
+                self.damage_cols.full();
+                (0, self.w as i32, 0, bottom)
+            }
+        };
+        let (y0, y1) = (y0.max(0), y1.min(bottom));
+        if y0 >= y1 {
+            return;
+        }
+        self.damage_cols.within(x0, x1);
+        *span = Some(match *span {
+            Some((s0, s1)) => (s0.min(y0), s1.max(y1)),
+            None => (y0, y1),
+        });
+    }
+}

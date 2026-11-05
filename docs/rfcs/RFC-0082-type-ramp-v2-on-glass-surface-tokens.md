@@ -18,7 +18,7 @@ links:
   - label: "Related RFCs"
     target: "`docs/rfcs/RFC-0067-windowd-compositor-service-boundary-rasterizer-app-ui-extraction.md` (who paints what)"
   - label: "Design contract"
-    target: "`userspace/apps/greeter/docs/design_handoff_os_login/README.md`"
+    target: "the design artifacts (login)"
 ---
 
 # RFC-0082: Type ramp v2 + on-glass surface tokens
@@ -77,7 +77,7 @@ at the default instance. So:
 
 The consequence is that any surface whose hierarchy comes from **type** rather
 than from boxes cannot be built. The login greeter is the first such surface
-(`userspace/apps/greeter/docs/design_handoff_os_login/`): a 132 px / weight-300
+(the design artifacts (login)): a 132 px / weight-300
 clock over a wallpaper, legible only because of text shadows, with 44 px glass
 pills that need a hairline and an inset top-shine. It will not be the last —
 lock screen, OOBE, media full-screen and notification hero states all read the
@@ -303,7 +303,7 @@ No new markers. The existing session ladder must stay green:
   Kept as the fallback if instancing produces bad outlines.
 - **A new `lock` glass level** for the login surface: cleanest separation, but it
   costs an append-only wire level plus two compositor match arms, and the
-  handoff's login values are the ones we want for dock/control-center/launcher
+  design artifacts' login values are the ones we want for dock/control-center/launcher
   anyway. Re-tuning the existing levels was chosen deliberately, accepting the
   OS-wide visual change.
 

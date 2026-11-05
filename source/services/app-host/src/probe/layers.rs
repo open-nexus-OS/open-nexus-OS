@@ -17,8 +17,13 @@ impl super::DslApp {
     /// the band. A box an animation moves declares its region where it is painted now (its
     /// translate and scale) — a blur never sits where the glass it frosts is not (the greeter's
     /// entry); a fade keeps it (the material is there, its tint fades). Returns the count
-    /// written into `out`.
-    pub(super) fn regions(&self, out: &mut [wire::LayerDesc; wire::MAX_SURFACE_LAYERS]) -> usize {
+    /// written into `out`; `nodes[i]` is region `i`'s node (a motion layer claims the regions of
+    /// its subtree, TASK-0354 P2).
+    pub(super) fn regions(
+        &self,
+        out: &mut [wire::LayerDesc; wire::MAX_SURFACE_LAYERS],
+        nodes: &mut [usize; wire::MAX_SURFACE_LAYERS],
+    ) -> usize {
         use nexus_layout_types::{GlassLevel, SurfaceMaterial};
         let mut expanded =
             [nexus_scene_raster::NodeAnim::identity(0); super::anim::MAX_EXPANDED_ANIMS];
@@ -87,6 +92,7 @@ impl super::DslApp {
                     radius: b.visual.corner_radius.top_left.0.clamp(0, 255) as u8,
                     shadow_alpha: if b.visual.shadow.is_some() { 80 } else { 0 },
                 };
+                nodes[n] = b.node_id;
                 n += 1;
                 continue;
             }
@@ -128,6 +134,7 @@ impl super::DslApp {
                 radius: b.visual.corner_radius.top_left.0.clamp(0, 255) as u8,
                 shadow_alpha: if b.visual.shadow.is_some() { 80 } else { 0 },
             };
+            nodes[n] = b.node_id;
             n += 1;
         }
         // On a change of the region count only: every full present (a keystroke's too)

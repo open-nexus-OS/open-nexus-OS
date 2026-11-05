@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Energie Sparen. Demo data from the handoff's `_tree()` — the battery
+// Energie Sparen. Demo data from the design's `_tree()` — the battery
 // figures are the mockup's, not a reading: nothing in the OS reports a
 // charge level yet.
 

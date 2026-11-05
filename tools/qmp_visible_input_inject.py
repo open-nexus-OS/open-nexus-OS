@@ -42,20 +42,37 @@ VISIBLE_DISPLAY_WIDTH = 1280
 VISIBLE_DISPLAY_HEIGHT = 800
 
 
+# What a read brought beyond the message returned, per socket: the next lines (an event and the
+# reply can arrive in one read — dropping the rest lost a reply, 2026-11-05) and the objects of a
+# line not handed out yet.
+_PENDING: dict[int, tuple[bytearray, list[dict]]] = {}
+
+
 def recv_json(sock: socket.socket) -> dict:
-    buffer = bytearray()
+    buffer, objects = _PENDING.setdefault(sock.fileno(), (bytearray(), []))
     while True:
+        if objects:
+            return objects.pop(0)
+        while b"\n" in buffer:
+            line, _, rest = buffer.partition(b"\n")
+            buffer[:] = rest
+            text = line.decode("utf-8", "replace").strip()
+            decoder, at = json.JSONDecoder(), 0
+            while at < len(text):
+                try:
+                    obj, end = decoder.raw_decode(text, at)
+                except json.JSONDecodeError as exc:
+                    raise RuntimeError(f"qmp line not json ({exc}): {text[:200]!r}") from exc
+                objects.append(obj)
+                at = end
+                while at < len(text) and text[at].isspace():
+                    at += 1
+            if objects:
+                return objects.pop(0)
         chunk = sock.recv(4096)
         if not chunk:
             raise RuntimeError("qmp socket closed")
         buffer.extend(chunk)
-        while b"\n" in buffer:
-            line, _, rest = buffer.partition(b"\n")
-            buffer[:] = rest
-            line = line.strip()
-            if not line:
-                continue
-            return json.loads(line.decode("utf-8"))
 
 
 def send_qmp(sock: socket.socket, payload: dict) -> dict:

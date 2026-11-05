@@ -472,7 +472,7 @@ pub(super) fn stamp_anim(
         // `Loop` is never authored via a modifier (the runtime emits it for a
         // widget); `stamp_anim` only handles the modifier kinds.
         AnimKind::Loop => return,
-        AnimKind::Transition => 1,
+        AnimKind::Transition => crate::anim::transition_identity(&ctx.path),
         AnimKind::Animate | AnimKind::Effect => {
             let Some(second) = (args.len() > 1).then(|| args.get(1)) else { return };
             match second.which() {

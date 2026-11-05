@@ -228,7 +228,7 @@ pub(super) fn build_widget_inner(
             }
             // `.fg()` picks the fill role, the way it already does for
             // `Spinner` above. Without it a battery meter is progress-blue:
-            // the widget's default is the handoff's `Info`, and a page had no
+            // the widget's default is the design's `Info`, and a page had no
             // way to say "this bar means charge, not progress".
             if let Some(fg) = mods.fg {
                 bar = bar.color(fg);

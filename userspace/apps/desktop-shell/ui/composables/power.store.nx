@@ -10,7 +10,7 @@
 //
 // DEMO STATE — no power service exists. The charge percentage and the power
 // source are not fields at all: they would be READINGS, and a reading nobody
-// takes is worse than an obvious constant, so the panel draws the handoff's
+// takes is worse than an obvious constant, so the panel draws the design's
 // 78% / "Netzbetrieb" as literal text and this store holds only what the user
 // can actually change here.
 

@@ -33,7 +33,7 @@ Store WindowStore {
     // one matters per size class.
     paneL: Int = 0,
     paneR: Int = 0,
-    // Active toolbar tool (the pressed-tool highlight the handoff pins).
+    // Active toolbar tool (the pressed-tool highlight the design pins).
     tool: Str = "",
     selection: Str = "",
     // Non-zero when a window-control forward was refused.

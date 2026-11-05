@@ -1,16 +1,16 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Erscheinungsbild — the handoff's custom appearance page and the one screen
+// Erscheinungsbild — the design's custom appearance page and the one screen
 // in this app that changes the running system.
 //
 // Modus and Akzentfarbe write through `svc.settings` (settingsd validates and
-// persists, windowd applies live). "Automatisch" is drawn because the handoff
+// persists, windowd applies live). "Automatisch" is drawn because the design
 // draws it, but it dispatches `SetModeAuto`, which has NO effect attached:
 // windowd's `ThemeMode` is `dark|light`, so there is nothing to write yet.
 // App-Icons and Ordnerfarbe are local selections for the same reason.
 //
-// The handoff stacks the four blocks with gap 18 under group labels; there is
+// The design stacks the four blocks with gap 18 under group labels; there is
 // no `Grid`, so its `3 × 1fr` and `4 × 1fr` rows are wrapping rows whose
 // items grow.
 

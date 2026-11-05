@@ -33,6 +33,7 @@ mod frame_arena;
 mod interaction;
 mod layers;
 mod locale;
+mod motion_layers;
 mod mount;
 mod overlay;
 mod paint;
@@ -43,6 +44,7 @@ mod pulse;
 mod reconnect;
 mod scroll;
 mod state;
+mod store;
 mod surface_mem;
 mod windows; // RFC-0086 feed intake // RFC-0095: hover, leave and the drag gesture
 use boot::*;
@@ -336,8 +338,7 @@ pub(super) fn run() -> Result<(), &'static str> {
                     }
                     if let Some(dsl) = app.as_mut() {
                         if dsl.timer_fired() {
-                            dirty = true;
-                            dirty_rows = None;
+                            dsl.merge_tap_damage(&mut dirty, &mut dirty_rows);
                         }
                         // A grown store waits for the re-create (a pulse wakes the loop's tail).
                         if surface_lost {
@@ -558,8 +559,9 @@ pub(super) fn run() -> Result<(), &'static str> {
         }
         // A layer set whose bands outgrew the surface's rows (planned at the relayout)
         // re-creates the surface (same flow as a WM resize, same size).
+        let mut store_only = false;
         if app.as_mut().is_some_and(|dsl| core::mem::take(&mut dsl.store_replan)) {
-            recreate_surface = true;
+            (store_only, recreate_surface) = (!recreate_surface, true);
         }
         // SHARED surface re-create (WM resize / a store that outgrew it): plan the store, destroy
         // + create — a new buffer from gpud (RFC-0114), the old one unmapped once the new one is
@@ -585,7 +587,10 @@ pub(super) fn run() -> Result<(), &'static str> {
                     last_region = Some(r);
                 }
                 match made {
-                    Ok((id, new_mem)) => {
+                    Ok((id, mut new_mem)) => {
+                        // Only the store grew, at the same size: what was drawn comes over.
+                        let carried =
+                            (store_only && !surface_lost).then(|| new_mem.carry_from(&mem));
                         surface_id = id;
                         mem = new_mem;
                         dsl.set_surface_id(surface_id);
@@ -596,7 +601,10 @@ pub(super) fn run() -> Result<(), &'static str> {
                         // last_seq+1): ours too, or the next present is rejected BAD_SEQ.
                         seq = 0;
                         present_in_flight = false;
-                        (dirty, dirty_rows) = (true, None); // everything, into the new buffer
+                        match carried.flatten() {
+                            Some(rows) => dsl.carried = Some(rows), // the pending change stays
+                            None => (dirty, dirty_rows) = (true, None), // everything, anew
+                        }
                         if core::mem::take(&mut surface_lost) {
                             // The new compositor routes no key here until it hears the focus.
                             dsl.reannounce_text_focus(&client, surface_id);

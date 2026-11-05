@@ -1,10 +1,10 @@
 <!-- Copyright 2026 Open Nexus OS Contributors -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# Shell / Launcher layout contract (design_handoff_launcher)
+# Shell / Launcher layout contract (design artifacts: launcher)
 
 SSOT for how the shell home + launcher select their layout. The visual ground
-truth is `docs/dev/design_handoff_launcher/` (tokens = the literal numeric
+truth is the design artifacts (launcher) (tokens = the literal numeric
 contract; `OpenNexusLauncher.html` = the living reference).
 
 ## The one driving concept: mode ⟂ width
@@ -100,7 +100,7 @@ windowd's SERVER, and gpud never saw the request — use the init-wired
 persistent slot pair for early queries; boot markers on this path must be
 fold-immune (`debug_write`) or the outcome is invisible in armed boots.
 
-## Drop-down panels (v3, design_handoff_panels)
+## Drop-down panels (v3, design artifacts: panels)
 
 Six panels — **Control Center · Mitteilungen · Kalender · WLAN · Ton ·
 Batterie** — opened exclusively by the top bar's pills. Both sides live in one
@@ -109,7 +109,7 @@ written out inline in BOTH `ShellPage`s, which is how a trigger matrix drifts),
 and `components/panels/PanelHost.nx` is the `.overlay()` layer plus the six-way
 selection (it used to be a four-level nested `if/else`, also twice).
 
-**Which panels exist is two independent axes**, exactly as the handoff states:
+**Which panels exist is two independent axes**, exactly as the design states:
 `device.profile == desktop` is the explicit Ansichtsmodus flag, and
 `device.sizeClass` only matters when it is false. Desktop gets four separate
 right-hand pills (WLAN · Ton · Batterie · Control Center); touch modes get ONE
@@ -118,7 +118,7 @@ their contents fold into the Control Center. `PanelHost` guards those three ids
 on `device.profile`, so a panel id can never render something no pill can
 reach.
 
-Geometry (handoff §2): bar 36, pills 28 with `.hitSlop(2)` so the BAR is the
+Geometry (design §2): bar 36, pills 28 with `.hitSlop(2)` so the BAR is the
 touch target; panels anchored `top: 44` via a leading `Stack{}.height(8)` and
 `left/right: 12` via `.paddingX(3)` around a `Spacer` — `.overlay()` has no
 anchor API, so anchoring is flex. Widths 328 · 330 · 288 · 300/300/300, radii
@@ -156,7 +156,7 @@ runs whose box lies under a LATER glass box (text paints after all fills and
 would otherwise print over the reset). Panels ride the plain `panel`
 material.
 
-## Launcher, workspace and docks (design_handoff_launcher, TASK-0313)
+## Launcher, workspace and docks (design artifacts: launcher, TASK-0313)
 
 The launcher is an **overlay, not a route** (`components/launcher/`): it rides
 the same `PanelStore.panel` exclusivity as the drop-downs, so opening it
@@ -194,7 +194,7 @@ both states so a flip never shifts the label.
 landscape three floating elements · `DockRegular` · `DockCompact`), and pages
 are thin compositions of them.
 
-Known deltas vs the handoff (deliberate): island bars are static and the
+Known deltas vs the design (deliberate): island bars are static and the
 island does not expand on hover (media service pending; a hover-driven size
 change is not an expressible motion token), desktop icon field is a single
 top-left column (column-WRAP pending engine support; today's registry fits),
@@ -208,5 +208,5 @@ Panel-specific deltas, all platform limits rather than choices: **no exit
 animation** (`.transition` is enter-only), **sliders render but do not drag**
 (the `Change` trigger carries no payload, so a drag has no value to deliver —
 mute still moves the volume fill, because that goes through a `Tap`), and
-padding/gap sit on the 4px spacing grid where the handoff uses 9/10/11/13/15
+padding/gap sit on the 4px spacing grid where the design uses 9/10/11/13/15
 (fixed sizes and radii ARE exact; `.rounded` takes raw px for that reason).

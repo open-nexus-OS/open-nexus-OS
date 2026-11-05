@@ -3,7 +3,7 @@
 
 #![cfg_attr(not(test), no_std)]
 
-//! `Toast` — the design-system transient notification (handoff `Toast`): a
+//! `Toast` — the design-system transient notification (design `Toast`): a
 //! floating frosted pill with a status accent dot, message, and an optional
 //! action label. This is the VIEW (a pure `LayoutNode` builder on the dense
 //! overlay glass material); showing, auto-dismiss timing and placement belong
@@ -22,7 +22,7 @@ use nexus_theme_tokens::{ColorToken, LengthToken, MaterialToken, Tokens, Typogra
 use nexus_widget_panel::Panel;
 use nexus_widget_text::Text;
 
-/// Status accent of the leading dot (handoff `ToastProps.variant`).
+/// Status accent of the leading dot (design `ToastProps.variant`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ToastVariant {
     #[default]
@@ -59,7 +59,7 @@ impl Toast {
         self
     }
 
-    /// Action label (handoff `action`); give it an id for hit-testing.
+    /// Action label (design `action`); give it an id for hit-testing.
     pub fn action(mut self, label: impl Into<String>) -> Self {
         self.action = Some(label.into());
         self

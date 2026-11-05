@@ -289,9 +289,11 @@ impl super::DslApp {
             case,
             alloc::vec![Value::Str(time), Value::Str(date)],
         );
+        // A tick changes a few rows (the clock's): the layout diff names them, not the whole
+        // surface — a full raster each minute cost the board most of a second.
         let changed = match damage {
             Ok(nexus_dsl_runtime::Damage::Layout) => {
-                self.relayout_retained();
+                self.relayout_bounded();
                 true
             }
             Ok(nexus_dsl_runtime::Damage::Paint) => true,

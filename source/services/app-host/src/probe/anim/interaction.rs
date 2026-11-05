@@ -18,7 +18,7 @@
 
 use super::{nsec_now, AnimProp, Easing, LayerId};
 
-/// Interaction motion (design handoff "Animations & Motion"): hover grows the
+/// Interaction motion (design artifacts "Animations & Motion"): hover grows the
 /// control, press dips then springs back — swift, immediate, slightly elastic
 /// (the `--motion-spring-soft` / `--motion-spring-icon` feel).
 /// Hover-grow target scale ("Icons: scale(1.08) hover" — 1.06 generic reads
@@ -33,7 +33,7 @@ const PRESS_MS: u64 = 280;
 /// Hover spring: swift with subtle overshoot (`--motion-spring-soft`).
 const HOVER_SPRING: animation::SpringConfig =
     animation::SpringConfig { stiffness: 420.0, damping: 22.0, mass: 1.0, initial_velocity: 0.0 };
-/// Toggle-thumb press: peak stretch along the travel axis (the handoff
+/// Toggle-thumb press: peak stretch along the travel axis (the design
 /// "toggles stretch the thumb while pressed" — capsule, Y pinned).
 const TOGGLE_STRETCH: f32 = 1.35;
 /// Interaction motion applies to CONTROL-sized elements only: container
@@ -43,7 +43,7 @@ const TOGGLE_STRETCH: f32 = 1.35;
 const INTERACTION_MAX_DIM: i32 = 160;
 
 impl crate::probe::DslApp {
-    /// INTERACTION MOTION (design handoff): the pointer entered/left an
+    /// INTERACTION MOTION (design artifacts): the pointer entered/left an
     /// interactive control — spring the new target up to the hover scale
     /// (subtle overshoot, `--motion-spring-soft`) and the old one back to
     /// identity. Rides the same driver + NodeAnim + frame-pulse machinery as
@@ -83,7 +83,7 @@ impl crate::probe::DslApp {
     }
 
     /// INTERACTION MOTION: press feedback on tap — instant dip to 92% then a
-    /// springy release with an elastic pop past identity (the handoff's
+    /// springy release with an elastic pop past identity (the design's
     /// "instant down, springy release" / `--motion-spring-icon` character).
     pub(in crate::probe) fn interaction_press(&mut self, node_id: usize) {
         if !self.interaction_sized(node_id) {
@@ -103,7 +103,7 @@ impl crate::probe::DslApp {
         }
     }
 
-    /// INTERACTION MOTION (handoff): toggle press — the THUMB stretches along
+    /// INTERACTION MOTION (design): toggle press — the THUMB stretches along
     /// the travel axis (X) with Y pinned (capsule, never an ellipse), and when
     /// the flip moved the knob to the other end (`dx_from` = old − new x), it
     /// elastically slides into place from where it was. Non-uniform scale is

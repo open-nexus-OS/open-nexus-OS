@@ -3,7 +3,7 @@
 
 #![cfg_attr(not(test), no_std)]
 
-//! `TextArea` — the design-system multiline input (handoff `TextArea`): a label,
+//! `TextArea` — the design-system multiline input (design `TextArea`): a label,
 //! a bordered glass box sized for `rows`, and a footer with helper/error text
 //! and an optional character counter. A pure builder producing a
 //! `LayoutNode::Stack` column. v1 renders the value as multiline text (the app

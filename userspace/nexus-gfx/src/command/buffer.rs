@@ -175,13 +175,26 @@ pub enum Command {
     /// Draws nothing itself.
     Damage { rect: TileRect, origin: u32 },
     /// A window's transform as this present draws it (RFC-0101 §8, TASK-0336): the layers of
-    /// transform id `layer_id` moved by (`dx`, `dy`), their opacity multiplied by `opacity`
-    /// (`0..=255`) and scaled by `scale_pct` about their centre — taking effect TOGETHER with the
-    /// present's layers. Presents are the only way a transform reaches the display (TASK-0338: one
-    /// frame producer), so a frame that moves a window and retires its transform (a drag's
-    /// release, a transition's end) never shows one without the other. Draws nothing itself.
-    LayerTransform { layer_id: u32, dx: i32, dy: i32, opacity: u32, scale_pct: u32 },
+    /// transform id `layer_id` scaled by `scale` (1/10000 of their size) about one ORIGIN
+    /// (`origin_x`, `origin_y`, display pixels — every layer of the group about the same point, so
+    /// a window's body, its regions and its slices stay together while it grows) and then moved by
+    /// (`dx`, `dy`), their opacity multiplied by `opacity` (`0..=255`) — taking effect TOGETHER
+    /// with the present's layers. Presents are the only way a transform reaches the display
+    /// (TASK-0338: one frame producer), so a frame that moves a window and retires its transform
+    /// (a drag's release, a transition's end) never shows one without the other. Draws nothing
+    /// itself.
+    LayerTransform {
+        layer_id: u32,
+        dx: i32,
+        dy: i32,
+        opacity: u32,
+        scale: u32,
+        origin_x: i32,
+        origin_y: i32,
+    },
 }
+
+pub use super::transform_wire::SCALE_ONE;
 
 /// A recorded command buffer. Use begin_render_pass() to start a render pass.
 #[derive(Debug, Clone)]
@@ -285,7 +298,6 @@ const TAG_BLIT_ABSOLUTE: u8 = 6;
 const TAG_FILL_SDF_GRADIENT: u8 = 7;
 const TAG_DROP_SHADOW: u8 = 8;
 const TAG_DAMAGE: u8 = 10;
-const TAG_LAYER_TRANSFORM: u8 = 11;
 
 /// Maximum serialized size for a CommittedBuffer (guard against overflow).
 // Sized to fit gpud's 8192-byte present-frame receive buffer (minus the 1-byte
@@ -394,20 +406,7 @@ fn decode_commands_into(buf: &[u8], out: &mut Vec<Command>) -> Result<usize, Gfx
                 let origin = u32::from_le_bytes([o[0], o[1], o[2], o[3]]);
                 (Command::Damage { rect: TileRect { x, y, width, height }, origin }, n + 4)
             }
-            TAG_LAYER_TRANSFORM => {
-                let w = buf.get(pos..pos + 20).ok_or(GfxError::InvalidArgument)?;
-                let word = |i: usize| u32::from_le_bytes([w[i], w[i + 1], w[i + 2], w[i + 3]]);
-                (
-                    Command::LayerTransform {
-                        layer_id: word(0),
-                        dx: word(4) as i32,
-                        dy: word(8) as i32,
-                        opacity: word(12),
-                        scale_pct: word(16),
-                    },
-                    pos + 20,
-                )
-            }
+            super::transform_wire::TAG_LAYER_TRANSFORM => super::transform_wire::deser(buf, pos)?,
             _ => return Err(GfxError::InvalidArgument),
         };
         pos = n;
@@ -477,18 +476,8 @@ fn serialize_commands(commands: &[Command], buf: &mut [u8]) -> Result<usize, Gfx
                 buf[pos..end].copy_from_slice(&origin.to_le_bytes());
                 pos = end;
             }
-            Command::LayerTransform { layer_id, dx, dy, opacity, scale_pct } => {
-                let end = pos + 1 + 20;
-                if buf.len() < end || end > MAX_SERIALIZED {
-                    return Err(GfxError::ResourceExhausted);
-                }
-                buf[pos] = TAG_LAYER_TRANSFORM;
-                let words = [*layer_id, *dx as u32, *dy as u32, *opacity, *scale_pct];
-                for (i, w) in words.iter().enumerate() {
-                    let at = pos + 1 + i * 4;
-                    buf[at..at + 4].copy_from_slice(&w.to_le_bytes());
-                }
-                pos = end;
+            Command::LayerTransform { .. } => {
+                pos = super::transform_wire::ser(buf, pos, cmd, MAX_SERIALIZED)?;
             }
             Command::BlitAbsolute { src_x, src_y_abs, dst_x, dst_y_abs, width, height } => {
                 pos = ser_blit(

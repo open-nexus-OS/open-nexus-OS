@@ -4,11 +4,12 @@
 //! CONTEXT: The focused field's caret as a compositor layer (RFC-0113 §5, ADR-0090). An app
 //! declares it (`OP_SURFACE_CARET`: a thin rectangle in surface pixels, its colour, whether it
 //! blinks); windowd draws it as ONE solid layer over the surface — a 16×16 atlas patch of its
-//! colour spread over the rectangle, the window's transform applied — and blinks it on its own
-//! one-shot timer: no app wake per blink, no raster, a caret move is one small frame. It shows
-//! only while its surface holds window focus and is visible, clipped to the surface
-//! (`crate::caret_rule`). A reset (an edit, a move) shows it solid for a whole half-blink; ten
-//! seconds without one and it rests solid — a caret nobody types at costs no wake.
+//! colour spread over the rectangle, the window's transform applied — and blinks it on the loop's
+//! one-shot wake (`crate::wake_clock`, shared with the wait ring): no app wake per blink, no
+//! raster, a caret move is one small frame. It shows only while its surface holds window focus
+//! and is visible, clipped to the surface (`crate::caret_rule`). A reset (an edit, a move) shows
+//! it solid for a whole half-blink; ten seconds without one and it rests solid — a caret nobody
+//! types at costs no wake.
 //! The claim is the app's (windowd's server endpoint names no app sender — the trust level of
 //! `OP_SURFACE_TEXT_FOCUS`): a wrong surface id draws a thin bar in the focused surface, nothing
 //! more; an unknown surface is refused.
@@ -38,6 +39,8 @@ pub(crate) struct CaretLayer {
     /// What the last frame drew: the screen rectangle and the window slot it rides (`None` = the
     /// desktop surface).
     drawn: Option<(DamageRect, Option<u16>)>,
+    /// The loop's one-shot wake (`crate::wake_clock`): armed at the caret's next blink or the
+    /// wait ring's next step, whichever comes first.
     timer: Option<nexus_ipc::timer::NotifyTimer>,
     /// The kernel refused the blink timer: the caret stands steady (never stuck in its off half).
     no_timer: bool,
@@ -68,6 +71,9 @@ pub(super) struct CaretDraw {
     rect: DamageRect,
     patch: crate::atlas::AtlasSurface,
     opaque: bool,
+    /// The transform it rides: its window's, or a moving motion layer's that holds it (TASK-0354
+    /// P2: a field sliding in carries its caret).
+    layer_id: u32,
 }
 
 impl CaretDraw {
@@ -87,7 +93,7 @@ impl CaretDraw {
                 dst_y: r.y,
                 opacity: 255,
                 corner_radius: 0,
-                layer_id: if self.owner.is_some() { self.key } else { 0 },
+                layer_id: self.layer_id,
                 content_epoch: crate::atlas::atlas_content_epoch(),
                 scroll_band_top_abs: 0,
                 scroll_band_h: 0,
@@ -140,15 +146,16 @@ impl DisplayServerRuntime {
         self.refresh_caret(now);
     }
 
-    /// The loop's caret pump: the blink timer drained, what the caret shows now compared with
-    /// what was drawn (a focus or a window change shows or hides it too), the timer re-armed for
-    /// the next change — none while it rests or shows nowhere.
+    /// The loop's one-shot wake (`crate::wake_clock`), pumped once per pass: the timer drained,
+    /// the wait ring stepped, what the caret shows now compared with what was drawn (a focus or
+    /// a window change shows or hides it too), the timer re-armed at the earliest deadline either
+    /// owes — none while the caret rests or shows nowhere and no launch waits.
     ///
     /// The timer endpoint is a waitset member from the first pass: it is bound then and drained
     /// on EVERY pass. init's close of its own copy latches the member ready (the owner is never
     /// its own peer, RFC-0079) and only the receiver observing it empty clears the latch — an
     /// undrained member spins the loop (the first caret lane, 2026-10-30: `loop hz=1786`).
-    pub(crate) fn pump_caret(&mut self) {
+    pub(crate) fn pump_clock(&mut self) {
         use nexus_service_topology::slots::windowd as topo;
         if self.caret.timer.is_none() && !self.caret.no_timer {
             self.caret.timer = nexus_ipc::timer::NotifyTimer::bind(topo::TIMER).ok();
@@ -163,7 +170,9 @@ impl DisplayServerRuntime {
             }
             None => drain_endpoint(topo::TIMER_RECV),
         }
-        self.refresh_caret(nexus_abi::nsec().unwrap_or(0));
+        let now = nexus_abi::nsec().unwrap_or(0);
+        let _ = self.cursor_wait_tick(now);
+        self.refresh_caret(now);
     }
 
     fn refresh_caret(&mut self, now: u64) {
@@ -177,8 +186,9 @@ impl DisplayServerRuntime {
                 let _ = debug_println("windowd: caret layer on");
             }
         }
+        let wake = crate::wake_clock::earliest(next, self.cursor_wait_wake_ns(now));
         if let Some(t) = self.caret.timer.as_mut() {
-            t.arm_at(next.unwrap_or(0));
+            t.arm_at(wake.unwrap_or(0));
         }
     }
 
@@ -240,19 +250,38 @@ impl DisplayServerRuntime {
         true
     }
 
-    /// The caret as this frame draws it.
-    pub(super) fn caret_draw(&self) -> Option<CaretDraw> {
+    /// The caret as this frame draws it — a frame shown at `at`.
+    pub(super) fn caret_draw(&self, at: u64) -> Option<CaretDraw> {
         let (rect, owner) = self.caret.drawn?;
         let (patch, bgra) = self.caret.patch?;
         let key = owner.map_or(super::surface_layers_encode::DESKTOP_OWNER, |s| {
             self.window_key(usize::from(s))
         });
-        Some(CaretDraw { owner, key, rect, patch, opaque: bgra[3] == 255 })
+        let (layers, origin) = match owner {
+            None => (&self.desktop_layers, (0, 0)),
+            Some(s) => {
+                let r = self.app_window_rect(usize::from(s));
+                (&self.apps.get(usize::from(s))?.layers, (r.x, r.y))
+            }
+        };
+        let at_rest = if owner.is_some() { key } else { 0 };
+        let surf = (
+            rect.x.saturating_sub(origin.0),
+            rect.y.saturating_sub(origin.1),
+            rect.width,
+            rect.height,
+        );
+        let live = super::surface_motion::live(layers, at);
+        let layer_id = match crate::motion_geometry::holder(&layers.tree, surf) {
+            Some(k) if live & (1 << k) != 0 => crate::motion_geometry::layer_id(key, k),
+            _ => at_rest,
+        };
+        Some(CaretDraw { owner, key, rect, patch, opaque: bgra[3] == 255, layer_id })
     }
 }
 
 /// Every frame queued on `slot` taken (non-blocking) — the empty receive clears the member's
-/// EOF latch (see `pump_caret`).
+/// EOF latch (see `pump_clock`).
 fn drain_endpoint(slot: u32) {
     let mut buf = [0u8; 32];
     loop {

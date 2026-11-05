@@ -50,7 +50,7 @@ Store StashStore {
     searchOpen: Int = 0,
     searchQuery: Str = "",
     // Settings mode: replaces the file content, hides the properties pane and
-    // the action bar, and swaps the header for a back arrow (design handoff
+    // the action bar, and swaps the header for a back arrow (design artifacts
     // "Mehr ⋯ → Einstellungen").
     settingsOpen: Int = 0,
     // Show dot-files and system entries in the listing.

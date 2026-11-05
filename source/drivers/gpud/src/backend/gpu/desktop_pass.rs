@@ -191,7 +191,7 @@ pub(super) fn run_pass(
     board: &Board<'_>,
     spec: &PassSpec,
     (target, buffers): (Target, &SurfaceBuffers),
-    (trace, wait): (bool, bool),
+    (trace, wait): (Option<&'static str>, bool),
     last: Option<TimelinePoint>,
 ) -> Result<(usize, [u64; 6], TimelinePoint), Refusal> {
     for attempt in 0..2 {
@@ -279,7 +279,7 @@ fn emit_and_wait(
     board: &Board<'_>,
     spec: &PassSpec,
     (target, buffers): (Target, &SurfaceBuffers),
-    trace: bool,
+    trace: Option<&'static str>,
     wait: bool,
 ) -> Result<(TimelinePoint, [u64; 6], usize), Refusal> {
     let e0 = now_ns();
@@ -333,6 +333,8 @@ fn emit_and_wait(
         waits: &[],
         signal: TimelinePoint(0),
     };
+    // The firmware's view before the kick (TASK-0351 P12), for the traced pass's fw line.
+    let fw0 = trace.map(|_| dev.gpu.fw.view(&dev.gpu.mem));
     let s0 = now_ns();
     let point = dev
         .submit(who.0, who.1, QueueKind::Render, &batch)
@@ -354,7 +356,7 @@ fn emit_and_wait(
     let (gtl, gseq) = dev.render_progress(who.0, who.1).map(|(g, _)| g).unwrap_or((ftl, fseq));
     let done = dev.wait_until(w0 + PASS_TIMEOUT_NS, |g, _| {
         let frag = g.mem.read_u32(&ftl, 0).wrapping_sub(fseq) < 0x8000_0000;
-        if trace {
+        if trace.is_some() {
             if let Some(step) = steps.get_mut(iters as usize) {
                 let geom = g.mem.read_u32(&gtl, 0).wrapping_sub(gseq) < 0x8000_0000;
                 let at = (now_ns().saturating_sub(w0) / 1000) as u32;
@@ -370,7 +372,22 @@ fn emit_and_wait(
     let late_us = dev.gpu.late_ns / 1000;
     dev.serve_firmware();
     let irqs = u64::from(dev.gpu.irqs.wrapping_sub(irq0));
-    if trace {
+    if let (Some(of), Some(fw0)) = (trace, fw0) {
+        // The pass by the firmware's clock: what it executed, the interrupts it took, and the
+        // time it spent idle, active and blocked between the kick and the fragment's end.
+        let fw1 = dev.gpu.fw.view(&dev.gpu.mem);
+        let d = |i: usize| fw1.util[i].wrapping_sub(fw0.util[i]);
+        emit_fmt(format_args!(
+            "gpud: gpu pass fw (of={of} wait_us={} exec=+{} irqs=+{} util_idle=+{} util_active=+{} util_blocked=+{} state={}>{})",
+            (w1 - w0) / 1000,
+            fw1.executed.wrapping_sub(fw0.executed),
+            fw1.irqs.wrapping_sub(fw0.irqs),
+            d(0),
+            d(1),
+            d(2),
+            fw0.state,
+            fw1.state
+        ));
         let mut line = alloc::string::String::new();
         for (i, (at, irq, words)) in
             steps.iter().enumerate().take((iters as usize).min(TRACE_STEPS))
@@ -379,7 +396,7 @@ fn emit_and_wait(
             let _ = write!(line, "{}{at}:{irq}:{words}", if i == 0 { "" } else { " " });
         }
         emit_fmt(format_args!(
-            "gpud: gpu pass trace (iters={iters} irqs={irqs} late_us={late_us} us_at:irqs:words[g=1,f=2]= {line})"
+            "gpud: gpu pass trace (of={of} iters={iters} irqs={irqs} late_us={late_us} us_at:irqs:words[g=1,f=2]= {line})"
         ));
     }
     let stamps = [s0 - e0, w0 - s0, w1 - w0, now_ns().saturating_sub(w1), iters, irqs];

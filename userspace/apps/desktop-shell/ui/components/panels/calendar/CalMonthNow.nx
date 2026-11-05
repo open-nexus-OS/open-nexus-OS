@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // The demo month. `today` is the 30th and it carries the Zahnarzt
-// appointment from the handoff's demo set — the one day that is both.
+// appointment from the design's demo set — the one day that is both.
 //
 // AUTHORED, not computed. The DSL has no date arithmetic and a reducer cannot
 // build a list, so a month grid cannot be derived from a clock — it has to be

@@ -99,7 +99,7 @@ pub(crate) fn tokens_for(packed: u8) -> &'static dyn nexus_dsl_runtime::theme_to
     }
 }
 
-/// The width class of the TOUCH axis (design_handoff_launcher: mode ⟂
+/// The width class of the TOUCH axis (design artifacts: launcher: mode ⟂
 /// width — `desktopMode` is an explicit toggle, width only picks between
 /// the touch layouts). Mobile-first breakpoints, `device.sizeClass`:
 /// compact = phone (<640), regular = tablet portrait (<1024), wide =
@@ -117,7 +117,7 @@ pub(crate) fn size_class_for(w: u32) -> &'static str {
 /// The device environment for a pushed shell profile — what the DSL's
 /// `device.profile` reads, so `ui/platform/<profile>/` override arms
 /// select to the environment's windowing policy. EVERY profile derives
-/// `device.sizeClass` from the REAL surface width (the handoff's `vw`
+/// `device.sizeClass` from the REAL surface width (the design's `vw`
 /// axis) — RFC-0084 P7: the desktop arm used to pin `"wide"`, which made
 /// every responsive arm dead code for desktop-profile apps; a narrow
 /// desktop window now takes the same regular/compact tiers as a tablet.

@@ -3,7 +3,7 @@
 
 #![cfg_attr(not(test), no_std)]
 
-//! `Radio` — the design-system radio indicator (handoff `GlassRadioGroup` row):
+//! `Radio` — the design-system radio indicator (design `GlassRadioGroup` row):
 //! a circle, glass outline when unselected, accent ring with a filled accent dot
 //! when selected. A pure builder producing a `LayoutNode::Stack`. Compose several
 //! (with labels) into a radio group. DSL-emittable.

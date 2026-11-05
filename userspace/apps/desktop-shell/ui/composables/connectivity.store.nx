@@ -9,7 +9,7 @@
 // lands, these reducers keep their shape and gain `@effect`s, the way
 // `ControlStore`'s theme/mode arms already have them.
 //
-// `wiredOnly` gates the network list together with `wifiOn` (handoff §6: the
+// `wiredOnly` gates the network list together with `wifiOn` (design §6: the
 // list dims when the master is off OR "Nur Kabel" is on), so both live here
 // rather than one in the panel and one in a tile store.
 
@@ -32,7 +32,7 @@ Event ConnEvent {
 reduce ConnEvent {
     // Airplane mode is not a peer of the radios, it is a master over them:
     // turning it on takes WiFi and Bluetooth down with it, which is what the
-    // handoff's sub-labels claim ("Aus") and therefore what must be true.
+    // design's sub-labels claim ("Aus") and therefore what must be true.
     ToggleWifi => {
         if state.wifiOn {
             state.wifiOn = false;

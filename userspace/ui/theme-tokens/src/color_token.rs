@@ -61,9 +61,9 @@ pub enum ColorToken {
     FocusRing,
     /// The Dynamic-Island pill fill (solid black in both themes).
     IslandBg,
-    /// Modal/sheet backdrop dim (handoff `--glass-scrim`).
+    /// Modal/sheet backdrop dim (design `--glass-scrim`).
     Scrim,
-    /// Destructive action (handoff role distinct from `Danger`).
+    /// Destructive action (design role distinct from `Danger`).
     Destructive,
     /// Content on `Destructive`.
     OnDestructive,
@@ -109,29 +109,29 @@ pub enum ColorToken {
 
     // ---- Roles that were AUTHORED in every `.nxtheme.toml` but had no
     // ---- variant here, so nothing above the theme file could reach them.
-    /// Hairline separator (handoff `--glass-divider`). Distinct from `Border`:
+    /// Hairline separator (design `--glass-divider`). Distinct from `Border`:
     /// a divider is a translucent wash that reads on glass, `Border` is the
     /// opaque control outline. Painting hairlines with `Border` is why every
     /// separator in a glass window was a solid `#262626` bar.
     Divider,
-    /// Hover wash over an interactive surface (handoff `--glass-hover-bg`).
+    /// Hover wash over an interactive surface (design `--glass-hover-bg`).
     GlassHover,
     /// Pressed/active wash over an interactive surface
-    /// (handoff `--glass-active-bg`).
+    /// (design `--glass-active-bg`).
     GlassActive,
-    /// Track fill of a switch in the ON state (handoff `--glass-toggle-on-bg`).
+    /// Track fill of a switch in the ON state (design `--glass-toggle-on-bg`).
     ToggleOnBg,
     /// Track fill of a switch in the OFF state.
     ToggleOffBg,
-    /// The notification dot (handoff `--glass-notif-dot`, always red).
+    /// The notification dot (design `--glass-notif-dot`, always red).
     NotifDot,
-    /// Recessed track of a range slider (handoff `--track`) — dark in BOTH
+    /// Recessed track of a range slider (design `--track`) — dark in BOTH
     /// themes, because the track reads as a groove cut into the surface.
     SliderTrack,
-    /// Filled portion of a range slider (handoff `--fill`) — bright in both,
+    /// Filled portion of a range slider (design `--fill`) — bright in both,
     /// the inverse polarity of its own track.
     SliderFill,
-    /// The glyph embedded IN a slider's fill (handoff `.slider .embed`). It
+    /// The glyph embedded IN a slider's fill (design `.slider .embed`). It
     /// sits on `SliderFill`, so it is dark in both themes like the track.
     SliderIcon,
 }

@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Ton panel (design_handoff_panels §6): 300 wide, radius 30, top right,
+// Ton panel (design artifacts: panels §6): 300 wide, radius 30, top right,
 // DESKTOP mode only. Output devices, input devices, and the SAME volume card
 // the Control Center shows — `CcSoundCard` is reused verbatim rather than
 // re-drawn, which is what makes "ein gemeinsamer Lautstärke-Zustand" true by

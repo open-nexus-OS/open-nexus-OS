@@ -108,9 +108,10 @@ pub(super) fn validate_command(
             Ok(())
         }
         Command::Damage { rect, .. } => validate_tile(*rect, render_extent),
-        // A window's transform: an id (`0` names no window), an opacity and a positive scale.
-        Command::LayerTransform { layer_id, opacity, scale_pct, .. } => {
-            if *layer_id == 0 || *opacity > 255 || *scale_pct == 0 || *scale_pct > 400 {
+        // A window's transform: an id (`0` names no window), an opacity and a scale from 1% to
+        // 400% (in 1/10000 steps).
+        Command::LayerTransform { layer_id, opacity, scale, .. } => {
+            if *layer_id == 0 || *opacity > 255 || !(100..=40_000).contains(scale) {
                 return Err(GfxError::InvalidArgument);
             }
             Ok(())

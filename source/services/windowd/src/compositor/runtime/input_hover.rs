@@ -55,12 +55,14 @@ pub(super) fn first_tap_routed(desktop: bool) -> bool {
 impl DisplayServerRuntime {
     /// Whether the pointer at `(x, y)` belongs to the SHELL above every app window
     /// (`crate::shell_band`): the top-bar strip, a panel-level glass rect of the desktop
-    /// surface (composited above the windows, scene pass 2b) or anywhere while the shell
+    /// surface (composited above the windows, scene pass 2b), a layer it declared in front
+    /// (its toast — pass 2c; one over a backdrop covers everything) or anywhere while the shell
     /// holds a modal. The press, hover and wheel loops skip app windows there, so input
     /// lands where the pixels are.
     pub(super) fn shell_owns_point(&self, x: i32, y: i32) -> bool {
         use nexus_display_proto::client_surface as wire;
-        let mut panels = [(0i32, 0i32, 0u32, 0u32); wire::MAX_SURFACE_LAYERS];
+        use nexus_display_proto::surface_layers::MAX_MOTION_LAYERS;
+        let mut panels = [(0i32, 0i32, 0u32, 0u32); wire::MAX_SURFACE_LAYERS + MAX_MOTION_LAYERS];
         let mut n = 0;
         for l in self.desktop_layers.tree.regions() {
             if l.material == wire::MATERIAL_GLASS && l.glass_level == wire::GLASS_PANEL {
@@ -68,12 +70,18 @@ impl DisplayServerRuntime {
                 n += 1;
             }
         }
+        let mut scrim = false;
+        for m in self.desktop_layers.tree.motions().iter().filter(|m| m.front) {
+            panels[n] = (i32::from(m.x), i32::from(m.y), u32::from(m.w), u32::from(m.h));
+            n += 1;
+            scrim |= m.backdrop().is_some();
+        }
         crate::shell_band::shell_owns_point(
             x,
             y,
             super::SHELL_TOPBAR_H,
             &panels[..n],
-            self.desktop_modal,
+            self.desktop_modal || scrim,
         )
     }
 

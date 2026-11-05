@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// One top-bar pill (handoff: hover-fill only, no persistent background —
+// One top-bar pill (design: hover-fill only, no persistent background —
 // the hover wash comes from the interaction chain). Tap handlers attach at
 // the use site.
 

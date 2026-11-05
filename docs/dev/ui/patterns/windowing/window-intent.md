@@ -51,7 +51,7 @@ and mode. windowd (and, when collapsed, the app) places it — never absolute
 coordinates.
 
 - **`SplitView { sidebar {…} content {…} inspector {…} }`** — the responsive
-  navigation/content/properties layout (the design handoff's `AppWindow`). Side
+  navigation/content/properties layout (the design artifacts' `AppWindow`). Side
   panes collapse into glass overlays as the window narrows. `content` is the
   only required pane.
 - **`.toolbar { item(placement: …) { … } }`** — items are positioned into the
@@ -213,7 +213,7 @@ systemui             product → shell profile → windowing policy
   `wm-resize-move.md` — the WM mechanics these compose onto.
 - `docs/dev/ui/foundations/layout/profiles.md` — the shell-profile SSOT the
   policy hangs off.
-- `docs/dev/design_handoff_open_nexus_os/README.md` — `Window` / `AppWindow` /
+- the design artifacts (design system) — `Window` / `AppWindow` /
   `WindowControls` / `WindowActionBar` components + the "OS Window Frame" template.
 - `docs/dev/app-platform/privileged-roles.md` — `bundle_type = shell` (the
   desktop-band capability) and the ceiling model this level-gating mirrors.

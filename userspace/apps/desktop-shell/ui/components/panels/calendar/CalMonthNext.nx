@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The month AFTER the demo month. It carries the handoff's four later
+// The month AFTER the demo month. It carries the design's four later
 // appointments, so paging forward shows dots rather than an empty grid.
 //
 // AUTHORED, not computed. The DSL has no date arithmetic and a reducer cannot

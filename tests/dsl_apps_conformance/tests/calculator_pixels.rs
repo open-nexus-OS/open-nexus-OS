@@ -72,7 +72,7 @@ fn ink_of(content: &str, font: nexus_text_baked::FontSize, width: i32) -> u32 {
     sum
 }
 
-/// The display numeral must RENDER — at the handoff size and at the device's
+/// The display numeral must RENDER — at the design size and at the device's
 /// own freeform window, where the fitted face is one of the new rungs.
 #[test]
 fn the_display_numeral_has_ink() {

@@ -132,7 +132,7 @@ fn material_vocabulary_is_a_bijection() {
     }
     assert!(
         material_token("windowPane").is_some() && material_token("windowBar").is_some(),
-        "the two window levels the handoff needs must resolve"
+        "the two window levels the design needs must resolve"
     );
     assert!(material_token("notAMaterial").is_none());
 }

@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The window's three-zone top chrome (design_handoff_open_nexus_os window
+// The window's three-zone top chrome (design artifacts: design system window
 // frame): LEADING app chip (window-mode menu) + left-sidebar toggle ·
 // CENTER toolbar slots (up to three tool icons; "" hides a slot) ·
 // TRAILING ⋯ app menu + properties-sidebar toggle + window controls.
@@ -218,7 +218,7 @@ Component WinTopBar {
             Stack { }
         }
         Spacer
-        // VERTICAL ellipsis: the handoff draws the toolbar's "Mehr" as
+        // VERTICAL ellipsis: the design draws the toolbar's "Mehr" as
         // `circle cx=12 cy=5|12|19` and the action bar's as `cx=5|12|19 cy=12`.
         // Two different glyphs, not one rotated — so two symbols.
         if $props.more != "" {

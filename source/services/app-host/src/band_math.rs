@@ -156,6 +156,49 @@ impl PresentDamage {
     }
 }
 
+/// The columns a frame's partial row damage is known to lie in (TASK-0351 P15). The row
+/// painter repaints whole rows, but what CHANGED in them is a rectangle: an animated panel 330
+/// wide moving down the desktop changes 330 columns of its rows, and a present naming 1920-wide
+/// rows made the compositor redraw — and re-blur every glass over — the whole band each frame.
+/// A contributor that knows its columns claims them (`within`); one that only knows rows (a
+/// tap's diff, a drag, a text edit, a widget loop) widens the frame to all of them (`full`),
+/// and a frame nobody claimed is full-width: narrowing is opt-in, never assumed.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum Cols {
+    #[default]
+    Unclaimed,
+    Within(i32, i32),
+    Full,
+}
+
+impl Cols {
+    /// This frame's rows changed within columns `x0..x1` (as far as this contributor knows).
+    pub(crate) fn within(&mut self, x0: i32, x1: i32) {
+        *self = match *self {
+            Cols::Full => Cols::Full,
+            Cols::Within(a0, a1) => Cols::Within(a0.min(x0), a1.max(x1)),
+            Cols::Unclaimed => Cols::Within(x0, x1),
+        };
+    }
+
+    /// A contributor without column knowledge: the rows changed anywhere.
+    pub(crate) fn full(&mut self) {
+        *self = Cols::Full;
+    }
+
+    /// The damage rectangle of rows `b0..b1` on a surface `w` wide: the claimed columns, cut to
+    /// the surface, or — unclaimed, full, or claimed past the surface — every column.
+    pub(crate) fn rect(self, w: u32, (b0, b1): (u32, u32)) -> (u32, u32, u32, u32) {
+        if let Cols::Within(x0, x1) = self {
+            let (x0, x1) = ((x0.max(0) as u32).min(w), (x1.max(0) as u32).min(w));
+            if x1 > x0 {
+                return (x0, b0, x1 - x0, b1 - b0);
+            }
+        }
+        (0, b0, w, b1 - b0)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -251,5 +294,48 @@ mod tests {
         assert!(rows >= 60, "every named row is still named");
         d.add((0, 0, 0, 10));
         assert_eq!(d.rects().len(), 4, "an empty rectangle names nothing");
+    }
+
+    /// TASK-0351 P15: a panel sliding down the desktop names its columns, not 1920-wide rows.
+    #[test]
+    fn an_animated_node_names_the_columns_it_moved_in() {
+        let mut c = Cols::default();
+        c.within(299, 631);
+        c.within(299, 631);
+        assert_eq!(c.rect(1920, (44, 650)), (299, 44, 332, 606));
+        // Two nodes side by side: the union of their columns.
+        c.within(1200, 1500);
+        assert_eq!(c.rect(1920, (44, 650)), (299, 44, 1201, 606));
+    }
+
+    #[test]
+    fn an_unclaimed_frame_is_every_column() {
+        assert_eq!(Cols::default().rect(1920, (10, 20)), (0, 10, 1920, 10));
+    }
+
+    /// A tap's diff, a drag or a text edit knows only rows: the frame is full-width whatever an
+    /// animation claimed before or after it.
+    #[test]
+    fn test_reject_narrowing_a_frame_a_rowonly_contributor_touched() {
+        let mut c = Cols::default();
+        c.within(300, 630);
+        c.full();
+        assert_eq!(c.rect(1920, (44, 650)), (0, 44, 1920, 606));
+        c.within(300, 630);
+        assert_eq!(c, Cols::Full, "a later claim never narrows a full frame");
+        let mut d = Cols::default();
+        d.full();
+        d.within(300, 630);
+        assert_eq!(d.rect(1920, (0, 10)), (0, 0, 1920, 10));
+    }
+
+    #[test]
+    fn a_claim_is_cut_to_the_surface_and_one_past_it_is_every_column() {
+        let mut c = Cols::default();
+        c.within(-5, 2000);
+        assert_eq!(c.rect(1920, (0, 10)), (0, 0, 1920, 10));
+        let mut off = Cols::default();
+        off.within(1930, 1940);
+        assert_eq!(off.rect(1920, (0, 10)), (0, 0, 1920, 10), "nothing claimed on the surface");
     }
 }

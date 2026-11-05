@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The radio row (design_handoff_panels `.rrow`) — one choice in a
+// The radio row (design artifacts: panels `.rrow`) — one choice in a
 // single-selection list: WiFi networks, audio devices, energy profiles. Only
 // the ACTIVE row shows the blue check; the others reserve nothing for it, the
 // row simply ends.
@@ -11,7 +11,7 @@
 // the whole list one component; a slot here would make every call site in
 // three panels carry a body just to choose between two shapes.
 //
-// The active tint is the handoff's `rgba(59,130,246,.18)` as a literal. It is
+// The active tint is the design's `rgba(59,130,246,.18)` as a literal. It is
 // list-selection blue in both themes — deliberately not the user's accent,
 // because a selected network must not restyle itself when someone picks a
 // green accent in Settings.

@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Batterie/Energie panel (design_handoff_panels §6): 300 wide, radius 30, top
+// Batterie/Energie panel (design artifacts: panels §6): 300 wide, radius 30, top
 // right, DESKTOP mode only. Charge readout, energy profile, standby inhibit.
 //
 // Charge and power source are literals, not store fields: nothing measures
@@ -9,7 +9,7 @@
 // "Kein Standby" ARE state — they are choices made here — and they live in
 // `SystemStore` as demo state until a power service exists.
 //
-// Exactly three profiles, per the handoff. A fourth would be an invention.
+// Exactly three profiles, per the design. A fourth would be an invention.
 
 Component BatteryPanel {
     Stack {

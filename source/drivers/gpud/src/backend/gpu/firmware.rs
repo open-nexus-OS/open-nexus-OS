@@ -53,6 +53,8 @@ pub(super) struct Loaded {
     pub fwccb_ctl: HeapObj,
     pub fwccb: HeapObj,
     pub mmucache_sync: HeapObj,
+    /// The firmware's utilisation block (`fwif::GPU_UTIL_FWCB_*`): read per traced pass.
+    pub gpu_util: HeapObj,
     pub pt_pages: [Page; PAGE_TABLE_PAGES],
     /// The boot-data section inside the data region (its boot-stage word is a witness).
     pub boot_data: HeapObj,
@@ -246,6 +248,7 @@ pub(super) fn load(
         fwccb_ctl,
         fwccb,
         mmucache_sync,
+        gpu_util,
         pt_pages,
         boot_data,
     })
@@ -272,6 +275,38 @@ impl Loaded {
                 let (table, index) = mips_boot::pte_slot(heap_page * mips_boot::PAGE);
                 mem.page_write_u32(&self.pt_pages[table], index, mips_boot::pte_uncached(phys));
             }
+        }
+    }
+}
+
+/// What the firmware reports about itself (`Loaded::view`, TASK-0351 P12): deltas between two
+/// views bound a pass by the firmware's own clock.
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct FwView {
+    pub executed: u32,
+    pub irqs: u32,
+    /// The state the firmware last entered: idle 0, active 1, blocked 2.
+    pub state: u8,
+    /// Time spent idle, active and blocked, in the firmware's clock.
+    pub util: [u64; 3],
+}
+
+impl Loaded {
+    /// The firmware's view at this instant: the commands it executed and the interrupts it took
+    /// (its OS data), and its utilisation block — the state it is in and the time it has spent
+    /// idle, active and blocked.
+    pub(super) fn view(&self, mem: &FwMemory) -> FwView {
+        let read_u64 = |at: usize| {
+            let lo = u64::from(mem.read_u32(&self.gpu_util, at as u32));
+            let hi = u64::from(mem.read_u32(&self.gpu_util, at as u32 + 4));
+            lo | (hi << 32)
+        };
+        let last = read_u64(fwif::GPU_UTIL_FWCB_LAST_WORD);
+        FwView {
+            executed: mem.read_u32(&self.osdata, fwif::OSDATA_KCCB_CMDS_EXECUTED as u32),
+            irqs: mem.read_u32(&self.osdata, fwif::OSDATA_INTERRUPT_COUNT as u32),
+            state: (last & fwif::GPU_UTIL_STATE_MASK) as u8,
+            util: [0, 1, 2].map(|i| read_u64(fwif::GPU_UTIL_FWCB_STATS + 8 * i)),
         }
     }
 }

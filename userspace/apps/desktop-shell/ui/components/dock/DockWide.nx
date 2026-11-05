@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The LANDSCAPE touch dock (design_handoff_launcher §8.2, `vw ≥ 1024`):
+// The LANDSCAPE touch dock (design artifacts: launcher §8.2, `vw ≥ 1024`):
 // three separate glass elements sitting free on the wallpaper — the round
 // 42×42 launcher button left · the dock pill (sm tiles + 1×32 divider +
 // mini player) centre · the ENCLOSED nav pill right. Bottom clearance 12,

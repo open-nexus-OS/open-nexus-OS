@@ -3,7 +3,7 @@
 
 #![cfg_attr(not(test), no_std)]
 
-//! `Spinner` — the design-system activity indicator (handoff `Spinner`):
+//! `Spinner` — the design-system activity indicator (design `Spinner`):
 //! twelve tapered spokes fading around the circle (the classic activity
 //! model). A pure builder producing a fixed-size `LayoutNode` whose spokes
 //! are twelve absolutely-positioned `ShapeKind::Vector` children with a
@@ -65,7 +65,7 @@ impl Spinner {
         Self::default()
     }
 
-    /// Diameter in px (handoff `size`; default 28).
+    /// Diameter in px (design `size`; default 28).
     pub fn size(mut self, px: i32) -> Self {
         self.size = FxPx::new(px.max(8));
         self

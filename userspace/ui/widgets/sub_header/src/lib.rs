@@ -3,7 +3,7 @@
 
 #![cfg_attr(not(test), no_std)]
 
-//! `SubHeader` — the design-system section header (handoff `SubHeader`): a small
+//! `SubHeader` — the design-system section header (design `SubHeader`): a small
 //! muted title with an optional caption and a trailing text action; place above
 //! grouped lists. A pure builder producing a `LayoutNode::Stack`. DSL-emittable.
 

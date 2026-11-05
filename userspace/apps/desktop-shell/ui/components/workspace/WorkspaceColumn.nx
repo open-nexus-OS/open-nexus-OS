@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The DESKTOP workspace icon field (design_handoff_launcher §3.1): a
+// The DESKTOP workspace icon field (design artifacts: launcher §3.1): a
 // top-left column of md (56) icons with label — the classic desktop icon
 // field, NO scrolling (the field wraps, it never scrolls). Column-WRAP into
 // further columns is a recorded delta until the engine grows column

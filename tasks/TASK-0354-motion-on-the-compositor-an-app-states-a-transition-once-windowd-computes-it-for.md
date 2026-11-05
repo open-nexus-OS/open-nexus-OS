@@ -5,7 +5,7 @@ title: "Compositor motion: a transition stated once, moved by windowd for every 
 status: in_progress
 owner: ["@ui"]
 created: 2026-11-03
-updated: 2026-11-04
+updated: 2026-11-05
 subsystem: ui
 components: [windowd, app-host, animation]
 kind: ui
@@ -44,17 +44,49 @@ phases:
     evidence: build/logs/board--2026-11-03T19-13-30
   - id: P2
     story: "an app states a value change or transition once on a layer, and windowd moves the layer for the time each frame is shown"
-    state: blocked
+    state: done
     gate: "board: apphost wake-ups during a transition = 0; app CPU raster per transition frame = 0; host test_reject_a_motion_on_a_layer_the_sender_does_not_own, test_reject_an_unknown_motion_token"
-    note: "2026-11-04: opens with the RFC-0109 amendment (a declared layer carries a motion record) once TASK-0351's board cycle has judged P5/P10 — the operator's order: the frame budget first, then motion on it"
+    started: 2026-11-04
+    done: 2026-11-05
+    evidence: build/logs/board--2026-11-05T13-12-18
+    note: "panel, launcher and top-bar panel enters are motion layers rastered once (paint once, 0 per frame); no app episode carries a shell token; window sheets stay app-run (P7)"
   - id: P3
-    story: "the motion tokens are springs (response, damping), and reduced motion still resolves to the end state"
-    state: planned
-    gate: "host goldens sampled at named times for all 9 tokens; every token a spring settling within 550 ms, the default critically damped, micro-motion under 200 ms, panels and launcher 250-400 ms (latency-reference.md); reduced motion = 0 frames of motion"
+    story: "the motion tokens follow the design artifacts' curves exactly (the springs' overshoot included), growing entrances scale on the compositor about one origin, and reduced motion still resolves to the end state"
+    state: done
+    gate: "host goldens sampled at named times for every transition token against the artifacts' cubic-bezier (<0.005); a group scales about one origin in 1/10000 steps; board: panel, dialog and toast enters without an apphost hops motion episode"
+    started: 2026-11-05
+    done: 2026-11-05
+    evidence: build/logs/board--2026-11-05T13-12-18
+    note: "panel enters on the board without a token episode; dialog and toast enters on build/logs/usb-visible--2026-11-05T12-35-43 and in the operator's board test (the board trace ended at 300 KB, before them)"
   - id: P4
     story: "every shell transition holds the frame on the board"
-    state: planned
+    state: blocked
     gate: "board: panel, launcher and window open/close each 0 of 32 frames dropped, gpud: ux frame ok"
+    note: "blocked on TASK-0351/P6: since P2 the frames a transition drops are the GPU passes' cost (board 2026-11-05T13-12-18: 3-12 of 32, max 19-37 ms), no app raster"
+  - id: P5
+    story: "opening a motion layer paints the layer alone: a relayout names the base's rows and the layers' rows apart, so a panel's open and a modal's scrim repaint no base row"
+    state: done
+    gate: "board: apphost motion layer paint_us the only raster of a panel open and of the power alert (no base rows under them in hops input); host what_a_motion_layer_holds_never_damages_the_base"
+    started: 2026-11-05
+    done: 2026-11-05
+    evidence: build/logs/board--2026-11-05T13-12-18
+    note: "panel opens: the layer's paint is the only raster, base_rows=0; the alert alone at 322x130 (paint 42 ms) on build/logs/usb-visible--2026-11-05T12-35-43"
+  - id: P6
+    story: "a modal and a toast stay in front of every window: the shell's overlay layers are drawn above the windows, the bar and the panels, a modal's scrim is one texel the compositor spreads, and the toast never covers the bar"
+    state: done
+    gate: "board: apphost motion layer front=1 backdrop=1 for the power alert at its sheet's size (not the screen's), front=1 for the toast; the alert opens beside an open Control Center without a Tier-2 fade; host test_reject_a_backdrop_naming_a_missing_patch, a_motion_layer_with_a_backdrop_changes_the_whole_surface"
+    started: 2026-11-05
+    done: 2026-11-05
+    evidence: build/logs/usb-visible--2026-11-05T12-35-43
+    note: "alert front=1 backdrop=1 at 322x130, toast front=1 below the bar, scrim to 56 %; confirmed by the operator on the board 2026-11-05 (trace incomplete past 300 KB)"
+  - id: P7
+    story: "a window's frosted base can carry a motion layer: a sheet entering in an app window is moved by windowd like the shell's panels"
+    state: planned
+    gate: "board: a window sheet's enter has no apphost hops motion episode; apphost motion layer for it"
+  - id: P8
+    story: "closing a panel, the launcher or a toast costs no app raster: the layer goes and nothing under it is painted again - the cause of today's close frames named first (an exit motion, a store replan or a scrim), then cut"
+    state: planned
+    gate: "board: the launcher's close without an apphost hops motion episode (was 4 frames of 1920x1080 at 96 ms each with tokens= empty, board--2026-11-05T13-12-18); QEMU: the toast's timeout close without one (was 413k px)"
 ---
 
 ## The ask

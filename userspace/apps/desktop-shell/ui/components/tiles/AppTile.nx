@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// One workspace/window-menu app tile (design_handoff_launcher `AppIcon md`,
+// One workspace/window-menu app tile (design artifacts: launcher `AppIcon md`,
 // LAUNCHER-SPEC §2): tile 56, radius 16, label below. Per-app icon ARTWORK —
 // the baked squircle sprite when the bundle ships one, else a vertical-
 // gradient rounded square (colors from the manifest `icon = "symbol|#top|

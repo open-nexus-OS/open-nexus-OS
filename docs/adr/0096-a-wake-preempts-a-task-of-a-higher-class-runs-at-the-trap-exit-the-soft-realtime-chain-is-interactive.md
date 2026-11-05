@@ -3,7 +3,7 @@
 
 # ADR-0096: A wake preempts — a task of a class above the running task's runs at the trap exit, and the soft-realtime chain is Interactive
 
-- Status: Proposed
+- Status: Accepted (2026-11-05, TASK-0351 P5 — board cycle `board--2026-11-05T13-12-18`)
 - Date: 2026-11-04
 - Links:
   - Tasks: `tasks/TASK-0351-layer-8-on-the-gpu-an-occluded-window-costs-nothing-bindings-grow-a-fullscreen-a.md` (P5: the fixed cost of a pass)
@@ -63,10 +63,27 @@ must be too, or the frame's p99 (≤ 16.7 ms, the UX goal) is bounded by the tic
   the two new tests join); the proof is the QEMU lanes' preemption-sensitive markers and the
   board's trace line (`late_us=`, the most a timer-ended slice woke after its deadline) beside the
   sweep's `q16_us`.
-- **Follow-ups**: un-gate `sched` for the kernel's host tests; the board cycle that reads
-  `late_us` ≈ 0 and `q16_us` within twice the bring-up pass; emit cost (~90 µs a draw on the CPU)
-  as its own phase; HSR for opaque windows (pass type opaque) when the scene grows past 12
-  windows.
+- **Measured (board cycle 2026-11-04T15-27-23, the first with the switch)**: init raised the
+  seven services (`init: qos interactive n=7 fail=0`); the most a 1 ms slice woke late fell from
+  5.1 ms to 0.65 ms (`late_us=654`); the frames dropped over the gate windows fell from 41 % to
+  26 % and the slowest frame from 151 ms to 99 ms. The sweep did not move (a pass of 5.9 ms
+  whatever its area, the hover pass 12.7 ms in one pass) while the bring-up rung's area pass took
+  0.5 ms in the same boot through the same firmware: the pass's fixed cost is not the wake
+  latency. The switch stays — it bounds the chain's latency by interrupt latency as decided.
+  **Re-read the same day (TASK-0351 P13)**: the gate scene and the sweep drew every frame
+  against the desktop's first target, whose slot the CPU had drawn — so every warm frame and
+  every sweep case redrew the slot whole; the "fixed cost whatever the area" was the wallpaper's
+  two megapixels at the board's ~3 ns a pixel, and cycle 39's "fragment latency" the fragment
+  stage shading a full-screen glass pass. The `q16_us`/`area16_us`/`hover_us` of the cycles up
+  to 2026-11-04T15-27-23 measured full-screen passes and are not comparable with later ones. The
+  pass's cost is its pixels (`gpu work`: blended pixels at 4.9 ns, opaque at 1.2), and the
+  frame's lever is the pixels it blends (TASK-0351 P14).
+- **Accepted on board cycle 2026-11-05T13-12-18**: a woken slice late by 0 µs in every traced window
+  (`late_us=0`), the sweep's area-limited passes at `q16_us` 915 and `area16_us` 748, the hover
+  pass 3.3 ms (its bar 8.3 ms).
+- **Follow-ups**: un-gate `sched` for the kernel's host tests; emit cost (P10: 15–20 µs a draw
+  after the walked plan, from 49–94); HSR for opaque windows (pass type opaque) when the scene
+  grows past 12 windows.
 
 ## Alternatives considered
 

@@ -3,19 +3,29 @@
 
 //! CONTEXT: RFC-0109 surface layers — what a client surface is made of and the two frames that
 //! declare it: the STRUCTURE (`OP_SURFACE_TREE`: material regions, scroll layers with their
-//! virtual bands, wash patches — applied with the surface's next present, atomic with the pixels
-//! it names) and the MOTION (`OP_SURFACE_MOTION`: scroll offsets and wash layers — applied at
-//! once, the newest superseding). Plus the one geometry check every receiver runs and the ring
-//! mapping both ends share (the app writes content where the compositor reads it).
+//! virtual bands, wash patches, motion layers the compositor moves — applied with the surface's
+//! next present, atomic with the pixels it names) and the MOTION (`OP_SURFACE_MOTION`: scroll
+//! offsets and wash layers — applied at once, the newest superseding; `surface_layers_motion`).
+//! Plus the one geometry check every receiver runs and the ring mapping both ends share (the app
+//! writes content where the compositor reads it).
 //! OWNERS: @ui @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable (append-only)
 //! TEST_COVERAGE: `surface_layers_tests.rs` (round trips, `test_reject_*` for every bound)
 //!
 //! A surface is `width × rows` pixels: rows `[0, height)` are the BASE layer, rows
-//! `[height, rows)` the client's STORE, where its bands and patches live.
+//! `[height, rows)` the client's STORE, where its bands, patches and motion layers live.
 
 use crate::client_surface::{has_op, header, LayerDesc, HEADER_LEN, MAX_SURFACE_LAYERS};
+use crate::motion_layer::{self, MOTION_BYTES};
+pub use crate::motion_layer::{
+    MotionLayerDesc, MAX_MOTION_LAYERS, MAX_MOTION_MS, MOTION_FRONT, MOTION_PARENT, SCALE_MAX,
+    SCALE_MIN, SCALE_ONE,
+};
+pub use crate::surface_layers_motion::{
+    decode_surface_motion, encode_surface_motion, validate_motion, MotionError, SurfaceMotion,
+    Wash, SURFACE_MOTION_MAX_LEN,
+};
 
 /// client → windowd: the surface's structure, applied with its next present.
 pub const OP_SURFACE_TREE: u8 = 33;
@@ -138,10 +148,12 @@ pub struct SurfaceTree {
     pub scroll_count: usize,
     pub patches: [Patch; MAX_PATCHES],
     pub patch_count: usize,
+    pub motions: [MotionLayerDesc; MAX_MOTION_LAYERS],
+    pub motion_count: usize,
 }
 
 impl SurfaceTree {
-    /// The empty structure: no regions, no scroll layers, no patches.
+    /// The empty structure: no regions, no scroll layers, no patches, no motion layers.
     pub const EMPTY: Self = Self {
         regions: [LayerDesc {
             x: 0,
@@ -171,7 +183,13 @@ impl SurfaceTree {
         scroll_count: 0,
         patches: [Patch { x: 0, y: 0 }; MAX_PATCHES],
         patch_count: 0,
+        motions: [MotionLayerDesc::EMPTY; MAX_MOTION_LAYERS],
+        motion_count: 0,
     };
+
+    pub fn motions(&self) -> &[MotionLayerDesc] {
+        &self.motions[..self.motion_count.min(MAX_MOTION_LAYERS)]
+    }
 
     pub fn regions(&self) -> &[LayerDesc] {
         &self.regions[..self.region_count.min(MAX_SURFACE_LAYERS)]
@@ -200,21 +218,22 @@ const TREE_HEAD: usize = HEADER_LEN + 8;
 pub const SURFACE_TREE_MAX_LEN: usize = TREE_HEAD
     + MAX_SURFACE_LAYERS * REGION_BYTES
     + MAX_SCROLL_LAYERS * SCROLL_BYTES
-    + MAX_PATCHES * PATCH_BYTES;
+    + MAX_PATCHES * PATCH_BYTES
+    + MAX_MOTION_LAYERS * MOTION_BYTES;
 
-fn put16(out: &mut [u8], at: usize, v: u16) {
+pub(crate) fn put16(out: &mut [u8], at: usize, v: u16) {
     out[at..at + 2].copy_from_slice(&v.to_le_bytes());
 }
 
-fn put32(out: &mut [u8], at: usize, v: u32) {
+pub(crate) fn put32(out: &mut [u8], at: usize, v: u32) {
     out[at..at + 4].copy_from_slice(&v.to_le_bytes());
 }
 
-fn get16(f: &[u8], at: usize) -> u16 {
+pub(crate) fn get16(f: &[u8], at: usize) -> u16 {
     u16::from_le_bytes([f[at], f[at + 1]])
 }
 
-fn get32(f: &[u8], at: usize) -> u32 {
+pub(crate) fn get32(f: &[u8], at: usize) -> u32 {
     u32::from_le_bytes([f[at], f[at + 1], f[at + 2], f[at + 3]])
 }
 
@@ -231,7 +250,7 @@ pub fn encode_surface_tree(
     out[8] = regions.len() as u8;
     out[9] = scrolls.len() as u8;
     out[10] = patches.len() as u8;
-    out[11] = 0;
+    out[11] = tree.motions().len() as u8;
     let mut pos = TREE_HEAD;
     for l in regions {
         put16(out, pos, l.x);
@@ -265,6 +284,10 @@ pub fn encode_surface_tree(
         put16(out, pos + 2, p.y);
         pos += PATCH_BYTES;
     }
+    for m in tree.motions() {
+        motion_layer::put(out, pos, m);
+        pos += MOTION_BYTES;
+    }
     pos
 }
 
@@ -275,14 +298,22 @@ pub fn decode_surface_tree(frame: &[u8], out: &mut SurfaceTree) -> Option<u32> {
     if !has_op(frame, OP_SURFACE_TREE) || frame.len() < TREE_HEAD {
         return None;
     }
-    let (regions, scrolls, patches) =
-        (usize::from(frame[8]), usize::from(frame[9]), usize::from(frame[10]));
+    let (regions, scrolls, patches, motions) = (
+        usize::from(frame[8]),
+        usize::from(frame[9]),
+        usize::from(frame[10]),
+        usize::from(frame[11]),
+    );
     if regions > MAX_SURFACE_LAYERS
         || scrolls > MAX_SCROLL_LAYERS
         || patches > MAX_PATCHES
-        || frame[11] != 0
+        || motions > MAX_MOTION_LAYERS
         || frame.len()
-            != TREE_HEAD + regions * REGION_BYTES + scrolls * SCROLL_BYTES + patches * PATCH_BYTES
+            != TREE_HEAD
+                + regions * REGION_BYTES
+                + scrolls * SCROLL_BYTES
+                + patches * PATCH_BYTES
+                + motions * MOTION_BYTES
     {
         return None;
     }
@@ -325,9 +356,14 @@ pub fn decode_surface_tree(frame: &[u8], out: &mut SurfaceTree) -> Option<u32> {
         *slot = Patch { x: get16(frame, pos), y: get16(frame, pos + 2) };
         pos += PATCH_BYTES;
     }
+    for slot in tree.motions.iter_mut().take(motions) {
+        *slot = motion_layer::get(frame, pos)?;
+        pos += MOTION_BYTES;
+    }
     tree.region_count = regions;
     tree.scroll_count = scrolls;
     tree.patch_count = patches;
+    tree.motion_count = motions;
     *out = tree;
     Some(get32(frame, 4))
 }
@@ -352,8 +388,25 @@ pub enum TreeError {
     BandOverBase,
     /// A patch reaches outside the store.
     PatchOutside,
-    /// Two bands, two patches or a band and a patch share pixels.
+    /// Two bands, two patches, motion layers' pixels or a band and a patch share pixels in the
+    /// store.
     Overlap,
+    /// A motion layer rests outside the base layer (or has no area).
+    MotionOutside,
+    /// A motion layer's pixels reach outside the store, or over the base layer's rows.
+    MotionStoreOutside,
+    /// A motion (or a backdrop's fade) longer than `MAX_MOTION_MS`.
+    MotionTooLong,
+    /// A motion starting farther from its rest than the surface is wide or high, or at a scale
+    /// outside half to twice its size.
+    MotionTooFar,
+    /// A motion layer claims a region or scroll layer the structure does not declare, or one
+    /// that does not lie inside it.
+    ClaimOutside,
+    /// Two motion layers claim the same region or scroll layer.
+    ClaimTwice,
+    /// A motion layer's backdrop names a patch the structure does not declare.
+    BackdropMissing,
 }
 
 type Rect = (u32, u32, u32, u32);
@@ -368,8 +421,9 @@ fn overlaps(a: Rect, b: Rect) -> bool {
 
 /// The geometry check of a structure against its surface (`width × rows`, the first `height`
 /// rows the base, columns `[0, store_w)` of the rows below it the store): every region and
-/// viewport inside the base, every band and patch in the store and none sharing a pixel with
-/// another. A structure that passes makes windowd sample only this surface's own atlas regions.
+/// viewport inside the base, every band, patch and motion layer's pixels in the store and none
+/// sharing a pixel with another, every motion within its bounds (`motion_layer::check`). A
+/// structure that passes makes windowd sample only this surface's own atlas regions.
 pub fn validate_tree(
     tree: &SurfaceTree,
     width: u16,
@@ -385,8 +439,8 @@ pub fn validate_tree(
             return Err(TreeError::RegionOutside);
         }
     }
-    let mut store: [Rect; MAX_SCROLL_LAYERS + MAX_PATCHES] =
-        [(0, 0, 0, 0); MAX_SCROLL_LAYERS + MAX_PATCHES];
+    const STORED: usize = MAX_SCROLL_LAYERS + MAX_PATCHES + MAX_MOTION_LAYERS;
+    let mut store: [Rect; STORED] = [(0, 0, 0, 0); STORED];
     let mut n = 0;
     for s in tree.scrolls() {
         let viewport = (u32::from(s.vx), u32::from(s.vy), u32::from(s.vw), u32::from(s.vh));
@@ -421,152 +475,10 @@ pub fn validate_tree(
         store[n] = rect;
         n += 1;
     }
+    let n = motion_layer::check(tree, (w, h, rows, store_w), &mut store, n)?;
     for i in 0..n {
         if store[i + 1..n].iter().any(|b| overlaps(store[i], *b)) {
             return Err(TreeError::Overlap);
-        }
-    }
-    Ok(())
-}
-
-/// One wash layer: patch `patch` spread over the rectangle (`x`, `y`, `w`, `h`) in its parent's
-/// content coordinates (the base: surface coordinates; scroll layer `k`: relative to its
-/// viewport's origin at offset 0), with a corner radius and an opacity, over the parent's content.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct Wash {
-    /// `0` = the base, `k` = scroll layer `k` (1-based).
-    pub parent: u8,
-    pub patch: u8,
-    pub radius: u8,
-    pub opacity: u8,
-    pub x: i32,
-    pub y: i32,
-    pub w: u16,
-    pub h: u16,
-}
-
-/// A surface's motion.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct SurfaceMotion {
-    /// The scroll layers' offsets along their axes, in the structure's order.
-    pub offsets: [i32; MAX_SCROLL_LAYERS],
-    pub offset_count: usize,
-    pub washes: [Wash; MAX_WASHES],
-    pub wash_count: usize,
-}
-
-impl SurfaceMotion {
-    pub fn offsets(&self) -> &[i32] {
-        &self.offsets[..self.offset_count.min(MAX_SCROLL_LAYERS)]
-    }
-
-    pub fn washes(&self) -> &[Wash] {
-        &self.washes[..self.wash_count.min(MAX_WASHES)]
-    }
-}
-
-const MOTION_HEAD: usize = HEADER_LEN + 8;
-const WASH_BYTES: usize = 16;
-/// The longest motion frame.
-pub const SURFACE_MOTION_MAX_LEN: usize =
-    MOTION_HEAD + MAX_SCROLL_LAYERS * 4 + MAX_WASHES * WASH_BYTES;
-
-/// Encodes the motion (counts clamped to their bounds). Returns the frame length.
-#[must_use]
-pub fn encode_surface_motion(
-    surface_id: u32,
-    motion: &SurfaceMotion,
-    out: &mut [u8; SURFACE_MOTION_MAX_LEN],
-) -> usize {
-    let (offsets, washes) = (motion.offsets(), motion.washes());
-    out[..HEADER_LEN].copy_from_slice(&header(OP_SURFACE_MOTION));
-    put32(out, 4, surface_id);
-    out[8] = offsets.len() as u8;
-    out[9] = washes.len() as u8;
-    put16(out, 10, 0);
-    let mut pos = MOTION_HEAD;
-    for o in offsets {
-        put32(out, pos, *o as u32);
-        pos += 4;
-    }
-    for w in washes {
-        out[pos] = w.parent;
-        out[pos + 1] = w.patch;
-        out[pos + 2] = w.radius;
-        out[pos + 3] = w.opacity;
-        put32(out, pos + 4, w.x as u32);
-        put32(out, pos + 8, w.y as u32);
-        put16(out, pos + 12, w.w);
-        put16(out, pos + 14, w.h);
-        pos += WASH_BYTES;
-    }
-    pos
-}
-
-/// Decodes a motion frame: length-exact, counts within their bounds, reserved bytes zero.
-/// Returns the surface id. Whether it names existing layers and patches is
-/// [`validate_motion`]'s.
-#[must_use]
-pub fn decode_surface_motion(frame: &[u8], out: &mut SurfaceMotion) -> Option<u32> {
-    if !has_op(frame, OP_SURFACE_MOTION) || frame.len() < MOTION_HEAD {
-        return None;
-    }
-    let (offsets, washes) = (usize::from(frame[8]), usize::from(frame[9]));
-    if offsets > MAX_SCROLL_LAYERS
-        || washes > MAX_WASHES
-        || get16(frame, 10) != 0
-        || frame.len() != MOTION_HEAD + offsets * 4 + washes * WASH_BYTES
-    {
-        return None;
-    }
-    let mut motion = SurfaceMotion::default();
-    let mut pos = MOTION_HEAD;
-    for slot in motion.offsets.iter_mut().take(offsets) {
-        *slot = get32(frame, pos) as i32;
-        pos += 4;
-    }
-    for slot in motion.washes.iter_mut().take(washes) {
-        *slot = Wash {
-            parent: frame[pos],
-            patch: frame[pos + 1],
-            radius: frame[pos + 2],
-            opacity: frame[pos + 3],
-            x: get32(frame, pos + 4) as i32,
-            y: get32(frame, pos + 8) as i32,
-            w: get16(frame, pos + 12),
-            h: get16(frame, pos + 14),
-        };
-        pos += WASH_BYTES;
-    }
-    motion.offset_count = offsets;
-    motion.wash_count = washes;
-    *out = motion;
-    Some(get32(frame, 4))
-}
-
-/// Why a motion was refused.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MotionError {
-    /// A wash names a patch the structure does not declare.
-    MissingPatch,
-    /// A wash names a parent the structure does not declare.
-    MissingParent,
-    /// A wash with no area.
-    EmptyWash,
-}
-
-/// Whether a motion names only what `tree` declares. Offsets beyond the structure's scroll
-/// layers are ignored by the receiver (a motion may race a structure change).
-pub fn validate_motion(motion: &SurfaceMotion, tree: &SurfaceTree) -> Result<(), MotionError> {
-    for w in motion.washes() {
-        if usize::from(w.patch) >= tree.patches().len() {
-            return Err(MotionError::MissingPatch);
-        }
-        if usize::from(w.parent) > tree.scrolls().len() {
-            return Err(MotionError::MissingParent);
-        }
-        if w.w == 0 || w.h == 0 {
-            return Err(MotionError::EmptyWash);
         }
     }
     Ok(())

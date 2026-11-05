@@ -105,7 +105,7 @@ fn test_reject_a_body_in_motion_and_accept_it_at_rest() {
     let mut layers = set(&[fullscreen(|_| {})]);
     assert!(layers.set_transform(7, Transform { dx: 4, ..Transform::IDENTITY }));
     assert_eq!(direct(&layers, DISPLAY), None, "a moving window composes");
-    assert!(layers.set_transform(7, Transform { scale_pct: 98, ..Transform::IDENTITY }));
+    assert!(layers.set_transform(7, Transform { scale: 9_800, ..Transform::IDENTITY }));
     assert_eq!(direct(&layers, DISPLAY), None, "a scaling window composes");
     assert!(layers.set_transform(7, Transform::IDENTITY));
     assert_eq!(direct(&layers, DISPLAY), Some(0), "at rest it is scanned out");

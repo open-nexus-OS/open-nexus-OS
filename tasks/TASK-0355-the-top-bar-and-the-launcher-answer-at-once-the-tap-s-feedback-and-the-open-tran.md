@@ -5,7 +5,7 @@ title: "The top bar and the launcher answer at once — the tap's feedback and t
 status: in_progress
 owner: ["@ui"]
 created: 2026-11-03
-updated: 2026-11-03
+updated: 2026-11-05
 subsystem: ui
 components: [desktop-shell, app-host, windowd]
 kind: ui
@@ -38,7 +38,7 @@ phases:
     story: "the dominant cost P0 names is cut"
     state: blocked
     gate: "board: the named hop at most half of its P0 value; tap to frame <= 100 ms"
-    note: "the dominant hop P0 named is gpud's frame (sent>acked 90 ms mean): its owner is TASK-0351 P5/P6; P1 starts once that cut lands"
+    note: "re-measured on the board 2026-11-05T13-12-18 after TASK-0354 P2: a panel's open costs one layer raster in app-host (Control Center 486 ms, launcher 599 ms, a top-bar panel 283 ms), now the dominant hop ahead of gpud's frame (TASK-0351 P5/P6); the operator put TASK-0353 first"
   - id: P2
     story: "the top bar and the launcher open and page without a hitch"
     state: planned

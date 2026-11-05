@@ -41,8 +41,8 @@ pub enum FontSize {
     /// 36 px display face and the 52 px one, so box-relative type actually
     /// changes size as its container grows.
     Fit44,
-    /// 52 px Light — the calculator handoff's display numeral. Light because
-    /// that is what the handoff specifies (`font-weight: 300`).
+    /// 52 px Light — the calculator design's display numeral. Light because
+    /// that is what the design specifies (`font-weight: 300`).
     Fit52Light,
 }
 

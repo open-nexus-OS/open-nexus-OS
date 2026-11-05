@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // One "Modus" tile: a miniature desktop preview, the mode's name and a radio
-// dot (handoff LAYOUT.md §"Content — appearance page", block 1).
+// dot (design LAYOUT.md §"Content — appearance page", block 1).
 //
 // The preview gradient arrives as two hex props and paints through
 // `.bgGradient`, which takes EXPRESSIONS rather than tokens. That is the one
@@ -10,7 +10,7 @@
 // (it shows what light and dark look like), not chrome — chrome must re-theme,
 // and a preview that re-themed would show the same picture three times.
 //
-// The handoff insets the mock window by percentages and sizes its three bars
+// The design insets the mock window by percentages and sizes its three bars
 // at 52/78/64 % of it. Percentages are not expressible in the DSL's box model,
 // so the mock is a padded block with fixed bar widths — the proportions hold
 // at the tile widths this grid produces.

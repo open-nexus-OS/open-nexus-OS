@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The right-aligned static value of a `v` row (handoff: 12.5px/500 in
+// The right-aligned static value of a `v` row (design: 12.5px/500 in
 // `text_secondary`, never wrapping). Its own component so the type ramp for a
 // value lives in ONE place instead of in every section file.
 

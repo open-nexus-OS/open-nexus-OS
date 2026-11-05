@@ -99,7 +99,21 @@ mod client_surface;
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod layer_geometry;
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
+mod layer_quota;
+// A declared layer windowd moves (RFC-0109 §motion layers, TASK-0354 P2): its motion at the
+// shown time and who belongs to it — pure, host-TESTED.
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
+mod motion_geometry;
+// A transform as the present carries it: a group scaled about one origin (TASK-0354 P3) — pure,
+// host-TESTED.
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
+mod frame_transform;
+// The loop's one-shot wake: the earliest deadline the screen changes by (caret blink, wait ring)
+// — pure, host-TESTED.
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod surface_regions;
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
+mod wake_clock;
 // ADR-0075 (TASK-0339): the compositor never waits on a client — the bounded per-client
 // outbox, pure and host-TESTED, consumed by the OS-only compositor runtime.
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]

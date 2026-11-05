@@ -133,7 +133,7 @@ fn test_resolve_token_dark_override() {
     let mut runtime = ThemeRuntime::load(&themes_dir()).unwrap();
     runtime.set_qualifier(Qualifier::Dark);
     let bg = runtime.resolve("bg").unwrap();
-    // Dark bg = handoff .dark background oklch(0.145) = #0a0a0a.
+    // Dark bg = design .dark background oklch(0.145) = #0a0a0a.
     assert_eq!(bg, ColorValue::from_hex("#0a0a0a").unwrap());
 }
 
@@ -291,7 +291,7 @@ fn test_material_glass() {
 
 // ---------------------------------------------------------------------------
 // Reconciled design-system contract (RFC-0070 / token-reconciliation.md)
-// Pins the handoff token + 5-glass-level contract on the real resource themes.
+// Pins the design token + 5-glass-level contract on the real resource themes.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -304,14 +304,14 @@ fn test_reconciled_new_tokens_resolve_from_base() {
         ("secondary", "#eceef2"),
         ("sidebar", "#fafafa"),
         ("chart1", "#f54900"),
-        // RFC-0082: on-glass ink keeps the handoff's blue-black HUE (not pure
-        // black) but its ALPHA is the handoff's own `--glass-text-primary`
+        // RFC-0082: on-glass ink keeps the design's blue-black HUE (not pure
+        // black) but its ALPHA is the design's own `--glass-text-primary`
         // (.80 = cc). The .95 this used to pin was undocumented drift.
         ("glassTextPrimary", "#14141acc"),
         ("glassTextSecondary", "#14141a66"),
         ("glassTextStrong", "#14141aeb"),
         ("glassIcon", "#14141acc"),
-        // Handoff `--glass-divider` — translucent, so a hairline reads the same
+        // Design `--glass-divider` — translucent, so a hairline reads the same
         // on a pane, a card and the wallpaper.
         ("divider", "#0000001a"),
         ("glassHover", "#00000014"),
@@ -338,7 +338,7 @@ fn test_reconciled_dark_token_overrides() {
         ("secondary", "#262626"),
         ("destructive", "#fa5a55"),
         ("chart1", "#1447e6"),
-        // Handoff dark: --glass-text-primary .90 / -secondary .45 / -strong .95.
+        // Design dark: --glass-text-primary .90 / -secondary .45 / -strong .95.
         ("glassTextPrimary", "#ffffffe6"),
         ("glassTextSecondary", "#ffffff73"),
         ("glassTextStrong", "#fffffff2"),
@@ -367,7 +367,7 @@ fn test_every_glass_level_is_defined_in_every_theme() {
         "glassCard",
         "glassSubtle",
         "glassWindow",
-        // The two window levels the file-manager handoff needs: a PANE
+        // The two window levels the file-manager design needs: a PANE
         // (content / properties) is far more transmissive than a panel, and
         // the action-bar PILL is far denser.
         "glassWindowPane",
@@ -395,9 +395,9 @@ fn test_every_glass_level_is_defined_in_every_theme() {
 ///
 /// - **Luminance.** The panel's dark tint is `#121214` — near-black, correct
 ///   for a dock tile floating on a photograph. A content pane painted with it
-///   reads as a black slab inside a grey window; the handoff's pane is
+///   reads as a black slab inside a grey window; the design's pane is
 ///   `#484a54`, a mid grey.
-/// - **Shape.** The pane is a two-stop gradient (handoff `160deg`, .48 → .32);
+/// - **Shape.** The pane is a two-stop gradient (design `160deg`, .48 → .32);
 ///   the panel is one flat tint.
 ///
 /// Note what is deliberately NOT asserted: the pane is not uniformly more
@@ -414,7 +414,7 @@ fn test_window_pane_is_a_distinct_level_from_panel() {
     let pane = glass("glassWindowPane");
     let panel = glass("glassPanel");
     // The two levels are distinct by COVERAGE, not by luma. Since
-    // design_handoff_panels the dark panel is a white 10 % wash — depth comes
+    // design artifacts: panels the dark panel is a white 10 % wash — depth comes
     // from blur(72) + saturate, not from covering the wallpaper — while the
     // pane is a dense mid-grey window surface that content sits ON.
     assert!(
@@ -425,10 +425,13 @@ fn test_window_pane_is_a_distinct_level_from_panel() {
         panel.tint_color,
         panel.tint_alpha
     );
-    assert_eq!(pane.tint_color, ColorValue::from_hex("#484a54").unwrap());
-    let bottom = pane.tint_bottom_color.expect("the pane is a TWO-STOP gradient (handoff 160deg)");
-    assert_eq!(bottom, ColorValue::from_hex("#34363e").unwrap());
-    assert!(pane.tint_bottom_alpha.unwrap() < pane.tint_alpha, "the gradient fades downward");
+    // The design system's `surface-pane` (TASK-0351 P14, the design artifacts): OPAQUE and
+    // FLAT — the window blur under it is occluded and never computed, and a scroll band on
+    // it starts from this one pixel (`app-host::band_ground`). No second stop, no blur.
+    assert_eq!(pane.tint_color, ColorValue::from_hex("#2c313d").unwrap());
+    assert_eq!(pane.tint_alpha, 1.0, "the pane is opaque");
+    assert!(pane.tint_bottom_color.is_none(), "the pane is flat: one pixel for every row");
+    assert_eq!(pane.blur_radius_dp, 0, "an opaque pane blurs nothing");
     // The bar is the other extreme: a control strip that must stay readable
     // over whatever scrolls under it, so it is denser than either.
     assert!(glass("glassWindowBar").tint_alpha > panel.tint_alpha);
@@ -439,7 +442,7 @@ fn test_glass_material_resolves_through_qualifier_chain() {
     let mut runtime = ThemeRuntime::load(&themes_dir()).unwrap();
 
     // Light does not redefine glassPanel → inherits base (blur 72, tint .50).
-    // 72 is design_handoff_panels' `blur(72px)`: the drop-down panels are the
+    // 72 is design artifacts: panels' `blur(72px)`: the drop-down panels are the
     // deepest glass in the system, and dock/taskbar share the level on purpose.
     runtime.set_qualifier(Qualifier::Light);
     match runtime.resolve_material("glassPanel") {
@@ -451,7 +454,7 @@ fn test_glass_material_resolves_through_qualifier_chain() {
     }
 
     // Dark overrides glassPanel with a LIGHTER wash than light mode uses
-    // (design_handoff_panels: rgba(255,255,255,.10) dark vs .50 light). The
+    // (design artifacts: panels: rgba(255,255,255,.10) dark vs .50 light). The
     // RFC-0082 dark tint moved to the card/window levels, which sit on a
     // surface rather than floating over the wallpaper.
     runtime.set_qualifier(Qualifier::Dark);
@@ -507,7 +510,7 @@ fn test_resolve_typography_leading_zindex() {
     assert_eq!(runtime.resolve_scale("leading", "normal"), Some(150));
     // Stacking order.
     assert_eq!(runtime.resolve_scale("zindex", "modal"), Some(30));
-    // Motion durations (ms, handoff motion.css).
+    // Motion durations (ms, design motion.css).
     assert_eq!(runtime.resolve_scale("motion", "swift"), Some(160));
     assert_eq!(runtime.resolve_scale("motion", "slow"), Some(500));
     // Unknown section / key → None.

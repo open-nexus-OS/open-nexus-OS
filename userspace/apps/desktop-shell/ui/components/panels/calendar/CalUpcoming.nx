@@ -1,10 +1,10 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// "Anstehend" (design_handoff_panels §5): at most THREE coming appointments,
+// "Anstehend" (design artifacts: panels §5): at most THREE coming appointments,
 // each a coloured spine · title · relative label + time.
 //
-// Fixed at three items and independent of `calMonth` — the handoff's list is
+// Fixed at three items and independent of `calMonth` — the design's list is
 // "what is next", not "what is in the month you are looking at", so paging the
 // grid must not rewrite it.
 //

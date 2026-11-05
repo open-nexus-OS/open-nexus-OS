@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Settings conformance: the design handoff's information architecture is
+// Settings conformance: the design artifacts' information architecture is
 // mostly demo optics on purpose, so what these tests pin is the part that is
 // NOT — the navigation state machine, and the two areas that reach a real
 // service (`ui.theme.*` and the region keys).
@@ -214,7 +214,7 @@ impl Harness {
     }
 }
 
-/// The app lands on the FIRST SECTION in browse mode — the handoff's initial
+/// The app lands on the FIRST SECTION in browse mode — the design's initial
 /// state (`nav: 'connections', mode: 'browse'`), not on the overview.
 #[test]
 fn settings_opens_on_the_connections_section() {
@@ -284,7 +284,7 @@ fn every_section_id_renders_its_own_section() {
     }
 }
 
-/// Back walks the handoff's chain: sub-page → section → overview. The
+/// Back walks the design's chain: sub-page → section → overview. The
 /// appearance page is the one sub-page that exists, so it is the only path
 /// that exercises all three steps.
 #[test]
@@ -302,7 +302,7 @@ fn back_walks_subpage_then_section_then_overview() {
     assert!(h.shows("Biometric data"), "back did not land on the overview: {:?}", h.texts());
 }
 
-/// The appearance page's mode tiles reach the REAL theme chain — the handoff's
+/// The appearance page's mode tiles reach the REAL theme chain — the design's
 /// Hell/Dunkel write `ui.theme.mode` through `svc.settings`.
 #[test]
 fn appearance_mode_tiles_reach_settings_set() {
@@ -312,7 +312,7 @@ fn appearance_mode_tiles_reach_settings_set() {
     assert!(h.tap_content_until("ui.theme.mode"), "no theme set reached the host");
 }
 
-/// All NINE handoff accents write, not just the six the palette had before
+/// All NINE design accents write, not just the six the palette had before
 /// this app existed. A swatch whose name settingsd refuses would tap dead, so
 /// the set of names is asserted here and mirrored by settingsd's own
 /// `theme_accent_validator_pins_the_curated_palette`.

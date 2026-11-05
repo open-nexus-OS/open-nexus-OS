@@ -145,7 +145,7 @@ mod scroll_tag_tests {
     }
 
     /// A window's transform crosses the wire with the present (TASK-0336): a negative offset,
-    /// a fade, a scale — every word as sent.
+    /// a fade, a fine scale about its origin — every word as sent.
     #[test]
     fn layer_transform_roundtrips_over_the_wire() {
         let cb = CommittedBuffer {
@@ -155,24 +155,34 @@ mod scroll_tag_tests {
                     dx: -40,
                     dy: 17,
                     opacity: 128,
-                    scale_pct: 92
+                    scale: 9_237,
+                    origin_x: 960,
+                    origin_y: -12,
                 },
-                Command::LayerTransform { layer_id: 3, dx: 0, dy: 0, opacity: 255, scale_pct: 100 },
+                Command::LayerTransform {
+                    layer_id: 3,
+                    dx: 0,
+                    dy: 0,
+                    opacity: 255,
+                    scale: SCALE_ONE,
+                    origin_x: 0,
+                    origin_y: 0,
+                },
             ],
         };
-        let mut buf = [0u8; 64];
+        let mut buf = [0u8; 128];
         let n = cb.serialize_into(&mut buf).expect("serialize");
         let (out, consumed) = CommittedBuffer::deserialize_from(&buf[..n]).expect("deserialize");
         assert_eq!(consumed, n);
         assert_eq!(out.commands, cb.commands);
     }
 
-    /// A transform that names no window, an opacity past full or a scale of nothing or past
-    /// four times is refused at decode.
+    /// A transform that names no window, an opacity past full or a scale below 1% or past four
+    /// times is refused at decode.
     #[test]
     fn test_reject_a_transform_for_no_window_or_out_of_range() {
-        for (layer_id, opacity, scale_pct) in
-            [(0, 255, 100), (1, 256, 100), (1, 255, 0), (1, 255, 401)]
+        for (layer_id, opacity, scale) in
+            [(0, 255, SCALE_ONE), (1, 256, SCALE_ONE), (1, 255, 0), (1, 255, 99), (1, 255, 40_001)]
         {
             let cb = CommittedBuffer {
                 commands: alloc::vec![Command::LayerTransform {
@@ -180,14 +190,16 @@ mod scroll_tag_tests {
                     dx: 0,
                     dy: 0,
                     opacity,
-                    scale_pct
+                    scale,
+                    origin_x: 0,
+                    origin_y: 0,
                 }],
             };
-            let mut buf = [0u8; 32];
+            let mut buf = [0u8; 64];
             let n = cb.serialize_into(&mut buf).expect("serialize");
             assert!(
                 CommittedBuffer::deserialize_from(&buf[..n]).is_err(),
-                "{layer_id} {opacity} {scale_pct}"
+                "{layer_id} {opacity} {scale}"
             );
         }
     }

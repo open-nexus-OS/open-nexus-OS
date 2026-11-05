@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // DEMO domain: every switch in the settings tree that has no system behind it
-// yet. They are the handoff's `tg{}` map, and their defaults are its defaults
+// yet. They are the design's `tg{}` map, and their defaults are its defaults
 // — the tree is a design contract, so the boot picture matches the mockup.
 //
 // NO events and NO reducers on purpose. `Toggle { checked: $state.tgX }`

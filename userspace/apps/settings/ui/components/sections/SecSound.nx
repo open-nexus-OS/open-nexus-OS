@@ -1,11 +1,11 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Sound & Töne. Demo data from the handoff's `_tree()`.
+// Sound & Töne. Demo data from the design's `_tree()`.
 //
-// The handoff's fourth group (Barrierefreiheit → Mono-Audio) is flagged
+// The design's fourth group (Barrierefreiheit → Mono-Audio) is flagged
 // `advanced` and is HIDDEN unless "Erweiterte Optionen" is on — which is a
-// Phase 2 view option. Rendering it now would show a group the handoff hides
+// Phase 2 view option. Rendering it now would show a group the design hides
 // by default, so it waits for the switch that reveals it. Its `DemoStore`
 // field (`tgMonoAudio`) already exists.
 

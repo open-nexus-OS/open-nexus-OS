@@ -3,7 +3,7 @@
 
 #![cfg_attr(not(test), no_std)]
 
-//! `GlassToggle` — the design-system on/off switch (handoff `GlassToggle`): an
+//! `GlassToggle` — the design-system on/off switch (design `GlassToggle`): an
 //! iOS/macOS-style pill track with a sliding knob. A pure builder producing a
 //! `LayoutNode::Stack` (track) containing the knob, positioned by `checked`
 //! (justify Start/End). Colors come from theme tokens; the knob is the

@@ -103,7 +103,7 @@ fn paints_nothing(v: &nexus_layout_types::VisualStyle) -> bool {
 }
 
 /// A flat rectangle fill: one color over the whole rect and nothing else.
-fn flat_fill(v: &nexus_layout_types::VisualStyle) -> bool {
+pub(crate) fn flat_fill(v: &nexus_layout_types::VisualStyle) -> bool {
     v.background.is_some() && plain_rect(v)
 }
 
@@ -187,6 +187,7 @@ fn union(span: &mut Option<(i32, i32)>, add: Option<(i32, i32)>) {
 
 /// The changed row span between the OLD and NEW retained state, or `None`
 /// for "repaint everything". `Some((0, 0))` = nothing visible changed.
+#[cfg(test)]
 pub(crate) fn changed_row_span(
     old_boxes: &[LayoutBox],
     new_boxes: &[LayoutBox],
@@ -194,6 +195,63 @@ pub(crate) fn changed_row_span(
     new_texts: &[TextRun],
     surface_h: i32,
 ) -> Option<(i32, i32)> {
+    let none = |_: usize| false;
+    changed_rows(old_boxes, new_boxes, (old_texts, new_texts), surface_h, (&none, &none)).base
+}
+
+/// What a relayout changed: the BASE's rows (`None`: everything, `Some((0, 0))`: nothing — the
+/// [`changed_row_span`] convention) and the layout rows of what changed inside the motion layers
+/// (TASK-0354 P5: their boxes were never the base's pixels — their change paints the layers'
+/// store rows only; `None`: nothing).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Changed {
+    pub(crate) base: Option<(i32, i32)>,
+    pub(crate) layers: Option<(i32, i32)>,
+}
+
+/// Whether a node belongs to a motion layer: in the OLD layout, in the NEW one.
+pub(crate) type Held<'a> = (&'a dyn Fn(usize) -> bool, &'a dyn Fn(usize) -> bool);
+
+/// The rows the change from the OLD to the NEW retained state touched, split by `held`: a box (or
+/// text run) a motion layer holds goes to the layers' rows, every other to the base's — a modal
+/// opening over its scrim changes no base row at all.
+pub(crate) fn changed_rows(
+    old_boxes: &[LayoutBox],
+    new_boxes: &[LayoutBox],
+    (old_texts, new_texts): (&[TextRun], &[TextRun]),
+    surface_h: i32,
+    (held_old, held_new): Held<'_>,
+) -> Changed {
+    let mut layers: Option<(i32, i32)> = None;
+    let base = base_rows(
+        old_boxes,
+        new_boxes,
+        (old_texts, new_texts),
+        surface_h,
+        (held_old, held_new),
+        &mut layers,
+    );
+    // The same anti-aliasing margin as the base's rows.
+    let layers = layers.map(|(y0, y1)| ((y0 - 2).max(0), (y1 + 2).min(surface_h)));
+    Changed { base, layers }
+}
+
+fn base_rows(
+    old_boxes: &[LayoutBox],
+    new_boxes: &[LayoutBox],
+    (old_texts, new_texts): (&[TextRun], &[TextRun]),
+    surface_h: i32,
+    (held_old, held_new): Held<'_>,
+    layers: &mut Option<(i32, i32)>,
+) -> Option<(i32, i32)> {
+    // A box's rows go to the layers' span when a layer holds it, else to the base's.
+    let mut split = |span: &mut Option<(i32, i32)>, b: &LayoutBox, held: bool| {
+        if held {
+            union(layers, box_rows(b));
+        } else {
+            union(span, box_rows(b));
+        }
+    };
     // ---- boxes: common prefix / suffix, changed middle ----
     let (o, n) = (old_boxes.len(), new_boxes.len());
     let mut prefix = 0;
@@ -217,19 +275,20 @@ pub(crate) fn changed_row_span(
             if box_pixels_eq(a, b) {
                 continue;
             }
-            if geometry_only(a, b) {
+            let (ha, hb) = (held_old(a.node_id), held_new(b.node_id));
+            if geometry_only(a, b) && !ha && !hb {
                 geometry_rows(a, b, &mut span);
             } else {
-                union(&mut span, box_rows(a));
-                union(&mut span, box_rows(b));
+                split(&mut span, a, ha);
+                split(&mut span, b, hb);
             }
         }
     } else {
         for b in old_win {
-            union(&mut span, box_rows(b));
+            split(&mut span, b, held_old(b.node_id));
         }
         for b in new_win {
-            union(&mut span, box_rows(b));
+            split(&mut span, b, held_new(b.node_id));
         }
     }
     // ---- text runs: content/style change on an otherwise-equal box ----
@@ -267,16 +326,12 @@ pub(crate) fn changed_row_span(
         }
     }
     for t in &old_texts[tp..ot - ts] {
-        union(&mut span, t.0.checked_sub(1).and_then(|i| old_boxes.get(i)).and_then(box_rows));
-        if t.0 == 0 || t.0 > old_boxes.len() {
-            return None;
-        }
+        let Some(b) = t.0.checked_sub(1).and_then(|i| old_boxes.get(i)) else { return None };
+        split(&mut span, b, held_old(t.0));
     }
     for t in &new_texts[tp..nt - ts] {
-        union(&mut span, t.0.checked_sub(1).and_then(|i| new_boxes.get(i)).and_then(box_rows));
-        if t.0 == 0 || t.0 > new_boxes.len() {
-            return None;
-        }
+        let Some(b) = t.0.checked_sub(1).and_then(|i| new_boxes.get(i)) else { return None };
+        split(&mut span, b, held_new(t.0));
     }
     let Some((y0, y1)) = span else {
         return Some((0, 0)); // state moved, pixels did not
@@ -324,6 +379,36 @@ mod tests {
         // Closing it damages the same rows.
         let span = changed_row_span(&new, &old, &[], &[], 800);
         assert_eq!(span, Some((58, 237)));
+    }
+
+    /// TASK-0354 P5: a modal opening over its scrim — a full-surface root and its sheet, held by
+    /// the motion layer it becomes — changes no base row; closing it neither. A change inside a
+    /// held box (a row of an open panel) names the layers' rows, not the base's; a box that
+    /// leaves a layer for the base names the base's.
+    #[test]
+    fn what_a_motion_layer_holds_never_damages_the_base() {
+        let page = vec![boxed(1, 0, 40), boxed(2, 40, 760)];
+        let mut open = page.clone();
+        open.push(at(3, 0, 0, 1920, 800)); // the scrim root
+        open.push(at(4, 800, 300, 320, 160)); // the sheet
+        let none = |_: usize| false;
+        let modal = |id: usize| (3..5).contains(&id);
+        let opening = changed_rows(&page, &open, (&[], &[]), 800, (&none, &modal));
+        assert_eq!(opening.base, Some((0, 0)), "no base row: the base never held the modal");
+        assert_eq!(opening.layers, Some((0, 800)), "the layer's rows: its store paints them");
+        let closing = changed_rows(&open, &page, (&[], &[]), 800, (&modal, &none));
+        assert_eq!(closing.base, Some((0, 0)));
+        // A row inside an open panel changes: the panel's store rows, never the base's.
+        let panel = |id: usize| id == 2;
+        let mut grown = page.clone();
+        grown[1] = boxed(2, 40, 700);
+        let inside = changed_rows(&page, &grown, (&[], &[]), 800, (&panel, &panel));
+        assert_eq!(inside.base, Some((0, 0)));
+        assert_eq!(inside.layers, Some((38, 800)), "the panel's rows, cut at the surface");
+        // The panel's layer went while its box stays and changes: the base paints it.
+        let left = changed_rows(&page, &grown, (&[], &[]), 800, (&panel, &none));
+        assert_eq!(left.base, None, "38..800 is most of the frame: everything");
+        assert_eq!(changed_rows(&page, &page, (&[], &[]), 800, (&none, &none)).layers, None);
     }
 
     /// Identical lists = empty span (state moved, pixels did not).

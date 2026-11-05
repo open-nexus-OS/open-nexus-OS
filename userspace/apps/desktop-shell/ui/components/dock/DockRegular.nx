@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The TABLET-PORTRAIT touch dock (design_handoff_launcher §8.1,
+// The TABLET-PORTRAIT touch dock (design artifacts: launcher §8.1,
 // `640 ≤ vw < 1024`): launcher button and dock pill side by side, CENTRED;
 // a row of BARE nav icons below them (nav is enclosed only in landscape).
 

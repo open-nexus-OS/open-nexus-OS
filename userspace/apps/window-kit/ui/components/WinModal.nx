@@ -1,12 +1,12 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The design handoff's MODAL: a centered glass dialog with a header (title +
+// The design artifacts' MODAL: a centered glass dialog with a header (title +
 // close), a body slot and a footer slot. An app-modal layer (TASK-0074 /
 // ADR-0068): hit-testing and text focus are confined to it while it is open,
 // windowd refuses input on the app's other windows.
 //
-// `dismissOnBackdrop` is the handoff's default and the runtime's rule: a tap
+// `dismissOnBackdrop` is the design's default and the runtime's rule: a tap
 // on the layer that no handler takes fires `on Dismiss`; the panel eats its
 // own taps (`WinNoop`) so reaching into the body never closes it. ESC and the
 // close glyph take the same path — `ModalClose(id)` is the ONE way out.
@@ -66,6 +66,6 @@ Component WinModal {
     }
     .overlay(modal)
     .bg(scrim)
-    .transition(fade)
+    .transition(fadeScale)
     on Dismiss -> dispatch(ModalClose($props.id))
 }

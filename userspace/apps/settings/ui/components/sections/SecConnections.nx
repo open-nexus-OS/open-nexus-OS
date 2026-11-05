@@ -1,12 +1,12 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Verbindungen — the handoff tree's first section (`_tree()` in
-// source/OsSettingsWindow.dc.html). Values are the handoff's demo data; the
+// Verbindungen — the design tree's first section (`_tree()` in
+// source/OsSettingsWindow.dc.html). Values are the design's demo data; the
 // switches are `DemoStore` fields with the DSL's automatic two-way binding,
 // so they flip on screen and change nothing below the UI.
 //
-// The handoff's four `n` (chevron) rows are rendered here as VALUE rows: the
+// The design's four `n` (chevron) rows are rendered here as VALUE rows: the
 // sub-pages land in Phase 2, and a chevron that pushes nothing would promise
 // a screen that does not exist. Flipping them back is `showChevron: true`
 // plus a wrapper dispatching `OpenSub(...)` — the field and the back chain

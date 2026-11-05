@@ -60,7 +60,7 @@ Duplikate — die AA-/Blur-/Shadow-SSOT liegt in `nexus-sdf` + `nexus-gfx/raster
 gpud nutzt sie): `compositor/{blur,shadow,primitives,sdf,cache,path_cache,surface}.rs`.
 Umgezogen: `live_runtime.rs` → `compositor/damage.rs` (DamageRect/premerge/
 Hot-Path-Index = Compositor-Gut). Bewusst GEBLIEBEN (Observer-Evidence-Kontrakt —
-Selftest sampelt komponierte Rows beim Handoff; Löschung = Beweiskette bricht):
+Selftest sampelt komponierte Rows beim Design; Löschung = Beweiskette bricht):
 `smoke.rs`, `systemui_shell.rs`, `anim.rs`, `filter.rs`, Proof-Teile in `types.rs`
 und der Plane-1-CPU-Pfad (`present.rs write_rows`). Deren Ziel = Evidence-Kontrakt-
 Umzug zu selftest (eigenes Paket). `runtime/shell.rs` = Policy-Plumbing

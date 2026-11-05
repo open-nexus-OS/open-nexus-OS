@@ -1,7 +1,7 @@
 # Copyright 2026 Open Nexus OS Contributors
 # SPDX-License-Identifier: Apache-2.0
 #
-# CONTEXT: Calculator — built to `docs/design_handoff_calculator` (TASK-0314):
+# CONTEXT: Calculator — built to the design artifacts (calculator) (TASK-0314):
 # decimals with locale separators, %, ±, two-stage AC/C, history line and an
 # error state, on a keypad that divides exactly at any window size and sizes
 # its labels from their own keys. Still the DSL animation demo (the display

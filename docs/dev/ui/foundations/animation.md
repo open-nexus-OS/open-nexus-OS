@@ -81,22 +81,34 @@ Pipeline (one engine, host owns the clock, the DSL stays pure —
 Token → physics mapping (SSOT `userspace/ui/animation/src/motion.rs` +
 `userspace/ui/theme-tokens/src/lib.rs`):
 
-| Token | Category | Primary prop | Secondary | Duration | CPU easing |
+| Token | Category | Primary prop (absent) | Secondary (absent) | Duration | Curve |
 |---|---|---|---|---|---|
-| `snappy` | value | opacity | — | Swift (160ms) | ease-out |
-| `smooth` | value | opacity | — | Base (400ms) | ease-in-out |
-| `emphasized` | value | opacity | — | Slow (500ms) | ease-out |
-| `fade` | transition | opacity | — | Quick (280ms) | ease-in-out |
-| `slideUp` | transition | translateY | (+opacity) | Base (400ms) | ease-out |
-| `fadeScale` | transition | opacity | scale | Quick (280ms) | ease-out |
+| `snappy` | value | opacity | — | Swift (160ms) | spring-soft `(0.34, 1.2, 0.5, 1)` |
+| `smooth` | value | opacity | — | Base (400ms) | smooth `(0.4, 0, 0.2, 1)` |
+| `emphasized` | value | opacity | — | Slow (500ms) | spring `(0.34, 1.4, 0.5, 1)` |
+| `fade` | transition | opacity | — | Quick (280ms) | smooth |
+| `slideUp` | transition | translateY +16 | scale 0.97 (+opacity) | Quick (280ms) | enter `(0.16, 1, 0.3, 1)` |
+| `fadeScale` | transition | translateY +10 | scale 0.94 (+opacity) | Slow (500ms) | spring |
 | `wiggle` | effect | translateX | — | Base (400ms) | linear (osc.) |
 | `pulse` | effect | scale | — | Quick (280ms) | linear (osc.) |
-| `slideDown` | transition | translateY | (+opacity) | Quick (280ms) | ease-out |
+| `slideDown` | transition | translateY −10 | scale 0.96 (+opacity) | Quick (280ms) | enter |
+| `pushInline` | transition | translateX −16 | scale 0.96 (+opacity) | Slow (500ms) | spring |
 
-`slideUp` and `slideDown` differ only in the side they travel FROM: absent,
-`slideUp` sits 16px BELOW its resting place, `slideDown` 10px ABOVE it. Anchor
-decides — a sheet rises from the bottom edge, a top-bar drop-down falls out of
-the bar.
+The values are the design artifacts' (the SSOT, TASK-0353): the panels' and the
+launcher's entrance (`slideUp`/`slideDown`, from 0.97/0.96), the dialogs'
+overlay entrance (`fadeScale`: rising 10px from 0.94 on the spring, the scrim
+fading in quicker), the system toast's entrance from the leading edge
+(`pushInline`). Every driver evaluates the token's curve EXACTLY
+(`Easing::Curve`, a `cubic-bezier` solver in `animation::keyframe`) — the app's
+keyframe track and the compositor's motion layers (TASK-0354 P3) answer one time
+with one value, a spring's overshoot included. A motion layer scales about its
+own centre (`Command::LayerTransform` carries a 1/10000 scale and an origin,
+RFC-0101 §8).
+
+`slideUp` and `slideDown` differ in the side they travel FROM: absent, `slideUp`
+sits 16px BELOW its resting place, `slideDown` 10px ABOVE it. Anchor decides — a
+sheet rises from the bottom edge, a top-bar drop-down falls out of the bar (the
+Control Center rises, as the design artifacts draw it).
 
 A nonzero `value:` is "present/in place", zero is "absent/offset" — the
 value-tracking contract (a `Bool` is the canonical driver). Effects fire a bounded
@@ -117,7 +129,7 @@ fill path). Whole-node scale/exit transitions and window-level transforms are
 Track C (Tier 1). Concurrent animations are capped at `MAX_NODE_ANIMS` /
 `MAX_ACTIVE_ANIMATIONS` (6).
 
-### Interaction motion (design-handoff feel)
+### Interaction motion (design feel)
 
 Pointer interactions ride the SAME driver + per-node transform (no extra loop):
 **hover** springs the hovered handler box to 1.06, cascading to the contained
@@ -360,6 +372,7 @@ with a curated token set such as:
 - `wiggle`
 - `pulse`
 - `slideDown`
+- `pushInline`
 
 Anything beyond that should justify itself as a concrete product need rather than arriving as an abstract animation
 system.

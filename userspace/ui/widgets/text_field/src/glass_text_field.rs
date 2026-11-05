@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! `GlassTextField` — the design-system text field (handoff `TextField`): an
+//! `GlassTextField` — the design-system text field (design `TextField`): an
 //! optional label, a bordered glass input box (leading icon · input · trailing
 //! node), and optional helper/error text — all resolved from theme tokens
 //! (error turns the border danger; focus shows the ring). A pure builder
@@ -21,7 +21,7 @@ use nexus_theme_tokens::{ColorToken, LengthToken, Tokens, TypographyToken};
 
 use crate::TextField;
 
-/// Size preset (handoff `TextFieldProps.size`).
+/// Size preset (design `TextFieldProps.size`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FieldSize {
     Sm,
@@ -49,8 +49,8 @@ impl FieldSize {
 }
 
 /// Height of the glass pill and, as its radius, what makes it a pill
-/// (handoff: 44px tall, `border-radius: 9999px`). 44 is also the minimum
-/// hit target the handoff requires of every control.
+/// (design: 44px tall, `border-radius: 9999px`). 44 is also the minimum
+/// hit target the design requires of every control.
 pub const PILL_HEIGHT: i32 = 44;
 const PILL_RADIUS: i32 = 9999;
 
@@ -257,7 +257,7 @@ impl GlassTextField {
                 flex_wrap: false,
                 min_width: Some(FxPx::new(180)),
                 max_width: None,
-                // A pill is 44px tall — the handoff's height AND the minimum
+                // A pill is 44px tall — the design's height AND the minimum
                 // hit target it requires of every control.
                 min_height: (self.variant == FieldVariant::Glass).then(|| FxPx::new(PILL_HEIGHT)),
                 max_height: None,

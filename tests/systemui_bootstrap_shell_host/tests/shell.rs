@@ -11,7 +11,7 @@ use nexus_dsl_runtime::{FixtureEnv, Value};
 use systemui_bootstrap_shell_host::{app_entry, compile_project, texts, Mounted};
 
 /// Open the launcher. It is NOT a route any more (`ui/pages/Routes.nx`): since
-/// design_handoff_launcher §9/§10 it is an OVERLAY over the shell home, opened
+/// design artifacts: launcher §9/§10 it is an OVERLAY over the shell home, opened
 /// by `PanelStore.panel = "launcher"` so the desktop stays visible behind it.
 /// The panel dispatch runs through `NoIo` — it fires no effect, so it must not
 /// consume a transcript line.
@@ -41,7 +41,7 @@ fn shell_page_renders_across_profiles_with_chrome_texts() {
         // until the host's first ClockEvent tick.
         assert!(t.contains(&"--:--".to_string()), "top-bar clock placeholder shown: {t:?}");
         // The battery percentage is `control.batteryPct` since
-        // design_handoff_panels: the bar and the Control Center show ONE
+        // design artifacts: panels: the bar and the Control Center show ONE
         // charge string (the baked default catalog renders it: "78%").
         assert!(t.contains(&"78%".to_string()), "battery status shown: {t:?}");
     }

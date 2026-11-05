@@ -93,7 +93,7 @@ Recommended thread posture:
 - retained tree mutation, invalidation decisions, focus state, and viewport state are thread-affine by default,
 - prepared text artifacts and other immutable derived outputs may be shared only when their construction and cache keys
   are deterministic,
-- any background preparation must feed results back into the runtime through an explicit handoff, never via hidden
+- any background preparation must feed results back into the runtime through an explicit design, never via hidden
   shared mutable state.
 
 Do not introduce implicit cross-thread mutation for “fast paths”.

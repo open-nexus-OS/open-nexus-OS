@@ -3,7 +3,7 @@
 
 #![cfg_attr(not(test), no_std)]
 
-//! `Stepper` — the design-system −/+ numeric stepper (handoff `Stepper`): a
+//! `Stepper` — the design-system −/+ numeric stepper (design `Stepper`): a
 //! glass pill with a decrement zone, the value, and an increment zone. A pure
 //! builder producing a `LayoutNode::Stack` row. The −/+ glyphs and the value are
 //! caller-provided nodes (they carry their own interaction ids), so the app maps

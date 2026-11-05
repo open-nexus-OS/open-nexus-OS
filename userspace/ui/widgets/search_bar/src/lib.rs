@@ -3,7 +3,7 @@
 
 #![cfg_attr(not(test), no_std)]
 
-//! `SearchBar` — the design-system search pill (handoff `SearchBar`): a
+//! `SearchBar` — the design-system search pill (design `SearchBar`): a
 //! rounded-full glass pill with a leading magnifier, the input, and a trailing
 //! clear affordance (caller-provided icon nodes). A pure builder producing a
 //! `LayoutNode::Stack` row; the inner input is the low-level [`TextField`]

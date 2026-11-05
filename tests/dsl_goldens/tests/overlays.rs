@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! TASK-0074 P4: pixel goldens of the kit's overlay components — `WinAlert`, `WinModal`,
-//! `WinToast` (the design handoff's Alert / Modal / System toast) — light and dark, through
+//! `WinToast` (the design artifacts' Alert / Modal / System toast) — light and dark, through
 //! the shared BGRA golden painter. Regenerate with `UPDATE_GOLDENS=1`.
 
 // reason: test harness — a failed compile/mount step must panic loudly.
@@ -122,7 +122,7 @@ fn kit_overlays_match_their_goldens_light_and_dark() {
 }
 
 /// The components declare the kinds the runtime acts on: alert and modal are modal layers
-/// (depth 1), the toast is a transient with the handoff's 4 s lifetime.
+/// (depth 1), the toast is a transient with the design's 4 s lifetime.
 #[test]
 fn kit_overlays_declare_their_kinds() {
     let nxir = compile(&program());

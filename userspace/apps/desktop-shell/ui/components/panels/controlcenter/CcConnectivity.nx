@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The 2×2 tile grid (design_handoff_panels §3, row 2): WLAN · Bluetooth on the
+// The 2×2 tile grid (design artifacts: panels §3, row 2): WLAN · Bluetooth on the
 // left, Flugmodus · Ansichtsmodus on the right. Two `.grow(1)` columns rather
 // than a grid — the DSL has no `Grid`, and two equal flex columns ARE
 // `grid-template-columns: 1fr 1fr`.

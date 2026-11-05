@@ -2,7 +2,7 @@
 name = "highcontrast"
 version = 1
 
-# High-contrast a11y theme. No handoff numeric contract exists for this variant
+# High-contrast a11y theme. No design numeric contract exists for this variant
 # (intentional — see token-reconciliation.md): it overrides colors for maximum
 # contrast and zeroes blur on every glass material. Neutrals/brand tokens not
 # listed here resolve from base.
@@ -87,7 +87,7 @@ borderColor = "#ffffff"
 borderAlpha = 1.0
 
 [material.glassWindowPane]
-# a11y: the handoff pane is a 0.32–0.48 wash — unreadable here. High contrast
+# a11y: the design pane is a 0.32–0.48 wash — unreadable here. High contrast
 # takes the same near-solid ink + full-alpha outline as every other level; the
 # pane keeps only its ROLE (a distinct region), not its transmission.
 type = "glass"

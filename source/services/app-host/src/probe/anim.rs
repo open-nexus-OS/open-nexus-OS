@@ -28,6 +28,7 @@ use animation::{
     AnimProp, AnimationDriver, Easing, LayerId, MotionToken, SceneUpdate, SpringConfig,
 };
 
+mod damage;
 mod interaction;
 use nexus_dsl_runtime::theme_tokens::Tokens;
 use nexus_dsl_runtime::{AnimIntent, AnimKind, LOOP_CAROUSEL, LOOP_CAROUSEL_SPOKES, LOOP_SWEEP};
@@ -106,6 +107,8 @@ pub(super) struct AnimState {
     loops: alloc::vec::Vec<LoopEnt>,
     /// Last physics tick (ns) for dt integration (diagnostics/telemetry).
     last_ns: u64,
+    /// The tokens that started a motion since the last tick (bit = id): the episode's line.
+    started: u32,
 }
 
 impl AnimState {
@@ -116,6 +119,7 @@ impl AnimState {
             anims: alloc::vec::Vec::new(),
             loops: alloc::vec::Vec::new(),
             last_ns: 0,
+            started: 0,
         }
     }
 
@@ -192,6 +196,7 @@ impl AnimState {
         if (from - to).abs() < 0.0001 {
             return;
         }
+        self.started |= 1 << (token as u32);
         self.driver.keyframe_to(
             LayerId(node_id as u64),
             prop,
@@ -516,6 +521,16 @@ impl super::DslApp {
             n += 1;
         }
         let present = &buf[..n];
+        // The motion layers follow the nodes that still enter — first, so a panel closing in the
+        // same change as a modal opening leaves the modal room to be a layer.
+        let mut entering = [0usize; MAX_NODE_ANIMS];
+        let e = present.iter().filter(|(_, i)| i.kind == AnimKind::Transition).count();
+        for (slot, (id, _)) in
+            entering.iter_mut().zip(present.iter().filter(|(_, i)| i.kind == AnimKind::Transition))
+        {
+            *slot = *id;
+        }
+        self.sync_motion_layers(&entering[..e]);
         // Durations resolve against the pushed theme (reduced-motion = 0ms).
         let tokens = tokens_for(self.theme_mode);
         // Seed the driver clock BEFORE arming an idle driver: the first tick
@@ -532,7 +547,12 @@ impl super::DslApp {
                 continue;
             };
             let prev = self.anim.seen.iter().find(|(id, _)| *id == node_id).map(|(_, v)| *v);
+            // TASK-0354 P2: an enter the compositor can draw is stated once — never ticked here.
+            let layered = intent.kind == AnimKind::Transition
+                && prev.is_none_or(|pv| pv != intent.value)
+                && self.start_motion_layer(node_id, token, prev.is_some());
             match prev {
+                _ if layered => {}
                 None => self.anim.seed(node_id, token, intent, tokens),
                 Some(pv) if pv != intent.value => self.anim.restart(node_id, token, intent, tokens),
                 _ => {}
@@ -589,6 +609,7 @@ impl super::DslApp {
             return None;
         }
         let now = at.unwrap_or_else(nsec_now).max(self.anim.last_ns);
+        self.motion_hops.tokens(core::mem::take(&mut self.anim.started));
         let mut updates = [SceneUpdate::default(); MAX_NODE_ANIMS * 2];
         let count = self.anim.driver.tick_into(now, &mut updates);
         self.anim.last_ns = now;
@@ -610,6 +631,7 @@ impl super::DslApp {
         if let Some((y0, y1)) = self.anim.tick_loops(now, &self.layout.boxes) {
             let (y0, y1) = (y0.max(0), y1.min(self.layout_bottom()));
             if y0 < y1 {
+                self.damage_cols.full();
                 span = Some(match span {
                     Some((s0, s1)) => (s0.min(y0), s1.max(y1)),
                     None => (y0, y1),
@@ -617,34 +639,6 @@ impl super::DslApp {
             }
         }
         span
-    }
-
-    /// Grow `span` by `node_id`'s CURRENT painted row extent: its layout box transformed by the
-    /// node's active [`NodeAnim`] (scale can overpaint the box; translate moves it), ±1 row
-    /// rounding pad, clamped to the layout (a scroll layer's content runs below the surface). A
-    /// node without a layout box (mid-relayout) falls back to all of it — correctness over thrift.
-    fn grow_anim_span(&self, node_id: usize, span: &mut Option<(i32, i32)>) {
-        let (y0, y1) = match self.layout.boxes.iter().find(|b| b.node_id == node_id) {
-            Some(b) => {
-                let (x, y, w, h) = (b.rect.x.0, b.rect.y.0, b.rect.width.0, b.rect.height.0);
-                match self.anim.anims.iter().find(|a| a.node_id == node_id) {
-                    Some(a) => {
-                        let (_, ny, _, nh) = a.transform_rect(x, y, w, h);
-                        (ny - 1, ny + nh + 1)
-                    }
-                    None => (y - 1, y + h + 1),
-                }
-            }
-            None => (0, self.layout_bottom()),
-        };
-        let (y0, y1) = (y0.max(0), y1.min(self.layout_bottom()));
-        if y0 >= y1 {
-            return;
-        }
-        *span = Some(match *span {
-            Some((s0, s1)) => (s0.min(y0), s1.max(y1)),
-            None => (y0, y1),
-        });
     }
 
     /// Whether any DSL animation is still interpolating OR a continuous widget
@@ -659,7 +653,7 @@ impl super::DslApp {
     /// each animated container also transforms every box laid out INSIDE it
     /// (pre-order descendants ≈ rect containment + higher `node_id`),
     /// anchored at the CONTAINER's center — a hovered launcher tile grows
-    /// tile, glyph and all as one control (the handoff interaction feel).
+    /// tile, glyph and all as one control (the design interaction feel).
     /// A box with its OWN animation keeps its own entry. Alloc-free, bounded
     /// by `out.len()`.
     pub(super) fn expand_node_anims(&self, out: &mut [NodeAnim]) -> usize {

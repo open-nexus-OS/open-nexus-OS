@@ -42,7 +42,7 @@ pub fn measure(text: impl Iterator<Item = char>, size: FontSize) -> u32 {
 }
 
 /// The character a cut run ends with. `text-overflow: ellipsis` in the design
-/// handoffs; baked into every face's EXTRAS tail so it never falls back.
+/// design artifacts; baked into every face's EXTRAS tail so it never falls back.
 pub const ELLIPSIS: char = '\u{2026}';
 
 /// How much of `text` fits in `max_w`, and whether it had to be cut.

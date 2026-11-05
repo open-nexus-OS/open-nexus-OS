@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Desktop override (design_handoff_launcher desktop MODE — the explicit
+// Desktop override (design artifacts: launcher desktop MODE — the explicit
 // Control-Center toggle, not width): thin composition only — top bar with
 // the four separate status pills, the top-left icon COLUMN, the drop-down
 // panel layer, the launcher overlay (windowed 720×520 default, fullscreen

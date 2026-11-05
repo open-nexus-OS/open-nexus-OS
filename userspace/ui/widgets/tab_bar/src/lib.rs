@@ -3,7 +3,7 @@
 
 #![cfg_attr(not(test), no_std)]
 
-//! `TabBar` — the design-system bottom tab bar (handoff `TabBar`): a frosted
+//! `TabBar` — the design-system bottom tab bar (design `TabBar`): a frosted
 //! glass row of icon+label tabs; the active tab tints accent. A pure builder
 //! producing a `LayoutNode::Stack`. Tab icons are caller nodes; labels are
 //! owned. DSL-emittable.

@@ -289,8 +289,8 @@ impl DisplayServerRuntime {
         if self.has_pending_damage() || self.frames_in_flight() > 0 {
             return;
         }
-        if self.has_active_animations() || self.has_frame_pulse_clients() || self.cursor_ring_active
-        {
+        let moving = self.motions_owed();
+        if self.has_active_animations() || self.has_frame_pulse_clients() || moving {
             crate::compositor::frame_causes::keepalive();
             self.owe_frame();
         }
@@ -298,16 +298,21 @@ impl DisplayServerRuntime {
 
     /// One display-ring completion (TASK-0324 P7-c): the frame clock. Animations integrate
     /// elapsed time to when the frame they shape is shown (RFC-0110: the display's timeline,
-    /// `now_ns` before gpud named it), the wait ring steps, and the animating clients get their
-    /// frame pulse (their scroll coasts tick on it, ADR-0076) — each producing the damage that the loop
-    /// presents next, whose completion clocks the frame after. Idle produces nothing and the
-    /// loop sleeps on its waitset.
+    /// `now_ns` before gpud named it) and the animating clients get their frame pulse (their
+    /// scroll coasts tick on it, ADR-0076) — each producing the damage that the loop presents
+    /// next, whose completion clocks the frame after. Idle produces nothing and the loop sleeps
+    /// on its waitset. The wait ring is not clocked here: it steps on the loop's one-shot wake
+    /// (`crate::wake_clock`).
     pub(crate) fn on_frame_completed(&mut self, now_ns: u64) {
         if self.has_active_animations() {
             let at = self.transition_time(now_ns);
             self.tick(at);
         }
-        let _ = self.cursor_wait_tick(now_ns);
+        // TASK-0354 P2: a surface's motion layer moving owes the next frame — the frame is the
+        // motion, no app wakes for it.
+        if self.motions_owed() {
+            self.owe_frame();
+        }
         self.flush_frame_pulses();
     }
 

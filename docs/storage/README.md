@@ -5,7 +5,7 @@ role: guide
 subsystem: storage
 sources: [source/services/vfsd, source/services/packagefsd, source/services/statefsd, source/services/nxfsd, source/services/blkd, userspace/nexus-vfs]
 contracts: [ADR-0043, ADR-0044, ADR-0067, RFC-0072, RFC-0097, RFC-0042]
-verified: 2026-11-03
+verified: 2026-11-05
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->

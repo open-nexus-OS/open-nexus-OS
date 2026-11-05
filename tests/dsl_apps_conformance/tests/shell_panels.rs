@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The shell's status panels (design_handoff_panels). Most of what these panels
+// The shell's status panels (design artifacts: panels). Most of what these panels
 // show is demo optics by agreement — so what is pinned here is the part that
 // is NOT: which panels EXIST per mode, the two controls that reach a real
 // service, and the promise that nothing else does.
@@ -86,7 +86,7 @@ impl Shell {
     }
 
     /// The open panel's own box: the widest surface below the 36px bar. Every
-    /// panel in the handoff is 288..330 wide and none of the shell's other
+    /// panel in the design is 288..330 wide and none of the shell's other
     /// chrome down there is, so width alone identifies it.
     fn open_panel_width(&self) -> Option<i32> {
         common::layout_boxes(&self.view)
@@ -99,10 +99,10 @@ impl Shell {
 }
 
 /// Every panel the desktop bar can open actually opens, at the width the
-/// handoff specifies. The widths are the identity check: a wrong one means a
+/// design specifies. The widths are the identity check: a wrong one means a
 /// panel rendered through the wrong branch.
 #[test]
-fn desktop_opens_all_six_panels_at_their_handoff_widths() {
+fn desktop_opens_all_six_panels_at_their_design_widths() {
     let mut shell = Shell::desktop();
     for (panel, width) in [
         ("control", 328),
@@ -150,7 +150,7 @@ fn touch_mode_has_only_three_panels() {
     }
 }
 
-/// One panel at a time. Opening another must close the first — the handoff's
+/// One panel at a time. Opening another must close the first — the design's
 /// rule, and the reason `panel` is a single `Str` rather than a set.
 #[test]
 fn opening_a_second_panel_closes_the_first() {
@@ -275,7 +275,7 @@ fn every_demo_control_reaches_no_service() {
     );
 }
 
-/// Mute and the volume slider are ONE state (handoff §6). Muting must move the
+/// Mute and the volume slider are ONE state (design §6). Muting must move the
 /// slider, or the Control Center and the Ton panel can disagree about silence.
 #[test]
 fn mute_and_the_volume_slider_are_one_state() {
@@ -383,7 +383,7 @@ fn the_view_mode_tile_is_tappable_across_its_whole_width() {
     tiles.sort_by_key(|b| (b.rect.y.0, b.rect.x.0));
     assert_eq!(tiles.len(), 4, "the Control Center has four connectivity tiles");
 
-    // Equal columns (the handoff's `1fr 1fr`), or one tile is narrower than
+    // Equal columns (the design's `1fr 1fr`), or one tile is narrower than
     // the card it fills and the difference is dead space.
     let widths: Vec<i32> = tiles.iter().map(|b| b.rect.width.0).collect();
     assert!(

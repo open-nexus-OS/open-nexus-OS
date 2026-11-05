@@ -244,7 +244,7 @@ if $state.toast != "" {
 
 The runtime never hides a layer by itself: `on Dismiss` dispatches, the reducer changes the
 state, the layer leaves with the next emit. A kinded overlay without `on Dismiss` is NX0413.
-The shared library (`window-kit`) ships the design handoff's elements on this contract —
+The shared library (`window-kit`) ships the design artifacts' elements on this contract —
 `WinAlert`, `WinModal` (slots `body`/`footer`), `WinToast` — with a declared store contract.
 
 ### Host triggers

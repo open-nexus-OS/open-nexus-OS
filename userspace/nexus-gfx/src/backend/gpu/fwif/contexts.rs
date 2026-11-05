@@ -413,9 +413,14 @@ pub const OSDATA_POWER_SYNC_FW_ADDR: usize = 572;
 pub const HWRINFOBUF_SIZE: usize = 2336;
 pub const HWRINFOBUF_HWR_COUNTER: usize = 2176;
 
-/// The GPU utilisation block: `last_word` starts as IDLE (0).
+/// The GPU utilisation block: 256 time-correlation entries of 40 bytes, their sequence count,
+/// the flags, then `last_word` (the state the firmware last entered in its low two bits — idle
+/// 0, active 1, blocked 2 — above it the time) and three 64-bit counters of the time spent in
+/// each state, written by the firmware at every transition. `last_word` starts as IDLE (0).
 pub const GPU_UTIL_FWCB_SIZE: usize = 10280;
 pub const GPU_UTIL_FWCB_LAST_WORD: usize = 10248;
+pub const GPU_UTIL_FWCB_STATS: usize = 10256;
+pub const GPU_UTIL_STATE_MASK: u64 = 0x3;
 
 /// The fault page: 4 KiB of `0xdeadbee0` words.
 pub const FAULT_PAGE_SIZE: usize = 4096;

@@ -1,19 +1,19 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The display card (handoff: min-height 104, radius 14, `--glass-card-bg`,
+// The display card (design: min-height 104, radius 14, `--glass-card-bg`,
 // content bottom-RIGHT aligned, history line above the number).
 //
-// `flex-shrink:0` in the handoff = a fixed minimum here: the KEYPAD absorbs
+// `flex-shrink:0` in the design = a fixed minimum here: the KEYPAD absorbs
 // every extra pixel of window height, which is what the user asked for.
 //
 // The number carries `.textFit(85, 16, 52)` — 85% of the card's own height,
-// which lands on the handoff's 52px at the handoff's 104px card. The width
-// step-down then reproduces the handoff's 52/38/30 ramp for free: a long
+// which lands on the design's 52px at the design's 104px card. The width
+// step-down then reproduces the design's 52/38/30 ramp for free: a long
 // number simply stops fitting at the larger rungs, instead of being cut with
 // an ellipsis or hard-coded against a digit count.
 //
-// MOTION (a deviation, recorded): the handoff specifies only a press
+// MOTION (a deviation, recorded): the design specifies only a press
 // `scale(0.94)`, which the DSL cannot express — there is no press-down/up
 // trigger, only `Tap`. What the numeral carries instead is an attention
 // `.effect(wiggle)`: motion on the thing that actually changed.
@@ -46,7 +46,7 @@ Component CalcDisplay {
         .direction(row)
         // The numeral row TAKES the card's height, because `.textFit` reads
         // its container's box: left at its text height (20px) the target came
-        // out at 17px instead of the handoff's 52.
+        // out at 17px instead of the design's 52.
         Stack {
             Spacer
             // EXPLICIT `.textSize` even though `.textFit` normally overrides
@@ -68,7 +68,7 @@ Component CalcDisplay {
     .minHeight(104)
     .rounded(14)
     .material(card)
-    // 4px steps: handoff 8/10/12 padding + 4 gap -> 2/2/3 steps + 1 step.
+    // 4px steps: design 8/10/12 padding + 4 gap -> 2/2/3 steps + 1 step.
     .paddingX(2)
     .paddingTop(2)
     .paddingBottom(3)

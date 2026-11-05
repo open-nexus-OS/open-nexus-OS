@@ -283,17 +283,20 @@ impl super::DslApp {
         dirty: &mut bool,
         dirty_rows: &mut Option<(i32, i32)>,
     ) -> bool {
-        use crate::layout_diff::{changed_row_span, glass_roots_changed, merge_span};
+        use crate::layout_diff::{glass_roots_changed, merge_span};
         match damage {
             Some(Damage::Layout) => {
+                let held = self.held_spans();
                 let old_boxes = core::mem::take(&mut self.layout.boxes);
                 let old_texts = core::mem::take(&mut self.texts);
                 self.relayout_retained();
                 self.tree_dirty |= glass_roots_changed(&old_boxes, &self.layout.boxes);
-                let (boxes, texts, h) = (&self.layout.boxes, &self.texts, self.layout_bottom());
-                match changed_row_span(&old_boxes, boxes, &old_texts, texts, h) {
+                match self.layout_change((&old_boxes, &old_texts), &held) {
                     None => (*dirty, *dirty_rows) = (true, None),
-                    Some((y0, y1)) if y1 > y0 => merge_span(dirty, dirty_rows, (y0, y1)),
+                    Some((y0, y1)) if y1 > y0 => {
+                        self.damage_cols.full();
+                        merge_span(dirty, dirty_rows, (y0, y1));
+                    }
                     Some(_) => {} // the store moved, no pixel did
                 }
             }

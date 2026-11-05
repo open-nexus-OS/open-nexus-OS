@@ -8,13 +8,13 @@
 //
 // HONEST SCOPE, stated where it is decided:
 //
-//   * Modus  — the handoff draws three tiles. windowd's `ThemeMode` is
+//   * Modus  — the design draws three tiles. windowd's `ThemeMode` is
 //     `dark|light` (`windowd/src/theme.rs`), so only those two write.
 //     "Automatisch" is a SEPARATE case with NO effect: it moves the local
 //     selection so the tile can show as picked, and writes nothing. It is not
 //     a broken setting, it is a setting that does not exist yet — recorded in
 //     `docs/dev/ui/design-token-audit.md`.
-//   * Akzent — all nine handoff swatches write for real. "Nexus Blau" IS the
+//   * Akzent — all nine design swatches write for real. "Nexus Blau" IS the
 //     theme's built-in accent, so it travels as `"default"` (palette index 0);
 //     the other eight are `nexus-theme-tokens::ACCENT_PALETTE` names.
 //   * App-Icon-Stil and Ordnerfarbe are LOCAL selections only — nothing below

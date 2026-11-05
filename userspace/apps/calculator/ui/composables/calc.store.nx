@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Calculator state (design_handoff_calculator "Funktion"): real decimals,
+// Calculator state (design artifacts: calculator "Funktion"): real decimals,
 // locale separators, `%`, `±`, two-stage AC/C, the history line and an error
 // state on division by zero.
 //
@@ -26,7 +26,7 @@
 // and no IR change.
 //
 // LIMIT (recorded, not hidden): Q32.32 holds ~2.1e9, so the entry is capped at
-// 9 integer digits, not the handoff's 12. Past that the key is ignored rather
+// 9 integer digits, not the design's 12. Past that the key is ignored rather
 // than wrapping into a wrong number.
 Store CalcStore {
     // What the display shows (already localized).
@@ -202,7 +202,7 @@ reduce CalcEvent {
         state.dotted = 0;
         state.dirty = 1;
     },
-    // First press clears the ENTRY, second the whole state (handoff AC/C).
+    // First press clears the ENTRY, second the whole state (design AC/C).
     Clear => {
         state.entry = "0";
         state.value = 0.0;

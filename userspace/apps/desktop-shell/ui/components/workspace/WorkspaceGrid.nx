@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The TOUCH workspace icon field (design_handoff_launcher §3.2): a centred
+// The TOUCH workspace icon field (design artifacts: launcher §3.2): a centred
 // SIX-column grid — `repeat(6,1fr)`, rows 24 / columns 16 apart (the 1fr
 // tracks breathe on top), top-aligned — md (56) icons with label. The §3.2
 // padding 28 comes from the HOST page's middle stack (`.padding(7)`), which

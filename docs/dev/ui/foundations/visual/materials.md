@@ -103,7 +103,7 @@ Treat materials as theme tokens (authoring in `*.nxtheme.toml`):
 **`Panel` ≠ pane.** The two are easy to confuse and were confused: `glassPanel`
 is tuned for a surface sitting straight on the WALLPAPER (a dock tile, a control
 centre card), so its dark tint is near-black `#121214@.40`. A window PANE sits on
-the window's own glass, one layer further in, so the handoff gives it a lighter
+the window's own glass, one layer further in, so the design gives it a lighter
 two-stop gradient (`#484a54@.48 → #34363e@.32`). Painting a file listing with
 `panel` reads as a black slab inside a grey window. Pick by WHAT IS BEHIND the
 surface, not by how big it is.

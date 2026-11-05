@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The app-chip window menu (design handoff window frame; TASK-0066 — the
+// The app-chip window menu (design artifacts window frame; TASK-0066 — the
 // desktop default tiling model, nothing new built: the dropdown every
 // window-kit app already opens from its app icon gets its real job).
 //   row 1  move & resize:  left half · right half · four quarters   (glyphs only)

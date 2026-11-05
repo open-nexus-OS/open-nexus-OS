@@ -1,12 +1,12 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The 36px top bar (design_handoff_panels §2) — three zones: left · Dynamic
+// The 36px top bar (design artifacts: panels §2) — three zones: left · Dynamic
 // Island centred · right. The ONLY openers of the six drop-down panels.
 //
 // This exists as ONE component because the bar used to be written twice, once
 // per `ShellPage`, and two copies of a trigger matrix drift. Which pills exist
-// hangs on two INDEPENDENT axes, exactly as the handoff states them:
+// hangs on two INDEPENDENT axes, exactly as the design states them:
 //
 //   device.profile == desktop   the explicit Ansichtsmodus flag (Control
 //                               Center writes `ui.shell.mode`)

@@ -1,8 +1,8 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The right properties pane. Not part of the settings handoff — it is the
-// window-frame handoff's third zone, and window-kit's `WinAppWindow` reserves
+// The right properties pane. Not part of the settings design — it is the
+// window-frame design's third zone, and window-kit's `WinAppWindow` reserves
 // it — so it carries the device facts a settings window is asked for most
 // often instead of duplicating a section.
 //

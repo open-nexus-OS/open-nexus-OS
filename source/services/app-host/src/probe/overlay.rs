@@ -75,11 +75,16 @@ impl super::DslApp {
         // A one-shot fires AT its deadline; the 1 ms slack covers the clock read after it.
         let now = super::clock::mono_now_ns().saturating_add(1_000_000);
         let mut changed = false;
+        // A clock tick names the rows it changed (`relayout_bounded`); anything else repaints all.
+        self.tap_render_span = None;
         if self.clock_supported() && now >= self.clock_deadline_ns {
             changed |= self.clock_tick();
         }
-        if self.transient_armed.as_ref().is_some_and(|(_, deadline)| now >= *deadline) {
-            changed |= self.transient_timeout();
+        if self.transient_armed.as_ref().is_some_and(|(_, deadline)| now >= *deadline)
+            && self.transient_timeout()
+        {
+            changed = true;
+            self.tap_render_span = None;
         }
         changed
     }

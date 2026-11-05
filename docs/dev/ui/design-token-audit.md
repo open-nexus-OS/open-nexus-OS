@@ -1,9 +1,9 @@
 <!-- Copyright 2026 Open Nexus OS Contributors -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# Design-token audit — handoff `reference/tokens/` + `component-api.d.ts` vs. implementation
+# Design-token audit — design `reference/tokens/` + `component-api.d.ts` vs. implementation
 
-Audit vom 2026-07-14 (Quelle: `docs/dev/design_handoff_open_nexus_os/reference/tokens/*.css`
+Audit vom 2026-07-14 (Quelle: the design artifacts (design system)
 + `component-api.d.ts` gegen `userspace/ui/theme-tokens`, `resources/themes/base.nxtheme.toml`,
 DSL-Registry). Die BEHOBENEN Punkte sind markiert; der Rest ist die offene Arbeitsliste.
 
@@ -18,7 +18,7 @@ DSL-Registry). Die BEHOBENEN Punkte sind markiert; der Rest ist die offene Arbei
   größtem Rest und kacheln exakt.
 - **`.textFit(pct, min, max)` (modId 55)** — box-relative Typografie als
   CONTAINER-Modifier, vererbt an den Teilbaum. Kein „so groß wie passt":
-  der Handoff kodiert ein VERHÄLTNIS (23 px Label in ~75 px Taste ≈ 30 %).
+  der Design kodiert ein VERHÄLTNIS (23 px Label in ~75 px Taste ≈ 30 %).
 - **Type-Ramp erweitert**: 44 Regular + 52 Light (Latin). Vorher landete
   ALLES zwischen 30 und 72 px auf dem 36-px-Face, d. h. ein gefittetes Label
   hörte auf zu wachsen, sobald das Fenster es tat. Beide Sprossen wurden so
@@ -32,7 +32,7 @@ DSL-Registry). Die BEHOBENEN Punkte sind markiert; der Rest ist die offene Arbei
   .material/.shadow/.border/.align` erreichen das Kit-Widget nicht
   (`registry/widgets.rs`); nur `label`, `.bg(danger|surfaceVariant)`,
   `.disabled`, `.fg`, `.textSize`, `.gap`, `.grow/.shrink/.basis` wirken.
-  Handoff-Tasten sind damit nicht aus `Button` baubar — sie werden als
+  Design-Tasten sind damit nicht aus `Button` baubar — sie werden als
   `Stack { Text }` gebaut (wie die Shell-Tiles).
 - **`Grid` ohne Zeilen-Tracks und ohne Spaltenverbund**: Spalten sind exakt
   gleiche 1fr-Tracks, Zeilen aber INHALTSHOCH. Für gleich hohe Zeilen und
@@ -50,23 +50,23 @@ DSL-Registry). Die BEHOBENEN Punkte sind markiert; der Rest ist die offene Arbei
 - **Glass-Shine wird gerendert**: `GlassSurface.edge` (edge_highlight_*) war token-only —
   jetzt komponiert `Mods::visual()` den Design-`--glass-shine` als vertikalen Verlauf
   tint⊕edge → tint auf jede Glass-Fläche ohne explizites `.bg`.
-- **Radius-Skala**: `.rounded()` folgt jetzt der Handoff-Skala sm 6 / md 8 / lg 10 / xl 14 /
+- **Radius-Skala**: `.rounded()` folgt jetzt der Design-Skala sm 6 / md 8 / lg 10 / xl 14 /
   xxl 16 (vorher 4/8/12/16).
 - **DSL-Mappings ergänzt**: `warning/onWarning/info/onInfo/focusRing/shadow` (Farben),
   `xxl/xxxl/display` (Typo).
 - **Blur-Layering**: Fenster-Glass-Backdrop-Cache wird invalidiert, wenn sich darunter
   Inhalt ändert (Desktop-Damage, Present eines überlappten Fensters, Drag) — Blur zeigt den
   echten Hintergrund statt des Wallpaper-Snapshots.
-- **Shadows (Elevation)**: `ShadowLevel`-Skala auf die Handoff-Werte gezogen (md 0/4/12 .15 …
+- **Shadows (Elevation)**: `ShadowLevel`-Skala auf die Design-Werte gezogen (md 0/4/12 .15 …
   2xl 0/25/50 .25), `.shadow(sm|md|lg|xl|xxl)` konsumiert sie jetzt (Mods → `VisualStyle.shadow`),
   und `scene_raster` malt den weichen Schatten analytisch pro Zeile (Rounded-Rect-SDF +
   linearer Falloff, One-Shot beim Re-Render). Demo: Stash-Floating-Actionbar `.shadow(lg)`.
 - **Scrim + Destructive**: `ColorToken::{Scrim, Destructive, OnDestructive}` + TOML (`scrim`
   base #00000047 / dark #00000073) + DSL-Mapping.
-- **Divider**: transluzente Hairline per Handoff (base `#0000001a`, dark `#ffffff1a`).
-- **glassSubtle**: Border entfernt, Blur auf die sm-Stufe (8) — wie im Handoff.
+- **Divider**: transluzente Hairline per Design (base `#0000001a`, dark `#ffffff1a`).
+- **glassSubtle**: Border entfernt, Blur auf die sm-Stufe (8) — wie im Design.
 - **glassWindow-Gradient**: `GlassSurface.tint_bottom` (TOML `tintBottomColor/-Alpha`) —
-  der Fenster-Body rendert den 2-Stop-Handoff-Verlauf (hell `#f8f9fb@.94 → #eceef3@.90`,
+  der Fenster-Body rendert den 2-Stop-Design-Verlauf (hell `#f8f9fb@.94 → #eceef3@.90`,
   dunkel `#34363e@.82 → #20222a@.74`); Blur auf lg (40).
 - **material(overlay)**: `GlassLevel::Overlay` + Wire `GLASS_OVERLAY=4` (append-only) +
   DSL-Mapping — das Overlay-Material ist aus Seiten nutzbar.
@@ -109,7 +109,7 @@ DSL-Registry). Die BEHOBENEN Punkte sind markiert; der Rest ist die offene Arbei
 - **Token-Argumente werden geprüft**: `.fg(oNSurface)` ist ein Compile-Fehler
   statt eines stummen No-ops (`registry::TOKEN_VOCABULARIES`).
 - **Glas-Level nachgezogen**: `glassPanel`/`glassCard` tragen die Werte des
-  Login-Handoffs (dark = dunkler Tint `#121214@.40` statt weißem Wash).
+  Login-Designs (dark = dunkler Tint `#121214@.40` statt weißem Wash).
 
 ## Behoben (2026-07-28, TASK-0308 Phase 9 / Stash-Design-Parität)
 
@@ -132,13 +132,13 @@ DSL-Registry). Die BEHOBENEN Punkte sind markiert; der Rest ist die offene Arbei
   daraus nur den Radius; Tint/Shine/Rand malt app-host selbst), deshalb kosten
   die zwei Ebenen kein neues Wire-Symbol: `windowPane` fährt den 20er-Bucket,
   `windowBar` den 40er.
-- **On-Glass-Alphas auf den Handoff gezogen.** `glassText{Primary,Secondary,
+- **On-Glass-Alphas auf den Design gezogen.** `glassText{Primary,Secondary,
   Strong}` trugen `.95/.68/1.0` (dark `.95/.60/1.0`) — undokumentierte Drift,
-  die die Primary/Secondary-Stufe einebnete. Jetzt die Handoff-Werte
+  die die Primary/Secondary-Stufe einebnete. Jetzt die Design-Werte
   `.80/.40/.92` bzw. dark `.90/.45/.95`. Der HUE (blau-schwarz `#14141a` statt
   reinem Schwarz) bleibt die bewusste RFC-0082-Entscheidung.
 - **`divider` in `light.nxtheme.toml` war opak** (`#d4d4d4`) und damit nur auf
-  einer weißen Vollfläche richtig → `rgba(0,0,0,.10)` wie der Handoff.
+  einer weißen Vollfläche richtig → `rgba(0,0,0,.10)` wie der Design.
 - **Hover ist wieder eine Fläche**, nicht nur Bewegung: der Wash folgt dem
   `corner_radius` der Box, die das Control wirklich zeichnet — nicht der
   HANDLER-Box, die bei `Stack { Pill } on Tap` keinen hat („jeder gehoverte
@@ -148,7 +148,7 @@ DSL-Registry). Die BEHOBENEN Punkte sind markiert; der Rest ist die offene Arbei
   `glassHover`. Seit RFC-0109 ist der Wash eine Wash-Ebene des Compositors
   (kein Neuzeichnen der App).
 
-## Behoben (2026-07-29, Settings-Handoff Phase 0+1)
+## Behoben (2026-07-29, Settings-Design Phase 0+1)
 
 - **`Select` und `Breadcrumbs` sind aus dem DSL erreichbar.** Beide
   Kit-Crates (`userspace/ui/widgets/{select,breadcrumbs}`) waren als
@@ -163,14 +163,14 @@ DSL-Registry). Die BEHOBENEN Punkte sind markiert; der Rest ist die offene Arbei
   Swatches der Erscheinungsbild-Seite echt schalten. „Nexus Blau" ist der
   eingebaute Theme-Akzent und fährt weiter als `default` (Index 0).
 - **17 Icon-Symbole** ergänzt (`[icons.symbols]`): die Zeilen-Glyphen des
-  Settings-Handoffs (`wifi.slash`, `cylinder`, `iphone`, `keyboard`,
+  Settings-Designs (`wifi.slash`, `cylinder`, `iphone`, `keyboard`,
   `computermouse`, `printer`, `mic`, `bell.slash`, `textformat`, `clock`,
   `globe`, `person.2`, `shield`, `key`, `cpu`, `plus.magnifyingglass`,
   `slider.vertical.3`).
 
 ### Bewusste Nicht-Parität (Settings-Fenster)
 
-| Handoff | Umsetzung | Grund |
+| Design | Umsetzung | Grund |
 |---|---|---|
 | Modus „Automatisch" schaltet | Kachel wird gezeichnet, schreibt NICHTS | `windowd::ThemeMode` ist `dark\|light` — es gibt keinen Auto-Modus zu setzen |
 | Krumen einzeln anklickbar (`onNavigate`) | Trail zeigt den Pfad, ein Tap geht EINE Ebene hoch | Ein Widget = eine Node = ein Handler; per-Krume bräuchte Multi-Handler-Widgets |
@@ -181,7 +181,7 @@ DSL-Registry). Die BEHOBENEN Punkte sind markiert; der Rest ist die offene Arbei
 
 ## Offen — Token-Abweichungen
 
-| Rolle | Handoff | Implementierung | Status |
+| Rolle | Design | Implementierung | Status |
 |---|---|---|---|
 | `success` | `#22c55e` | `#16a34a` | GEWOLLT (a11y, dokumentiert) |
 | `warning-fg` | `#ffffff` | `#0a0a0a` | GEWOLLT (a11y, jetzt dokumentiert) |
@@ -204,7 +204,7 @@ DSL-Registry). Die BEHOBENEN Punkte sind markiert; der Rest ist die offene Arbei
   ist ungekernt mit einheitlicher Ziffernbreite gebacken (eine tickende Uhr
   wackelt nicht), aber `letter-spacing` hat weiterhin keinen Code-Pfad.
 
-## Offen — Component-API (Handoff prop-basiert vs. DSL modifier-basiert)
+## Offen — Component-API (Design prop-basiert vs. DSL modifier-basiert)
 
 Fehlende Komponenten: Segment, Stepper, Rating, RadioGroup, WheelPicker, DatePicker,
 AppIcon (adaptiv), TextArea, Accordion, Pagination, Sidebar, SplitView, SubHeader,

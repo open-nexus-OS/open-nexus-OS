@@ -34,7 +34,7 @@ pub enum LengthToken {
     BorderThin,
 }
 
-/// Font-size step (handoff type scale). Theme-invariant.
+/// Font-size step (design type scale). Theme-invariant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TypographyToken {
     /// 11px — status bar, captions.
@@ -77,7 +77,7 @@ pub enum LeadingToken {
     Relaxed,
 }
 
-/// Motion duration step (handoff motion scale, ms). Themable so a
+/// Motion duration step (design motion scale, ms). Themable so a
 /// reduced-motion theme can zero every step; authored in `[motion]`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MotionDurationToken {
@@ -93,7 +93,7 @@ pub enum MotionDurationToken {
     Slow,
 }
 
-/// Motion easing curve (handoff motion vocabulary). The control points are the
+/// Motion easing curve (design motion vocabulary). The control points are the
 /// theme-invariant cubic-beziers from `reference/tokens/motion.css` — one
 /// physics vocabulary for the whole OS: enter/expand springs, exits are smooth
 /// and quicker, micro-feedback is swift.
@@ -109,6 +109,9 @@ pub enum MotionCurveToken {
     Smooth,
     /// Page swipes, large moves.
     Glide,
+    /// A surface's entrance: a fast arrival and a long soft settle — the panels' and the
+    /// launcher's (design artifacts: panels, `cubic-bezier(0.16, 1, 0.3, 1)`).
+    Enter,
 }
 
 impl MotionCurveToken {
@@ -120,11 +123,12 @@ impl MotionCurveToken {
             MotionCurveToken::SpringIcon => [0.34, 1.56, 0.64, 1.0],
             MotionCurveToken::Smooth => [0.4, 0.0, 0.2, 1.0],
             MotionCurveToken::Glide => [0.22, 1.0, 0.36, 1.0],
+            MotionCurveToken::Enter => [0.16, 1.0, 0.3, 1.0],
         }
     }
 }
 
-/// Liquid-glass material level (handoff panel/card/subtle/window/overlay).
+/// Liquid-glass material level (design panel/card/subtle/window/overlay).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MaterialToken {
     /// Main surfaces (dock, control center, launcher).
@@ -136,13 +140,13 @@ pub enum MaterialToken {
     /// Dense app-window chrome.
     Window,
     /// The content / properties PANE inside an app window
-    /// (handoff `--glass-window-pane-bg`). Distinct from `Panel`: a pane sits
+    /// (design `--glass-window-pane-bg`). Distinct from `Panel`: a pane sits
     /// on the window's own glass, so it is far more transmissive than a dock
     /// tile sitting straight on the wallpaper — 0.48/0.32 against 0.40 flat,
     /// and a two-stop gradient rather than one tint.
     WindowPane,
     /// The floating action-bar pill at the bottom of a window
-    /// (handoff `--glass-window-bar-bg`). Nearly opaque on purpose: it is a
+    /// (design `--glass-window-bar-bg`). Nearly opaque on purpose: it is a
     /// control strip that must stay readable over arbitrary content.
     WindowBar,
     /// Modal/alert/sheet/popover reading surface.
@@ -156,7 +160,7 @@ pub enum MaterialToken {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GlassSurface {
     pub tint: Rgba8,
-    /// Bottom stop of the material's tint GRADIENT (handoff
+    /// Bottom stop of the material's tint GRADIENT (design
     /// `--glass-window-bg` two-stop linear); `None` = flat tint (the
     /// edge-shine still grades the top).
     pub tint_bottom: Option<Rgba8>,
@@ -276,7 +280,7 @@ impl Tokens for LightTokens {
 /// `ui.theme.accent`. Appending is safe because the persisted value is the
 /// NAME; the index is recomputed on every apply.
 ///
-/// The nine entries are the settings design handoff's palette; its "Nexus
+/// The nine entries are the settings design artifacts's palette; its "Nexus
 /// Blau" IS the theme's built-in accent, so it rides index 0 (`"default"`,
 /// also spelled `"blue"` — see `accent_index`).
 pub const ACCENT_PALETTE: &[(&str, Rgba8, Rgba8)] = &[
@@ -462,7 +466,7 @@ mod tests {
 
     #[test]
     fn generated_glass_materials_from_toml() {
-        // base glassPanel (design_handoff_panels §1): tint #ffffff@.50,
+        // base glassPanel (design artifacts: panels §1): tint #ffffff@.50,
         // blur 72, border #ffffff@.75, top-shine #ffffff@.22, sat 140.
         let p = BaseTokens.glass(MaterialToken::Panel);
         assert_eq!(p.tint, Rgba8::new(255, 255, 255, 128));
@@ -503,19 +507,20 @@ mod tests {
     }
 
     #[test]
-    fn generated_motion_tokens_match_handoff() {
+    fn generated_motion_tokens_match_the_design() {
         // Durations from [motion] (reference/tokens/motion.css: 0.10..0.50s).
         assert_eq!(BaseTokens.motion_ms(MotionDurationToken::Instant), 100);
         assert_eq!(BaseTokens.motion_ms(MotionDurationToken::Swift), 160);
         assert_eq!(BaseTokens.motion_ms(MotionDurationToken::Quick), 280);
         assert_eq!(BaseTokens.motion_ms(MotionDurationToken::Base), 400);
         assert_eq!(DarkTokens.motion_ms(MotionDurationToken::Slow), 500);
-        // Curves are the handoff cubic-beziers; every spring overshoots (y1 > 1),
+        // Curves are the design cubic-beziers; every spring overshoots (y1 > 1),
         // exits never do.
         assert_eq!(MotionCurveToken::Spring.control_points(), [0.34, 1.4, 0.5, 1.0]);
         assert!(MotionCurveToken::SpringIcon.control_points()[1] > 1.0);
         assert!(MotionCurveToken::Smooth.control_points()[1] <= 1.0);
         assert_eq!(MotionCurveToken::Glide.control_points(), [0.22, 1.0, 0.36, 1.0]);
+        assert_eq!(MotionCurveToken::Enter.control_points(), [0.16, 1.0, 0.3, 1.0]);
     }
 
     #[test]

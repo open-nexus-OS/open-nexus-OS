@@ -13,7 +13,7 @@
 //
 // Brightness and volume are LOCAL UI state — honest placeholders until a
 // backlight/audio service exists. Nothing here calls `svc.*` for them and no
-// marker claims otherwise. Volume lives in ONE place (design_handoff_panels §6:
+// marker claims otherwise. Volume lives in ONE place (design artifacts: panels §6:
 // "ein gemeinsamer Lautstärke-Zustand" for Control Center, the Sound panel and
 // the top bar).
 //
@@ -46,7 +46,7 @@ reduce ControlEvent {
     SetTheme(mode) => state.applyError = 0,
     SetMode(mode) => state.applyError = 0,
     SetBrightness(v) => state.brightness = v,
-    // Dragging the volume to 0 IS muting — the handoff's rule, now carried by
+    // Dragging the volume to 0 IS muting — the design's rule, now carried by
     // the value itself rather than by a Bool kept in step beside it.
     SetVolume(v) => state.volume = v,
     // Un-muting restores 50 rather than the pre-mute value: the reducer has

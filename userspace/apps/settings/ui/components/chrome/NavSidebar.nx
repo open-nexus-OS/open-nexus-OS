@@ -1,8 +1,8 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The left navigation pane (handoff `Sidebar`, `variant="plain"`): a clickable
-// header that returns to the overview, the twelve sections in the handoff's
+// The left navigation pane (design `Sidebar`, `variant="plain"`): a clickable
+// header that returns to the overview, the twelve sections in the design's
 // order, and an account footer that jumps to the Accounts section.
 //
 // The item ids ARE the section values. window-kit's `WinSideItem` dispatches
@@ -14,7 +14,7 @@
 // paints nothing, and a region that can become an overlay pane must bring a
 // panel or it floats unframed (RFC-0084 P7).
 //
-// TWO-LINE items (title + short description — the handoff's default sidebar
+// TWO-LINE items (title + short description — the design's default sidebar
 // form; the full descriptions live on the overview cards, the short forms
 // here because `.truncate` has no runtime and an overflowing line cannot
 // ellipsise). The section list scrolls on its own (`.scroll(vertical)`): a

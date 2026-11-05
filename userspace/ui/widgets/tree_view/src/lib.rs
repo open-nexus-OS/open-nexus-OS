@@ -3,7 +3,7 @@
 
 #![cfg_attr(not(test), no_std)]
 
-//! `TreeView` — the design-system hierarchical tree (handoff `TreeView`):
+//! `TreeView` — the design-system hierarchical tree (design `TreeView`):
 //! collapsible nodes with indentation, disclosure chevrons, optional icons, and
 //! a selected-row accent. A pure builder producing a flattened `LayoutNode::Stack`
 //! column (rows for expanded descendants). The disclosure uses the built-in

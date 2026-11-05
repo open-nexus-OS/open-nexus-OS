@@ -1,15 +1,15 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Settings — the design handoff's "OS Settings Window"
-// (docs/design_handoff_os_settings_window), built on `WinAppWindow`
+// Settings — the design artifacts' "OS Settings Window"
+// (the design artifacts (settings window)), built on `WinAppWindow`
 // (RFC-0084). This page owns the window; everything inside it is a component.
 //
 // FREEFORM, not fullscreen — a VISUAL contract, not a preference.
 // `mode: fullscreen` makes app-host paint an OPAQUE page base and makes
 // windowd skip the per-window backdrop-blur band, so a fullscreen window can
 // never show the wallpaper and its panes would frost an opaque slab. The
-// handoff draws a floating 900×600 glass window over the desktop, which is
+// design draws a floating 900×600 glass window over the desktop, which is
 // what freeform gives. `style: plain` suppresses windowd's own title bar —
 // this page owns its chrome through `WinTopBar`.
 Window {
@@ -52,7 +52,7 @@ Page SettingsPage {
             contentArea {
                 Panel {
                     // Content header: breadcrumb trail, hairline, then the
-                    // mode. Only the BODY scrolls — the handoff's window never
+                    // mode. Only the BODY scrolls — the design's window never
                     // scrolls as a whole, only pane bodies do.
                     if $state.mode == "overview" {
                         CrumbBar { section: "", sub: "" }

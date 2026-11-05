@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Datenschutz & Sicherheit. Demo data from the handoff's `_tree()`.
+// Datenschutz & Sicherheit. Demo data from the design's `_tree()`.
 //
 // EVERY control here is visual. Biometrics, lock policy and diagnostics are
 // exactly the settings that must route through policyd before they mean

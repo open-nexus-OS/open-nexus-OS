@@ -33,7 +33,7 @@ use nexus_theme_tokens::{ColorToken, LengthToken, MaterialToken, Tokens};
 
 /// How much of a material's `edgeHighlight` may bleed into the soft top-to-
 /// bottom shine (RFC-0082). The rest of its alpha belongs to the crisp
-/// one-pixel `inset 0 1px 0` line; 15% is the wash the handoff's
+/// one-pixel `inset 0 1px 0` line; 15% is the wash the design's
 /// `--glass-shine` actually shows.
 const SHINE_WASH_CAP: u32 = 38; // 0.15 x 255
 

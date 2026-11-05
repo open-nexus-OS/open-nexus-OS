@@ -2,14 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // The app's window-chrome menus: the ⋯ menu and its jump-to-section submenu
-// (handoff §"Structure & interactions"). The app-chip window menu (tiling,
+// (design §"Structure & interactions"). The app-chip window menu (tiling,
 // fullscreen, minimize, close) is the kit's — `WinAppWindow` mounts it.
 //
 // Every entry uses this app's `MenuRow`, because `WinMenuItem` would bake
 // `WinMenuPick(id)` and these entries need to dispatch navigation events or
 // open a submenu instead.
 //
-// The handoff's view options (`Beschreibungen anzeigen`, `Sidebar kompakt`,
+// The design's view options (`Beschreibungen anzeigen`, `Sidebar kompakt`,
 // `Erweiterte Optionen`) are NOT here: they belong to Phase 2 together with
 // the sub-pages and the `advanced` groups they reveal, and a menu entry that
 // toggles nothing would be a control that lies about what it does.

@@ -137,9 +137,11 @@ held the frame — a hop line is that stage's measurement, never judged (no verd
   `apphost: hops input (rx>sent=)` every 16 inputs that asked for work — the input received →
   its answer sent (a present or a motion; the wait for the previous present's credit included);
   windowd's and gpud's frame hops carry it on.
-- The motion chain (TASK-0354 P1): `apphost: hops motion (pulse>sent= ticks=)` once per Tier-2
-  motion episode, when the pulse finds no motion live — a pulse that found motion live → the
-  present that answered it; `ticks` counts the episode's wake-ups (every pulse that found motion
+- The motion chain (TASK-0354 P1): `apphost: hops motion (pulse>sent= ticks= paint_us= rows= px=
+  tokens=)` once per Tier-2 motion episode, when the pulse finds no motion live — a pulse that
+  found motion live → the present that answered it; `paint_us` the CPU raster per frame (mean/max)
+  and `rows` its rows, `px` the damage each present declared, `tokens` the motion tokens that ran
+  (TASK-0351 P15); `ticks` counts the episode's wake-ups (every pulse that found motion
   live, answered or not).
 - The frame's size (TASK-0351 P0): `layers=` on `gpud: gpu work` (layers composed per frame) and
   `gpud: bindings (in_use= of= contexts=)` beside it every 32 frames — the bindings the live GPU

@@ -468,18 +468,28 @@ impl<'a> RenderCommandEncoder<'a> {
     }
 
     /// The transform of window `layer_id` as this present draws it (`Command::LayerTransform`,
-    /// TASK-0336): it takes effect with the present's layers.
+    /// TASK-0336): scaled by `scale` (1/10000) about `origin`, then moved — it takes effect with
+    /// the present's layers.
     pub fn try_layer_transform(
         &mut self,
         layer_id: u32,
         (dx, dy): (i32, i32),
         opacity: u32,
-        scale_pct: u32,
+        scale: u32,
+        (origin_x, origin_y): (i32, i32),
     ) -> Result<(), GfxError> {
         if !self.active {
             return Err(GfxError::CommandRejected);
         }
-        self.cmd.push_command(Command::LayerTransform { layer_id, dx, dy, opacity, scale_pct })
+        self.cmd.push_command(Command::LayerTransform {
+            layer_id,
+            dx,
+            dy,
+            opacity,
+            scale,
+            origin_x,
+            origin_y,
+        })
     }
 
     // ── Lifecycle ─────────────────────────────────────────────

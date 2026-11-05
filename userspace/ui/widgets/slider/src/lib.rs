@@ -3,7 +3,7 @@
 
 #![cfg_attr(not(test), no_std)]
 
-//! `Slider` — the design-system range slider (design_handoff_panels `.slider`):
+//! `Slider` — the design-system range slider (design artifacts: panels `.slider`):
 //! a recessed pill TRACK with a bright FILL growing from the left, and a glyph
 //! riding at a fixed inset inside that fill.
 //!
@@ -13,7 +13,7 @@
 //!
 //! Width is NOT fixed. The track is a flex child that takes whatever its row
 //! grants it, and the fill/rest split is expressed as flex WEIGHTS (value vs
-//! 100 − value) rather than pixels — the layout equivalent of the handoff's
+//! 100 − value) rather than pixels — the layout equivalent of the design's
 //! `width: 70%`. A builder that computed pixels here would have to be told the
 //! row width, and every card the slider sits in has a different one.
 //!
@@ -120,7 +120,7 @@ impl Slider {
             corner_radius: CornerRadius::uniform(FxPx::new(RADIUS)),
             ..VisualStyle::default()
         };
-        // The handoff's `inset 0 1px 2px rgba(0,0,0,.30)`. The row-based
+        // The design's `inset 0 1px 2px rgba(0,0,0,.30)`. The row-based
         // painter has no offscreen buffer to blur in, so the 2px falloff is
         // not reproducible; the 1px inset LINE is, and it is what actually
         // reads as a groove at this size.
@@ -167,7 +167,7 @@ impl Slider {
                 max_width: None,
                 min_height: Some(FxPx::new(TRACK_H)),
                 max_height: Some(FxPx::new(TRACK_H)),
-                // The track takes the row's free space (handoff `flex: 1`).
+                // The track takes the row's free space (design `flex: 1`).
                 item: FlexItem { flex_grow: 1, ..FlexItem::default() },
                 text_fit: None,
             },
@@ -257,7 +257,7 @@ mod tests {
         assert_eq!(stack(&children(fill)[0]).id, Some("glyph"));
     }
 
-    /// A slider with no glyph is still a valid slider (the handoff's Ton panel
+    /// A slider with no glyph is still a valid slider (the design's Ton panel
     /// reuses the same control without one in the compact case).
     #[test]
     fn the_glyph_is_optional() {

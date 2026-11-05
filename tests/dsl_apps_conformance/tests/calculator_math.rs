@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // The calculator's ARITHMETIC and its localized display
-// (design_handoff_calculator "Funktion"). The handoff's own worked example is
+// (design artifacts: calculator "Funktion"). The design's own worked example is
 // the headline case: `1234,5 x 8 =` must read `9.876` with the history line
 // `1.234,5 × 8 =`.
 //
@@ -96,9 +96,9 @@ fn type_number(
     }
 }
 
-/// THE handoff example: `1234,5 × 8 =` → `9.876`.
+/// THE design example: `1234,5 × 8 =` → `9.876`.
 #[test]
-fn the_handoff_worked_example() {
+fn the_design_worked_example() {
     let calc = Calc::new();
     session!(calc, view, tokens, device, locale, host);
     type_number(&mut view, &tokens, &device, &locale, &mut host, "1234.5");

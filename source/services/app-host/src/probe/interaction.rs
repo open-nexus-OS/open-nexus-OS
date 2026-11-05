@@ -44,7 +44,7 @@ impl super::DslApp {
             device_for(self.shell_profile, self.w, &self.locale_tag, &self.keymap, self.theme_mode);
         // The page's scroll layers at their offsets: the hit-test sees what the compositor shows.
         let (views, nv) = self.hit_views();
-        // Interaction motion (handoff "Press: instant down, springy release"):
+        // Interaction motion (design "Press: instant down, springy release"):
         // the pressed control dips to 92% and pops back elastically. Resolved
         // with the SAME hit-test the dispatch below uses, BEFORE the re-emit
         // (node ids are stable across a paint-damage dispatch; the retain in
@@ -168,6 +168,7 @@ impl super::DslApp {
     /// open"). The previous retained state is taken, not cloned: the relayout rebuilds both
     /// lists and the old ones feed the diff.
     pub(super) fn relayout_bounded(&mut self) {
+        let held = self.held_spans();
         let old_boxes = core::mem::take(&mut self.layout.boxes);
         let old_texts = core::mem::take(&mut self.texts);
         if !self.relayout_retained() {
@@ -178,13 +179,8 @@ impl super::DslApp {
             self.tap_render_span = Some((0, 0));
             return;
         }
-        self.tap_render_span = crate::layout_diff::changed_row_span(
-            &old_boxes,
-            &self.layout.boxes,
-            &old_texts,
-            &self.texts,
-            self.layout_bottom(),
-        );
+        // What the motion layers hold changes their store rows, never the base's (P5).
+        self.tap_render_span = self.layout_change((&old_boxes, &old_texts), &held);
         self.tree_dirty = true;
     }
 
@@ -204,6 +200,7 @@ impl super::DslApp {
             }
             Some((y0, y1)) if y1 <= y0 => {}
             Some(span) => {
+                self.damage_cols.full();
                 *dirty_rows = match (*dirty, *dirty_rows) {
                     (true, None) => None,
                     (_, Some((a0, a1))) => Some((a0.min(span.0), a1.max(span.1))),
@@ -259,7 +256,7 @@ impl super::DslApp {
         }
         let old = core::mem::replace(&mut self.hovered, target);
         self.motion_dirty = true;
-        // Interaction motion (handoff): grow the newly hovered control with a soft spring,
+        // Interaction motion (design): grow the newly hovered control with a soft spring,
         // shrink the old one back — the caller arms the frame pulse (`anim_active`).
         self.interaction_hover(old, target);
         true

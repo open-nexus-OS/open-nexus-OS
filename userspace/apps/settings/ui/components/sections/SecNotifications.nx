@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Benachrichtigungen. Demo data from the handoff's `_tree()`.
+// Benachrichtigungen. Demo data from the design's `_tree()`.
 
 Component SecNotifications {
     Stack {

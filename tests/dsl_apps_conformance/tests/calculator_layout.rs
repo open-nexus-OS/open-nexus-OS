@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The calculator's RESPONSIVE contract (design_handoff_calculator): at every
+// The calculator's RESPONSIVE contract (design artifacts: calculator): at every
 // window size the keys divide both axes exactly, the `0` spans two tracks, the
 // keypad absorbs all leftover height, and the label type steps UP as the
 // window grows. Breakpoints are deliberately absent — these are the tests that
@@ -88,7 +88,7 @@ fn label_type_steps_up_with_the_window() {
         .iter()
         .map(|(w, h)| {
             let layout = layout_at(*w, *h);
-            // KEY labels only. The display numeral is pinned at the handoff's
+            // KEY labels only. The display numeral is pinned at the design's
             // 52px by its own fixed-height card, so including it would report
             // "52, 52, 52" and hide whether the keys grew at all.
             let keypad_top = layout
@@ -119,7 +119,7 @@ fn label_type_steps_up_with_the_window() {
     assert!(sizes.last() > sizes.first(), "type must actually grow: {sizes:?}");
 }
 
-/// The display keeps its handoff minimum; the keypad takes everything else, so
+/// The display keeps its design minimum; the keypad takes everything else, so
 /// growing the window grows the KEYS.
 #[test]
 fn the_keypad_absorbs_the_extra_height() {

@@ -3,7 +3,7 @@
 
 #![cfg_attr(not(test), no_std)]
 
-//! `Chip` — the design-system chip (handoff `Chip`): a compact glass token for
+//! `Chip` — the design-system chip (design `Chip`): a compact glass token for
 //! filters/tags/recipients, larger and more tactile than a `Badge`; selectable
 //! (accent when selected) and removable (a trailing remove node). A pure builder
 //! producing a rounded-full `LayoutNode::Stack`. DSL-emittable.

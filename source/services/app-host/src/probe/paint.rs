@@ -42,11 +42,13 @@ impl PassCtx {
 /// What a paint pass draws.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Pass {
-    /// The base layer: every box but the content of an uncovered scroll layer — a covered
-    /// layer's content at its view.
+    /// The base layer: every box but the content of an uncovered scroll layer and of a motion
+    /// layer — a covered layer's content at its view.
     Base,
     /// Scroll layer `root`'s content at identity: its band.
     Band(usize),
+    /// Motion layer `k`'s subtree at rest (TASK-0354 P2): its pixels in the store.
+    Motion(usize),
 }
 
 impl super::DslApp {
@@ -110,7 +112,7 @@ impl super::DslApp {
     /// The page base's alpha: the surface's (`base_alpha` — 0 on the desktop, opaque for an
     /// overlay or a fullscreen window, frosted for a floating one) — and opaque for a floating
     /// window too under solid materials (TASK-0337, reduce transparency).
-    fn page_base_alpha(&self) -> u8 {
+    pub(super) fn page_base_alpha(&self) -> u8 {
         if wire::theme_is_solid(self.theme_mode) && self.base_alpha > 0 {
             255
         } else {
@@ -137,6 +139,7 @@ impl super::DslApp {
         // base layer), frosted-translucent for floating windows (`base_alpha`).
         let base = [s.b, s.g, s.r, self.page_base_alpha()];
         let (y0, y1) = (y0.max(0), y1.min(self.h as i32));
+        let t0 = nsec_now();
         let mut views = core::mem::take(&mut self.view_scratch);
         self.base_views(&mut views);
         self.prepare_picks_with(Pass::Base, (y0, y1), None, &views);
@@ -154,6 +157,48 @@ impl super::DslApp {
             self.paint_row(row, y, 0, &views);
         }
         self.view_scratch = views;
+        // A motion episode's raster cost (`apphost: hops motion paint_us= rows=`).
+        self.motion_hops.painted(nsec_now().saturating_sub(t0) / 1000, (y1 - y0).max(0) as u32);
+        ok
+    }
+
+    /// Rows `[y0, y1)` of motion layer `k` (TASK-0354 P2): its subtree at rest, painted where its
+    /// pixels are in the store — on the page base, as the base would hold it, so the compositor
+    /// drawing the layer over the base shows what painting it in place shows. Picked over the
+    /// layer's whole rest (a shadow's rows lie outside its box).
+    pub(super) fn render_motion_rows(
+        &mut self,
+        mem: &mut SurfaceMem,
+        k: usize,
+        (y0, y1): (i32, i32),
+    ) -> bool {
+        use nexus_dsl_runtime::theme_tokens::ColorToken;
+        let Some((rect, (sx, sy))) = self.motion_place(k) else { return true };
+        let s = tokens_for(self.theme_mode).color(ColorToken::Surface);
+        let base = [s.b, s.g, s.r, self.page_base_alpha()];
+        let mut views = core::mem::take(&mut self.view_scratch);
+        self.base_views(&mut views);
+        self.prepare_picks_with(Pass::Motion(k), (rect.1, rect.3), Some((rect.0, rect.2)), &views);
+        let row_bytes = self.w as usize * 4;
+        let mut row = core::mem::take(&mut self.row_scratch);
+        if row.len() < row_bytes {
+            row.resize(row_bytes, 0);
+        }
+        let span = (rect.2 - rect.0).max(0) as usize * 4;
+        let mut ok = true;
+        for y in y0.max(rect.1)..y1.min(rect.3) {
+            for px in row[..row_bytes].chunks_exact_mut(4) {
+                px.copy_from_slice(&base);
+            }
+            self.paint_row(&mut row[..row_bytes], y, rect.0, &views);
+            let at = u32::from(sy) + (y - rect.1) as u32;
+            if !mem.write(at, u32::from(sx), &row[..span]) {
+                ok = false;
+                break;
+            }
+        }
+        self.row_scratch = row;
+        self.view_scratch = views;
         ok
     }
 
@@ -169,13 +214,24 @@ impl super::DslApp {
         shift: i32,
         cols: (i32, i32),
         (row_at, col): (u32, u32),
+        ground: Option<nexus_layout_types::Rgba8>,
     ) -> bool {
         let row_bytes = self.w as usize * 4;
         let mut row = core::mem::take(&mut self.row_scratch);
         if row.len() < row_bytes {
             row.resize(row_bytes, 0);
         }
-        row[..row_bytes].fill(0);
+        // TASK-0351 P14: a band on a ground starts from the pane's opaque pixel (the painter's
+        // premultiplied order b, g, r, a — an opaque pixel is its own premultiplication), so
+        // the slice composes without a blend; else from transparent.
+        match ground {
+            Some(c) => {
+                for px in row[..row_bytes].chunks_exact_mut(4) {
+                    px.copy_from_slice(&[c.b, c.g, c.r, c.a]);
+                }
+            }
+            None => row[..row_bytes].fill(0),
+        }
         self.paint_row(&mut row[..row_bytes], model_y, shift, &[]);
         let (c0, c1) =
             (cols.0.clamp(0, self.w as i32) as usize, cols.1.clamp(0, self.w as i32) as usize);
@@ -225,9 +281,17 @@ impl super::DslApp {
                     }
                     (y0, y1)
                 }
-                Pass::Base => {
-                    if self.in_band(b) {
-                        continue; // drawn in its layer's band
+                Pass::Base | Pass::Motion(_) => {
+                    // Drawn in its layer's band, or in a motion layer this pass is not.
+                    let motion = match pass {
+                        Pass::Motion(k) => Some(k),
+                        _ => None,
+                    };
+                    if self.in_band(b)
+                        || self.motion_of(b.node_id) != motion
+                        || motion.is_some_and(|k| self.motion_skips(k, b.node_id))
+                    {
+                        continue;
                     }
                     // A covered layer's content: its rows on the surface are its layout rows
                     // moved by the view.
@@ -259,8 +323,9 @@ impl super::DslApp {
         // Only a glass root of the same pass occludes (a covered layer's content and the modal
         // over it are both the base's).
         let in_pass = |b: &nexus_layout::LayoutBox| match pass {
-            Pass::Base => !self.in_band(b),
+            Pass::Base => !self.in_band(b) && self.motion_of(b.node_id).is_none(),
             Pass::Band(root) => b.scroll_root == Some(root),
+            Pass::Motion(k) => !self.in_band(b) && self.motion_of(b.node_id) == Some(k),
         };
         vis_text.retain(|&(bi, _)| {
             let t = &self.layout.boxes[bi as usize];

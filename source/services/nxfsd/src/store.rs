@@ -97,7 +97,7 @@ impl DataStore {
         // Top-level home folders (folder NAMES are stable identifiers; the UI
         // localizes their DISPLAY via the sidebar/breadcrumb, RFC-0073).
         let dirs = ["/Bilder", "/Videos", "/Audio", "/Dokumente", "/Downloads", "/Papierkorb"];
-        // Example media in /Bilder (the design handoff's "Urlaub 2026" set):
+        // Example media in /Bilder (the design artifacts' "Urlaub 2026" set):
         // realistic KB-range sizes via padded content (bounded — kept small so
         // the seed stays a short write run on the virtio-blk device).
         let files: &[(&str, &[u8], usize)] = &[

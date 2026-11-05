@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Calendar header (design_handoff_panels §5): month + year on the left, three
+// Calendar header (design artifacts: panels §5): month + year on the left, three
 // 24px buttons on the right — previous · a dot that returns to today · next.
 //
 // The month name comes from an i18n key per authored month, not from a locale

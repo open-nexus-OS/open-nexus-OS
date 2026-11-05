@@ -279,7 +279,7 @@ fn probe_sidebar_width_mode_invariant() {
     }
 }
 
-/// The shell grew six full panels in one go (design_handoff_panels), which
+/// The shell grew six full panels in one go (design artifacts: panels), which
 /// makes it the second-largest DSL app. Both ceilings apply to it exactly as
 /// they do to settings, and both fail SILENTLY: a node overrun is a stale
 /// layout via `relayout_retained`'s swallowed error, a payload overrun is a

@@ -99,7 +99,15 @@ fn no_damage() -> Command {
 }
 
 fn transform(layer_id: u32, dx: i32, dy: i32, opacity: u32, scale_pct: u32) -> Command {
-    Command::LayerTransform { layer_id, dx, dy, opacity, scale_pct }
+    Command::LayerTransform {
+        layer_id,
+        dx,
+        dy,
+        opacity,
+        scale: scale_pct * 100,
+        origin_x: 0,
+        origin_y: 0,
+    }
 }
 
 #[test]
@@ -214,16 +222,13 @@ fn a_present_carries_the_window_transform_with_its_layers() {
     // ... and the release's present brings the window at its new place WITH the identity, so
     // no plan ever sees the new frame moved again or the old one snapped back.
     let moved = with(layer(240, 210, 600, 400), |l| l.layer_id = 2);
-    f.layers.take_frame(&[
-        Command::LayerTransform { layer_id: 2, dx: 0, dy: 0, opacity: 255, scale_pct: 100 },
-        moved,
-    ]);
+    f.layers.take_frame(&[transform(2, 0, 0, 255, 100), moved]);
     assert_eq!(f.layers.effective(0).map(|l| (l.dst_x, l.dst_y)), Some((240, 210)));
     assert!(!f.layers.in_motion(2), "the identity: at rest");
     // A transform for any window key is taken with the rest of the present (RFC-0114 §7: a key,
     // never a table index).
     let taken = f.layers.take_frame(&[
-        Command::LayerTransform { layer_id: 99, dx: 5, dy: 5, opacity: 255, scale_pct: 100 },
+        transform(99, 5, 5, 255, 100),
         with(layer(240, 210, 600, 400), |l| l.layer_id = 2),
     ]);
     assert!(taken.replaced);

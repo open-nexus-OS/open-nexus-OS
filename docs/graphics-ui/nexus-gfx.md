@@ -5,7 +5,7 @@ role: reference
 subsystem: ui
 sources: [userspace/nexus-gfx/src, userspace/nexus-gfx/tests, tools/nxgpu]
 contracts: [RFC-0059, RFC-0067, RFC-0101, ADR-0072]
-verified: 2026-11-04
+verified: 2026-11-05
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -28,6 +28,7 @@ verified: 2026-11-04
 | `core/` | `Device`, `Queue` (`submit` consumes a `CommandBuffer`), `Fence` (unsignaled → signaled once), error and types |
 | `resource/buffer.rs` | `Buffer` (write, `as_bytes`) |
 | `command/buffer.rs` | `CommandBuffer` → `CommittedBuffer`; `enum Command` and its wire encode/decode — the payload of `OP_PRESENT_DAMAGE` |
+| `command/transform_wire.rs` | the `LayerTransform` record on the wire: an offset, an opacity and a scale in 1/10000 about an origin, so a group of layers scales about one point (RFC-0101 amended, TASK-0354 P3) |
 | `command/render_encoder.rs` | `RenderCommandEncoder`: tiles, blits, SDF rects and gradients, drop shadow, backdrop blur, cursor blend, `composite_layer` / `composite_layer_full` |
 | `command/layer.rs`, `command/layer_wire.rs` | the compositor layer SSOT: `Layer` with opacity, radius, shadow, backdrop; the `CompositeLayer` record |
 | `command/validation.rs` | bounded checks of extents, counts, sizes and rects |

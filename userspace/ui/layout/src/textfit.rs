@@ -34,7 +34,7 @@ const MAX_STEPS: usize = 128;
 /// implementation quantises to its baked ladder, so many steps are free) until
 /// it fits or `min` is reached.
 ///
-/// Stepping down on WIDTH is what reproduces the handoff's `52 / 38 / 30`
+/// Stepping down on WIDTH is what reproduces the design's `52 / 38 / 30`
 /// display ramp without hard-coding digit counts: a long number simply stops
 /// fitting at the larger rungs. It is also idempotent — the chosen size is the
 /// largest that fits, so re-running against that same box returns it again,

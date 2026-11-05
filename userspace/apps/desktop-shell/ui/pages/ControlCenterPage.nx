@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The Control Center (design_handoff_launcher panel, as a PAGE until DSL
+// The Control Center (design artifacts: launcher panel, as a PAGE until DSL
 // overlays land): appearance (light/dark — REAL, windowd re-themes live) and
 // windowing mode (Tablet/Desktop — REAL, the shell re-mounts into its
 // platform override), sliders as local UI state, connectivity tiles as

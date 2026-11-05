@@ -1,14 +1,14 @@
 # settings — DSL app
 
-The system settings app, rebuilt against its design handoff
-(`docs/design_handoff_os_settings_window/` — `README.md` for the component
+The system settings app, rebuilt against its design artifacts
+(the design artifacts (settings window) — `README.md` for the component
 contract, `LAYOUT.md` for the metrics, `source/OsSettingsWindow.dc.html` for
 the tree). Built on `WinAppWindow` (RFC-0084): this app is the second
 consumer that proves the window scaffold generalises past stash.
 
 ## What is real and what is optics
 
-The handoff describes a whole settings tree. Most of it has no system behind
+The design describes a whole settings tree. Most of it has no system behind
 it yet, and the app says so by construction:
 
 | Really writes | Key | Where |
@@ -28,7 +28,7 @@ window (app-modal, over the settings window) that lists the shortcut registry
 `ShortcutsWindow`, `shortcuts.store.nx`). Its "Ändern" and "Standard wiederherstellen" are drawn
 disabled: rebinding is a later phase.
 
-Everything else is the handoff's demo data. The ~34 switches live in
+Everything else is the design's demo data. The ~34 switches live in
 `demo.store.nx` and reach no service — moving one out of that store is the
 signal that it stopped being a mockup. Two things are drawn but deliberately
 inert, and both are recorded in `docs/dev/ui/design-token-audit.md`:
@@ -80,7 +80,7 @@ or refresh: `WinNav` has exactly one meaning to forward.
 the section values, so adding a section is one line in `NavSidebar` and one
 arm in `SectionView`. Back walks sub-page → section → overview.
 
-Phase 1 renders the section ROOTS. The handoff's ~20 chevron sub-pages are
+Phase 1 renders the section ROOTS. The design's ~20 chevron sub-pages are
 Phase 2 and their rows show as value rows until then — a chevron that pushes
 nothing would promise a screen that does not exist. `Personalisierung ›
 Erscheinungsbild` is the exception: it is a real sub-page because the page

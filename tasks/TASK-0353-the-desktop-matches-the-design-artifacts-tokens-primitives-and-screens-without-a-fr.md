@@ -5,7 +5,7 @@ title: "The desktop matches the design artifacts: tokens, primitives and screens
 status: in_progress
 owner: ["@ui"]
 created: 2026-11-03
-updated: 2026-11-03
+updated: 2026-11-05
 subsystem: ui
 components: [desktop-shell, app-host, windowd, window-kit, widgets]
 kind: ui
@@ -29,9 +29,9 @@ links:
     target: "RFC-0108 (the numbers P1 confirms or replaces)"
 phases:
   - id: P0
-    story: "the artifacts are the design contract: every screen and every transition listed and each delta to today's build counted"
+    story: "the artifacts are the design contract: the SSOT outside the repo, the repository's handoff copies removed, every screen and every transition listed and each delta to today's build counted"
     state: building
-    gate: "the artifact captured in the repo; N screens, T transitions and M deltas named in the ledger"
+    gate: "0 handoff folders and 0 references to them in code and living docs; N screens, T transitions and M deltas named in the ledger"
     started: 2026-11-03
   - id: P1
     story: "the reference numbers the gates use are researched on the web: the reference device's display rate, its click-to-photon latency, the system transitions' durations and springs"

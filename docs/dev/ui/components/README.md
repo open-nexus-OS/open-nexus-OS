@@ -22,7 +22,7 @@ Current entry points:
 - `docs/dev/ui/components/status-and-feedback/README.md`
 - `docs/dev/ui/components/media-and-content/README.md`
 - `docs/dev/ui/components/design-system.md`
-- `docs/dev/ui/components/inventory.md` — IST state of all 54 handoff components across the three
+- `docs/dev/ui/components/inventory.md` — IST state of all 54 design components across the three
   UI expressions + the "promote the best" convergence verdict per component
 - `docs/dev/ui/foundations/visual/token-reconciliation.md` — the four token sources → one SSOT
 - `docs/dev/ui/input/input.md`
@@ -33,7 +33,7 @@ Architecture spine:
 
 - `docs/rfcs/RFC-0070-ui-design-system-ssot-convergence.md` — one declarative component library,
   one token source, one glass primitive, one reactive path (`LayoutNode → LayoutEngine →
-  SceneGraph → nexus-gfx`); the design contract is `docs/dev/design_handoff_open_nexus_os/`.
+  SceneGraph → nexus-gfx`); the design contract is the design artifacts (design system).
 
 Implementation/task anchor:
 

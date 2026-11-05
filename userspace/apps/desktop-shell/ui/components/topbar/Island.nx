@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The Dynamic Island (design_handoff_launcher: collapsed 118×28, solid black
+// The Dynamic Island (design artifacts: launcher: collapsed 118×28, solid black
 // pill, pinned top-centre). Collapsed content = now-playing hint: 14×14
 // rounded art square + four level bars (static resting frame — animated bars
 // + hover expansion to 288×64 land with the media service).

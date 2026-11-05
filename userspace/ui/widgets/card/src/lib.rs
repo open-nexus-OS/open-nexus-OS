@@ -3,7 +3,7 @@
 
 #![cfg_attr(not(test), no_std)]
 
-//! `GlassCard` — the design-system frosted-glass container (handoff `GlassCard`):
+//! `GlassCard` — the design-system frosted-glass container (design `GlassCard`):
 //! the foundational liquid-glass surface every panel/card/row is built on. A
 //! pure builder that resolves a [`MaterialToken`] level into a `Style` (fill
 //! tint + top-shine border + backdrop blur) and delegates the box + children to
@@ -17,7 +17,7 @@ use nexus_style::Style;
 use nexus_theme_tokens::{LengthToken, MaterialToken, Tokens};
 use nexus_widget_panel::Panel;
 
-/// Surface level (handoff `GlassCard.variant`). `dock`/`inner` reuse the
+/// Surface level (design `GlassCard.variant`). `dock`/`inner` reuse the
 /// panel/card materials; `window`/`overlay` expose the denser materials for the
 /// window and overlay components.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

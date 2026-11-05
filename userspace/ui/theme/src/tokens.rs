@@ -134,7 +134,7 @@ impl TokenMap {
 /// A named length scale (radii, spacing) in whole layout pixels. Theme-invariant
 /// in practice (authored once in `base.nxtheme.toml`), but resolved through the
 /// qualifier chain like tokens/materials so a variant *could* override it.
-/// Example keys: `small`, `medium`, `large` (+ the finer handoff scale later).
+/// Example keys: `small`, `medium`, `large` (+ the finer design scale later).
 #[derive(Debug, Clone, Default)]
 pub struct ScaleMap {
     values: HashMap<String, u32>,

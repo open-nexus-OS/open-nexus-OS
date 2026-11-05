@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The label row INSIDE a card (design_handoff_panels `.sec-row`): a 13px glyph
+// The label row INSIDE a card (design artifacts: panels `.sec-row`): a 13px glyph
 // plus a semibold caption, sitting above the control it names — "Helligkeit"
 // over the brightness slider, "Ton" over the volume slider, "Lautstärke" in
 // the Sound panel.

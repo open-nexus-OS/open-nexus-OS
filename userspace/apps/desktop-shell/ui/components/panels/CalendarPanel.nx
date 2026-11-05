@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Kalender (design_handoff_panels §5): 288 wide, radius 24, anchored top left.
+// Kalender (design artifacts: panels §5): 288 wide, radius 24, anchored top left.
 // Month header with navigation, a Monday-first week grid, and up to three
 // coming appointments.
 //

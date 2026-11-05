@@ -3,7 +3,7 @@
 
 #![cfg_attr(not(test), no_std)]
 
-//! `GlassCheckbox` — the design-system checkbox (handoff `GlassCheckbox`): a
+//! `GlassCheckbox` — the design-system checkbox (design `GlassCheckbox`): a
 //! rounded-square box, glass outline when off, accent fill with a white mark
 //! when on. A pure builder producing a `LayoutNode::Stack`. The compositor
 //! hit-tests `id`; the app maps id → toggle. DSL-emittable.

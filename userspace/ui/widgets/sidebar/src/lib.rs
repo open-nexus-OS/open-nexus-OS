@@ -3,7 +3,7 @@
 
 #![cfg_attr(not(test), no_std)]
 
-//! `Sidebar` / `SplitView` — the design-system navigation rail (handoff
+//! `Sidebar` / `SplitView` — the design-system navigation rail (design
 //! `Sidebar`/`SplitView`): a vertical list of nav items with an active accent
 //! highlight, optional section headers, and header/footer slots; `SplitView`
 //! pairs it with a flexible content pane. Pure builders producing

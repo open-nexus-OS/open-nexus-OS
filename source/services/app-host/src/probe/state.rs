@@ -139,6 +139,10 @@ pub(super) struct DslApp {
     /// the diffed row window (may be empty — pixels identical), `None` =
     /// full repaint. Set by `tap()`, consumed once by the event loop.
     pub(super) tap_render_span: Option<(i32, i32)>,
+    /// The columns the frame's partial rows changed in (TASK-0351 P15, `band_math::Cols`):
+    /// claimed by the animation tick, widened by every row-only contributor, taken by the
+    /// present that names the rows' damage as a rectangle.
+    pub(super) damage_cols: crate::band_math::Cols,
     /// The first input since the last answer that asked for work (RFC-0108 §hops,
     /// `probe/band.rs`), and the input chain's hop in the app: received → answered.
     pub(super) input_rx_ns: Option<u64>,
@@ -167,4 +171,18 @@ pub(super) struct DslApp {
     /// The focused field's horizontal text offset and the focus session it belongs to
     /// (TASK-0346 P2: the caret stays in view; `paint.rs`, `text_caret.rs`, `text_pointer.rs`).
     pub(super) field_scroll: (u32, i32),
+    /// The motion layers (TASK-0354 P2, `probe/motion_layers.rs`): `.transition` nodes the
+    /// compositor moves — painted once into the store, their enter stated once.
+    pub(super) motion_layers:
+        [Option<super::motion_layers::MotionLayer>; super::motion_layers::MAX_MOTION_LAYERS],
+    /// The last motion id stated (a new one starts a motion in windowd).
+    pub(super) motion_seq: u16,
+    /// Rows a motion layer left (it went, or lost its place): the base paints them again.
+    pub(super) motion_repaint: Option<(i32, i32)>,
+    /// Layout rows a change inside the motion layers named (TASK-0354 P5): painted again into
+    /// the layers' store rows — never the base's, which never held them.
+    pub(super) motion_rows: Option<(i32, i32)>,
+    /// Rows a re-create at the same size carried over from the old buffer
+    /// (`SurfaceMem::carry_from`): the next present names them.
+    pub(super) carried: Option<u32>,
 }

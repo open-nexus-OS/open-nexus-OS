@@ -8,7 +8,7 @@
 > **"promote the best, not the incumbent"** convergence verdict per component.
 > Companion: [`token-reconciliation.md`](../foundations/visual/token-reconciliation.md),
 > RFC-0070 (SSOT convergence). Source contract:
-> `docs/dev/design_handoff_open_nexus_os/reference/component-api.d.ts` (54 components / 67 interfaces).
+> the design artifacts (design system) (54 components / 67 interfaces).
 
 ## The three parallel expressions (the double/triple structure)
 
@@ -119,7 +119,7 @@ then C collapses surface-by-surface (boot-gated). The library SSOT home is the p
 
 ## Summary counts
 
-- **54 components / 67 interfaces** in the handoff contract.
+- **54 components / 67 interfaces** in the design contract.
 - **Already have a promotable impl** (A and/or C): ~18 (button, card, toggle*, appicon*, select*, wheelpicker*, textfield, searchbar*, refresher*, toolbar*, list/listitem, sidebar*, popover*, menu*, window, windowcontrols, windowbutton*, windowpane, icon). `*` = behavior exists in C, needs promotion into a declarative component.
 - **Pure gaps** (net-new, but built to full contract from tokens + glass primitive): ~30 (segment, slider, checkbox, radiogroup, stepper, rating, datepicker, textarea, spinner, progressbar, toast, skeleton(s), banner, tabbar, subheader, accordion, treeview, breadcrumbs, pagination, avatar, chip, modal, actionsheet, alert, tooltip, fab, windowactionbar, badge, appwindow-responsive…).
 - **Already at/near SSOT** (declarative + hardened): `Window`/`Frame`, `WindowControls`, `List` (virtual-list), `Icon` (nexus-svg) — these validate the target architecture.

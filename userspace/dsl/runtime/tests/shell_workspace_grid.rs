@@ -1,6 +1,6 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
-//! The REAL desktop-shell workspace grid (design_handoff_launcher §3.2):
+//! The REAL desktop-shell workspace grid (design artifacts: launcher §3.2):
 //! compiles the shipped shell project, feeds it a 4-app registry, and pins
 //! the md (56px) tiles onto distinct tracks of ONE grid row. Split out of
 //! `layout_viewport.rs` (structure ratchet).
@@ -87,7 +87,7 @@ fn shell_grid_tiles_lay_out_in_a_row() {
         .expect("lays out")
         .boxes;
     // The md (56px) tiles in the home-grid band (below topbar, above dock) —
-    // design_handoff_launcher §3.2: the touch workspace is a real SIX-column
+    // design artifacts: launcher §3.2: the touch workspace is a real SIX-column
     // grid, so four tiles occupy four distinct tracks of one row.
     let tiles: Vec<(i32, i32)> = boxes
         .iter()

@@ -1771,6 +1771,14 @@ operator: everything runs):
 | H96 | The desktop's own glass regions keep their blur | `glass_idx=` without bits 1 and 3–6 through the typing windows; `glass_w=` at most 32 per window (one glass a frame at most) |
 | H97 | Our frame of the gate scene reaches the bar through the queue | `gpud: gpu gate scene ok (… pipelined_us=` below 23 300 |
 
+**Re-read 2026-11-04 (TASK-0351 P13)**: the "floor" above was not a latency. The gate's warm
+frames drew against the desktop's first target, whose slot the CPU had drawn (`slot_stale`), so
+the one-pixel damage became a full-screen pass (`Area::Full`): the 11.7 ms between the geometry
+word and the fragment word were the fragment stage shading the wallpaper and a full-screen glass
+composite (~4 megapixels at the board's ~3 ns a pixel). H95 is withdrawn as stated — the queue
+hides nothing that is not there — and the pipelining stays for what it is: one wait per frame.
+From P13 on the gate's warm frames and the sweep's cases draw their damage alone.
+
 **Results — the board, cycle 40** (`board--2026-10-19T12-36-10`, `cycle40-gpu-lines.txt`; the
 operator: it ran, felt slower, the glass's corners square — the CPU path):
 

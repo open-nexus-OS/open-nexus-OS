@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The PHONE touch dock (design_handoff_launcher §8.3, `vw < 640`): a
+// The PHONE touch dock (design artifacts: launcher §8.3, `vw < 640`): a
 // full-width dock row — every app in `flex:1`, evenly spread — and a bare
 // nav row below with back · launcher glyph · home · overview (the launcher
 // glyph moves into the nav here; no room for its own circle). No mini

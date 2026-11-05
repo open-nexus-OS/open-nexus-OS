@@ -111,7 +111,7 @@ pub(super) fn apply_modifier(
         28 => mods.material = registry::material_token(&token_name(ctx)), // material
         29 => {
             // Corner radius: a token from the scale, or RAW px — the same
-            // token-or-px shape `.width` has. The design handoffs treat the
+            // token-or-px shape `.width` has. The design artifacts treat the
             // literal radii (30/26/24/20/18/15/13/11) as geometry contract,
             // and a five-rung token scale cannot carry them.
             mods.rounded = Some(match first.map(|a| a.which()) {

@@ -72,8 +72,8 @@ that takes content. So `userspace/apps/stash/ui/pages/StashPage.nx` (512 LOC)
 and `userspace/apps/settings/ui/pages/SettingsPage.nx` (416 LOC) hand-write
 the same skeleton, and every future app would too.
 
-It also blocks a concrete design requirement. The window design handoff
-(`userspace/apps/stash/docs/design_handoff_files_window/`) hard-codes a panel
+It also blocks a concrete design requirement. The window design artifacts
+(the design artifacts (files window)) hard-codes a panel
 surface behind the content and properties regions and explicitly denies one to
 the sidebar (`reference/components/AppWindow.jsx:168/185`,
 `Sidebar.jsx:61-64`). Open Nexus wants the opposite: **the panel background is
@@ -358,7 +358,7 @@ cross-app contract, so it is recorded here rather than in an ADR of its own:
 **dead code**.
 
 The fix is that the desktop arm derives `size_class` from the real width, on
-the existing 640/1024 breakpoints. The design handoff's 560/820 numbers are
+the existing 640/1024 breakpoints. The design artifacts' 560/820 numbers are
 **not** adopted: changing platform breakpoints would touch every app and the
 documented mobile-first contract (ADR-0035,
 `docs/dev/ui/foundations/layout/profiles.md:51`), and a per-app `device.width`
@@ -457,7 +457,7 @@ None new. Slots are a compile/emit concern; they change no boot marker.
   the one-implicit-store-per-stateful-component rule.
 - **Slot forwarding in v1.** Requires a frame *stack* rather than a frame,
   turns "which caller's scope" into a chain rather than a pair, and roughly
-  doubles the emit test matrix. Nothing in `window-kit` or the design handoff
+  doubles the emit test matrix. Nothing in `window-kit` or the design artifacts
   needs it. The seam is `SlotFrame { parent: Option<&SlotFrame> }` — named
   here so v2 does not have to rediscover it.
 - **Required slots.** Rejected for v1: "zero nodes for an unbound slot" is

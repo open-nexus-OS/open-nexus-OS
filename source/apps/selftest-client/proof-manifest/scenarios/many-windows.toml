@@ -41,8 +41,8 @@ do = { click = "launcher_button" }
 # Each press is acknowledged by the launch alone; if none follows (the sheet closed), the sheet
 # opens and the button is pressed again. The launcher's sheet is shell glass above every window,
 # so its button stays pressable while the windows pile up under it.
-# The window then comes up on its own — the app's first frame, its window re-created at the
-# intended size — and its step ends on that second surface's first frame (`then`). A window that
+# The window then comes up on its own and its step ends on its first frame (app-host's launch
+# line: the one surface is laid out for its store when it is created, TASK-0354 P2). A window that
 # never comes up fails its own step by name: it is never pressed for again.
 
 [[step]]
@@ -57,8 +57,7 @@ retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
 [[step]]
 name = "window 1 drawn"
 do = { wait = true }
-expect = ["apphost: ux launch ", "apphost: resized"]
-then = ["WINDOWD: surface presented id="]
+expect = ["apphost: ux launch "]
 timeout_s = 120
 
 [[step]]
@@ -73,8 +72,7 @@ retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
 [[step]]
 name = "window 2 drawn"
 do = { wait = true }
-expect = ["apphost: ux launch ", "apphost: resized"]
-then = ["WINDOWD: surface presented id="]
+expect = ["apphost: ux launch "]
 timeout_s = 120
 
 [[step]]
@@ -89,8 +87,7 @@ retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
 [[step]]
 name = "window 3 drawn"
 do = { wait = true }
-expect = ["apphost: ux launch ", "apphost: resized"]
-then = ["WINDOWD: surface presented id="]
+expect = ["apphost: ux launch "]
 timeout_s = 120
 
 [[step]]
@@ -105,8 +102,7 @@ retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
 [[step]]
 name = "window 4 drawn"
 do = { wait = true }
-expect = ["apphost: ux launch ", "apphost: resized"]
-then = ["WINDOWD: surface presented id="]
+expect = ["apphost: ux launch "]
 timeout_s = 120
 
 [[step]]
@@ -121,8 +117,7 @@ retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
 [[step]]
 name = "window 5 drawn"
 do = { wait = true }
-expect = ["apphost: ux launch ", "apphost: resized"]
-then = ["WINDOWD: surface presented id="]
+expect = ["apphost: ux launch "]
 timeout_s = 120
 
 [[step]]
@@ -137,8 +132,7 @@ retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
 [[step]]
 name = "window 6 drawn"
 do = { wait = true }
-expect = ["apphost: ux launch ", "apphost: resized"]
-then = ["WINDOWD: surface presented id="]
+expect = ["apphost: ux launch "]
 timeout_s = 120
 
 [[step]]
@@ -153,8 +147,7 @@ retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
 [[step]]
 name = "window 7 drawn"
 do = { wait = true }
-expect = ["apphost: ux launch ", "apphost: resized"]
-then = ["WINDOWD: surface presented id="]
+expect = ["apphost: ux launch "]
 timeout_s = 120
 
 [[step]]
@@ -169,8 +162,7 @@ retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
 [[step]]
 name = "window 8 drawn"
 do = { wait = true }
-expect = ["apphost: ux launch ", "apphost: resized"]
-then = ["WINDOWD: surface presented id="]
+expect = ["apphost: ux launch "]
 timeout_s = 120
 
 [[step]]
@@ -185,8 +177,7 @@ retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
 [[step]]
 name = "window 9 drawn"
 do = { wait = true }
-expect = ["apphost: ux launch ", "apphost: resized"]
-then = ["WINDOWD: surface presented id="]
+expect = ["apphost: ux launch "]
 timeout_s = 120
 
 [[step]]
@@ -201,8 +192,7 @@ retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
 [[step]]
 name = "window 10 drawn"
 do = { wait = true }
-expect = ["apphost: ux launch ", "apphost: resized"]
-then = ["WINDOWD: surface presented id="]
+expect = ["apphost: ux launch "]
 timeout_s = 120
 
 [[step]]
@@ -217,8 +207,7 @@ retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
 [[step]]
 name = "window 11 drawn"
 do = { wait = true }
-expect = ["apphost: ux launch ", "apphost: resized"]
-then = ["WINDOWD: surface presented id="]
+expect = ["apphost: ux launch "]
 timeout_s = 120
 
 [[step]]
@@ -233,8 +222,7 @@ retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
 [[step]]
 name = "window 12 drawn"
 do = { wait = true }
-expect = ["apphost: ux launch ", "apphost: resized"]
-then = ["WINDOWD: surface presented id="]
+expect = ["apphost: ux launch "]
 timeout_s = 120
 
 # The twelfth window's first frame left with the eleven before it: one frame, twelve windows, each

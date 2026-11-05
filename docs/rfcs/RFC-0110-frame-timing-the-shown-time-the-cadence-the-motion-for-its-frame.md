@@ -123,7 +123,11 @@ The frame pulse (`OP_SURFACE_FRAME`, the Choreographer contract) names that pred
 ```
 
 `nexus_display_proto::frame_time::{encode,decode}_surface_frame_at`; the plain pulse stays the
-answer before gpud named a timing. windowd's own transitions step to the same prediction.
+answer before gpud named a timing. windowd's own transitions step to the same prediction — and so
+do the surfaces' motion layers (RFC-0109, amendment 2026-11-04, TASK-0354 P2): a motion starts at
+the predicted shown time of the frame that first draws it, and every frame evaluates every moving
+layer for its own predicted time. No client steps a motion layer: the app that declared it is not
+woken until it changes something.
 
 **The client (app-host).** On a timed pulse the scroll layers' physics and the DSL animations
 advance to `target_ns` — never back in time; on a plain pulse, by the client's own clock.

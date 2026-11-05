@@ -8,7 +8,7 @@
 //! Build script: rasterizes each app bundle's REAL icon artwork
 //! (`userspace/apps/<id>/assets/icon.svg`, declared in the bundle manifest as
 //! `icon_svg = "assets/icon.svg"`) into straight-alpha RGBA sprites at every
-//! tile size the shell uses (design_handoff_launcher named sizes: xl 88
+//! tile size the shell uses (design artifacts: launcher named sizes: xl 88
 //! fullscreen launcher / md 56 workspace + windowed launcher / sm 48 dock /
 //! xs 40 taskbar, plus 64 as the generic probe/fallback size). Same house
 //! style as the windowd cursor/chrome bake: nexus-svg renders at 4×

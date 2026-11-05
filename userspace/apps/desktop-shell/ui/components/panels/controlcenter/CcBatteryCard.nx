@@ -1,10 +1,10 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Battery row (design_handoff_panels §3, row 5): a green glyph and label on the
+// Battery row (design artifacts: panels §3, row 5): a green glyph and label on the
 // left, an 80px meter and the percentage on the right.
 //
-// The charge is a READING, and nothing reads it yet — so it is the handoff's
+// The charge is a READING, and nothing reads it yet — so it is the design's
 // literal 78% in both the meter and the text rather than a store field that
 // would look like live data. The meter needs a fixed 80px groove, which it
 // gets from this wrapper: `Meter` itself never sizes, so the same component

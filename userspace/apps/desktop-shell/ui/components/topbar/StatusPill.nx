@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The combined status pill (design_handoff_panels §2): WLAN + Lautsprecher +
+// The combined status pill (design artifacts: panels §2): WLAN + Lautsprecher +
 // Batterie + percentage in ONE pill that opens the Control Center. This is the
 // touch modes' entire right zone — there are no separate WLAN/Ton/Batterie
 // panels there, so there is nothing for separate pills to open.

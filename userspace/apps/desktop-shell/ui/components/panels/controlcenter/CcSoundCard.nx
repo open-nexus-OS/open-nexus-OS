@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Volume card (design_handoff_panels §3, row 4). Structurally the brightness
+// Volume card (design artifacts: panels §3, row 4). Structurally the brightness
 // card with a different pair — and the Sound panel repeats it verbatim, which
 // is the point of it being a component: one volume control, one appearance in
 // three places.

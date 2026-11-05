@@ -123,7 +123,7 @@ fn greeter_login_flow_is_tappable_end_to_end() {
     };
 
     // `session.active` pre-selects the user, so the switcher row is empty
-    // (the handoff hides it below 2 users) and the flow is: tap submit →
+    // (the design hides it below 2 users) and the flow is: tap submit →
     // login. Every Tap handler must HIT when its box centre is tapped;
     // non-Tap handlers (the secret field's `on Change`) miss by design.
     // Walk in REVERSE so a Pick lands before Submit when more than one user
@@ -179,16 +179,16 @@ fn greeter_login_flow_is_tappable_end_to_end() {
     );
 }
 
-/// The greeter's LAYOUT contract (TASK-0305 / design_handoff_os_login).
+/// The greeter's LAYOUT contract (TASK-0305 / design artifacts: login).
 ///
-/// Geometry, not pixels: the handoff's numbers are what make the screen read
+/// Geometry, not pixels: the design's numbers are what make the screen read
 /// the way it does, and every one of them depends on a different part of the
 /// stack — the hero clock on the baked 120px face, the 44px pill on the field
 /// variant, the 180px input on `.grow()` reaching a kit widget. A silent
 /// regression in any of those shows up here as a number, not as a vague
 /// "looks off".
 #[test]
-fn greeter_layout_matches_the_handoff_geometry() {
+fn greeter_layout_matches_the_design_geometry() {
     struct Host {
         id_sym: u32,
         label_sym: u32,
@@ -275,7 +275,7 @@ fn greeter_layout_matches_the_handoff_geometry() {
         clock.rect.width.as_i32()
     );
 
-    // The password pill: 44px tall (handoff height AND minimum hit target),
+    // The password pill: 44px tall (design height AND minimum hit target),
     // with the input growing to fill what the submit button leaves.
     let pill = find(&|w, h| h == 44 && w > 200, "the 44px password pill");
     assert_eq!(

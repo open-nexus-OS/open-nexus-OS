@@ -91,7 +91,7 @@ pub struct Spacer {
 /// The container derives one font size from its own content-box HEIGHT and
 /// hands it down to its text descendants, exactly like an inherited CSS
 /// `font-size`. That is what makes a key label grow with its key instead of
-/// with a breakpoint: the whole point of the calculator handoff is that a
+/// with a breakpoint: the whole point of the calculator design is that a
 /// 23px label sits in a 75px key — a RATIO (~30%), not "as large as fits".
 ///
 /// Deliberately NOT a text-node modifier. On a `Text` the target would be

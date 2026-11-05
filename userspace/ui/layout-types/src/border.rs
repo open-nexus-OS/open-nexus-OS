@@ -151,7 +151,7 @@ impl ShadowLevel {
                 spread: FxPx::ZERO,
                 color: Rgba8 { r: 0, g: 0, b: 0, a: 31 },
             },
-            // Design-handoff elevation scale (reference/tokens/spacing.css):
+            // Design elevation scale (reference/tokens/spacing.css):
             // md 0 4 12 .15 · lg 0 8 24 .18 · xl 0 12 32 .22 · 2xl 0 25 50 .25.
             Self::Md => BoxShadow {
                 offset_x: FxPx::ZERO,
@@ -272,7 +272,7 @@ pub enum GlassLevel {
     WindowPane,
     /// The floating action-bar pill inside a window (`--glass-window-bar-bg`).
     WindowBar,
-    /// Strongest overlay material (modals/sheets — handoff `--glass-overlay`).
+    /// Strongest overlay material (modals/sheets — design `--glass-overlay`).
     Overlay,
 }
 

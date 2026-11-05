@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The design handoff's ALERT: a compact glass confirmation — title, one
+// The design artifacts' ALERT: a compact glass confirmation — title, one
 // sentence, two side-by-side buttons (cancel · confirm). An app-modal layer
 // (TASK-0074 / ADR-0068): while it is open the runtime confines hit-testing
 // and text focus to it and windowd refuses input on the app's other windows.
@@ -9,6 +9,10 @@
 // An alert is EXPLICIT: it never closes on a backdrop tap (the layer absorbs
 // its own taps with `WinNoop`); ESC and the cancel button cancel it. Both
 // paths dispatch the same `AlertCancel(id)` — the handler is the ONE way out.
+//
+// It enters as the design artifacts' dialogs do (`fadeScale`): rising 10px and
+// growing in from 0.94 on the spring, over its scrim fading in quicker — the
+// compositor moves it in front of every window (RFC-0109 §motion layers).
 //
 // STORE CONTRACT (the consuming app declares these — the kit dispatches):
 //   events  AlertConfirm(Str) · AlertCancel(Str) · WinNoop
@@ -64,7 +68,7 @@ Component WinAlert {
     }
     .overlay(modal)
     .bg(scrim)
-    .transition(fade)
+    .transition(fadeScale)
     on Tap -> dispatch(WinNoop)
     on Dismiss -> dispatch(AlertCancel($props.id))
 }

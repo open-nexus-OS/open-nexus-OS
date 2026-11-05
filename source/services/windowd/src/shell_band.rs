@@ -2,10 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //! CONTEXT: which pointer positions belong to the SHELL above every app window
-//! (TASK-0067). The scene composites three things of the desktop surface over
-//! the windows: the top-bar strip, the shell's PANEL-level glass (the Control
+//! (TASK-0067). The scene composites these of the desktop surface over the
+//! windows: the top-bar strip, the shell's PANEL-level glass (the Control
 //! Center, notifications, calendar and the search drop-downs — scene pass 2b)
-//! and, while the shell holds a modal, the whole surface is the input owner.
+//! and the layers it declares in front (its toast — pass 2c, RFC-0109 §motion
+//! layers); while the shell holds a modal, or a front layer's backdrop spans
+//! the screen, the whole surface is the input owner.
 //! Input must agree with that paint: before this rule a press on a Control
 //! Center panel lying over a window reached the WINDOW beneath, and a search
 //! panel over a window could be seen but not used. One pure rule, used by the

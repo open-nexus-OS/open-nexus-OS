@@ -28,9 +28,7 @@ use alloc::vec::Vec;
 use nexus_gfx::frame::occlude::{self, Px};
 
 use crate::compositor::shell_window::GlassCompositeParams;
-
-/// The identity transform on the wire: no offset, full opacity, scale 100 %.
-pub(super) const IDENTITY: (i32, i32, u32, u32) = (0, 0, 255, 100);
+use crate::frame_transform::FrameTransform;
 
 /// What a window's body takes from the screen and what it hides.
 pub(super) struct Footprint {
@@ -47,10 +45,10 @@ impl Footprint {
     /// it and hides nothing.
     pub(super) fn of(
         p: &GlassCompositeParams,
-        transform: (i32, i32, u32, u32),
+        transform: FrameTransform,
         display: (u32, u32),
     ) -> Option<Self> {
-        if transform != IDENTITY || p.content_w != 0 || p.w == 0 || p.h == 0 {
+        if !transform.is_identity() || p.content_w != 0 || p.w == 0 || p.h == 0 {
             return None;
         }
         let pad = if p.shadow_alpha > 0 && p.shadow_blur > 0 {
@@ -74,7 +72,7 @@ impl Footprint {
 /// whose extent the windows above it cover on the `display`. `occluders` is the scratch of
 /// opaque rectangles. Returns how many were left out.
 pub(super) fn cull<'a>(
-    front_to_back: impl Iterator<Item = (usize, &'a GlassCompositeParams, (i32, i32, u32, u32))>,
+    front_to_back: impl Iterator<Item = (usize, &'a GlassCompositeParams, FrameTransform)>,
     display: (u32, u32),
     slots: usize,
     culled: &mut Vec<bool>,

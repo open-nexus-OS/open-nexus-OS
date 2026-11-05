@@ -214,6 +214,8 @@ pub(crate) struct Desktop {
     gated: bool,
     /// The last pass's wait (µs), the wait's iterations and the interrupts it saw.
     pub(super) pass_witness: [u64; 3],
+    /// What the traced pass's lines are of (`gpu pass trace (of=…)`, TASK-0351 P12).
+    pub(super) trace_of: &'static str,
     /// The glasses blurred again named once (`gpud: gpu glass written (`): the first window
     /// whose frames wrote glass says which layers.
     glass_named: bool,
@@ -310,6 +312,7 @@ impl Desktop {
             shown: false,
             gated: false,
             pass_witness: [0; 3],
+            trace_of: "hover",
             glass_named: false,
             open_us: now_ns().saturating_sub(t0) / 1000,
         })
@@ -480,6 +483,7 @@ impl Desktop {
                 To::Cache => cache,
             };
             work.note(spec.target, board.work_by_program(&spec));
+            work.note_kinds(spec.target, || board.blended_by_kind(&spec));
             let wait = !pipelined || p + 1 == passes;
             if let Some(two_back) = points[p % 2] {
                 let q0 = now_ns();
@@ -497,7 +501,7 @@ impl Desktop {
                 &board,
                 &spec,
                 (to, buffers),
-                (trace && wait, wait),
+                ((trace && wait).then_some(self.trace_of), wait),
                 last,
             )?;
             last = Some(point);

@@ -5,7 +5,7 @@ role: guide
 subsystem: ui
 sources: [source/drivers/gpud/src/backend, source/drivers/gpud/src/service.rs, source/drivers/gpud/src/present_chain.rs, source/services/windowd/src/compositor, source/libs/nexus-display-proto/src]
 contracts: [RFC-0093, RFC-0098, RFC-0101, RFC-0110, RFC-0114, ADR-0038, ADR-0078, ADR-0092]
-verified: 2026-11-04
+verified: 2026-11-05
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -34,7 +34,7 @@ gpud's request loop (`service.rs`) drives one display behind the `Display` trait
 
 | step | op (`nexus_display_proto`) | effect | marker |
 |---|---|---|---|
-| 1 | `OP_FRAMEBUFFER_REQUEST` (14) | gpud resolves the mode and answers with it plus a clone of the framebuffer object it made for its scanout device | `gpud: framebuffer granted (WxH)`, `windowd: display mode from gpud (WxH)` |
+| 1 | `OP_FRAMEBUFFER_REQUEST` (14) | gpud resolves the mode and answers with it and a clone of its scanout framebuffer object | `gpud: framebuffer granted (WxH)`, `windowd: display mode from gpud (WxH)` |
 | 2 | `OP_GPU_CAPABILITIES` (16), `OP_GPU_CONTEXT_OPEN` (17) | windowd opens its GPU context with its pipeline library (built by `tools/nxgpu/`); QEMU's 2D device runs no GPU code and opens nothing | — |
 | 3 | `OP_SET_FRAMEBUFFER_VMO` (3) | attach; carries no capability (one that does is refused) | — |
 | 4 | `OP_REVEAL` (13) | the splash holds until the first present after this; that present's ack is `STATUS_REVEALED` | `display: first scanout ok` |
@@ -56,7 +56,7 @@ On the board the ring is one contiguous object made for the controller (it canno
 
 ## A present
 
-1. windowd sends `OP_PRESENT_DAMAGE`: `[op, seq u32]` + a serialized `nexus_gfx::CommittedBuffer` — `CompositeLayer` per layer back to front, `LayerTransform` per moving window, `Damage`. At most two presents are in flight (`compositor/runtime/gpud.rs`). The ack window (`present_acks.rs`) credits outstanding seqs only. Before the encode, a window wholly under the opaque bodies above it is left out (`compositor/runtime/occlusion.rs`, RFC-0101 §8; `windowd: windows occluded (n=`) — on the GPU path only, where a glass back is drawn opaque.
+1. windowd sends `OP_PRESENT_DAMAGE`: `[op, seq u32]` + a serialized `nexus_gfx::CommittedBuffer` — `CompositeLayer` per layer back to front, `LayerTransform` per moving window or layer, `Damage`. At most two presents are in flight (`compositor/runtime/gpud.rs`). The ack window (`present_acks.rs`) credits outstanding seqs only. Before the encode, a window wholly under the opaque bodies above it is left out (`compositor/runtime/occlusion.rs`, RFC-0101 §8; `windowd: windows occluded (n=`) — on the GPU path only, where a glass back is drawn opaque.
 2. gpud validates the commands (`nexus_gfx::command::validation`), executes them into the display and scans out (`present_chain.rs`). Hops: `G1 recv` → `G2 parse` → `G3 exec` → `G4 scanout`; the virgl path adds `G3b`/`G3c` ([gpud-ring.md](gpud-ring.md)).
 3. The ack echoes the seq and status and carries `frame_time::Shown`: when the frame reached the glass, the refresh period, the cadence. windowd's `frame_clock.rs` predicts the next shown time from it; clients waiting on `OP_SURFACE_FRAME_REQ` get that time.
 4. A present the virtio device lost (`present_lost`) is NACKed; windowd re-sends the damage.

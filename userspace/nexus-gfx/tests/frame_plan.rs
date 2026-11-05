@@ -37,7 +37,15 @@ fn a_new_set_brings_the_scrolled_row_with_the_transforms_it_names() {
             l.src_row_abs = row;
         })
     };
-    let fade = Command::LayerTransform { layer_id: 1, dx: 0, dy: 0, opacity: 128, scale_pct: 100 };
+    let fade = Command::LayerTransform {
+        layer_id: 1,
+        dx: 0,
+        dy: 0,
+        opacity: 128,
+        scale: 10_000,
+        origin_x: 0,
+        origin_y: 0,
+    };
     set.take_frame(&[fade.clone(), body(5400)]);
     // A scroll is a present (TASK-0338): the body comes with its new row and its window's
     // transform — the animation's state, named by every present that brings layers.
@@ -51,19 +59,32 @@ fn a_new_set_brings_the_scrolled_row_with_the_transforms_it_names() {
     assert_eq!(set.effective(0).map(|l| l.opacity), Some(128));
 }
 
+/// TASK-0354 P3: a transform scales every layer of its group about ONE origin, then moves them —
+/// a window's body and the region inside it stay together while they grow (each scaled about
+/// its own centre, the region drifted off the body).
 #[test]
-fn the_transform_moves_fades_and_scales_about_the_centre() {
+fn the_transform_scales_a_group_about_its_origin_then_moves_and_fades_it() {
     let mut set = RetainedLayers::new();
-    set.take_frame(&[with(layer(100, 100, 400, 300), |l| l.layer_id = 2)]);
-    set.set_transform(2, Transform { dx: 10, dy: -20, opacity: 51, scale_pct: 50 });
-    let l = set.effective(0).expect("a layer");
-    // Moved by (10, -20), then half the size about the centre: 200x150 at (210, 155).
-    assert_eq!((l.dst_x, l.dst_y, l.width, l.height), (210, 155, 200, 150));
-    assert_eq!(l.opacity, 51);
+    set.take_frame(&[
+        with(layer(100, 100, 400, 300), |l| l.layer_id = 2),
+        with(layer(140, 120, 100, 50), |l| l.layer_id = 2),
+    ]);
+    let t = Transform { dx: 10, dy: -20, opacity: 51, scale: 5_000, origin: (300, 250) };
+    set.set_transform(2, t);
+    let body = set.effective(0).expect("the body");
+    // Half the size about (300, 250) — the body's centre — then moved by (10, -20).
+    assert_eq!((body.dst_x, body.dst_y, body.width, body.height), (210, 155, 200, 150));
+    assert_eq!(body.opacity, 51);
     // The content band keeps its size: the executor spreads it over the scaled layer.
-    assert_eq!((l.content_w, l.content_h), (400, 300));
+    assert_eq!((body.content_w, body.content_h), (400, 300));
+    // The region keeps its place in the body: 40, 20 in at full size, 20, 10 at half.
+    let region = set.effective(1).expect("the region");
+    assert_eq!((region.dst_x, region.dst_y, region.width, region.height), (230, 165, 50, 25));
+    // A fine step: 0.97 of 400 is 388 — no 1 % jumps.
+    set.set_transform(2, Transform { scale: 9_700, ..t });
+    assert_eq!(set.effective(0).map(|l| l.width), Some(388));
     // A move past the screen's edge stops at it.
-    set.set_transform(2, Transform { dx: -500, dy: 0, opacity: 255, scale_pct: 100 });
+    set.set_transform(2, Transform { dx: -500, ..Transform::IDENTITY });
     assert_eq!(set.effective(0).map(|l| l.dst_x), Some(0));
 }
 
@@ -72,7 +93,7 @@ fn the_transform_moves_fades_and_scales_about_the_centre() {
 #[test]
 fn test_reject_transforms_for_id_zero_or_past_the_windows_a_frame_draws() {
     let mut set = RetainedLayers::new();
-    let t = Transform { dx: 1, dy: 1, opacity: 255, scale_pct: 100 };
+    let t = Transform { dx: 1, dy: 1, ..Transform::IDENTITY };
     assert!(!set.set_transform(0, t));
     assert!(set.set_transform(9, t), "a key past the old eight slots");
     assert!(set.set_transform(0xFFFF, t), "the desktop's key");
@@ -89,7 +110,7 @@ fn test_reject_transforms_for_id_zero_or_past_the_windows_a_frame_draws() {
 fn a_present_with_layers_replaces_the_transforms() {
     let mut set = RetainedLayers::new();
     set.take_frame(&[with(layer(100, 100, 400, 300), |l| l.layer_id = 7)]);
-    set.set_transform(7, Transform { dx: 0, dy: 0, opacity: 0, scale_pct: 100 });
+    set.set_transform(7, Transform { opacity: 0, ..Transform::IDENTITY });
     assert!(set.in_motion(7));
     set.take_frame(&[with(layer(100, 100, 400, 300), |l| l.layer_id = 7)]);
     assert!(!set.in_motion(7), "named no transform: at rest");
@@ -177,7 +198,7 @@ fn a_glass_reads_its_cache_until_something_below_it_changes() {
     f.plan(DISPLAY, &every_blur);
     f.plan(DISPLAY, &every_blur);
     assert_eq!(cache_of(&f, 2), Some(CacheStep::Read(0)));
-    f.layers.set_transform(1, Transform { dx: 5, dy: 0, opacity: 255, scale_pct: 100 });
+    f.layers.set_transform(1, Transform { dx: 5, ..Transform::IDENTITY });
     f.plan(DISPLAY, &every_blur);
     assert_eq!(cache_of(&f, 2), Some(CacheStep::Write(0)));
 }
