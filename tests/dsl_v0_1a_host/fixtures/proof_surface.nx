@@ -49,7 +49,7 @@ reduce ProofEvent {
 
 Page ProofSurfacePage {
     Stack {
-        Text(@t("proof.title")).textSize(lg)
+        Text(@t("proof.title")).textStyle(title3)
         TextField {
             label: @t("proof.filter"),
             value: $state.filter,
@@ -63,8 +63,8 @@ Page ProofSurfacePage {
                     Text(item.title)
                 }
                 .key(item.id)
-                .padding(3)
-                .rounded(md)
+                .padding(12)
+                .rounded(sm)
             }
         } else {
             Text(@t("proof.failed"))
@@ -74,8 +74,8 @@ Page ProofSurfacePage {
             .fg(onAccent)
         on Tap -> dispatch(Refresh)
     }
-    .padding(4)
-    .gap(3)
+    .padding(16)
+    .gap(12)
 }
 
 Routes {

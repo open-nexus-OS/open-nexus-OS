@@ -11,17 +11,17 @@ Component SearchResults {
     Panel {
         if $state.searchMode == "clipboard" {
             Stack {
-                Text(@t("search.clipboard")).textSize(sm).fontWeight(semibold).fg(onGlass)
+                Text(@t("search.clipboard")).textStyle(footnote).fontWeight(semibold).fg(label)
                 Spacer
                 if $state.clipCopied {
                     Stack {
                         Icon { symbol: "checkmark", size: 12 }
                             .fg(accent)
-                        Text(@t("search.copied")).textSize(xs).fg(onGlassMuted)
+                        Text(@t("search.copied")).textStyle(caption).fg(labelSecondary)
                     }
                     .direction(row)
                     .align(center)
-                    .gap(1)
+                    .gap(4)
                 } else {
                     Stack { }
                 }
@@ -29,38 +29,38 @@ Component SearchResults {
             .direction(row)
             .align(center)
             if $state.clipsDenied {
-                Text(@t("search.clipDenied")).textSize(sm).fg(onGlassMuted)
+                Text(@t("search.clipDenied")).textStyle(footnote).fg(labelSecondary)
             } else {
                 if len($state.clips) == 0 {
                     if $state.searchQuery != "" {
-                        Text(@t("search.clipNoMatch")).textSize(sm).fg(onGlassMuted)
+                        Text(@t("search.clipNoMatch")).textStyle(footnote).fg(labelSecondary)
                     } else {
-                        Text(@t("search.clipEmpty")).textSize(sm).fg(onGlassMuted)
+                        Text(@t("search.clipEmpty")).textStyle(footnote).fg(labelSecondary)
                     }
                 } else {
                     List($state.clips) { clip in
                         Stack {
-                            Text(clip.text).textSize(sm).fg(onSurface)
+                            Text(clip.text).textStyle(footnote).fg(label)
                         }
                         .key(clip.seq)
                         .grow(1)
                         .height(72)
-                        .padding(2)
+                        .padding(8)
                         .overflow(hidden)
                         .material(card)
-                        .rounded(lg)
+                        .rounded(md)
                         .label(@t("search.copyBack"))
                         on Tap -> dispatch(ClipRestore(clip.seq))
                     }
                     .columns(3)
-                    .rowGap(2)
-                    .gap(2)
+                    .rowGap(8)
+                    .gap(8)
                 }
             }
         } else {
-            Text(@t("search.apps")).textSize(sm).fontWeight(semibold).fg(onGlass)
+            Text(@t("search.apps")).textStyle(footnote).fontWeight(semibold).fg(label)
             if len($state.searchApps) == 0 {
-                Text(@t("search.noApps")).textSize(sm).fg(onGlassMuted)
+                Text(@t("search.noApps")).textStyle(footnote).fg(labelSecondary)
             } else {
                 List($state.searchApps) { app in
                     Stack {
@@ -71,13 +71,13 @@ Component SearchResults {
                     on Tap -> dispatch(SearchLaunch(app.id))
                 }
                 .columns(6)
-                .rowGap(3)
-                .gap(2)
+                .rowGap(12)
+                .gap(8)
             }
         }
     }
     .material(panel)
-    .rounded(xl)
-    .gap(2)
-    .padding(3)
+    .rounded(lg)
+    .gap(8)
+    .padding(12)
 }

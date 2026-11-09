@@ -23,19 +23,19 @@ reduce CounterEvent {
 
 Page CounterPage {
     Stack {
-        Text($state.value).textSize(xl)
+        Text($state.value).textStyle(title2).fontWeight(normal)
         Stack {
             Button { label: "-" }
-                .bg(surfaceVariant)
-                .fg(onSurface)
+                .bg(fill)
+                .fg(label)
             on Tap -> dispatch(Dec)
             Button { label: "+" }
                 .disabled($state.busy)
             on Tap -> dispatch(Inc)
         }
         .direction(row)
-        .gap(2)
+        .gap(8)
     }
-    .padding(4)
-    .gap(3)
+    .padding(16)
+    .gap(12)
 }

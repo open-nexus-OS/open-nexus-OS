@@ -1,0 +1,26 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// A function key with an icon (design artifacts: KeyboardKey `fn` — the globe, Shift):
+// `fill`, the icon in `label` (`labelTertiary` while disabled), radius md, `shadow1`. The
+// caller's wrapper owns the row share
+// (`.direction(row).basis(0).grow(n)`), the tap and the label; the key's own `.grow(1)` makes
+// it follow the wrapper's width (the cross axis gives it the height).
+
+Component OskFnIcon {
+    props: {
+        symbol: Str,
+        size: Int,
+        fg: Str,
+    }
+    Stack {
+        Icon { symbol: $props.symbol, size: $props.size }
+            .fg($props.fg)
+    }
+    .align(center)
+    .justify(center)
+    .grow(1)
+    .bg(fill)
+    .rounded(md)
+    .shadow(shadow1)
+}

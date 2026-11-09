@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // One card of the overview grid (design LAYOUT.md §"Content — overview
-// grid"): a 30×30 icon chip plus title and description on a `subtle` card.
+// grid"): a 30×30 icon chip plus title and description on a `card`.
 //
 // The card carries NO width of its own: the tap wrapper in `OverviewGrid` is
 // the flex item, and modifiers on a component reference are rejected
@@ -18,26 +18,26 @@ Component OverviewCard {
     Stack {
         Stack {
             Icon { symbol: $props.icon, size: 17 }
-                .fg(onGlassMuted)
+                .fg(label)
         }
-        .width(30)
-        .height(30)
-        .rounded(lg)
+        .width(32)
+        .height(32)
+        .rounded(sm)
         .align(center)
         .justify(center)
-        .material(card)
+        .bg(fill)
         Stack {
-            Text($props.title).textSize(sm).fontWeight(semibold).fg(onGlass)
-            Text($props.desc).textSize(xs).leading(snug).fg(onGlassMuted)
+            Text($props.title).textStyle(subheadline).fontWeight(semibold).fg(label)
+            Text($props.desc).textStyle(footnote).fg(labelSecondary)
         }
-        .gap(0)
+        .gap(2)
         .grow(1)
     }
     .direction(row)
-    .align(center)
-    .gap(3)
-    .padding(3)
+    .align(start)
+    .gap(12)
+    .padding(12)
     .grow(1)
-    .rounded(xl)
-    .material(subtle)
+    .rounded(lg)
+    .material(card)
 }

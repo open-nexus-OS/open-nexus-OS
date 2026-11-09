@@ -1,14 +1,22 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The design artifacts' ALERT: a compact glass confirmation — title, one
-// sentence, two side-by-side buttons (cancel · confirm). An app-modal layer
-// (TASK-0074 / ADR-0068): while it is open the runtime confines hit-testing
-// and text focus to it and windowd refuses input on the app's other windows.
+// The design artifacts' ALERT: a compact confirmation card on the opaque
+// overlay surface (surfaceOverlay, a 1 px glassEdge, shadow4, radius 24), 300
+// wide, over a `scrim` with 24 px around it. Text block, centred, padding 20 16
+// 16: the title (title3 17/22, `label`) and one sentence 4 below it
+// (subheadline 13/18, `label`). Then two text buttons side by side, edge to
+// edge (padding 12 16 → 46 px), title3, `accent`: cancel at weight 400, the
+// confirm at 600 — or `danger` at 400 when `destructive`; a hairline above
+// them and one between them. An app-modal layer (TASK-0074 / ADR-0068): while
+// it is open the runtime confines hit-testing and text focus to it and windowd
+// refuses input on the app's other windows.
 //
-// An alert is EXPLICIT: it never closes on a backdrop tap (the layer absorbs
-// its own taps with `WinNoop`); ESC and the cancel button cancel it. Both
-// paths dispatch the same `AlertCancel(id)` — the handler is the ONE way out.
+// Like the design's alert it CLOSES ON A BACKDROP TAP: a tap on the layer that
+// no handler takes fires `on Dismiss`, which cancels; the card eats its own
+// taps (`WinNoop`) so a press on its text never does. ESC, the backdrop and the
+// cancel button all dispatch `AlertCancel(id)` — the handler is the ONE way
+// out besides the confirm.
 //
 // It enters as the design artifacts' dialogs do (`fadeScale`): rising 10px and
 // growing in from 0.94 on the spring, over its scrim fading in quicker — the
@@ -16,7 +24,6 @@
 //
 // STORE CONTRACT (the consuming app declares these — the kit dispatches):
 //   events  AlertConfirm(Str) · AlertCancel(Str) · WinNoop
-// `destructive: true` paints the confirm button in the danger style.
 
 Component WinAlert {
     props: {
@@ -29,46 +36,72 @@ Component WinAlert {
     }
     Stack {
         Stack {
-            Spacer
+            Stack { }
+                .grow(1)
+                .shrink(0)
             Stack {
-                Panel {
-                    Text($props.title).textSize(md).fontWeight(semibold).fg(onGlass)
-                    Text($props.message).textSize(sm).fg(onGlassMuted)
-                    Stack {
-                        Button { label: $props.cancelLabel }
-                            .bg(surfaceVariant)
-                            .grow(1)
-                            on Tap -> dispatch(AlertCancel($props.id))
-                        if $props.destructive {
-                            Button { label: $props.confirmLabel }
-                                .bg(danger)
-                                .grow(1)
-                                on Tap -> dispatch(AlertConfirm($props.id))
-                        } else {
-                            Button { label: $props.confirmLabel }
-                                .grow(1)
-                                on Tap -> dispatch(AlertConfirm($props.id))
-                        }
-                    }
-                    .direction(row)
-                    .gap(2)
-                    .paddingTop(1)
+                Stack {
+                    Text($props.title).textStyle(title3).fg(label).textAlign(center)
+                    Text($props.message).textStyle(subheadline).fg(label).textAlign(center)
                 }
-                .material(overlay)
-                .rounded(xl)
-                .gap(2)
-                .padding(4)
+                .gap(4)
+                .paddingTop(20)
+                .paddingX(16)
+                .paddingBottom(16)
+                Stack { }
+                    .height(1)
+                    .bg(separator)
+                Stack {
+                    Stack {
+                        Text($props.cancelLabel).textStyle(title3).fontWeight(normal).fg(accent).textAlign(center)
+                    }
+                    .basis(0)
+                    .grow(1)
+                    .paddingY(12)
+                    .paddingX(16)
+                    on Tap -> dispatch(AlertCancel($props.id))
+                    Stack { }
+                        .width(1)
+                        .bg(separator)
+                    if $props.destructive {
+                        Stack {
+                            Text($props.confirmLabel).textStyle(title3).fontWeight(normal).fg(danger).textAlign(center)
+                        }
+                        .basis(0)
+                        .grow(1)
+                        .paddingY(12)
+                        .paddingX(16)
+                        on Tap -> dispatch(AlertConfirm($props.id))
+                    } else {
+                        Stack {
+                            Text($props.confirmLabel).textStyle(title3).fg(accent).textAlign(center)
+                        }
+                        .basis(0)
+                        .grow(1)
+                        .paddingY(12)
+                        .paddingX(16)
+                        on Tap -> dispatch(AlertConfirm($props.id))
+                    }
+                }
+                .direction(row)
             }
-            .width(320)
-            Spacer
+            .basis(300)
+            .shrink(1)
+            .material(overlay)
+            .shadow(shadow4)
+            .rounded(xl)
+            .overflow(hidden)
+            on Tap -> dispatch(WinNoop)
+            Stack { }
+                .grow(1)
+                .shrink(0)
         }
         .direction(row)
-        .align(center)
-        .grow(1)
     }
+    .justify(center)
+    .padding(24)
     .overlay(modal)
     .bg(scrim)
     .transition(fadeScale)
-    on Tap -> dispatch(WinNoop)
     on Dismiss -> dispatch(AlertCancel($props.id))
 }

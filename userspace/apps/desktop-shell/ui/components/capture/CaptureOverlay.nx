@@ -27,9 +27,9 @@ Component CaptureOverlay {
                             .width(win.x)
                         Stack { }
                             .width(win.w)
-                            .border(thin)
-                            .borderColor(onGlassMuted)
-                            .rounded(lg)
+                            .border(hairline)
+                            .borderColor(labelSecondary)
+                            .rounded(md)
                             .label(@t("capture.pickWindow"))
                             on Tap -> dispatch(CapPickWindow(win.id, win.x, win.y, win.w, win.h))
                     }

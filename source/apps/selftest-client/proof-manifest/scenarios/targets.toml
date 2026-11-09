@@ -13,14 +13,14 @@
 [targets]
 # TASK-0074 / ADR-0068: the shell's shutdown alert (shell_power_alert.rs).
 cc_pill = [1253, 18]
-power_button = [1169, 71]
-confirm_button = [714, 428]
+power_button = [1169, 67]
+confirm_button = [715, 440]
 modal_background = [400, 400]
 # TASK-0066: the launcher sheet and its settings tile (shell_tiling_lane.rs).
 launcher_button = [30, 772]
 launch_settings = [914, 662]
 # TASK-0067B: the top bar's search, its Clipboard category, the first card (shell_search_clipboard.rs).
-search_pill = [1220, 18]
+search_pill = [1222, 18]
 search_clipboard = [958, 142]
 clip_card = [419, 240]
 # TASK-0068: the screenshot tool's selection drag and its shutter (shell_capture.rs).

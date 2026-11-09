@@ -1,50 +1,84 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The VISUAL of one floating-action-bar button (design artifacts
-// `WindowActionBar`): icon over label, column layout, pill-shaped hit area.
-// `kind`: "" default · "primary" filled accent circle behind the icon ·
-// "danger" red.
+// The VISUAL of one action-bar item (design artifacts `WindowActionBar`, a
+// TabBar item): icon 16 over its label (caption2 10/13/600, +0.02em), gap 4,
+// padding 8 12, at least 60 wide, capsule — 49 px tall. At rest icon and label
+// are `labelSecondary` (the design's label at 62 %); the ACTIVE item — the one
+// the sliding indicator rests on — is `accent` on the `fill` capsule;
+// `kind: "danger"` is always `danger`. `primary`/`muted` render like the
+// default item (the indicator, not a filled circle, marks what is current).
 //
 // Deliberately handler-free. A bar's items dispatch APP events (`NewFolder`,
 // `CopySel`, …) as often as they dispatch the kit's `WinAct(id)`, and a
 // dispatch target is a static case name — there is no way to pass one as a
 // prop. So the kit owns the look and the app owns the tap: wrap this in a
 // `Stack { … } on Tap -> dispatch(YourEvent)`. `WinActionItem` is the thin
-// wrapper for the kit-standard `WinAct(id)` case.
+// wrapper for the kit-standard `WinAct(id)` case. The indicator does not slide
+// (the DSL binds no transform to state): it moves with the `active` prop.
 
 Component WinActionFace {
     props: {
         label: Str,
         icon: Str,
         kind: Str,
+        active: Bool,
     }
-    Stack {
-        if $props.kind == "primary" {
-            Circle { size: 26
-                Icon { symbol: $props.icon, size: 14 }
-                    .fg(onAccent)
-            }
-            .bg(accent)
-        } else {
-            if $props.kind == "danger" {
+    if $props.active {
+        if $props.kind == "danger" {
+            Stack {
                 Icon { symbol: $props.icon, size: 16 }
                     .fg(danger)
-            } else {
-                Icon { symbol: $props.icon, size: 16 }
-                    .fg(onGlass)
+                Text($props.label).textStyle(caption2).fontWeight(semibold).fg(danger)
             }
-        }
-        if $props.kind == "danger" {
-            Text($props.label).textSize(xs).fg(danger)
+            .align(center)
+            .justify(center)
+            .gap(4)
+            .paddingY(8)
+            .paddingX(12)
+            .minWidth(60)
+            .rounded(full)
+            .bg(fill)
         } else {
-            Text($props.label).textSize(xs).fg(onGlassMuted)
+            Stack {
+                Icon { symbol: $props.icon, size: 16 }
+                    .fg(accent)
+                Text($props.label).textStyle(caption2).fontWeight(semibold).fg(accent)
+            }
+            .align(center)
+            .justify(center)
+            .gap(4)
+            .paddingY(8)
+            .paddingX(12)
+            .minWidth(60)
+            .rounded(full)
+            .bg(fill)
         }
+    } else if $props.kind == "danger" {
+        Stack {
+            Icon { symbol: $props.icon, size: 16 }
+                .fg(danger)
+            Text($props.label).textStyle(caption2).fontWeight(semibold).fg(danger)
+        }
+        .align(center)
+        .justify(center)
+        .gap(4)
+        .paddingY(8)
+        .paddingX(12)
+        .minWidth(60)
+        .rounded(full)
+    } else {
+        Stack {
+            Icon { symbol: $props.icon, size: 16 }
+                .fg(labelSecondary)
+            Text($props.label).textStyle(caption2).fontWeight(semibold).fg(labelSecondary)
+        }
+        .align(center)
+        .justify(center)
+        .gap(4)
+        .paddingY(8)
+        .paddingX(12)
+        .minWidth(60)
+        .rounded(full)
     }
-    .align(center)
-    .justify(center)
-    .gap(1)
-    .width(66)
-    .height(52)
-    .rounded(full)
 }

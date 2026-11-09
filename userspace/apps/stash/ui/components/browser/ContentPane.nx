@@ -1,0 +1,38 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The content region: ONE `WinPane` (the opaque `pane` surface, radius 16,
+// a 44 px header strip with a hairline). File mode puts the breadcrumb in the
+// header, the count and sort buttons beside it and the listing in the body;
+// settings mode replaces all three wholesale (the properties pane and the
+// action bar are gone too — the pane via `showProps`, the bar because it
+// draws nothing in settings mode).
+
+Component ContentPane {
+    if $state.settingsOpen == 1 {
+        WinPane { title: "", showHeader: true, showFooter: false, bare: false, flush: false, scrolls: true, noDividers: false } {
+            header {
+                SettingsTitle { }
+            }
+            actions {
+                SettingsBack { }
+            }
+            body {
+                SettingsView { }
+            }
+        }
+    } else {
+        WinPane { title: "", showHeader: true, showFooter: false, bare: false, flush: true, scrolls: false, noDividers: false } {
+            header {
+                Crumbs { }
+            }
+            actions {
+                ListingCount { }
+                SortButtons { }
+            }
+            body {
+                BrowserBody { }
+            }
+        }
+    }
+}

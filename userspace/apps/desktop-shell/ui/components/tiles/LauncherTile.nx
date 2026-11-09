@@ -32,7 +32,7 @@ Component LauncherTile {
         } else {
             Stack {
                 Icon { symbol: $props.icon, size: 44 }
-                    .fg(onSurface)
+                    .fg(label)
             }
             .width(88)
             .height(88)
@@ -41,8 +41,8 @@ Component LauncherTile {
             .align(center)
             .justify(center)
         } }
-        Text($props.label).textSize(base).fg(onSurface)
+        Text($props.label).textStyle(body).fg(label)
     }
     .align(center)
-    .gap(3)
+    .gap(12)
 }

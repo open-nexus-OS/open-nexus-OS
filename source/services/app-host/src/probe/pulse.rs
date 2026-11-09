@@ -1,11 +1,12 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: The compositor's frame pulse in the app (RFC-0110): the scroll layers' physics and
-//! the DSL animations advance to the time the next frame is shown, the damage they owe is merged,
-//! the next pulse is asked for while motion is live — and the motion chain's hop is kept
-//! (RFC-0108 §hops, TASK-0354 P1: `nexus_ux_budgets::chains::MotionHops`; its line when an
-//! episode falls silent). Split out of the event loop (`probe/mod.rs`, structure ratchet).
+//! CONTEXT: The compositor's frame pulse in the app (RFC-0110): the scroll layers' physics, the
+//! DSL animations and the interaction layers' fades advance to the time the next frame is shown,
+//! the damage they owe is merged, the next pulse is asked for while motion is live — and the
+//! motion chain's hop is kept (RFC-0108 §hops, TASK-0354 P1: `nexus_ux_budgets::chains::
+//! MotionHops`; its line when an episode falls silent). Split out of the event loop
+//! (`probe/mod.rs`, structure ratchet).
 //! OWNERS: @ui @runtime
 //! STATUS: Functional
 //! API_STABILITY: Internal
@@ -26,8 +27,12 @@ impl DslApp {
     ) {
         // A pulse that finds motion live is a wake-up and starts the motion hop; the present
         // that answers it ends the hop (`band.rs`).
-        let live = self.momentum_active() || self.anim_active();
+        let live = self.momentum_active() || self.anim_active() || self.layers_live();
         self.motion_hops.pulse(nsec_now(), live);
+        // The hover and press layers fade by opacity: motion frames, never a raster.
+        if self.layers_tick(at.unwrap_or_else(nsec_now)) {
+            self.motion_dirty = true;
+        }
         // The scroll layers' physics: offsets committed as motion, never a raster; an
         // `EndReached` that loaded more is a model change.
         if self.momentum_tick(at) {
@@ -39,7 +44,7 @@ impl DslApp {
         if let Some(span) = self.anim_tick(at) {
             crate::layout_diff::merge_span(dirty, dirty_rows, span);
         }
-        let still = self.momentum_active() || self.anim_active();
+        let still = self.momentum_active() || self.anim_active() || self.layers_live();
         if still || self.bands_pending() {
             let req = wire::encode_surface_frame_req(surface_id);
             let _ = client.send(&req, Wait::Blocking);

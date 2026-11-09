@@ -94,12 +94,11 @@ fn animdemo_emits_both_modifier_intents() {
     );
 }
 
-/// The calculator's own motion: the numeral's attention `.effect`, and nothing
-/// else. It is still the platform's animation demo, but only for the motion it
-/// has an honest driver for — see `calculator_pixels.rs` for the invariant that
-/// none of it may rest the display invisible.
+/// The calculator's display carries no motion (the design artifacts: none — TASK-0353 P3 Q2);
+/// the platform's animation demo is `animdemo`. See `calculator_pixels.rs` for the invariant that
+/// nothing may rest the display invisible.
 #[test]
-fn calculator_emits_its_attention_effect() {
+fn calculator_display_has_no_motion() {
     use nexus_dsl_runtime::AnimKind;
     let nxir = nexus_dsl_core::compile_project_dir(&app_root("calculator"))
         .unwrap_or_else(|e| panic!("calculator compiles: {e}"));
@@ -112,8 +111,8 @@ fn calculator_emits_its_attention_effect() {
         .unwrap_or_else(|e| panic!("calculator mounts: {e:?}"));
     let anims = view.animations();
     assert!(
-        anims.iter().any(|(_, i)| i.kind == AnimKind::Effect),
-        "calculator: expected the display's `.effect(wiggle)` intent, got {anims:?}"
+        !anims.iter().any(|(_, i)| matches!(i.kind, AnimKind::Effect | AnimKind::Animate)),
+        "calculator: the display must carry no `.effect`/`.animate`, got {anims:?}"
     );
 }
 

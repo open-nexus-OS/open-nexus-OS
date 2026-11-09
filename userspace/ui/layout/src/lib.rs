@@ -24,6 +24,7 @@ mod engine_tests;
 pub mod error;
 mod geometry;
 mod grid;
+mod measure_cache;
 #[cfg(test)]
 mod scroll_root_tests;
 mod textfit;

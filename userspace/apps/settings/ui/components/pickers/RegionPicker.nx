@@ -1,0 +1,32 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The `region` picker's option list on a `PickerSheet`; the page layer mounts it while
+// `$state.picker == "region"`.
+
+Component RegionPicker {
+    PickerSheet { title: @t("gen.region") } {
+        options {
+            Stack {
+                PickerOption { label: @t("region.de"), selected: $state.country == "DE" }
+            }
+            on Tap -> dispatch(SetCountry("DE"))
+            Stack {
+                PickerOption { label: @t("region.us"), selected: $state.country == "US" }
+            }
+            on Tap -> dispatch(SetCountry("US"))
+            Stack {
+                PickerOption { label: @t("region.kr"), selected: $state.country == "KR" }
+            }
+            on Tap -> dispatch(SetCountry("KR"))
+            Stack {
+                PickerOption { label: @t("region.jp"), selected: $state.country == "JP" }
+            }
+            on Tap -> dispatch(SetCountry("JP"))
+            Stack {
+                PickerOption { label: @t("region.cn"), selected: $state.country == "CN" }
+            }
+            on Tap -> dispatch(SetCountry("CN"))
+        }
+    }
+}

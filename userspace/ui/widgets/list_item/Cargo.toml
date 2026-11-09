@@ -12,4 +12,10 @@ path = "src/lib.rs"
 nexus-layout-types = { path = "../../layout-types" }
 nexus-style = { path = "../../style" }
 nexus-theme-tokens = { path = "../../theme-tokens" }
+nexus-widget-icon = { path = "../icon" }
 nexus-widget-text = { path = "../text" }
+
+[dev-dependencies]
+# Geometry tests on the real engine and the baked text measure (the line boxes app-host uses).
+nexus-layout = { path = "../../layout" }
+nexus-text-baked = { path = "../../text-baked", features = ["layout"] }

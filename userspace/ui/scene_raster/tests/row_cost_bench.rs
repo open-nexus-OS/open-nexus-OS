@@ -8,8 +8,8 @@
 
 use nexus_layout::LayoutBox;
 use nexus_layout_types::{
-    BoxShadow, CornerRadius, FxPx, GlassLevel, PathPoint, PathShape, Rect, Rgba8, ShapeKind,
-    SurfaceMaterial, VisualStyle,
+    BoxShadow, CornerRadius, FxPx, Material, PathPoint, PathShape, Rect, Rgba8, ShapeKind,
+    VisualStyle,
 };
 use nexus_scene_raster::{paint_row, paint_row_picked_indexed, NodeAnim, RowCanvas};
 use std::time::Instant;
@@ -32,7 +32,7 @@ fn glass_panel(shadow: bool) -> LayoutBox {
         VisualStyle {
             background: Some(Rgba8::new(30, 30, 40, 160)),
             corner_radius: CornerRadius::uniform(FxPx::new(24)),
-            material: SurfaceMaterial::Glass(GlassLevel::Panel),
+            material: Some(Material::Panel),
             shadow: shadow.then_some(BoxShadow {
                 offset_x: FxPx::new(0),
                 offset_y: FxPx::new(12),
@@ -90,7 +90,7 @@ fn card(node_id: usize, y: i32) -> LayoutBox {
         VisualStyle {
             background: Some(Rgba8::new(255, 255, 255, 24)),
             corner_radius: CornerRadius::uniform(FxPx::new(12)),
-            material: SurfaceMaterial::Glass(GlassLevel::Subtle),
+            material: Some(Material::Card),
             ..VisualStyle::default()
         },
     )

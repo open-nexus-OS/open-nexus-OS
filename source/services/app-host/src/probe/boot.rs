@@ -233,9 +233,14 @@ pub(super) fn recv_event(events: &KernelClient, frame: &mut [u8]) -> Result<usiz
 
 /// Reads the app's window intent from the payload as the `WIN_*` wire tags
 /// (style, level, mode). Absent `Window {}` ⇒ the ordinary defaults.
-pub(super) fn read_window_intent_tags(nxir: &[u8]) -> (u8, u8, u8) {
+pub(super) fn read_window_intent_tags(nxir: &[u8]) -> (u8, u8, u8, wire::WindowSize) {
     use nexus_dsl_ir::ui_ir_capnp::{WindowLevel, WindowMode, WindowStyle};
-    let default = (wire::WIN_STYLE_TITLEBAR, wire::WIN_LEVEL_NORMAL, wire::WIN_MODE_AUTO);
+    let default = (
+        wire::WIN_STYLE_TITLEBAR,
+        wire::WIN_LEVEL_NORMAL,
+        wire::WIN_MODE_AUTO,
+        wire::WindowSize::default(),
+    );
     let Ok(reader) = nexus_dsl_ir::read::ProgramReader::from_canonical_bytes(nxir) else {
         return default;
     };
@@ -256,15 +261,22 @@ pub(super) fn read_window_intent_tags(nxir: &[u8]) -> (u8, u8, u8) {
         Ok(WindowMode::Fullscreen) => wire::WIN_MODE_FULLSCREEN,
         _ => wire::WIN_MODE_AUTO,
     };
-    (style, level, mode)
+    // RFC-0117: the app's default and minimum size (0 = absent; windowd bounds them).
+    let size = wire::WindowSize {
+        width: win.get_width(),
+        height: win.get_height(),
+        min_width: win.get_min_width(),
+        min_height: win.get_min_height(),
+    };
+    (style, level, mode, size)
 }
 
 /// The page base's alpha for a window of `level`/`mode` (declarative base alpha). A DESKTOP
 /// surface paints a fully TRANSPARENT base — windowd blends the band over the retained wallpaper
 /// plane, so empty desktop area IS the wallpaper. The OSK band (overlay) and a fullscreen
 /// floating surface (a kiosk app) stay opaque: keys never blend with what lies below, a kiosk
-/// owns every pixel. A frosted floating window leaves ~1/3 of the blurred backdrop visible (190
-/// read as a solid slab; opaque ELEMENTS still paint fully on top).
+/// owns every pixel. Anything between marks a frosted floating window: its base is the window
+/// material's `glassWindow` at the theme's own alpha (`DslApp::page_base_alpha`).
 pub(super) fn base_alpha(level: u8, mode: u8) -> u8 {
     if level == wire::WIN_LEVEL_DESKTOP {
         0
@@ -282,6 +294,22 @@ pub(super) struct WindowIntent {
     pub(super) level: u8,
     pub(super) mode: u8,
     pub(super) nonce: u64,
+    /// The app's declared window size (RFC-0117).
+    pub(super) size: wire::WindowSize,
+}
+
+impl WindowIntent {
+    /// The `OP_SURFACE_INTENT` frame of this intent (the WM decides resizability at create).
+    pub(super) fn frame(&self) -> [u8; wire::SURFACE_INTENT_FRAME_LEN] {
+        wire::encode_surface_intent(&wire::SurfaceIntent {
+            style: self.style,
+            level: self.level,
+            mode: self.mode,
+            resizable: false,
+            nonce: self.nonce,
+            size: self.size,
+        })
+    }
 }
 
 /// Geometry handshake: send the window intent (`OP_SURFACE_INTENT`) and WAIT
@@ -303,7 +331,7 @@ pub(super) fn request_content_rect(
 ) -> Option<(u32, u32, u32)> {
     // Nonce-correlated: windowd answers on OUR event channel — without it,
     // concurrent mounts stole each other's rect and every app fell back.
-    let intent = wire::encode_surface_intent(win.style, win.level, win.mode, false, win.nonce);
+    let intent = win.frame();
     if send_wait(client, &intent).is_err() {
         return None;
     }
@@ -379,6 +407,7 @@ pub(super) fn create_frame(
         nonce: win.nonce,
         rows: plan.rows.min(u32::from(u16::MAX)) as u16,
         store_w: plan.width,
+        size: win.size,
     })
 }
 

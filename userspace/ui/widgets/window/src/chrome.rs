@@ -4,7 +4,9 @@
 //! Window chrome primitives (design `WindowButton`/`WindowControls`/
 //! `WindowPane`): the title-bar icon button, the minimise·maximise·close
 //! cluster, and the inner content card. Pure builders producing
-//! `LayoutNode::Stack`s from theme tokens + the [`Icon`] primitive. DSL-emittable.
+//! `LayoutNode::Stack`s from theme tokens + the [`Icon`] primitive. The window
+//! kit's DSL components are the single source of window UI; these builders are
+//! kept on the design's values, not grown (TASK-0353).
 
 extern crate alloc;
 
@@ -15,8 +17,8 @@ use nexus_layout_types::{
     Spacer, Stack, VisualStyle,
 };
 use nexus_style::Style;
-use nexus_theme_tokens::{ColorToken, LengthToken, Tokens, TypographyToken};
-use nexus_widget_icon::{Icon, Symbol};
+use nexus_theme_tokens::{ColorToken, RadiusToken, TextStyleToken, Tokens, HAIRLINE};
+use nexus_widget_icon::{with_ink, Icon, LucideSymbol};
 use nexus_widget_text::Text;
 
 /// Chrome-button treatment (design `WindowButton` active/danger).
@@ -31,19 +33,20 @@ pub enum WindowButtonKind {
     Danger,
 }
 
-/// A title-bar / pane-header icon button.
+/// A title-bar / pane-header icon button: a ghost circle (30 px, window controls 36) whose
+/// glyph is `labelSecondary` — `label` on the persistent `fill` layer when active, `danger` for
+/// close (the glyph only, no background swap).
 #[derive(Debug, Clone)]
 pub struct WindowButton {
     icon: LayoutNode,
     kind: WindowButtonKind,
     size: i32,
-    radius: i32,
     id: Option<&'static str>,
 }
 
 impl WindowButton {
     pub fn new(icon: LayoutNode) -> Self {
-        Self { icon, kind: WindowButtonKind::Ghost, size: 30, radius: 8, id: None }
+        Self { icon, kind: WindowButtonKind::Ghost, size: 30, id: None }
     }
     pub fn kind(mut self, kind: WindowButtonKind) -> Self {
         self.kind = kind;
@@ -59,10 +62,16 @@ impl WindowButton {
     }
 
     pub fn build(self, tokens: &dyn Tokens) -> LayoutNode {
-        let mut style = Style::new().rounded(FxPx::new(self.radius));
-        if matches!(self.kind, WindowButtonKind::Active) {
-            style = style.background(tokens.color(ColorToken::SurfaceVariant));
-        }
+        let mut style = Style::new().rounded(FxPx::new(self.size / 2));
+        let ink = match self.kind {
+            WindowButtonKind::Ghost => ColorToken::LabelSecondary,
+            WindowButtonKind::Active => {
+                style = style.background(tokens.color(ColorToken::Fill));
+                ColorToken::Label
+            }
+            WindowButtonKind::Danger => ColorToken::Danger,
+        };
+        let icon = with_ink(self.icon, tokens.color(ink));
         let d = Some(FxPx::new(self.size));
         LayoutNode::Stack(
             Stack {
@@ -82,12 +91,16 @@ impl WindowButton {
                 text_fit: None,
             },
             style.visual(),
-            alloc::vec![self.icon],
+            alloc::vec![icon],
         )
     }
 }
 
-/// The minimise / maximise / close cluster.
+/// A window control's diameter (the md control height).
+const CONTROL: i32 = 36;
+
+/// The minimise / maximise / close cluster: 36 px circles, 2 px apart; `minus` 14, `square` 13
+/// and `x` 14 at stroke 2.5, the close glyph in `danger`.
 #[derive(Debug, Clone)]
 pub struct WindowControls {
     minimize: Option<&'static str>,
@@ -98,7 +111,7 @@ pub struct WindowControls {
 
 impl Default for WindowControls {
     fn default() -> Self {
-        Self { minimize: None, maximize: None, close: None, gap: 4 }
+        Self { minimize: None, maximize: None, close: None, gap: 2 }
     }
 }
 
@@ -128,48 +141,23 @@ impl WindowControls {
         self
     }
 
-    /// A small square outline (the maximise glyph — no Square symbol needed).
-    fn square(tokens: &dyn Tokens) -> LayoutNode {
-        let visual = Style::new()
-            .rounded(FxPx::new(2))
-            .border(FxPx::new(2), tokens.color(ColorToken::OnSurfaceVariant))
-            .visual();
-        let d = Some(FxPx::new(12));
-        LayoutNode::Stack(
-            Stack {
-                id: None,
-                direction: Direction::Row,
-                gap: FxPx::ZERO,
-                padding: EdgeInsets::zero(),
-                align: Align::Center,
-                justify: Justify::Center,
-                overflow: Overflow::Visible,
-                flex_wrap: false,
-                min_width: d,
-                max_width: d,
-                min_height: d,
-                max_height: d,
-                item: FlexItem::default(),
-                text_fit: None,
-            },
-            visual,
-            alloc::vec![],
-        )
-    }
-
     pub fn build(self, tokens: &dyn Tokens) -> LayoutNode {
+        let glyph = |symbol: LucideSymbol, px: i32| {
+            Icon::lucide(symbol).stroke_tenths(25).size(px).build(tokens)
+        };
         let mut row: Vec<LayoutNode> = Vec::new();
         if let Some(id) = self.minimize {
-            let icon =
-                Icon::new(Symbol::Minus).size(14).color(ColorToken::OnSurfaceVariant).build(tokens);
-            row.push(WindowButton::new(icon).id(id).build(tokens));
+            let icon = glyph(LucideSymbol::Minus, 14);
+            row.push(WindowButton::new(icon).size(CONTROL).id(id).build(tokens));
         }
         if let Some(id) = self.maximize {
-            row.push(WindowButton::new(Self::square(tokens)).id(id).build(tokens));
+            let icon = glyph(LucideSymbol::Square, 13);
+            row.push(WindowButton::new(icon).size(CONTROL).id(id).build(tokens));
         }
         if let Some(id) = self.close {
-            let icon = Icon::new(Symbol::Close).size(14).color(ColorToken::Danger).build(tokens);
-            row.push(WindowButton::new(icon).kind(WindowButtonKind::Danger).id(id).build(tokens));
+            let icon = glyph(LucideSymbol::Xmark, 14);
+            let button = WindowButton::new(icon).kind(WindowButtonKind::Danger).size(CONTROL);
+            row.push(button.id(id).build(tokens));
         }
         LayoutNode::Stack(
             Stack {
@@ -231,9 +219,9 @@ impl WindowPane {
 
     pub fn build(self, tokens: &dyn Tokens) -> LayoutNode {
         let style = Style::new()
-            .background(tokens.color(ColorToken::Surface))
-            .rounded(tokens.length(LengthToken::RadiusMedium))
-            .border(tokens.length(LengthToken::BorderThin), tokens.color(ColorToken::Border));
+            .background(tokens.color(ColorToken::SurfacePane))
+            .rounded(RadiusToken::Md.px())
+            .border(HAIRLINE, tokens.color(ColorToken::Separator));
 
         let mut col: Vec<LayoutNode> = Vec::new();
         if self.title.is_some() || self.header_actions.is_some() {
@@ -241,7 +229,7 @@ impl WindowPane {
             if let Some(title) = self.title {
                 header.push(
                     Text::new(title)
-                        .size(TypographyToken::Md)
+                        .text_style(TextStyleToken::Headline)
                         .weight(FontWeight::Semibold)
                         .build(tokens),
                 );
@@ -348,12 +336,71 @@ mod tests {
     }
 
     #[test]
-    fn window_button_active_gets_surface_bg() {
+    fn window_button_is_a_circle_and_active_is_the_fill_layer() {
         let t = BaseTokens;
-        let icon = Icon::new(Symbol::Minus).build(&t);
-        match WindowButton::new(icon).kind(WindowButtonKind::Active).build(&t) {
-            LayoutNode::Stack(_, v, _) => {
-                assert_eq!(v.background, Some(t.color(ColorToken::SurfaceVariant)))
+        let icon = || Icon::lucide(LucideSymbol::SidebarLeft).size(14).build(&t);
+        match WindowButton::new(icon()).kind(WindowButtonKind::Active).build(&t) {
+            LayoutNode::Stack(s, v, kids) => {
+                assert_eq!(s.min_width, Some(FxPx::new(30)));
+                assert_eq!(v.corner_radius.top_left, FxPx::new(15), "a circle");
+                assert_eq!(v.background, Some(t.color(ColorToken::Fill)));
+                match &kids[0] {
+                    LayoutNode::Stack(_, gv, _) => {
+                        assert_eq!(gv.background, Some(t.color(ColorToken::Label)))
+                    }
+                    _ => panic!(),
+                }
+            }
+            _ => panic!(),
+        }
+        match WindowButton::new(icon()).build(&t) {
+            LayoutNode::Stack(_, v, kids) => {
+                assert_eq!(v.background, None, "a ghost at rest");
+                match &kids[0] {
+                    LayoutNode::Stack(_, gv, _) => {
+                        assert_eq!(gv.background, Some(t.color(ColorToken::LabelSecondary)))
+                    }
+                    _ => panic!(),
+                }
+            }
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn controls_are_36_px_circles_2_px_apart() {
+        let t = BaseTokens;
+        match WindowControls::new().minimize("min").maximize("max").close("close").build(&t) {
+            LayoutNode::Stack(row, _, btns) => {
+                assert_eq!(row.gap, FxPx::new(2));
+                for b in &btns {
+                    match b {
+                        LayoutNode::Stack(s, v, _) => {
+                            assert_eq!(s.min_width, Some(FxPx::new(36)));
+                            assert_eq!(v.corner_radius.top_left, FxPx::new(18));
+                        }
+                        _ => panic!(),
+                    }
+                }
+                match &btns[2] {
+                    LayoutNode::Stack(_, _, g) => match &g[0] {
+                        LayoutNode::Stack(gs, gv, _) => {
+                            assert_eq!(gs.min_width, Some(FxPx::new(14)));
+                            assert_eq!(gv.background, Some(t.color(ColorToken::Danger)));
+                        }
+                        _ => panic!(),
+                    },
+                    _ => panic!(),
+                }
+                match &btns[1] {
+                    LayoutNode::Stack(_, _, g) => match &g[0] {
+                        LayoutNode::Stack(gs, _, _) => {
+                            assert_eq!(gs.min_width, Some(FxPx::new(13)), "the square glyph")
+                        }
+                        _ => panic!(),
+                    },
+                    _ => panic!(),
+                }
             }
             _ => panic!(),
         }
@@ -365,7 +412,7 @@ mod tests {
         match WindowPane::new().title("Inhalt").body(alloc::vec![]).id("pane").build(&t) {
             LayoutNode::Stack(stack, v, col) => {
                 assert_eq!(stack.id, Some("pane"));
-                assert_eq!(v.background, Some(t.color(ColorToken::Surface)));
+                assert_eq!(v.background, Some(t.color(ColorToken::SurfacePane)));
                 assert_eq!(col.len(), 2, "header + body");
             }
             _ => panic!(),

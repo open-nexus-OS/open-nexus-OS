@@ -83,8 +83,8 @@ Page UserListPage {
             }
         }
     }
-    .padding(4)
-    .gap(2)
+    .padding(16)
+    .gap(8)
 }
 ```
 
@@ -102,23 +102,40 @@ branches or per-profile file overrides (`ui/platform/<profile>/…`). See `profi
 
 ## Document map
 
+**Learn the language** — read in this order:
+
 | Page | Contents |
 |---|---|
-| `principles.md` | the design principles the language enforces |
-| `grammar.md` | normative EBNF for the v1 surface |
-| `types.md` | the type system (scalars, composites, tokens, budgets) |
-| `syntax.md` | guided syntax tour |
-| `modifiers.md` | the modifier catalog (hybrid utility vocabulary) |
-| `state.md` | stores, events, reducers, effects |
-| `navigation.md` | routes and navigation |
-| `i18n.md` | translation keys and locale catalogs |
-| `profiles.md` | device environment + responsive overrides |
-| `services.md` | `svc.*` adapters and the effect boundary |
-| `db-queries.md` | QuerySpec: typed, bounded, deterministic data access |
-| `ir.md` | the canonical IR (`.nxir`): schema, identity, evolution |
-| `runtime.md` | app lifecycle, app-host, surfaces, cold start |
-| `perf.md` | performance budgets and gates |
-| `testing.md` | host tests, snapshots, conformance corpus |
-| `cli.md` | the `nx dsl` command surface |
-| `project-layout.md` | app project structure |
-| `patterns.md` | component/props patterns (instead of generics) |
+| [syntax.md](syntax.md) | a guided tour: declarations, views, components, conditionals, loops, motion, layers |
+| [state.md](state.md) | stores, events, reducers, effects — how data flows |
+| [navigation.md](navigation.md) | routes and navigation |
+| [profiles.md](profiles.md) | the device environment and responsive overrides |
+| [i18n.md](i18n.md) | translation keys and locale catalogs |
+| [services.md](services.md) | `svc.*` calls and the effect boundary |
+| [patterns.md](patterns.md) | composition: components, props, slots |
+| [testing.md](testing.md) | host tests, snapshots, the conformance corpus |
+
+**Reference** — look things up:
+
+| Page | Contents |
+|---|---|
+| [widgets.md](widgets.md) | every widget: props, binds, modifiers, accessibility, an example |
+| [modifiers.md](modifiers.md) | every modifier: arguments, field class, the control props |
+| [window.md](window.md) | the `Window { … }` declaration: frame, mode, level, size |
+| [types.md](types.md) | the type system (scalars, composites, tokens, budgets) |
+| [grammar.md](grammar.md) | the normative grammar (EBNF) |
+| [db-queries.md](db-queries.md) | QuerySpec: typed, bounded, deterministic data access |
+| [cli.md](cli.md) | `nx-dsl`: lint, fmt, build, run, render, i18n |
+
+**How it works** — the machinery behind the language:
+
+| Page | Contents |
+|---|---|
+| [principles.md](principles.md) | the design principles the language enforces |
+| [ir.md](ir.md) | the canonical IR (`.nxir`): schema, identity, evolution |
+| [runtime.md](runtime.md) | app lifecycle, app-host, surfaces, cold start |
+| [perf.md](perf.md) | performance budgets and gates |
+| [project-layout.md](project-layout.md) | an app project's structure |
+
+Every example on these pages compiles, and every widget and modifier of the compiler's catalog
+has its reference entry: `tests/dsl_conformance/tests/docs_examples.rs` checks both.

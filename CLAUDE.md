@@ -104,10 +104,21 @@ payload strings. Bound input sizes before parsing. Sensitive ops → `policyd`
 untrusted input. Security changes need `test_reject_*` tests + hardening markers.
 </critical>
 
+<critical id="agent-budget" enforced-by=".claude/hooks/agent-budget.py">
+Tokens are the sprint's scarcest resource (W45 lost two days to parallel agents). The main
+session thinks; agents do specified legwork only: `model: sonnet` (searches: `haiku`),
+`effort: low|medium`, ONE at a time, never `fork`, never `Workflow`. A brief is self-contained
+(the files, the steps, the result file) — the agent writes its result to that file, and a
+resumed session reads the file and never re-spawns for a result that exists. Hook caps:
+2 spawns per 10 min, 8 per 5 h; a strong-model agent asks the user. Architecture, protection
+zones, security and hard bugs never go to an agent. Model switches follow the Model protocol.
+</critical>
+
 <forbidden>
 <item>Blanket `#[allow(dead_code)]` — cfg-gate under `nexus_env="os"` instead</item>
 <item>`unwrap`/`expect` on untrusted input · logging secrets/keys</item>
 <item>`parking_lot`, `parking_lot_core`, `getrandom` in the OS graph (RFC-0009)</item>
+<item>Agents on the main model, in parallel, forked, or without a result file · `Workflow`</item>
 <item>Floating `+stable` in any recipe (one pinned nightly) · new cfgs beyond `nexus_env="host"|"os"`</item>
 </forbidden>
 
@@ -158,6 +169,29 @@ English; prefer modular files (~600 LOC) over monoliths.
    `nx ledger stale` — every doc whose `sources` you changed: fix it, then
    `nx ledger set docs/<path> verified <today>`; a moved doc: `nx ledger relink <old> <new>`.
    Docs carry no task status. Progress reports use `nx ledger table` (counted, never estimated).
+
+## Model protocol — who thinks, who types
+
+A package runs in three blocks so the user switches the model at most twice. A session never
+drifts into the next block on the wrong model: it stops and prints `MODEL → <model>` with the
+reason, the work order's path and the return point.
+
+1. **ARCH** (fable/opus, main session): every decision of the package up front — RFC/ADR,
+   plan-package, protection-zone code, security, gates, the hard bug — so the next block never
+   has to decide anything. Ends with the WORK ORDER: the ledger's phases/steps plus a handoff
+   note in the memory dir (`work-order-<task>-<date>.md`: state, files, steps in order with
+   commands and gates, done-marks, open questions, return point). Then `MODEL → sonnet` (or
+   `opus` for judgement-heavy refactors).
+2. **BUILD** (sonnet/opus): executes the work order step by step and ticks the done-marks in
+   the note. An architecture question goes into the note's open questions and the next step
+   continues — never decided here. Agents (sonnet/haiku, sequential, per the agent-budget rule)
+   carry the legwork inside a step. Ends with `MODEL → fable` when the gates are green or the
+   open questions block every remaining step.
+3. **REVIEW** (fable/opus): judges the gates, the board cycle, the docs sweep, the ledger, the
+   commit proposal — and opens the next package's ARCH block.
+
+A resumed session (after a budget cut or compaction) first reads the work order's done-marks
+and the agents' result files, then continues at the first open step.
 
 ## Read more
 

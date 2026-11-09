@@ -1,0 +1,49 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Ordnerfarbe: six local folder-colour tiles.
+
+Component ApFolderBlock {
+    Stack {
+        Stack {
+            Text(@t("ap.folder")).textStyle(overline).fg(labelSecondary)
+        }
+        .paddingX(16)
+        Stack {
+            Stack {
+                ApFolderTile { light: "#7af8d8", base: "#14b8a6", label: @t("ap.folderTeal"), selected: $state.apFolder == "teal" }
+            }
+            on Tap -> dispatch(SetFolder("teal"))
+            Stack {
+                ApFolderTile { light: "#93c5fd", base: "#3b82f6", label: @t("ap.folderAccent"), selected: $state.apFolder == "accent" }
+            }
+            on Tap -> dispatch(SetFolder("accent"))
+            Stack {
+                ApFolderTile { light: "#c4b0fd", base: "#8b5cf6", label: @t("ap.folderViolet"), selected: $state.apFolder == "violet" }
+            }
+            on Tap -> dispatch(SetFolder("violet"))
+            Stack {
+                ApFolderTile { light: "#fcd68a", base: "#f59e0b", label: @t("ap.folderAmber"), selected: $state.apFolder == "amber" }
+            }
+            on Tap -> dispatch(SetFolder("amber"))
+            Stack {
+                ApFolderTile { light: "#f9a8d0", base: "#ec4899", label: @t("ap.folderRose"), selected: $state.apFolder == "rose" }
+            }
+            on Tap -> dispatch(SetFolder("rose"))
+            Stack {
+                ApFolderTile { light: "#a8b3c4", base: "#64748b", label: @t("ap.folderGraphite"), selected: $state.apFolder == "graphite" }
+            }
+            on Tap -> dispatch(SetFolder("graphite"))
+        }
+        .direction(row)
+        .wrap(true)
+        .align(center)
+        .gap(12)
+        .padding(12)
+        .rounded(lg)
+        .material(card)
+        Text(@t("ap.folderNote")).textStyle(footnote).fg(labelSecondary)
+            .paddingX(16)
+    }
+    .gap(8)
+}

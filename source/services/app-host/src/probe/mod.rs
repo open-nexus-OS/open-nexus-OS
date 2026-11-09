@@ -140,14 +140,14 @@ pub(super) fn run() -> Result<(), &'static str> {
     let payload = resolve_payload().unwrap_or(&[]);
     // RFC-0077: the payload may be an NXLC container — the intent tags
     // live in the NXIR inside (raw container bytes read as defaults).
-    let (style, level, mode) = read_window_intent_tags(locale::payload_nxir(payload));
+    let (style, level, mode, size) = read_window_intent_tags(locale::payload_nxir(payload));
     // Declared resize intent: floating windows are resizable; a desktop/
     // fullscreen surface is not (the presentation resolver enforces this
     // WM-side too). Carried atomically on SURFACE_CREATE.
     let resizable = level != wire::WIN_LEVEL_DESKTOP
         && level != wire::WIN_LEVEL_OVERLAY
         && mode != wire::WIN_MODE_FULLSCREEN;
-    let mut win = WindowIntent { style, level, mode, nonce };
+    let mut win = WindowIntent { style, level, mode, nonce, size };
     // The WM owns every window's geometry (TASK-0336): an `auto` window asks too — the ask
     // shows the launch's starting surface.
     let (mut safe_top, mut surf_w, mut surf_h) =
@@ -477,6 +477,12 @@ pub(super) fn run() -> Result<(), &'static str> {
                     if dsl.press_text(i32::from(x), i32::from(y), facts) {
                         dsl.merge_tap_damage(&mut dirty, &mut dirty_rows);
                     }
+                    // The press may have started a dip or a layer fade, the tap an animation or
+                    // a pager glide: they tick on the frame pulse, whatever the tap repainted.
+                    if dsl.anim_active() || dsl.momentum_active() || dsl.layers_live() {
+                        let req = wire::encode_surface_frame_req(surface_id);
+                        let _ = client.send(&req, Wait::Blocking);
+                    }
                     // ONLY a repaint is dirty. A tap a handler absorbed
                     // without one (`PanelNoop`, or a control whose effect
                     // lands in another service) is NOT a miss; calling it
@@ -486,11 +492,6 @@ pub(super) fn run() -> Result<(), &'static str> {
                         // full-frame rasters per click are what made menus
                         // feel like they never opened on the TCG boot.
                         dsl.merge_tap_damage(&mut dirty, &mut dirty_rows);
-                        // Tap may have started an animation or pager glide.
-                        if dsl.anim_active() || dsl.momentum_active() {
-                            let req = wire::encode_surface_frame_req(surface_id);
-                            let _ = client.send(&req, Wait::Blocking);
-                        }
                     } else if outcome == TapOutcome::NoHandler && tap_miss_markers < 8 {
                         tap_miss_markers += 1;
                         raw_marker(&alloc::format!("apphost: input tap miss at ({x},{y})"));

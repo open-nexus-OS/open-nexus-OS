@@ -800,9 +800,9 @@ fn real_shell_column_grows_on_tablet() {
             b.rect.height.as_i32()
         ));
     }
-    // The dock row must sit at the BOTTOM (y > 700).
+    // The dock row sits at the BOTTOM (the TabletDock's 72 px row floats above its nav row: y 678).
     let dock_bottom =
-        layout.boxes.iter().any(|b| b.rect.y.as_i32() > 700 && b.rect.height.as_i32() > 40);
+        layout.boxes.iter().any(|b| b.rect.y.as_i32() > 650 && b.rect.height.as_i32() > 40);
     assert!(dock_bottom, "dock not at the bottom; first boxes:\n{dump}");
 }
 

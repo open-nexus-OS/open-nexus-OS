@@ -27,6 +27,11 @@ pub use crate::surface_buffers::{
     Buffers, SurfacePresent, OP_SURFACE_BUFFERS, SURFACE_BUFFERS_FRAME_LEN,
     SURFACE_PRESENT_MAX_LEN,
 };
+// The intent, the content rect and the app's window size (RFC-0117): their own module.
+pub use crate::surface_intent::{
+    decode_surface_intent, decode_surface_rect, encode_surface_intent, encode_surface_rect,
+    SurfaceIntent, WindowSize, SURFACE_INTENT_FRAME_LEN, SURFACE_RECT_FRAME_LEN, WINDOW_SIZE_LEN,
+};
 
 /// Creates an app surface (`SurfaceCreate`). No capability rides with it (RFC-0114): windowd
 /// has gpud make the surface's buffer for the app and answers `OP_SURFACE_BUFFERS`.
@@ -68,14 +73,14 @@ pub const OP_SURFACE_LAYERS: u8 = 15;
 /// Material kinds of a region (`LayerDesc`, carried by `OP_SURFACE_TREE`).
 pub const MATERIAL_OPAQUE: u8 = 0;
 pub const MATERIAL_GLASS: u8 = 1;
-/// Glass levels — the design-system glass tokens (panel/card/subtle/window),
-/// mapped to a backdrop blur radius by the compositor.
+/// Glass levels — one blur bucket per backdrop (RFC-0116): panel (above the windows) and window
+/// regular, thin and ultraThin (ids 1/2: the old card/subtle buckets) for standalone pieces, dock
+/// thick. Id 4 (`GLASS_OVERLAY`) is retired, never reuse: a floating surface is opaque.
 pub const GLASS_PANEL: u8 = 0;
-pub const GLASS_CARD: u8 = 1;
-pub const GLASS_SUBTLE: u8 = 2;
+pub const GLASS_THIN: u8 = 1;
+pub const GLASS_ULTRA_THIN: u8 = 2;
 pub const GLASS_WINDOW: u8 = 3;
-/// Modal/sheet overlay material (append-only wire id).
-pub const GLASS_OVERLAY: u8 = 4;
+pub const GLASS_DOCK: u8 = 5;
 
 /// Max material regions per surface (bounds the structure; a real shell uses a
 /// handful: topbar, dock, launcher panel, a few cards).
@@ -229,7 +234,9 @@ pub struct DamageRect {
 // scroll layers' bands and its wash patches), of which columns `[0, store_w)`
 // are used. A slot of the surface's buffer holds both (RFC-0114 §1), so both
 // sizes ride atomically.
-pub const SURFACE_CREATE_FRAME_LEN: usize = HEADER_LEN + 21;
+//
+// +8 the app's window size (RFC-0117): the minimum windowd keeps for every resize.
+pub const SURFACE_CREATE_FRAME_LEN: usize = HEADER_LEN + 21 + WINDOW_SIZE_LEN;
 
 /// A surface create: its size, its declared window intent, the client's event-channel nonce and
 /// its store (RFC-0109).
@@ -248,6 +255,8 @@ pub struct SurfaceCreate {
     /// The store's used width (`≤ width`): `0` exactly when there is no store (`rows ==
     /// height`).
     pub store_w: u16,
+    /// The app's window size (RFC-0117; zeros = the window manager decides).
+    pub size: WindowSize,
 }
 
 #[must_use]
@@ -264,6 +273,7 @@ pub fn encode_surface_create(c: &SurfaceCreate) -> [u8; SURFACE_CREATE_FRAME_LEN
     f[13..21].copy_from_slice(&c.nonce.to_le_bytes());
     f[21..23].copy_from_slice(&c.rows.to_le_bytes());
     f[23..25].copy_from_slice(&c.store_w.to_le_bytes());
+    f[25..33].copy_from_slice(&c.size.encode());
     f
 }
 
@@ -297,73 +307,8 @@ pub fn decode_surface_create(frame: &[u8]) -> Option<SurfaceCreate> {
         nonce: u64::from_le_bytes(nonce),
         rows,
         store_w,
+        size: WindowSize::read(frame, 25)?,
     })
-}
-
-// ------------------------------------------------------------ intent + rect
-
-/// Intent carries the client's event-channel NONCE (same correlation contract
-/// as `OP_SURFACE_EVENTS`/`OP_SURFACE_CREATE`): the composed content-rect
-/// REPLY must reach the asking client's own channel — without it, concurrent
-/// mounts stole each other's answer and every app fell back to the probe size
-/// (boot-proven `apphost: no content rect (fallback)` ×3, 2026-07-10).
-pub const SURFACE_INTENT_FRAME_LEN: usize = HEADER_LEN + 12;
-
-/// Encodes the app's window intent (`style, level, mode, resizable, nonce`).
-#[must_use]
-pub fn encode_surface_intent(
-    style: u8,
-    level: u8,
-    mode: u8,
-    resizable: bool,
-    nonce: u64,
-) -> [u8; SURFACE_INTENT_FRAME_LEN] {
-    let mut f = [0u8; SURFACE_INTENT_FRAME_LEN];
-    f[..HEADER_LEN].copy_from_slice(&header(OP_SURFACE_INTENT));
-    f[4] = style;
-    f[5] = level;
-    f[6] = mode;
-    f[7] = u8::from(resizable);
-    f[8..16].copy_from_slice(&nonce.to_le_bytes());
-    f
-}
-
-/// `(style, level, mode, resizable, nonce)`.
-#[must_use]
-pub fn decode_surface_intent(frame: &[u8]) -> Option<(u8, u8, u8, bool, u64)> {
-    if !has_op(frame, OP_SURFACE_INTENT) || frame.len() != SURFACE_INTENT_FRAME_LEN {
-        return None;
-    }
-    let nonce = u64::from_le_bytes(frame[8..16].try_into().ok()?);
-    Some((frame[4], frame[5], frame[6], frame[7] != 0, nonce))
-}
-
-pub const SURFACE_RECT_FRAME_LEN: usize = HEADER_LEN + 8;
-
-/// Encodes the WM-composed content rect (`x, y, w, h`) for the app's surface.
-#[must_use]
-pub fn encode_surface_rect(x: u16, y: u16, w: u16, h: u16) -> [u8; SURFACE_RECT_FRAME_LEN] {
-    let mut f = [0u8; SURFACE_RECT_FRAME_LEN];
-    f[..HEADER_LEN].copy_from_slice(&header(OP_SURFACE_RECT));
-    f[4..6].copy_from_slice(&x.to_le_bytes());
-    f[6..8].copy_from_slice(&y.to_le_bytes());
-    f[8..10].copy_from_slice(&w.to_le_bytes());
-    f[10..12].copy_from_slice(&h.to_le_bytes());
-    f
-}
-
-/// `(x, y, w, h)`.
-#[must_use]
-pub fn decode_surface_rect(frame: &[u8]) -> Option<(u16, u16, u16, u16)> {
-    if !has_op(frame, OP_SURFACE_RECT) || frame.len() != SURFACE_RECT_FRAME_LEN {
-        return None;
-    }
-    Some((
-        u16::from_le_bytes([frame[4], frame[5]]),
-        u16::from_le_bytes([frame[6], frame[7]]),
-        u16::from_le_bytes([frame[8], frame[9]]),
-        u16::from_le_bytes([frame[10], frame[11]]),
-    ))
 }
 
 // ----------------------------------------------------------------- destroy
@@ -465,6 +410,7 @@ mod tests {
             nonce: 0xA1B2_C3D4_E5F6_0718,
             rows: 640,
             store_w: 200,
+            size: WindowSize { width: 340, height: 600, min_width: 340, min_height: 600 },
         };
         let f = encode_surface_create(&c);
         assert_eq!(decode_surface_create(&f), Some(c));
@@ -487,6 +433,7 @@ mod tests {
             nonce: 7,
             rows,
             store_w,
+            size: WindowSize::default(),
         })
     }
 
@@ -510,34 +457,6 @@ mod tests {
     }
 
     #[test]
-    fn intent_round_trip_and_guards() {
-        let f = encode_surface_intent(
-            WIN_STYLE_PLAIN,
-            WIN_LEVEL_DESKTOP,
-            WIN_MODE_FULLSCREEN,
-            false,
-            0xDEAD_BEEF_1234_5678,
-        );
-        assert_eq!(
-            decode_surface_intent(&f),
-            Some((
-                WIN_STYLE_PLAIN,
-                WIN_LEVEL_DESKTOP,
-                WIN_MODE_FULLSCREEN,
-                false,
-                0xDEAD_BEEF_1234_5678
-            ))
-        );
-        // Defaults (ordinary window) round-trip; resizable bool preserved.
-        let d = encode_surface_intent(WIN_STYLE_TITLEBAR, WIN_LEVEL_NORMAL, WIN_MODE_AUTO, true, 7);
-        assert_eq!(decode_surface_intent(&d), Some((0, 0, 0, true, 7)));
-        assert_eq!(decode_surface_intent(&f[..f.len() - 1]), None);
-        let mut wrong = f;
-        wrong[3] = OP_SURFACE_CREATE;
-        assert_eq!(decode_surface_intent(&wrong), None);
-    }
-
-    #[test]
     fn control_round_trip_and_guards() {
         let f = encode_surface_control(CONTROL_WIN_MODE, 0x24);
         assert_eq!(decode_surface_control(&f), Some((CONTROL_WIN_MODE, 0x24)));
@@ -548,16 +467,6 @@ mod tests {
             (0, 1, 3),
             "retired control ids are reserved forever"
         );
-    }
-
-    #[test]
-    fn rect_round_trip_and_guards() {
-        let f = encode_surface_rect(0, 0, 640, 480);
-        assert_eq!(decode_surface_rect(&f), Some((0, 0, 640, 480)));
-        assert_eq!(decode_surface_rect(&f[..f.len() - 1]), None);
-        let mut wrong = f;
-        wrong[3] = OP_SURFACE_INTENT;
-        assert_eq!(decode_surface_rect(&wrong), None);
     }
 
     #[test]

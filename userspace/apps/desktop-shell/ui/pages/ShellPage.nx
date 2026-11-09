@@ -34,14 +34,18 @@ Page ShellPage {
         } else {
             Stack {
                 TopBar { }
+                // The icon field carries the touch padding (24, the design's touch field) — not
+                // this container: the panels, the launcher and the tiling hint are placed in it
+                // absolutely and must not inherit an inset.
                 Stack {
-                    WorkspaceGrid { }
+                    Stack { WorkspaceGrid { } }
+                        .grow(1)
+                        .padding(24)
                     TilePreview { }
                     PanelHost { }
                     LauncherHost { }
                 }
                 .grow(1)
-                .padding(7)
                 if device.sizeClass == "wide" {
                     DockWide { }
                 } else {

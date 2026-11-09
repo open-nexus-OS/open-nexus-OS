@@ -15,12 +15,14 @@ mechanism that enforces it.
 **Rule:** modules hide their implementation; neighbors depend only on small, stable interfaces.
 
 **Mechanism:**
-- A `Component` exposes exactly its `props` and the events it emits — nothing else.
-  There is no way to reach into another component's internals.
-- A `Store` is only readable through `$state.field` bindings and only writable through
-  events handled by its reducers. No component can mutate foreign state directly.
-- Services are only reachable through typed `svc.*` adapters from effects. Apps cannot
-  observe *how* a service is implemented, only its contract.
+- A `Component` exposes exactly its `props` (including `EventRef` props for the events it
+  raises) — nothing else. There is no way to reach into another component's internals
+  ([patterns.md](patterns.md)).
+- A `Store` is read through `$state.field` and written by the arms of its `reduce`
+  declaration; a two-way-bound control writes through the same store mutation path
+  ([state.md](state.md)). A component's own `state:` block is per instance.
+- Services are only reachable through typed `svc.*` calls from effects. Apps cannot
+  observe *how* a service is implemented, only its contract ([services.md](services.md)).
 
 ## 2. Abstract data types (Liskov & Zilles, 1974)
 
@@ -28,19 +30,21 @@ mechanism that enforces it.
 direct access.
 
 **Mechanism:**
-- State fields are typed (`Int`, `Fx`, `Str`, `Enum`, `Record`, `List<T>`); every mutation
-  is a reducer arm — a named, typed operation on that state.
-- Query access is a first-class `QuerySpec` value with typed fields — never a string.
-- The compiler rejects writes to `$state` outside reducers.
+- State fields are declared with a type ([types.md](types.md)); every mutation is a reducer
+  arm — a named operation on that state.
+- Query access is a first-class `Query` declaration lowered to a bounded `QuerySpec` —
+  never a string ([db-queries.md](db-queries.md)).
+- A state assignment inside an `@effect` is not lowered: state changes only through
+  reducers.
 
 ## 3. Structured programming (Dijkstra, 1968)
 
 **Rule:** minimize uncontrolled control flow.
 
 **Mechanism:**
-- The view language is declarative: `if/else`, exhaustive `match`, bounded `for`,
-  and collection templates. There is **no** `goto`, no unbounded `while`, no recursion
-  in reducers, no callbacks-into-callbacks.
+- The view language is declarative: `if/else`, exhaustive `match`, `for` over a statically
+  bounded iterable (`NX0404`), and keyed collection templates. There is **no** `goto`, no
+  `while`, no recursion in reducers, no callbacks-into-callbacks ([syntax.md](syntax.md)).
 - Reducers and effects are represented in the IR as **total expression trees** — the
   representation cannot express a back-edge, so termination holds by construction.
 
@@ -49,21 +53,20 @@ direct access.
 **Rule:** describe programs by pre-/postconditions; let tooling prove them.
 
 **Mechanism:**
-- Reducer purity is a compile-time contract (no IO, no `svc.*`, no time/randomness) —
-  violation is an error, not a lint suggestion.
-- Effects must handle both `Ok` and `Err` of every service call (error = stable code,
-  never a formatted string).
-- Budgets (max list length, max expression size, result caps) are part of the IR and
-  re-validated at load time — a tampered bundle fails closed.
+- Reducer purity is a compile-time contract (no IO, no `svc.*`, no query execution, no
+  `dispatch`: `NX0405`) — violation is an error, not a lint suggestion.
+- Effects must handle both `Ok` and `Err` of every service call (`NX0407`; error = stable
+  code, never a formatted string).
+- The IR carries its budgets and the loader validates structure, references and node
+  counts before mounting — a tampered bundle fails closed ([ir.md](ir.md)).
 
 ## 5. No accidental complexity (Brooks, 1986)
 
 **Rule:** essential complexity cannot be removed; accidental complexity must not be added.
 
 **Mechanism:**
-- Every language feature must earn its place by solving a real app's problem
-  (the track's "app-driven capability expansion" rule). Convenience-only features are
-  rejected in design review.
+- Every language feature must earn its place by solving a real app's problem.
+  Convenience-only features are rejected in design review.
 - One state model, one effect model, one query model — no alternates to choose between.
 
 ## 6. Simple data first (Wirth, 1976)
@@ -71,10 +74,10 @@ direct access.
 **Rule:** good programs come from simple algorithms over fitting data structures.
 
 **Mechanism:**
-- The data vocabulary is deliberately small and cache-friendly: flat records, typed
-  lists, fixed-point numbers. Deep object graphs and pointer webs are not expressible.
+- The data vocabulary is deliberately small: `Bool`, `Int`, fixed-point `Fx`, `Str`,
+  lists, enum cases. Pointer webs are not expressible ([types.md](types.md)).
 - Collections render through keyed templates whose identity is stable — the runtime can
-  diff, reorder, and virtualize without user code.
+  diff and reorder them without user code ([ir.md](ir.md), *Stable node identity*).
 
 ## 7. Deep modules (Ousterhout, 2018)
 
@@ -82,22 +85,21 @@ direct access.
 
 **Mechanism:**
 - The widget set is a curated catalog with a uniform modifier surface — not an open
-  plugin zoo. Rare needs go through one blessed escape hatch (`NativeWidget`) with the
-  same determinism/boundedness contract.
+  plugin zoo ([widgets.md](widgets.md), [modifiers.md](modifiers.md)). Rare needs go
+  through one declared escape hatch, `NativeWidget` ([syntax.md](syntax.md)).
 - The implementation itself follows the rule: few deep crates
   (`core`, `ir`, `runtime`, `cli`), each with a small public API.
 
-## Derived rules the compiler enforces
+## Derived rules
 
-- Components own their state completely; there is no global mutable state.
+- State has an owner: a store (one per domain) or a component's per-instance `state:`
+  block; nothing else holds mutable state.
 - APIs (props, events, service contracts) are small and stable; additive evolution only.
 - Declarative over imperative; the little imperative code (reducer bodies) is pure.
-- Immutable by default: the previous state is never observable mid-transition; the UI
-  sees committed snapshots only.
-- Efficient data layout: numerics are `Int`/`Fx` (fixed-point, no float nondeterminism);
-  strings and lists carry explicit caps.
-- No hidden heap allocation or copies: the runtime allocates arenas at mount; a
-  steady-state event dispatch performs zero heap allocation (tested).
+- The scene is emitted from committed state, after the reducer has finished.
+- Numerics are `Int` and `Fx` (Q32.32 fixed point): no float nondeterminism.
+- No hidden per-frame heap churn: frame phases allocate from generation arenas, and the
+  arena invariant is tested against the real apps ([runtime.md](runtime.md)).
 - Dataflow instead of shared state: state flows down as bindings, events flow up as
   dispatches — nothing else crosses component boundaries.
 

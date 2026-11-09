@@ -11,18 +11,18 @@ Component ScKeys {
     }
     Stack {
         Stack {
-            Text($props.keys).textSize(sm).fontWeight(medium).fg(onGlass)
+            Text($props.keys).textStyle(footnote).fontWeight(medium).fg(label)
         }
-        .paddingX(2)
-        .paddingY(1)
-        .rounded(md)
-        .bg(glassHover)
+        .paddingX(8)
+        .paddingY(4)
+        .rounded(sm)
+        .bg(fill)
         if $props.alt != "" {
-            Text($props.alt).textSize(xs).fg(onGlassMuted)
+            Text($props.alt).textStyle(caption).fg(labelSecondary)
         } else {
             Stack { }
         }
     }
-    .gap(1)
+    .gap(4)
     .align(end)
 }

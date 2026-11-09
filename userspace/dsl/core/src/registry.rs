@@ -82,8 +82,16 @@ pub const MODIFIERS: &[ModifierSpec] = &[
     // -- shape & elevation (paint)
     ModifierSpec { name: "rounded", args: &[ModArg::Token], class: FieldClass::Paint },
     ModifierSpec { name: "border", args: &[ModArg::Token], class: FieldClass::Paint },
-    ModifierSpec { name: "shadow", args: &[ModArg::Token], class: FieldClass::Paint },
-    // -- typography (layout: metrics affect measurement)
+    // `.shadow(shadow3, edgeHighlight)`: an elevation and the lit top edge together (a
+    // modifier may appear once per node, so the pair is one call).
+    ModifierSpec {
+        name: "shadow",
+        args: &[ModArg::Token, ModArg::OptToken],
+        class: FieldClass::Paint,
+    },
+    // -- typography (layout: metrics affect measurement). `textSize` and `leading` are
+    // RETIRED (RFC-0116, `vocab::RETIRED_MODIFIERS`): their rows stay because ids are
+    // positional; `.textStyle` (id 58) replaces both.
     ModifierSpec { name: "textSize", args: &[ModArg::Token], class: FieldClass::Layout },
     ModifierSpec { name: "fontWeight", args: &[ModArg::Token], class: FieldClass::Layout },
     ModifierSpec { name: "textAlign", args: &[ModArg::Token], class: FieldClass::Layout },
@@ -132,10 +140,8 @@ pub const MODIFIERS: &[ModifierSpec] = &[
         args: &[ModArg::Expr, ModArg::Expr],
         class: FieldClass::Paint,
     },
-    // -- text shadow (paint, APPEND-ONLY id): `.textShadow(none|soft|strong)`
-    // — legibility for text sitting on a wallpaper (RFC-0082). An EMPHASIS
-    // step, not a blur radius: the row-based painter draws one extra glyph
-    // pass at a 1px offset, because there is no offscreen buffer to blur in.
+    // -- text shadow (APPEND-ONLY id 50): RETIRED by RFC-0116 (the token set has no text
+    // shadow); the row stays because ids are positional.
     ModifierSpec { name: "textShadow", args: &[ModArg::Token], class: FieldClass::Paint },
     // -- token gradient (paint, APPEND-ONLY id): `.bgFade(top, bottom)` — the
     // same vertical fill as `.bgGradient`, but from two COLOR TOKENS so it
@@ -185,6 +191,32 @@ pub const MODIFIERS: &[ModifierSpec] = &[
     // no field holds focus, the HOST gives it text focus through the same path a tap
     // takes. The shell search's field keeps the keyboard while the search is open.
     ModifierSpec { name: "autofocus", args: &[ModArg::Bool], class: FieldClass::Semantics },
+    // -- text style (layout, APPEND-ONLY id 58, RFC-0116): `.textStyle(body)` sets size, line
+    // height, weight and tracking together — one of the thirteen styles (`vocab::TEXT_STYLES`);
+    // `.fontWeight` is the only override.
+    ModifierSpec { name: "textStyle", args: &[ModArg::Token], class: FieldClass::Layout },
+    // -- tint wash (paint, APPEND-ONLY id 59, RFC-0116): `.tint(accent)` fills THIS node with
+    // a colour role at a wash strength — `fill` 16 % (default), `border` 30 %, `line` 55 % —
+    // the only alphas a role takes (a tinted badge, an operator key, a bubble).
+    ModifierSpec {
+        name: "tint",
+        args: &[ModArg::Token, ModArg::OptToken],
+        class: FieldClass::Paint,
+    },
+    // -- tinted hairline (paint, APPEND-ONLY id 60, RFC-0116): `.borderTint(accent)` — a 1 px
+    // border in the role at the `border` strength (30 %), the edge of a tinted bubble.
+    ModifierSpec { name: "borderTint", args: &[ModArg::Token], class: FieldClass::Paint },
+    // -- per-corner radius (paint, APPEND-ONLY id 61): `.corners(lg, lg, sm, lg)` — top-left,
+    // top-right, bottom-right, bottom-left (a bubble's tail); radius tokens or raw px.
+    ModifierSpec {
+        name: "corners",
+        args: &[ModArg::Token, ModArg::Token, ModArg::Token, ModArg::Token],
+        class: FieldClass::Paint,
+    },
+    // -- figures (layout, APPEND-ONLY id 62, RFC-0116): `.figures(tabular)` gives a text's digits
+    // one width — a count, a clock, a value that changes in place never shifts its neighbours;
+    // `.figures(proportional)` undoes a style's tabular figures (`clock`).
+    ModifierSpec { name: "figures", args: &[ModArg::Token], class: FieldClass::Layout },
 ];
 
 #[must_use]
@@ -264,103 +296,6 @@ pub fn is_motion_token(name: &str) -> bool {
     MOTION_TOKENS.contains(&name)
 }
 
-/// Semantic **color roles** a `.fg`/`.bg`/`.borderColor`/`.bgFade` may name.
-/// Mirrors `nexus-dsl-runtime`'s `registry::color_token`, which mirrors
-/// `ColorToken` — the three are kept in lock-step (see RFC-0082).
-pub const COLOR_TOKENS: &[&str] = &[
-    "surface",
-    "surfaceVariant",
-    "onSurface",
-    "onSurfaceVariant",
-    "accent",
-    "onAccent",
-    "border",
-    "background",
-    "islandBg",
-    "primary",
-    "onPrimary",
-    "danger",
-    "onDanger",
-    "success",
-    "onSuccess",
-    "warning",
-    "onWarning",
-    "info",
-    "onInfo",
-    "focusRing",
-    "shadow",
-    "scrim",
-    "destructive",
-    "onDestructive",
-    "onGlass",
-    "onGlassMuted",
-    "onGlassStrong",
-    "glassIcon",
-    "glassPlaceholder",
-    "glassFocus",
-    "glassFill",
-    "glassFillStrong",
-    "accentSoft",
-    "wallpaperTint",
-    "wallpaperVignette",
-    "textShadow",
-    "textShadowStrong",
-    "transparent",
-    // Roles the themes have always authored but nothing could name.
-    // `divider` is the translucent hairline; `border` is the opaque control
-    // outline — they are NOT interchangeable on a glass surface.
-    "divider",
-    "glassHover",
-    "glassActive",
-    "toggleOnBg",
-    "toggleOffBg",
-    "notifDot",
-    "sliderTrack",
-    "sliderFill",
-    "sliderIcon",
-];
-
-/// Closed token vocabularies per modifier: `(modifier name, allowed tokens)`.
-///
-/// A modifier listed here rejects any other token AT COMPILE TIME. Before
-/// RFC-0082 an unknown token argument (`.fg(oNSurface)`) type-checked fine and
-/// then silently resolved to `None` at runtime — the node just painted the
-/// default and the author had no signal at all.
-///
-/// Only vocabularies that are genuinely closed belong here. Modifiers whose
-/// argument is a number in practice (`.padding(4)`, `.width(320)`) are absent
-/// on purpose: their `ModArg::Token` spec is historical.
-pub const TOKEN_VOCABULARIES: &[(&str, &[&str])] = &[
-    ("fg", COLOR_TOKENS),
-    ("bg", COLOR_TOKENS),
-    ("borderColor", COLOR_TOKENS),
-    ("bgFade", COLOR_TOKENS),
-    ("textSize", &["xs", "sm", "base", "md", "lg", "xl", "xxl", "xxxl", "display", "hero"]),
-    ("fontWeight", &["light", "regular", "medium", "semibold", "bold"]),
-    ("textAlign", &["left", "center", "right"]),
-    ("leading", &["flat", "tight", "snug", "normal", "relaxed"]),
-    ("textShadow", &["none", "soft", "strong"]),
-    (
-        "material",
-        &["opaque", "panel", "card", "subtle", "window", "windowPane", "windowBar", "overlay"],
-    ),
-    ("rounded", &["sm", "md", "lg", "xl", "xxl", "full"]),
-    ("shadow", &["sm", "md", "lg", "xl", "xxl"]),
-    ("border", &["thin", "hairline", "medium", "thick"]),
-    ("align", &["start", "center", "end", "stretch"]),
-    ("justify", &["start", "center", "end", "between", "around"]),
-    ("direction", &["row", "column"]),
-    ("overflow", &["visible", "hidden"]),
-    ("scroll", &["vertical", "horizontal", "paged"]),
-    ("overlay", &["modal", "transient"]),
-];
-
-/// The closed token vocabulary of `name`, if it has one.
-#[must_use]
-pub fn token_vocabulary(name: &str) -> Option<&'static [&'static str]> {
-    TOKEN_VOCABULARIES.iter().find(|(m, _)| *m == name).map(|(_, tokens)| *tokens)
-}
-
 /// Read-only device environment fields (docs/dev/dsl/profiles.md) + their
 /// value vocabulary where enum-like.
 pub const DEVICE_FIELDS: &[(&str, &[&str])] = &[
@@ -394,6 +329,14 @@ pub fn device_field(name: &str) -> Option<&'static [&'static str]> {
     DEVICE_FIELDS.iter().find(|(field, _)| *field == name).map(|(_, values)| *values)
 }
 
+// The closed token vocabularies (RFC-0116) and the retired names live in their own module;
+// same public API, re-exported here.
+mod vocab;
+pub use vocab::{
+    retired_modifier, retired_token, token_vocabulary, token_vocabulary_at, BLUR_MATERIALS,
+    COLOR_MODIFIERS, COLOR_TOKENS, MATERIALS, RADII, RETIRED_MODIFIERS, RETIRED_TOKENS,
+    SPACING_GRID, SPACING_MODIFIERS, SPACING_TOKENS, TEXT_STYLES, TINT_LEVELS, TOKEN_VOCABULARIES,
+};
 // The `svc.*` service-surface lookup lives in its own module (structure
 // ratchet); same public API, re-exported here.
 mod svc_surface;

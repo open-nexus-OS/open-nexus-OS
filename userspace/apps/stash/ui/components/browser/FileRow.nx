@@ -1,0 +1,33 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One file-list row: a tap SELECTS the file (toggle) — the properties pane and
+// the action bar react to that selection. The tap of an already-selected
+// FOLDER opens it instead (select, then open): `opens` is decided where the
+// row is used (selected AND a directory), because an effect cannot branch —
+// the choice between the selection event and the navigation event is made by
+// which handler the row carries.
+
+Component FileRow {
+    props: {
+        id: Str,
+        name: Str,
+        kind: Str,
+        date: Str,
+        size: Str,
+        icon: Str,
+        active: Bool,
+        opens: Bool,
+    }
+    if $props.opens {
+        Stack {
+            FileRowBody { name: $props.name, date: $props.date, size: $props.size, icon: $props.icon, active: $props.active }
+        }
+        on Tap -> dispatch(OpenDir($props.name))
+    } else {
+        Stack {
+            FileRowBody { name: $props.name, date: $props.date, size: $props.size, icon: $props.icon, active: $props.active }
+        }
+        on Tap -> dispatch(Pick($props.id, $props.name, $props.kind, $props.size, $props.date))
+    }
+}

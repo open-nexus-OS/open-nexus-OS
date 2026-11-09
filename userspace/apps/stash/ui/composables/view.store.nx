@@ -1,0 +1,81 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// VIEW domain: how the listing is ordered and filtered, and the settings mode.
+//
+//   sortBy       "name" | "kind" | "date" | "size" (app-host sorts)
+//   sortDir      "asc" | "desc" — view-only: the service sorts by column, not
+//                direction (recorded gap)
+//   showHidden   dot-files and system entries in the listing
+//   settingsOpen settings mode replaces the file content, hides the
+//                properties pane and the action bar
+//
+// Each of these changes WHAT the listing shows, so each asks the listing
+// domain to reload; the menu closes where a menu started it.
+
+Store ViewStore {
+    sortBy: Str = "name",
+    sortDir: Str = "asc",
+    showHidden: Bool = false,
+    settingsOpen: Int = 0,
+}
+
+Event ViewEvent {
+    CycleSort,
+    SortDir,
+    SortBy(Str),
+    ToggleHidden,
+    SettingsOpen,
+    SettingsClose,
+}
+
+reduce ViewEvent {
+    // name → kind → date → name (the action bar's Sort).
+    CycleSort => {
+        if state.sortBy == "name" {
+            state.sortBy = "kind";
+        } else if state.sortBy == "kind" {
+            state.sortBy = "date";
+        } else {
+            state.sortBy = "name";
+        }
+    },
+    SortDir => {
+        if state.sortDir == "asc" {
+            state.sortDir = "desc";
+        } else {
+            state.sortDir = "asc";
+        }
+    },
+    SortBy(mode) => state.sortBy = mode,
+    ToggleHidden => {
+        if state.showHidden {
+            state.showHidden = false;
+        } else {
+            state.showHidden = true;
+        }
+    },
+    SettingsOpen => state.settingsOpen = 1,
+    SettingsClose => state.settingsOpen = 0,
+}
+
+@effect on CycleSort {
+    dispatch(Reload);
+}
+
+@effect on SortDir {
+    dispatch(Reload);
+}
+
+@effect on SortBy(mode) {
+    dispatch(WinMenu(""));
+    dispatch(Reload);
+}
+
+@effect on ToggleHidden {
+    dispatch(Reload);
+}
+
+@effect on SettingsOpen {
+    dispatch(WinMenu(""));
+}

@@ -58,10 +58,10 @@ fn checker_rejects_carry_stable_codes() {
     // default and the author got no signal at all.
     for src in [
         "Page P { Text(\"x\").fg(oNSurface) }",     // casing slip
-        "Page P { Text(\"x\").textSize(huge) }",    // not on the type scale
+        "Page P { Text(\"x\").textStyle(huge) }",   // not one of the thirteen text styles
         "Page P { Text(\"x\").fontWeight(black) }", // not a baked weight
         "Page P { Stack { }.material(frosted) }",   // not a glass level
-        "Page P { Text(\"x\").textShadow(blurry) }",
+        "Page P { Text(\"x\").shadow(blurry) }",    // not a shadow token
         "Page P { Stack { }.bgFade(transparent, chartreuse) }",
     ] {
         assert!(
@@ -85,7 +85,7 @@ fn accept_corpus_stays_green() {
         // Minimal page.
         "Page P { Stack { } }",
         // Bare widgets + inline modifiers on blockless nodes.
-        "Page P { Stack { Spacer Text(\"hi\").textSize(sm).fg(accent) } }",
+        "Page P { Stack { Spacer Text(\"hi\").textStyle(footnote).fg(accent) } }",
         // Component with props, emit handler after modifiers.
         r#"
 Component Row {

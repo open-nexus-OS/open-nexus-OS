@@ -2,12 +2,18 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // The keyboard's clipboard panel (TASK-0067B). `ClipToggle` swaps the keys for
-// the history's cards and back; opening re-asks clipboardd (`svc.clipboard.list`,
-// newest first). A card's press reads the item's FULL text (the list carries
-// previews) and inserts it into the focused field through imed
-// (`svc.ime.insert` — a commit like typed text, delivered by the same path).
-// The panel stays open: several cards can be inserted in a row, as in the
-// mobile reference.
+// the history's cards and back and re-asks clipboardd (`svc.clipboard.list`,
+// newest first); while something composes the toolbar opens it with
+// `ClipCommitOpen`, which commits the composition first (design artifacts:
+// OnScreenKeyboard — the view picks it on the mirrored preedit, spec gap G9;
+// an effect plan has no branches). A card's
+// press reads the item's FULL text (the list carries previews) and inserts it
+// into the focused field through imed (`svc.ime.insert` — a commit like typed
+// text, delivered by the same path). The panel stays open: several cards can
+// be inserted in a row, as in the design. "Alle löschen" clears the history
+// (`svc.clipboard.clear` — nothing can be pinned yet, so every item is an
+// unpinned one) and lists it again from the service; a refused clear leaves
+// the cards as they are.
 
 Store OskClipStore {
     // "" = the keys · "clipboard" = the cards.
@@ -18,11 +24,15 @@ Store OskClipStore {
 
 Event OskClipEvent {
     ClipToggle,
+    ClipCommitOpen,
     OskClips(List<ClipEntry>),
     OskClipsFailed(Int),
     ClipPaste(Int),
     ClipText(Str),
     ClipPasteFailed(Int),
+    ClipClear,
+    ClipCleared(Bool),
+    ClipClearFailed(Int),
 }
 
 reduce OskClipEvent {
@@ -33,6 +43,7 @@ reduce OskClipEvent {
             state.oskPanel = "clipboard";
         }
     },
+    ClipCommitOpen => state.oskPanel = "clipboard",
     OskClips(items) => {
         state.oskClips = items;
         state.oskClipsDenied = false;
@@ -41,9 +52,23 @@ reduce OskClipEvent {
     ClipPaste(seq) => state.oskPanel = state.oskPanel,
     ClipText(t) => state.oskPanel = state.oskPanel,
     ClipPasteFailed(e) => state.oskPanel = state.oskPanel,
+    ClipClear => state.oskPanel = state.oskPanel,
+    ClipCleared(ok) => state.oskPanel = state.oskPanel,
+    ClipClearFailed(e) => state.oskPanel = state.oskPanel,
 }
 
 @effect on ClipToggle {
+    match svc.clipboard.list("") {
+        Ok(items) => dispatch(OskClips(items)),
+        Err(e) => dispatch(OskClipsFailed(e)),
+    }
+}
+
+@effect on ClipCommitOpen {
+    match svc.ime.action("enter") {
+        Ok(ok) => dispatch(Sent(ok)),
+        Err(e) => dispatch(SendFailed(e)),
+    }
     match svc.clipboard.list("") {
         Ok(items) => dispatch(OskClips(items)),
         Err(e) => dispatch(OskClipsFailed(e)),
@@ -61,5 +86,19 @@ reduce OskClipEvent {
     match svc.ime.insert(t) {
         Ok(ok) => dispatch(Sent(ok)),
         Err(e) => dispatch(SendFailed(e)),
+    }
+}
+
+@effect on ClipClear {
+    match svc.clipboard.clear() {
+        Ok(ok) => dispatch(ClipCleared(ok)),
+        Err(e) => dispatch(ClipClearFailed(e)),
+    }
+}
+
+@effect on ClipCleared(ok) {
+    match svc.clipboard.list("") {
+        Ok(items) => dispatch(OskClips(items)),
+        Err(e) => dispatch(OskClipsFailed(e)),
     }
 }

@@ -33,8 +33,6 @@ pub(crate) const APP_WIN_MAX_H: u32 = crate::client_surface::MAX_SURFACE_H as u3
 /// The frame of a window that declares no size (`mode: auto`): the WM's small utility window
 /// (TASK-0336: the WM owns every window's geometry; app-host's probe size before).
 pub(crate) const AUTO_WINDOW: (u32, u32) = (320, 270);
-/// Rounded-corner radius of the floating app window's glass frame.
-pub(crate) const APP_WIN_RADIUS: u32 = 12;
 
 impl DisplayServerRuntime {
     /// `SURFACE_CREATE` (v2, RFC-0114 §3): validate and register the surface, show its window,
@@ -104,6 +102,7 @@ impl DisplayServerRuntime {
         self.apps[idx].intent_level = level;
         self.apps[idx].intent_mode = mode;
         self.apps[idx].intent_resizable = resizable;
+        self.apps[idx].intent_min = (c.size.min_width, c.size.min_height);
         self.apps[idx].owner_sid = sender_sid;
         // A new surface declares its layers anew (RFC-0109): nothing of the last one's survives.
         self.reset_surface_state(idx);

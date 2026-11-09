@@ -27,8 +27,8 @@ Component CaptureHole {
                 }
             }
             .width($state.capHoleW)
-            .border(medium)
-            .borderColor(onGlassStrong)
+            .border(ring)
+            .borderColor(label)
             Stack { }
                 .grow(1)
                 .bg(scrim)
@@ -48,26 +48,26 @@ Component CaptureHandles {
     Stack {
         Stack {
             Circle { size: 12 }
-                .bg(onGlassStrong)
-                .shadow(sm)
+                .bg(label)
+                .shadow(shadow1)
             Spacer
             Circle { size: 12 }
-                .bg(onGlassStrong)
-                .shadow(sm)
+                .bg(label)
+                .shadow(shadow1)
         }
         .direction(row)
         Spacer
         Stack {
             Circle { size: 12 }
-                .bg(onGlassStrong)
-                .shadow(sm)
+                .bg(label)
+                .shadow(shadow1)
             Spacer
             Circle { size: 12 }
-                .bg(onGlassStrong)
-                .shadow(sm)
+                .bg(label)
+                .shadow(shadow1)
         }
         .direction(row)
     }
     .grow(1)
-    .padding(1)
+    .padding(4)
 }

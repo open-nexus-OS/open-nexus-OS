@@ -1,0 +1,26 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The list view's column header (design: Table header): caption 11, padding
+// 0 16, gap 12, min height 30, a hairline under it; Date and Size pinned to
+// the same 104 / 96 columns as the rows.
+
+Component ColumnHeader {
+    Stack {
+        Stack {
+            Text(@t("stash.colName")).textStyle(caption).fontWeight(medium).fg(labelSecondary)
+            Spacer
+            Text(@t("stash.colDate")).textStyle(caption).fontWeight(medium).fg(labelSecondary).width(104).textAlign(right)
+            Text(@t("stash.colSize")).textStyle(caption).fontWeight(medium).fg(labelSecondary).width(96).textAlign(right)
+        }
+        .direction(row)
+        .align(center)
+        .gap(12)
+        .paddingX(16)
+        .minHeight(30)
+        Stack { }
+            .height(1)
+            .bg(separator)
+    }
+    .gap(0)
+}

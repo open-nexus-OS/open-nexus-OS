@@ -108,7 +108,7 @@ reduce E {
 Page P {
     Stack {
         Button { label: @t("go") }
-            .bg(surfaceVariant)
+            .bg(fill)
         on Tap -> dispatch(Submit)
     }
 }
@@ -311,15 +311,15 @@ Page P {
     Stack {
         if device.profile == desktop {
             Stack {
-                Text("wide layout").textSize(lg)
+                Text("wide layout").textStyle(title3)
                 Text("sidebar")
             }
             .direction(row)
-            .gap(4)
+            .gap(16)
         } else if device.profile == tablet {
-            Text("regular layout").textSize(base)
+            Text("regular layout").textStyle(body)
         } else {
-            Text("compact").textSize(sm)
+            Text("compact").textStyle(footnote)
         }
         if device.orientation == landscape {
             Text("landscape hint")
@@ -327,8 +327,8 @@ Page P {
             Spacer
         }
     }
-    .padding(3)
-    .gap(2)
+    .padding(12)
+    .gap(8)
 }
 "#;
 
@@ -417,8 +417,8 @@ Page Home {
         Button { label: "open" }
         on Tap -> navigate("/detail")
     }
-    .padding(2)
-    .gap(2)
+    .padding(8)
+    .gap(8)
 }
 Page Detail {
     Stack {
@@ -495,8 +495,8 @@ Page P {
         }
         Text($state.query)
     }
-    .padding(2)
-    .gap(2)
+    .padding(8)
+    .gap(8)
 }
 "#,
     );
@@ -673,8 +673,8 @@ Page P {
         TextField { label: "Secret", value: $state.secret, secure: true }
         Text($state.query)
     }
-    .padding(2)
-    .gap(2)
+    .padding(8)
+    .gap(8)
 }
 "#,
     );

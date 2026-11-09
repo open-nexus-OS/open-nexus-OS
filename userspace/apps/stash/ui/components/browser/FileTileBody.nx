@@ -1,0 +1,39 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The look of one grid tile (design: GridTile): padding 12 8, radius 12, no
+// surface at rest, the `fill` layer when selected; the type icon over the
+// name (footnote, medium) over the size (caption, secondary).
+
+Component FileTileBody {
+    props: {
+        name: Str,
+        size: Str,
+        icon: Str,
+        active: Bool,
+    }
+    if $props.active {
+        Stack {
+            Image { source: $props.icon, size: 48 }
+            Text($props.name).textStyle(footnote).fontWeight(medium).fg(label).truncate(1)
+            Text($props.size).textStyle(caption).fg(labelSecondary)
+        }
+        .align(center)
+        .gap(8)
+        .paddingX(8)
+        .paddingY(12)
+        .rounded(md)
+        .bg(fill)
+    } else {
+        Stack {
+            Image { source: $props.icon, size: 48 }
+            Text($props.name).textStyle(footnote).fontWeight(medium).fg(label).truncate(1)
+            Text($props.size).textStyle(caption).fg(labelSecondary)
+        }
+        .align(center)
+        .gap(8)
+        .paddingX(8)
+        .paddingY(12)
+        .rounded(md)
+    }
+}

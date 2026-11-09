@@ -22,10 +22,10 @@ impl DisplayServerRuntime {
     /// otherwise it gets the default window body size. Reply rides the app event
     /// channel; if it is not attached yet the app's bounded wait falls back.
     pub(crate) fn handle_surface_intent(&mut self, frame: &[u8], sender_sid: u64) {
-        let Some((style, level, mode, resizable, nonce)) = wire::decode_surface_intent(frame)
-        else {
+        let Some(intent) = wire::decode_surface_intent(frame) else {
             return;
         };
+        let wire::SurfaceIntent { style, level, mode, resizable, nonce, size } = intent;
         // STATELESS: the reply is computed from THIS frame's intent only.
         // Storing it here poisoned the floating window's `app_intent_*` when a
         // desktop app (shell/greeter) asked while a window was open — the
@@ -73,8 +73,19 @@ impl DisplayServerRuntime {
         };
         // A window that declares no size (`mode: auto`) gets the WM's small utility frame
         // (TASK-0336: the WM owns every window's geometry — the app asks, never assumes).
-        let (rw, rh) = if auto && !p.full_screen && !p.docked_bottom {
-            (super::app_window::AUTO_WINDOW.0 as u16, super::app_window::AUTO_WINDOW.1 as u16)
+        let wm_default = if auto { super::app_window::AUTO_WINDOW } else { (rw.into(), rh.into()) };
+        // RFC-0117: a floating window opens at the app's declared size, within its minimum and
+        // the work area (`window_size` is the rule; the app's u16s are bounded there).
+        let (rw, rh) = if !p.full_screen && !p.docked_bottom {
+            let work = (self.mode.width, self.work_area_h());
+            let min = crate::window_size::minimum(
+                (size.min_width, size.min_height),
+                (super::wm::MIN_WIN_W, super::wm::MIN_WIN_H),
+                work,
+            );
+            let (w, h) =
+                crate::window_size::opening((size.width, size.height), wm_default, min, work);
+            (w.min(u32::from(u16::MAX)) as u16, h.min(u32::from(u16::MAX)) as u16)
         } else {
             (rw, rh)
         };

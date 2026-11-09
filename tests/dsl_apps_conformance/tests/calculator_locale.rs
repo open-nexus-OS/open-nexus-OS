@@ -80,8 +80,16 @@ fn typing_under_the_german_pack_shows_the_digits() {
 
     // …and a German-formatted result.
     let (oe, oc) = view.runtime().event_case("CalcEvent", "Op").expect("Op");
-    view.dispatch(&tokens, &device, &locale, &mut host, oe, oc, vec![Value::Str("*".into())])
-        .expect("op");
+    view.dispatch(
+        &tokens,
+        &device,
+        &locale,
+        &mut host,
+        oe,
+        oc,
+        vec![Value::Str("*".into()), Value::Str("×".into())],
+    )
+    .expect("op");
     for d in [1i64, 0] {
         view.dispatch(
             &tokens,

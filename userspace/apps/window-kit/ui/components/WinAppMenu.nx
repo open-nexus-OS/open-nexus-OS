@@ -1,19 +1,26 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The app-chip window menu (design artifacts window frame; TASK-0066 — the
-// desktop default tiling model, nothing new built: the dropdown every
-// window-kit app already opens from its app icon gets its real job).
-//   row 1  move & resize:  left half · right half · four quarters   (glyphs only)
-//   row 2  fill & arrange: Fill · Left&Right · Top&Bottom · Quarters · Return
-//   then   Vollbild (the app-icon menu keeps fullscreen, the zoom control too),
-//          "Auf anderes Gerät bewegen" (future — dsoftbus; inert, dimmed),
-//          Minimieren · Schließen.
-// Every tile dispatches `WinAct("zone.<name>")` — the app's effect forwards
-// it as `window.control` to windowd's ONE tiling verb; windowd applies the
-// frame, draws nothing. The glyph rows carry no text (the glyph IS the
-// label, as in the desktop reference); the text rows' labels are props (a
-// library owns no i18n). Mounted ONCE, by `WinAppWindow`, for every window.
+// The window menu the app chip opens (design artifacts `WindowMenu`; TASK-0066
+// — the desktop's tiling model behind the chip every window-kit app shows):
+//   "Verschieben & Größe"  8 tiles: left · right · top · bottom half, the four
+//                          quarters                         (glyphs only)
+//   "Füllen & Anordnen"    5 tiles: fill · side by side · stacked · all
+//                          quarters · free (= return to the free frame)
+//   then  Vollbild · "Auf anderes Gerät" (future — dsoftbus: inert, drawn in
+//         `labelTertiary` with the `soon` hint) · Minimieren · Schließen.
+// The panel floats above the window's blur → the opaque overlay surface
+// (surfaceOverlay, glassEdge, shadow3, the lit top line), 340 wide, radius 16,
+// padding 8. Section labels are overline `labelSecondary` (padding 2 8 4);
+// tiles fill equal grid cells (8 / 5 columns, gap 2), 36 tall (padding 8 4
+// around the 28×20 glyph), radius 8 (16 − 8); text rows are 34 tall (padding
+// 8), gap 12, icon 16, subheadline 13/500 `label` — Schließen included (the
+// window menu closes a window, it does not warn); dividers are inset 4.
+//
+// Every tile dispatches `WinAct("zone.<name>")` — the app's effect forwards it
+// as `window.control` to windowd's ONE tiling verb; windowd applies the frame,
+// draws nothing. The text labels are props (a library owns no i18n). Mounted
+// ONCE, by `WinAppWindow`, for every window.
 //
 // STORE CONTRACT (the consuming app declares these — the kit dispatches):
 //   events  WinAct(Str) · WinNoop
@@ -24,83 +31,135 @@ Component WinAppMenu {
         moveDevice: Str,
         minimize: Str,
         close: Str,
+        moveLabel: Str,
+        arrangeLabel: Str,
+        soon: Str,
     }
     Stack {
-        Panel {
-            Stack {
-                Stack { WinTileGlyph { zone: "left-half" } }
-                    .width(32).height(26).rounded(md).align(center).justify(center)
-                    on Tap -> dispatch(WinAct("zone.left-half"))
-                Stack { WinTileGlyph { zone: "right-half" } }
-                    .width(32).height(26).rounded(md).align(center).justify(center)
-                    on Tap -> dispatch(WinAct("zone.right-half"))
-                Stack { WinTileGlyph { zone: "top-left" } }
-                    .width(32).height(26).rounded(md).align(center).justify(center)
-                    on Tap -> dispatch(WinAct("zone.top-left"))
-                Stack { WinTileGlyph { zone: "top-right" } }
-                    .width(32).height(26).rounded(md).align(center).justify(center)
-                    on Tap -> dispatch(WinAct("zone.top-right"))
-                Stack { WinTileGlyph { zone: "bottom-left" } }
-                    .width(32).height(26).rounded(md).align(center).justify(center)
-                    on Tap -> dispatch(WinAct("zone.bottom-left"))
-                Stack { WinTileGlyph { zone: "bottom-right" } }
-                    .width(32).height(26).rounded(md).align(center).justify(center)
-                    on Tap -> dispatch(WinAct("zone.bottom-right"))
-            }
-            .direction(row)
-            .align(center)
-            .gap(1)
-            .paddingX(1)
-            .paddingTop(1)
-            Stack {
-                Stack { WinTileGlyph { zone: "fill" } }
-                    .width(32).height(26).rounded(md).align(center).justify(center)
-                    on Tap -> dispatch(WinAct("zone.fill"))
-                Stack { WinTileGlyph { zone: "left-right" } }
-                    .width(32).height(26).rounded(md).align(center).justify(center)
-                    on Tap -> dispatch(WinAct("zone.left-right"))
-                Stack { WinTileGlyph { zone: "top-bottom" } }
-                    .width(32).height(26).rounded(md).align(center).justify(center)
-                    on Tap -> dispatch(WinAct("zone.top-bottom"))
-                Stack { WinTileGlyph { zone: "quarters" } }
-                    .width(32).height(26).rounded(md).align(center).justify(center)
-                    on Tap -> dispatch(WinAct("zone.quarters"))
-                Stack { WinTileGlyph { zone: "return" } }
-                    .width(32).height(26).rounded(md).align(center).justify(center)
-                    on Tap -> dispatch(WinAct("zone.return"))
-            }
-            .direction(row)
-            .align(center)
-            .gap(1)
-            .paddingX(1)
-            Stack { }
-                .height(1)
-                .bg(divider)
-            WinMenuItem { id: "mode.fullscreen", label: $props.fullscreen, icon: "maximize", kind: "", act: true }
-            // Future (dsoftbus): drawn dimmed, no handler — a control that does
-            // nothing must not look like one that does.
-            Stack {
-                Icon { symbol: "arrow.right", size: 13 }
-                    .fg(onGlassMuted)
-                Text($props.moveDevice).textSize(sm).fg(onGlassMuted)
-            }
-            .direction(row)
-            .align(center)
-            .gap(2)
-            .paddingX(2)
-            .height(30)
-            .disabled(true)
-            Stack { }
-                .height(1)
-                .bg(divider)
-            WinMenuItem { id: "minimize", label: $props.minimize, icon: "minimize", kind: "", act: true }
-            WinMenuItem { id: "close", label: $props.close, icon: "xmark", kind: "danger", act: true }
+        Stack {
+            Text($props.moveLabel).textStyle(overline).fg(labelSecondary)
         }
-        .material(overlay)
-        .rounded(xl)
-        .width(230)
-        .gap(0)
-        .padding(1)
+        .paddingX(8)
+        .paddingTop(2)
+        .paddingBottom(4)
+        Grid { columns: 8
+            Stack { WinTileGlyph { zone: "left-half" } }
+                .height(36).grow(1).rounded(sm).align(center).justify(center)
+                on Tap -> dispatch(WinAct("zone.left-half"))
+            Stack { WinTileGlyph { zone: "right-half" } }
+                .height(36).grow(1).rounded(sm).align(center).justify(center)
+                on Tap -> dispatch(WinAct("zone.right-half"))
+            Stack { WinTileGlyph { zone: "top-half" } }
+                .height(36).grow(1).rounded(sm).align(center).justify(center)
+                on Tap -> dispatch(WinAct("zone.top-half"))
+            Stack { WinTileGlyph { zone: "bottom-half" } }
+                .height(36).grow(1).rounded(sm).align(center).justify(center)
+                on Tap -> dispatch(WinAct("zone.bottom-half"))
+            Stack { WinTileGlyph { zone: "top-left" } }
+                .height(36).grow(1).rounded(sm).align(center).justify(center)
+                on Tap -> dispatch(WinAct("zone.top-left"))
+            Stack { WinTileGlyph { zone: "top-right" } }
+                .height(36).grow(1).rounded(sm).align(center).justify(center)
+                on Tap -> dispatch(WinAct("zone.top-right"))
+            Stack { WinTileGlyph { zone: "bottom-left" } }
+                .height(36).grow(1).rounded(sm).align(center).justify(center)
+                on Tap -> dispatch(WinAct("zone.bottom-left"))
+            Stack { WinTileGlyph { zone: "bottom-right" } }
+                .height(36).grow(1).rounded(sm).align(center).justify(center)
+                on Tap -> dispatch(WinAct("zone.bottom-right"))
+        }
+        .gap(2)
+        Stack {
+            Stack { }
+                .height(1)
+                .bg(separator)
+        }
+        .padding(4)
+        Stack {
+            Text($props.arrangeLabel).textStyle(overline).fg(labelSecondary)
+        }
+        .paddingX(8)
+        .paddingTop(2)
+        .paddingBottom(4)
+        Grid { columns: 5
+            Stack { WinTileGlyph { zone: "fill" } }
+                .height(36).grow(1).rounded(sm).align(center).justify(center)
+                on Tap -> dispatch(WinAct("zone.fill"))
+            Stack { WinTileGlyph { zone: "left-right" } }
+                .height(36).grow(1).rounded(sm).align(center).justify(center)
+                on Tap -> dispatch(WinAct("zone.left-right"))
+            Stack { WinTileGlyph { zone: "top-bottom" } }
+                .height(36).grow(1).rounded(sm).align(center).justify(center)
+                on Tap -> dispatch(WinAct("zone.top-bottom"))
+            Stack { WinTileGlyph { zone: "quarters" } }
+                .height(36).grow(1).rounded(sm).align(center).justify(center)
+                on Tap -> dispatch(WinAct("zone.quarters"))
+            Stack { WinTileGlyph { zone: "return" } }
+                .height(36).grow(1).rounded(sm).align(center).justify(center)
+                on Tap -> dispatch(WinAct("zone.return"))
+        }
+        .gap(2)
+        Stack {
+            Stack { }
+                .height(1)
+                .bg(separator)
+        }
+        .padding(4)
+        Stack {
+            Icon { symbol: "maximize", size: 16 }
+                .fg(label)
+            Text($props.fullscreen).textStyle(subheadline).fontWeight(medium).fg(label)
+        }
+        .direction(row)
+        .align(center)
+        .gap(12)
+        .padding(8)
+        .rounded(sm)
+        on Tap -> dispatch(WinAct("mode.fullscreen"))
+        // Future (dsoftbus): drawn in `labelTertiary`, no handler — a control
+        // that does nothing must not look like one that does.
+        Stack {
+            Icon { symbol: "iphone", size: 16 }
+                .fg(labelTertiary)
+            Text($props.moveDevice).textStyle(subheadline).fontWeight(medium).fg(labelTertiary).grow(1)
+            Text($props.soon).textStyle(caption).fg(labelTertiary)
+        }
+        .direction(row)
+        .align(center)
+        .gap(12)
+        .padding(8)
+        Stack {
+            Stack { }
+                .height(1)
+                .bg(separator)
+        }
+        .padding(4)
+        Stack {
+            Icon { symbol: "minus", size: 16 }
+                .fg(label)
+            Text($props.minimize).textStyle(subheadline).fontWeight(medium).fg(label)
+        }
+        .direction(row)
+        .align(center)
+        .gap(12)
+        .padding(8)
+        .rounded(sm)
+        on Tap -> dispatch(WinAct("minimize"))
+        Stack {
+            Icon { symbol: "xmark", size: 16 }
+                .fg(label)
+            Text($props.close).textStyle(subheadline).fontWeight(medium).fg(label)
+        }
+        .direction(row)
+        .align(center)
+        .gap(12)
+        .padding(8)
+        .rounded(sm)
+        on Tap -> dispatch(WinAct("close"))
     }
+    .width(340)
+    .padding(8)
+    .material(overlay)
+    .rounded(lg)
     on Tap -> dispatch(WinNoop)
 }

@@ -1,0 +1,18 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The notification centre's empty state (design artifacts: panels §4): the silenced bell,
+// "Keine Mitteilungen" and its hint, centred.
+
+Component NotifEmpty {
+    Stack {
+        Icon { symbol: "bell.slash", size: 32 }
+            .fg(labelSecondary)
+        Text(@t("notif.empty")).textStyle(headline).fg(label)
+        Text(@t("notif.emptyHint")).textStyle(footnote).fg(labelSecondary)
+    }
+    .align(center)
+    .gap(4)
+    .paddingX(8)
+    .paddingY(24)
+}

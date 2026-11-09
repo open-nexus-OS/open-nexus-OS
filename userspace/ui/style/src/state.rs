@@ -1,13 +1,17 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! Interaction state for design-system components — the shared vocabulary that
-//! maps a control's live input state to deterministic visual modulation, so
-//! every component (and its goldens) expresses default/hover/pressed/focus/
-//! disabled identically. Pure data (no rendering, no app state): the compositor
-//! decides the state by hit-testing the component's id; the component builds the
-//! state-adjusted `Style` from tokens. This is the canonical state model the
-//! windowd live path maps onto during convergence (RFC-0070 W6).
+//! Interaction state for design-system components — the shared vocabulary that maps a
+//! control's live input state to deterministic visuals, so every component (and its goldens)
+//! expresses default/hover/pressed/focus/disabled identically. Pure data (no rendering, no app
+//! state): the compositor decides the state by hit-testing the component's id; the component
+//! builds the state-adjusted `Style` from tokens.
+//!
+//! Hover and press NEVER repaint a control (the design artifacts' control system): the host
+//! shows a `fillHover` / `fillActive` layer over the control by opacity, so a widget builds the
+//! same style for `Hover`, `Pressed` and `Default`. What a widget does draw from the state is
+//! the disabled dim ([`InteractionState::opacity_as`]) and the focus ring
+//! ([`InteractionState::shows_focus_ring`]).
 
 use nexus_layout_types::{Fraction, Rgba8};
 
@@ -17,14 +21,39 @@ pub enum InteractionState {
     /// Resting.
     #[default]
     Default,
-    /// Pointer over the control.
+    /// Pointer over the control (the host's hover layer; the control does not repaint).
     Hover,
-    /// Actively pressed.
+    /// Actively pressed (the host's press layer; the control does not repaint).
     Pressed,
     /// Keyboard/focus target.
     Focused,
     /// Non-interactive, dimmed.
     Disabled,
+}
+
+/// How far a control dims when disabled — the artifacts set it per control family.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Dim {
+    /// Buttons and text entry (button, text field, search, text area, progress): 0.50.
+    #[default]
+    Action,
+    /// Value and selection controls (switch, checkbox, radio, segment, select, stepper, slider,
+    /// PIN field, chip, list row): 0.45.
+    Control,
+    /// One option inside a control (a segment item, a select or menu row): 0.40.
+    Option,
+}
+
+impl Dim {
+    /// The disabled opacity of the family (0..255).
+    #[must_use]
+    pub const fn opacity(self) -> Fraction {
+        match self {
+            Dim::Action => Fraction::new(128),
+            Dim::Control => Fraction::new(115),
+            Dim::Option => Fraction::new(102),
+        }
+    }
 }
 
 impl InteractionState {
@@ -38,23 +67,16 @@ impl InteractionState {
         matches!(self, Self::Focused)
     }
 
-    /// Element opacity for the state (disabled dims to ~55%).
+    /// Element opacity for the state with the action family's dim (disabled: 0.50).
     pub fn opacity(self) -> Fraction {
-        match self {
-            Self::Disabled => Fraction::new(140),
-            _ => Fraction::OPAQUE,
-        }
+        self.opacity_as(Dim::Action)
     }
 
-    /// Alpha (0..255) of the feedback wash blended over a surface toward its
-    /// foreground, giving tactile hover/press feedback (0 = none). Blending
-    /// toward the *foreground* darkens on light themes and lightens on dark
-    /// themes automatically.
-    pub fn wash_alpha(self) -> u8 {
+    /// Element opacity for the state with `dim`'s disabled opacity; opaque otherwise.
+    pub fn opacity_as(self, dim: Dim) -> Fraction {
         match self {
-            Self::Hover => 20,
-            Self::Pressed => 40,
-            _ => 0,
+            Self::Disabled => dim.opacity(),
+            _ => Fraction::OPAQUE,
         }
     }
 }
@@ -73,13 +95,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn disabled_dims_only() {
+    fn disabled_dims_per_control_family() {
         assert!(InteractionState::Disabled.is_disabled());
-        assert_eq!(InteractionState::Disabled.opacity(), Fraction::new(140));
-        assert_eq!(InteractionState::Default.opacity(), Fraction::OPAQUE);
-        assert_eq!(InteractionState::Hover.wash_alpha(), 20);
-        assert_eq!(InteractionState::Pressed.wash_alpha(), 40);
+        assert_eq!(InteractionState::Disabled.opacity_as(Dim::Action), Fraction::new(128));
+        assert_eq!(InteractionState::Disabled.opacity_as(Dim::Control), Fraction::new(115));
+        assert_eq!(InteractionState::Disabled.opacity_as(Dim::Option), Fraction::new(102));
+        assert_eq!(InteractionState::Disabled.opacity(), Dim::Action.opacity());
+        for live in [
+            InteractionState::Default,
+            InteractionState::Hover,
+            InteractionState::Pressed,
+            InteractionState::Focused,
+        ] {
+            assert_eq!(live.opacity_as(Dim::Control), Fraction::OPAQUE, "{live:?}");
+        }
         assert!(InteractionState::Focused.shows_focus_ring());
+        assert!(!InteractionState::Hover.shows_focus_ring());
     }
 
     #[test]

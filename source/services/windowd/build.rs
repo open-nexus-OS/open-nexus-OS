@@ -13,20 +13,17 @@ mod proof_panel_spec {
     include!("build_support/proof_panel_spec.rs");
 }
 
-use proof_panel_spec::{
-    ALL_TEXT_SPECS, TOKEN_CARD_ACTIVE_BG, TOKEN_CARD_BG, TOKEN_CARD_BORDER, TOKEN_CARD_LABEL,
-    TOKEN_CLICK, TOKEN_GLASS_EDGE, TOKEN_GLASS_TINT, TOKEN_HOVER, TOKEN_ICON_BG, TOKEN_ICON_FG,
-    TOKEN_KEYBOARD, TOKEN_PANEL_BG, TOKEN_PANEL_BORDER, TOKEN_PANEL_MUTED, TOKEN_PANEL_SUBTITLE,
-    TOKEN_PANEL_TITLE, TOKEN_SCROLL,
-};
+// The pointer's sprites in both Mocu variants (TASK-0353 P8).
+#[path = "build_support/cursors.rs"]
+mod cursors;
+
+use proof_panel_spec::ALL_TEXT_SPECS;
 
 const INTER_FONT: &str = "../../../resources/fonts/inter/docs/font-files/InterVariable.ttf";
-const MOCU_DEFAULT: &str = "../../../resources/cursors/mocu/src/svg/default.svg";
 const THEMES_DIR: &str = "../../../resources/themes";
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed={INTER_FONT}");
-    println!("cargo:rerun-if-changed={MOCU_DEFAULT}");
     println!("cargo:rerun-if-changed={THEMES_DIR}");
     println!("cargo:rerun-if-changed=src/proof_panel_spec.rs");
 
@@ -35,56 +32,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let font_bytes = fs::read(INTER_FONT)?;
     let font = fontdue::Font::from_bytes(font_bytes, fontdue::FontSettings::default())
         .map_err(|err| std::io::Error::other(format!("parse Inter font: {err:?}")))?;
+    // The proof texts are baked in the boot theme (dark). The compositor's runtime colours are
+    // not baked here: it reads the typed tokens (`nexus-theme-tokens`, generated from the same
+    // theme files) for the active mode — see `src/theme.rs`.
     let mut theme_runtime = ThemeRuntime::load(Path::new(THEMES_DIR))?;
     theme_runtime.set_qualifier(Qualifier::Dark);
 
-    let mocu = fs::read_to_string(MOCU_DEFAULT)?;
-    if !(mocu.contains("#fafbfc") && mocu.contains("#1a1b1c") && mocu.contains("id=\"hot\"")) {
-        return Err("Mocu default cursor source shape changed".into());
-    }
-
     let generated_path = out_dir.join("windowd_generated_assets.rs");
     let mut generated = File::create(generated_path)?;
-    emit_theme_color(&mut generated, "PROOF_PANEL_BG_RGBA", &theme_runtime, TOKEN_PANEL_BG)?;
-    emit_theme_color(
-        &mut generated,
-        "PROOF_PANEL_BORDER_RGBA",
-        &theme_runtime,
-        TOKEN_PANEL_BORDER,
-    )?;
-    emit_theme_color(&mut generated, "PROOF_PANEL_TITLE_RGBA", &theme_runtime, TOKEN_PANEL_TITLE)?;
-    emit_theme_color(
-        &mut generated,
-        "PROOF_PANEL_SUBTITLE_RGBA",
-        &theme_runtime,
-        TOKEN_PANEL_SUBTITLE,
-    )?;
-    emit_theme_color(&mut generated, "PROOF_PANEL_MUTED_RGBA", &theme_runtime, TOKEN_PANEL_MUTED)?;
-    emit_theme_color(&mut generated, "PROOF_CARD_BG_RGBA", &theme_runtime, TOKEN_CARD_BG)?;
-    emit_theme_color(
-        &mut generated,
-        "PROOF_CARD_ACTIVE_BG_RGBA",
-        &theme_runtime,
-        TOKEN_CARD_ACTIVE_BG,
-    )?;
-    emit_theme_color(&mut generated, "PROOF_CARD_BORDER_RGBA", &theme_runtime, TOKEN_CARD_BORDER)?;
-    emit_theme_color(&mut generated, "PROOF_CARD_LABEL_RGBA", &theme_runtime, TOKEN_CARD_LABEL)?;
-    emit_theme_color(&mut generated, "PROOF_ICON_BG_RGBA", &theme_runtime, TOKEN_ICON_BG)?;
-    emit_theme_color(&mut generated, "PROOF_ICON_FG_RGBA", &theme_runtime, TOKEN_ICON_FG)?;
-    emit_theme_color(&mut generated, "PROOF_HOVER_RGBA", &theme_runtime, TOKEN_HOVER)?;
-    emit_theme_color(&mut generated, "PROOF_CLICK_RGBA", &theme_runtime, TOKEN_CLICK)?;
-    emit_theme_color(&mut generated, "PROOF_SCROLL_RGBA", &theme_runtime, TOKEN_SCROLL)?;
-    emit_theme_color(&mut generated, "PROOF_KEYBOARD_RGBA", &theme_runtime, TOKEN_KEYBOARD)?;
-    emit_theme_color(&mut generated, "GLASS_TINT_RGBA", &theme_runtime, TOKEN_GLASS_TINT)?;
-    emit_theme_color(&mut generated, "GLASS_EDGE_RGBA", &theme_runtime, TOKEN_GLASS_EDGE)?;
-
-    // Dual theme snapshots (TASK-0072 Phase 9): the SAME token vocabulary baked
-    // for BOTH qualifiers as `ThemeTokens` consts (BGRA), so the runtime light/
-    // dark switch is a const swap + full redraw. Dark is the boot default.
-    emit_theme_tokens(&mut generated, &theme_runtime, "THEME_DARK")?;
-    theme_runtime.set_qualifier(Qualifier::Light);
-    emit_theme_tokens(&mut generated, &theme_runtime, "THEME_LIGHT")?;
-    theme_runtime.set_qualifier(Qualifier::Dark);
 
     for spec in ALL_TEXT_SPECS {
         let rendered = render_text_asset(
@@ -114,95 +69,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Glyph atlases: PROMOTED to `nexus-text-baked` (RFC-0067 P5) — windowd
     // consumes the shared SSOT; `font` below only prerenders panel texts.
 
-    let cursor_svg = normalized_mocu_cursor_svg();
-    // The Mocu cursor's path geometry runs to y≈35.3 / x≈22.7, but its canvas was
-    // declared 32×32 — rendering at the intrinsic size clipped the bottom tail.
-    // The SVG now declares a 36×36 canvas that encloses the full artwork; render
-    // it *scaled into* a 32×32 square so the complete cursor fits, nothing clipped
-    // (nexus-svg maps the doc box onto the target — render-at-scale). Hotspot
-    // (the tip, ~user (2,2)) stays ≈(2,2) after the 32/36 scale.
-    const CURSOR_DIM: u32 = 32;
-    const CURSOR_SS: u32 = 4;
-    let cursor_hi =
-        nexus_svg::render_svg_at(cursor_svg, CURSOR_DIM * CURSOR_SS, CURSOR_DIM * CURSOR_SS)
-            .map_err(|err| std::io::Error::other(format!("render Mocu cursor SVG: {err:?}")))?;
-    let cursor_bgra =
-        box_average_downscale(&cursor_hi.buffer, cursor_hi.width, cursor_hi.height, CURSOR_SS);
-    let cursor_path = out_dir.join("mocu_cursor.bgra");
-    fs::write(&cursor_path, &cursor_bgra)?;
-    writeln!(generated, "pub const MOCU_CURSOR_WIDTH: u32 = {CURSOR_DIM};")?;
-    writeln!(generated, "pub const MOCU_CURSOR_HEIGHT: u32 = {CURSOR_DIM};")?;
-    writeln!(
-        generated,
-        "pub const MOCU_CURSOR_BGRA: &[u8] = include_bytes!(r#\"{}\"#);",
-        cursor_path.display()
-    )?;
-    writeln!(generated, "pub const MOCU_CURSOR_HOTSPOT_X: i32 = 2;")?;
-    writeln!(generated, "pub const MOCU_CURSOR_HOTSPOT_Y: i32 = 2;")?;
-    writeln!(generated, "pub const MOCU_CURSOR_LEFT_PTR_SVG: &str = r##\"{}\"##;", cursor_svg)?;
-
-    // Resize pointer shapes (TASK-0070 Phase 3): the vendored cursor theme's
-    // `ew`/`ns`/`nesw`/`nwse` variants, rendered through the same 4×-SSAA
-    // pipeline at the same 32×32 as the default pointer. Hotspot = center
-    // (16,16) — these are symmetric double-arrow shapes.
-    for (name, svg) in [
-        ("CURSOR_RESIZE_EW", include_str!("../../../resources/cursors/mocu/src/svg/ew-resize.svg")),
-        ("CURSOR_RESIZE_NS", include_str!("../../../resources/cursors/mocu/src/svg/ns-resize.svg")),
-        (
-            "CURSOR_RESIZE_NESW",
-            include_str!("../../../resources/cursors/mocu/src/svg/nesw-resize.svg"),
-        ),
-        (
-            "CURSOR_RESIZE_NWSE",
-            include_str!("../../../resources/cursors/mocu/src/svg/nwse-resize.svg"),
-        ),
-        // Text I-beam (RFC-0075 cursor-hint): hovering an editable field.
-        ("CURSOR_TEXT", include_str!("../../../resources/cursors/mocu/src/svg/text.svg")),
-    ] {
-        // The theme's shape sources use `<defs>` + `<use>` (unsupported by
-        // nexus-svg) — normalize like the default pointer: inline the shared
-        // path as dark outline + light fill, drop the faint offset shadow and
-        // the red hotspot marker circle.
-        let normalized = normalized_mocu_shape_svg(svg)
-            .ok_or_else(|| std::io::Error::other(format!("normalize cursor {name}")))?;
-        let hi =
-            nexus_svg::render_svg_at(&normalized, CURSOR_DIM * CURSOR_SS, CURSOR_DIM * CURSOR_SS)
-                .map_err(|err| std::io::Error::other(format!("render cursor {name}: {err:?}")))?;
-        let bgra = box_average_downscale(&hi.buffer, hi.width, hi.height, CURSOR_SS);
-        let path = out_dir.join(format!("{}.bgra", name.to_lowercase()));
-        fs::write(&path, &bgra)?;
-        writeln!(
-            generated,
-            "pub const {name}_BGRA: &[u8] = include_bytes!(r#\"{}\"#);",
-            path.display()
-        )?;
-    }
-
-    // Loading-ring wait-cursor frames: a Mocu-style activity ring — a light
-    // ring with a rotating fading tail over a soft dark halo (readable on both
-    // themes) — drawn procedurally with distance-based AA (no SVG source),
-    // premultiplied BGRA like every cursor sprite, 32×32, hotspot = center.
-    // Frame `i` leads at angle `i/N × 2π`; windowd cycles the pre-uploaded
-    // shape-cache slots while a launch is pending.
-    const RING_FRAME_COUNT: u32 = 8;
-    for f in 0..RING_FRAME_COUNT {
-        let bgra = render_ring_frame(CURSOR_DIM, f, RING_FRAME_COUNT);
-        let path = out_dir.join(format!("cursor_ring_{f}.bgra"));
-        fs::write(&path, &bgra)?;
-        writeln!(
-            generated,
-            "pub const CURSOR_RING_{f}_BGRA: &[u8] = include_bytes!(r#\"{}\"#);",
-            path.display()
-        )?;
-    }
-    writeln!(
-        generated,
-        "pub const CURSOR_RING_FRAMES: [&[u8]; {RING_FRAME_COUNT}] = [{}];",
-        (0..RING_FRAME_COUNT)
-            .map(|f| format!("CURSOR_RING_{f}_BGRA"))
-            .collect::<Vec<_>>()
-            .join(", ")
-    )?;
+    cursors::emit(out_dir)?;
 
     // Real icon (TASK #61 "real icon layer"): render a Lucide icon through the
     // nexus-svg render-at-scale pipeline (currentColor → tint) into a BGRA sprite.
@@ -367,53 +234,6 @@ fn blend(dst: &mut [u8], src: [u8; 4]) {
     dst[3] = dst[3].max(src[3]);
 }
 
-fn emit_theme_color(
-    generated: &mut File,
-    const_name: &str,
-    runtime: &ThemeRuntime,
-    token: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let color = runtime.resolve(token)?;
-    writeln!(
-        generated,
-        "pub const {const_name}: [u8; 4] = [{}, {}, {}, {}];",
-        color.r, color.g, color.b, color.a
-    )?;
-    Ok(())
-}
-
-/// Emit a [`crate::theme::ThemeTokens`] const for the runtime's CURRENT
-/// qualifier (TASK-0072 Phase 9). Each field is a BGRA array so surface
-/// renderers can write it directly. The token names match the `.nxtheme.toml`
-/// vocabulary.
-fn emit_theme_tokens(
-    generated: &mut File,
-    runtime: &ThemeRuntime,
-    name: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let f = |t: &str| -> Result<String, Box<dyn std::error::Error>> {
-        let c = color_bgra(runtime.resolve(t)?);
-        Ok(format!("[{}, {}, {}, {}]", c[0], c[1], c[2], c[3]))
-    };
-    writeln!(
-        generated,
-        "pub const {name}: crate::theme::ThemeTokens = crate::theme::ThemeTokens {{\n\
-         \x20   surface: {}, surface_alt: {}, border: {}, fg: {}, muted_fg: {},\n\
-         \x20   accent: {}, accent_fg: {}, glass_tint: {}, glass_edge: {},\n\
-         }};",
-        f("surface")?,
-        f("surfaceAlt")?,
-        f("border")?,
-        f("fg")?,
-        f("mutedFg")?,
-        f("accent")?,
-        f("accentFg")?,
-        f("glassTint")?,
-        f("glassEdge")?,
-    )?;
-    Ok(())
-}
-
 fn color_bgra(color: ColorValue) -> [u8; 4] {
     [color.b, color.g, color.r, color.a]
 }
@@ -458,50 +278,6 @@ fn box_average_downscale(src: &[u8], sw: u32, sh: u32, factor: u32) -> Vec<u8> {
 /// Convert a premultiplied BGRA buffer to straight (un-associated) alpha:
 /// `straight_rgb = premul_rgb · 255 / a` (rounded, clamped), alpha unchanged.
 /// Transparent pixels (a=0) stay zero. Matches gpud's straight-alpha layer blend.
-/// One wait-cursor ring frame: premultiplied BGRA, `dim`×`dim`, drawn with
-/// distance-field AA. Geometry: ring radius `dim×0.34`, core thickness ~3px,
-/// plus a 1px dark halo under the light core so the ring reads on light AND
-/// dark backdrops. The tail fades from the leading angle around the circle.
-fn render_ring_frame(dim: u32, frame: u32, frames: u32) -> Vec<u8> {
-    let mut out = vec![0u8; (dim * dim * 4) as usize];
-    let c = dim as f32 / 2.0;
-    let r_mid = dim as f32 * 0.34;
-    let core_half = 1.6f32;
-    let halo_half = 2.8f32;
-    let lead = frame as f32 / frames as f32 * core::f32::consts::TAU;
-    // Light core over dark halo (straight colors; premultiplied at write).
-    let core = (245.0f32, 245.0, 248.0); // B,G,R equal-ish neutral light
-    let halo = (36.0f32, 33.0, 30.0);
-    for y in 0..dim {
-        for x in 0..dim {
-            let dx = x as f32 + 0.5 - c;
-            let dy = y as f32 + 0.5 - c;
-            let d = (dx * dx + dy * dy).sqrt();
-            // Angular tail: 1.0 at the leading angle, fading to 0.12 behind it.
-            let ang = dy.atan2(dx);
-            let mut behind = (lead - ang) / core::f32::consts::TAU;
-            behind -= behind.floor(); // wrap into [0,1)
-            let tail = 1.0 - behind * 0.88;
-            let core_cov = (core_half - (d - r_mid).abs() + 0.5).clamp(0.0, 1.0);
-            let halo_cov = (halo_half - (d - r_mid).abs() + 0.5).clamp(0.0, 1.0);
-            // src-over: halo below, core above (both tail-faded).
-            let a_halo = halo_cov * 0.85 * tail;
-            let a_core = core_cov * tail;
-            let a = a_core + a_halo * (1.0 - a_core);
-            if a <= 0.0 {
-                continue;
-            }
-            let blend = |cc: f32, hc: f32| cc * a_core + hc * a_halo * (1.0 - a_core);
-            let i = ((y * dim + x) * 4) as usize;
-            out[i] = blend(core.0, halo.0) as u8; // B (premultiplied)
-            out[i + 1] = blend(core.1, halo.1) as u8; // G
-            out[i + 2] = blend(core.2, halo.2) as u8; // R
-            out[i + 3] = (a * 255.0) as u8;
-        }
-    }
-    out
-}
-
 fn unpremultiply_bgra(src: &[u8]) -> Vec<u8> {
     let mut out = src.to_vec();
     for px in out.chunks_exact_mut(4) {
@@ -517,30 +293,6 @@ fn unpremultiply_bgra(src: &[u8]) -> Vec<u8> {
         }
     }
     out
-}
-
-/// Inline a mocu shape SVG (`<defs><path id="c" …/></defs>` + `<use>` layers)
-/// into the plain-path form nexus-svg renders: dark stroked outline + light
-/// fill from the shared geometry; the 10%-opacity offset shadow and the red
-/// `id="hot"` marker circle are dropped (same policy as the default pointer).
-fn normalized_mocu_shape_svg(raw: &str) -> Option<String> {
-    let d = raw.split("<path id=\"c\" d=\"").nth(1)?.split('"').next()?;
-    Some(format!(
-        "<svg width=\"24\" height=\"24\" xmlns=\"http://www.w3.org/2000/svg\">\
-         <path d=\"{d}\" fill=\"#1a1b1c\" stroke=\"#1a1b1c\" stroke-width=\"2\" stroke-linejoin=\"round\"/>\
-         <path d=\"{d}\" fill=\"#fafbfc\"/></svg>"
-    ))
-}
-
-fn normalized_mocu_cursor_svg() -> &'static str {
-    // Canvas is 36×36 (not 32) so it encloses the path geometry, which extends to
-    // y≈35.3 / x≈22.7 — a 32 canvas clipped the cursor's bottom tail. The build
-    // renders this scaled into the target cursor square.
-    "<svg width=\"36\" height=\"36\" xmlns=\"http://www.w3.org/2000/svg\">\
-<path d=\"M 1 1 L 1 30 L 9.3 26.6 L 12.9 35.3 L 18 33 L 14.4 24.3 L 22.7 20.9 Z\" fill=\"#0a0b0c\"/>\
-<path d=\"M 2 2 L 2 29.5 L 9.9 26.2 L 13.3 34.6 L 17 33 L 13.6 24.7 L 21.5 21.4 Z\" fill=\"#1a1b1c\"/>\
-<path d=\"M 4 4 L 4 25 L 10.4 22.4 L 13.8 30.6 L 15.2 30 L 11.9 21.9 L 18.4 19.2 Z\" fill=\"#fafbfc\"/>\
-</svg>"
 }
 
 // The doubled DSL-shell compile path (`dsl_root` → in-process mount) is

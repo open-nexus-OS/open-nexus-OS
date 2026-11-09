@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use nexus_theme::{ColorValue, Qualifier, ThemeError, ThemeRuntime};
+use nexus_theme::{Backdrop, ColorValue, Qualifier, ThemeError, ThemeRuntime};
 
 fn themes_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -118,32 +118,128 @@ fn test_missing_base_theme() {
 }
 
 // ---------------------------------------------------------------------------
-// Token resolution
+// Token resolution (RFC-0116: the design artifacts' roles)
 // ---------------------------------------------------------------------------
 
+fn hex(s: &str) -> ColorValue {
+    ColorValue::from_hex(s).unwrap()
+}
+
+fn at(q: Qualifier) -> ThemeRuntime {
+    let mut runtime = ThemeRuntime::load(&themes_dir()).unwrap();
+    runtime.set_qualifier(q);
+    runtime
+}
+
+/// Every role RFC-0116 names.
+const ROLES: [&str; 35] = [
+    "background",
+    "label",
+    "labelSecondary",
+    "labelTertiary",
+    "separator",
+    "fill",
+    "fillHover",
+    "fillActive",
+    "glassPanel",
+    "glassWindow",
+    "glassCard",
+    "glassEdge",
+    "surfacePane",
+    "surfaceOverlay",
+    "scrim",
+    "primary",
+    "onPrimary",
+    "accent",
+    "accentGlow",
+    "onAccent",
+    "danger",
+    "success",
+    "warning",
+    "modeAirplane",
+    "modeDesktop",
+    "modeTablet",
+    "island",
+    "chart1",
+    "chart2",
+    "chart3",
+    "chart4",
+    "chart5",
+    "wallpaperTint",
+    "labelShadow",
+    "transparent",
+];
+
+/// The roles whose light and dark values differ: dark and high contrast author each one.
+const THEME_VARYING: [&str; 23] = [
+    "background",
+    "label",
+    "labelSecondary",
+    "labelTertiary",
+    "separator",
+    "fill",
+    "fillHover",
+    "fillActive",
+    "glassPanel",
+    "glassWindow",
+    "glassCard",
+    "glassEdge",
+    "surfacePane",
+    "surfaceOverlay",
+    "scrim",
+    "primary",
+    "onPrimary",
+    "accent",
+    "danger",
+    "success",
+    "warning",
+    "wallpaperTint",
+    "labelShadow",
+];
+
 #[test]
-fn test_resolve_token_from_base() {
+fn every_role_resolves_in_every_theme() {
+    for q in [Qualifier::Base, Qualifier::Light, Qualifier::Dark, Qualifier::HighContrast] {
+        let runtime = at(q);
+        for role in ROLES {
+            assert!(runtime.resolve(role).is_ok(), "{role} missing under {q:?}");
+        }
+    }
+}
+
+#[test]
+fn dark_and_high_contrast_author_every_theme_varying_role() {
     let runtime = ThemeRuntime::load(&themes_dir()).unwrap();
-    let accent = runtime.resolve("accent").unwrap();
-    assert_eq!(accent, ColorValue::from_hex("#3b82f6").unwrap());
+    for q in [Qualifier::Dark, Qualifier::HighContrast] {
+        for role in THEME_VARYING {
+            assert!(runtime.defines_token(q, role), "{role} inherited the light value under {q:?}");
+        }
+    }
 }
 
 #[test]
-fn test_resolve_token_dark_override() {
-    let mut runtime = ThemeRuntime::load(&themes_dir()).unwrap();
-    runtime.set_qualifier(Qualifier::Dark);
-    let bg = runtime.resolve("bg").unwrap();
-    // Dark bg = design .dark background oklch(0.145) = #0a0a0a.
-    assert_eq!(bg, ColorValue::from_hex("#0a0a0a").unwrap());
+fn the_light_values_are_the_artifacts() {
+    let runtime = at(Qualifier::Light);
+    assert_eq!(runtime.resolve("label").unwrap(), hex("#000000e0"));
+    assert_eq!(runtime.resolve("labelSecondary").unwrap(), hex("#0000008f"));
+    assert_eq!(runtime.resolve("fill").unwrap(), hex("#78788029"));
+    assert_eq!(runtime.resolve("glassWindow").unwrap(), hex("#f6f7fae6"));
+    assert_eq!(runtime.resolve("accent").unwrap(), hex("#2563eb"));
+    assert_eq!(runtime.resolve("danger").unwrap(), hex("#d4183d"));
+    assert_eq!(runtime.resolve("surfacePane").unwrap(), hex("#fcfdff"));
 }
 
 #[test]
-fn test_resolve_token_dark_falls_back_to_base() {
-    let mut runtime = ThemeRuntime::load(&themes_dir()).unwrap();
-    runtime.set_qualifier(Qualifier::Dark);
-    // 'danger' is not defined in dark theme, should fall back to base
-    let danger = runtime.resolve("danger").unwrap();
-    assert_eq!(danger, ColorValue::from_hex("#ef4444").unwrap());
+fn the_dark_values_are_the_artifacts() {
+    let runtime = at(Qualifier::Dark);
+    assert_eq!(runtime.resolve("background").unwrap(), hex("#0a0a0a"));
+    assert_eq!(runtime.resolve("label").unwrap(), hex("#ffffffeb"));
+    assert_eq!(runtime.resolve("glassCard").unwrap(), hex("#ffffff14"));
+    assert_eq!(runtime.resolve("accent").unwrap(), hex("#3b82f6"));
+    assert_eq!(runtime.resolve("onAccent").unwrap(), hex("#ffffff"));
+    assert_eq!(runtime.resolve("danger").unwrap(), hex("#fa5a55"));
+    // Not theme-varying: inherited from base.
+    assert_eq!(runtime.resolve("modeAirplane").unwrap(), hex("#f97316d9"));
 }
 
 #[test]
@@ -154,376 +250,205 @@ fn test_resolve_token_not_found() {
 }
 
 #[test]
-fn test_resolve_highcontrast_override() {
-    let mut runtime = ThemeRuntime::load(&themes_dir()).unwrap();
-    runtime.set_qualifier(Qualifier::HighContrast);
-    let bg = runtime.resolve("bg").unwrap();
-    assert_eq!(bg, ColorValue::from_hex("#000000").unwrap());
-    let fg = runtime.resolve("fg").unwrap();
-    assert_eq!(fg, ColorValue::from_hex("#ffffff").unwrap());
-}
-
-// ---------------------------------------------------------------------------
-// Determinism
-// ---------------------------------------------------------------------------
-
-#[test]
 fn test_deterministic_resolution() {
     let r1 = ThemeRuntime::load(&themes_dir()).unwrap();
     let r2 = ThemeRuntime::load(&themes_dir()).unwrap();
-
-    let tokens = ["accent", "bg", "fg", "surface", "border", "muted", "danger"];
-    for token in &tokens {
-        assert_eq!(r1.resolve(token).unwrap(), r2.resolve(token).unwrap());
+    for role in ROLES {
+        assert_eq!(r1.resolve(role).unwrap(), r2.resolve(role).unwrap());
     }
+}
+
+// ---------------------------------------------------------------------------
+// Text styles, shadows, backdrops, scales
+// ---------------------------------------------------------------------------
+
+#[test]
+fn the_twelve_text_styles_carry_size_line_weight_tracking_and_case() {
+    let runtime = at(Qualifier::Dark);
+    let table = [
+        ("display", 64, 64, 300, -20, false),
+        ("largeTitle", 30, 36, 700, -20, false),
+        ("title1", 24, 30, 700, -15, false),
+        ("title2", 20, 26, 600, -10, false),
+        ("title3", 17, 22, 600, -5, false),
+        ("headline", 15, 20, 600, 0, false),
+        ("body", 14, 20, 400, 0, false),
+        ("subheadline", 13, 18, 400, 0, false),
+        ("footnote", 12, 16, 400, 0, false),
+        ("caption", 11, 14, 500, 10, false),
+        ("caption2", 10, 13, 500, 20, false),
+        ("overline", 11, 14, 600, 60, true),
+    ];
+    for (name, size, line, weight, tracking, upper) in table {
+        let s = runtime.resolve_text_style(name).unwrap_or_else(|| panic!("{name}"));
+        assert_eq!(
+            (s.size, s.line, s.weight, s.tracking_milli_em, s.upper),
+            (size, line, weight, tracking, upper),
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn dark_shadows_are_stronger_than_light() {
+    let light = at(Qualifier::Light);
+    let dark = at(Qualifier::Dark);
+    for name in ["shadow1", "shadow2", "shadow3", "shadow4", "shadowInset"] {
+        let (l, d) = (light.resolve_shadow(name).unwrap(), dark.resolve_shadow(name).unwrap());
+        assert_eq!(
+            (l.x, l.y, l.blur, l.inset),
+            (d.x, d.y, d.blur, d.inset),
+            "{name}: one geometry"
+        );
+        assert!(d.color.a > l.color.a, "{name}: dark alpha above light");
+    }
+    let edge = light.resolve_shadow("edgeHighlight").unwrap();
+    assert!(edge.inset && edge.y == 1 && edge.blur == 0);
+    let runtime = ThemeRuntime::load(&themes_dir()).unwrap();
+    for name in ["shadow1", "shadow2", "shadow3", "shadow4", "shadowInset", "edgeHighlight"] {
+        assert!(runtime.defines_shadow(Qualifier::Dark, name), "{name}");
+        assert!(runtime.defines_shadow(Qualifier::HighContrast, name), "{name}");
+    }
+}
+
+#[test]
+fn the_four_backdrops_and_high_contrast_flat() {
+    let runtime = at(Qualifier::Dark);
+    let b = |n: &str| runtime.resolve_material(n).unwrap();
+    assert_eq!(
+        b("ultraThin"),
+        Backdrop { blur_radius_dp: 8, saturation_pct: 100, downsample_factor: 2 }
+    );
+    assert_eq!(b("thin").blur_radius_dp, 20);
+    assert_eq!(
+        b("regular"),
+        Backdrop { blur_radius_dp: 40, saturation_pct: 180, downsample_factor: 2 }
+    );
+    assert_eq!(b("thick").blur_radius_dp, 64);
+    let hc = at(Qualifier::HighContrast);
+    for n in ["ultraThin", "thin", "regular", "thick"] {
+        assert_eq!(hc.resolve_material(n).unwrap().blur_radius_dp, 0, "{n}");
+    }
+}
+
+#[test]
+fn the_scales_are_the_artifacts() {
+    let runtime = at(Qualifier::Light);
+    let r = |n: &str| runtime.resolve_radius(n).unwrap();
+    assert_eq!((r("sm"), r("md"), r("lg"), r("xl"), r("full")), (8, 12, 16, 24, 9999));
+    let c = |n: &str| runtime.resolve_scale("control", n).unwrap();
+    assert_eq!((c("xs"), c("sm"), c("md"), c("lg"), c("xl")), (24, 30, 36, 44, 52));
+    let g = |n: &str| runtime.resolve_spacing(n).unwrap();
+    assert_eq!(
+        (g("gapInline"), g("gapGroup"), g("gapSection"), g("marginLayout")),
+        (8, 12, 24, 16)
+    );
+    assert_eq!(runtime.resolve_scale("zindex", "modal"), Some(30));
+    assert_eq!(runtime.resolve_scale("motion", "quick"), Some(280));
 }
 
 // ---------------------------------------------------------------------------
 // Schema validation (reject tests)
 // ---------------------------------------------------------------------------
 
+fn parse(src: &str) -> Result<nexus_theme::Theme, ThemeError> {
+    nexus_theme::parse_theme_file(src, std::path::Path::new("test.toml"))
+}
+
+const HEAD: &str = "[theme]\nname = \"x\"\nversion = 2\n";
+
 #[test]
 fn test_reject_unknown_section() {
-    let err = nexus_theme::parse_theme_file(
-        "[theme]\nname = \"x\"\nversion = 1\n[foobar]\nkey = \"val\"\n",
-        std::path::Path::new("test.toml"),
-    )
-    .unwrap_err();
+    let err = parse(&format!("{HEAD}[foobar]\nkey = \"val\"\n")).unwrap_err();
     assert!(matches!(err, ThemeError::UnknownSection { .. }));
 }
 
 #[test]
+fn test_reject_the_retired_type_ramp_and_leading_sections() {
+    for section in ["typography", "leading"] {
+        let err = parse(&format!("{HEAD}[{section}]\nbase = 14\n")).unwrap_err();
+        assert!(matches!(err, ThemeError::UnknownSection { .. }), "{section}");
+    }
+}
+
+#[test]
 fn test_reject_unknown_theme_key() {
-    let err = nexus_theme::parse_theme_file(
-        "[theme]\nname = \"x\"\nversion = 1\nauthor = \"me\"\n",
-        std::path::Path::new("test.toml"),
-    )
-    .unwrap_err();
+    let err = parse("[theme]\nname = \"x\"\nversion = 1\nauthor = \"me\"\n").unwrap_err();
     assert!(matches!(err, ThemeError::UnknownKey { .. }));
 }
 
 #[test]
 fn test_reject_invalid_version() {
-    let err = nexus_theme::parse_theme_file(
-        "[theme]\nname = \"x\"\nversion = 0\n",
-        std::path::Path::new("test.toml"),
-    )
-    .unwrap_err();
-    assert!(matches!(err, ThemeError::SchemaValidation { .. }));
-}
-
-#[test]
-fn test_reject_invalid_material_type() {
-    let err = nexus_theme::parse_theme_file(
-        concat!("[theme]\nname = \"x\"\nversion = 1\n", "[material.test]\ntype = \"metallic\"\n",),
-        std::path::Path::new("test.toml"),
-    )
-    .unwrap_err();
+    let err = parse("[theme]\nname = \"x\"\nversion = 0\n").unwrap_err();
     assert!(matches!(err, ThemeError::SchemaValidation { .. }));
 }
 
 #[test]
 fn test_reject_invalid_theme_toml() {
-    // Missing required [theme] section
-    let err = nexus_theme::parse_theme_file(
-        "[tokens]\naccent = \"#ff0000\"\n",
-        std::path::Path::new("test.toml"),
-    )
-    .unwrap_err();
+    let err = parse("[tokens]\naccent = \"#ff0000\"\n").unwrap_err();
     assert!(matches!(err, ThemeError::MissingSection { .. }));
 }
 
 #[test]
 fn test_reject_non_string_token() {
-    let err = nexus_theme::parse_theme_file(
-        "[theme]\nname = \"x\"\nversion = 1\n[tokens]\naccent = 123\n",
-        std::path::Path::new("test.toml"),
-    )
-    .unwrap_err();
+    let err = parse(&format!("{HEAD}[tokens]\naccent = 123\n")).unwrap_err();
     assert!(matches!(err, ThemeError::SchemaValidation { .. }));
 }
 
 #[test]
-fn test_reject_missing_glass_fields() {
-    let err = nexus_theme::parse_theme_file(
-        concat!("[theme]\nname = \"x\"\nversion = 1\n", "[material.test]\ntype = \"glass\"\n",),
-        std::path::Path::new("test.toml"),
-    )
-    .unwrap_err();
-    assert!(matches!(err, ThemeError::SchemaValidation { .. }));
-}
-
-// ---------------------------------------------------------------------------
-// Material parsing
-// ---------------------------------------------------------------------------
-
-#[test]
-fn test_material_opaque() {
-    let theme = nexus_theme::parse_theme_file(
-        concat!("[theme]\nname = \"x\"\nversion = 1\n", "[material.surface]\ntype = \"opaque\"\n",),
-        std::path::Path::new("test.toml"),
-    )
-    .unwrap();
-    let mat = theme.materials.get("surface").unwrap();
-    assert!(matches!(mat, nexus_theme::Material::Opaque));
+fn test_reject_a_glass_recipe_material() {
+    let src = format!("{HEAD}[material.glassPanel]\ntype = \"glass\"\nblurRadiusDp = 40\nsaturationPct = 180\ndownsampleFactor = 2\n");
+    assert!(matches!(parse(&src).unwrap_err(), ThemeError::SchemaValidation { .. }));
 }
 
 #[test]
-fn test_material_glass() {
-    let theme = nexus_theme::parse_theme_file(
-        concat!(
-            "[theme]\nname = \"x\"\nversion = 1\n",
-            "[material.glassLow]\n",
-            "type = \"glass\"\n",
-            "blurRadiusDp = 8\n",
-            "downsampleFactor = 4\n",
-            "tintColor = \"#ffffff\"\n",
-            "tintAlpha = 0.3\n",
-            "edgeHighlightColor = \"#ffffff\"\n",
-            "edgeHighlightAlpha = 0.15\n",
-        ),
-        std::path::Path::new("test.toml"),
-    )
-    .unwrap();
-    let mat = theme.materials.get("glassLow").unwrap();
-    assert!(matches!(mat, nexus_theme::Material::Glass(_)));
-}
-
-// ---------------------------------------------------------------------------
-// Reconciled design-system contract (RFC-0070 / token-reconciliation.md)
-// Pins the design token + 5-glass-level contract on the real resource themes.
-// ---------------------------------------------------------------------------
-
-#[test]
-fn test_reconciled_new_tokens_resolve_from_base() {
-    let runtime = ThemeRuntime::load(&themes_dir()).unwrap();
-    for (name, hex) in [
-        ("primary", "#030213"),
-        ("info", "#3b82f6"),
-        ("destructive", "#d4183d"),
-        ("secondary", "#eceef2"),
-        ("sidebar", "#fafafa"),
-        ("chart1", "#f54900"),
-        // RFC-0082: on-glass ink keeps the design's blue-black HUE (not pure
-        // black) but its ALPHA is the design's own `--glass-text-primary`
-        // (.80 = cc). The .95 this used to pin was undocumented drift.
-        ("glassTextPrimary", "#14141acc"),
-        ("glassTextSecondary", "#14141a66"),
-        ("glassTextStrong", "#14141aeb"),
-        ("glassIcon", "#14141acc"),
-        // Design `--glass-divider` — translucent, so a hairline reads the same
-        // on a pane, a card and the wallpaper.
-        ("divider", "#0000001a"),
-        ("glassHover", "#00000014"),
-        ("glassActive", "#0000001f"),
-        ("wallpaperTint", "#ffffff3d"),
-        ("textShadowStrong", "#fffffff2"),
-        ("transparent", "#00000000"),
-        ("toggleOnBg", "#3b82f6d9"),
-    ] {
-        assert_eq!(
-            runtime.resolve(name).unwrap(),
-            ColorValue::from_hex(hex).unwrap(),
-            "base token '{name}' should resolve to {hex}"
-        );
-    }
-}
-
-#[test]
-fn test_reconciled_dark_token_overrides() {
-    let mut runtime = ThemeRuntime::load(&themes_dir()).unwrap();
-    runtime.set_qualifier(Qualifier::Dark);
-    for (name, hex) in [
-        ("primary", "#fafafa"),
-        ("secondary", "#262626"),
-        ("destructive", "#fa5a55"),
-        ("chart1", "#1447e6"),
-        // Design dark: --glass-text-primary .90 / -secondary .45 / -strong .95.
-        ("glassTextPrimary", "#ffffffe6"),
-        ("glassTextSecondary", "#ffffff73"),
-        ("glassTextStrong", "#fffffff2"),
-        ("divider", "#ffffff1a"),
-        ("wallpaperTint", "#0000008c"),
-        ("textShadow", "#00000066"),
-    ] {
-        assert_eq!(
-            runtime.resolve(name).unwrap(),
-            ColorValue::from_hex(hex).unwrap(),
-            "dark token '{name}' should override to {hex}"
-        );
-    }
-    // A token only defined in base still falls back under dark.
-    assert_eq!(runtime.resolve("info").unwrap(), ColorValue::from_hex("#3b82f6").unwrap());
-}
-
-/// Every glass level `MaterialToken` names must exist in EVERY theme, not just
-/// base: `theme-tokens/build.rs` reads them per qualifier, so a level missing
-/// from `dark` resolves to the base (light) recipe and paints a white wash on a
-/// dark desktop rather than failing.
-#[test]
-fn test_every_glass_level_is_defined_in_every_theme() {
-    const LEVELS: &[&str] = &[
-        "glassPanel",
-        "glassCard",
-        "glassSubtle",
-        "glassWindow",
-        // The two window levels the file-manager design needs: a PANE
-        // (content / properties) is far more transmissive than a panel, and
-        // the action-bar PILL is far denser.
-        "glassWindowPane",
-        "glassWindowBar",
-        "glassOverlay",
-    ];
-    let runtime = ThemeRuntime::load(&themes_dir()).unwrap();
-    for qualifier in [Qualifier::Base, Qualifier::Dark, Qualifier::HighContrast] {
-        let theme = runtime.get_theme(qualifier).unwrap();
-        for level in LEVELS {
-            assert!(
-                matches!(theme.materials.get(*level), Some(nexus_theme::Material::Glass(_))),
-                "{qualifier:?} must define glass material '{level}'"
-            );
-        }
-    }
-    let base = runtime.get_theme(Qualifier::Base).unwrap();
-    // The old ad-hoc glassLow/glassHigh names are gone (replaced by the levels).
-    assert!(base.materials.get("glassLow").is_none());
-    assert!(base.materials.get("glassHigh").is_none());
-}
-
-/// The pane is NOT a re-skinned panel. Two things separate them, and both are
-/// what a "simplification" that collapses the levels would destroy:
-///
-/// - **Luminance.** The panel's dark tint is `#121214` — near-black, correct
-///   for a dock tile floating on a photograph. A content pane painted with it
-///   reads as a black slab inside a grey window; the design's pane is
-///   `#484a54`, a mid grey.
-/// - **Shape.** The pane is a two-stop gradient (design `160deg`, .48 → .32);
-///   the panel is one flat tint.
-///
-/// Note what is deliberately NOT asserted: the pane is not uniformly more
-/// transmissive. Its top stop (.48) is denser than the panel's flat .40 and its
-/// bottom stop (.32) is lighter — the gradient is the point, not the average.
-#[test]
-fn test_window_pane_is_a_distinct_level_from_panel() {
-    let mut runtime = ThemeRuntime::load(&themes_dir()).unwrap();
-    runtime.set_qualifier(Qualifier::Dark);
-    let glass = |name: &str| match runtime.resolve_material(name) {
-        Some(nexus_theme::Material::Glass(g)) => g,
-        other => panic!("dark {name} must be glass, got {other:?}"),
-    };
-    let pane = glass("glassWindowPane");
-    let panel = glass("glassPanel");
-    // The two levels are distinct by COVERAGE, not by luma. Since
-    // design artifacts: panels the dark panel is a white 10 % wash — depth comes
-    // from blur(72) + saturate, not from covering the wallpaper — while the
-    // pane is a dense mid-grey window surface that content sits ON.
-    assert!(
-        pane.tint_alpha > panel.tint_alpha * 2.0,
-        "the pane ({:?}@{}) must be far denser than the floating panel ({:?}@{})",
-        pane.tint_color,
-        pane.tint_alpha,
-        panel.tint_color,
-        panel.tint_alpha
+fn test_reject_a_backdrop_missing_a_key_or_with_an_extra_one() {
+    let missing = format!(
+        "{HEAD}[material.thin]\ntype = \"backdrop\"\nblurRadiusDp = 20\ndownsampleFactor = 2\n"
     );
-    // The design system's `surface-pane` (TASK-0351 P14, the design artifacts): OPAQUE and
-    // FLAT — the window blur under it is occluded and never computed, and a scroll band on
-    // it starts from this one pixel (`app-host::band_ground`). No second stop, no blur.
-    assert_eq!(pane.tint_color, ColorValue::from_hex("#2c313d").unwrap());
-    assert_eq!(pane.tint_alpha, 1.0, "the pane is opaque");
-    assert!(pane.tint_bottom_color.is_none(), "the pane is flat: one pixel for every row");
-    assert_eq!(pane.blur_radius_dp, 0, "an opaque pane blurs nothing");
-    // The bar is the other extreme: a control strip that must stay readable
-    // over whatever scrolls under it, so it is denser than either.
-    assert!(glass("glassWindowBar").tint_alpha > panel.tint_alpha);
+    assert!(matches!(parse(&missing).unwrap_err(), ThemeError::SchemaValidation { .. }));
+    let extra = format!("{HEAD}[material.thin]\ntype = \"backdrop\"\nblurRadiusDp = 20\nsaturationPct = 100\ndownsampleFactor = 2\ntintColor = \"#ffffff\"\n");
+    assert!(matches!(parse(&extra).unwrap_err(), ThemeError::UnknownKey { .. }));
 }
 
 #[test]
-fn test_glass_material_resolves_through_qualifier_chain() {
-    let mut runtime = ThemeRuntime::load(&themes_dir()).unwrap();
-
-    // Light does not redefine glassPanel → inherits base (blur 72, tint .50).
-    // 72 is design artifacts: panels' `blur(72px)`: the drop-down panels are the
-    // deepest glass in the system, and dock/taskbar share the level on purpose.
-    runtime.set_qualifier(Qualifier::Light);
-    match runtime.resolve_material("glassPanel") {
-        Some(nexus_theme::Material::Glass(g)) => {
-            assert_eq!(g.blur_radius_dp, 72);
-            assert!((g.tint_alpha - 0.50).abs() < 1e-6);
-        }
-        other => panic!("light glassPanel should inherit base glass, got {other:?}"),
-    }
-
-    // Dark overrides glassPanel with a LIGHTER wash than light mode uses
-    // (design artifacts: panels: rgba(255,255,255,.10) dark vs .50 light). The
-    // RFC-0082 dark tint moved to the card/window levels, which sit on a
-    // surface rather than floating over the wallpaper.
-    runtime.set_qualifier(Qualifier::Dark);
-    match runtime.resolve_material("glassPanel") {
-        Some(nexus_theme::Material::Glass(g)) => {
-            assert!((g.tint_alpha - 0.10).abs() < 1e-6, "dark panel wash is 10%");
-            assert_eq!(g.tint_color, ColorValue::from_hex("#ffffff").unwrap());
-        }
-        other => panic!("dark glassPanel should override, got {other:?}"),
-    }
-
-    // High contrast zeroes blur on every level (a11y).
-    runtime.set_qualifier(Qualifier::HighContrast);
-    match runtime.resolve_material("glassOverlay") {
-        Some(nexus_theme::Material::Glass(g)) => assert_eq!(g.blur_radius_dp, 0),
-        other => panic!("highcontrast glassOverlay should be blur 0, got {other:?}"),
-    }
+fn test_reject_a_text_style_off_the_weight_axis_or_shorter_than_its_size() {
+    let style = |size: i64, line: i64, weight: i64, case: &str| {
+        format!("{HEAD}[textStyle.x]\nsize = {size}\nline = {line}\nweight = {weight}\ntrackingMilliEm = 0\ncase = \"{case}\"\nfigures = \"proportional\"\n")
+    };
+    assert!(parse(&style(14, 20, 400, "none")).is_ok());
+    assert!(parse(&style(14, 20, 450, "none")).is_err(), "weight off the 100 grid");
+    assert!(parse(&style(14, 20, 900, "none")).is_err(), "weight outside 300-700");
+    assert!(parse(&style(20, 14, 400, "none")).is_err(), "line shorter than size");
+    assert!(parse(&style(14, 20, 400, "title")).is_err(), "unknown case");
 }
 
-// ---------------------------------------------------------------------------
-// Length scales ([spacing] / [radius]) — invariant, authored in base
-// ---------------------------------------------------------------------------
-
+/// `figures` is required and closed: `proportional` or `tabular` (RFC-0116 M-3).
 #[test]
-fn test_resolve_length_scales_from_base() {
-    let runtime = ThemeRuntime::load(&themes_dir()).unwrap();
-    assert_eq!(runtime.resolve_radius("small"), Some(6));
-    assert_eq!(runtime.resolve_radius("medium"), Some(10));
-    assert_eq!(runtime.resolve_radius("large"), Some(16));
-    assert_eq!(runtime.resolve_spacing("small"), Some(8));
-    assert_eq!(runtime.resolve_spacing("large"), Some(24));
-    assert_eq!(runtime.resolve_radius("nonexistent"), None);
+fn test_reject_a_text_style_without_or_with_unknown_figures() {
+    let style = |figures: Option<&str>| {
+        let line = figures.map(|f| format!("figures = \"{f}\"\n")).unwrap_or_default();
+        format!("{HEAD}[textStyle.x]\nsize = 14\nline = 20\nweight = 400\ntrackingMilliEm = 0\ncase = \"none\"\n{line}")
+    };
+    assert!(parse(&style(Some("tabular"))).is_ok());
+    assert!(parse(&style(Some("proportional"))).is_ok());
+    assert!(parse(&style(Some("oldstyle"))).is_err(), "unknown figures");
+    assert!(parse(&style(None)).is_err(), "figures is required");
 }
 
 #[test]
-fn test_length_scale_inherits_through_chain() {
-    let mut runtime = ThemeRuntime::load(&themes_dir()).unwrap();
-    // dark/light/highcontrast don't redefine [radius]/[spacing] → inherit base.
-    for q in [Qualifier::Dark, Qualifier::Light, Qualifier::HighContrast] {
-        runtime.set_qualifier(q);
-        assert_eq!(runtime.resolve_radius("medium"), Some(10), "{q:?} radius.medium");
-        assert_eq!(runtime.resolve_spacing("small"), Some(8), "{q:?} spacing.small");
-    }
-}
-
-#[test]
-fn test_resolve_typography_leading_zindex() {
-    let runtime = ThemeRuntime::load(&themes_dir()).unwrap();
-    // Font size scale (px).
-    assert_eq!(runtime.resolve_scale("typography", "base"), Some(14));
-    assert_eq!(runtime.resolve_scale("typography", "display"), Some(36));
-    // Line-height ×100.
-    assert_eq!(runtime.resolve_scale("leading", "normal"), Some(150));
-    // Stacking order.
-    assert_eq!(runtime.resolve_scale("zindex", "modal"), Some(30));
-    // Motion durations (ms, design motion.css).
-    assert_eq!(runtime.resolve_scale("motion", "swift"), Some(160));
-    assert_eq!(runtime.resolve_scale("motion", "slow"), Some(500));
-    // Unknown section / key → None.
-    assert_eq!(runtime.resolve_scale("typography", "nope"), None);
-    assert_eq!(runtime.resolve_scale("nosuch", "base"), None);
+fn test_reject_a_shadow_without_a_colour_or_inset() {
+    let no_inset =
+        format!("{HEAD}[shadow.s]\nx = 0\ny = 1\nblur = 3\nspread = 0\ncolor = \"#000000\"\n");
+    assert!(parse(&no_inset).is_err());
+    let bad_colour = format!(
+        "{HEAD}[shadow.s]\nx = 0\ny = 1\nblur = 3\nspread = 0\ncolor = \"black\"\ninset = false\n"
+    );
+    assert!(parse(&bad_colour).is_err());
 }
 
 #[test]
 fn test_reject_non_integer_scale_value() {
-    let err = nexus_theme::parse_theme_file(
-        concat!("[theme]\nname = \"x\"\nversion = 1\n", "[spacing]\nsmall = \"8\"\n"),
-        std::path::Path::new("test.toml"),
-    )
-    .unwrap_err();
+    let err = parse(&format!("{HEAD}[radius]\nsm = \"8px\"\n")).unwrap_err();
     assert!(matches!(err, ThemeError::SchemaValidation { .. }));
 }

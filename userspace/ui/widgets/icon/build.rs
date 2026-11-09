@@ -9,9 +9,9 @@
 //! `resources/themes/base.nxtheme.toml`): `path` names the MAINTAINED vendor
 //! repo (lucide, ISC — licence-clean), `[icons.symbols]` maps OUR
 //! SwiftUI-style symbol names to file stems. Each SVG's stroke geometry
-//! (path M/L/H/V/C/S/Q/T/A + circle/rect/line/polyline/polygon elements) is
-//! flattened into polylines (normalized `0..1000` viewbox) and emitted with the
-//! set's own stroke width; the painter strokes them with round caps and joins,
+//! (path M/L/H/V/C/S/Q/T/A + circle/rect (rounded corners included)/line/polyline/
+//! polygon elements) is flattened into polylines (normalized `0..1000` viewbox) and
+//! emitted with the set's own stroke width; the painter strokes them with round caps and joins,
 //! anti-aliased (`ShapeKind::Stroke`, TASK-0251 P2a step 3). The former import
 //! cut every segment into its own filled quad — no joins, no caps — which the
 //! one-sample fill turned into stair steps with gaps at 17 px.
@@ -155,12 +155,19 @@ fn svg_polylines(svg: &str) -> Vec<Vec<(f32, f32)>> {
             (attr_f(&tag, "x2"), attr_f(&tag, "y2")),
         ]);
     }
-    // <rect x y width height rx?> — stroked as a (rounded-ignored) outline.
+    // <rect x y width height rx? ry?> — stroked as its outline, the corners as quarter arcs
+    // (SVG: a missing `ry` takes `rx` and vice versa; each is capped at half its side).
     for tag in extract_tags(svg, "rect") {
         let (x, y) = (attr_f(&tag, "x"), attr_f(&tag, "y"));
         let (w, h) = (attr_f(&tag, "width"), attr_f(&tag, "height"));
         if w > 0.0 && h > 0.0 {
-            out.push(vec![(x, y), (x + w, y), (x + w, y + h), (x, y + h), (x, y)]);
+            let (rx, ry) = match (attr_value(&tag, "rx"), attr_value(&tag, "ry")) {
+                (None, None) => (0.0, 0.0),
+                (Some(_), None) => (attr_f(&tag, "rx"), attr_f(&tag, "rx")),
+                (None, Some(_)) => (attr_f(&tag, "ry"), attr_f(&tag, "ry")),
+                (Some(_), Some(_)) => (attr_f(&tag, "rx"), attr_f(&tag, "ry")),
+            };
+            out.push(rect_outline(x, y, w, h, rx.clamp(0.0, w / 2.0), ry.clamp(0.0, h / 2.0)));
         }
     }
     // <polyline points> / <polygon points>
@@ -227,6 +234,31 @@ fn attr_value(tag: &str, attr: &str) -> Option<String> {
 
 fn attr_f(tag: &str, attr: &str) -> f32 {
     attr_value(tag, attr).and_then(|v| v.parse().ok()).unwrap_or(0.0)
+}
+
+/// A rect's closed outline, clockwise from the end of the top-left corner; a corner with radii
+/// is a quarter ellipse (a sharp rect is its four corners).
+fn rect_outline(x: f32, y: f32, w: f32, h: f32, rx: f32, ry: f32) -> Vec<(f32, f32)> {
+    if rx <= 0.0 || ry <= 0.0 {
+        return vec![(x, y), (x + w, y), (x + w, y + h), (x, y + h), (x, y)];
+    }
+    // Corner centres with the angle each quarter starts at (y down: 270° = up).
+    let corners = [
+        (x + w - rx, y + ry, 270.0f32),
+        (x + w - rx, y + h - ry, 0.0),
+        (x + rx, y + h - ry, 90.0),
+        (x + rx, y + ry, 180.0),
+    ];
+    let steps = CURVE_STEPS / 2;
+    let mut out = vec![(x + rx, y)];
+    for (cx, cy, start) in corners {
+        for i in 0..=steps {
+            let t = (start + 90.0 * i as f32 / steps as f32).to_radians();
+            out.push((cx + rx * t.cos(), cy + ry * t.sin()));
+        }
+    }
+    out.push((x + rx, y));
+    out
 }
 
 fn sample_ellipse(cx: f32, cy: f32, rx: f32, ry: f32) -> Vec<(f32, f32)> {

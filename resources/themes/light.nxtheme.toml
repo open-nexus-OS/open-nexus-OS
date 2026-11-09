@@ -1,26 +1,7 @@
 [theme]
 name = "light"
-version = 1
+version = 2
 
-# Light overrides only what differs from base; the design neutrals, brand,
-# sidebar, chart and text-on-glass tokens + the liquid-glass materials all
-# resolve from base via the qualifier chain (base is the light-leaning default).
-# See docs/dev/ui/foundations/visual/token-reconciliation.md.
+# Light is the base: the base theme carries the design artifacts' light values, so this file
+# overrides nothing. It exists so the light qualifier resolves like every other.
 [tokens]
-accent = "#2563eb"
-accentFg = "#ffffff"
-bg = "#ffffff"
-fg = "#0a0a0a"
-surface = "#ffffff"
-surfaceAlt = "#e9ebef"
-border = "#0000001a"
-# Design `--glass-divider` is rgba(0,0,0,.10) — TRANSLUCENT, so a hairline
-# reads the same over a pane, a card and the wallpaper. The opaque `#d4d4d4`
-# it used to carry only ever looked right on a solid white surface.
-divider = "#0000001a"
-muted = "#ececf0"
-mutedFg = "#717182"
-focusRing = "#2563eb"
-
-[material.surface]
-type = "opaque"

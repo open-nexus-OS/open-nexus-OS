@@ -2,10 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![cfg_attr(not(test), no_std)]
+#![forbid(unsafe_code)]
 
-//! `TextField` — a styled single-line text input.
+//! `TextField` — a styled single-line text input, and the design-system fields built on it:
+//! [`GlassTextField`] (label · field box · message), [`PinField`] (passcode dots / code cells)
+//! and the shared [`field`] kit (metrics, surfaces, focus outline) the search bar and the text
+//! area build from too.
 //!
-//! A pure builder producing a `LayoutNode::TextInput`. Visual chrome comes from
+//! [`TextField`] is a pure builder producing a `LayoutNode::TextInput`. Visual chrome comes from
 //! a [`Style`] (background/border/rounded), text appearance from a `TextStyle`.
 //! Like every widget it holds no input handler: the `id` is the interaction id —
 //! the compositor focuses/routes keystrokes by it and the app owns the value
@@ -15,11 +19,16 @@
 extern crate alloc;
 
 use alloc::string::String;
-use nexus_layout_types::{FlexItem, LayoutNode, TextContent, TextInputNode, TextStyle};
+use nexus_layout_types::{FlexItem, FxPx, LayoutNode, TextContent, TextInputNode, TextStyle};
 use nexus_style::Style;
 
+pub mod field;
 mod glass_text_field;
-pub use glass_text_field::{FieldSize, FieldVariant, GlassTextField, PILL_HEIGHT};
+mod glyphs;
+mod pin_field;
+pub use field::{FieldAppearance, FieldMetrics, FieldState};
+pub use glass_text_field::{FieldSize, FieldVariant, GlassTextField, MIN_FIELD_WIDTH};
+pub use pin_field::PinField;
 
 /// A styled single-line text input.
 #[derive(Debug, Clone, Default)]
@@ -31,7 +40,9 @@ pub struct TextField {
     placeholder: Option<String>,
     max_length: Option<u32>,
     secure: bool,
+    revealed: bool,
     fill_row: bool,
+    min_width: Option<FxPx>,
 }
 
 impl TextField {
@@ -82,6 +93,19 @@ impl TextField {
         self
     }
 
+    /// A password field whose text is shown in clear (the eye button): the node stays `secure`
+    /// for the IME layer, only the masking is lifted.
+    pub fn revealed(mut self, revealed: bool) -> Self {
+        self.revealed = revealed;
+        self
+    }
+
+    /// The narrowest the input gets while it shares a row (the search field keeps 48 px).
+    pub fn min_width(mut self, px: i32) -> Self {
+        self.min_width = Some(FxPx::new(px.max(0)));
+        self
+    }
+
     /// The field's interaction id.
     pub fn interaction_id(&self) -> Option<&'static str> {
         self.id
@@ -104,7 +128,7 @@ impl TextField {
     /// Build the layout-node.
     pub fn build(self) -> LayoutNode {
         let cursor_pos = self.value.chars().count();
-        let content = if self.secure {
+        let content = if self.secure && !self.revealed {
             // The real value never reaches the scene for password fields.
             TextContent::new(alloc::string::String::from_iter(
                 core::iter::repeat('•').take(cursor_pos),
@@ -121,7 +145,7 @@ impl TextField {
                 max_length: self.max_length,
                 style: self.text_style,
                 item: FlexItem { flex_grow: u32::from(self.fill_row), ..FlexItem::default() },
-                min_width: None,
+                min_width: self.min_width,
                 max_width: None,
                 secure: self.secure,
             },
@@ -133,7 +157,7 @@ impl TextField {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nexus_layout_types::{FxPx, Rgba8};
+    use nexus_layout_types::Rgba8;
 
     #[test]
     fn text_field_builds_text_input_with_value_and_cursor() {

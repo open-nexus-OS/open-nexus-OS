@@ -1,0 +1,14 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Sleep, restart and shut down, bottom right (design artifacts: lock screen).
+Component PowerButtons {
+    Stack {
+        PowerButton { symbol: "moon", name: @t("greeter.sleep") }
+        PowerButton { symbol: "arrow.counterclockwise", name: @t("greeter.restart") }
+        PowerButton { symbol: "power", name: @t("greeter.shutdown") }
+    }
+    .direction(row)
+    .align(center)
+    .gap(12)
+}

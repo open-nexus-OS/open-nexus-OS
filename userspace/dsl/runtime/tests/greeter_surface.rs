@@ -266,12 +266,12 @@ fn greeter_layout_matches_the_design_geometry() {
     assert_eq!(boxes[0].rect.height.as_i32(), 800);
     assert_eq!(boxes[1].rect.height.as_i32(), 800, "the tinted content stack fills the surface");
 
-    // Hero clock: the 120px face with `flat` leading → a 126px band. At the
-    // old 16px ceiling this box was 20px tall.
-    let clock = find(&|_, h| h == 126, "the hero clock band (120px x 1.05 leading)");
+    // The clock: the `clock` style on a regular screen (RFC-0116: 128 px on a 128 px line, weight
+    // 300 — the design artifacts' display × 2).
+    let clock = find(&|w, h| h == 128 && w > 240, "the clock band (128 px line)");
     assert!(
-        clock.rect.width.as_i32() > 200,
-        "hero digits are wide, got {}",
+        clock.rect.width.as_i32() > 240,
+        "clock digits are wide, got {}",
         clock.rect.width.as_i32()
     );
 
@@ -283,7 +283,8 @@ fn greeter_layout_matches_the_design_geometry() {
         340 - 94,
         "pill spans the 340px login block minus padding"
     );
-    let input = find(&|w, h| w == 180 && h == 32, "the grown TextField input");
+    // The input: the md control height (RFC-0116: 36 — body text on its 20 px line, 8 px insets).
+    let input = find(&|w, h| w == 180 && h == 36, "the grown TextField input");
     assert!(input.rect.x > pill.rect.x, "the input sits inside the pill");
 
     // Avatar 88 + the three 44px session actions.

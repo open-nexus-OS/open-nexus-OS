@@ -1,0 +1,104 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// NAVIGATION domain: where the user is. The user home is the nxfs container
+// ("/" = Dieser PC) with the OS-standard top-level folders (/Bilder, /Videos,
+// …). The sidebar and the breadcrumb navigate to REAL paths; each navigation
+// asks the listing domain to reload (effects below).
+//
+//   section      the sidebar row that is lit
+//   path         the real nxfs path ("recent:" = the aggregate)
+//   folderLabel  its display name for the breadcrumb ("" = the home root)
+//   backPath/Label  the one-level history: the location before the last move
+//
+// `WinMenuPick(id)` is the window kit's nav-pick contract (`WinSideItem`);
+// `WinNav` is the toolbar's back / forward / refresh.
+//
+// CROSS-DOMAIN BRIDGES (effects have no `if`, so each fires for every case):
+// a move closes the chrome menus, clears the selection and reloads.
+
+Store NavStore {
+    section: Str = "storage",
+    path: Str = "/",
+    folderLabel: Str = "",
+    backPath: Str = "/",
+    backLabel: Str = "",
+}
+
+Event NavEvent {
+    WinMenuPick(Str),
+    WinNav(Str),
+    OpenDir(Str),
+}
+
+reduce NavEvent {
+    WinMenuPick(id) => {
+        state.backPath = state.path;
+        state.backLabel = state.folderLabel;
+        if id == "nav.recent" {
+            state.section = "recent";
+            state.path = "recent:";
+            state.folderLabel = "Aktuelle Dateien";
+        } else if id == "nav.pictures" {
+            state.section = "pictures";
+            state.path = "/Bilder";
+            state.folderLabel = "Bilder";
+        } else if id == "nav.videos" {
+            state.section = "videos";
+            state.path = "/Videos";
+            state.folderLabel = "Videos";
+        } else if id == "nav.audio" {
+            state.section = "audio";
+            state.path = "/Audio";
+            state.folderLabel = "Audio";
+        } else if id == "nav.docs" {
+            state.section = "docs";
+            state.path = "/Dokumente";
+            state.folderLabel = "Dokumente";
+        } else if id == "nav.downloads" {
+            state.section = "downloads";
+            state.path = "/Downloads";
+            state.folderLabel = "Downloads";
+        } else if id == "nav.trash" {
+            state.section = "trash";
+            state.path = "/Papierkorb";
+            state.folderLabel = "Papierkorb";
+        } else {
+            state.section = "storage";
+            state.path = "/";
+            state.folderLabel = "";
+        }
+    },
+    WinNav(dir) => {
+        if dir == "back" {
+            state.path = state.backPath;
+            state.folderLabel = state.backLabel;
+        } else {
+            state.path = state.path;
+        }
+    },
+    // A selected folder opens on the next tap (select, then open).
+    OpenDir(name) => {
+        state.backPath = state.path;
+        state.backLabel = state.folderLabel;
+        state.path = state.path + "/" + name;
+        state.folderLabel = name;
+    },
+}
+
+@effect on WinMenuPick(id) {
+    dispatch(WinMenu(""));
+    dispatch(ClearSelection);
+    dispatch(Reload);
+}
+
+// Back, forward and refresh all re-read the (possibly changed) location.
+@effect on WinNav(dir) {
+    dispatch(ClearSelection);
+    dispatch(Reload);
+}
+
+@effect on OpenDir(name) {
+    dispatch(ClearSelection);
+    dispatch(Reload);
+}

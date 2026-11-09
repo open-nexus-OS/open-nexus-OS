@@ -1,0 +1,19 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// A section header inside a navigation sidebar (design artifacts `Sidebar`
+// header item): the label in the overline style (11/14/600, upper case,
+// +0.06 em — the runtime upper-cases it) in `labelSecondary`, padding 12 12 4:
+// a 30 px strip between groups of `WinSideItem` rows. Pure display.
+
+Component WinSideHeader {
+    props: {
+        label: Str,
+    }
+    Stack {
+        Text($props.label).textStyle(overline).fg(labelSecondary)
+    }
+    .paddingX(12)
+    .paddingTop(12)
+    .paddingBottom(4)
+}

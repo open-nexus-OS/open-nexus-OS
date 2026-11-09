@@ -1,0 +1,98 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The silent tier (design artifacts: panels §4): its header with the count and the
+// collapse/expand toggle, then Wetter and Plaza while open. `sheet` picks the toggle's event —
+// the touch sheet keeps its own open state (`ToggleSheetSilent`), the desktop panel its own
+// (`ToggleSilent`).
+
+Component NotifSilent {
+    props: {
+        open: Bool,
+        sheet: Bool,
+    }
+    Stack {
+        Stack {
+            Stack {
+                Icon { symbol: "bell.slash", size: 13 }
+                    .fg(labelSecondary)
+                Text(@t("notif.silent")).textStyle(overline).fg(labelSecondary)
+            }
+            .direction(row)
+            .align(center)
+            .gap(8)
+            Spacer
+            NotifSilentCount { }
+            if $props.sheet {
+                Stack {
+                    if $props.open {
+                        Text(@t("notif.collapse")).textStyle(subheadline).fontWeight(semibold).fg(accent)
+                    } else {
+                        Text(@t("notif.expand")).textStyle(subheadline).fontWeight(semibold).fg(accent)
+                    }
+                }
+                .paddingX(8)
+                .paddingY(4)
+                .rounded(full)
+                .hitSlop(8)
+                on Tap -> dispatch(ToggleSheetSilent)
+            } else {
+                Stack {
+                    if $props.open {
+                        Text(@t("notif.collapse")).textStyle(subheadline).fontWeight(semibold).fg(accent)
+                    } else {
+                        Text(@t("notif.expand")).textStyle(subheadline).fontWeight(semibold).fg(accent)
+                    }
+                }
+                .paddingX(8)
+                .paddingY(4)
+                .rounded(full)
+                .hitSlop(8)
+                on Tap -> dispatch(ToggleSilent)
+            }
+        }
+        .direction(row)
+        .align(center)
+        .gap(8)
+        .paddingX(2)
+        .paddingTop(4)
+        if $props.open {
+            Stack {
+                if $state.wxGone == false {
+                    NotifCard {
+                        kind: "wx",
+                        appId: "settings",
+                        app: @t("notif.weather"),
+                        time: @t("notif.t2h"),
+                        title: @t("notif.wxTitle"),
+                        body: @t("notif.wxBody"),
+                        badge: "",
+                        act1: "",
+                        act2: "",
+                    }
+                } else {
+                    Stack { }
+                }
+                if $state.plazaGone == false {
+                    NotifCard {
+                        kind: "plaza",
+                        appId: "stash",
+                        app: @t("notif.plaza"),
+                        time: @t("notif.t3h"),
+                        title: @t("notif.plazaTitle"),
+                        body: @t("notif.plazaBody"),
+                        badge: "",
+                        act1: "",
+                        act2: "",
+                    }
+                } else {
+                    Stack { }
+                }
+            }
+            .gap(8)
+        } else {
+            Stack { }
+        }
+    }
+    .gap(8)
+}

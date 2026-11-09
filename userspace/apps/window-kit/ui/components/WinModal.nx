@@ -1,8 +1,13 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The design artifacts' MODAL: a centered glass dialog with a header (title +
-// close), a body slot and a footer slot. An app-modal layer (TASK-0074 /
+// The design artifacts' MODAL: a centred dialog on the opaque overlay surface
+// (surfaceOverlay, a 1 px glassEdge, shadow4, radius 24), 440 wide, over a
+// `scrim` with 20 px around it. Header: padding 16 20 — the title (title3
+// 17/22, `label`) and the close circle (28, `fill`, X 13 `labelSecondary`) —
+// with a hairline under it when titled; body: the `body` slot, padding 20;
+// footer: the `footer` slot right-aligned (gap 8), padding 12 20, a hairline
+// above it (`noFooter: true` drops the strip). An app-modal layer (TASK-0074 /
 // ADR-0068): hit-testing and text focus are confined to it while it is open,
 // windowd refuses input on the app's other windows.
 //
@@ -10,6 +15,10 @@
 // on the layer that no handler takes fires `on Dismiss`; the panel eats its
 // own taps (`WinNoop`) so reaching into the body never closes it. ESC and the
 // close glyph take the same path — `ModalClose(id)` is the ONE way out.
+//
+// It enters as the design's dialogs do (`fadeScale`: rising 10 px and growing
+// in from 0.94 on the spring); the compositor moves it in front of every
+// window (RFC-0109 §motion layers).
 //
 // STORE CONTRACT (the consuming app declares these — the kit dispatches):
 //   events  ModalClose(Str) · WinNoop
@@ -19,51 +28,76 @@ Component WinModal {
     props: {
         id: Str,
         title: Str,
+        noFooter: Bool,
     }
     slot body
     slot footer
     Stack {
         Stack {
-            Spacer
+            Stack { }
+                .grow(1)
+                .shrink(0)
             Stack {
-                Panel {
-                    Stack {
-                        Text($props.title).textSize(md).fontWeight(semibold).fg(onGlass)
-                        Spacer
-                        Circle { size: 28
-                            Icon { symbol: "xmark", size: 12 }
-                                .fg(onGlassMuted)
-                        }
-                        .hitSlop(2)
-                        on Tap -> dispatch(ModalClose($props.id))
+                Stack {
+                    Text($props.title).textStyle(title3).fg(label)
+                    Spacer
+                    Circle { size: 28
+                        Icon { symbol: "xmark", size: 13 }
+                            .fg(labelSecondary)
                     }
-                    .direction(row)
-                    .align(center)
-                    Stack {
-                        Slot body
-                    }
-                    .gap(2)
+                    .bg(fill)
+                    .hitSlop(8)
+                    on Tap -> dispatch(ModalClose($props.id))
+                }
+                .direction(row)
+                .align(center)
+                .gap(12)
+                .paddingY(16)
+                .paddingX(20)
+                if $props.title != "" {
+                    Stack { }
+                        .height(1)
+                        .bg(separator)
+                } else {
+                    Stack { }
+                }
+                Stack {
+                    Slot body
+                }
+                .gap(8)
+                .padding(20)
+                if $props.noFooter {
+                    Stack { }
+                } else {
+                    Stack { }
+                        .height(1)
+                        .bg(separator)
                     Stack {
                         Slot footer
                     }
                     .direction(row)
                     .justify(end)
-                    .gap(2)
-                    .paddingTop(1)
+                    .align(center)
+                    .gap(8)
+                    .paddingY(12)
+                    .paddingX(20)
                 }
-                .material(overlay)
-                .rounded(xl)
-                .gap(3)
-                .padding(4)
-                on Tap -> dispatch(WinNoop)
             }
-            .width(480)
-            Spacer
+            .basis(440)
+            .shrink(1)
+            .material(overlay)
+            .shadow(shadow4)
+            .rounded(xl)
+            .overflow(hidden)
+            on Tap -> dispatch(WinNoop)
+            Stack { }
+                .grow(1)
+                .shrink(0)
         }
         .direction(row)
-        .align(center)
-        .grow(1)
     }
+    .justify(center)
+    .padding(20)
     .overlay(modal)
     .bg(scrim)
     .transition(fadeScale)

@@ -10,61 +10,63 @@
 // written down. `CalStore.calMonth` selects between three such months; see
 // `calendar.store.nx` for why three is the honest number.
 //
-// Monday-first weeks with leading and trailing blanks, so every row is seven
-// cells and the columns hold against the weekday header.
+// Monday-first weeks; the leading and trailing cells are the neighbouring
+// months' days (`out`, tertiary ink, not selectable), so every row is seven
+// cells and the columns hold against the weekday header. A cell's dot (one
+// per day here) takes the event's tint role.
 
 Component CalMonthPrev {
     Stack {
         Stack {
-            CalCell { label: "1", today: false, event: false }
-            CalCell { label: "2", today: false, event: false }
-            CalCell { label: "3", today: false, event: false }
-            CalCell { label: "4", today: false, event: false }
-            CalCell { label: "5", today: false, event: false }
-            CalCell { label: "6", today: false, event: false }
-            CalCell { label: "7", today: false, event: false }
+            CalCell { label: "1", day: 1, today: false, out: false, tint: "" }
+            CalCell { label: "2", day: 2, today: false, out: false, tint: "" }
+            CalCell { label: "3", day: 3, today: false, out: false, tint: "" }
+            CalCell { label: "4", day: 4, today: false, out: false, tint: "" }
+            CalCell { label: "5", day: 5, today: false, out: false, tint: "" }
+            CalCell { label: "6", day: 6, today: false, out: false, tint: "" }
+            CalCell { label: "7", day: 7, today: false, out: false, tint: "" }
         }
         .direction(row)
         Stack {
-            CalCell { label: "8", today: false, event: false }
-            CalCell { label: "9", today: false, event: false }
-            CalCell { label: "10", today: false, event: false }
-            CalCell { label: "11", today: false, event: false }
-            CalCell { label: "12", today: false, event: false }
-            CalCell { label: "13", today: false, event: false }
-            CalCell { label: "14", today: false, event: false }
+            CalCell { label: "8", day: 8, today: false, out: false, tint: "" }
+            CalCell { label: "9", day: 9, today: false, out: false, tint: "" }
+            CalCell { label: "10", day: 10, today: false, out: false, tint: "" }
+            CalCell { label: "11", day: 11, today: false, out: false, tint: "" }
+            CalCell { label: "12", day: 12, today: false, out: false, tint: "" }
+            CalCell { label: "13", day: 13, today: false, out: false, tint: "" }
+            CalCell { label: "14", day: 14, today: false, out: false, tint: "" }
         }
         .direction(row)
         Stack {
-            CalCell { label: "15", today: false, event: false }
-            CalCell { label: "16", today: false, event: false }
-            CalCell { label: "17", today: false, event: false }
-            CalCell { label: "18", today: false, event: false }
-            CalCell { label: "19", today: false, event: false }
-            CalCell { label: "20", today: false, event: false }
-            CalCell { label: "21", today: false, event: false }
+            CalCell { label: "15", day: 15, today: false, out: false, tint: "" }
+            CalCell { label: "16", day: 16, today: false, out: false, tint: "" }
+            CalCell { label: "17", day: 17, today: false, out: false, tint: "" }
+            CalCell { label: "18", day: 18, today: false, out: false, tint: "" }
+            CalCell { label: "19", day: 19, today: false, out: false, tint: "" }
+            CalCell { label: "20", day: 20, today: false, out: false, tint: "" }
+            CalCell { label: "21", day: 21, today: false, out: false, tint: "" }
         }
         .direction(row)
         Stack {
-            CalCell { label: "22", today: false, event: false }
-            CalCell { label: "23", today: false, event: false }
-            CalCell { label: "24", today: false, event: false }
-            CalCell { label: "25", today: false, event: false }
-            CalCell { label: "26", today: false, event: false }
-            CalCell { label: "27", today: false, event: false }
-            CalCell { label: "28", today: false, event: false }
+            CalCell { label: "22", day: 22, today: false, out: false, tint: "" }
+            CalCell { label: "23", day: 23, today: false, out: false, tint: "" }
+            CalCell { label: "24", day: 24, today: false, out: false, tint: "" }
+            CalCell { label: "25", day: 25, today: false, out: false, tint: "" }
+            CalCell { label: "26", day: 26, today: false, out: false, tint: "" }
+            CalCell { label: "27", day: 27, today: false, out: false, tint: "" }
+            CalCell { label: "28", day: 28, today: false, out: false, tint: "" }
         }
         .direction(row)
         Stack {
-            CalCell { label: "29", today: false, event: false }
-            CalCell { label: "30", today: false, event: false }
-            CalCell { label: "", today: false, event: false }
-            CalCell { label: "", today: false, event: false }
-            CalCell { label: "", today: false, event: false }
-            CalCell { label: "", today: false, event: false }
-            CalCell { label: "", today: false, event: false }
+            CalCell { label: "29", day: 29, today: false, out: false, tint: "" }
+            CalCell { label: "30", day: 30, today: false, out: false, tint: "" }
+            CalCell { label: "1", day: 1, today: false, out: true, tint: "" }
+            CalCell { label: "2", day: 2, today: false, out: true, tint: "" }
+            CalCell { label: "3", day: 3, today: false, out: true, tint: "" }
+            CalCell { label: "4", day: 4, today: false, out: true, tint: "" }
+            CalCell { label: "5", day: 5, today: false, out: true, tint: "" }
         }
         .direction(row)
     }
-    .gap(0)
+    .gap(2)
 }

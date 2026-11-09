@@ -115,7 +115,7 @@ fn probe_app_menu_geometry() {
     let boxes = common::layout_boxes(&view);
     println!("boxes={} ", boxes.len());
     for b in &boxes {
-        let glass = !matches!(b.visual.material, nexus_layout_types::SurfaceMaterial::Opaque);
+        let glass = b.visual.material.is_some();
         if glass || b.rect.width.as_i32() == 0 || b.rect.height.as_i32() == 0 {
             println!(
                 "id={} x={} y={} w={} h={} glass={} nested={} clip={:?}",
@@ -242,17 +242,26 @@ fn probe_sidebar_width_mode_invariant() {
             .expect("lays out")
             .boxes
     };
-    // The twelve 38px sidebar rows, keyed by mode.
+    // The twelve sidebar rows (the window kit's two-line row: title + subtitle, 46 px), keyed by mode.
     let rows = |boxes: &[nexus_layout::LayoutBox]| -> Vec<(i32, i32)> {
         boxes
             .iter()
-            .filter(|b| b.rect.height.as_i32() == 38 && b.rect.x.as_i32() < 300)
+            .filter(|b| b.rect.height.as_i32() == 46 && b.rect.x.as_i32() < 300)
             .map(|b| (b.rect.x.as_i32(), b.rect.width.as_i32()))
             .collect()
     };
     let browse = lay(&view);
     let browse_rows = rows(&browse);
-    assert_eq!(browse_rows.len(), 12, "twelve sidebar rows in browse mode");
+    let heights: Vec<i32> = browse
+        .iter()
+        .filter(|b| b.rect.x.as_i32() < 300 && b.rect.width.as_i32() > 150)
+        .map(|b| b.rect.height.as_i32())
+        .collect();
+    assert_eq!(
+        browse_rows.len(),
+        12,
+        "twelve sidebar rows in browse mode; heights left: {heights:?}"
+    );
     common::dispatch_with_keys(
         &mut view,
         &device,

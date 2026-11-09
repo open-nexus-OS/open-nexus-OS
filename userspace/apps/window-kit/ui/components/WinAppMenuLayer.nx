@@ -1,0 +1,43 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The window menu's layer (design artifacts: WindowMenu): while the app chip's menu is open
+// (`menu == "app"`) the `WinAppMenu` hangs under the chip, 12 px from the window's edge, on an
+// out-of-flow layer that slides down; a tap beside the menu closes it (`WinMenu("")`). The
+// labels are the app's copy, passed through from `WinAppWindow`.
+
+Component WinAppMenuLayer {
+    props: {
+        fullscreen: Str,
+        moveDevice: Str,
+        minimize: Str,
+        close: Str,
+        moveLabel: Str,
+        arrangeLabel: Str,
+        soon: Str,
+    }
+    if $state.menu == "app" {
+        Stack {
+            Stack {
+                WinAppMenu {
+                    fullscreen: $props.fullscreen,
+                    moveDevice: $props.moveDevice,
+                    minimize: $props.minimize,
+                    close: $props.close,
+                    moveLabel: $props.moveLabel,
+                    arrangeLabel: $props.arrangeLabel,
+                    soon: $props.soon,
+                }
+                Spacer
+            }
+            .direction(row)
+            .align(start)
+            .paddingLeading(12)
+        }
+        .overlay()
+        .transition(slideDown)
+        on Tap -> dispatch(WinMenu(""))
+    } else {
+        Stack { }
+    }
+}

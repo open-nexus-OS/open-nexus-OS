@@ -31,23 +31,12 @@ pub const CARD_PADDING: i32 = 14;
 pub const CARD_ICON_SIZE: i32 = 24;
 pub const ICON_TARGET_SIZE: i32 = 48;
 
-pub const TOKEN_PANEL_BG: &str = "surface";
-pub const TOKEN_PANEL_BORDER: &str = "border";
-pub const TOKEN_PANEL_TITLE: &str = "fg";
+// The colour roles (RFC-0116) the baked proof texts are set in. The panel's own fills are
+// drawn by the shell scene (`src/systemui_shell.rs`), not baked from here.
+pub const TOKEN_PANEL_TITLE: &str = "label";
 pub const TOKEN_PANEL_SUBTITLE: &str = "accent";
-pub const TOKEN_PANEL_MUTED: &str = "mutedFg";
-pub const TOKEN_CARD_BG: &str = "surfaceAlt";
-pub const TOKEN_CARD_BORDER: &str = "border";
-pub const TOKEN_CARD_ACTIVE_BG: &str = "surface";
-pub const TOKEN_CARD_LABEL: &str = "fg";
-pub const TOKEN_ICON_BG: &str = "accent";
-pub const TOKEN_ICON_FG: &str = "accentFg";
-pub const TOKEN_HOVER: &str = "accent";
-pub const TOKEN_CLICK: &str = "success";
-pub const TOKEN_SCROLL: &str = "warning";
-pub const TOKEN_KEYBOARD: &str = "focusRing";
-pub const TOKEN_GLASS_TINT: &str = "glassTint";
-pub const TOKEN_GLASS_EDGE: &str = "glassEdge";
+pub const TOKEN_PANEL_MUTED: &str = "labelSecondary";
+pub const TOKEN_CARD_LABEL: &str = "label";
 
 #[derive(Clone, Copy)]
 pub struct ProofTextSpec {

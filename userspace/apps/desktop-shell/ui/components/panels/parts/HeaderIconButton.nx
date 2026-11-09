@@ -14,8 +14,8 @@ Component HeaderIconButton {
         icon: Str,
     }
     Circle { size: 30
-        Icon { symbol: $props.icon, size: 13 }
-            .fg(onGlass)
+        Icon { symbol: $props.icon, size: 14 }
+            .fg(label)
     }
-    .hitSlop(2)
+    .hitSlop(8)
 }

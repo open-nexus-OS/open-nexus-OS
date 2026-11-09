@@ -3,7 +3,7 @@
 
 Page ListPage {
     Stack {
-        Text(@t("library.title")).textSize(lg)
+        Text(@t("library.title")).textStyle(title3)
         TextField { label: @t("library.filter"), value: $state.query }
         if $state.loading {
             Text(@t("common.loading"))
@@ -19,6 +19,6 @@ Page ListPage {
         Button { label: @t("library.refresh") }
         on Tap -> dispatch(Refresh)
     }
-    .padding(4)
-    .gap(2)
+    .padding(16)
+    .gap(8)
 }

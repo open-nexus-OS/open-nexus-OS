@@ -1,0 +1,28 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The properties pane: a `WinPane` titled "Properties" (an overlay's own
+// surface in the compact tier). Nothing selected = a hint; a selection =
+// the label / value rows of the entry — the SELECTION reactivity proof.
+
+Component PropsPane {
+    WinPane { title: @t("stash.props"), showHeader: true, showFooter: false, bare: device.sizeClass == "compact", flush: false, scrolls: false, noDividers: false } {
+        body {
+            if $state.selection == "" {
+                Stack {
+                    Text(@t("stash.propsEmpty")).textStyle(footnote).fg(labelSecondary)
+                }
+                .padding(8)
+            } else {
+                Stack {
+                    WinPropRow { label: @t("stash.propKind"), value: $state.selKind, icon: "", last: false }
+                    WinPropRow { label: @t("stash.propSize"), value: $state.selSize, icon: "", last: false }
+                    WinPropRow { label: @t("stash.propCreated"), value: $state.selDate, icon: "", last: false }
+                    WinPropRow { label: @t("stash.propDate"), value: $state.selDate, icon: "", last: false }
+                    WinPropRow { label: @t("stash.propId"), value: $state.selName, icon: "", last: true }
+                }
+                .gap(0)
+            }
+        }
+    }
+}

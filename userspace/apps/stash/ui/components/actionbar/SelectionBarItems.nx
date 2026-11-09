@@ -1,0 +1,44 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The bar with a selection: the file operations. Move opens the destination
+// dialog, Copy duplicates in place as "Kopie von <name>". Delete is
+// trash-aware: outside /Papierkorb it SOFT-deletes (moves to the trash);
+// inside it hard-removes and Restore appears.
+
+Component SelectionBarItems {
+    Stack {
+        Stack {
+            BarFace { label: @t("stash.actMove"), icon: "move", kind: "", active: true }
+        }
+        on Tap -> dispatch(MoveStart)
+        Stack {
+            BarFace { label: @t("stash.actCopy"), icon: "doc.on.doc", kind: "", active: false }
+        }
+        on Tap -> dispatch(CopySel)
+        WinActionItem { id: "share", label: @t("stash.actShare"), icon: "square.and.arrow.up", kind: "", active: false }
+        if $state.path == "/Papierkorb" {
+            Stack {
+                BarFace { label: @t("stash.actRestore"), icon: "arrow.uturn.backward", kind: "", active: false }
+            }
+            on Tap -> dispatch(RestoreSel)
+            Stack {
+                BarFace { label: @t("stash.actDelete"), icon: "trash", kind: "danger", active: false }
+            }
+            on Tap -> dispatch(DeleteSel)
+        } else {
+            Stack {
+                BarFace { label: @t("stash.actDelete"), icon: "trash", kind: "danger", active: false }
+            }
+            on Tap -> dispatch(TrashSel)
+        }
+        WinActionDivider { }
+        Stack {
+            BarFace { label: @t("stash.actMore"), icon: "ellipsis", kind: "", active: false }
+        }
+        on Tap -> dispatch(WinMenu("ctx"))
+    }
+    .direction(row)
+    .align(center)
+    .gap(2)
+}

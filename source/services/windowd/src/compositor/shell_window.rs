@@ -29,14 +29,9 @@
 
 use crate::atlas::AtlasSurface;
 use crate::compositor::damage::DamageRect;
-use crate::compositor::{
-    DARK_GLASS_BLUR_RADIUS, DARK_GLASS_SATURATION_PERCENT, DISPLAY_ROW_OFFSET, RETAINED_ROW_OFFSET,
-};
+use crate::compositor::{DISPLAY_ROW_OFFSET, RETAINED_ROW_OFFSET};
+use crate::window_shape::WindowShape;
 use nexus_gfx::{BackdropCache, Layer, LayerBackdrop, LayerShadow, RenderCommandEncoder};
-
-/// Shadow-halo margin around the window when computing its damage rect, so the
-/// soft drop shadow is restored from the retained plane on move/close.
-const SHADOW_HALO_PAD: u32 = 24;
 
 // ── Window chrome: P3.2 windows-as-widgets — the title bar renders FROM the
 // (TASK-0337: windowd composes no title bar at all — the window kit draws the
@@ -66,11 +61,6 @@ pub(crate) struct ShellWindow {
     /// Window size: the surface's (TASK-0337: the app draws its chrome inside it).
     pub(crate) w: u32,
     pub(crate) h: u32,
-    /// Glass frame parameters applied by the composite.
-    pub(crate) radius: u32,
-    pub(crate) shadow_blur: u32,
-    pub(crate) shadow_offset_y: i32,
-    pub(crate) shadow_alpha: u32,
     /// Visible on screen.
     pub(crate) visible: bool,
     /// Active title-bar drag: cursor offset from the window origin at grab.
@@ -85,28 +75,15 @@ pub(crate) struct ShellWindow {
 }
 
 impl ShellWindow {
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn new(
-        title: &'static str,
-        x: i32,
-        y: i32,
-        w: u32,
-        h: u32,
-        radius: u32,
-        shadow_blur: u32,
-        shadow_offset_y: i32,
-        shadow_alpha: u32,
-    ) -> Self {
+    /// A hidden window at `(x, y)`, `w × h`. Its shape — radius, shadow, glass — is the theme's
+    /// (`crate::window_shape`), handed to each composite: none of it lives here.
+    pub(crate) fn new(title: &'static str, x: i32, y: i32, w: u32, h: u32) -> Self {
         Self {
             title,
             x,
             y,
             w,
             h,
-            radius,
-            shadow_blur,
-            shadow_offset_y,
-            shadow_alpha,
             visible: false,
             drag: None,
             fullscreen_restore: None,
@@ -218,9 +195,11 @@ impl ShellWindow {
         Some(old)
     }
 
-    /// Damage rect of the window plus its shadow halo.
+    /// Damage rect of the window plus its shadow halo (the theme's window shadow, whole), so the
+    /// soft drop shadow is restored from the retained plane on move/close.
     pub(crate) fn damage_rect(&self, mode_w: u32, mode_h: u32) -> DamageRect {
-        let (x, y, width, height) = self.frame().damage_bounds(SHADOW_HALO_PAD, mode_w, mode_h);
+        let pad = crate::window_shape::halo_pad();
+        let (x, y, width, height) = self.frame().damage_bounds(pad, mode_w, mode_h);
         DamageRect { x, y, width, height }
     }
 
@@ -229,8 +208,13 @@ impl ShellWindow {
     /// `body` (the app's buffer, its newest slot). The blurred backdrop is OPTIONAL
     /// (TASK-0070 Phase 3): a resized/fullscreen window whose blur cache is missing
     /// or too small composites without it (the translucent body sits straight on the
-    /// wallpaper — allowed) instead of sampling past the cache.
-    pub(crate) fn glass_params(&self, body: BodySource) -> GlassCompositeParams {
+    /// wallpaper — allowed) instead of sampling past the cache. `shape`: the window's radius,
+    /// shadow and backdrop under the active theme (RFC-0116).
+    pub(crate) fn glass_params(
+        &self,
+        body: BodySource,
+        shape: WindowShape,
+    ) -> GlassCompositeParams {
         // Never sample past the content. The frame (`self.w`/`self.h`) can transiently exceed
         // the created surface during a resize/fullscreen negotiation: the client owns its
         // surface and re-creates it a round-trip AFTER the frame grows. Clamp the extent to what
@@ -256,12 +240,13 @@ impl ShellWindow {
             // overrides these (frame `w`/`h`, band content) in `scene.rs`.
             content_w: 0,
             content_h: 0,
-            radius: self.radius,
+            radius: shape.radius,
             layer_id: 0,
             opacity: 255,
-            shadow_blur: self.shadow_blur,
-            shadow_offset_y: self.shadow_offset_y,
-            shadow_alpha: self.shadow_alpha,
+            shadow_blur: shape.shadow_blur,
+            shadow_offset_y: shape.shadow_offset_y,
+            shadow_alpha: shape.shadow_alpha,
+            backdrop: (shape.blur_radius, shape.saturation_percent),
             solid: false,
             gpu_glass: false,
             key: 0,
@@ -321,8 +306,8 @@ impl ShellWindow {
                         // the content is frosted glass ("glass frame grows"). Snaps
                         // back to the cached path when the client re-renders at size.
                         Some(LayerBackdrop {
-                            blur_radius: DARK_GLASS_BLUR_RADIUS,
-                            saturation_percent: DARK_GLASS_SATURATION_PERCENT,
+                            blur_radius: p.backdrop.0,
+                            saturation_percent: p.backdrop.1,
                             restore_halo_pad: 0,
                             retained_src_y_offset: RETAINED_ROW_OFFSET,
                             cache: BackdropCache::None,
@@ -336,8 +321,8 @@ impl ShellWindow {
                             None => p.gpu_glass.then_some(BackdropCache::None),
                         };
                         cache.map(|cache| LayerBackdrop {
-                            blur_radius: DARK_GLASS_BLUR_RADIUS,
-                            saturation_percent: DARK_GLASS_SATURATION_PERCENT,
+                            blur_radius: p.backdrop.0,
+                            saturation_percent: p.backdrop.1,
                             restore_halo_pad: 0,
                             retained_src_y_offset: RETAINED_ROW_OFFSET,
                             cache,
@@ -418,6 +403,8 @@ pub(crate) struct GlassCompositeParams {
     pub(crate) shadow_blur: u32,
     pub(crate) shadow_offset_y: i32,
     pub(crate) shadow_alpha: u32,
+    /// The glass's backdrop: blur radius (px) and saturation (%) — the `window` material's.
+    pub(crate) backdrop: (u32, u32),
     /// Solid materials (TASK-0337): the window's page base is opaque — no backdrop is blurred,
     /// and the body occludes what lies below it.
     pub(crate) solid: bool,

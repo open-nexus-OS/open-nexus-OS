@@ -1,0 +1,50 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One clipboard card (design artifacts: OnScreenKeyboard clipboard card): the item's preview
+// on `glassCard`, radius lg, `shadow1`, 104 px tall. The body is the tap target (it inserts
+// the item); the footer holds the delete button, disabled until clipboardd can delete one
+// item (spec gap G8). The body's top corners follow the card so the host's press layer does
+// too.
+
+Component ClipCard {
+    props: {
+        seq: Int,
+        text: Str,
+    }
+    Stack {
+        Stack {
+            Text($props.text).textStyle(subheadline).fg(label)
+        }
+        .grow(1)
+        .paddingTop(12)
+        .paddingX(12)
+        .corners(lg, lg, 0, 0)
+        .label(@t("osk.paste"))
+        on Tap -> dispatch(ClipPaste($props.seq))
+        Stack {
+            Spacer
+            Stack {
+                Icon { symbol: "trash", size: 16 }
+                    .fg(labelTertiary)
+            }
+            .align(center)
+            .justify(center)
+            .width(28)
+            .height(28)
+            .rounded(full)
+            .disabled(true)
+            .label(@t("osk.deleteClip"))
+        }
+        .direction(row)
+        .align(center)
+        .paddingX(12)
+        .paddingBottom(8)
+    }
+    .grow(1)
+    .height(104)
+    .overflow(hidden)
+    .bg(glassCard)
+    .rounded(lg)
+    .shadow(shadow1)
+}

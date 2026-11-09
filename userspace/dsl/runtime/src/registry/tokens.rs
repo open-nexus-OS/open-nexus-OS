@@ -1,122 +1,106 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! The DSL's token VOCABULARY: every `name -> semantic token` map a modifier
-//! argument goes through.
+//! The DSL's token VOCABULARY: every `name -> value` map a modifier argument goes through
+//! (RFC-0116: one token set).
 //!
-//! This is one half of the registry seam. It mirrors — and must stay in
-//! lock-step with — `nexus_dsl_core::registry::TOKEN_VOCABULARIES`, which is
-//! what the CHECKER validates against: the frontend rejects an unknown token
-//! at compile time, and these maps turn the accepted ones into values.
+//! This is one half of the registry seam. It mirrors — and must stay in lock-step with —
+//! `nexus_dsl_core::registry::TOKEN_VOCABULARIES`, which is what the CHECKER validates against:
+//! the frontend rejects an unknown or retired name at compile time, and these maps turn the
+//! accepted ones into values. Colour roles and text styles resolve through the typed tokens'
+//! own name tables (`ColorToken::from_name`, `TextStyleToken::from_name`), so the theme crate
+//! stays the one place a name is spelled.
 
-use nexus_layout_types::FxPx;
-use nexus_theme_tokens::{ColorToken, Tokens, TypographyToken};
+use nexus_layout_types::{FxPx, Material};
+use nexus_theme_tokens::{ColorToken, RadiusToken, ShadowToken, SpaceToken, TextStyleToken};
 
-/// Spacing scale: one step = 4px (matches the theme spacing scale).
+/// A spacing in px (RFC-0116: the 4-pt grid; the checker rejects an off-grid literal, so this
+/// only bounds what an expression may evaluate to).
 #[must_use]
-pub fn spacing(step: i64) -> FxPx {
-    FxPx::new((step.clamp(0, 256) * 4) as i32)
+pub fn spacing(px: i64) -> FxPx {
+    FxPx::new(px.clamp(0, 1024) as i32)
 }
 
+/// A semantic spacing name: `gapInline` 8, `gapGroup` 12, `gapSection` 24, `marginLayout` 16.
+#[must_use]
+pub fn spacing_token(name: &str) -> Option<FxPx> {
+    Some(
+        match name {
+            "gapInline" => SpaceToken::GapInline,
+            "gapGroup" => SpaceToken::GapGroup,
+            "gapSection" => SpaceToken::GapSection,
+            "marginLayout" => SpaceToken::MarginLayout,
+            _ => return None,
+        }
+        .px(),
+    )
+}
+
+/// A colour role by its canonical name.
 #[must_use]
 pub fn color_token(name: &str) -> Option<ColorToken> {
-    Some(match name {
-        "surface" => ColorToken::Surface,
-        "surfaceVariant" => ColorToken::SurfaceVariant,
-        "onSurface" => ColorToken::OnSurface,
-        "onSurfaceVariant" => ColorToken::OnSurfaceVariant,
-        "accent" => ColorToken::Accent,
-        "onAccent" => ColorToken::OnAccent,
-        "border" => ColorToken::Border,
-        "background" => ColorToken::Background,
-        "islandBg" => ColorToken::IslandBg,
-        "primary" => ColorToken::Primary,
-        "onPrimary" => ColorToken::OnPrimary,
-        "danger" => ColorToken::Danger,
-        "onDanger" => ColorToken::OnDanger,
-        "success" => ColorToken::Success,
-        "onSuccess" => ColorToken::OnSuccess,
-        "warning" => ColorToken::Warning,
-        "onWarning" => ColorToken::OnWarning,
-        "info" => ColorToken::Info,
-        "onInfo" => ColorToken::OnInfo,
-        "focusRing" => ColorToken::FocusRing,
-        "shadow" => ColorToken::Shadow,
-        "scrim" => ColorToken::Scrim,
-        "destructive" => ColorToken::Destructive,
-        "onDestructive" => ColorToken::OnDestructive,
-        // RFC-0082 — content on glass / directly on the wallpaper.
-        "onGlass" => ColorToken::OnGlass,
-        "onGlassMuted" => ColorToken::OnGlassMuted,
-        "onGlassStrong" => ColorToken::OnGlassStrong,
-        "glassIcon" => ColorToken::GlassIcon,
-        "glassPlaceholder" => ColorToken::GlassPlaceholder,
-        "glassFocus" => ColorToken::GlassFocus,
-        "glassFill" => ColorToken::GlassFill,
-        "glassFillStrong" => ColorToken::GlassFillStrong,
-        "accentSoft" => ColorToken::AccentSoft,
-        "wallpaperTint" => ColorToken::WallpaperTint,
-        "wallpaperVignette" => ColorToken::WallpaperVignette,
-        "textShadow" => ColorToken::TextShadow,
-        "textShadowStrong" => ColorToken::TextShadowStrong,
-        "transparent" => ColorToken::Transparent,
-        // Roles authored in every theme but unreachable until they had a
-        // `ColorToken`. `divider` is the one that matters most: hairlines were
-        // painted with `border` (an OPAQUE control outline) because that was
-        // the only separator-ish name a page could say.
-        "divider" => ColorToken::Divider,
-        "glassHover" => ColorToken::GlassHover,
-        "glassActive" => ColorToken::GlassActive,
-        "toggleOnBg" => ColorToken::ToggleOnBg,
-        "toggleOffBg" => ColorToken::ToggleOffBg,
-        "notifDot" => ColorToken::NotifDot,
-        "sliderTrack" => ColorToken::SliderTrack,
-        "sliderFill" => ColorToken::SliderFill,
-        "sliderIcon" => ColorToken::SliderIcon,
-        _ => return None,
-    })
+    ColorToken::from_name(name)
 }
 
+/// A text style by its canonical name.
 #[must_use]
-pub fn type_size(name: &str) -> Option<TypographyToken> {
-    Some(match name {
-        "xs" => TypographyToken::Xs,
-        "sm" => TypographyToken::Sm,
-        "base" => TypographyToken::Base,
-        "md" => TypographyToken::Md,
-        "lg" => TypographyToken::Lg,
-        "xl" => TypographyToken::Xl,
-        "xxl" => TypographyToken::Xxl,
-        "xxxl" => TypographyToken::Xxxl,
-        "display" => TypographyToken::Display,
-        "hero" => TypographyToken::Hero,
-        _ => return None,
-    })
+pub fn text_style(name: &str) -> Option<TextStyleToken> {
+    TextStyleToken::from_name(name)
 }
 
-/// Maps a `.shadow(<token>)` name to the design elevation scale.
+/// The alpha of a tint wash strength (`.tint(role, level)`): `fill` 16 %, `border` 30 %,
+/// `line` 55 % — the only alphas a role takes. Unknown = the default `fill`.
 #[must_use]
-pub fn shadow_level(name: &str) -> Option<nexus_layout_types::ShadowLevel> {
-    use nexus_layout_types::ShadowLevel;
-    Some(match name {
-        "sm" => ShadowLevel::Sm,
-        "md" => ShadowLevel::Md,
-        "lg" => ShadowLevel::Lg,
-        "xl" => ShadowLevel::Xl,
-        "xxl" => ShadowLevel::Xxl2,
-        _ => return None,
-    })
+pub fn tint_alpha(level: &str) -> u8 {
+    match level {
+        "border" => 77,
+        "line" => 140,
+        _ => 41,
+    }
 }
 
-/// Maps a `.fontWeight(<token>)` name to the authoring weight. The baked
-/// ladder serves Light/Regular/SemiBold; `medium` and `bold` are authoring
-/// aliases that collapse onto those (RFC-0082).
+/// `.figures(tabular|proportional)`: whether a text's digits take one width.
+#[must_use]
+pub fn figures(name: &str) -> Option<bool> {
+    match name {
+        "tabular" => Some(true),
+        "proportional" => Some(false),
+        _ => None,
+    }
+}
+
+/// What a `.shadow(…)` name draws: a shadow token of the theme, or the label halo.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShadowName {
+    /// The four elevations, the recessed well and the lit top edge.
+    Token(ShadowToken),
+    /// The `labelShadow` behind a text that sits on the wallpaper.
+    Halo,
+}
+
+/// A `.shadow(…)` name.
+#[must_use]
+pub fn shadow(name: &str) -> Option<ShadowName> {
+    Some(ShadowName::Token(match name {
+        "shadow1" => ShadowToken::Shadow1,
+        "shadow2" => ShadowToken::Shadow2,
+        "shadow3" => ShadowToken::Shadow3,
+        "shadow4" => ShadowToken::Shadow4,
+        "shadowInset" => ShadowToken::Inset,
+        "edgeHighlight" => ShadowToken::EdgeHighlight,
+        "halo" => return Some(ShadowName::Halo),
+        _ => return None,
+    }))
+}
+
+/// Maps a `.fontWeight(<token>)` name to the weight; the atlas holds each style's faces and the
+/// overrides the screens use (RFC-0116).
 #[must_use]
 pub fn font_weight(name: &str) -> Option<nexus_layout_types::FontWeight> {
     use nexus_layout_types::FontWeight;
     Some(match name {
         "light" => FontWeight::Light,
-        "regular" => FontWeight::Regular,
+        "normal" => FontWeight::Normal,
         "medium" => FontWeight::Medium,
         "semibold" => FontWeight::Semibold,
         "bold" => FontWeight::Bold,
@@ -136,84 +120,46 @@ pub fn text_align(name: &str) -> Option<nexus_layout_types::TextAlign> {
     })
 }
 
-/// Maps a `.leading(<token>)` name onto the `[leading]` scale step.
-#[must_use]
-pub fn leading(name: &str) -> Option<nexus_theme_tokens::LeadingToken> {
-    use nexus_theme_tokens::LeadingToken;
-    Some(match name {
-        "flat" => LeadingToken::Flat,
-        "tight" => LeadingToken::Tight,
-        "snug" => LeadingToken::Snug,
-        "normal" => LeadingToken::Normal,
-        "relaxed" => LeadingToken::Relaxed,
-        _ => return None,
-    })
-}
-
-/// The `.textShadow(...)` vocabulary (RFC-0082).
-///
-/// These are EMPHASIS steps, not blur radii. The row-based painter renders a
-/// text shadow as one extra glyph pass at a 1px offset — there is no offscreen
-/// buffer to blur in. `soft` separates large type from a busy photo; `strong`
-/// is for small labels that would otherwise dissolve into it.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum TextShadowStep {
-    None,
-    Soft,
-    Strong,
-}
-
-impl TextShadowStep {
-    /// The concrete shadow for this step under the active theme.
-    pub fn resolve(self, tokens: &dyn Tokens) -> nexus_layout_types::TextShadow {
-        let (role, dy) = match self {
-            TextShadowStep::None => (ColorToken::Transparent, 0),
-            TextShadowStep::Soft => (ColorToken::TextShadow, 1),
-            TextShadowStep::Strong => (ColorToken::TextShadowStrong, 1),
-        };
-        nexus_layout_types::TextShadow {
-            offset_x: FxPx::ZERO,
-            offset_y: FxPx::new(dy),
-            blur_radius: FxPx::ZERO,
-            color: tokens.color(role),
-        }
-    }
-}
-
-/// Maps a `.textShadow(<token>)` name onto its emphasis step.
-#[must_use]
-pub fn text_shadow(name: &str) -> Option<TextShadowStep> {
-    Some(match name {
-        "none" => TextShadowStep::None,
-        "soft" => TextShadowStep::Soft,
-        "strong" => TextShadowStep::Strong,
-        _ => return None,
-    })
-}
-
-/// Maps a `.border(<token>)` length name onto a hairline width. The design
-/// system has exactly one border width today; the token keeps the door open.
+/// Maps a `.border(<token>)` name onto a width: the 1 px `hairline` every border is drawn with,
+/// and the 2 px `ring` of a selection or focus outline.
 #[must_use]
 pub fn border_width(name: &str) -> Option<FxPx> {
     Some(match name {
-        "thin" | "hairline" => FxPx::new(1),
-        "medium" => FxPx::new(2),
-        "thick" => FxPx::new(3),
+        "hairline" => nexus_theme_tokens::HAIRLINE,
+        "ring" => FxPx::new(2),
         _ => return None,
     })
 }
 
+/// A radius token in px: `sm` 8, `md` 12, `lg` 16, `xl` 24, `full` (a capsule or a circle).
 #[must_use]
-pub fn radius(name: &str) -> FxPx {
-    // Design radius scale (reference/tokens/spacing.css): sm 6,
-    // md 8, lg 10, xl 14, 2xl 16 — the previous 4/8/12/16 drifted from it.
-    FxPx::new(match name {
-        "sm" => 6,
-        "md" => 8,
-        "lg" => 10,
-        "xl" => 14,
-        "xxl" => 16,
-        "full" => 9999,
-        _ => 0,
+pub fn radius(name: &str) -> Option<FxPx> {
+    Some(
+        match name {
+            "sm" => RadiusToken::Sm,
+            "md" => RadiusToken::Md,
+            "lg" => RadiusToken::Lg,
+            "xl" => RadiusToken::Xl,
+            "full" => RadiusToken::Full,
+            _ => return None,
+        }
+        .px(),
+    )
+}
+
+/// A `.material(…)` name: the blur surfaces on the wallpaper, the translucent card and the two
+/// opaque surfaces.
+#[must_use]
+pub fn material(name: &str) -> Option<Material> {
+    Some(match name {
+        "panel" => Material::Panel,
+        "window" => Material::Window,
+        "dock" => Material::Dock,
+        "thin" => Material::Thin,
+        "ultraThin" => Material::UltraThin,
+        "card" => Material::Card,
+        "pane" => Material::Pane,
+        "overlay" => Material::Overlay,
+        _ => return None,
     })
 }

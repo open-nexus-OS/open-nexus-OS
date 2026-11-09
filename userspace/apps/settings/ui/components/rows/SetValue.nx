@@ -9,5 +9,5 @@ Component SetValue {
     props: {
         value: Str,
     }
-    Text($props.value).textSize(sm).fontWeight(medium).fg(onGlassMuted)
+    Text($props.value).textStyle(body).fontWeight(normal).fg(labelSecondary).figures(tabular)
 }

@@ -1,0 +1,31 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One page of the paged app grid (design artifacts: launcher §11): the apps `from` … `from +
+// count` of the ONE store list, in `columns` columns, in a cell exactly `width` wide — the
+// strip's clip width, as the snap math is page k = k × viewport width. A tile's tap launches
+// its app (`svc.ability.launch` through the store).
+
+Component LauncherPage {
+    props: {
+        from: Int,
+        count: Int,
+        columns: Int,
+        width: Int,
+    }
+    Stack {
+        List(take(skip($state.apps, $props.from), $props.count)) { app in
+            Stack {
+                LauncherTile { label: app.label, icon: app.icon, iconTop: app.iconTop, iconBottom: app.iconBottom, iconArt: app.iconArt }
+            }
+            .key(app.id)
+            .align(center)
+            on Tap -> dispatch(Launch(app.id))
+        }
+        .columns($props.columns)
+        .rowGap(20)
+        .gap(12)
+        .padding(24)
+    }
+    .width($props.width)
+}

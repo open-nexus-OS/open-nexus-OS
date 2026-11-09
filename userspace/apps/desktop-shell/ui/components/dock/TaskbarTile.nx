@@ -1,12 +1,19 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// One desktop-taskbar app icon (design artifacts: launcher `AppIcon xs`,
-// LAUNCHER-SPEC §2/§6): tile 40, radius 11, no label, sits DIRECTLY on the
-// bar (no pill wrapper). `running` renders the §7 UNDERLINE — 20×2, radius
-// 1, text-primary @ 0.7, centered under the tile ("the taskbar is a window
-// list") — and the marker slot keeps its height either way so a state flip
-// never shifts the row. Tap handlers attach at the use site.
+// One desktop-taskbar app button (design artifacts: TaskbarDock): 48×50,
+// radius 12, padding 4 4 2 — the BUTTON is the tile plus its run bar, so the
+// host's hover wash covers both. Inside: `AppIcon xs` — 40×40, radius 12,
+// shadow2 — and 2 below it the run bar, 20×2, `label` @ .70, transparent
+// while the app has no window (the slot keeps its height, so a state flip
+// never shifts the row: "the taskbar is a window list").
+//
+// The icon is the bundle's baked artwork when it ships one, else the
+// manifest's gradient tile, else the plain card tile — fallbacks for apps
+// without artwork, on the same radius and shadow. (Every artwork gets the
+// native look: the registry row carries no icon variant, so a freestanding
+// icon such as Stash's folder cannot drop its shadow yet.) Tap handlers
+// attach at the use site.
 
 Component TaskbarTile {
     props: {
@@ -19,7 +26,13 @@ Component TaskbarTile {
     }
     Stack {
         if $props.iconArt != "" {
-            Image { source: $props.iconArt, size: 40 }
+            Stack {
+                Image { source: $props.iconArt, size: 40 }
+            }
+            .width(40)
+            .height(40)
+            .rounded(md)
+            .shadow(shadow2)
         } else { if $props.iconTop != "" {
             Stack {
                 Icon { symbol: $props.icon, size: 20 }
@@ -28,18 +41,20 @@ Component TaskbarTile {
             .width(40)
             .height(40)
             .bgGradient($props.iconTop, $props.iconBottom)
-            .rounded(11)
+            .rounded(md)
+            .shadow(shadow2)
             .align(center)
             .justify(center)
         } else {
             Stack {
                 Icon { symbol: $props.icon, size: 20 }
-                    .fg(onSurface)
+                    .fg(label)
             }
             .width(40)
             .height(40)
             .material(card)
-            .rounded(11)
+            .rounded(md)
+            .shadow(shadow2)
             .align(center)
             .justify(center)
         } }
@@ -47,8 +62,8 @@ Component TaskbarTile {
             Stack { }
                 .width(20)
                 .height(2)
-                .bg(onSurface)
-                .rounded(1)
+                .bg(label)
+                .rounded(full)
                 .opacity(179)
         } else {
             Stack { }
@@ -57,5 +72,9 @@ Component TaskbarTile {
         }
     }
     .align(center)
-    .gap(0)
+    .gap(2)
+    .paddingTop(4)
+    .paddingX(4)
+    .paddingBottom(2)
+    .rounded(md)
 }

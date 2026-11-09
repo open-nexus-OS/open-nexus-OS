@@ -1,0 +1,30 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// View ▸: the layout, the properties pane and hidden files — each check mark
+// is bound to the state it toggles (`viewMode`, `rightOpen`, `showHidden`).
+// The layout rows dispatch the toolbar's own tool event.
+
+Component ViewMenu {
+    WinMenu { width: 260 } {
+        items {
+            Stack {
+                CheckRow { label: @t("win.viewGrid"), icon: "square.grid.2x2", checked: $state.viewMode == "grid" }
+            }
+            on Tap -> dispatch(WinTool("square.grid.2x2"))
+            Stack {
+                CheckRow { label: @t("win.viewList"), icon: "list.bullet", checked: $state.viewMode == "list" }
+            }
+            on Tap -> dispatch(WinTool("list.bullet"))
+            WinMenuDivider { }
+            Stack {
+                CheckRow { label: @t("win.viewProps"), icon: "sidebar.right", checked: $state.rightOpen == 1 }
+            }
+            on Tap -> dispatch(WinRight)
+            Stack {
+                CheckRow { label: @t("stash.setHidden"), icon: "eye", checked: $state.showHidden }
+            }
+            on Tap -> dispatch(ToggleHidden)
+        }
+    }
+}

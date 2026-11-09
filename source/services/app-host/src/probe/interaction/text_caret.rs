@@ -22,11 +22,12 @@ impl DslApp {
             return None;
         }
         let mut idx = 0usize;
-        let (nid, content, font, color) =
+        let (nid, content, font, tracking, color) =
             super::super::paint::caret_input(self.view.scene(), &mut idx, f.box_id, false)?;
         let run = self.layout.boxes.iter().find(|b| b.node_id == nid)?;
         let (rx, ry) = self.on_surface(run);
-        let caret_x = nexus_text_baked::measure(content.chars().take(f.caret), font) as i32;
+        let caret_x =
+            nexus_text_baked::measure(content.chars().take(f.caret), font, tracking) as i32;
         // At the field's horizontal offset (TASK-0346 P2), inside the field's box.
         let scroll = if self.field_scroll.0 == f.session { self.field_scroll.1 } else { 0 };
         let (mut x0, mut y0) = (rx + caret_x - scroll + 1, ry + 2);

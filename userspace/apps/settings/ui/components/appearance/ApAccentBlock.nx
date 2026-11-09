@@ -1,0 +1,73 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Akzentfarbe: the nine palette swatches, the live accent dot and the apply-failed note.
+
+Component ApAccentBlock {
+    Stack {
+        Stack {
+            Text(@t("ap.accent")).textStyle(overline).fg(labelSecondary)
+        }
+        .paddingX(16)
+        Stack {
+            Stack {
+                ApSwatch { hex: "#3b82f6", selected: $state.apAccent == "default" }
+            }
+            on Tap -> dispatch(SetAccent("default"))
+            Stack {
+                ApSwatch { hex: "#14b8a6", selected: $state.apAccent == "teal" }
+            }
+            on Tap -> dispatch(SetAccent("teal"))
+            Stack {
+                ApSwatch { hex: "#22c55e", selected: $state.apAccent == "green" }
+            }
+            on Tap -> dispatch(SetAccent("green"))
+            Stack {
+                ApSwatch { hex: "#f59e0b", selected: $state.apAccent == "amber" }
+            }
+            on Tap -> dispatch(SetAccent("amber"))
+            Stack {
+                ApSwatch { hex: "#f97316", selected: $state.apAccent == "orange" }
+            }
+            on Tap -> dispatch(SetAccent("orange"))
+            Stack {
+                ApSwatch { hex: "#ef4444", selected: $state.apAccent == "red" }
+            }
+            on Tap -> dispatch(SetAccent("red"))
+            Stack {
+                ApSwatch { hex: "#ec4899", selected: $state.apAccent == "pink" }
+            }
+            on Tap -> dispatch(SetAccent("pink"))
+            Stack {
+                ApSwatch { hex: "#8b5cf6", selected: $state.apAccent == "violet" }
+            }
+            on Tap -> dispatch(SetAccent("violet"))
+            Stack {
+                ApSwatch { hex: "#64748b", selected: $state.apAccent == "graphite" }
+            }
+            on Tap -> dispatch(SetAccent("graphite"))
+        }
+        .direction(row)
+        .wrap(true)
+        .align(center)
+        .gap(12)
+        .padding(12)
+        .rounded(lg)
+        .material(card)
+        Stack {
+            Circle { size: 18 }
+                .bg(accent)
+            Text(@t("ap.accentLive")).textStyle(caption).fg(labelSecondary)
+        }
+        .direction(row)
+        .align(center)
+        .gap(8)
+        if $state.apError != 0 {
+            Text(@t("set.applyFailed")).textStyle(caption).fg(danger)
+                .paddingX(16)
+        } else {
+            Stack { }
+        }
+    }
+    .gap(8)
+}

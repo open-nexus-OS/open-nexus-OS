@@ -1,0 +1,96 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Background jobs on the taskbar (design artifacts: TaskbarDock, BackgroundJobs):
+// persistent local processes with a progress — compile, download, backup. The
+// jobs zone sits in the taskbar's centre row between the app buttons and the
+// player, behind its own 1×28 divider, and exists only while a job runs: at
+// most three `JobTile`s (8 apart) and, past that, a `JobMore` chip with the
+// rest. Tiles and chip are `card` layers on the bar's blur (glassCard + the
+// glass edge, never a blur of their own).
+//
+// `JobTile` is 156×44: padding 0 12 0 8, gap 8, radius 12. The icon is 28×28
+// on the job's tint (radius 8 — the concentric floor; 12 − 8 would be 4), the
+// body — exactly 100 wide, so the fill is `pct` px — a name (caption semibold)
+// and the percentage (caption2 semibold, `labelSecondary`) over a 4px capsule
+// track in `fill` whose fill is the tint.
+// `tint` is a role name — `modeDesktop` compile · `accent` updates, downloads,
+// export · `modeTablet` backup, render. Tiles and chip are display-only: the
+// design draws no popover, so a tap opens nothing (Q8).
+//
+// NOT MOUNTED YET: the shell has no jobs feed (name, source, percentage, kind)
+// — a record type needs a service schema, which is not the shell's to add —
+// so `Taskbar` does not place the zone and no demo job claims work that is not
+// running. The feed's effect mounts the zone with this component as it is. The
+// kind glyphs: `chevron.left.forwardslash.chevron.right` (a build), `icloud.and.arrow.up`
+// (an upload or backup), `arrow.down.circle` (a download).
+
+Component JobTile {
+    props: {
+        name: Str,
+        pct: Int,
+        pctLabel: Str,
+        icon: Str,
+        tint: Str,
+    }
+    Stack {
+        Stack {
+            Icon { symbol: $props.icon, size: 14 }
+                .fg(onAccent)
+        }
+        .width(28)
+        .height(28)
+        .shrink(0)
+        .align(center)
+        .justify(center)
+        .rounded(8)
+        .bg($props.tint)
+        Stack {
+            Stack {
+                Text($props.name).textStyle(caption).fontWeight(semibold).fg(label).grow(1)
+                Text($props.pctLabel).textStyle(caption2).fontWeight(semibold).fg(labelSecondary)
+            }
+            .direction(row)
+            .align(center)
+            .gap(8)
+            Stack {
+                Stack { }
+                    .width($props.pct)
+                    .height(4)
+                    .rounded(full)
+                    .bg($props.tint)
+            }
+            .direction(row)
+            .height(4)
+            .rounded(full)
+            .bg(fill)
+        }
+        .width(100)
+        .gap(4)
+    }
+    .direction(row)
+    .align(center)
+    .gap(8)
+    .paddingLeading(8)
+    .paddingTrailing(12)
+    .width(156)
+    .height(44)
+    .material(card)
+    .rounded(12)
+}
+
+// The "+N" overflow chip: the jobs past the third.
+Component JobMore {
+    props: {
+        more: Str,
+    }
+    Stack {
+        Text($props.more).textStyle(footnote).fontWeight(semibold).fg(labelSecondary)
+    }
+    .align(center)
+    .justify(center)
+    .paddingX(12)
+    .height(44)
+    .material(card)
+    .rounded(12)
+}

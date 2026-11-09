@@ -26,48 +26,48 @@ Component ApIconTile {
         Stack {
             Stack {
                 Icon { symbol: "gearshape", size: 17 }
-                    .fg(onGlass)
+                    .fg(label)
             }
             .width(32)
             .height(32)
-            .rounded(lg)
+            .rounded(md)
             .align(center)
             .justify(center)
             .bgGradient($props.top, $props.bottom)
             Stack {
                 Icon { symbol: "photo", size: 17 }
-                    .fg(onGlass)
+                    .fg(label)
             }
             .width(32)
             .height(32)
-            .rounded(lg)
+            .rounded(md)
             .align(center)
             .justify(center)
             .bgGradient($props.top, $props.bottom)
             Stack {
                 Icon { symbol: "message", size: 17 }
-                    .fg(onGlass)
+                    .fg(label)
             }
             .width(32)
             .height(32)
-            .rounded(lg)
+            .rounded(md)
             .align(center)
             .justify(center)
             .bgGradient($props.top, $props.bottom)
         }
         .direction(row)
-        .gap(1)
+        .gap(4)
         .justify(center)
         Stack {
-            Text($props.name).textSize(xs).fontWeight(semibold).fg(onGlass)
-            Text($props.desc).textSize(xs).leading(snug).fg(onGlassMuted)
+            Text($props.name).textStyle(caption).fontWeight(semibold).fg(label)
+            Text($props.desc).textStyle(caption).fg(labelSecondary)
         }
         .gap(0)
         .align(center)
     }
-    .gap(2)
+    .gap(8)
     .align(center)
-    .padding(2)
-    .rounded(xl)
-    .material(subtle)
+    .padding(8)
+    .rounded(lg)
+    .material(card)
 }

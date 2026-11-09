@@ -105,5 +105,5 @@ Component UpdatesView {
             }
         }
     }
-    .gap(3)
+    .gap(24)
 }

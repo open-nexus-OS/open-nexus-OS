@@ -1,0 +1,43 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Modus: light / dark / automatic tiles (automatic is local-only, see AppearanceView).
+
+Component ApModeBlock {
+    Stack {
+        Stack {
+            Text(@t("ap.mode")).textStyle(overline).fg(labelSecondary)
+        }
+        .paddingX(16)
+        Stack {
+            Stack {
+                ApModeTile { label: @t("ap.light"), top: "#eef3fb", bottom: "#cdd9ee", selected: $state.apMode == "light" }
+            }
+            .minWidth(150)
+            .grow(1)
+            on Tap -> dispatch(SetTheme("light"))
+            Stack {
+                ApModeTile { label: @t("ap.dark"), top: "#0d1117", bottom: "#1a2744", selected: $state.apMode == "dark" }
+            }
+            .minWidth(150)
+            .grow(1)
+            on Tap -> dispatch(SetTheme("dark"))
+            Stack {
+                ApModeTile { label: @t("ap.auto"), top: "#eef3fb", bottom: "#101a2e", selected: $state.apMode == "auto" }
+            }
+            .minWidth(150)
+            .grow(1)
+            on Tap -> dispatch(SetModeAuto)
+        }
+        .direction(row)
+        .wrap(true)
+        .gap(8)
+        if $state.apMode == "auto" {
+            Text(@t("ap.autoNote")).textStyle(footnote).fg(labelSecondary)
+                .paddingX(16)
+        } else {
+            Stack { }
+        }
+    }
+    .gap(8)
+}

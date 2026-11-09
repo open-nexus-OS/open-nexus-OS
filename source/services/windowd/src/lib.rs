@@ -74,6 +74,12 @@ mod window_feed;
 mod window_keys;
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod window_scene;
+/// An app window's shape from the token set — radius, shadow, backdrop (RFC-0116; pure,
+/// host-tested, drawn by the OS-only frame composite).
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
+mod window_shape;
+/// RFC-0117: the app's window size under the window manager's rule (pure, host-tested).
+pub mod window_size;
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod window_state;
 /// Pure drag-to-edge snap geometry (TASK-0070 Phase 3) — host-tested.
@@ -87,6 +93,7 @@ mod app_surface;
 // ADR-0042 client-surface bookkeeping (TASK-0080D R1) — host-tested state
 // machine (create/seq/damage); the compositor runtime drives it on OS.
 mod assets;
+// The pointer's sprites in both Mocu variants, picked by the theme (TASK-0353 P8).
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod atlas;
 mod bitmap_font;
@@ -94,6 +101,8 @@ mod buffer;
 mod cli;
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod client_surface;
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
+mod cursor_assets;
 // A surface's declared layers and their geometry (RFC-0109): pure, host-TESTED, consumed by the
 // OS-only compositor runtime.
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
@@ -172,10 +181,7 @@ mod visible_state;
 // RFC-0067 P3: window-frame geometry moved to `nexus-widget-window` (`frame`);
 // windowd consumes it as a client (re-exported in `compositor::shell_window`).
 
-pub use assets::{
-    proof_text_asset, ProofTextAsset, CURSOR_HOTSPOT_X, CURSOR_HOTSPOT_Y, CURSOR_LEFT_PTR_BGRA,
-    CURSOR_LEFT_PTR_HEIGHT, CURSOR_LEFT_PTR_SVG, CURSOR_LEFT_PTR_WIDTH,
-};
+pub use assets::{proof_text_asset, ProofTextAsset};
 pub use buffer::{PixelFormat, SurfaceBuffer, VmoHandle, VmoRights};
 pub use cli::{execute, help};
 pub use display_backend::{

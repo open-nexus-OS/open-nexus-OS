@@ -1,0 +1,65 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The design artifacts' WindowButton — the chrome icon button of title bars and
+// pane headers: a GHOST CIRCLE, 30 px (control sm) or 36 px for the window
+// controls (`large`). Hover and press are the host's wash over the circle (it
+// never repaints the button); `active` pins the persistent `fill` layer and
+// lifts the glyph to `label` (a shown pane, an open menu, a tool mode);
+// `danger` is the close treatment — the glyph only, no background swap;
+// `disabled` dims the glyph to `labelTertiary` (the wrapper then binds no tap).
+// Glyph sizes: chrome 14, the app menu's ⋮ 16, pane-header actions 13–14.
+//
+// Deliberately handler-free, like `WinActionFace`: a dispatch target is a
+// static case name and cannot travel as a prop, so the caller owns the tap —
+//
+//     Stack { WinButtonFace { symbol: "sidebar.left", size: 14, active: … } }
+//     on Tap -> dispatch(WinLeft)
+//
+// (the host aims the hover wash at the circle, not at the bare wrapper).
+// Pass every prop: an omitted Bool reads false, an omitted `size` draws 16.
+
+Component WinButtonFace {
+    props: {
+        symbol: Str,
+        size: Int,
+        active: Bool,
+        danger: Bool,
+        disabled: Bool,
+        large: Bool,
+    }
+    if $props.large {
+        if $props.danger {
+            Circle { size: 36
+                Icon { symbol: $props.symbol, size: $props.size }
+                    .fg(danger)
+            }
+        } else {
+            Circle { size: 36
+                Icon { symbol: $props.symbol, size: $props.size }
+                    .fg(labelSecondary)
+            }
+        }
+    } else if $props.disabled {
+        Circle { size: 30
+            Icon { symbol: $props.symbol, size: $props.size }
+                .fg(labelTertiary)
+        }
+    } else if $props.active {
+        Circle { size: 30
+            Icon { symbol: $props.symbol, size: $props.size }
+                .fg(label)
+        }
+        .bg(fill)
+    } else if $props.danger {
+        Circle { size: 30
+            Icon { symbol: $props.symbol, size: $props.size }
+                .fg(danger)
+        }
+    } else {
+        Circle { size: 30
+            Icon { symbol: $props.symbol, size: $props.size }
+                .fg(labelSecondary)
+        }
+    }
+}

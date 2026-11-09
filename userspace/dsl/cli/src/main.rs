@@ -3,7 +3,7 @@
 
 //! CONTEXT: `nx-dsl` — the DSL toolchain backend behind the `nx dsl` shim
 //! (`tools/nx/src/commands/dsl.rs`, delegation via `NX_DSL_BACKEND`).
-//! Verbs: `fmt`, `lint`, `build` (shim contract) + `check`, `hash`, `explain`.
+//! Verbs: `fmt`, `lint`, `build` (shim contract) + `check`, `run`, `render`, `hash`, `explain`.
 //! OWNERS: @ui @runtime
 //! STATUS: Functional (TASK-0075 v0.1)
 //! API_STABILITY: Unstable
@@ -17,6 +17,10 @@ use std::process::ExitCode;
 
 mod explain;
 mod i18n_cmd;
+mod png;
+mod prepare;
+mod render;
+mod run;
 mod scaffold;
 
 fn main() -> ExitCode {
@@ -27,7 +31,8 @@ fn main() -> ExitCode {
         "fmt" => cmd_fmt(rest),
         "lint" | "check" => cmd_lint(rest, verb == "check"),
         "build" => cmd_build(rest),
-        "run" => cmd_run(rest),
+        "run" => run::cmd_run(rest),
+        "render" => render::cmd_render(rest),
         "hash" => cmd_hash(rest),
         "explain" => explain::cmd_explain(rest),
         "i18n" => i18n_cmd::cmd_i18n(rest),
@@ -42,6 +47,7 @@ fn main() -> ExitCode {
                  \x20 check <files…>              lint + lowering dry-run\n\
                  \x20 build [-o DIR] <file>       emit canonical .nxir (+ --emit-json summary)\n\
                  \x20 run <file>                  compile + mount + first-frame summary\n\
+                 \x20 render -o OUT.png [--theme light|dark] [--solid] [--size WxH] <app|file>  host preview\n\
                  \x20 hash <file.nx|file.nxir>    print the program hash\n\
                  \x20 explain <NXcode>            explain a diagnostic code"
             );
@@ -57,7 +63,7 @@ fn read(path: &str) -> Result<String, ExitCode> {
     })
 }
 
-fn report(path: &str, source: &str, diag: &nexus_dsl_core::Diagnostic) {
+pub(crate) fn report(path: &str, source: &str, diag: &nexus_dsl_core::Diagnostic) {
     let (line, col) = nexus_dsl_core::diag::line_col(source, diag.span.start);
     let sev = match diag.severity() {
         Severity::Error => "error",
@@ -96,7 +102,7 @@ pub(crate) fn load_input(
     Ok((merged, canonical, String::new()))
 }
 
-fn nx_files(args: &[String]) -> Vec<String> {
+pub(crate) fn nx_files(args: &[String]) -> Vec<String> {
     args.iter().filter(|a| !a.starts_with("--") && !a.starts_with('-')).cloned().collect()
 }
 
@@ -286,223 +292,6 @@ fn summary_json(lowered: &nexus_dsl_core::Lowered) -> String {
 /// Headless run: compile → validate → mount → (optional) navigate, locale,
 /// profile, transcript-backed dispatch — then a deterministic text summary.
 /// The graphical snapshot harness lives in `tests/dsl_goldens`.
-fn cmd_run(args: &[String]) -> ExitCode {
-    let flag = |name: &str| -> Option<String> {
-        args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned()
-    };
-    let route = flag("--route");
-    let locale_name = flag("--locale");
-    let profile = flag("--profile").unwrap_or_else(|| String::from("desktop"));
-    let transcript_path = flag("--transcript");
-    let dispatch_case = flag("--dispatch");
-    let flag_values: Vec<String> =
-        ["--route", "--locale", "--profile", "--transcript", "--dispatch"]
-            .iter()
-            .filter_map(|n| flag(n))
-            .collect();
-    let files: Vec<String> =
-        nx_files(args).into_iter().filter(|f| !flag_values.contains(f)).collect();
-    let Some(path) = files.first() else {
-        eprintln!("nx-dsl run: no input file");
-        return ExitCode::from(2);
-    };
-    let (file, canonical, source) = match load_input(path) {
-        Ok(loaded) => loaded,
-        Err(code) => return code,
-    };
-    let (model, diags) = check_file(&file);
-    for diag in &diags {
-        report(path, &source, diag);
-    }
-    if has_errors(&diags) {
-        return ExitCode::from(1);
-    }
-    let lowered = match lower_file(&file, &model, &canonical) {
-        Ok(l) => l,
-        Err(diag) => {
-            report(path, &source, &diag);
-            return ExitCode::from(1);
-        }
-    };
-
-    // Environment per profile.
-    let device = match profile.as_str() {
-        "desktop" => nexus_dsl_runtime::FixtureEnv::desktop(),
-        "phone" => nexus_dsl_runtime::FixtureEnv::phone("portrait"),
-        "tablet" => nexus_dsl_runtime::FixtureEnv::tablet("landscape"),
-        "tv" => {
-            let mut env = nexus_dsl_runtime::FixtureEnv::desktop();
-            env.profile = "tv";
-            env.shell_mode = "tv";
-            env.input = &["remote"];
-            env
-        }
-        other => {
-            eprintln!("nx-dsl run: unknown profile `{other}`");
-            return ExitCode::from(2);
-        }
-    };
-
-    // Program key names for locale sources.
-    let reader = match nexus_dsl_ir::read::ProgramReader::from_canonical_bytes(&lowered.nxir) {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("nx-dsl run: self-read failed: {e:?}");
-            return ExitCode::from(1);
-        }
-    };
-    let Ok(root) = reader.root() else {
-        eprintln!("nx-dsl run: self-read failed");
-        return ExitCode::from(1);
-    };
-    let symbols: Vec<String> = root
-        .get_symbols()
-        .map(|list| {
-            list.iter()
-                .map(|s| s.ok().and_then(|t| t.to_str().ok()).map(String::from).unwrap_or_default())
-                .collect()
-        })
-        .unwrap_or_default();
-    let key_names = nexus_dsl_runtime::i18n::key_names(root, &symbols);
-    let key_refs: Vec<&str> = key_names.iter().map(String::as_str).collect();
-
-    // Locale: <appdir>/i18n/<locale>.json (or .nxc) chained onto the pseudo-locale.
-    let mut catalogs: Vec<nexus_dsl_runtime::Catalog> = Vec::new();
-    if let Some(locale) = &locale_name {
-        let base = Path::new(path).join("i18n");
-        let json = base.join(format!("{locale}.json"));
-        let nxc = base.join(format!("{locale}.nxc"));
-        let catalog = if nxc.exists() {
-            std::fs::read(&nxc)
-                .ok()
-                .and_then(|b| nexus_dsl_runtime::Catalog::from_binary(&key_refs, &b))
-        } else {
-            std::fs::read_to_string(&json).ok().and_then(|text| {
-                let entries = i18n_cmd::parse_flat_json(&text)?;
-                let refs: Vec<(&str, &str)> =
-                    entries.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
-                Some(nexus_dsl_runtime::Catalog::from_entries(&key_refs, &refs))
-            })
-        };
-        match catalog {
-            Some(c) => catalogs.push(c),
-            None => {
-                eprintln!(
-                    "nx-dsl run: no readable catalog for locale `{locale}` under `{}`",
-                    base.display()
-                );
-                return ExitCode::from(1);
-            }
-        }
-    }
-    let catalog_refs: Vec<&nexus_dsl_runtime::Catalog> = catalogs.iter().collect();
-    let locale = nexus_dsl_runtime::LocaleChain::new(&catalog_refs, &key_names);
-
-    let tokens = nexus_theme_tokens::BaseTokens;
-    let mut view = match nexus_dsl_runtime::View::mount(&lowered.nxir, &tokens, &device, &locale) {
-        Ok(view) => view,
-        Err(e) => {
-            eprintln!("nx-dsl run: view mount failed: {e:?}");
-            return ExitCode::from(1);
-        }
-    };
-
-    if let Some(route) = &route {
-        if let Err(e) = view.navigate(&tokens, &device, &locale, route) {
-            eprintln!("nx-dsl run: navigate `{route}` failed: {e:?}");
-            return ExitCode::from(1);
-        }
-    }
-
-    // Optional single dispatch, replayed against a transcript host.
-    let mut transcript_host = match &transcript_path {
-        Some(t) => match std::fs::read_to_string(t) {
-            Ok(text) => match nexus_dsl_runtime::svc::TranscriptHost::parse(&text) {
-                Ok(host) => Some(host),
-                Err(line) => {
-                    eprintln!("nx-dsl run: `{t}` line {line}: malformed transcript entry");
-                    return ExitCode::from(1);
-                }
-            },
-            Err(e) => {
-                eprintln!("nx-dsl: cannot read `{t}`: {e}");
-                return ExitCode::from(2);
-            }
-        },
-        None => None,
-    };
-    if let Some(case) = &dispatch_case {
-        let Some((event, case_idx)) = find_case(&view, case) else {
-            eprintln!("nx-dsl run: `{case}` is not a declared event case");
-            return ExitCode::from(1);
-        };
-        let result = match transcript_host.as_mut() {
-            Some(host) => {
-                view.dispatch(&tokens, &device, &locale, host, event, case_idx, Vec::new())
-            }
-            None => {
-                let mut noio = nexus_dsl_runtime::NoIo;
-                view.dispatch(&tokens, &device, &locale, &mut noio, event, case_idx, Vec::new())
-            }
-        };
-        if let Err(e) = result {
-            eprintln!("nx-dsl run: dispatch `{case}` failed: {e:?}");
-            return ExitCode::from(1);
-        }
-    }
-    if let Some(host) = &transcript_host {
-        if !host.is_clean() {
-            eprintln!("nx-dsl run: transcript replay had misses: {:?}", host.misses);
-            return ExitCode::from(1);
-        }
-    }
-
-    println!(
-        "mounted: hash {}, profile {profile}, {} deps",
-        hex(&lowered.program_hash),
-        view.deps().len()
-    );
-    for text in scene_texts(view.scene()) {
-        println!("text: {text}");
-    }
-    ExitCode::SUCCESS
-}
-
-/// Resolves a bare case name against the mounted program's events.
-fn find_case(view: &nexus_dsl_runtime::View<'_>, case: &str) -> Option<(u32, u32)> {
-    let runtime = view.runtime();
-    let reader = runtime.reader();
-    let root = reader.root().ok()?;
-    let case_sym = runtime.symbols().iter().position(|s| s == case)? as u32;
-    for (e, decl) in root.get_events().ok()?.iter().enumerate() {
-        for (c, case_decl) in decl.get_cases().ok()?.iter().enumerate() {
-            if case_decl.get_name() == case_sym {
-                return Some((e as u32, c as u32));
-            }
-        }
-    }
-    None
-}
-
-/// Text nodes of the emitted scene, pre-order (the deterministic summary).
-fn scene_texts(scene: &nexus_layout_types::LayoutNode) -> Vec<String> {
-    fn walk(node: &nexus_layout_types::LayoutNode, out: &mut Vec<String>) {
-        use nexus_layout_types::LayoutNode as N;
-        match node {
-            N::Text(text, _) => out.push(String::from(text.content.as_str())),
-            N::Stack(_, _, children) | N::Grid(_, _, children) => {
-                for child in children {
-                    walk(child, out);
-                }
-            }
-            _ => {}
-        }
-    }
-    let mut out = Vec::new();
-    walk(scene, &mut out);
-    out
-}
-
 fn cmd_hash(args: &[String]) -> ExitCode {
     let files = nx_files(args);
     let Some(path) = files.first() else {
@@ -562,7 +351,7 @@ fn cmd_hash(args: &[String]) -> ExitCode {
     }
 }
 
-fn hex(bytes: &[u8]) -> String {
+pub(crate) fn hex(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len() * 2);
     for b in bytes {
         out.push_str(&format!("{b:02x}"));

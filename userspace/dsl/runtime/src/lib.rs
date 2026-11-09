@@ -32,6 +32,7 @@ pub mod nav;
 mod numfmt;
 pub mod overlay;
 pub mod persist;
+pub mod probe;
 pub mod reduce;
 pub mod registry;
 pub mod store;
@@ -367,6 +368,28 @@ impl<'p> Runtime<'p> {
             }
         }
         None
+    }
+
+    /// Every event case named `case`, across the program's event types (host tools that know a
+    /// case but not its type, e.g. `nx-dsl render --dispatch`; [`Self::event_case`] otherwise).
+    pub fn event_cases_named(&self, case: &str) -> Vec<(u32, u32)> {
+        let mut found = Vec::new();
+        let reader = self.reader();
+        let (Ok(root), Some(case_sym)) =
+            (reader.root(), self.symbols.iter().position(|s| s == case))
+        else {
+            return found;
+        };
+        let Ok(events) = root.get_events() else { return found };
+        for (e, decl) in events.iter().enumerate() {
+            let Ok(cases) = decl.get_cases() else { continue };
+            for (c, case_decl) in cases.iter().enumerate() {
+                if case_decl.get_name() == case_sym as u32 {
+                    found.push((e as u32, c as u32));
+                }
+            }
+        }
+        found
     }
 
     /// Dispatches one event: reduce (pure, commit) → effects (queued

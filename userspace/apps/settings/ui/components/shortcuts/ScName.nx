@@ -11,82 +11,82 @@ Component ScName {
         id: Str,
     }
     if $props.id == "window.leftHalf" {
-        Text(@t("sc.window.leftHalf")).textSize(sm).fontWeight(medium).fg(onGlass)
+        Text(@t("sc.window.leftHalf")).textStyle(footnote).fontWeight(medium).fg(label)
     } else if $props.id == "window.rightHalf" {
-        Text(@t("sc.window.rightHalf")).textSize(sm).fontWeight(medium).fg(onGlass)
+        Text(@t("sc.window.rightHalf")).textStyle(footnote).fontWeight(medium).fg(label)
     } else if $props.id == "window.topLeft" {
-        Text(@t("sc.window.topLeft")).textSize(sm).fontWeight(medium).fg(onGlass)
+        Text(@t("sc.window.topLeft")).textStyle(footnote).fontWeight(medium).fg(label)
     } else if $props.id == "window.topRight" {
-        Text(@t("sc.window.topRight")).textSize(sm).fontWeight(medium).fg(onGlass)
+        Text(@t("sc.window.topRight")).textStyle(footnote).fontWeight(medium).fg(label)
     } else if $props.id == "window.bottomLeft" {
-        Text(@t("sc.window.bottomLeft")).textSize(sm).fontWeight(medium).fg(onGlass)
+        Text(@t("sc.window.bottomLeft")).textStyle(footnote).fontWeight(medium).fg(label)
     } else if $props.id == "window.bottomRight" {
-        Text(@t("sc.window.bottomRight")).textSize(sm).fontWeight(medium).fg(onGlass)
+        Text(@t("sc.window.bottomRight")).textStyle(footnote).fontWeight(medium).fg(label)
     } else if $props.id == "window.fill" {
-        Text(@t("sc.window.fill")).textSize(sm).fontWeight(medium).fg(onGlass)
+        Text(@t("sc.window.fill")).textStyle(footnote).fontWeight(medium).fg(label)
     } else if $props.id == "window.return" {
-        Text(@t("sc.window.return")).textSize(sm).fontWeight(medium).fg(onGlass)
+        Text(@t("sc.window.return")).textStyle(footnote).fontWeight(medium).fg(label)
     } else if $props.id == "window.minimize" {
-        Text(@t("sc.window.minimize")).textSize(sm).fontWeight(medium).fg(onGlass)
+        Text(@t("sc.window.minimize")).textStyle(footnote).fontWeight(medium).fg(label)
     } else if $props.id == "window.close" {
-        Text(@t("sc.window.close")).textSize(sm).fontWeight(medium).fg(onGlass)
+        Text(@t("sc.window.close")).textStyle(footnote).fontWeight(medium).fg(label)
     } else if $props.id == "window.restartDesktop" {
-        Text(@t("sc.window.restartDesktop")).textSize(sm).fontWeight(medium).fg(onGlass)
+        Text(@t("sc.window.restartDesktop")).textStyle(footnote).fontWeight(medium).fg(label)
     } else if $props.id == "capture.ui" {
-        Text(@t("sc.capture.ui")).textSize(sm).fontWeight(medium).fg(onGlass)
+        Text(@t("sc.capture.ui")).textStyle(footnote).fontWeight(medium).fg(label)
     } else if $props.id == "capture.screen" {
-        Text(@t("sc.capture.screen")).textSize(sm).fontWeight(medium).fg(onGlass)
+        Text(@t("sc.capture.screen")).textStyle(footnote).fontWeight(medium).fg(label)
     } else if $props.id == "capture.window" {
-        Text(@t("sc.capture.window")).textSize(sm).fontWeight(medium).fg(onGlass)
+        Text(@t("sc.capture.window")).textStyle(footnote).fontWeight(medium).fg(label)
     } else if $props.id == "text.focusNext" {
-        Text(@t("sc.text.focusNext")).textSize(sm).fontWeight(medium).fg(onGlass)
+        Text(@t("sc.text.focusNext")).textStyle(footnote).fontWeight(medium).fg(label)
     } else if $props.id == "text.focusPrevious" {
-        Text(@t("sc.text.focusPrevious")).textSize(sm).fontWeight(medium).fg(onGlass)
+        Text(@t("sc.text.focusPrevious")).textStyle(footnote).fontWeight(medium).fg(label)
     } else if $props.id == "text.left" {
-        Text(@t("sc.text.left")).textSize(sm).fontWeight(medium).fg(onGlass)
+        Text(@t("sc.text.left")).textStyle(footnote).fontWeight(medium).fg(label)
     } else if $props.id == "text.right" {
-        Text(@t("sc.text.right")).textSize(sm).fontWeight(medium).fg(onGlass)
+        Text(@t("sc.text.right")).textStyle(footnote).fontWeight(medium).fg(label)
     } else if $props.id == "text.wordLeft" {
-        Text(@t("sc.text.wordLeft")).textSize(sm).fontWeight(medium).fg(onGlass)
+        Text(@t("sc.text.wordLeft")).textStyle(footnote).fontWeight(medium).fg(label)
     } else if $props.id == "text.wordRight" {
-        Text(@t("sc.text.wordRight")).textSize(sm).fontWeight(medium).fg(onGlass)
+        Text(@t("sc.text.wordRight")).textStyle(footnote).fontWeight(medium).fg(label)
     } else if $props.id == "text.home" {
-        Text(@t("sc.text.home")).textSize(sm).fontWeight(medium).fg(onGlass)
+        Text(@t("sc.text.home")).textStyle(footnote).fontWeight(medium).fg(label)
     } else if $props.id == "text.end" {
-        Text(@t("sc.text.end")).textSize(sm).fontWeight(medium).fg(onGlass)
+        Text(@t("sc.text.end")).textStyle(footnote).fontWeight(medium).fg(label)
     } else if $props.id == "text.selectLeft" {
-        Text(@t("sc.text.selectLeft")).textSize(sm).fontWeight(medium).fg(onGlass)
+        Text(@t("sc.text.selectLeft")).textStyle(footnote).fontWeight(medium).fg(label)
     } else if $props.id == "text.selectRight" {
-        Text(@t("sc.text.selectRight")).textSize(sm).fontWeight(medium).fg(onGlass)
+        Text(@t("sc.text.selectRight")).textStyle(footnote).fontWeight(medium).fg(label)
     } else if $props.id == "text.selectWordLeft" {
-        Text(@t("sc.text.selectWordLeft")).textSize(sm).fontWeight(medium).fg(onGlass)
+        Text(@t("sc.text.selectWordLeft")).textStyle(footnote).fontWeight(medium).fg(label)
     } else if $props.id == "text.selectWordRight" {
-        Text(@t("sc.text.selectWordRight")).textSize(sm).fontWeight(medium).fg(onGlass)
+        Text(@t("sc.text.selectWordRight")).textStyle(footnote).fontWeight(medium).fg(label)
     } else if $props.id == "text.selectHome" {
-        Text(@t("sc.text.selectHome")).textSize(sm).fontWeight(medium).fg(onGlass)
+        Text(@t("sc.text.selectHome")).textStyle(footnote).fontWeight(medium).fg(label)
     } else if $props.id == "text.selectEnd" {
-        Text(@t("sc.text.selectEnd")).textSize(sm).fontWeight(medium).fg(onGlass)
+        Text(@t("sc.text.selectEnd")).textStyle(footnote).fontWeight(medium).fg(label)
     } else if $props.id == "text.selectAll" {
-        Text(@t("sc.text.selectAll")).textSize(sm).fontWeight(medium).fg(onGlass)
+        Text(@t("sc.text.selectAll")).textStyle(footnote).fontWeight(medium).fg(label)
     } else if $props.id == "text.delete" {
-        Text(@t("sc.text.delete")).textSize(sm).fontWeight(medium).fg(onGlass)
+        Text(@t("sc.text.delete")).textStyle(footnote).fontWeight(medium).fg(label)
     } else if $props.id == "text.deleteWordBack" {
-        Text(@t("sc.text.deleteWordBack")).textSize(sm).fontWeight(medium).fg(onGlass)
+        Text(@t("sc.text.deleteWordBack")).textStyle(footnote).fontWeight(medium).fg(label)
     } else if $props.id == "text.deleteWordForward" {
-        Text(@t("sc.text.deleteWordForward")).textSize(sm).fontWeight(medium).fg(onGlass)
+        Text(@t("sc.text.deleteWordForward")).textStyle(footnote).fontWeight(medium).fg(label)
     } else if $props.id == "text.copy" {
-        Text(@t("sc.text.copy")).textSize(sm).fontWeight(medium).fg(onGlass)
+        Text(@t("sc.text.copy")).textStyle(footnote).fontWeight(medium).fg(label)
     } else if $props.id == "text.cut" {
-        Text(@t("sc.text.cut")).textSize(sm).fontWeight(medium).fg(onGlass)
+        Text(@t("sc.text.cut")).textStyle(footnote).fontWeight(medium).fg(label)
     } else if $props.id == "text.paste" {
-        Text(@t("sc.text.paste")).textSize(sm).fontWeight(medium).fg(onGlass)
+        Text(@t("sc.text.paste")).textStyle(footnote).fontWeight(medium).fg(label)
     } else if $props.id == "text.undo" {
-        Text(@t("sc.text.undo")).textSize(sm).fontWeight(medium).fg(onGlass)
+        Text(@t("sc.text.undo")).textStyle(footnote).fontWeight(medium).fg(label)
     } else if $props.id == "text.redo" {
-        Text(@t("sc.text.redo")).textSize(sm).fontWeight(medium).fg(onGlass)
+        Text(@t("sc.text.redo")).textStyle(footnote).fontWeight(medium).fg(label)
     } else if $props.id == "input.nextSource" {
-        Text(@t("sc.input.nextSource")).textSize(sm).fontWeight(medium).fg(onGlass)
+        Text(@t("sc.input.nextSource")).textStyle(footnote).fontWeight(medium).fg(label)
     } else {
-        Text($props.id).textSize(sm).fontWeight(medium).fg(onGlass)
+        Text($props.id).textStyle(footnote).fontWeight(medium).fg(label)
     }
 }

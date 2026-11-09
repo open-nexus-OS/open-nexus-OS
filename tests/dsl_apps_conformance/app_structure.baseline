@@ -1,0 +1,5 @@
+# The app structure baseline (TASK-0357): `<rule> <path> [<recorded value>]`.
+# Only shrinks: fix the app, then delete its line. The rules: tests/app_structure.rs.
+duplicate userspace/apps/chat/ui/composables/window.store.nx
+size userspace/apps/window-kit/ui/components/WinAppWindow.nx 202
+size userspace/apps/window-kit/ui/components/WinPane.nx 173

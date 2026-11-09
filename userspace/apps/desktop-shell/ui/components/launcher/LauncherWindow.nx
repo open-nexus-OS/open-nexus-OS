@@ -18,22 +18,22 @@ Component LauncherWindow {
             .grow(1)
             Stack {
                 Icon { symbol: "maximize", size: 15 }
-                    .fg(onSurface)
+                    .fg(label)
             }
             .width(32)
             .height(32)
             .align(center)
             .justify(center)
-            .rounded(md)
+            .rounded(sm)
             on Tap -> dispatch(SetPanel("launcher-big"))
         }
         .direction(row)
         .align(center)
-        .gap(2)
-        Text(@t("launcher.allApps")).textSize(sm).fontWeight(semibold).fg(onSurfaceVariant)
+        .gap(8)
+        Text(@t("launcher.allApps")).textStyle(footnote).fontWeight(semibold).fg(labelSecondary)
         Stack {
             if $state.loading {
-                Text(@t("common.loading")).fg(onSurfaceVariant)
+                Text(@t("common.loading")).fg(labelSecondary)
             } else {
                 List($state.apps) { app in
                     Stack {
@@ -44,8 +44,8 @@ Component LauncherWindow {
                     on Tap -> dispatch(Launch(app.id))
                 }
                 .columns(4)
-                .rowGap(3)
-                .gap(2)
+                .rowGap(12)
+                .gap(8)
             }
         }
         .grow(1)
@@ -54,10 +54,10 @@ Component LauncherWindow {
     }
     .width(720)
     .height(520)
-    .padding(6)
-    .gap(2)
+    .padding(24)
+    .gap(8)
     .material(panel)
     .rounded(24)
-    .shadow(xxl)
+    .shadow(shadow4)
     .transition(slideUp)
 }

@@ -246,7 +246,7 @@ impl DisplayServerRuntime {
         let mut reply = wire::CaptureReply { w: readback.w, h: readback.h, ..Default::default() };
         self.capture.window_count = 0;
         if readback.flags & READBACK_FREEZE != 0 {
-            let (sprite, w, h, hot_x, hot_y) = self.cursor_shape.sprite();
+            let (sprite, w, h, hot_x, hot_y) = self.cursor_shape.sprite(self.cursor_set());
             let side = wire::CAPTURE_SPRITE_MAX as u32;
             let bytes = w as usize * h as usize * 4;
             let at = readback.bytes();

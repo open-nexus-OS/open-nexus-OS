@@ -1,0 +1,15 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Settings mode's header: the gear and "Settings" (body, semibold `label`).
+
+Component SettingsTitle {
+    Stack {
+        Icon { symbol: "gearshape", size: 14 }
+            .fg(labelSecondary)
+        Text(@t("stash.settings")).textStyle(body).fontWeight(semibold).fg(label)
+    }
+    .direction(row)
+    .align(center)
+    .gap(8)
+}

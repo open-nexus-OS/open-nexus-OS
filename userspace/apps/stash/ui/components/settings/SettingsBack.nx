@@ -1,0 +1,20 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Settings mode's one header action: the arrow back to the files.
+
+Component SettingsBack {
+    Stack {
+        Stack {
+            Icon { symbol: "arrow.left", size: 13 }
+                .fg(labelSecondary)
+        }
+        .width(30)
+        .height(30)
+        .rounded(full)
+        .align(center)
+        .justify(center)
+        .label(@t("stash.backToFiles"))
+        on Tap -> dispatch(SettingsClose)
+    }
+}

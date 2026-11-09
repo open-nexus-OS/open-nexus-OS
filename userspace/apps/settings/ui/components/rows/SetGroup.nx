@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // One row group (design LAYOUT.md §"Content — row groups"): an optional
-// uppercase caption, a rounded `subtle` body holding the rows, and an
+// uppercase caption, a rounded `card` body holding the rows, and an
 // optional footnote below it.
 //
 // The rows arrive through a SLOT rather than as props, because a group's rows
@@ -29,7 +29,11 @@ Component SetGroup {
     slot rows
     Stack {
         if $props.label != "" {
-            Text($props.label).textSize(xs).fontWeight(semibold).fg(onGlassMuted)
+            Stack {
+                Text($props.label).textStyle(overline).fg(labelSecondary)
+            }
+            .paddingX(16)
+            .paddingBottom(8)
         } else {
             Stack { }
         }
@@ -37,13 +41,17 @@ Component SetGroup {
             Slot rows
         }
         .gap(0)
-        .rounded(xl)
-        .material(subtle)
+        .rounded(lg)
+        .material(card)
         if $props.note != "" {
-            Text($props.note).textSize(xs).leading(normal).fg(onGlassMuted)
+            Stack {
+                Text($props.note).textStyle(footnote).fg(labelSecondary)
+            }
+            .paddingX(16)
+            .paddingTop(8)
         } else {
             Stack { }
         }
     }
-    .gap(2)
+    .gap(0)
 }

@@ -404,6 +404,7 @@ impl<'p> View<'p> {
                 components,
                 // The entry page has no caller, so no slot frame.
                 slots: None,
+                on_opaque: false,
             };
             let mut scene = emit::emit_view(&mut ctx, view_root)?;
             drop(ctx);

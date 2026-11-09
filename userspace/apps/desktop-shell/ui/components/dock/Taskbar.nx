@@ -1,82 +1,130 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The DESKTOP taskbar (design artifacts: launcher §6): full-width, 56px,
-// panel glass, no radius — bare launcher glyph 36×36 left · app icons xs
-// (40) DIRECTLY on the bar (gap 4, no labels) + 1×28 divider + mini player
-// centre · three bare 32×32 nav buttons right. The taskbar is a WINDOW
-// LIST (§7): a running app carries the 20×2 underline (RFC-0086 window feed
-// → `app.running`) and a click ACTIVATES it — the app-host restores/raises a
-// running window via windowd, or launches when nothing runs.
+// The DESKTOP taskbar (design artifacts: TaskbarDock): full width, 56px,
+// edge-docked (no radius), the one blur of its stack — `dock` material
+// (glassPanel over the thick backdrop) with the glass edge on the TOP only
+// and the lit top line under it, no outer elevation. Left the launcher tile
+// (36×36 ghost, radius 12; while the launcher is open it carries the
+// selected `fill` layer and the glyph turns `accent`) · centre the app
+// buttons (gap 4) and, while something plays, a 1×28 divider and the mini
+// player · right the nav row (30×30 ghost circles, gap 2).
+//
+// The taskbar is a WINDOW LIST: a running app carries its run bar (RFC-0086
+// window feed → `app.running`) and a click ACTIVATES it — the app-host
+// restores/raises a running window via windowd, or launches when nothing runs.
+//
+// Not built: the background-jobs zone (tiles + "+N" between the apps and the
+// player) — there is no jobs feed, and with no job the zone and its divider
+// are absent anyway. The material's edge runs on all four sides and this DSL
+// has no per-side border, so the edge is cleared and the top line is a 1px
+// layer; the dock recipe's shadow3 is replaced by the knob-sized shadow1,
+// the nearest the DSL comes to none.
 
 Component Taskbar {
     Stack {
         Stack {
-            Icon { symbol: "square.grid", size: 20 }
-                .fg(onSurface)
-        }
-        .width(36)
-        .height(36)
-        .align(center)
-        .justify(center)
-        .rounded(md)
-        on Tap -> dispatch(SetPanel("launcher"))
-        Spacer
-        Stack {
-            List($state.apps) { app in
-                Stack {
-                    TaskbarTile { label: app.label, icon: app.icon, iconTop: app.iconTop, iconBottom: app.iconBottom, iconArt: app.iconArt, running: app.running }
+            Stack {
+                if $state.panel == "launcher" || $state.panel == "launcher-big" {
+                    Stack {
+                        Icon { symbol: "square.grid", size: 20 }
+                            .fg(accent)
+                    }
+                    .width(36)
+                    .height(36)
+                    .align(center)
+                    .justify(center)
+                    .rounded(md)
+                    .bg(fill)
+                } else {
+                    Stack {
+                        Icon { symbol: "square.grid", size: 20 }
+                            .fg(label)
+                    }
+                    .width(36)
+                    .height(36)
+                    .align(center)
+                    .justify(center)
+                    .rounded(md)
                 }
-                .key(app.id)
-                on Tap -> dispatch(Activate(app.id))
+            }
+            .label(@t("bar.launcher"))
+            on Tap -> dispatch(SetPanel("launcher"))
+            Spacer
+            Stack {
+                List($state.apps) { app in
+                    Stack {
+                        TaskbarTile { label: app.label, icon: app.icon, iconTop: app.iconTop, iconBottom: app.iconBottom, iconArt: app.iconArt, running: app.running }
+                    }
+                    .key(app.id)
+                    .label(app.label)
+                    on Tap -> dispatch(Activate(app.id))
+                }
+                .direction(row)
+                .align(center)
+                .gap(4)
+                if $state.nowPlaying {
+                    Stack {
+                        Stack {
+                            Stack { }
+                                .width(1)
+                                .height(28)
+                                .bg(separator)
+                        }
+                        .paddingX(4)
+                        MiniPlayer { compact: false }
+                    }
+                    .direction(row)
+                    .align(center)
+                    .gap(4)
+                } else {
+                    Stack { }
+                        .overlay()
+                }
             }
             .direction(row)
-            .gap(1)
-            Stack { }
-                .width(1)
-                .height(28)
-                .bg(surfaceVariant)
-            MiniPlayer { }
+            .align(center)
+            .gap(4)
+            Spacer
+            Stack {
+                Circle { size: 30
+                    Icon { symbol: "arrow.left", size: 14 }
+                        .fg(label)
+                }
+                .label(@t("common.back"))
+                on Tap -> navigate("/")
+                Circle { size: 30
+                    Icon { symbol: "house", size: 14 }
+                        .fg(label)
+                }
+                .label(@t("bar.home"))
+                on Tap -> navigate("/")
+                Circle { size: 30
+                    Icon { symbol: "square", size: 13 }
+                        .fg(label)
+                }
+                .label(@t("bar.overview"))
+                on Tap -> navigate("/")
+            }
+            .direction(row)
+            .align(center)
+            .gap(2)
         }
         .direction(row)
         .align(center)
-        .gap(2)
-        Spacer
+        .paddingX(12)
+        .grow(1)
         Stack {
-            Icon { symbol: "chevron.left", size: 14 }
-                .fg(onSurface)
+            Stack { }
+                .height(1)
+                .bg(glassEdge)
+            Spacer
         }
-        .width(32)
-        .height(32)
-        .align(center)
-        .justify(center)
-        .rounded(md)
-        on Tap -> navigate("/")
-        Stack {
-            Icon { symbol: "house", size: 14 }
-                .fg(onSurface)
-        }
-        .width(32)
-        .height(32)
-        .align(center)
-        .justify(center)
-        .rounded(md)
-        on Tap -> navigate("/")
-        Stack {
-            Icon { symbol: "square", size: 13 }
-                .fg(onSurface)
-        }
-        .width(32)
-        .height(32)
-        .align(center)
-        .justify(center)
-        .rounded(md)
-        on Tap -> navigate("/")
+        .overlay()
     }
     .direction(row)
     .height(56)
-    .align(center)
-    .paddingX(3)
-    .gap(2)
-    .material(panel)
+    .material(dock)
+    .borderColor(transparent)
+    .shadow(shadow1, edgeHighlight)
 }

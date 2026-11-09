@@ -1,8 +1,9 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The 36px top bar (design artifacts: panels §2) — three zones: left · Dynamic
-// Island centred · right. The ONLY openers of the six drop-down panels.
+// The 36px top bar (design artifacts: TopBar) — left pills · the Activity
+// Runner centred · right pills, on the bare wallpaper: no strip behind it,
+// every label carries the halo. The ONLY openers of the six drop-down panels.
 //
 // This exists as ONE component because the bar used to be written twice, once
 // per `ShellPage`, and two copies of a trigger matrix drift. Which pills exist
@@ -14,7 +15,7 @@
 //                               (<640) is phone, everything else is tablet
 //
 //   desktop  left: Zeit·Datum → Kalender · Mitteilungs-Pill → Mitteilungen
-//            right: WLAN · Ton · Batterie · Control Center (four panels)
+//            right: WLAN · Ton · Batterie · Suche · Control Center
 //   tablet   left: Zeit → Kalender · Glocke → Mitteilungen
 //            right: ONE status pill → Control Center
 //   phone    left: Zeit+Glocke in one pill → Mitteilungen
@@ -23,103 +24,134 @@
 // In touch modes there are no WLAN/Ton/Batterie panels at all — their contents
 // live in the Control Center — so the bar must not offer triggers for them.
 //
-// Every pill is 28px in a 36px bar and carries `.hitSlop(2)`: the BAR is the
-// touch target, not the pill. The handlers sit here, on the wrapping `Stack`,
-// because a pill is a shape and which panel it opens is this bar's decision.
+// Every pill is 28px in a 36px bar and carries `.hitSlop(8)`: the BAR is the
+// touch target, not the pill (overlapping slop resolves to the nearest pill).
+// The handlers sit here, on the wrapping `Stack`, because a pill is a shape
+// and which panel it opens is this bar's decision; so is the selected state
+// (`selected`: the pill's panel is open). Pills sit 2 apart in both groups —
+// the design's right group is 1px, which the 4-pt grid does not have.
+//
+// The Activity Runner is an out-of-flow row over the whole bar, so it is
+// centred on the BAR, not in the space the pills leave; it has no handler, so
+// it blocks no pill. It is mounted only while something plays (`nowPlaying`).
 
 Component TopBar {
     Stack {
         if device.profile == desktop {
             Stack {
                 Stack {
-                    ClockPill { wide: true }
+                    ClockPill { wide: true, selected: $state.panel == "calendar" }
                 }
-                .hitSlop(2)
+                .hitSlop(8)
+                .label(@t("bar.calendar"))
                 on Tap -> dispatch(SetPanel("calendar"))
                 Stack {
-                    NotifPill { wide: true }
+                    NotifPill { wide: true, selected: $state.panel == "notifications" }
                 }
-                .hitSlop(2)
+                .hitSlop(8)
+                .label(@t("bar.notifications"))
                 on Tap -> dispatch(SetPanel("notifications"))
             }
             .direction(row)
             .align(center)
-            .gap(1)
+            .gap(2)
         } else if device.sizeClass == "compact" {
             Stack {
-                Stack {
-                    PhoneClockBellPill { }
-                }
-                .hitSlop(2)
-                on Tap -> dispatch(SetPanel("notifications"))
+                PhoneClockBellPill { selected: $state.panel == "notifications" }
             }
-            .direction(row)
-            .align(center)
-            .gap(1)
+            .hitSlop(8)
+            .label(@t("bar.notifications"))
+            on Tap -> dispatch(SetPanel("notifications"))
         } else {
             Stack {
                 Stack {
-                    ClockPill { wide: false }
+                    ClockPill { wide: false, selected: $state.panel == "calendar" }
                 }
-                .hitSlop(2)
+                .hitSlop(8)
+                .label(@t("bar.calendar"))
                 on Tap -> dispatch(SetPanel("calendar"))
                 Stack {
-                    NotifPill { wide: false }
+                    NotifPill { wide: false, selected: $state.panel == "notifications" }
                 }
-                .hitSlop(2)
+                .hitSlop(8)
+                .label(@t("bar.notifications"))
                 on Tap -> dispatch(SetPanel("notifications"))
             }
             .direction(row)
             .align(center)
-            .gap(1)
+            .gap(2)
         }
-        Spacer
-        Island { }
         Spacer
         if device.profile == desktop {
             Stack {
                 Stack {
-                    GlyphPill { icon: "wifi" }
+                    TopBarPill { selected: $state.panel == "wifi", gap: 0 } {
+                        content {
+                            WifiGlyph { }
+                        }
+                    }
                 }
-                .hitSlop(2)
+                .hitSlop(8)
+                .label(@t("bar.wifi"))
                 on Tap -> dispatch(SetPanel("wifi"))
                 Stack {
-                    GlyphPill { icon: "speaker.wave" }
+                    TopBarPill { selected: $state.panel == "sound", gap: 0 } {
+                        content {
+                            SoundGlyph { }
+                        }
+                    }
                 }
-                .hitSlop(2)
+                .hitSlop(8)
+                .label(@t("bar.sound"))
                 on Tap -> dispatch(SetPanel("sound"))
                 Stack {
-                    BatteryPill { }
+                    BatteryPill { selected: $state.panel == "battery" }
                 }
-                .hitSlop(2)
+                .hitSlop(8)
+                .label(@t("bar.battery"))
                 on Tap -> dispatch(SetPanel("battery"))
                 // TASK-0067B: the search — beside the Control Center like the
                 // desktop reference; it opens a field, not a drop-down.
                 Stack {
-                    GlyphPill { icon: "magnifyingglass" }
+                    GlyphPill { icon: "magnifyingglass", selected: $state.searchOpen }
                 }
-                .hitSlop(2)
+                .hitSlop(8)
                 .label(@t("search.open"))
                 on Tap -> dispatch(SearchOpen)
                 Stack {
-                    GlyphPill { icon: "slider.horizontal.3" }
+                    GlyphPill { icon: "slider.vertical.3", selected: $state.panel == "control" }
                 }
-                .hitSlop(2)
+                .hitSlop(8)
+                .label(@t("bar.control"))
                 on Tap -> dispatch(SetPanel("control"))
             }
             .direction(row)
             .align(center)
-            .gap(1)
+            .gap(2)
         } else {
             Stack {
-                StatusPill { }
+                StatusPill { selected: $state.panel == "control" }
             }
-            .hitSlop(2)
+            .hitSlop(8)
+            .label(@t("bar.control"))
             on Tap -> dispatch(SetPanel("control"))
+        }
+        if $state.nowPlaying {
+            Stack {
+                Spacer
+                Island { }
+                Spacer
+            }
+            .direction(row)
+            .align(center)
+            .overlay()
+        } else {
+            Stack { }
+                .overlay()
         }
     }
     .direction(row)
     .height(36)
     .align(center)
-    .paddingX(3)
+    .paddingX(12)
 }

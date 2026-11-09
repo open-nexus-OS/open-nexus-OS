@@ -45,5 +45,5 @@ Component SecSound {
             }
         }
     }
-    .gap(3)
+    .gap(24)
 }

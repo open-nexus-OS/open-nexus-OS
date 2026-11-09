@@ -122,7 +122,6 @@ impl DslApp {
             base_alpha,
             // The desktop base paints at base alpha 0 (the wallpaper shows): its regions are
             // the shell's glass.
-            desktop: base_alpha == 0,
             w,
             h,
             theme_mode,
@@ -138,7 +137,9 @@ impl DslApp {
             store_w: 0,
             store_refused: false,
             patch: (0, h as u16),
-            wash_opacity: 0,
+            palette: crate::interaction_layer::Palette::of(tokens_for(theme_mode)),
+            layers: crate::interaction_layer::Layers::EMPTY,
+            press: None,
             tree_dirty: true,
             sent_tree: nexus_display_proto::surface_layers::SurfaceTree::EMPTY,
             motion_dirty: true,

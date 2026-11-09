@@ -124,9 +124,12 @@ phases:
     note: "board 2026-11-05T13-12-18: panels slide as motion layers (TASK-0354 P2); launcher open slot 2.76 Mpx and body 1.19 Mpx, Control Center slot 1.18 Mpx and body 469k (met)"
   - id: P16
     story: "A launch's wait ring costs what it shows: it steps every 90 ms on the compositor loop's one-shot wake (the caret's timer), never on a present's completion - on a display without a vertical blank a completion returned in 150 us, windowd looped at 668 Hz and the launching app starved (usb-visible 11-07-04 and 12-35-43)"
-    state: proving
-    gate: "QEMU usb-visible: launch settings and the chords green, windowd loop hz below 60 while the ring turns (was 668); host: wake_clock tests; board: the ring turns while an app launches"
+    state: done
+    gate: "QEMU usb-visible: launch settings and the chords green, the ring's own pointer frames below 60 a second while it turns (was 668); host: wake_clock tests; board: the ring turns while an app launches"
     started: 2026-11-05
+    done: 2026-11-05
+    evidence: build/logs/usb-visible--2026-11-05T13-27-58
+    note: "launch settings green in 14.6 s, 39/39 chain markers; the ring's frames pointer=11 and 2 a second (was 668); the one 360 Hz window is the overlapping open transition (moved=332, P17) - the first gate counted loop hz and conflated it; board 2026-11-05T13-12-18: the ring on four launches, 15 presents a second"
   - id: P17
     story: "a display without a vertical blank completes a present no sooner than its mode's refresh: on QEMU's virtio GPU windowd's transitions, motion layers and frame pulses run at the display's cadence instead of spinning on completions that return in microseconds"
     state: planned

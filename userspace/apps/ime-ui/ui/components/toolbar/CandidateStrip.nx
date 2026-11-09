@@ -1,0 +1,117 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The toolbar's candidate strip (RFC-0075 Phase 8b; design artifacts: the toolbar's suggestion
+// area): up to 8 candidates from imed's push, a tap commits one (`svc.ime.select`). It takes
+// the room between the language chip and the ghost keys and scrolls sideways when the
+// candidates outgrow it. Each candidate is a transparent button sized to its text (padding 12,
+// gap 8, the toolbar's 36 px — a scroller's children keep their own cross size) whose radius
+// sm shapes the host's press layer. Empty while nothing composes: the
+// three-word prediction bar of the Latin and hangul layouts needs a prediction source in imed
+// (spec gap G1), and the per-layout placeholder needs layout metadata as data (G6).
+
+Component CandidateStrip {
+    Stack {
+        if $state.c1 != "" {
+            Stack {
+                Text($state.c1).textStyle(headline).fontWeight(medium).fg(label)
+            }
+            .direction(row)
+            .align(center)
+            .paddingX(12)
+            .height(36)
+            .rounded(sm)
+            .label($state.c1)
+            on Tap -> dispatch(Select(0))
+        }
+        if $state.c2 != "" {
+            Stack {
+                Text($state.c2).textStyle(headline).fontWeight(medium).fg(label)
+            }
+            .direction(row)
+            .align(center)
+            .paddingX(12)
+            .height(36)
+            .rounded(sm)
+            .label($state.c2)
+            on Tap -> dispatch(Select(1))
+        }
+        if $state.c3 != "" {
+            Stack {
+                Text($state.c3).textStyle(headline).fontWeight(medium).fg(label)
+            }
+            .direction(row)
+            .align(center)
+            .paddingX(12)
+            .height(36)
+            .rounded(sm)
+            .label($state.c3)
+            on Tap -> dispatch(Select(2))
+        }
+        if $state.c4 != "" {
+            Stack {
+                Text($state.c4).textStyle(headline).fontWeight(medium).fg(label)
+            }
+            .direction(row)
+            .align(center)
+            .paddingX(12)
+            .height(36)
+            .rounded(sm)
+            .label($state.c4)
+            on Tap -> dispatch(Select(3))
+        }
+        if $state.c5 != "" {
+            Stack {
+                Text($state.c5).textStyle(headline).fontWeight(medium).fg(label)
+            }
+            .direction(row)
+            .align(center)
+            .paddingX(12)
+            .height(36)
+            .rounded(sm)
+            .label($state.c5)
+            on Tap -> dispatch(Select(4))
+        }
+        if $state.c6 != "" {
+            Stack {
+                Text($state.c6).textStyle(headline).fontWeight(medium).fg(label)
+            }
+            .direction(row)
+            .align(center)
+            .paddingX(12)
+            .height(36)
+            .rounded(sm)
+            .label($state.c6)
+            on Tap -> dispatch(Select(5))
+        }
+        if $state.c7 != "" {
+            Stack {
+                Text($state.c7).textStyle(headline).fontWeight(medium).fg(label)
+            }
+            .direction(row)
+            .align(center)
+            .paddingX(12)
+            .height(36)
+            .rounded(sm)
+            .label($state.c7)
+            on Tap -> dispatch(Select(6))
+        }
+        if $state.c8 != "" {
+            Stack {
+                Text($state.c8).textStyle(headline).fontWeight(medium).fg(label)
+            }
+            .direction(row)
+            .align(center)
+            .paddingX(12)
+            .height(36)
+            .rounded(sm)
+            .label($state.c8)
+            on Tap -> dispatch(Select(7))
+        }
+    }
+    .direction(row)
+    .gap(8)
+    .grow(1)
+    .height(36)
+    .scroll(horizontal)
+}

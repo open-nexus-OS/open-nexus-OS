@@ -1,0 +1,41 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The ⋮ app menu, hung under the button by `WinAppWindow`'s `appMenu` slot:
+// the main panel (File ▸, View ▸, Settings, Help) with the open submenu
+// flying out to its LEFT. The rows are `WinMenuRow`s under this app's own
+// taps — `WinMenuItem` would bake `WinMenuPick`, and these entries open
+// submenus or switch modes. Help has no destination yet and says so (disabled).
+
+Component MoreMenu {
+    Stack {
+        if $state.menu == "more.datei" {
+            FileMenu { }
+        } else if $state.menu == "more.ansicht" {
+            ViewMenu { }
+        } else {
+            Stack { }
+        }
+        WinMenu { width: 240 } {
+            items {
+                Stack {
+                    WinMenuRow { label: @t("win.file"), icon: "doc", kind: "subLeft", shortcut: "", selected: $state.menu == "more.datei" }
+                }
+                on Tap -> dispatch(WinMenu("more.datei"))
+                Stack {
+                    WinMenuRow { label: @t("win.view"), icon: "eye", kind: "subLeft", shortcut: "", selected: $state.menu == "more.ansicht" }
+                }
+                on Tap -> dispatch(WinMenu("more.ansicht"))
+                WinMenuDivider { }
+                Stack {
+                    WinMenuRow { label: @t("stash.settings"), icon: "gearshape", kind: "", shortcut: "", selected: false }
+                }
+                on Tap -> dispatch(SettingsOpen)
+                WinMenuRow { label: @t("win.help"), icon: "info.circle", kind: "disabled", shortcut: "", selected: false }
+            }
+        }
+    }
+    .direction(row)
+    .align(start)
+    .gap(0)
+}

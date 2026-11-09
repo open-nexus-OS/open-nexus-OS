@@ -1,0 +1,22 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The move-destination dialog: a kit `WinModal` listing the top-level
+// folders. A tap on a folder moves the selection there; the close glyph, the
+// backdrop and ESC all dispatch `ModalClose`, which cancels.
+
+Component MovePicker {
+    WinModal { id: "move", title: @t("stash.moveTitle"), noFooter: true } {
+        body {
+            Stack {
+                MoveDest { path: "/Bilder", label: @t("stash.pictures") }
+                MoveDest { path: "/Videos", label: @t("stash.videos") }
+                MoveDest { path: "/Audio", label: @t("stash.audio") }
+                MoveDest { path: "/Dokumente", label: @t("stash.docs") }
+                MoveDest { path: "/Downloads", label: @t("stash.downloads") }
+                MoveDest { path: "/Papierkorb", label: @t("stash.trash") }
+            }
+            .gap(2)
+        }
+    }
+}

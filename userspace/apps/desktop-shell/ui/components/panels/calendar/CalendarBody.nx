@@ -1,0 +1,29 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The calendar's content (design artifacts: panels §5): month header with
+// navigation, the weekday row, the Monday-first grid and the "Anstehend" list.
+// Shared by the desktop panel (`CalendarPanel`, sm sizes) and the touch sheet
+// (`CombinedSheet`, md sizes — the cells and header read `device.profile`).
+//
+// DEMO DATA — the shell has no calendar service and the DSL has no clock
+// arithmetic, so the three months are authored (see `CalMonthNow`) and
+// `CalStore` pages between them. Everything the user can do here works; what
+// it shows is fixed.
+
+Component CalendarBody {
+    Stack {
+        CalHeader { }
+        CalWeekHeader { }
+        if $state.calMonth == 0 {
+            CalMonthPrev { }
+        } else if $state.calMonth == 2 {
+            CalMonthNext { }
+        } else {
+            CalMonthNow { }
+        }
+        GroupLabel { label: @t("cal.upcoming") }
+        CalUpcoming { }
+    }
+    .gap(8)
+}

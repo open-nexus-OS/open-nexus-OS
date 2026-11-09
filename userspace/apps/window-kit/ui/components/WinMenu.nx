@@ -1,0 +1,48 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The design artifacts' Menu PANEL: an opaque OVERLAY surface (it floats above
+// the window's own blur, so it never blurs) — surfaceOverlay, a 1 px glassEdge,
+// shadow3 and the lit top line, radius 16, padding 4 — holding `WinMenuItem`
+// rows (radius 12 = 16 − 4, concentric), `WinMenuRow` headers and
+// `WinMenuDivider`s. `width` in px: 220 when omitted, 240 for the ⋮ app menu.
+// The panel eats its own taps (`WinNoop`) so a press on its padding or a
+// divider never reaches the backdrop that closes the menu.
+//
+// Where it opens is the caller's: `WinAppWindow`'s `appMenu` slot anchors the
+// ⋮ app menu under its button (bottom-end, submenus flying out to the left);
+// a submenu is a second `WinMenu` beside the row that opened it (its first row
+// level with that row), and that row keeps its `selected` layer while open.
+//
+// STORE CONTRACT (the consuming app declares these — the kit dispatches):
+//   events  WinNoop
+
+Component WinMenu {
+    props: {
+        width: Int,
+    }
+    slot items
+    Stack {
+        Slot items
+    }
+    .gap(0)
+    .padding(4)
+    .width(220)
+    .minWidth($props.width)
+    .maxWidth($props.width)
+    .material(overlay)
+    .rounded(lg)
+    on Tap -> dispatch(WinNoop)
+}
+
+// A menu divider: 1 px `separator`, inset 8 from the panel's sides, 4 above
+// and below.
+Component WinMenuDivider {
+    Stack {
+        Stack { }
+            .height(1)
+            .bg(separator)
+    }
+    .paddingY(4)
+    .paddingX(8)
+}

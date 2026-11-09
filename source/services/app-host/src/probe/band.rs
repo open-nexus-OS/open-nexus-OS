@@ -1,13 +1,13 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: app-host's STORE (RFC-0109): the surface's rows below its base — the wash patch and
+//! CONTEXT: app-host's STORE (RFC-0109): the surface's rows below its base — the wash patches and
 //! each scroll layer's virtual band, a ring over content space. Planned from the page's layers
 //! (`plan_store`), filled visible window first and then the margins ahead and behind, within a
 //! time budget per pass so the physics tick never waits on a raster (`fill_bands`), and declared
-//! to windowd: the STRUCTURE — regions, layers, the patch — with the present of the pixels it
-//! names, the MOTION — offsets, the wash — at once. Content outside a band's valid range is never
-//! shown: windowd composes only what the ring holds.
+//! to windowd: the STRUCTURE — regions, layers, the patches — with the present of the pixels it
+//! names, the MOTION — offsets, the hover and press layers' washes — at once. Content outside a
+//! band's valid range is never shown: windowd composes only what the ring holds.
 //! OWNERS: @ui @runtime
 //! STATUS: Functional
 //! API_STABILITY: Internal
@@ -317,27 +317,29 @@ impl super::DslApp {
         super::boot::send_wait(client, &buf[..len]).map_err(|_| "apphost: FAIL interactive present")
     }
 
-    /// Fills the wash patch with the theme's hover colour (opaque: the wash's opacity carries
-    /// its alpha) and names it in `damage`.
+    /// Fills the interaction layers' patches with the theme's layer colours (opaque: a layer's
+    /// opacity carries its alpha) and names the patch row in `damage`.
     pub(super) fn draw_patch(&mut self, mem: &mut SurfaceMem, damage: &mut PresentDamage) -> bool {
-        use nexus_dsl_runtime::theme_tokens::ColorToken;
         if self.store_refused {
             return true; // no store: no patch, no wash
         }
-        let c = tokens_for(self.theme_mode).color(ColorToken::GlassHover);
-        let side = PATCH_ROWS as usize;
-        let mut row = [0u8; PATCH_ROWS as usize * 4];
-        for px in row.chunks_exact_mut(4) {
-            px.copy_from_slice(&[c.b, c.g, c.r, 255]);
-        }
-        let (px, py) = (u32::from(self.patch.0), u32::from(self.patch.1));
-        for r in 0..side as u32 {
-            if !mem.write(py + r, px, &row) {
-                return false;
+        // RFC-0116: hover and press are the `fillHover` / `fillActive` layers (and the on-fill
+        // pair), shown by opacity alone.
+        self.palette = crate::interaction_layer::Palette::of(tokens_for(self.theme_mode));
+        let (x0, py) = (u32::from(self.patch.0), u32::from(self.patch.1));
+        for (k, c) in self.palette.patches() {
+            let mut row = [0u8; PATCH_ROWS as usize * 4];
+            for px in row.chunks_exact_mut(4) {
+                px.copy_from_slice(&[c.b, c.g, c.r, 255]);
+            }
+            let px = x0 + PATCH_ROWS * u32::from(k);
+            for r in 0..PATCH_ROWS {
+                if !mem.write(py + r, px, &row) {
+                    return false;
+                }
             }
         }
-        self.wash_opacity = c.a;
-        damage.add((px, py, PATCH_ROWS, PATCH_ROWS));
+        damage.add((x0, py, PATCH_ROWS * lw::MAX_PATCHES as u32, PATCH_ROWS));
         self.tree_dirty = true;
         true
     }
@@ -368,7 +370,8 @@ impl super::DslApp {
             n += 1;
         }
         tree.scroll_count = n;
-        // The patch row: the hover wash's patch, then one per motion layer's backdrop.
+        // The patch row: the interaction layers' first patch, one per motion layer's backdrop,
+        // the layers' second patch last (`interaction_layer::WIRE_PATCHES`).
         if !self.store_refused {
             for (j, p) in tree.patches.iter_mut().enumerate() {
                 let x = self.patch.0 + PATCH_ROWS as u16 * j as u16;
@@ -386,10 +389,10 @@ impl super::DslApp {
         self.tree_dirty = false;
     }
 
-    /// The motion (`OP_SURFACE_MOTION`): every layer's offset, the wash of the hovered control —
-    /// in effect at once. Checked against the structure last sent, by the rule windowd applies:
-    /// windowd refuses a motion whole, offsets and all, so a wash naming what it does not know
-    /// yet waits for the structure (a scroll never stalls on a wash).
+    /// The motion (`OP_SURFACE_MOTION`): every layer's offset, the washes of the hover and press
+    /// layers — in effect at once. Checked against the structure last sent, by the rule windowd
+    /// applies: windowd refuses a motion whole, offsets and all, so a wash naming what it does
+    /// not know yet waits for the structure (a scroll never stalls on a wash).
     pub(super) fn send_motion(&mut self, client: &KernelClient, surface_id: u32) {
         let mut motion = lw::SurfaceMotion::default();
         let mut n = 0;
@@ -398,10 +401,7 @@ impl super::DslApp {
             n += 1;
         }
         motion.offset_count = n;
-        if let Some(w) = self.wash_motion() {
-            motion.washes[0] = w;
-            motion.wash_count = 1;
-        }
+        motion.wash_count = self.washes(&mut motion.washes);
         if lw::validate_motion(&motion, &self.sent_tree).is_err() {
             motion.wash_count = 0;
         }
@@ -433,13 +433,27 @@ impl super::DslApp {
         }
     }
 
-    /// The wash of the hovered control (RFC-0109, materials rule 3): the patch spread over the
-    /// control its hover anchors, in its layer's content coordinates — no raster, ever.
-    fn wash_motion(&self) -> Option<lw::Wash> {
+    /// The washes of the hover and press layers (RFC-0109, materials rule 3), the hover layers
+    /// below: each layer's patch spread over the control it covers, in its layer's content
+    /// coordinates — no raster, ever. Returns how many `out` holds.
+    fn washes(&self, out: &mut [lw::Wash; lw::MAX_WASHES]) -> usize {
         if self.store_refused {
-            return None;
+            return 0;
         }
-        let anchor = crate::hover_wash::hover_wash_anchor(&self.layout.boxes, self.hovered?)?;
+        let (shown, n) = self.layers.shown();
+        let mut k = 0;
+        for &(anchor, shade) in &shown[..n] {
+            if let Some(w) = self.wash_of(anchor, shade) {
+                out[k] = w;
+                k += 1;
+            }
+        }
+        k
+    }
+
+    /// One layer's wash over control `anchor` — `None` when the control has no box (a stale id
+    /// across a re-layout) or no area, or its scroll layer lies under a modal box.
+    fn wash_of(&self, anchor: usize, shade: crate::interaction_layer::Shade) -> Option<lw::Wash> {
         let b = self.layout.boxes.iter().find(|b| b.node_id == anchor)?;
         if b.rect.width.0 <= 0 || b.rect.height.0 <= 0 {
             return None; // nothing to wash: no area
@@ -468,11 +482,13 @@ impl super::DslApp {
             y -= rect.1;
         }
         let clamp16 = |v: i32| v.clamp(0, i32::from(u16::MAX)) as u16;
+        // A capsule's radius (`full`) is its half height: the wash follows its shape exactly.
+        let half = b.rect.width.0.min(b.rect.height.0) / 2;
         Some(lw::Wash {
             parent,
-            patch: 0,
-            radius: b.visual.corner_radius.top_left.0.clamp(0, 255) as u8,
-            opacity: self.wash_opacity,
+            patch: shade.patch,
+            radius: b.visual.corner_radius.top_left.0.clamp(0, half.clamp(0, 255)) as u8,
+            opacity: shade.opacity,
             x,
             y,
             w: clamp16(b.rect.width.0),

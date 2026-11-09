@@ -38,5 +38,5 @@ Component SecDisplay {
             }
         }
     }
-    .gap(3)
+    .gap(24)
 }

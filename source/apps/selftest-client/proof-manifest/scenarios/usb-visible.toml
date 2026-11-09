@@ -56,7 +56,8 @@ expect = [
 ]
 timeout_s = 40
 
-# Round B: the alert once more; a background press is absorbed; ESC closes it (no text field).
+# Round B: the alert once more; a background press cancels it (the design artifacts' rule); once
+# more, and ESC closes it (no text field).
 [[step]]
 name = "press power again"
 do = { click = "power_button" }
@@ -64,8 +65,16 @@ expect = ["apphost: modal open (depth=1)"]
 timeout_s = 30
 
 [[step]]
-name = "press the background"
+name = "a background press cancels the alert"
 do = { click = "modal_background" }
+expect = ["apphost: modal dismiss (reason=backdrop)", "windowd: win modal off (id="]
+timeout_s = 30
+
+[[step]]
+name = "press power a third time"
+do = { click = "power_button" }
+expect = ["apphost: modal open (depth=1)"]
+timeout_s = 30
 
 [[step]]
 name = "escape closes the alert"

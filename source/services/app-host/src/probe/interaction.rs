@@ -44,11 +44,11 @@ impl super::DslApp {
             device_for(self.shell_profile, self.w, &self.locale_tag, &self.keymap, self.theme_mode);
         // The page's scroll layers at their offsets: the hit-test sees what the compositor shows.
         let (views, nv) = self.hit_views();
-        // Interaction motion (design "Press: instant down, springy release"):
-        // the pressed control dips to 92% and pops back elastically. Resolved
-        // with the SAME hit-test the dispatch below uses, BEFORE the re-emit
-        // (node ids are stable across a paint-damage dispatch; the retain in
-        // `anim_sync` carries the bounce across a re-emit).
+        // Interaction motion (RFC-0116): the press layer, and the dip the control's
+        // category asks for, HELD until windowd's RELEASE. Resolved with the SAME
+        // hit-test the dispatch below uses, BEFORE the re-emit (node ids are stable
+        // across a paint-damage dispatch; the retain in `anim_sync` keeps the held
+        // dip across a re-emit).
         let hit = self.view.hover_box_id_scrolled(
             &self.layout.boxes,
             "Tap",
@@ -82,7 +82,11 @@ impl super::DslApp {
         });
         match (hit, press_part) {
             (Some(h), Some(p)) if p == h => self.interaction_press(h),
-            _ => {} // part-press (toggle thumb) fires AFTER the flip below
+            (Some(_), _) => {} // part-press (toggle thumb) fires AFTER the flip below
+            // No control here: a press still held (its release never came) lets go.
+            _ => {
+                self.interaction_release();
+            }
         }
         // The part's pre-dispatch x (the thumb slides on a toggle flip; the
         // slide-in animates from old − new).
@@ -151,7 +155,7 @@ impl super::DslApp {
             if p != h {
                 let x1 =
                     self.layout.boxes.iter().find(|b| b.node_id == p).map_or(x0, |b| b.rect.x.0);
-                self.interaction_toggle_thumb(p, (x0 - x1) as f32);
+                self.interaction_toggle_thumb(h, p, (x0 - x1) as f32);
             }
         }
         // The dispatch re-emitted the scene: reconcile the animation driver
@@ -236,30 +240,32 @@ impl super::DslApp {
     /// control changed.
     pub(super) fn hover(&mut self, x: i32, y: i32) -> bool {
         self.pointer = Some((x, y));
-        let (views, nv) = self.hit_views();
         let target = self
-            .view
-            .hover_box_id_scrolled(
-                &self.layout.boxes,
-                "Tap",
-                nexus_layout_types::FxPx::new(x),
-                nexus_layout_types::FxPx::new(y),
-                &views[..nv],
-            )
+            .tap_target_at(x, y)
             // Container catch-alls (overlay backdrop, panel body) are TAP consumers, never hover
-            // targets. The gate here is the WASH's (short = a control), not the GROW's —
-            // `interaction_hover` applies the stricter `interaction_sized` itself, so a
-            // full-width list row washes without growing.
+            // targets: the gate is the WASH's (short = a control) — a full-width list row washes.
             .filter(|&id| crate::hover_wash::hover_washable(&self.layout.boxes, id));
         if target == self.hovered {
             return false;
         }
-        let old = core::mem::replace(&mut self.hovered, target);
-        self.motion_dirty = true;
-        // Interaction motion (design): grow the newly hovered control with a soft spring,
-        // shrink the old one back — the caller arms the frame pulse (`anim_active`).
-        self.interaction_hover(old, target);
+        self.hovered = target;
+        // Interaction motion (RFC-0116): the new control's hover layer fades in, the old one's
+        // out — opacity alone, never a size change; the caller arms the frame pulse.
+        self.interaction_hover(target);
         true
+    }
+
+    /// The Tap handler under `(x, y)` — the scroll layers at their offsets: the hit-test every
+    /// pointer path shares (tap, hover, a press the pointer leaves).
+    pub(super) fn tap_target_at(&self, x: i32, y: i32) -> Option<usize> {
+        let (views, nv) = self.hit_views();
+        self.view.hover_box_id_scrolled(
+            &self.layout.boxes,
+            "Tap",
+            nexus_layout_types::FxPx::new(x),
+            nexus_layout_types::FxPx::new(y),
+            &views[..nv],
+        )
     }
 
     /// The content moved under a still pointer (a scroll step): what it hovers is resolved
@@ -304,9 +310,8 @@ impl super::DslApp {
     pub(super) fn hover_clear(&mut self) -> bool {
         self.pointer = None;
         let old = self.hovered.take();
-        self.interaction_hover(old, None);
         if old.is_some() {
-            self.motion_dirty = true;
+            self.interaction_hover(None);
         }
         old.is_some()
     }
@@ -327,8 +332,8 @@ impl super::DslApp {
         }
         raw_marker("apphost: size-class reemit");
         // New structure ⇒ new node ids: reconcile animations + drop the
-        // stale hover anchor (the next MOVE re-resolves).
-        self.hovered = None;
+        // stale hover anchor, its layers, a held press (the next MOVE re-resolves).
+        self.interaction_reset();
         self.anim_sync();
     }
 
@@ -354,7 +359,7 @@ impl super::DslApp {
         self.h = h;
         self.row_scratch.resize(w as usize * 4, 0);
         // Box geometry moves under the pointer; the next MOVE re-resolves.
-        self.hovered = None;
+        self.interaction_reset();
         // ONE layout phase (TASK-0077C P2b): this used to repeat the layout
         // call and the text collection by hand — "relayout path does the
         // same", its own comment said — which left the resize frame outside

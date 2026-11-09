@@ -33,7 +33,7 @@ pub use error::{ThemeError, ThemeResult};
 pub use parser::parse_theme_file;
 pub use qualifier::Qualifier;
 pub use registry::ThemeRegistry;
-pub use tokens::{ColorValue, Material, ScaleMap, TokenMap};
+pub use tokens::{Backdrop, ColorValue, ScaleMap, ShadowSpec, TextStyleSpec, TokenMap};
 
 use std::collections::HashMap;
 use std::fs;
@@ -47,12 +47,11 @@ pub struct ThemeRuntime {
     active: Qualifier,
 }
 
-/// The numeric scale sections parsed from `.nxtheme.toml` (whole-number maps).
-/// `leading` is line-height ×100 (150 = 1.50); `typography` is font size px;
-/// `zindex` is layer order; `motion` is duration ms. Theme-invariant in
-/// practice (authored in base; a reduced-motion theme may zero `motion`).
-pub const SCALE_SECTIONS: &[&str] =
-    &["spacing", "radius", "typography", "leading", "zindex", "motion"];
+/// The numeric scale sections parsed from `.nxtheme.toml` (whole-number maps, RFC-0116):
+/// `spacing` (the semantic gaps), `radius` and `control` in px, `zindex` layer order, `motion`
+/// duration ms. Theme-invariant in practice (authored in base; a reduced-motion theme may zero
+/// `motion`).
+pub const SCALE_SECTIONS: &[&str] = &["spacing", "radius", "control", "zindex", "motion"];
 
 /// A loaded theme with resolved token map, materials, and numeric scales.
 #[derive(Debug, Clone)]
@@ -60,7 +59,12 @@ pub struct Theme {
     pub name: String,
     pub version: u32,
     pub tokens: TokenMap,
-    pub materials: HashMap<String, Material>,
+    /// `[material.<name>]` backdrops (RFC-0116: ultraThin, thin, regular, thick).
+    pub materials: HashMap<String, Backdrop>,
+    /// `[textStyle.<name>]` — the 13 text styles.
+    pub text_styles: HashMap<String, TextStyleSpec>,
+    /// `[shadow.<name>]` — shadow1..4, shadowInset, edgeHighlight.
+    pub shadows: HashMap<String, ShadowSpec>,
     /// Numeric scale sections keyed by section name (see [`SCALE_SECTIONS`]).
     pub scales: HashMap<String, ScaleMap>,
     /// `[icons]` — the MAINTAINED icon-set linkage: `path` = repo-relative
@@ -129,24 +133,42 @@ impl ThemeRuntime {
         Err(ThemeError::TokenNotFound { token: token_name.to_string(), qualifier: self.active })
     }
 
-    /// Resolve a named material (e.g. "glassPanel", "surface") through the
-    /// qualifier chain: active qualifier first, then fall back to base — the
-    /// same inheritance as [`resolve`](Self::resolve) for color tokens, so a
-    /// theme only redefines the materials that differ.
-    pub fn resolve_material(&self, material_name: &str) -> Option<&Material> {
-        for qualifier in self.active.resolution_chain() {
-            if let Some(theme) = self.themes.get(&qualifier) {
-                if let Some(material) = theme.materials.get(material_name) {
-                    return Some(material);
-                }
-            }
-        }
-        None
+    /// Resolve a backdrop material (`ultraThin`, `thin`, `regular`, `thick`) through the
+    /// qualifier chain — the same inheritance as [`resolve`](Self::resolve).
+    pub fn resolve_material(&self, material_name: &str) -> Option<Backdrop> {
+        self.first(|t| t.materials.get(material_name).copied())
     }
 
-    /// Resolve a named step from a numeric scale section (e.g. `("radius","medium")`,
-    /// `("typography","base")`) through the qualifier chain. `leading` values are
-    /// line-height ×100. See [`SCALE_SECTIONS`].
+    /// Resolve a text style (`body`, `title1`, …) through the qualifier chain.
+    pub fn resolve_text_style(&self, name: &str) -> Option<TextStyleSpec> {
+        self.first(|t| t.text_styles.get(name).copied())
+    }
+
+    /// Resolve a shadow (`shadow1` … `edgeHighlight`) through the qualifier chain: a theme
+    /// overrides the colours that differ (dark shadows are stronger).
+    pub fn resolve_shadow(&self, name: &str) -> Option<ShadowSpec> {
+        self.first(|t| t.shadows.get(name).copied())
+    }
+
+    /// Whether the theme of `qualifier` defines the colour `token` itself (not by inheritance):
+    /// the completeness rule of RFC-0116 — every role that differs between light and dark must
+    /// be authored in dark and high contrast, or it would silently inherit the light value.
+    pub fn defines_token(&self, qualifier: Qualifier, token: &str) -> bool {
+        self.themes.get(&qualifier).is_some_and(|t| t.tokens.get(token).is_some())
+    }
+
+    /// Whether the theme of `qualifier` defines the shadow `name` itself.
+    pub fn defines_shadow(&self, qualifier: Qualifier, name: &str) -> bool {
+        self.themes.get(&qualifier).is_some_and(|t| t.shadows.contains_key(name))
+    }
+
+    /// The first value `pick` finds along the active qualifier's resolution chain.
+    fn first<T>(&self, pick: impl Fn(&Theme) -> Option<T>) -> Option<T> {
+        self.active.resolution_chain().into_iter().find_map(|q| self.themes.get(&q).and_then(&pick))
+    }
+
+    /// Resolve a named step from a numeric scale section (e.g. `("radius","md")`,
+    /// `("control","md")`) through the qualifier chain. See [`SCALE_SECTIONS`].
     pub fn resolve_scale(&self, section: &str, name: &str) -> Option<u32> {
         for qualifier in self.active.resolution_chain() {
             if let Some(px) = self

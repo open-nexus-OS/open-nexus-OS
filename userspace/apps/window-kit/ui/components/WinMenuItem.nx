@@ -1,15 +1,61 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// One dropdown-menu row (design artifacts `Menu`): optional icon + label,
-// `kind` selects the treatment — "" plain · "danger" red · "check" a
-// trailing checkmark · "sub" a trailing chevron (cascading submenu; the
-// app's `WinMenuPick` reducer switches `menu` to the submenu id).
-// `act: true` = a WINDOW ACTION row (minimize/close/mode.*): dispatches
-// `WinAct(id)` — the app's effect forwards it to windowd
-// (`window.control`). Plain rows dispatch `WinMenuPick(id)` (nav /
-// submenu routing in the reducer).
+// One menu row (design artifacts `Menu` item) — the handler-free FACE
+// (`WinMenuRow`) and the window-kit wrapper that dispatches (`WinMenuItem`),
+// the `WinActionFace`/`WinActionItem` pattern: a dispatch target is a static
+// case name, so an app whose row raises its own event wraps the face itself,
+//
+//     Stack { WinMenuRow { label: …, icon: …, kind: "", shortcut: "Strg+N", selected: false } }
+//     on Tap -> dispatch(NewWindow)
+//
+// and a row that does nothing (a header, a disabled entry) is a bare face.
+//
+// The row: padding 8 12 (36 px), radius 12 (the 16 px panel less its 4 px
+// padding), body 14/500 `label`; an optional icon (16 in a 17 px slot, 8 px
+// to the label) in the label's colour; a `shortcut` (footnote,
+// `labelSecondary`) right-aligned. `kind` picks the treatment:
+//   ""         plain
+//   "danger"   destructive — icon and label `danger`
+//   "check"    a trailing checkmark 14, `accent`
+//   "sub"      a trailing chevron 14 (`labelTertiary`) — the submenu flies out
+//              to the right; "subLeft" points left (a bottom-end menu, the ⋮)
+//   "disabled" inert — `labelTertiary`, no trailing mark (use the bare face)
+//   "header"   a section header: overline `labelSecondary`, padding 8 12 4
+// `selected` pins the `fill` layer (the row whose submenu is open). The face itself — slots,
+// colours, the fill — is `WinMenuFace`.
 
+Component WinMenuRow {
+    props: {
+        label: Str,
+        icon: Str,
+        kind: Str,
+        shortcut: Str,
+        selected: Bool,
+    }
+    if $props.kind == "header" {
+        Stack {
+            Text($props.label).textStyle(overline).fg(labelSecondary)
+        }
+        .paddingX(12)
+        .paddingTop(8)
+        .paddingBottom(4)
+    } else if $props.kind == "danger" {
+        WinMenuFace { label: $props.label, icon: $props.icon, kind: $props.kind, shortcut: $props.shortcut, tone: "danger", note: "labelSecondary", selected: false }
+    } else if $props.kind == "disabled" {
+        WinMenuFace { label: $props.label, icon: $props.icon, kind: $props.kind, shortcut: $props.shortcut, tone: "labelTertiary", note: "labelTertiary", selected: false }
+    } else {
+        WinMenuFace { label: $props.label, icon: $props.icon, kind: $props.kind, shortcut: $props.shortcut, tone: "label", note: "labelSecondary", selected: $props.selected }
+    }
+}
+
+// The dispatching row. `act: true` = a WINDOW ACTION row (minimize/close/
+// mode.*): dispatches `WinAct(id)` — the app's effect forwards it to windowd
+// (`window.control`). Every other row dispatches `WinMenuPick(id)` (nav /
+// submenu routing in the app's reducer; a "sub" row's pick opens its submenu).
+//
+// STORE CONTRACT (the consuming app declares these — the kit dispatches):
+//   events  WinAct(Str) · WinMenuPick(Str)
 Component WinMenuItem {
     props: {
         id: Str,
@@ -17,68 +63,18 @@ Component WinMenuItem {
         icon: Str,
         kind: Str,
         act: Bool,
+        shortcut: Str,
+        selected: Bool,
     }
     if $props.act {
         Stack {
-            if $props.icon != "" {
-                Icon { symbol: $props.icon, size: 13 }
-                    .fg(onGlassMuted)
-            } else {
-                Stack { }
-            }
-            if $props.kind == "danger" {
-                Text($props.label).textSize(sm).fg(danger)
-            } else {
-                Text($props.label).textSize(sm).fg(onGlass)
-            }
-            Spacer
-            if $props.kind == "check" {
-                Icon { symbol: "checkmark", size: 12 }
-                    .fg(accent)
-            } else {
-                Stack { }
-            }
+            WinMenuRow { label: $props.label, icon: $props.icon, kind: $props.kind, shortcut: $props.shortcut, selected: $props.selected }
         }
-        .direction(row)
-        .align(center)
-        .gap(2)
-        .paddingX(2)
-        .height(30)
-        .rounded(md)
         on Tap -> dispatch(WinAct($props.id))
     } else {
         Stack {
-            if $props.icon != "" {
-                Icon { symbol: $props.icon, size: 13 }
-                    .fg(onGlassMuted)
-            } else {
-                Stack { }
-            }
-            if $props.kind == "danger" {
-                Text($props.label).textSize(sm).fg(danger)
-            } else {
-                Text($props.label).textSize(sm).fg(onGlass)
-            }
-            Spacer
-            if $props.kind == "sub" {
-                Icon { symbol: "chevron.right", size: 12 }
-                    .fg(onGlassMuted)
-            } else {
-                Stack { }
-            }
-            if $props.kind == "check" {
-                Icon { symbol: "checkmark", size: 12 }
-                    .fg(accent)
-            } else {
-                Stack { }
-            }
+            WinMenuRow { label: $props.label, icon: $props.icon, kind: $props.kind, shortcut: $props.shortcut, selected: $props.selected }
         }
-        .direction(row)
-        .align(center)
-        .gap(2)
-        .paddingX(2)
-        .height(30)
-        .rounded(md)
         on Tap -> dispatch(WinMenuPick($props.id))
     }
 }

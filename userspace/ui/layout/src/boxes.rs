@@ -55,8 +55,12 @@ pub struct LayoutBox {
     /// only the wallpaper. Stamped by the engine (it walks the real tree;
     /// geometry alone cannot recover ancestry).
     pub glass_nested: bool,
+    /// The box's effective opacity, `0..=255`: its own (`visual.opacity`) times every ancestor's.
+    /// The painter fades the box's fills, borders, shadows and text by it, so a disabled control
+    /// dims as one (the design system's disabled families, `nexus_style::Dim`).
+    pub opacity: u8,
     /// The font size the LAYOUT chose for this text box under an ancestor's
-    /// `.textFit` — `None` when the node keeps its authored `.textSize`.
+    /// `.textFit` — `None` when the node keeps its text style's size.
     ///
     /// It lives on the box and not on the scene node on purpose. `resize()` is
     /// a pure relayout: it rebuilds these boxes and re-walks the UNCHANGED
@@ -84,6 +88,7 @@ impl Default for LayoutBox {
             overflow: Overflow::Visible,
             hit_slop: FxPx::ZERO,
             glass_nested: false,
+            opacity: 255,
             scroll_root: None,
             text_px: None,
         }
@@ -91,19 +96,37 @@ impl Default for LayoutBox {
 }
 
 /// What the placement of a subtree inherits from its ancestors (stamped on every box it places):
-/// whether a glass lies above it, and the scroll container whose content it is.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// whether a glass lies above it, the scroll container whose content it is, and the opacity the
+/// ancestors multiply into it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct PlaceCtx {
     pub(crate) in_glass: bool,
     pub(crate) scroll_root: Option<usize>,
+    pub(crate) opacity: u8,
+}
+
+impl Default for PlaceCtx {
+    fn default() -> Self {
+        Self { in_glass: false, scroll_root: None, opacity: 255 }
+    }
 }
 
 impl PlaceCtx {
-    /// The context of a container's descendants: nested under a glass when the container is one
-    /// (the container itself is nested only under an ancestor's).
-    pub(crate) fn under(self, material: nexus_layout_types::SurfaceMaterial) -> Self {
-        let glass = matches!(material, nexus_layout_types::SurfaceMaterial::Glass(_));
-        Self { in_glass: self.in_glass || glass, ..self }
+    /// The context of a container's descendants: nested under a material surface when the
+    /// container is one (the container itself is nested only under an ancestor's), faded by its
+    /// opacity.
+    pub(crate) fn under(self, style: &nexus_layout_types::VisualStyle) -> Self {
+        Self {
+            in_glass: self.in_glass || style.material.is_some(),
+            opacity: self.opacity_of(style),
+            ..self
+        }
+    }
+
+    /// The effective opacity of a box with `style` here: its own times its ancestors'.
+    pub(crate) fn opacity_of(self, style: &nexus_layout_types::VisualStyle) -> u8 {
+        let own = style.opacity.map_or(255, |o| o.0.min(255));
+        (u32::from(self.opacity) * own / 255) as u8
     }
 }
 

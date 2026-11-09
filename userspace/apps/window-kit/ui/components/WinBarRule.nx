@@ -1,0 +1,23 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// A vertical 1×16 `separator` between top-bar groups, `pad` px clear on each side, or an
+// empty slot when the groups it would separate are not both there.
+
+Component WinBarRule {
+    props: {
+        show: Bool,
+        pad: Int,
+    }
+    if $props.show {
+        Stack {
+            Stack { }
+                .width(1)
+                .height(16)
+                .bg(separator)
+        }
+        .paddingX($props.pad)
+    } else {
+        Stack { }
+    }
+}

@@ -1,0 +1,113 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The screenshot selection (TASK-0068, RFC-0095): what the capture overlay keeps. The drag is
+// the DSL gesture (`on DragStart/DragMove/DragEnd`): the reducer reads `device.dragStartX/Y`
+// (the press) and `device.dragX/Y` (the pointer) at dispatch time. A press near a corner of
+// the selection resizes it from the opposite corner (the ANCHOR), a press inside moves it
+// (clamped to the screen), any other press draws a new one from the press point — the anchor
+// again. In window mode a click picks a window and outlines it in place. The state lives in
+// the `SystemStore` (power.store.nx) with the rest of the capture, every field `cap`-prefixed;
+// the overlay's other events are `capture.store.nx`.
+
+Event CaptureSelectEvent {
+    CapPickWindow(Int, Int, Int, Int, Int),
+    CapDragStart,
+    CapDragMove,
+    CapDragEnd,
+}
+
+reduce CaptureSelectEvent {
+    CapPickWindow(id, x, y, w, h) => {
+        state.capPick = id;
+        state.capWinX = x;
+        state.capWinY = y;
+        state.capWinW = w;
+        state.capWinH = h;
+        state.capHoleX = x;
+        state.capHoleY = y;
+        state.capHoleW = w;
+        state.capHoleH = h;
+    },
+    CapDragStart => {
+        if state.capMode == "area" {
+            let px = device.dragStartX;
+            let py = device.dragStartY;
+            let right = state.capSelX + state.capSelW;
+            let bottom = state.capSelY + state.capSelH;
+            let nearLeft = px - state.capSelX < 16 && state.capSelX - px < 16;
+            let nearRight = px - right < 16 && right - px < 16;
+            let nearTop = py - state.capSelY < 16 && state.capSelY - py < 16;
+            let nearBottom = py - bottom < 16 && bottom - py < 16;
+            state.capDrag = "draw";
+            if nearLeft && nearTop {
+                state.capAnchorX = right;
+                state.capAnchorY = bottom;
+            } else if nearRight && nearTop {
+                state.capAnchorX = state.capSelX;
+                state.capAnchorY = bottom;
+            } else if nearLeft && nearBottom {
+                state.capAnchorX = right;
+                state.capAnchorY = state.capSelY;
+            } else if nearRight && nearBottom {
+                state.capAnchorX = state.capSelX;
+                state.capAnchorY = state.capSelY;
+            } else if px > state.capSelX && px < right && py > state.capSelY && py < bottom {
+                state.capDrag = "move";
+                state.capOrigX = state.capSelX;
+                state.capOrigY = state.capSelY;
+            } else {
+                state.capAnchorX = px;
+                state.capAnchorY = py;
+                state.capSelX = px;
+                state.capSelY = py;
+                state.capSelW = 0;
+                state.capSelH = 0;
+            }
+        }
+    },
+    CapDragMove => {
+        let x = device.dragX;
+        let y = device.dragY;
+        if state.capDrag == "draw" {
+            if x < state.capAnchorX {
+                state.capSelX = x;
+                state.capSelW = state.capAnchorX - x;
+            } else {
+                state.capSelX = state.capAnchorX;
+                state.capSelW = x - state.capAnchorX;
+            }
+            if y < state.capAnchorY {
+                state.capSelY = y;
+                state.capSelH = state.capAnchorY - y;
+            } else {
+                state.capSelY = state.capAnchorY;
+                state.capSelH = y - state.capAnchorY;
+            }
+        } else if state.capDrag == "move" {
+            let nx = state.capOrigX + x - device.dragStartX;
+            let ny = state.capOrigY + y - device.dragStartY;
+            if nx < 0 {
+                state.capSelX = 0;
+            } else if nx + state.capSelW > state.capW {
+                state.capSelX = state.capW - state.capSelW;
+            } else {
+                state.capSelX = nx;
+            }
+            if ny < 0 {
+                state.capSelY = 0;
+            } else if ny + state.capSelH > state.capH {
+                state.capSelY = state.capH - state.capSelH;
+            } else {
+                state.capSelY = ny;
+            }
+        }
+        if state.capMode == "area" {
+            state.capHoleX = state.capSelX;
+            state.capHoleY = state.capSelY;
+            state.capHoleW = state.capSelW;
+            state.capHoleH = state.capSelH;
+        }
+    },
+    CapDragEnd => state.capDrag = "",
+}

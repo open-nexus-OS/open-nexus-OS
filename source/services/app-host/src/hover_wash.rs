@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! Where the paint-time hover wash goes.
+//! Where a control's hover and press layers go (the compositor's washes, RFC-0116).
 //!
 //! The wash follows a box's `corner_radius`, and the box the hit-test hands
 //! back is the HANDLER box — which in this DSL is frequently a bare wrapper.
@@ -16,6 +16,7 @@
 //! so it can be tested on the host: `probe/` only compiles for the RISC-V
 //! target, so anything that lives there is boot-provable at best.
 
+use crate::press_kind::CONTROL_MAX_DIM;
 use nexus_layout::LayoutBox;
 
 /// A hovered box and a candidate child are "the same control" when the child
@@ -28,16 +29,14 @@ const WASH_ANCHOR_SLACK: i32 = 8;
 /// panel body) is hundreds of px tall.
 const CONTROL_MAX_H: i32 = 72;
 
-/// The GROW's ceiling (`anim::INTERACTION_MAX_DIM`), reused as the second arm
-/// below so a small square control qualifies regardless of height.
-const CONTROL_MAX_DIM: i32 = 160;
-
-/// Whether a box may take the hover WASH.
+/// Whether a box may take the hover and press LAYERS.
 ///
-/// Deliberately looser than the hover-GROW's rule: growing a full-width list
-/// row would displace its own content, but washing one is exactly what the
-/// design asks for. Sharing one predicate excluded a 680-px file row from
-/// both — which is why list rows and sidebar entries had no hover at all.
+/// Deliberately looser than the press DIP's rule (`press_kind::CONTROL_MAX_DIM`,
+/// reused as the second arm so a small square control qualifies regardless of
+/// height): dipping a full-width list row would displace its own content, but
+/// washing one is exactly what the design asks for. Sharing one predicate
+/// excluded a 680-px file row from both — which is why list rows and sidebar
+/// entries had no hover at all.
 #[must_use]
 pub(crate) fn hover_washable(boxes: &[LayoutBox], node_id: usize) -> bool {
     boxes.iter().find(|b| b.node_id == node_id).is_none_or(|b| {
@@ -154,8 +153,8 @@ mod tests {
     }
 
     /// The wash reaches full-width CONTROLS — this is what a file row, a
-    /// sidebar entry and a menu row all are, and what the grow's ≤160px rule
-    /// wrongly excluded (leaving those with no hover affordance at all).
+    /// sidebar entry and a menu row all are, and what the dip's ≤160px rule
+    /// would wrongly exclude (leaving those with no hover affordance at all).
     #[test]
     fn a_full_width_row_is_washable() {
         let boxes = [boxed(1, (0, 0, 680, 41), 10)];

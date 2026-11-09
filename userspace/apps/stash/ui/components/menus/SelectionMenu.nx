@@ -1,0 +1,53 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The selection context menu (the action bar's "More"): the file operations
+// as menu rows, trash-aware like the bar, under the selected name. A centred
+// overlay (the proven hit-testable pattern); the backdrop closes it, the
+// panel eats its own taps.
+
+Component SelectionMenu {
+    Stack {
+        Stack {
+            WinMenu { width: 260 } {
+                items {
+                    if $state.selection == "" {
+                        WinMenuRow { label: @t("stash.propsEmpty"), icon: "", kind: "header", shortcut: "", selected: false }
+                    } else {
+                        WinMenuRow { label: $state.selName, icon: "", kind: "header", shortcut: "", selected: false }
+                        Stack {
+                            WinMenuRow { label: @t("stash.actMove"), icon: "move", kind: "", shortcut: "", selected: false }
+                        }
+                        on Tap -> dispatch(MoveStart)
+                        Stack {
+                            WinMenuRow { label: @t("stash.actCopy"), icon: "doc.on.doc", kind: "", shortcut: "", selected: false }
+                        }
+                        on Tap -> dispatch(CopySel)
+                        if $state.path == "/Papierkorb" {
+                            Stack {
+                                WinMenuRow { label: @t("stash.actRestore"), icon: "arrow.uturn.backward", kind: "", shortcut: "", selected: false }
+                            }
+                            on Tap -> dispatch(RestoreSel)
+                            WinMenuDivider { }
+                            Stack {
+                                WinMenuRow { label: @t("stash.actDelete"), icon: "trash", kind: "danger", shortcut: "", selected: false }
+                            }
+                            on Tap -> dispatch(DeleteSel)
+                        } else {
+                            WinMenuDivider { }
+                            Stack {
+                                WinMenuRow { label: @t("stash.actDelete"), icon: "trash", kind: "danger", shortcut: "", selected: false }
+                            }
+                            on Tap -> dispatch(TrashSel)
+                        }
+                    }
+                }
+            }
+        }
+        .grow(1)
+        .align(center)
+        .justify(center)
+    }
+    .overlay()
+    on Tap -> dispatch(WinMenu(""))
+}

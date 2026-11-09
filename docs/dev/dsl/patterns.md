@@ -16,7 +16,7 @@ cancellation) live with the state model they are made of, in
 ### Use when
 
 - you want reusable UI building blocks
-- you want a React/Vue-like mental model
+- you want one definition used from many places, with a typed props contract
 - you need a stable API surface for design-system primitives and app components
 
 ### How to use
@@ -25,23 +25,38 @@ cancellation) live with the state model they are made of, in
 - prefer **semantic tokens** over raw values (colors, sizes)
 - for complex configuration, pass a small “spec” object (bounded) rather than many booleans
 
-Example (illustrative):
+Example — `EventRef` hands the caller's event to the component, which emits it:
 
 ```nx
-Component IconButton {
-  props: {
-    icon: IconId
-    label: Text
-    kind: ButtonKind  // Primary | Secondary | Ghost
-    onTap: EventRef
-  }
+Event ButtonEvent { Pressed, }
 
-  view: Button {
-    label: $props.label
-    kind: $props.kind
-    leadingIcon: Icon { name: $props.icon, size: 20 }
+Store S { n: Int = 0, }
+
+reduce ButtonEvent { Pressed => state.n += 1, }
+
+Page ToolbarPage {
+    Stack {
+        IconButton { icon: "plus", label: @t("add"), onTap: ButtonEvent::Pressed }
+    }
+}
+
+Component IconButton {
+    props: {
+        icon: Str,
+        label: Str,
+        onTap: EventRef,
+    }
+    Stack {
+        Icon { symbol: $props.icon, size: 20 }
+        Text($props.label).textStyle(body)
+    }
+    .direction(row)
+    .gap(gapInline)
+    .padding(8)
+    .bg(fill)
+    .rounded(full)
+    .label($props.label)
     on Tap -> emit($props.onTap)
-  }
 }
 ```
 
@@ -81,9 +96,10 @@ general DSL pattern.
 - execution is **IO** (effects/services only, bounded + time-limited)
 - avoid stringly-typed fields; prefer enums/handles
 
-Example (illustrative):
+Example (pseudo-code — a query builder is planned, not implemented; today a query is the
+declarative `Query` form in `db-queries.md`):
 
-```nx
+```text
 // build (pure)
 let q = Query.users()
   .whereId($state.userId)
@@ -91,7 +107,7 @@ let q = Query.users()
   .limit(1)
 
 // execute (IO) via effect/service
-on Mount -> emit(ProfileEvent::LoadUser(q))
+@effect on LoadUser { /* runs the query */ }
 ```
 
 ### Avoid when
@@ -111,11 +127,12 @@ Mitigation:
 
 ## Pattern 3: Parametric Primitives + Slots (use sparingly)
 
-Instead of `List<T>`-style generics, we parameterize behavior via **slots** (render callbacks).
+Instead of `List<T>`-style generics, a component takes **slots**: named content regions the
+caller fills (RFC-0084). A slot body is lexically part of the caller.
 
 ### Use when
 
-- you need highly reusable UI primitives with custom rendering (List/Table/Menu/Form)
+- you need highly reusable UI primitives whose content the caller supplies (a group, a form section, a window scaffold)
 - you want a consistent performance contract (virtualization, paging) baked into the primitive
 
 ### How to use
@@ -124,20 +141,42 @@ Instead of `List<T>`-style generics, we parameterize behavior via **slots** (ren
 - enforce determinism/purity rules inside slots (no IO)
 - require stable keys for list-like slots
 
-Example (illustrative):
+Example — the component declares `slot rows` and places it with `Slot rows`; the caller
+fills it, and the collection inside is the keyed `List`:
 
 ```nx
-List {
-  items: $state.notifications
-  @key: item.id
+Store NoticeStore {
+    notifications: List<Str> = [],
+}
 
-  item(item) => Row {
-    # Icon symbol names: docs/dev/ui/foundations/visual/icons.md
-    Icon { symbol: item.icon }
-    Text { value: item.title }
-  }
+Event NoticeEvent { Clear, }
 
-  empty => Text { value: "No notifications" }
+reduce NoticeEvent { Clear => state.notifications = [], }
+
+Component Group {
+    props: {
+        title: Str,
+    }
+    slot rows
+    Stack {
+        Text($props.title).textStyle(caption).fg(labelSecondary)
+        Stack {
+            Slot rows
+        }
+        .rounded(lg)
+        .material(card)
+    }
+    .gap(8)
+}
+
+Page NoticesPage {
+    Group { title: @t("notices.title") } {
+        rows {
+            List($state.notifications) { item in
+                Text(item).key(item)
+            }
+        }
+    }
 }
 ```
 

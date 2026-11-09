@@ -1,0 +1,25 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The floating action bar: the kit's `WinActionBar` capsule, which
+// `WinAppWindow`'s `actionBar` slot floats centred over the content region,
+// 12 px above its bottom. The item set IS the selection reactivity — no
+// selection = create / sort, a selection = file operations. It is not drawn in
+// the Recent aggregation (its entries live in other folders; operations would
+// target the wrong paths) nor in settings mode.
+
+Component StashActionBar {
+    if $state.path == "recent:" || $state.settingsOpen == 1 {
+        Stack { }
+    } else {
+        WinActionBar { } {
+            items {
+                if $state.selection == "" {
+                    IdleBarItems { }
+                } else {
+                    SelectionBarItems { }
+                }
+            }
+        }
+    }
+}

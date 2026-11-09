@@ -1,76 +1,100 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// What `.textSize(<token>)` ACTUALLY renders at.
+// What `.textStyle(<style>)` ACTUALLY renders at (RFC-0116).
 //
-// The type scale a page writes against (`[typography]` in the theme) and the
-// ladder that gets baked (`FACES` in text-baked/build.rs) are two different
-// lists, and `FontSize::nearest` is the lossy function between them. A token
-// whose px has no rung silently resolves to a neighbour, so the number in the
-// theme is a REQUEST, not a promise.
-//
-// This test writes the promise down. It exists because baking the 11px caption
-// rung put the `sm` step (12) exactly between two rungs for the first time —
-// the tie-break stopped being dead code and started deciding whether ~80
-// shipped labels stayed at 13 or shrank to 11. Rounding up keeps them; this
-// pins that, so the next rung anyone bakes has to face the same question
-// instead of quietly re-flowing every app.
+// A text node is one of the thirteen styles: size, line box, weight and tracking together, and
+// `.fontWeight` the one override. The atlas bakes a face for every style and for every override
+// the screens use, so a style is a PROMISE, not a request: `FontSize::exact` must find its face.
+// Before the token set, a `.textSize` px was a request `FontSize::nearest` rounded onto a
+// handful of rungs (a 12 px label drew at 13, a 14 px one at 13, a medium weight as regular).
 
-use nexus_text_baked::{FontSize, Weight};
-use nexus_theme_tokens::{BaseTokens, Tokens, TypographyToken};
+use nexus_dsl_runtime::{FixtureEnv, IdentityLocale, View};
+use nexus_layout_types::{FontWeight, LayoutNode, LineHeight, TextNode};
+use nexus_text_baked::measure_text::BakedTextMeasure;
+use nexus_text_baked::FontSize;
+use nexus_theme_tokens::TextStyleToken;
 
-/// Every `.textSize` token, the px the theme authors for it, and the face it
-/// really lands on. Regular weight; the SemiBold column is the same size
-/// decision by construction (size wins over weight).
-const RESOLUTION: &[(TypographyToken, i32, FontSize)] = &[
-    (TypographyToken::Xs, 11, FontSize::Caption),
-    // The tie. 12 is equidistant from 11 and 13 — up.
-    (TypographyToken::Sm, 12, FontSize::Small),
-    (TypographyToken::Base, 14, FontSize::Small),
-    (TypographyToken::Md, 16, FontSize::Body),
-    (TypographyToken::Lg, 18, FontSize::Body),
-    (TypographyToken::Xl, 20, FontSize::Title),
-    (TypographyToken::Xxl, 24, FontSize::Title),
-    (TypographyToken::Xxxl, 30, FontSize::DisplaySemi),
-    (TypographyToken::Display, 36, FontSize::DisplaySemi),
-    (TypographyToken::Hero, 120, FontSize::Hero),
-];
+fn mount(src: &str) -> View<'static> {
+    let file = nexus_dsl_core::parse_file(src).expect("parses");
+    let (model, diags) = nexus_dsl_core::check_file(&file);
+    assert!(!nexus_dsl_core::has_errors(&diags), "check: {diags:?}");
+    let nxir = nexus_dsl_core::lower_file(&file, &model, src).expect("lowers").nxir;
+    let nxir: &'static [u8] = Box::leak(nxir.into_boxed_slice());
+    let device = FixtureEnv::default();
+    let symbols: Vec<String> = Vec::new();
+    let keys: Vec<u32> = Vec::new();
+    let locale = IdentityLocale { symbols: &symbols, keys: &keys };
+    View::mount(nxir, &nexus_theme_tokens::BaseTokens, &device, &locale).expect("mounts")
+}
 
+fn texts(node: &LayoutNode, out: &mut Vec<TextNode>) {
+    match node {
+        LayoutNode::Stack(_, _, children) | LayoutNode::Grid(_, _, children) => {
+            children.iter().for_each(|c| texts(c, out))
+        }
+        LayoutNode::Text(t, _) => out.push(t.clone()),
+        _ => {}
+    }
+}
+
+/// Every style, through the DSL, carries its own size, line box, weight and tracking — and the
+/// atlas has the exact face for it.
 #[test]
-fn every_type_token_resolves_to_the_documented_face() {
-    for &(token, px, expected) in RESOLUTION {
+fn every_text_style_renders_on_its_exact_face() {
+    let body: String = TextStyleToken::ALL
+        .iter()
+        .map(|s| format!("Text(\"Ag\").textStyle({})\n", s.name()))
+        .collect();
+    let view = mount(&format!("Page P {{ Stack {{ {body} }} }}"));
+    let mut nodes = Vec::new();
+    texts(view.scene(), &mut nodes);
+    assert_eq!(nodes.len(), TextStyleToken::ALL.len());
+    for (style, node) in TextStyleToken::ALL.iter().zip(&nodes) {
+        let spec = style.spec();
+        assert_eq!(node.style.font_size.0, i32::from(spec.size), "{}", style.name());
         assert_eq!(
-            BaseTokens.type_size(token).0,
-            px,
-            "the theme's px for this token moved — update the table, then check \
-             whether the FACE below moved with it"
+            node.style.line_height,
+            LineHeight::Absolute(nexus_layout_types::FxPx::new(i32::from(spec.line)))
         );
-        assert_eq!(
-            FontSize::nearest(px, Weight::Regular),
-            expected,
-            "{px}px now renders on a different face. If you just baked a rung, \
-             this is the collateral: every page written against this token \
-             changes size. docs/dev/dsl/modifiers.md states the mapping."
+        assert_eq!(node.style.font_weight, spec.weight, "{}", style.name());
+        assert_eq!(node.style.tracking_milli_em, spec.tracking_milli_em, "{}", style.name());
+        let weight = BakedTextMeasure::weight(spec.weight);
+        assert!(
+            FontSize::exact(i32::from(spec.size), weight).is_some(),
+            "`{}` ({} px, {:?}) has no baked face",
+            style.name(),
+            spec.size,
+            spec.weight
         );
     }
 }
 
-/// The caption rung is the point of the exercise: `xs` must be its own size,
-/// not a second name for `sm`. Without this the panels' 11px sub-labels render
-/// as large as the 13px labels above them and the density inverts.
+/// `.fontWeight` is the one override, and the overline sets its text in upper case; a text with
+/// no style is `body`.
 #[test]
-fn xs_and_sm_are_actually_different_sizes() {
-    let xs = BaseTokens.type_size(TypographyToken::Xs).0;
-    let sm = BaseTokens.type_size(TypographyToken::Sm).0;
-    assert_ne!(
-        FontSize::nearest(xs, Weight::Regular),
-        FontSize::nearest(sm, Weight::Regular),
-        "xs ({xs}px) and sm ({sm}px) collapsed onto one face — a sub-label \
-         cannot read as subordinate to its own label"
+fn weight_override_upper_case_and_the_default_style() {
+    let view = mount(
+        "Page P { Stack { Text(\"Zeit\").textStyle(footnote).fontWeight(semibold)\n\
+         Text(\"Allgemein\").textStyle(overline)\n Text(\"plain\") } }",
     );
-    assert_ne!(
-        FontSize::nearest(xs, Weight::SemiBold),
-        FontSize::nearest(sm, Weight::SemiBold),
-        "…and the same must hold at SemiBold, where tile labels live"
-    );
+    let mut nodes = Vec::new();
+    texts(view.scene(), &mut nodes);
+    assert_eq!(nodes[0].style.font_weight, FontWeight::Semibold);
+    assert_eq!(nodes[0].style.font_size.0, 12);
+    assert_eq!(nodes[1].content.as_str(), "ALLGEMEIN");
+    let body = TextStyleToken::Body.spec();
+    assert_eq!(nodes[2].style.font_size.0, i32::from(body.size));
+    assert_eq!(nodes[2].style.font_weight, body.weight);
+}
+
+/// `.truncate(n)` keeps a text to `n` lines (the painter cuts the last with an ellipsis); without
+/// it a text wraps freely.
+#[test]
+fn truncate_limits_the_lines() {
+    let view = mount("Page P { Stack { Text(\"one\").truncate(1)\n Text(\"two\").truncate(2)\n Text(\"free\") } }");
+    let mut nodes = Vec::new();
+    texts(view.scene(), &mut nodes);
+    let limits: Vec<Option<u32>> = nodes.iter().map(|n| n.max_lines).collect();
+    assert_eq!(limits, [Some(1), Some(2), None]);
 }

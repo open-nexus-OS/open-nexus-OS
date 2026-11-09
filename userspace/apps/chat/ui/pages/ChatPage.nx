@@ -1,12 +1,10 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Chat: OVERVIEW of open conversations → picking one shows the nicely
-// formatted transcript (sender-aligned bubbles: even seq = "you", accent,
-// right; odd = the peer, surfaceVariant, left — derived from seq PARITY,
-// no string parsing). The overview is a plain BRANCH SWAP; the
-// transcript's scroll container — a scroll layer the compositor moves
-// (RFC-0109) — re-appears with the thread.
+// Chat: the OVERVIEW of open conversations → picking one shows its transcript (sender-aligned
+// bubbles, derived from the sequence parity, never parsed from text). The page composes; the
+// pieces are `components/chat/`: ChatHeader, ChatOverview, ChatTranscript (the compositor's
+// scroll layer, RFC-0109) with ChatBubble, ChatComposer.
 
 // ONE window path (TASK-0337): window-kit's chrome inside this surface, the
 // transcript in an OPAQUE content pane (the materials rules — no glass on the
@@ -49,124 +47,18 @@ Page ChatPage {
                 Stack { }
             }
             contentArea {
-    Stack {
-        Stack {
-            if $state.thread == "" {
                 Stack {
-                    Text(@t("chat.title")).textSize(lg).fg(onSurface)
-                }
-                .direction(row)
-                .align(center)
-                .gap(2)
-            } else {
-                Stack {
+                    ChatHeader { }
                     Stack {
-                        Icon { symbol: "chevron.left", size: 16 }
-                            .fg(onSurfaceVariant)
+                        ChatOverview { }
+                        ChatTranscript { }
                     }
-                    .width(28)
-                    .height(28)
-                    .rounded(md)
-                    .align(center)
-                    .justify(center)
-                    on Tap -> dispatch(CloseThread)
-                    Circle { size: 28
-                        Icon { symbol: "person", size: 14 }
-                            .fg(onSurface)
-                    }
-                    .material(subtle)
-                    Stack {
-                        Text($state.threadName).textSize(base).fg(onSurface)
-                        Text(@t("chat.online")).textSize(xs).fg(onSurfaceVariant)
-                    }
-                    .gap(0)
+                    .grow(1)
+                    ChatComposer { }
                 }
-                .direction(row)
-                .align(center)
-                .gap(2)
-            }
-        }
-        .paddingX(3)
-        .height(48)
-        .align(start)
-        .justify(center)
-        Stack {
-            if $state.thread == "" {
-                Stack {
-                    ChatListRow { id: "mira", name: @t("chat.mira"), last: @t("chat.miraLast"), time: "09:41", unread: "3" }
-                    ChatListRow { id: "ben", name: @t("chat.ben"), last: @t("chat.benLast"), time: "08:12", unread: "" }
-                    ChatListRow { id: "team", name: @t("chat.team"), last: @t("chat.teamLast"), time: @t("chat.yesterday"), unread: "12" }
-                    ChatListRow { id: "lea", name: @t("chat.lea"), last: @t("chat.leaLast"), time: @t("chat.yesterday"), unread: "" }
-                    Spacer
-                }
-                .gap(1)
-                .padding(3)
+                .gap(0)
+                .material(pane)
                 .grow(1)
-            } else {
-                Stack { }
-            }
-            Stack {
-                List($state.messages) { msg in
-                    Stack {
-                        if msg.seq % 2 == 0 {
-                            Spacer
-                        } else {
-                            Stack { }
-                        }
-                        if msg.seq % 2 == 0 {
-                            Stack {
-                                Text(@t("chat.you")).textSize(xs).fg(onAccent)
-                                Text(msg.text).textSize(sm).fg(onAccent)
-                            }
-                            .gap(0)
-                            .padding(2)
-                            .rounded(lg)
-                            .bg(accent)
-                        } else {
-                            Stack {
-                                Text($state.threadName).textSize(xs).fg(onSurfaceVariant)
-                                Text(msg.text).textSize(sm).fg(onSurface)
-                            }
-                            .gap(0)
-                            .padding(2)
-                            .rounded(lg)
-                            .bg(surfaceVariant)
-                        }
-                        if msg.seq % 2 == 0 {
-                            Stack { }
-                        } else {
-                            Spacer
-                        }
-                    }
-                    .direction(row)
-                    .key(msg.seq)
-                }
-                .gap(2)
-            }
-            .grow(1)
-            .padding(3)
-            .scroll(vertical)
-            on EndReached -> dispatch(LoadMore)
-        }
-        .grow(1)
-        if $state.thread == "" {
-            Stack { }
-        } else {
-            Stack {
-                TextField { label: @t("chat.message"), value: $state.draft }
-                Button { label: @t("chat.send") }
-                on Tap -> dispatch(Send)
-            }
-            .direction(row)
-            .align(center)
-            .gap(2)
-            .padding(2)
-            .bg(surface)
-        }
-    }
-    .gap(0)
-    .material(windowPane)
-    .grow(1)
             }
             sidebarRight {
                 Stack { }

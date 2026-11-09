@@ -3,18 +3,17 @@
 
 # Materials: “Glass” (Resource-Conscious)
 
-This page defines the recommended **translucent (“glass”) material system** for Open Nexus OS UI.
+This page defines the **translucent (“glass”) material system** for Open Nexus OS UI: the
+eight materials of the one token set (RFC-0116), where each may go, and how a material reaches
+the compositor.
 
 Performance baseline:
 
 - Follow `docs/dev/ui/foundations/quality/performance-philosophy.md` for the default rules around damage, caching, bounded degrade,
   and "idle should be cheap".
 
-Goal: achieve a modern layered look (floating sidebars, control center, sheets) without requiring
+Goal: achieve a modern layered look (panels, the dock, app windows) without requiring
 expensive “real glass” rendering.
-
-This is guidance, not a hard ABI: the exact look may evolve, but the **tokens, update policy, and fallbacks**
-should remain stable.
 
 ## Design intent (what “glass” means here)
 
@@ -26,115 +25,108 @@ Our “glass” is a **frosted layer**:
 
 We do **not** aim for physically correct refraction or per-pixel distortion.
 
-## The five rules (2026-10-21 — measured on the board, the reference platforms' guidelines say the same)
+## The five rules (measured on the board; RFC-0116 makes them the contract)
 
 On the board's GPU a blurred pixel costs 20–60 ns and a glass layer a scene pass plus two blur
 passes whenever its backdrop changes (TASK-0335, cycle 51: nine glass layers in a desktop scene,
 three to four of them one window's own; 3.4× overdraw). Where glass goes decides whether a frame
 fits 16.7 ms, so these are design rules and cost rules in one:
 
-1. **Glass only on the functional layer.** Bars, sidebars, docks, the Control Center, menus,
-   toasts and transient overlays may be glass. **The content layer is opaque**: a window's content
-   pane, lists, tables, documents, media, forms. Never a glass content pane (`glassWindowPane`
-   becomes an opaque surface with the pane's tint; its token name stays, its blur goes).
-2. **One glass per window, never glass on glass.** A window's chrome (top bar + sidebar) is ONE
-   material layer over the desktop. Panels, cards and controls inside it are *tinted* (a solid
-   colour with alpha), never blurred again — what lies under them is already the blurred base,
-   and a blur of a blur is the same frost, only wider.
-3. **Controls are opaque or tinted, not translucent.** A button inherits its bar's material and
-   has no blur of its own; primary actions are tinted, not glassed. Hover, press, selection and
-   focus are the **opacity of a wash layer** the compositor owns (its colour and radius declared
-   once), not pixels the app repaints.
+1. **Glass only on the surface that sits on the wallpaper.** Panels (Control Center,
+   notifications, launcher sheets), the dock and the taskbar, app windows, and small standalone
+   pieces may blur. **The content layer is opaque** — a window's pane is `.material(pane)` —
+   and so is **everything that floats**: modals, alerts, menus, popovers, tooltips, toasts,
+   select lists, the action bar and the on-screen keyboard are `.material(overlay)`.
+2. **One blur per stack, never glass on glass.** A window is ONE material layer over the
+   desktop. Panels, cards and controls inside a blur surface are `card` (translucent, no blur
+   of its own) or opaque — what lies under them is already the blurred base, and a blur of a
+   blur is the same frost, only wider. The DSL rejects a blur material inside another (NX0414);
+   app-host declares only the root of a stack as a glass region.
+3. **Controls are opaque or tinted, not translucent.** A button inherits its surface's material
+   and has no blur of its own; a tinted control is `.tint(role)` (a wash at a fixed alpha).
+   Hover and press are the **opacity of a fill layer** (`fillHover`, `fillActive`) the
+   compositor owns, not pixels the app repaints.
 4. **Blur at rest.** A glass is blurred when its backdrop changed and the scene is still. While a
    window is animated, dragged or resized its glass keeps its last blur (or a tint from the
    backdrop's average); one blur when it comes to rest. What nobody can see is not computed.
-5. **Reduce transparency is a setting** (below): every material becomes its tint — accessibility,
-   the board's low-power mode and the A/B switch of every frame-cost measurement in one.
+5. **Reduce transparency is a setting** (below): every material becomes its fill, opaque —
+   accessibility, the board's low-power mode and the A/B switch of every frame-cost measurement
+   in one.
 
-Corollaries: nested corner radii follow their container (concentric); a shadow belongs to the
-window, not to every panel in it; the shell's glass (dock, top bar) and one chrome glass per
-window are the only blur chains a desktop frame normally carries.
+Corollaries: nested corner radii follow their container (concentric: parent radius − padding,
+never below `sm`); a shadow belongs to the window or panel, not to every card in it; the shell's
+glass (dock, top-bar panels) and one window glass per window are the only blur chains a desktop
+frame normally carries.
 
-In the code (built 2026-10-21): the registry (`userspace/dsl/runtime/src/registry.rs`) paints
-`windowPane` at full alpha; app-host's layer encoding (`source/services/app-host/src/probe/layers.rs`)
-sends a window's pane as an opaque region (`MATERIAL_OPAQUE` → `LAYER_OPAQUE`, only at full
-opacity), its cards, subtle rows and bar as no region at all (tint in the surface), the desktop's
-regions as glass; the planner cuts what lies under an opaque layer (`nexus_gfx::frame::occlude`)
-and runs the opaque program on its straight parts. Rule 4 is the planner's: a glass of a window in
-motion keeps its rows (`GlassCache::keep`). Rule 5 is `ui.material = solid` — the theme byte's
-`THEME_SOLID`, `SolidTokens` in app-host, the window body unblurred and opaque in windowd. Rule 3's
-wash is built for hover (RFC-0109, TASK-0341): the app draws one 16×16 patch of the theme's hover
-colour into its surface's store once, and a hover is a motion frame — the wash's rectangle,
-radius and opacity over the hovered control — that windowd composes as a layer; no app raster,
-no row copy. Press, selection and focus as wash opacity, and motion as layer properties (grow,
-dip), are the follow-on (TASK-0341).
+## The materials
 
-## Where we use glass (recommended)
+`.material(m)` in the DSL, `nexus_layout_types::Material` in code. The recipe of each —
+`recipe()` in `userspace/ui/theme-tokens/src/design.rs` — names a fill role, a backdrop, an
+edge and a shadow:
 
-Primary:
+| Material | Fill | Backdrop | Edge · shadow | Use |
+|---|---|---|---|---|
+| `panel` | `glassPanel` | regular | `glassEdge` · `shadow4`, lit top edge | a panel on the wallpaper (the `Panel` widget) |
+| `window` | `glassWindow` | regular | `glassEdge` · `shadow4`, lit top edge | an app window |
+| `dock` | `glassPanel` | thick | `glassEdge` · `shadow3`, lit top edge | the dock, the taskbar, the launcher backdrop |
+| `thin` | `glassPanel` | thin | `glassEdge` | a light standalone piece on the wallpaper |
+| `ultraThin` | `glassPanel` | ultraThin | `glassEdge` | a small standalone piece on the wallpaper |
+| `card` | `glassCard` | — | `glassEdge` | a card, a grouped row or a tile on a blur surface |
+| `pane` | `surfacePane` | — (opaque) | — | the pane inside a window |
+| `overlay` | `surfaceOverlay` | — (opaque) | `glassEdge` · `shadow3`, lit top edge | every floating surface |
 
-- **Floating left sidebar** (desktop/tablet; “new layered sidebar”)
-- **Control Center** / quick settings overlay
-- **Popovers, menus, toasts** (where appropriate)
+The backdrops are theme sections, authored once in `resources/themes/base.nxtheme.toml`
+(`[material.ultraThin|thin|regular|thick]`, `type = "backdrop"`): `blurRadiusDp`
+8 · 20 · 40 · 64, `saturationPct` 100 · 100 · 180 · 180, `downsampleFactor` (the compositor's
+perf knob). The fills and the edge are colour roles; the shadows are `[shadow.*]`.
 
-Secondary:
+**`panel` ≠ `pane`.** The two are easy to confuse: `panel` is a blur surface that sits straight
+on the wallpaper; a pane sits inside a window's blur, one layer further in, and is opaque
+`surfacePane`. Painting a file listing with `panel` would blur inside a blur. Pick by WHAT IS
+BEHIND the surface, not by how big it is.
 
-- window chrome — top bar + sidebar as the window's ONE glass layer (rule 2)
+**One recipe, one place.** `nexus_style::Style::material(material, tokens)`
+(`userspace/ui/style/src/lib.rs`) composes all of it — the fill, the 1 px `glassEdge` hairline,
+the shadow, the lit top edge (`edgeHighlight`, a one-pixel line) and, for a surface on the
+wallpaper, the backdrop blur. There is no shine gradient. The DSL's `.material(...)` and the kit
+widgets (`Card`, `Banner`, `Toast`, `Avatar`, `Accordion`, the `TextField` pill) call it, so a
+page and a hand-written widget cannot render the same material differently; an explicit `.bg`,
+border or `.shadow` on a DSL node wins over the recipe.
 
-Never:
+## How a material reaches the compositor
 
-- the content pane, lists, tables, documents (rule 1 — the content layer is opaque),
-- a glass inside a glass (rule 2),
-- large continuous backgrounds behind text-heavy content (readability and cost alike).
+app-host paints the fill, edge and shadow into its own surface pixels and declares a region per
+material box (`region_kind` in `source/services/app-host/src/probe/layers.rs`):
 
-## Material tokens
+| Material | Region | Glass bucket | Blur |
+|---|---|---|---|
+| `panel` | glass, a stack's root only | `GLASS_PANEL` (0) | regular, 40 px |
+| `window` | glass | `GLASS_WINDOW` (3) | regular, 40 px |
+| `dock` | glass | `GLASS_DOCK` (5) | thick, 64 px |
+| `thin` / `ultraThin` | glass | `GLASS_THIN` (1) / `GLASS_ULTRA_THIN` (2) | 20 px / 8 px |
+| `pane` / `overlay` | opaque (`MATERIAL_OPAQUE`), only at full opacity | — | — |
+| `card` | none: painted into the surface | — | — |
 
-Treat materials as theme tokens (authoring in `*.nxtheme.toml`):
+The level on the wire (`source/libs/nexus-display-proto/src/client_surface.rs`) is a **blur
+bucket**, not the material; windowd reads the bucket's radius from the theme's backdrops
+(`region_blur` in `source/services/windowd/src/compositor/runtime/surface_layers_encode.rs`), so
+the compositor and the token set cannot disagree on a radius. Id 4 (`GLASS_OVERLAY`) is retired
+and never reused: a floating surface is opaque. A nested blur declares no region and blends into
+its parent's pixels; an opaque `pane` or `overlay` drawn at full opacity is an occluder wherever
+it sits (a pane occludes the window's blur, a menu the panel's) — faded, it shows what lies
+below and claims nothing.
 
-- `material.surface` (opaque)
-- `material.glassPanel` — dock, control center, launcher, the lock surface
-- `material.glassCard` — cards nested in panels, avatars on a wallpaper
-- `material.glassSubtle` — settings rows / list items
-- `material.glassWindow` — app-window chrome (two-stop tint gradient)
-- `material.glassWindowPane` — the content / properties PANE inside a window
-- `material.glassWindowBar` — the floating action-bar pill inside a window
-- `material.glassOverlay` — modals, sheets, popovers
+The planner cuts what lies under an opaque layer (`nexus_gfx::frame::occlude`) and runs the
+opaque program on its straight parts. Rule 4 is the planner's: a glass of a window in motion
+keeps its rows (`GlassCache::keep`). Rule 5 is `ui.material = solid` — the theme byte's
+`THEME_SOLID`, `SolidTokens` in app-host (the glass roles opaque, every backdrop 0), the window
+body unblurred and opaque in windowd. A floating window's page base is `glassWindow` at the
+window's frost; a fullscreen or overlay surface's is the opaque `background`.
 
-**`Panel` ≠ pane.** The two are easy to confuse and were confused: `glassPanel`
-is tuned for a surface sitting straight on the WALLPAPER (a dock tile, a control
-centre card), so its dark tint is near-black `#121214@.40`. A window PANE sits on
-the window's own glass, one layer further in, so the design gives it a lighter
-two-stop gradient (`#484a54@.48 → #34363e@.32`). Painting a file listing with
-`panel` reads as a black slab inside a grey window. Pick by WHAT IS BEHIND the
-surface, not by how big it is.
-
-**How a level reaches the compositor.** app-host paints the tint, shine, gradient
-and hairline into its own surface pixels and sends windowd only a rect + a
-`glass_level`, which windowd reads *solely* to pick a backdrop blur radius. The
-level on the wire is therefore a **blur bucket**, not the material:
-`glassWindowPane` rides the card bucket (20) and `glassWindowBar` the panel
-bucket (40), and adding a level with an existing radius costs no wire change.
-
-Each authors `blurRadiusDp`, `downsampleFactor`, `tintColor`/`tintAlpha`
-(+ optional `tintBottom*`), `edgeHighlightColor`/`edgeHighlightAlpha` and
-`borderColor`/`borderAlpha`.
-
-**One recipe, one place.** `nexus_style::Style::glass(level, tokens)` composes
-all of it — tint fill, the soft `--glass-shine` wash, the `inset 0 1px 0`
-top-shine as a real one-pixel line, the 1px hairline, and the backdrop blur.
-The DSL's `.material(...)` and every kit widget (`Card`, `Banner`, `Toast`,
-`Avatar`, the `TextField` pill) call it, so a page and a hand-written widget
-cannot render the same level differently. `edgeHighlightAlpha` feeds BOTH the
-crisp inset line (full alpha) and the soft wash (capped at 15%) — see
-RFC-0082.
-
-Each glass material defines:
-
-- `blurRadiusDp` (logical blur radius)
-- `downsampleFactor` (e.g. 2, 4, 8)
-- `tintColor` + `tintAlpha` (usually white/black with low opacity)
-- `edgeHighlightColor` + `edgeHighlightAlpha`
-- `borderColor` + `borderAlpha` (optional)
+Rule 3's fill layer is built for hover (RFC-0109): the app draws one 16×16 patch of `fillHover`
+into its surface's store once, and a hover is a motion frame — the wash's rectangle, radius and
+opacity over the hovered control — that windowd composes as a layer; no app raster, no row copy.
+Press (`fillActive`), selection and focus as layer opacity are the follow-on.
 
 ## Rendering recipe (cheap glass)
 
@@ -144,9 +136,9 @@ For a glass surface:
 2. Downsample it (`downsampleFactor`) and apply a **separable blur** (fast).
 3. Composite:
    - blurred backdrop
-   - tint overlay (white/black, low opacity)
+   - the material's fill (a translucent role)
    - optional subtle noise (only if deterministic and cheap)
-   - 1–2px edge highlight / inner stroke
+   - the 1 px edge and the lit top edge
 
 Important:
 
@@ -156,7 +148,7 @@ Important:
   content pass uses — so blur edge and fill edge are one line. A rectangular
   blur under a rounded fill leaves blurred backdrop standing in the corners,
   which is what a pill or a circular icon button shows first and worst.
-- Prefer **clip + caching** per surface (sidebar/control center), not per widget.
+- Prefer **clip + caching** per surface (panel, window), not per widget.
 - Avoid filters that are renderer/hardware dependent in ways that break goldens.
 
 ## Update policy (live only when it matters)
@@ -181,9 +173,9 @@ If the background is “hot” (e.g. video behind the control center):
 
 - throttle backdrop refresh to a bounded rate (e.g. 30Hz or lower),
 - or degrade gracefully:
-  - keep tint + edge highlight,
+  - keep the fill + edge,
   - reduce blur quality (higher downsample),
-  - or temporarily switch to `material.surface` (opaque) in low-power mode.
+  - or temporarily switch to solid materials in low-power mode.
 
 ### Idle behavior
 
@@ -200,11 +192,12 @@ Provide a system setting:
 
 When enabled:
 
-- disable backdrop blur and translucency,
-- use `material.surface` + border (still layered, but opaque),
+- disable backdrop blur and translucency (`SolidTokens`: the glass fills opaque, no blur),
+- keep the edges and shadows (still layered, but opaque),
 - keep all content contrast-safe.
 
-This setting should also be used as a low-power fallback path.
+This setting should also be used as a low-power fallback path. The high-contrast theme's
+backdrops are flat (0 px) on their own.
 
 ## Determinism requirements (goldens)
 
@@ -214,6 +207,7 @@ This setting should also be used as a low-power fallback path.
 
 ## Related
 
+- The token set: RFC-0116 · the vocabulary in the DSL: `docs/dev/dsl/modifiers.md`
 - UI performance philosophy: `docs/dev/ui/foundations/quality/performance-philosophy.md`
 - Colors/tokens: `docs/dev/ui/foundations/visual/colors.md`, `docs/dev/ui/foundations/visual/theme.md`
 - App shell zones (sidebar/control center surfaces): `docs/dev/ui/patterns/app-shell.md`

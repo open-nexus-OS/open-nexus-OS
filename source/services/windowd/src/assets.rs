@@ -5,7 +5,7 @@
 //! DO NOT EXTEND — new capability belongs at the target, not here.
 //
 
-// reason: machine-generated asset/theme vocabulary (build.rs). windowd consumes
+// reason: machine-generated asset vocabulary (build.rs). windowd consumes
 // a subset today; the remainder is legitimately dead in generated code (repo
 // rule exempts generated code, cf. selftest-client markers_generated.rs). Outer
 // allow scopes only this generated-code boundary — no hand-written module blanket.
@@ -13,14 +13,6 @@
 mod generated {
     include!(concat!(env!("OUT_DIR"), "/windowd_generated_assets.rs"));
 }
-
-/// Embedded Mocu cursor SVG, normalized from `resources/cursors/mocu/src/svg/default.svg`.
-pub const CURSOR_LEFT_PTR_SVG: &str = generated::MOCU_CURSOR_LEFT_PTR_SVG;
-pub const CURSOR_LEFT_PTR_BGRA: &[u8] = generated::MOCU_CURSOR_BGRA;
-pub const CURSOR_LEFT_PTR_WIDTH: u32 = generated::MOCU_CURSOR_WIDTH;
-pub const CURSOR_LEFT_PTR_HEIGHT: u32 = generated::MOCU_CURSOR_HEIGHT;
-pub const CURSOR_HOTSPOT_X: i32 = generated::MOCU_CURSOR_HOTSPOT_X;
-pub const CURSOR_HOTSPOT_Y: i32 = generated::MOCU_CURSOR_HOTSPOT_Y;
 
 /// Real Lucide icon (house), rendered via the nexus-svg HiDPI pipeline at build
 /// time. Uploaded to gpud once and composited as a GPU sprite layer on the virgl
@@ -35,27 +27,6 @@ pub const SHELL_ICON_HEIGHT: u32 = generated::SHELL_ICON_HEIGHT;
 /// (supersampled) and GPU-downscaled to it.
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 pub const SHELL_ICON_LOGICAL: u32 = generated::SHELL_ICON_LOGICAL;
-
-/// Resize pointer shapes (TASK-0070 Phase 3): vendored cursor-theme
-/// `ew`/`ns`/`nesw`/`nwse` variants, 32×32 like the default pointer,
-/// hotspot = center (16,16).
-#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
-pub const CURSOR_RESIZE_EW_BGRA: &[u8] = generated::CURSOR_RESIZE_EW_BGRA;
-#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
-pub const CURSOR_RESIZE_NS_BGRA: &[u8] = generated::CURSOR_RESIZE_NS_BGRA;
-#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
-pub const CURSOR_RESIZE_NESW_BGRA: &[u8] = generated::CURSOR_RESIZE_NESW_BGRA;
-#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
-pub const CURSOR_RESIZE_NWSE_BGRA: &[u8] = generated::CURSOR_RESIZE_NWSE_BGRA;
-#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
-pub const CURSOR_RESIZE_HOTSPOT: i32 = 16;
-/// Text I-beam (RFC-0075 cursor-hint): same theme/pipeline, hotspot = center.
-#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
-pub const CURSOR_TEXT_BGRA: &[u8] = generated::CURSOR_TEXT_BGRA;
-/// Loading-ring wait-cursor frames (animated wait cursor): 32×32 premultiplied
-/// BGRA, hotspot = center, one sprite per ring rotation step.
-#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
-pub const CURSOR_RING_FRAMES: [&[u8]; 8] = generated::CURSOR_RING_FRAMES;
 
 pub struct ProofTextAsset {
     pub width: u32,
@@ -211,22 +182,3 @@ pub fn proof_text_asset(id: &str) -> Option<ProofTextAsset> {
 /// manifest-driven default behind the prepared `ui.font.family` settings key.
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 pub const FONT_FAMILY: &str = generated::FONT_FAMILY;
-
-/// Baked dual theme snapshots (TASK-0072 Phase 9): the same token vocabulary in
-/// BGRA for both qualifiers. The compositor swaps between them on a light/dark
-/// switch — see [`crate::theme`].
-#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
-pub const THEME_DARK: crate::theme::ThemeTokens = generated::THEME_DARK;
-#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
-pub const THEME_LIGHT: crate::theme::ThemeTokens = generated::THEME_LIGHT;
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn cursor_asset_is_generated_bgra() {
-        assert_eq!(
-            super::CURSOR_LEFT_PTR_BGRA.len(),
-            (super::CURSOR_LEFT_PTR_WIDTH * super::CURSOR_LEFT_PTR_HEIGHT * 4) as usize
-        );
-    }
-}

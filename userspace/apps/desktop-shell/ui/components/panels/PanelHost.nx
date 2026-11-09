@@ -20,6 +20,12 @@
 // on a panel reaches the backdrop behind it and closes the thing you are
 // trying to use.
 //
+// On a phone and a portrait tablet (touch, not `wide`) `notifications` and
+// `calendar` both open the `CombinedSheet` instead — a modal side sheet over a
+// `scrim`, top 44 / left 12 / bottom 12 — because those modes have one pill for
+// time and bell and no other way to the calendar. In landscape tablet and on the
+// desktop they stay two drop-downs.
+//
 // WLAN, Ton and Batterie are guarded by `device.profile == desktop`: in touch
 // modes those panels do not exist, and a `panel` value that could still name
 // one would leave the shell in a state with no way back out.
@@ -27,6 +33,27 @@
 Component PanelHost {
     if $state.panel == "" {
         Stack { }
+    } else if ($state.panel == "notifications" || $state.panel == "calendar") && device.profile != desktop && device.sizeClass != "wide" {
+        Stack {
+            Stack { }
+                .height(8)
+            Stack {
+                Stack {
+                    CombinedSheet { }
+                }
+                .grow(1)
+                .maxWidth(406)
+                on Tap -> dispatch(PanelNoop)
+            }
+            .direction(row)
+            .align(stretch)
+            .paddingX(12)
+            .paddingBottom(12)
+            .grow(1)
+        }
+        .overlay()
+        .bg(scrim)
+        on Tap -> dispatch(SetPanel(""))
     } else {
         Stack {
             Stack { }
@@ -72,7 +99,7 @@ Component PanelHost {
             }
             .direction(row)
             .align(start)
-            .paddingX(3)
+            .paddingX(12)
             .grow(1)
         }
         .overlay()

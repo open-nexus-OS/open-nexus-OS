@@ -1,0 +1,52 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The look of one file-list row (design: Table row): min height 44, padding
+// 0 16, gap 12, a 1 px separator under it. The date and size columns are
+// pinned (104 / 96, right-aligned) so they line up under their headers
+// whatever the name length. A selected row wears the persistent `fill` layer;
+// its text colours do not change. Presentational — the tap is `FileRow`'s.
+
+Component FileRowBody {
+    props: {
+        name: Str,
+        date: Str,
+        size: Str,
+        icon: Str,
+        active: Bool,
+    }
+    Stack {
+        if $props.active {
+            Stack {
+                Image { source: $props.icon, size: 28 }
+                Text($props.name).textStyle(subheadline).fg(label).truncate(1)
+                Spacer
+                Text($props.date).textStyle(footnote).fg(labelSecondary).width(104).textAlign(right)
+                Text($props.size).textStyle(footnote).fg(labelSecondary).width(96).textAlign(right).figures(tabular)
+            }
+            .direction(row)
+            .align(center)
+            .gap(12)
+            .paddingX(16)
+            .minHeight(44)
+            .bg(fill)
+        } else {
+            Stack {
+                Image { source: $props.icon, size: 28 }
+                Text($props.name).textStyle(subheadline).fg(label).truncate(1)
+                Spacer
+                Text($props.date).textStyle(footnote).fg(labelSecondary).width(104).textAlign(right)
+                Text($props.size).textStyle(footnote).fg(labelSecondary).width(96).textAlign(right).figures(tabular)
+            }
+            .direction(row)
+            .align(center)
+            .gap(12)
+            .paddingX(16)
+            .minHeight(44)
+        }
+        Stack { }
+            .height(1)
+            .bg(separator)
+    }
+    .gap(0)
+}

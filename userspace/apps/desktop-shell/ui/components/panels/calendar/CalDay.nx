@@ -1,0 +1,75 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The number circle of a calendar day, in the design's two sizes: sm (28 px,
+// subheadline) in the desktop panel, md (38 px, title3) in the combined sheet
+// of the touch modes. States: out of month (tertiary ink) · selected (accent
+// fill) · today (accent ring) · plain.
+
+Component CalDay {
+    props: {
+        label: Str,
+        selected: Bool,
+        today: Bool,
+        out: Bool,
+    }
+    if device.profile == desktop {
+        if $props.out {
+            Stack {
+                Text($props.label).textStyle(subheadline).fg(labelTertiary)
+            }
+            .width(28)
+            .height(28)
+            .align(center)
+            .justify(center)
+        } else if $props.selected {
+            Circle { size: 28
+                Text($props.label).textStyle(subheadline).fontWeight(semibold).fg(onAccent)
+            }
+            .bg(accent)
+        } else if $props.today {
+            Circle { size: 28
+                Text($props.label).textStyle(subheadline).fontWeight(semibold).fg(accent)
+            }
+            .border(ring)
+            .borderColor(accent)
+        } else {
+            Stack {
+                Text($props.label).textStyle(subheadline).fg(label)
+            }
+            .width(28)
+            .height(28)
+            .align(center)
+            .justify(center)
+        }
+    } else {
+        if $props.out {
+            Stack {
+                Text($props.label).textStyle(title3).fg(labelTertiary)
+            }
+            .width(38)
+            .height(38)
+            .align(center)
+            .justify(center)
+        } else if $props.selected {
+            Circle { size: 38
+                Text($props.label).textStyle(title3).fontWeight(semibold).fg(onAccent)
+            }
+            .bg(accent)
+        } else if $props.today {
+            Circle { size: 38
+                Text($props.label).textStyle(title3).fontWeight(semibold).fg(accent)
+            }
+            .border(ring)
+            .borderColor(accent)
+        } else {
+            Stack {
+                Text($props.label).textStyle(title3).fg(label)
+            }
+            .width(38)
+            .height(38)
+            .align(center)
+            .justify(center)
+        }
+    }
+}

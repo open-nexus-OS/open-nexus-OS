@@ -4,6 +4,8 @@
 # Typography
 
 This document defines the **default typography contract** for Open Nexus OS UI.
+The text styles are the design artifacts' (RFC-0116); the atlas that draws them is
+RFC-0082's (RFC-0080 shares it read-only with every app).
 
 See also: curated font set + explicit CJK fallback chains in `docs/dev/ui/foundations/visual/font-library.md`.
 
@@ -16,52 +18,99 @@ See also: curated font set + explicit CJK fallback chains in `docs/dev/ui/founda
 - **UI Mono (optional)**: pick one mono family and treat it as part of the design system contract (e.g. for DevTools/terminal surfaces).
 
 Notes:
-- macOS **SF Pro** is a great reference for “feel”, but it is **not open source** and should not be treated as a bundlable default.
+- A proprietary system face may serve as a reference for “feel”, but it is **not open source** and is never a bundlable default.
+
+## Text styles
+
+The text styles set size, line height, weight and tracking together — `.textStyle(name)` in the
+DSL, `TextStyleToken` in `nexus-theme-tokens`, `[textStyle.*]` in
+`resources/themes/base.nxtheme.toml` (theme-invariant). `.fontWeight(light | normal | medium |
+semibold | bold)` is the only override; no other size exists. A text without a style is `body`.
+
+| Style | size / line (px) | weight | tracking |
+|---|---|---|---|
+| `clock` | 128 / 128 | 300 | −0.02 em, tabular digits |
+| `display` | 64 / 64 | 300 | −0.02 em |
+| `largeTitle` | 30 / 36 | 700 | −0.02 em |
+| `title1` | 24 / 30 | 700 | −0.015 em |
+| `title2` | 20 / 26 | 600 | −0.01 em |
+| `title3` | 17 / 22 | 600 | −0.005 em |
+| `headline` | 15 / 20 | 600 | 0 |
+| `body` | 14 / 20 | 400 | 0 |
+| `subheadline` | 13 / 18 | 400 | 0 |
+| `footnote` | 12 / 16 | 400 | 0 |
+| `caption` | 11 / 14 | 500 | +0.01 em |
+| `caption2` | 10 / 13 | 500 | +0.02 em |
+| `overline` | 11 / 14 | 600 | +0.06 em, upper case |
+
+`clock` and `display` are digits only; letters on them fall back (below). `clock` is the lock
+screen's time, the artifacts' display × 2: their fluid `clamp(64, 12vw, 128)` is `clock` on the
+regular and wide size classes and `display` on compact (the greeter); `display` is also the
+calculator's number.
+
+**Figures.** Every style declares `figures = "proportional" | "tabular"` in the theme; `clock` is
+tabular. A text that changes in place — a count, a clock, a percentage, the calculator's number —
+takes `.figures(tabular)`: each digit then advances by the face's widest digit, centred in that
+cell, and is never kerned, so the number never shifts its neighbours (the artifacts'
+`tabular-nums`; `nexus-text-baked`'s pen places it for the measure and the painter alike).
+
+The control labels follow `ControlSize::label` (`userspace/ui/theme-tokens/src/design.rs`):
+xs `caption`, sm `footnote`, md `body` medium, lg `headline`, xl `title3`.
 
 ## Weight guidance
 
-- **Default body/UI**: Regular (400)
-- **Emphasis**: Medium (500) — collapses onto Regular in the baked ladder
-- **Strong emphasis**: Semibold (600)
-- Avoid “Light” as a default UI weight; reserve it for large headlines only.
-  The ladder enforces this: Light is baked at 120px and nowhere else.
+- **Default body/UI**: Regular (400) — `body`, `subheadline`, `footnote`.
+- **Emphasis**: Medium (500) — `caption`, `caption2`, the md control label (`body` medium).
+- **Strong emphasis**: Semibold (600) — `headline`, `title3`, `title2`, `overline`.
+- **Bold** (700) — `title1`, `largeTitle`.
+- Light (300) exists only on the digits-only display faces, never for running text.
 
-## What the platform actually rasterizes (RFC-0082)
+## What the platform rasterizes
 
-Text is drawn from **build-time baked A8 glyph atlases** — there is no runtime
-font parsing anywhere. The bake is a sparse `(size, weight)` ladder, and a
-`TextStyle` resolves to it through `FontSize::nearest(px, weight)`, whose rule
-is **size wins over weight**:
+Text is drawn from **build-time baked A8 glyph atlases** — there is no runtime font parsing
+anywhere. The bake (`FACES` in `userspace/ui/text-baked/build.rs`) holds one face per style at
+its default weight and one per weight override the apps use, named by size and weight
+(`FontSize::S14W400`, …, `userspace/ui/text-baked/src/ladder.rs`).
 
 | px | weights | charset |
 |---|---|---|
-| 13 | Regular, SemiBold | full (Latin + CJK) / Latin |
-| 16 | Regular, SemiBold | full (Latin + CJK) / Latin |
-| 21 | Regular, SemiBold | Latin |
-| 36 | SemiBold | Latin |
-| 120 | Light | digits only (`0-9 : . -`) |
+| 10 | 500, 700 | Latin |
+| 11 | 500, 600 | Latin |
+| 12 | 400, 500, 600 | Latin |
+| 13 | 400, 500, 600 | full (Latin + CJK) at 400, Latin otherwise |
+| 14 | 400, 500, 600 | full at 400, Latin otherwise |
+| 15, 17 | 600 | Latin |
+| 20 | 400, 500, 600 | Latin |
+| 24, 30 | 700 | Latin |
+| 64, 128 | 300 | digits only (`0-9 : , . − - + × ÷ % =` and the space) — `display`, `clock` |
 
-Consequences worth knowing before you design against it:
+- **Resolution.** A style's size and weight always has its own face (`FontSize::exact`).
+  Anything else — a `.textFit` size, an override no app uses yet — goes through
+  `FontSize::nearest`: the largest baked size not above the request (text never draws larger
+  than the box that asked for it), then the nearest weight baked at that size, a tie going to
+  the heavier face. Size wins over weight: a size miss is far more visible than a weight miss.
+- **The line box is the style's.** `body` is 20 px tall whatever the face's own ascent and
+  descent; the painters centre the face's band in the line with half-leading
+  (`BakedTextMeasure::line_box`). A `.textFit` size scales the line box with it.
+- **Tracking** (letter-spacing, milli-em per style) is placed by the same pen in measurement,
+  ellipsis and drawing, so a tracked run measures what it paints.
+- **Fallback.** A codepoint a face lacks comes from the 14 px full face: CJK in a title renders
+  small instead of blank, a letter on a digits-only face likewise.
+- **Budget.** A full charset above 16 px fails the build — the hangul syllable block alone would
+  add hundreds of megabytes to an atlas that is mapped into every app-host as one shared
+  read-only VMO; the whole atlas — 22 faces, about 4.0 MB — stays under 5 MiB
+  (`atlas_stays_within_the_budget`).
+- Adding a face is one line in `FACES` plus its `FontSize` variant; a const check keeps the two
+  one to one.
 
-- A **full** charset above 16px is forbidden — the hangul syllable block alone
-  would add hundreds of megabytes to an atlas that is mapped into every
-  app-host as one shared read-only VMO (RFC-0080).
-- A CJK codepoint in a Latin/Digits face falls back to the **16px** full face.
-  Mixed-script runs at 21px+ therefore render CJK smaller. Bounded and
-  documented, not accidental.
-- `hero` (120px) is for **numerals** — a clock. Letters at that size come from
-  the fallback face.
-- Adding a rung is a four-line change in `userspace/ui/text-baked/build.rs`
-  plus a size assert.
+Regular 400 goes through `fontdue` (the variable font's default instance), so the 13 px full
+face stays byte-identical across builds. The other weights (300, 500, 600, 700) are instanced on
+Inter's `wght` axis with `ttf-parser` and filled by the build script's own scanline rasterizer
+(`userspace/ui/text-baked/build/raster.rs`).
 
-Light 300 and SemiBold 600 do not exist as instances `fontdue` can reach, so
-they are instanced on Inter's `wght` axis with `ttf-parser` and filled by the
-build script's own nonzero-winding scanline rasterizer. Regular 400 keeps
-going through `fontdue` so the 13/16px coverage stays byte-identical.
-
-**Not available:** letter-spacing / tracking, OpenType feature control, and
-italics. Tabular figures exist only as a property of the baked hero face
-(unkerned, uniform numeral advance) so a ticking clock does not shuffle.
+**Not available:** OpenType feature control and italics. Tabular figures exist only as a
+property of the digits-only faces (`display`, `clock`: unkerned, one advance for every digit) so
+a ticking clock does not shuffle.
 
 ## Determinism requirements
 

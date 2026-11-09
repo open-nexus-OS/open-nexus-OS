@@ -1,0 +1,18 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One action-bar item that dispatches an app event (the kit's
+// `WinActionItem` always dispatches `WinAct`): the kit's face in a tap
+// wrapper. The tap is the use site's, so this component only draws.
+
+Component BarFace {
+    props: {
+        label: Str,
+        icon: Str,
+        kind: Str,
+        active: Bool,
+    }
+    Stack {
+        WinActionFace { label: $props.label, icon: $props.icon, kind: $props.kind, active: $props.active }
+    }
+}

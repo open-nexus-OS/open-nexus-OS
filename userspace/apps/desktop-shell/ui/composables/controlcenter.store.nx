@@ -17,7 +17,8 @@
 // "ein gemeinsamer Lautstärke-Zustand" for Control Center, the Sound panel and
 // the top bar).
 //
-// There is no `muted` field: muted IS `volume == 0`. It used to be a Bool the
+// There is no `muted` field: muted IS `volume == 0` (`preMuteVolume` only
+// remembers what to restore). It used to be a Bool the
 // `SetVolume` reducer kept in step, which worked only while the slider was a
 // readout — once a tap writes `volume` directly (TASK-0077B P2b), a second copy
 // of the same fact is one the button and the top bar can contradict. Deriving
@@ -27,6 +28,7 @@
 Store ControlStore {
     brightness: Int = 70,
     volume: Int = 50,
+    preMuteVolume: Int = 50,
     applyError: Int = 0,
 }
 
@@ -48,14 +50,23 @@ reduce ControlEvent {
     SetBrightness(v) => state.brightness = v,
     // Dragging the volume to 0 IS muting — the design's rule, now carried by
     // the value itself rather than by a Bool kept in step beside it.
-    SetVolume(v) => state.volume = v,
-    // Un-muting restores 50 rather than the pre-mute value: the reducer has
-    // nowhere to stash that value, and a slider that springs back to silence
-    // would read as a broken button.
+    SetVolume(v) => {
+        state.volume = v;
+        if v > 0 {
+            state.preMuteVolume = v;
+        }
+    },
+    // Un-muting restores the volume from before muting (the design keeps the
+    // volume and the muted flag apart), or 50 when that was 0.
     ToggleMute => {
         if state.volume == 0 {
-            state.volume = 50;
+            if state.preMuteVolume == 0 {
+                state.volume = 50;
+            } else {
+                state.volume = state.preMuteVolume;
+            }
         } else {
+            state.preMuteVolume = state.volume;
             state.volume = 0;
         }
     },

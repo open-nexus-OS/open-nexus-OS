@@ -1,0 +1,22 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The list view's rows, scrolling on their own (RFC-0109: a scroll layer the
+// compositor moves) under the pinned column header, with 88 px of room at the
+// bottom so the last row clears the floating action bar.
+
+Component FileList {
+    Stack {
+        List($state.files) { f in
+            Stack {
+                FileRow { id: f.name, name: f.name, kind: f.kind, date: f.date, size: f.sizeText, icon: f.icon, active: $state.selection == f.name, opens: $state.selection == f.name && f.kind == "dir" }
+            }
+            .key(f.name)
+        }
+        Stack { }
+            .height(88)
+    }
+    .gap(0)
+    .grow(1)
+    .scroll(vertical)
+}

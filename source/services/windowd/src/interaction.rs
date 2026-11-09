@@ -60,11 +60,11 @@ pub(crate) const CHAT_PANEL_H: u32 = 600;
 pub(crate) const CHAT_PAD: u32 = 14;
 #[cfg_attr(not(test), allow(dead_code))] // hit-test SSOT vocabulary, exercised by the host unit tests below
 pub(crate) const CHAT_SCROLLBAR_W: u32 = 8;
-/// Chat body line height = the baked 16px face's line height (TASK-0070
-/// Phase 6 — runtime glyphs replaced the 5×7 bitmap; the baked value is 20px,
-/// identical to the old bitmap line, so the scroll/height math is unchanged).
+/// Chat body line height = the `body` text style's line box (RFC-0116: 14 px in a 20 px line —
+/// the same 20 px row the scroll/height math always used). The 14 px face's own band is
+/// shorter; a painter centres it in the row with half-leading (`crate::text::BODY_LINE`).
 #[cfg_attr(not(test), allow(dead_code))] // hit-test SSOT vocabulary, exercised by the host unit tests below
-pub(crate) const CHAT_LINE_H: u32 = crate::text::line_height(crate::text::FontSize::Body);
+pub(crate) const CHAT_LINE_H: u32 = crate::text::BODY_LINE;
 /// Vertical padding inside a message bubble (top and bottom).
 #[cfg_attr(not(test), allow(dead_code))] // hit-test SSOT vocabulary, exercised by the host unit tests below
 pub(crate) const CHAT_MSG_PAD: u32 = 8;
@@ -81,7 +81,7 @@ pub(crate) fn chat_text_width() -> u32 {
 pub(crate) const CHAT_TEXT_INSET: u32 = 10;
 
 /// Pixel width the wrap walker fills — the wrap SSOT width (TASK-0070 Phase 7:
-/// MEASURED word wrap at the 16px face replaces the char-count estimate).
+/// MEASURED word wrap at the body face replaces the char-count estimate).
 #[cfg_attr(not(test), allow(dead_code))] // hit-test SSOT vocabulary, exercised by the host unit tests below
 pub(crate) fn chat_wrap_width() -> u32 {
     chat_text_width().saturating_sub(CHAT_TEXT_INSET)
@@ -90,7 +90,7 @@ pub(crate) fn chat_wrap_width() -> u32 {
 /// One wrapped line starting at char index `start`: returns `(end, next_start)`
 /// — the line is chars `[start, end)`, the next line begins at `next_start`
 /// (the break space itself is consumed, not rendered). Greedy WORD wrap at the
-/// 16px face's measured advances; a single word wider than `width` breaks
+/// body face's measured advances; a single word wider than `width` breaks
 /// mid-word. Always consumes at least one char. Walking by chars keeps
 /// multi-byte UTF-8 (em-dashes) boundary-safe.
 #[cfg_attr(not(test), allow(dead_code))] // hit-test SSOT vocabulary, exercised by the host unit tests below
@@ -100,7 +100,7 @@ fn chat_wrap_line_end(text: &str, width: u32, start: usize) -> (usize, usize) {
     let mut last_space: Option<usize> = None;
     let mut idx = start;
     for ch in text.chars().skip(start) {
-        let adv = crate::text::advance(ch, crate::text::FontSize::Body) as i32;
+        let adv = crate::text::advance(ch, crate::text::BODY, crate::text::BODY_TRACKING) as i32;
         if pen + adv > w && idx > start {
             return match last_space {
                 Some(s) if s > start => (s, s + 1),
@@ -523,7 +523,9 @@ mod tests {
             assert!(e > s, "non-empty line");
             let w: i32 = chars[s..e]
                 .iter()
-                .map(|&c| crate::text::advance(c, crate::text::FontSize::Body) as i32)
+                .map(|&c| {
+                    crate::text::advance(c, crate::text::BODY, crate::text::BODY_TRACKING) as i32
+                })
                 .sum();
             assert!(w <= width, "line {idx} measures {w} > wrap width {width}");
             // Word wrap: a line broken at a space never starts with a space.

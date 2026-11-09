@@ -1,0 +1,26 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The tile view: four fixed columns (the DSL has no adaptive grid yet),
+// gap 8 × 8, padding 12 12 88 so the last row clears the floating action bar.
+
+Component FileGrid {
+    Stack {
+        List($state.files) { f in
+            Stack {
+                FileTile { id: f.name, name: f.name, kind: f.kind, size: f.sizeText, icon: f.icon, active: $state.selection == f.name, opens: $state.selection == f.name && f.kind == "dir" }
+            }
+            .key(f.name)
+            .grow(1)
+        }
+        .columns(4)
+        .gap(8)
+        Stack { }
+            .height(88)
+    }
+    .gap(0)
+    .paddingX(12)
+    .paddingTop(12)
+    .grow(1)
+    .scroll(vertical)
+}

@@ -24,7 +24,7 @@ use crate::layer_quota::LayerQuota;
 use crate::motion_geometry::{backdrop_id, layer_id as motion_id, region_owner, scroll_owner};
 use crate::surface_regions::SurfaceRegions;
 use nexus_display_proto::client_surface::{
-    LayerDesc, GLASS_CARD, GLASS_OVERLAY, GLASS_PANEL, GLASS_SUBTLE, MATERIAL_GLASS,
+    LayerDesc, GLASS_DOCK, GLASS_PANEL, GLASS_THIN, GLASS_ULTRA_THIN, MATERIAL_GLASS,
     MATERIAL_OPAQUE,
 };
 use nexus_display_proto::surface_layers::{MAX_SCROLL_LAYERS, PATCH_SIDE};
@@ -50,15 +50,23 @@ pub(crate) const fn key(owner: u32, kind: u32, index: u32) -> u32 {
     layer_wire::layer_key(owner, kind, index)
 }
 
-/// The backdrop blur of a region's glass level (the level is a blur bucket — materials.md).
+/// The backdrop blur of a region's glass level (RFC-0116: the level is the bucket of a backdrop —
+/// `regular` for a panel or a window, `thin`, `ultraThin`, `thick` for the dock), read from the
+/// theme's backdrops so the compositor and the token set cannot disagree on a radius.
 pub(crate) fn region_blur(l: &LayerDesc) -> u32 {
-    match l.glass_level {
-        _ if l.material == MATERIAL_OPAQUE => 0,
-        GLASS_PANEL | GLASS_OVERLAY => 40,
-        GLASS_CARD => 20,
-        GLASS_SUBTLE => 8,
-        _ => 30,
+    use nexus_theme_tokens::{BackdropToken, DarkTokens, Tokens};
+    if l.material == MATERIAL_OPAQUE {
+        return 0;
     }
+    let backdrop = match l.glass_level {
+        GLASS_THIN => BackdropToken::Thin,
+        GLASS_ULTRA_THIN => BackdropToken::UltraThin,
+        GLASS_DOCK => BackdropToken::Thick,
+        // GLASS_PANEL, GLASS_WINDOW — and an unknown level takes the regular backdrop.
+        _ => BackdropToken::Regular,
+    };
+    // The backdrops are theme-invariant (authored once in the base theme).
+    u32::from(DarkTokens.backdrop(backdrop).blur)
 }
 
 /// Which part of a surface's layers a scene pass draws.

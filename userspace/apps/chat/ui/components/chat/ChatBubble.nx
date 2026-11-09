@@ -1,0 +1,31 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One message (padding 8, radius md): yours on `accent` under "Du", the peer's on `fill`
+// under the contact's name; the sender line caption, the text footnote.
+
+Component ChatBubble {
+    props: {
+        mine: Bool,
+        text: Str,
+    }
+    if $props.mine {
+        Stack {
+            Text(@t("chat.you")).textStyle(caption).fg(onAccent)
+            Text($props.text).textStyle(footnote).fg(onAccent)
+        }
+        .gap(0)
+        .padding(8)
+        .rounded(md)
+        .bg(accent)
+    } else {
+        Stack {
+            Text($state.threadName).textStyle(caption).fg(labelSecondary)
+            Text($props.text).textStyle(footnote).fg(label)
+        }
+        .gap(0)
+        .padding(8)
+        .rounded(md)
+        .bg(fill)
+    }
+}

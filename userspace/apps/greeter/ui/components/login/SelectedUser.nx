@@ -1,0 +1,31 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The user the password field authenticates: a large avatar and the name. The selection is
+// sessiond's answer (`ActiveLoaded`) or a pick in the switcher — the DSL cannot index a list,
+// so the list renders every user and only the selected one draws.
+Component SelectedUser {
+    List($state.users) { user in
+        Stack {
+            if user.id == $state.selected {
+                Stack {
+                    Avatar {
+                        name: user.label,
+                        size: 88,
+                    }
+                    .material(card)
+                    .textStyle(display)
+                    .fg(label)
+                    .shadow(shadow3)
+                    Text(user.label).textStyle(title2).fg(label).shadow(halo)
+                }
+                .align(center)
+                .gap(12)
+            } else {
+                Stack
+            }
+        }
+        .key(user.id)
+    }
+    .align(center)
+}

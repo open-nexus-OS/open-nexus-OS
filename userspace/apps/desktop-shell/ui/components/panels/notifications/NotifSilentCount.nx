@@ -1,0 +1,13 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The silent tier's count beside its header: one or two notifications, from the dismissal
+// flags (DEMO CONTENT, see `notifications.store.nx`).
+
+Component NotifSilentCount {
+    if $state.wxGone || $state.plazaGone {
+        Text(@t("notif.silentCount1")).textStyle(footnote).fg(labelSecondary)
+    } else {
+        Text(@t("notif.silentCount2")).textStyle(footnote).fg(labelSecondary)
+    }
+}

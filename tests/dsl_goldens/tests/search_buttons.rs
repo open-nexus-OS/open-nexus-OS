@@ -27,8 +27,8 @@ Page P {
         SearchModeButton { icon: "doc.on.clipboard", label: "Clipboard", selected: true, inert: false }
     }
     .direction(row)
-    .gap(2)
-    .padding(2)
+    .gap(8)
+    .padding(8)
 }
 "#;
 

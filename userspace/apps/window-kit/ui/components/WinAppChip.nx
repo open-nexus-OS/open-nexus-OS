@@ -1,0 +1,58 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The top bar's app chip (design artifacts: Window): capsule 30, padding 0 8 0 4, the app's
+// glyph and a chevron — never the app name. It opens the window menu (`WinMenu("app")`);
+// while the menu is open (`menu == "app"`) it pins the `fill` layer and the chevron points
+// up (the design rotates it 180°; the DSL has no rotation, so the glyph swaps).
+
+Component WinAppChip {
+    props: {
+        icon: Str,
+        appId: Str,
+    }
+    if $state.menu == "app" {
+        Stack {
+            WinAppGlyph { icon: $props.icon, appId: $props.appId }
+            Icon { symbol: "chevron.up", size: 14 }
+                .fg(labelSecondary)
+        }
+        .direction(row)
+        .align(center)
+        .gap(4)
+        .height(30)
+        .paddingLeading(4)
+        .paddingTrailing(8)
+        .rounded(full)
+        .bg(fill)
+        on Tap -> dispatch(WinMenu("app"))
+    } else {
+        Stack {
+            WinAppGlyph { icon: $props.icon, appId: $props.appId }
+            Icon { symbol: "chevron.down", size: 14 }
+                .fg(labelSecondary)
+        }
+        .direction(row)
+        .align(center)
+        .gap(4)
+        .height(30)
+        .paddingLeading(4)
+        .paddingTrailing(8)
+        .rounded(full)
+        on Tap -> dispatch(WinMenu("app"))
+    }
+}
+
+// The app's REAL baked icon (22 px) when an `appId` is given, else the theme glyph (16 px).
+Component WinAppGlyph {
+    props: {
+        icon: Str,
+        appId: Str,
+    }
+    if $props.appId != "" {
+        Image { source: $props.appId, size: 22 }
+    } else {
+        Icon { symbol: $props.icon, size: 16 }
+            .fg(label)
+    }
+}

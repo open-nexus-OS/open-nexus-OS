@@ -1,32 +1,49 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The toggle tile (design artifacts: panels `.tbtn`) — the panels' central
-// building block: full width, a 26px icon circle, and a two-line text column
-// (label + a SUB-LABEL that states the tile's current state in words). The
-// tile owns that swap — `subOn`/`subOff`, mirroring the design's own
-// `data-on`/`data-off` — so no call site has to branch just to word a state.
-// Control Center uses four, WiFi one ("Nur Kabel"), Battery one ("Kein
-// Standby").
+// The toggle tile (design artifacts: panels tile): a 116×45 chip with a 26 px
+// icon circle and a two-line text column — label plus a SUB-LABEL that states
+// the tile's state in words (`subOn`/`subOff`, so no call site branches to word
+// it). Control Center uses four, WLAN one ("Nur Kabel"), Batterie one ("Kein
+// Standby"). The sub-label may truncate with an ellipsis at this width (accepted); the label
+// may not: the icon↔label gap is 6 (the grid's icon-to-label step), not the artifact's 8, because
+// the baked atlas advances are whole pixels and "Flugmodus" needs the 2 px the artifact's
+// fractional advances save.
 //
-// Active is a filled accent tile, not a tinted one: `rgba(accent,.88)` with a
-// glow. The accent travels as a HEX PROP through `.bgGradient(c, c)` — the
-// sanctioned literal-colour path — because two of the five accents the design
-// names (teal `#14b8a6`, violet `#8b5cf6`) are not theme roles and inventing
-// roles for one tile's palette would put product colour in the design system.
-//
-// The active ink is `onInfo`, NOT `onAccent`. `onAccent` flips with the theme
-// (white on light, near-black on dark) because it is paired with the USER's
-// accent, which the light theme keeps dark enough to carry white text and the
-// dark theme does not. These tiles are saturated mid-tones in both themes, so
-// their ink is white in both — which is exactly what `onInfo` resolves to.
-// The 65%-white sub-label rides the same role at reduced opacity (the scale is
-// 0..255, so .65 is 166).
-//
-// `.shrink(0)` on the icon circle and `.minWidth(0)` on the text column are
-// load-bearing: without them a long label ("Ansichtsmodus") wins the flex
-// negotiation and squeezes the 26px circle into an ellipse. The label then
-// overflows instead, which is what `.truncate(1)` is there to end.
+// ON is a flat tint wash of a colour ROLE: `tint` names it (`accent`,
+// `modeAirplane`, `modeDesktop`, `modeTablet`) and `.bg($props.tint)` resolves it,
+// so the tile re-themes. The ink is `onAccent` (white on every mode tint).
+// OFF rests on `background` in the light theme and on `fill` in the dark one,
+// with a glass edge and `shadow1` — the face is shared (`TileFace`), only the
+// resting fill differs. Hover is the compositor's wash over the tile; it never
+// repaints it.
+
+Component TileFace {
+    props: {
+        icon: Str,
+        label: Str,
+        sub: Str,
+    }
+    Stack {
+        Circle { size: 26
+            Icon { symbol: $props.icon, size: 13 }
+                .fg(labelSecondary)
+        }
+        .bg(fill)
+        .shrink(0)
+        Stack {
+            Text($props.label).textStyle(caption).fontWeight(semibold).fg(label)
+            Text($props.sub).textStyle(caption2).fontWeight(normal).fg(labelSecondary)
+        }
+        .gap(0)
+        .grow(1)
+        .minWidth(0)
+        .direction(column)
+    }
+    .direction(row)
+    .align(center)
+    .gap(6)
+}
 
 Component ToggleTile {
     props: {
@@ -34,20 +51,20 @@ Component ToggleTile {
         label: Str,
         subOn: Str,
         subOff: Str,
-        accent: Str,
+        tint: Str,
         active: Bool,
     }
     if $props.active {
         Stack {
             Circle { size: 26
                 Icon { symbol: $props.icon, size: 13 }
-                    .fg(onInfo)
+                    .fg(onAccent)
             }
-            .bgGradient("#ffffff40", "#ffffff40")
+            .tint(onAccent, border)
             .shrink(0)
             Stack {
-                Text($props.label).textSize(xs).fontWeight(semibold).leading(tight).fg(onInfo)
-                Text($props.subOn).textSize(xs).leading(tight).fg(onInfo).opacity(166)
+                Text($props.label).textStyle(caption).fontWeight(semibold).fg(onAccent)
+                Text($props.subOn).textStyle(caption2).fontWeight(normal).fg(onAccent).opacity(191)
             }
             .gap(0)
             .grow(1)
@@ -56,37 +73,33 @@ Component ToggleTile {
         }
         .direction(row)
         .align(center)
-        .gap(2)
-        .paddingX(3)
-        .paddingY(2)
-        .rounded(15)
-        .bgGradient($props.accent, $props.accent)
-        .shadow(md)
+        .gap(6)
+        .paddingX(12)
+        .paddingY(8)
+        .rounded(12)
+        .bg($props.tint)
+        .shadow(shadow1, edgeHighlight)
+    } else if device.theme == dark {
+        Stack {
+            TileFace { icon: $props.icon, label: $props.label, sub: $props.subOff }
+        }
+        .paddingX(12)
+        .paddingY(8)
+        .rounded(12)
+        .bg(fill)
+        .border(hairline)
+        .borderColor(glassEdge)
+        .shadow(shadow1, edgeHighlight)
     } else {
         Stack {
-            Circle { size: 26
-                Icon { symbol: $props.icon, size: 13 }
-                    .fg(onGlassMuted)
-            }
-            .material(subtle)
-            .shrink(0)
-            Stack {
-                Text($props.label).textSize(xs).fontWeight(semibold).leading(tight).fg(onGlass)
-                Text($props.subOff).textSize(xs).leading(tight).fg(onGlassMuted)
-            }
-            .gap(0)
-            .grow(1)
-            .minWidth(0)
-            .direction(column)
+            TileFace { icon: $props.icon, label: $props.label, sub: $props.subOff }
         }
-        .direction(row)
-        .align(center)
-        .gap(2)
-        .paddingX(3)
-        .paddingY(2)
-        .rounded(15)
-        .bg(toggleOffBg)
+        .paddingX(12)
+        .paddingY(8)
+        .rounded(12)
+        .bg(background)
         .border(hairline)
-        .borderColor(divider)
+        .borderColor(glassEdge)
+        .shadow(shadow1, edgeHighlight)
     }
 }

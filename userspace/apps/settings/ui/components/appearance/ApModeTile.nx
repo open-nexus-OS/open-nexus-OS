@@ -29,30 +29,30 @@ Component ApModeTile {
                     .height(4)
                     .width(46)
                     .rounded(sm)
-                    .bg(onGlassMuted)
+                    .bg(labelSecondary)
                 Stack { }
                     .height(4)
                     .width(68)
                     .rounded(sm)
-                    .bg(onGlassMuted)
+                    .bg(labelSecondary)
                 Stack { }
                     .height(4)
                     .width(56)
                     .rounded(sm)
-                    .bg(onGlassMuted)
+                    .bg(labelSecondary)
             }
-            .gap(2)
-            .padding(3)
+            .gap(8)
+            .padding(12)
             .grow(1)
-            .rounded(md)
+            .rounded(sm)
             .material(card)
         }
         .height(82)
-        .padding(3)
-        .rounded(lg)
+        .padding(12)
+        .rounded(md)
         .bgGradient($props.top, $props.bottom)
         Stack {
-            Text($props.label).textSize(xs).fontWeight(semibold).fg(onGlass)
+            Text($props.label).textStyle(caption).fontWeight(semibold).fg(label)
             Spacer
             if $props.selected {
                 Circle { size: 17
@@ -62,16 +62,16 @@ Component ApModeTile {
                 .bg(accent)
             } else {
                 Circle { size: 17 }
-                    .border(thin)
-                    .borderColor(divider)
+                    .border(hairline)
+                    .borderColor(separator)
             }
         }
         .direction(row)
         .align(center)
-        .gap(2)
+        .gap(8)
     }
-    .gap(2)
-    .padding(2)
-    .rounded(xl)
-    .material(subtle)
+    .gap(8)
+    .padding(8)
+    .rounded(lg)
+    .material(card)
 }

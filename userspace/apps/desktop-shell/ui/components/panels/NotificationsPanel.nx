@@ -1,76 +1,22 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Mitteilungszentrale (design artifacts: panels §4): 330 wide, radius 26,
-// anchored top left. Header with "Alle löschen", the stacked mail card, then
-// individual cards.
+// Mitteilungszentrale (design artifacts: panels §4): 330 wide, radius xl 24,
+// anchored top left, padding 12. The panel STAYS GLASS (`panel` material); its
+// content is `notifications/NotificationsBody` — title row with "Alle löschen",
+// the "Wichtig" tier (stacked mail card, Nachrichten, Kalender) and the
+// collapsible "Lautlos" tier (Wetter, Plaza), or the empty state.
 //
-// DEMO CONTENT — no notification service feeds the shell yet. The cards are
-// authored markup and "Alle löschen" flips one flag to the empty state, which
-// is the whole interaction. When `svc.notif` lands, the `if` below becomes a
-// `List` over real notifications and this file barely changes: that is why the
-// card is already its own component taking props rather than inline markup.
+// DEMO CONTENT — no notification service feeds the shell yet; the dismissals
+// are real. See `notifications.store.nx`.
 
 Component NotificationsPanel {
     Stack {
-        Stack {
-            SectionTitle { label: @t("panels.notifications") }
-            Spacer
-            Stack {
-                Text(@t("notif.clearAll")).textSize(xs).fg(onGlassMuted)
-            }
-            .paddingX(2)
-            .paddingY(1)
-            .rounded(8)
-            .hitSlop(2)
-            on Tap -> dispatch(ClearAll)
-        }
-        .direction(row)
-        .align(center)
-        .paddingX(1)
-        if $state.notifCleared {
-            Stack {
-                Text(@t("notif.empty")).textSize(xs).fg(onGlassMuted)
-            }
-            .align(center)
-            .justify(center)
-            .paddingY(6)
-        } else {
-            Stack {
-                NotifStack { }
-                NotifCard {
-                    appId: "chat",
-                    app: @t("notif.messages"),
-                    time: @t("notif.t12min"),
-                    title: @t("notif.msgTitle"),
-                    body: @t("notif.msgBody"),
-                    badge: "",
-                }
-                NotifCard {
-                    appId: "settings",
-                    app: @t("notif.calendar"),
-                    time: @t("notif.t1h"),
-                    title: @t("notif.calTitle"),
-                    body: @t("notif.calBody"),
-                    badge: "",
-                }
-                NotifCard {
-                    appId: "settings",
-                    app: @t("notif.weather"),
-                    time: @t("notif.t2h"),
-                    title: @t("notif.wxTitle"),
-                    body: @t("notif.wxBody"),
-                    badge: "",
-                }
-            }
-            .gap(2)
-        }
+        NotificationsBody { sheet: false }
     }
     .width(330)
-    .gap(3)
-    .padding(3)
-    .rounded(26)
+    .padding(12)
+    .rounded(xl)
     .material(panel)
-    .shadow(xxl)
     .transition(slideDown)
 }

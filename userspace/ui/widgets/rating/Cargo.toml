@@ -10,5 +10,8 @@ path = "src/lib.rs"
 
 [dependencies]
 nexus-layout-types = { path = "../../layout-types" }
+nexus-style = { path = "../../style" }
 nexus-theme-tokens = { path = "../../theme-tokens" }
-nexus-widget-icon = { path = "../icon" }
+
+[dev-dependencies]
+nexus-layout = { path = "../../layout" }

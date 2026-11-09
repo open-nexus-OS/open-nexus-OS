@@ -51,7 +51,7 @@ Component OverviewGrid {
             on Tap -> dispatch(Goto("sound"))
         }
         .direction(row)
-        .gap(3)
+        .gap(12)
         Stack {
             Stack {
                 OverviewCard { title: @t("sec.display"), desc: @t("sec.display.d"), icon: "desktopcomputer" }
@@ -73,7 +73,7 @@ Component OverviewGrid {
             on Tap -> dispatch(Goto("personal"))
         }
         .direction(row)
-        .gap(3)
+        .gap(12)
         Stack {
             Stack {
                 OverviewCard { title: @t("sec.apps"), desc: @t("sec.apps.d"), icon: "square.grid" }
@@ -95,7 +95,7 @@ Component OverviewGrid {
             on Tap -> dispatch(Goto("accounts"))
         }
         .direction(row)
-        .gap(3)
+        .gap(12)
         Stack {
             Stack {
                 OverviewCard { title: @t("sec.privacy"), desc: @t("sec.privacy.d"), icon: "shield" }
@@ -117,7 +117,7 @@ Component OverviewGrid {
             on Tap -> dispatch(Goto("info"))
         }
         .direction(row)
-        .gap(3)
+        .gap(12)
     }
-    .gap(3)
+    .gap(12)
 }

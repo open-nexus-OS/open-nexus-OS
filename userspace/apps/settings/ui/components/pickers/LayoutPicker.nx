@@ -1,0 +1,32 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The `layout` picker's option list on a `PickerSheet`; the page layer mounts it while
+// `$state.picker == "layout"`.
+
+Component LayoutPicker {
+    PickerSheet { title: @t("gen.layout") } {
+        options {
+            Stack {
+                PickerOption { label: @t("keymap.de"), selected: $state.keymap == "de" }
+            }
+            on Tap -> dispatch(SetKeymap("de"))
+            Stack {
+                PickerOption { label: @t("keymap.us"), selected: $state.keymap == "us" }
+            }
+            on Tap -> dispatch(SetKeymap("us"))
+            Stack {
+                PickerOption { label: @t("keymap.kr"), selected: $state.keymap == "kr" }
+            }
+            on Tap -> dispatch(SetKeymap("kr"))
+            Stack {
+                PickerOption { label: @t("keymap.jp"), selected: $state.keymap == "jp" }
+            }
+            on Tap -> dispatch(SetKeymap("jp"))
+            Stack {
+                PickerOption { label: @t("keymap.zh"), selected: $state.keymap == "zh" }
+            }
+            on Tap -> dispatch(SetKeymap("zh"))
+        }
+    }
+}

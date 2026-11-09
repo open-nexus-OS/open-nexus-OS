@@ -2,34 +2,124 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![cfg_attr(not(test), no_std)]
+#![forbid(unsafe_code)]
 
-//! `ListItem` — the design-system settings/list row (design `ListItem`): a
-//! leading node, a title with an optional subtitle, and a trailing control. A
-//! pure builder producing a `LayoutNode::Stack` row. `destructive` renders the
-//! title in the danger color; `show_chevron` is exposed as data (the disclosure
-//! indicator is an icon the shell adds). DSL-emittable.
+//! `ListItem` + `List` — the design artifacts' list row and its group (RFC-0116).
+//!
+//! A row is one line — [selection circle 22] [leading] [title + subtitle] [trailing] [check]
+//! [badge] [chevron 16] [reorder handle] — and optional content below it, aligned to the text
+//! column. The title is body 14/20 medium `label` (`danger` when destructive, the leading glyph
+//! with it), the subtitle footnote 12/16 `labelSecondary`, a text trailing value body
+//! `labelSecondary`; the row pads 12/16 to a 48 px minimum (60 with a subtitle). A group's
+//! separator is the hairline at the TOP of the text column, from the text x to the trailing
+//! edge — the row draws it as the top edge of its text column, so it follows whatever leading
+//! the row has. `selected` is the persistent `fill` layer, `disabled` dims the row to .45.
+//!
+//! [`List`] gives its rows the appearance's metrics and corners and draws the group surface.
+//! Pure builders producing `LayoutNode::Stack`s; the swipe actions, the reorder drag and the
+//! motion are runtime concerns (gestures and transforms the layout tree does not carry).
 
 extern crate alloc;
 
+mod list;
+mod parts;
+#[cfg(test)]
+mod tests;
+
+pub use list::{List, ListAppearance, ListDensity, RowMetrics};
+
+use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 use nexus_layout_types::{
-    Align, Direction, EdgeInsets, FlexItem, FontWeight, FxPx, Justify, LayoutNode, Overflow,
-    Spacer, Stack, VisualStyle,
+    Align, Border, CornerRadius, Direction, EdgeBorder, EdgeInsets, FlexItem, FontWeight, FxPx,
+    Justify, LayoutNode, Stack, VisualStyle,
 };
-use nexus_theme_tokens::{ColorToken, Tokens};
+use nexus_style::state::Dim;
+use nexus_theme_tokens::{ColorToken, TextStyleToken, Tokens, HAIRLINE};
+use nexus_widget_icon::with_ink;
 use nexus_widget_text::Text;
 
+/// The line's column gap (between leading, text, trailing) and the row gap below it.
+const COLUMN_GAP: i32 = 12;
+const ROW_GAP: i32 = 8;
+
+/// Where a row draws its separator hairline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RowSeparator {
+    /// None: a standalone row, the first row of a group, a sidebar list.
+    #[default]
+    None,
+    /// From the text column to the trailing edge (the group default).
+    Inset,
+    /// Across the whole row.
+    Full,
+}
+
+/// How a selectable row shows its selection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SelectionStyle {
+    /// A leading 22 px circle: a ring at rest, an accent disc with a check when selected.
+    #[default]
+    Circle,
+    /// A trailing 16 px accent check on the selected row.
+    Checkmark,
+}
+
+#[derive(Debug, Clone)]
+enum Trailing {
+    /// A control or any caller node, as built.
+    Node(Box<LayoutNode>),
+    /// A value: body `labelSecondary`, one line, shrinking before the title does.
+    Text(String),
+}
+
 /// A list / settings row.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct ListItem {
     title: String,
     subtitle: Option<String>,
     leading: Option<LayoutNode>,
-    trailing: Option<LayoutNode>,
+    trailing: Option<Trailing>,
     show_chevron: bool,
     destructive: bool,
+    badge: Option<String>,
+    badge_tint: ColorToken,
+    selected: bool,
+    selectable: bool,
+    selection_style: SelectionStyle,
+    reorderable: bool,
+    disabled: bool,
+    children: Vec<LayoutNode>,
+    separator: RowSeparator,
+    metrics: RowMetrics,
+    corners: CornerRadius,
     id: Option<&'static str>,
+}
+
+impl Default for ListItem {
+    fn default() -> Self {
+        Self {
+            title: String::new(),
+            subtitle: None,
+            leading: None,
+            trailing: None,
+            show_chevron: false,
+            destructive: false,
+            badge: None,
+            badge_tint: ColorToken::Danger,
+            selected: false,
+            selectable: false,
+            selection_style: SelectionStyle::Circle,
+            reorderable: false,
+            disabled: false,
+            children: Vec::new(),
+            separator: RowSeparator::None,
+            metrics: RowMetrics::default(),
+            corners: CornerRadius::none(),
+            id: None,
+        }
+    }
 }
 
 impl ListItem {
@@ -41,23 +131,86 @@ impl ListItem {
         self.subtitle = Some(subtitle.into());
         self
     }
+    /// The leading node (an 18 px icon, a 30 px avatar), centred on the line. A glyph or text
+    /// leading takes the title's ink when the row is destructive.
     pub fn leading(mut self, leading: LayoutNode) -> Self {
         self.leading = Some(leading);
         self
     }
-    /// Trailing control (toggle, value text, badge).
+    /// A trailing control (toggle, select, badge node), as built.
     pub fn trailing(mut self, trailing: LayoutNode) -> Self {
-        self.trailing = Some(trailing);
+        self.trailing = Some(Trailing::Node(Box::new(trailing)));
         self
     }
-    /// Request a navigation disclosure chevron (rendered by the shell as an icon).
+    /// A trailing value ("Verbunden", "42 %"): body `labelSecondary`, one line, shrinking with
+    /// an ellipsis before the title gives up its room.
+    pub fn trailing_text(mut self, value: impl Into<String>) -> Self {
+        self.trailing = Some(Trailing::Text(value.into()));
+        self
+    }
+    /// The disclosure chevron (`chevron-right` 16, `labelTertiary`).
     pub fn show_chevron(mut self, show: bool) -> Self {
         self.show_chevron = show;
         self
     }
-    /// Render the title (and, by convention, leading) in the danger color.
+    /// The title and a glyph leading in `danger`.
     pub fn destructive(mut self, destructive: bool) -> Self {
         self.destructive = destructive;
+        self
+    }
+    /// A count badge (20 px capsule, `danger` unless [`Self::badge_tint`] says otherwise).
+    pub fn badge(mut self, badge: impl Into<String>) -> Self {
+        self.badge = Some(badge.into());
+        self
+    }
+    pub fn badge_tint(mut self, tint: ColorToken) -> Self {
+        self.badge_tint = tint;
+        self
+    }
+    /// The persistent `fill` layer of the current item (a sidebar-style highlight). A
+    /// selectable row shows its selection by circle or check instead.
+    pub fn selected(mut self, selected: bool) -> Self {
+        self.selected = selected;
+        self
+    }
+    /// Multi-selection: the row carries a selection circle (or check) driven by `selected`.
+    pub fn selectable(mut self, selectable: bool) -> Self {
+        self.selectable = selectable;
+        self
+    }
+    pub fn selection_style(mut self, style: SelectionStyle) -> Self {
+        self.selection_style = style;
+        self
+    }
+    /// The trailing reorder handle (the drag itself is the runtime's).
+    pub fn reorderable(mut self, reorderable: bool) -> Self {
+        self.reorderable = reorderable;
+        self
+    }
+    /// Dimmed to .45 and inert.
+    pub fn disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
+        self
+    }
+    /// Content below the line (a slider, a chip row), aligned to the text column, 8 px under it.
+    pub fn children(mut self, children: Vec<LayoutNode>) -> Self {
+        self.children = children;
+        self
+    }
+    /// The separator hairline (a [`List`] sets it on every row but the first).
+    pub fn separator(mut self, separator: RowSeparator) -> Self {
+        self.separator = separator;
+        self
+    }
+    /// Padding and minimum height (a [`List`] sets its appearance's and density's).
+    pub fn metrics(mut self, metrics: RowMetrics) -> Self {
+        self.metrics = metrics;
+        self
+    }
+    /// The cell's corners (a [`List`] gives its first and last rows the group's), so the
+    /// selected layer stays inside the group's shape.
+    pub fn corner_radius(mut self, corners: CornerRadius) -> Self {
+        self.corners = corners;
         self
     }
     pub fn id(mut self, id: &'static str) -> Self {
@@ -65,130 +218,189 @@ impl ListItem {
         self
     }
 
-    /// Whether the shell should render the disclosure chevron.
+    /// Whether the row draws the disclosure chevron.
     pub fn wants_chevron(&self) -> bool {
         self.show_chevron
     }
 
-    fn stack(dir: Direction, gap: i32, pad: EdgeInsets, children: Vec<LayoutNode>) -> LayoutNode {
+    fn title_column(
+        tokens: &dyn Tokens,
+        title: String,
+        subtitle: Option<String>,
+        ink: ColorToken,
+    ) -> LayoutNode {
+        let mut col: Vec<LayoutNode> =
+            alloc::vec![Text::new(title).weight(FontWeight::Medium).color(ink).build(tokens)];
+        if let Some(subtitle) = subtitle {
+            col.push(
+                Text::new(subtitle)
+                    .text_style(TextStyleToken::Footnote)
+                    .color(ColorToken::LabelSecondary)
+                    .build(tokens),
+            );
+        }
         LayoutNode::Stack(
             Stack {
-                id: None,
-                direction: dir,
-                gap: FxPx::new(gap),
-                padding: pad,
-                align: Align::Center,
-                justify: Justify::Start,
-                overflow: Overflow::Visible,
-                flex_wrap: false,
-                min_width: None,
-                max_width: None,
-                min_height: None,
-                max_height: None,
-                item: FlexItem::default(),
-                text_fit: None,
+                direction: Direction::Column,
+                item: FlexItem { flex_grow: 1, ..FlexItem::default() },
+                ..Stack::default()
             },
             VisualStyle::default(),
-            children,
+            col,
         )
     }
 
     /// Build the list-row node.
     pub fn build(self, tokens: &dyn Tokens) -> LayoutNode {
-        let title_color = if self.destructive { ColorToken::Danger } else { ColorToken::OnSurface };
+        let ListItem {
+            title,
+            subtitle,
+            leading,
+            trailing,
+            show_chevron,
+            destructive,
+            badge,
+            badge_tint,
+            selected,
+            selectable,
+            selection_style,
+            reorderable,
+            disabled,
+            children,
+            separator,
+            metrics: m,
+            corners,
+            id,
+        } = self;
+        let ink = if destructive { ColorToken::Danger } else { ColorToken::Label };
+        let two_lines = subtitle.is_some();
 
-        // Title column (title + optional subtitle), left-aligned.
-        let mut text_col: Vec<LayoutNode> = Vec::new();
-        text_col.push(
-            Text::new(self.title).weight(FontWeight::Medium).color(title_color).build(tokens),
+        // The line: text column + everything trailing.
+        let mut line: Vec<LayoutNode> =
+            alloc::vec![Self::title_column(tokens, title, subtitle, ink)];
+        match trailing {
+            Some(Trailing::Node(node)) => line.push(*node),
+            Some(Trailing::Text(value)) => {
+                line.push(Text::new(value).color(ColorToken::LabelSecondary).build(tokens));
+            }
+            None => {}
+        }
+        if selectable && selection_style == SelectionStyle::Checkmark {
+            line.push(parts::trailing_check(tokens, selected));
+        }
+        if let Some(text) = badge {
+            line.push(parts::badge(tokens, text, badge_tint));
+        }
+        if show_chevron {
+            line.push(parts::chevron(tokens));
+        }
+        if reorderable {
+            line.push(parts::reorder_handle(tokens));
+        }
+        let line = LayoutNode::Stack(
+            Stack {
+                direction: Direction::Row,
+                gap: FxPx::new(COLUMN_GAP),
+                align: Align::Center,
+                ..Stack::default()
+            },
+            VisualStyle::default(),
+            line,
         );
-        if let Some(subtitle) = self.subtitle {
-            text_col.push(Text::caption(subtitle).build(tokens));
-        }
-        let text_stack = match Self::stack(Direction::Column, 2, EdgeInsets::zero(), text_col) {
-            LayoutNode::Stack(mut s, v, c) => {
-                s.align = Align::Start;
-                LayoutNode::Stack(s, v, c)
+
+        // The text column spans from the text x to the trailing edge: it carries the vertical
+        // and trailing padding, the content below the line and the inset separator.
+        let below = !children.is_empty();
+        let mut text_col = alloc::vec![line];
+        text_col.extend(children);
+        let text_col = LayoutNode::Stack(
+            Stack {
+                direction: Direction::Column,
+                gap: FxPx::new(ROW_GAP),
+                padding: EdgeInsets {
+                    top: FxPx::new(m.pad_y),
+                    right: FxPx::new(m.pad_x),
+                    bottom: FxPx::new(m.pad_y),
+                    left: FxPx::ZERO,
+                },
+                align: Align::Stretch,
+                justify: Justify::Center,
+                item: FlexItem {
+                    flex_grow: 1,
+                    align_self: Some(Align::Stretch),
+                    ..FlexItem::default()
+                },
+                ..Stack::default()
+            },
+            VisualStyle {
+                border: hairline_if(tokens, separator == RowSeparator::Inset),
+                ..VisualStyle::default()
+            },
+            text_col,
+        );
+
+        // The leading parts sit on the line; with content below, they keep to the line's
+        // centre instead of the whole row's.
+        let line_h = if two_lines { 36 } else { 20 };
+        let on_line = |node: LayoutNode| -> LayoutNode {
+            if !below {
+                return node;
             }
-            other => other,
+            let h = node.min_width().map_or(line_h, |w| w.0);
+            with_top_margin(node, m.pad_y + (line_h - h).max(0) / 2)
         };
-
         let mut row: Vec<LayoutNode> = Vec::new();
-        if let Some(leading) = self.leading {
-            row.push(leading);
+        if selectable && selection_style == SelectionStyle::Circle {
+            row.push(on_line(parts::selection_circle(tokens, selected)));
         }
-        row.push(text_stack);
-        row.push(LayoutNode::Spacer(Spacer {
-            id: None,
-            flex_grow: 1,
-            min_size: Some(FxPx::new(8)),
-            item: FlexItem::default(),
-        }));
-        if let Some(trailing) = self.trailing {
-            row.push(trailing);
+        if let Some(node) = leading {
+            let node = if destructive { with_ink(node, tokens.color(ink)) } else { node };
+            row.push(on_line(node));
         }
+        row.push(text_col);
 
-        match Self::stack(
-            Direction::Row,
-            12,
-            EdgeInsets::symmetric(FxPx::new(10), FxPx::new(12)),
+        let highlight = selected && !selectable;
+        LayoutNode::Stack(
+            Stack {
+                id,
+                direction: Direction::Row,
+                gap: FxPx::new(COLUMN_GAP),
+                padding: EdgeInsets { left: FxPx::new(m.pad_x), ..EdgeInsets::zero() },
+                align: if below { Align::Start } else { Align::Center },
+                min_height: Some(FxPx::new(m.min_height)),
+                ..Stack::default()
+            },
+            VisualStyle {
+                background: highlight.then(|| tokens.color(ColorToken::Fill)),
+                corner_radius: corners,
+                // A list row dims with the value controls (0.45).
+                opacity: disabled.then_some(Dim::Control.opacity()),
+                border: hairline_if(tokens, separator == RowSeparator::Full),
+                ..VisualStyle::default()
+            },
             row,
-        ) {
-            LayoutNode::Stack(mut s, v, c) => {
-                s.id = self.id;
-                LayoutNode::Stack(s, v, c)
-            }
-            other => other,
-        }
+        )
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use nexus_layout_types::Spacer as Sp;
-    use nexus_theme_tokens::BaseTokens;
-
-    fn ctrl() -> LayoutNode {
-        LayoutNode::Spacer(Sp {
-            id: None,
-            flex_grow: 0,
-            min_size: Some(FxPx::new(20)),
-            item: FlexItem::default(),
-        })
+/// The separator: a hairline along the top edge, or no edge.
+fn hairline_if(tokens: &dyn Tokens, on: bool) -> EdgeBorder {
+    if !on {
+        return EdgeBorder::none();
     }
+    let line = Border { width: HAIRLINE, color: tokens.color(ColorToken::Separator) };
+    EdgeBorder { top: Some(line), ..EdgeBorder::none() }
+}
 
-    #[test]
-    fn row_has_title_stack_spacer_and_trailing() {
-        let t = BaseTokens;
-        match ListItem::new("WLAN").subtitle("Verbunden").trailing(ctrl()).id("wifi").build(&t) {
-            LayoutNode::Stack(stack, _, children) => {
-                assert_eq!(stack.id, Some("wifi"));
-                assert_eq!(stack.direction, Direction::Row);
-                // title-stack + spacer + trailing (no leading here).
-                assert_eq!(children.len(), 3);
-            }
-            _ => panic!(),
-        }
-    }
-
-    #[test]
-    fn destructive_and_chevron_flag() {
-        let t = BaseTokens;
-        let item = ListItem::new("Abmelden").destructive(true).show_chevron(true);
-        assert!(item.wants_chevron());
-        // Title text is danger-colored.
-        match item.build(&t) {
-            LayoutNode::Stack(_, _, children) => match &children[0] {
-                LayoutNode::Stack(_, _, tc) => match &tc[0] {
-                    LayoutNode::Text(n, _) => {
-                        assert_eq!(n.style.color, t.color(ColorToken::Danger))
-                    }
-                    _ => panic!(),
-                },
-                _ => panic!(),
-            },
-            _ => panic!(),
-        }
-    }
+/// `node` pushed `top` px down from the start of its cross axis.
+fn with_top_margin(mut node: LayoutNode, top: i32) -> LayoutNode {
+    let item = match &mut node {
+        LayoutNode::Stack(s, _, _) => &mut s.item,
+        LayoutNode::Grid(g, _, _) => &mut g.item,
+        LayoutNode::Text(t, _) => &mut t.item,
+        LayoutNode::TextInput(t, _) => &mut t.item,
+        LayoutNode::Spacer(s) => &mut s.item,
+    };
+    item.margin.top = FxPx::new(top);
+    node
 }

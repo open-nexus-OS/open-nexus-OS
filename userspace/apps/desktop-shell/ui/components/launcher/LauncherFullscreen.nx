@@ -14,16 +14,16 @@ Component LauncherFullscreen {
         Stack {
             Spacer
             Stack {
-                Text(@t("launcher.greeting")).textSize(xl).fontWeight(bold).fg(onSurface)
-                Text($state.date).textSize(sm).fg(onSurfaceVariant)
+                Text(@t("launcher.greeting")).textStyle(title1).fg(label)
+                Text($state.date).textStyle(footnote).fg(labelSecondary)
             }
-            .gap(1)
+            .gap(4)
             .align(center)
             Spacer
             if device.profile == desktop {
                 Stack {
                     Icon { symbol: "minimize", size: 15 }
-                        .fg(onSurface)
+                        .fg(label)
                 }
                 .width(36)
                 .height(36)
@@ -37,7 +37,7 @@ Component LauncherFullscreen {
             }
             Stack {
                 Icon { symbol: "xmark", size: 16 }
-                    .fg(onSurface)
+                    .fg(label)
             }
             .width(36)
             .height(36)
@@ -49,8 +49,8 @@ Component LauncherFullscreen {
         }
         .direction(row)
         .align(center)
-        .gap(2)
-        .paddingX(6)
+        .gap(8)
+        .paddingX(24)
         Stack {
             Spacer
             Stack {
@@ -64,8 +64,8 @@ Component LauncherFullscreen {
         LauncherPager { }
     }
     .grow(1)
-    .gap(4)
-    .paddingY(6)
+    .gap(16)
+    .paddingY(24)
     .material(panel)
     .transition(slideUp)
 }

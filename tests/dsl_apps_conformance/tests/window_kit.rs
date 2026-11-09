@@ -1,36 +1,58 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// `WinAppWindow` (RFC-0084): the window scaffold whose regions are transparent,
-// FULL STOP — there is no panel flag any more. A region that wants a surface
-// gets one because the app wrote `Panel { … }` in the slot body.
+// The window kit (RFC-0084; TASK-0353 P7 — the design artifacts' window primitives) as one
+// program: every component inlined, a minimal store of the kit's contract, and pages that use
+// them. Two kinds of claims live here.
 //
-// So the contract worth testing moved: it is no longer "the flag paints one
-// panel" but "the scaffold paints NONE, and whatever the body writes survives
-// the splice with the region's geometry intact".
+// - The SCAFFOLD contract (`WinAppWindow`): inline regions paint nothing — a region that wants a
+//   surface gets one because the app wrote it (a `WinPane`, a `Panel`) — and whatever the body
+//   writes survives the splice with the region's geometry intact; the tiers move the panes out
+//   of flow, and out of flow the kit frames them on the overlay surface.
+// - The DESIGN contract of each part, as geometry and behaviour: the 52 px chrome with its
+//   circles and a toolbar centred on the window, the window menu under the chip, the app menu
+//   under the ⋮, menu rows, the alert that closes on a backdrop tap, the modal, the pane, the
+//   rows and the floating action bar.
 
 // reason: test harness — a failed compile/mount step must panic loudly.
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-use nexus_dsl_runtime::{FixtureEnv, IdentityLocale, View};
-use nexus_layout_types::{FxPx, LayoutNode, SurfaceMaterial};
+mod common;
 
-/// The kit component under test, inlined so the fixture stays one file (the
-/// real app pulls it through `dependencies = ["window-kit"]`) — with the window
-/// menu it mounts (TASK-0066) and that menu's parts.
-const KIT: &str = include_str!("../../../userspace/apps/window-kit/ui/components/WinAppWindow.nx");
-const MENU: &str = include_str!("../../../userspace/apps/window-kit/ui/components/WinAppMenu.nx");
-const GLYPH: &str =
-    include_str!("../../../userspace/apps/window-kit/ui/components/WinTileGlyph.nx");
-const ITEM: &str = include_str!("../../../userspace/apps/window-kit/ui/components/WinMenuItem.nx");
+use nexus_dsl_runtime::interact::HandlerAction;
+use nexus_dsl_runtime::{DismissReason, FixtureEnv, IdentityLocale, Value, View};
+use nexus_layout::LayoutBox;
+use nexus_layout_types::{FxPx, LayoutNode, Material, Position};
+use nexus_theme_tokens::BaseTokens;
 
-fn program(page: &str) -> String {
-    // Minimal store: the kit's overlay scrim/pane dispatch `WinPaneClose`/
-    // `WinNoop`, the window menu `WinMenu`/`WinAct`/`WinMenuPick`, which must
-    // be declared event cases in the mounting app; `menu` is the kit's field.
-    const STORE: &str = r#"Store S {
+/// Every kit component (an app pulls them through `dependencies = ["window-kit"]`).
+/// The kit's every component file, read from its folder (sorted): a new part of the kit needs
+/// no list here.
+fn kit() -> String {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../userspace/apps/window-kit/ui/components");
+    let mut files: Vec<std::path::PathBuf> = std::fs::read_dir(&dir)
+        .expect("the kit's components")
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().is_some_and(|x| x == "nx"))
+        .collect();
+    files.sort();
+    files
+        .iter()
+        .map(|p| std::fs::read_to_string(p).expect("a kit file"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The kit's store contract (fields the chrome reads, every event a kit part dispatches).
+const STORE: &str = r#"Store S {
     x: Int = 0,
     menu: Str = "",
+    leftOpen: Int = 1,
+    rightOpen: Int = 1,
+    paneL: Int = 0,
+    paneR: Int = 0,
+    shown: Bool = true,
 }
 
 Event E {
@@ -39,85 +61,47 @@ Event E {
     WinMenu(Str),
     WinAct(Str),
     WinMenuPick(Str),
+    WinLeft,
+    WinRight,
+    WinTool(Str),
+    WinNav(Str),
+    ModalClose(Str),
+    AlertConfirm(Str),
+    AlertCancel(Str),
+    ToastDismiss(Str),
 }
 
 reduce E {
     WinNoop => state.x = state.x,
     WinPaneClose => state.x = state.x,
     WinMenu(m) => state.menu = m,
-    WinAct(a) => state.x = state.x,
-    WinMenuPick(id) => state.x = state.x,
+    WinAct(a) => state.x = 1,
+    WinMenuPick(id) => state.x = 2,
+    WinLeft => state.leftOpen = 0,
+    WinRight => state.rightOpen = 0,
+    WinTool(t) => state.x = 3,
+    WinNav(d) => state.x = 4,
+    ModalClose(id) => state.shown = false,
+    AlertConfirm(id) => state.x = 5,
+    AlertCancel(id) => state.shown = false,
+    ToastDismiss(id) => state.shown = false,
 }"#;
-    format!("{GLYPH}\n{ITEM}\n{MENU}\n{KIT}\n{STORE}\n{page}\n")
-}
 
-fn compile(src: &str) -> Vec<u8> {
-    let file = nexus_dsl_core::parse_file(src).expect("parses");
+fn compile(page: &str) -> Vec<u8> {
+    let src = format!("{}\n{STORE}\n{page}\n", kit());
+    let file = nexus_dsl_core::parse_file(&src).expect("parses");
     let (model, diags) = nexus_dsl_core::check_file(&file);
     assert!(!nexus_dsl_core::has_errors(&diags), "check: {diags:?}");
     let canonical = nexus_dsl_core::format_file(&file);
     nexus_dsl_core::lower_file(&file, &model, &canonical).expect("lowers").nxir
 }
 
-fn children(node: &LayoutNode) -> &[LayoutNode] {
-    match node {
-        LayoutNode::Stack(_, _, children) | LayoutNode::Grid(_, _, children) => children,
-        _ => &[],
-    }
-}
+/// The effect host: the kit's window effects have nowhere to go in a fixture.
+struct Sink;
 
-/// How many nodes in the scene paint a glass surface — i.e. how many `Panel`s
-/// actually made it through.
-fn glass_count(node: &LayoutNode) -> usize {
-    fn walk(node: &LayoutNode, out: &mut usize) {
-        if let LayoutNode::Stack(_, visual, _) = node {
-            if matches!(visual.material, SurfaceMaterial::Glass(_)) {
-                *out += 1;
-            }
-        }
-        for child in children(node) {
-            walk(child, out);
-        }
-    }
-    let mut out = 0;
-    walk(node, &mut out);
-    out
-}
-
-fn texts(node: &LayoutNode) -> Vec<String> {
-    fn walk(node: &LayoutNode, out: &mut Vec<String>) {
-        if let LayoutNode::Text(text, _) = node {
-            out.push(String::from(text.content.as_str()));
-        }
-        for child in children(node) {
-            walk(child, out);
-        }
-    }
-    let mut out = Vec::new();
-    walk(node, &mut out);
-    out
-}
-
-struct Mounted {
-    nxir: Vec<u8>,
-}
-
-impl Mounted {
-    fn new(page: &str) -> Self {
-        Self { nxir: compile(&program(page)) }
-    }
-
-    fn with<R>(&self, f: impl FnOnce(&View<'_>) -> R) -> R {
-        self.with_env(FixtureEnv::default(), f)
-    }
-
-    fn with_env<R>(&self, device: FixtureEnv, f: impl FnOnce(&View<'_>) -> R) -> R {
-        let tokens = nexus_theme_tokens::BaseTokens;
-        let symbols: Vec<String> = Vec::new();
-        let keys: Vec<u32> = Vec::new();
-        let locale = IdentityLocale { symbols: &symbols, keys: &keys };
-        let view = View::mount(&self.nxir, &tokens, &device, &locale).expect("mounts");
-        f(&view)
+impl nexus_dsl_runtime::EffectHost for Sink {
+    fn call(&mut self, _: &str, _: &str, _: &[Value]) -> Result<Value, u32> {
+        Ok(Value::Bool(true))
     }
 }
 
@@ -127,6 +111,171 @@ fn env(size_class: &'static str) -> FixtureEnv {
     env.size_class = size_class;
     env
 }
+
+/// A mounted fixture: the view, its symbols and the device it was mounted for.
+struct Kit<'p> {
+    view: View<'p>,
+    symbols: Vec<String>,
+    device: FixtureEnv,
+}
+
+impl<'p> Kit<'p> {
+    fn mount(nxir: &'p [u8], device: FixtureEnv) -> Self {
+        let symbols = common::program_symbols(nxir);
+        let keys: Vec<u32> = Vec::new();
+        let view = {
+            let locale = IdentityLocale { symbols: &symbols, keys: &keys };
+            View::mount(nxir, &BaseTokens, &device, &locale).expect("mounts")
+        };
+        Self { view, symbols, device }
+    }
+
+    fn scene(&self) -> &LayoutNode {
+        self.view.scene()
+    }
+
+    fn boxes(&self, w: i32, h: i32) -> Vec<LayoutBox> {
+        nexus_layout::LayoutEngine::new()
+            .layout_with_viewport(
+                self.scene(),
+                FxPx::new(w),
+                Some(FxPx::new(h)),
+                &nexus_text_baked::measure_text::BakedTextMeasure,
+            )
+            .expect("lays out")
+            .boxes
+    }
+
+    fn dispatch(&mut self, case: &str, payload: Vec<Value>) {
+        common::dispatch(
+            &mut self.view,
+            &self.device,
+            &mut Sink,
+            &self.symbols,
+            "E",
+            case,
+            payload,
+        );
+    }
+
+    fn tap(&mut self, boxes: &[LayoutBox], (x, y): (i32, i32)) {
+        let keys: Vec<u32> = Vec::new();
+        let locale = IdentityLocale { symbols: &self.symbols, keys: &keys };
+        let (x, y) = (FxPx::new(x), FxPx::new(y));
+        self.view
+            .pointer_scrolled(
+                &BaseTokens,
+                &self.device,
+                &locale,
+                &mut Sink,
+                boxes,
+                "Tap",
+                x,
+                y,
+                &[],
+            )
+            .expect("tap runs");
+    }
+
+    fn field(&self, name: &str) -> Value {
+        self.view.runtime.field("S", name).cloned().expect("field")
+    }
+
+    /// The boxes of every Tap handler dispatching `case` (with `payload`, when given).
+    fn handler_boxes(
+        &self,
+        boxes: &[LayoutBox],
+        case: &str,
+        payload: Option<&str>,
+    ) -> Vec<LayoutBox> {
+        let (e, c) = self.view.runtime.event_case("E", case).expect("case");
+        let tap = self.symbols.iter().position(|s| s == "Tap").expect("Tap") as u32;
+        let want = payload.map(|p| Value::Str(p.to_string()));
+        self.view
+            .handlers()
+            .iter()
+            .filter(|(_, h)| {
+                h.trigger == tap
+                    && matches!(&h.action, HandlerAction::Dispatch { event, case, payload: p }
+                        if *event == e && *case == c && want.as_ref().is_none_or(|w| p.first() == Some(w)))
+            })
+            .filter_map(|(id, _)| boxes.iter().find(|b| b.node_id == *id).cloned())
+            .collect()
+    }
+}
+
+/// `(x, y, w, h)` of a box.
+fn r(b: &LayoutBox) -> (i32, i32, i32, i32) {
+    (b.rect.x.as_i32(), b.rect.y.as_i32(), b.rect.width.as_i32(), b.rect.height.as_i32())
+}
+
+/// The scene's nodes in the layout engine's numbering: the root is 1, a stack's in-flow
+/// children come before its `.overlay()` ones (the walk app-host paints and hit-tests by).
+fn numbered(node: &LayoutNode) -> Vec<(usize, &LayoutNode)> {
+    fn walk<'a>(node: &'a LayoutNode, next: &mut usize, out: &mut Vec<(usize, &'a LayoutNode)>) {
+        *next += 1;
+        out.push((*next, node));
+        match node {
+            LayoutNode::Stack(_, _, children) => {
+                let absolute = |c: &&LayoutNode| matches!(c.item().position, Position::Absolute);
+                for child in children.iter().filter(|c| !absolute(c)) {
+                    walk(child, next, out);
+                }
+                for child in children.iter().filter(absolute) {
+                    walk(child, next, out);
+                }
+            }
+            LayoutNode::Grid(_, _, children) => {
+                for child in children {
+                    walk(child, next, out);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    walk(node, &mut 0, &mut out);
+    out
+}
+
+/// Every Text content in the scene, pre-order (the slot bodies' labels).
+fn texts(node: &LayoutNode) -> Vec<String> {
+    numbered(node)
+        .into_iter()
+        .filter_map(|(_, n)| match n {
+            LayoutNode::Text(text, _) => Some(String::from(text.content.as_str())),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The laid-out box of the Text reading `content`.
+fn text_box(scene: &LayoutNode, boxes: &[LayoutBox], content: &str) -> LayoutBox {
+    let id = numbered(scene)
+        .into_iter()
+        .find(|(_, n)| matches!(n, LayoutNode::Text(t, _) if t.content.as_str() == content))
+        .map(|(id, _)| id)
+        .unwrap_or_else(|| panic!("no text {content:?}"));
+    boxes.iter().find(|b| b.node_id == id).cloned().expect("text box")
+}
+
+/// The materials painted in the scene, pre-order.
+fn materials(node: &LayoutNode) -> Vec<Material> {
+    numbered(node)
+        .into_iter()
+        .filter_map(|(_, n)| match n {
+            LayoutNode::Stack(_, visual, _) | LayoutNode::Grid(_, visual, _) => visual.material,
+            _ => None,
+        })
+        .collect()
+}
+
+/// The laid-out boxes carrying `material`, pre-order.
+fn material_boxes(boxes: &[LayoutBox], material: Material) -> Vec<LayoutBox> {
+    boxes.iter().filter(|b| b.visual.material == Some(material)).cloned().collect()
+}
+
+// ── the scaffold ────────────────────────────────────────────────────────────────────────────
 
 /// A page using the scaffold with the given props and content body.
 fn page(flags: &str, content: &str) -> String {
@@ -148,203 +297,417 @@ fn page(flags: &str, content: &str) -> String {
 }
 
 const SHOWN: &str = "showSidebar: true, showProps: true";
+const OVERLAYS: &str =
+    "showSidebar: true, showProps: true, sidebarOverlay: true, propsOverlay: true";
+const BARE: &str = r#"            Text("body")"#;
+const PANELLED: &str = r#"            Panel {
+                Text("body")
+            }
+            .grow(1)"#;
 
 #[test]
 fn the_scaffold_compiles_and_mounts() {
-    Mounted::new(&page(SHOWN, r#"            Text("body")"#)).with(|view| {
-        assert_eq!(texts(view.scene()), ["nav", "body", "props"]);
-    });
+    let nxir = compile(&page(SHOWN, BARE));
+    let kit = Kit::mount(&nxir, FixtureEnv::default());
+    assert_eq!(texts(kit.scene()), ["nav", "body", "props"]);
 }
 
 #[test]
 fn the_scaffold_paints_no_surface_of_its_own() {
-    // The whole point, and the reason the three `*Panel` flags are gone: the
-    // kit contributes geometry, never paint. Bodies of bare `Text` ⇒ zero glass
-    // anywhere in the scene, at every tier.
-    let mounted = Mounted::new(&page(SHOWN, r#"            Text("body")"#));
+    // The kit contributes geometry, never paint, to the inline regions: bodies of bare `Text`
+    // ⇒ no surface anywhere in the scene, at every tier, while no pane is out of flow.
+    let nxir = compile(&page(SHOWN, BARE));
     for tier in ["wide", "regular", "compact"] {
-        mounted.with_env(env(tier), |view| {
-            assert_eq!(glass_count(view.scene()), 0, "{tier}: the kit painted a surface");
-        });
+        let kit = Kit::mount(&nxir, env(tier));
+        assert_eq!(materials(kit.scene()), [], "{tier}: the kit painted a surface");
     }
 }
 
 #[test]
-fn a_body_may_write_any_number_of_panels() {
-    // Zero, one, three — the app decides by writing markup, not by flipping a
-    // flag. Three in one region is the settings case, which under the old
-    // flag design needed `contentPanel: false` plus hand-rolled panels.
-    let one = r#"            Panel {
-                Text("body")
-            }"#;
-    Mounted::new(&page(SHOWN, one)).with(|view| {
-        assert_eq!(glass_count(view.scene()), 1);
-    });
-
-    let three = r#"            Panel {
-                Text("one")
-            }
-            Panel {
-                Text("two")
-            }
-            Panel {
-                Text("three")
-            }"#;
-    Mounted::new(&page(SHOWN, three)).with(|view| {
-        assert_eq!(glass_count(view.scene()), 3);
-        assert_eq!(texts(view.scene()), ["nav", "one", "two", "three", "props"]);
-    });
-}
-
-/// A panel in a body can pick its own glass LEVEL. This is what the flag design
-/// could not express without one prop per level, and it is what the file-manager
-/// design needs: content and properties are `windowPane` (a pane on window
-/// glass), not `panel` (a tile on the wallpaper).
-#[test]
-fn a_body_panel_chooses_its_own_glass_level() {
-    use nexus_layout_types::GlassLevel;
-    let body = r#"            Panel {
-                Text("body")
-            }
-            .material(windowPane)"#;
-    Mounted::new(&page(SHOWN, body)).with(|view| {
-        let mut levels = Vec::new();
-        fn walk(node: &LayoutNode, out: &mut Vec<GlassLevel>) {
-            if let LayoutNode::Stack(_, visual, _) = node {
-                if let SurfaceMaterial::Glass(level) = visual.material {
-                    out.push(level);
-                }
-            }
-            for child in children(node) {
-                walk(child, out);
-            }
-        }
-        walk(view.scene(), &mut levels);
-        assert_eq!(levels, [GlassLevel::WindowPane]);
-    });
+fn a_body_may_write_any_number_of_panels_at_its_own_level() {
+    // Zero, one, three — the app decides by writing markup, not by flipping a flag; and each
+    // picks its own material (`pane` inside a window, the opaque level a content pane sits on).
+    let nxir = compile(&page(SHOWN, PANELLED));
+    assert_eq!(materials(Kit::mount(&nxir, FixtureEnv::default()).scene()), [Material::Panel]);
+    let three = r#"            Panel { Text("one") }.material(pane)
+            Panel { Text("two") }.material(pane)
+            Panel { Text("three") }.material(pane)"#;
+    let nxir = compile(&page(SHOWN, three));
+    let kit = Kit::mount(&nxir, FixtureEnv::default());
+    assert_eq!(materials(kit.scene()), [Material::Pane; 3]);
+    assert_eq!(texts(kit.scene()), ["nav", "one", "two", "three", "props"]);
 }
 
 #[test]
 fn a_hidden_region_contributes_nothing() {
-    let flags = "showSidebar: false, showProps: false";
-    Mounted::new(&page(flags, r#"            Text("body")"#)).with(|view| {
-        // The sidebar and properties BODIES are still bound by the caller;
-        // the scaffold simply never places their placeholders.
-        assert_eq!(texts(view.scene()), ["body"]);
-    });
+    // The sidebar and properties BODIES are still bound by the caller; the scaffold simply
+    // never places their placeholders.
+    let nxir = compile(&page("showSidebar: false, showProps: false", BARE));
+    assert_eq!(texts(Kit::mount(&nxir, FixtureEnv::default()).scene()), ["body"]);
 }
 
 #[test]
-fn writing_a_panel_into_a_body_keeps_the_region_rects() {
-    // The regions are fixed geometry: sidebar 240 · content fills · properties
-    // 260, whatever the bodies contain. An app can add or drop a surface
-    // without re-tuning the window's proportions.
-    //
-    // What legitimately moves is the content INSIDE a panelled region — a
-    // `Panel` brings its own padding, which is the whole point of it.
-    let geometry = |body: &str| -> Vec<(i32, i32, i32, i32)> {
-        let mounted = Mounted::new(&page(SHOWN, body));
-        mounted.with(|view| {
-            let engine = nexus_layout::LayoutEngine::new();
-            let layout = engine
-                .layout_with_viewport(
-                    view.scene(),
-                    FxPx::new(1280),
-                    Some(FxPx::new(800)),
-                    &nexus_text_baked::measure_text::BakedTextMeasure,
-                )
-                .expect("lays out");
-            layout
-                .boxes
-                .iter()
-                .map(|b| {
-                    (
-                        b.rect.x.as_i32(),
-                        b.rect.y.as_i32(),
-                        b.rect.width.as_i32(),
-                        b.rect.height.as_i32(),
-                    )
-                })
-                .collect()
-        })
+fn the_regions_sit_8_px_apart_and_a_body_panel_cannot_move_them() {
+    // Body inset 0 8 8, regions 8 apart: sidebar 240 · content the rest · properties 240 at
+    // 1280×800 — whatever the bodies contain. A panel in the content body fills its region
+    // exactly (the pane radius 16 is then concentric with the window's 24).
+    let geometry = |content: &str, flags: &str| {
+        let nxir = compile(&page(flags, content));
+        let kit = Kit::mount(&nxir, FixtureEnv::default());
+        let boxes = kit.boxes(1280, 800);
+        let nav = r(&text_box(kit.scene(), &boxes, "nav"));
+        let props = r(&text_box(kit.scene(), &boxes, "props"));
+        let panel = material_boxes(&boxes, Material::Panel).first().map(r);
+        (nav, props, panel)
     };
-    // The three regions are the full-height boxes below the root.
-    let regions = |body: &str| -> Vec<(i32, i32, i32, i32)> {
-        let mut rects: Vec<_> = geometry(body)
-            .into_iter()
-            .skip(1)
-            // Full-height boxes below the root, minus the row WRAPPER the
-            // responsive split added (P7): the wrapper spans the full width.
-            .filter(|(_, y, w, h)| *y == 0 && *h == 800 && *w < 1280)
-            .collect();
-        rects.sort_unstable();
-        rects
-    };
-    let bare = regions(r#"            Text("body")"#);
-    let panelled = regions(
-        r#"            Panel {
-                Text("body")
-            }
-            .grow(1)"#,
+    let (nav, props, _) = geometry(BARE, SHOWN);
+    assert_eq!((nav.0, nav.1, nav.2), (8, 0, 240), "the sidebar region");
+    assert_eq!((props.0, props.1, props.2), (1032, 0, 240), "the properties region");
+    let (nav2, props2, panel) = geometry(PANELLED, SHOWN);
+    assert_eq!((nav, props), (nav2, props2), "a body's panel must not move or resize a region");
+    assert_eq!(panel, Some((256, 0, 768, 792)), "the content panel fills its region");
+
+    // The app sizes its side regions (the settings design: 284; the files design 248 · 272).
+    let (nav, props, panel) = geometry(
+        PANELLED,
+        "showSidebar: true, showProps: true, sidebarWidth: 248, propsWidth: 272",
     );
-    assert_eq!(
-        bare,
-        [(0, 0, 240, 800), (240, 0, 780, 800), (1020, 0, 260, 800)],
-        "sidebar 240 · content fills the rest · properties 260"
-    );
-    assert_eq!(bare, panelled, "a body's panel must not move or resize a region");
+    assert_eq!((nav.0, nav.2, props.0, props.2), (8, 248, 1000, 272));
+    assert_eq!(panel, Some((264, 0, 728, 792)));
 }
 
 #[test]
 fn responsive_tiers_move_panes_out_of_flow() {
-    // RFC-0084 P7 (tiers 640/1024): wide keeps all three zones inline,
-    // regular drops the inline properties pane, compact drops the inline
-    // sidebar too — content alone owns the width.
-    let mounted = Mounted::new(&page(SHOWN, r#"            Text("body")"#));
-    mounted.with_env(env("wide"), |view| {
-        assert_eq!(texts(view.scene()), ["nav", "body", "props"]);
-    });
-    mounted.with_env(env("regular"), |view| {
-        assert_eq!(texts(view.scene()), ["nav", "body"], "regular: properties leave the flow");
-    });
-    mounted.with_env(env("compact"), |view| {
-        assert_eq!(texts(view.scene()), ["body"], "compact: content alone");
-    });
+    // RFC-0084 P7, the design's modes on the platform's tiers: wide keeps both side zones
+    // inline (desktop), regular moves the sidebar out (compact), compact both (mobile).
+    let nxir = compile(&page(SHOWN, BARE));
+    let tier = |t| texts(Kit::mount(&nxir, env(t)).scene());
+    assert_eq!(tier("wide"), ["nav", "body", "props"]);
+    assert_eq!(tier("regular"), ["body", "props"], "regular: the sidebar leaves the flow");
+    assert_eq!(tier("compact"), ["body"], "compact: content alone");
 }
 
 #[test]
-fn overlay_flags_bring_the_panes_back() {
-    // The out-of-flow panes come back as OVERLAY panes (caller-controlled
-    // flags). The kit no longer wraps them: the pane IS the app's own body, so
-    // a body of bare `Text` floats WITHOUT a surface. That is the documented
-    // consequence of the app owning its panels — asserted here rather than
-    // hidden, because it is the one thing a caller has to remember.
-    let flags = "showSidebar: true, showProps: true, sidebarOverlay: true, propsOverlay: true";
-    let mounted = Mounted::new(&page(flags, r#"            Text("body")"#));
-    mounted.with_env(env("compact"), |view| {
-        assert_eq!(texts(view.scene()), ["body", "nav", "props"], "both panes overlay");
-        assert_eq!(glass_count(view.scene()), 0, "bare bodies ⇒ unframed panes");
-    });
-    mounted.with_env(env("regular"), |view| {
-        assert_eq!(texts(view.scene()), ["nav", "body", "props"], "sidebar inline, props overlay");
-    });
-    mounted.with_env(env("wide"), |view| {
-        assert_eq!(texts(view.scene()), ["nav", "body", "props"], "wide ignores overlay flags");
-    });
+fn out_of_flow_panes_come_back_on_the_kits_overlay_surface() {
+    // The out-of-flow panes return as OVERLAY panes (caller-controlled flags), and there the
+    // kit frames them: the opaque overlay surface (it floats above the window's blur), the
+    // app's body inside it. Bare bodies ⇒ exactly the kit's surfaces; inline panes stay
+    // unframed.
+    let nxir = compile(&page(OVERLAYS, BARE));
+    let compact = Kit::mount(&nxir, env("compact"));
+    assert_eq!(texts(compact.scene()), ["body", "nav", "props"], "both panes overlay");
+    assert_eq!(materials(compact.scene()), [Material::Overlay; 2]);
+    let regular = Kit::mount(&nxir, env("regular"));
+    assert_eq!(texts(regular.scene()), ["body", "props", "nav"], "the sidebar overlays");
+    assert_eq!(materials(regular.scene()), [Material::Overlay]);
+    let wide = Kit::mount(&nxir, env("wide"));
+    assert_eq!(texts(wide.scene()), ["nav", "body", "props"], "wide ignores overlay flags");
+    assert_eq!(materials(wide.scene()), []);
+
+    // The app's own panel is not doubled: once, beside the kit's two frames.
+    let nxir = compile(&page(OVERLAYS, PANELLED));
+    let compact = Kit::mount(&nxir, env("compact"));
+    let panes = materials(compact.scene());
+    assert_eq!(panes.iter().filter(|m| **m == Material::Panel).count(), 1, "{panes:?}");
 }
 
-/// …and the fix for that consequence, which is what a real app does: put a
-/// `Panel` in the body and the overlay pane is framed at every tier.
 #[test]
-fn a_panelled_body_frames_its_overlay_pane() {
-    let flags = "showSidebar: true, showProps: true, sidebarOverlay: true, propsOverlay: true";
-    let body = r#"            Panel {
-                Text("body")
-            }"#;
-    // `page` panels only the CONTENT body, so the sidebar/properties bodies
-    // stay bare — the count therefore isolates the content panel itself.
-    let mounted = Mounted::new(&page(flags, body));
-    mounted.with_env(env("compact"), |view| {
-        assert_eq!(glass_count(view.scene()), 1, "the content panel, once");
-    });
+fn overlay_panes_take_the_design_geometry_per_tier() {
+    let nxir = compile(&page(OVERLAYS, BARE));
+    // regular (the design's compact): top 0, left 8, bottom 8, 256 wide, radius 16.
+    let kit = Kit::mount(&nxir, env("regular"));
+    let boxes = kit.boxes(1280, 800);
+    let panes = material_boxes(&boxes, Material::Overlay);
+    assert_eq!(panes.iter().map(r).collect::<Vec<_>>(), [(8, 0, 256, 792)]);
+    assert_eq!(panes[0].visual.corner_radius.top_left.as_i32(), 16);
+    // compact (the design's mobile): flush with the edge, 300 / 320 wide, the outer corners
+    // square and the inner ones 24.
+    let kit = Kit::mount(&nxir, env("compact"));
+    let boxes = kit.boxes(1280, 800);
+    let panes = material_boxes(&boxes, Material::Overlay);
+    assert_eq!(panes.iter().map(r).collect::<Vec<_>>(), [(0, 0, 300, 800), (960, 0, 320, 800)]);
+    let corners = |b: &LayoutBox| {
+        let c = b.visual.corner_radius;
+        (c.top_left.as_i32(), c.top_right.as_i32(), c.bottom_right.as_i32(), c.bottom_left.as_i32())
+    };
+    assert_eq!((corners(&panes[0]), corners(&panes[1])), ((0, 24, 24, 0), (24, 0, 0, 24)));
+}
+
+// ── the chrome and the menus ────────────────────────────────────────────────────────────────
+
+const CHROME: &str = r#"Page P {
+    Stack {
+        WinTopBar { icon: "folder", tool1: "magnifyingglass", tool2: "square.grid.2x2", tool3: "list.bullet", tool1Active: false, tool2Active: false, tool3Active: true, navBack: "arrow.left", navFwd: "arrow.right", navRefresh: "", navBackDisabled: false, navFwdDisabled: true, sideLeft: "sidebar.left", sideRight: "sidebar.right", more: "ellipsis.vertical", moreActive: false, appId: "" }
+        Spacer
+    }
+}"#;
+
+/// Whether the circle a tap handler wraps (its first child) carries the `fill` layer.
+fn pinned(kit: &Kit, boxes: &[LayoutBox], case: &str, payload: Option<&str>) -> bool {
+    let cell = &kit.handler_boxes(boxes, case, payload)[0];
+    let face = boxes.iter().find(|b| b.node_id == cell.node_id + 1).expect("face");
+    face.visual.background.is_some()
+}
+
+#[test]
+fn the_title_chrome_is_52_px_of_circles_around_a_toolbar_centred_on_the_window() {
+    let nxir = compile(CHROME);
+    let mut kit = Kit::mount(&nxir, env("wide"));
+    let boxes = kit.boxes(960, 600);
+    assert_eq!(r(&kit.handler_boxes(&boxes, "WinAct", Some("move"))[0]), (0, 0, 960, 52));
+    // The window controls: 36 px circles 2 apart, the last 12 px from the window edge.
+    let controls: Vec<_> = ["minimize", "zoom", "close"]
+        .iter()
+        .map(|a| r(&kit.handler_boxes(&boxes, "WinAct", Some(a))[0]))
+        .collect();
+    assert_eq!(controls, [(836, 8, 36, 36), (874, 8, 36, 36), (912, 8, 36, 36)]);
+    // The toolbar: back · forward (dimmed, no tap) | search | grid · list in 32 px cells,
+    // centred on the window whatever the zones beside it hold.
+    assert!(kit.handler_boxes(&boxes, "WinNav", Some("fwd")).is_empty(), "forward has no target");
+    let back = r(&kit.handler_boxes(&boxes, "WinNav", Some("back"))[0]);
+    let list = r(&kit.handler_boxes(&boxes, "WinTool", Some("list.bullet"))[0]);
+    assert_eq!((back.2, back.3, list.2, list.3), (32, 30, 32, 30));
+    assert_eq!(back.0 + list.0 + list.2, 960, "the cluster is symmetric about the centre");
+    // Active = the pinned `fill` layer: the list mode, the shown panes (wide: inline flags).
+    assert!(pinned(&kit, &boxes, "WinTool", Some("list.bullet")));
+    assert!(!pinned(&kit, &boxes, "WinTool", Some("magnifyingglass")));
+    assert!(pinned(&kit, &boxes, "WinLeft", None) && pinned(&kit, &boxes, "WinRight", None));
+    kit.dispatch("WinLeft", vec![]);
+    assert!(!pinned(&kit, &kit.boxes(960, 600), "WinLeft", None), "a hidden sidebar unpins");
+    // Below wide the sidebar is an overlay: its toggle follows the overlay flag instead.
+    let regular = Kit::mount(&nxir, env("regular"));
+    assert!(!pinned(&regular, &regular.boxes(960, 600), "WinLeft", None));
+    // The app chip opens the window menu and wears the `fill` layer while it is open.
+    let chip =
+        |kit: &Kit| kit.handler_boxes(&kit.boxes(960, 600), "WinMenu", Some("app"))[0].clone();
+    assert_eq!((r(&chip(&kit)).0, r(&chip(&kit)).3), (12, 30));
+    assert!(chip(&kit).visual.background.is_none());
+    kit.dispatch("WinMenu", vec![Value::Str("app".into())]);
+    assert!(chip(&kit).visual.background.is_some());
+}
+
+#[test]
+fn the_window_menu_opens_under_the_chip_with_thirteen_tiles() {
+    let nxir = compile(&page(SHOWN, BARE));
+    let mut kit = Kit::mount(&nxir, FixtureEnv::default());
+    assert!(kit.handler_boxes(&kit.boxes(1280, 800), "WinAct", None).is_empty(), "closed");
+    kit.dispatch("WinMenu", vec![Value::Str("app".into())]);
+    let boxes = kit.boxes(1280, 800);
+    let panel = material_boxes(&boxes, Material::Overlay);
+    let (x, y, w, _) = r(&panel[0]);
+    assert_eq!((x, y, w), (12, 0, 340), "the chip's left edge, 340 wide");
+    let acts = kit.handler_boxes(&boxes, "WinAct", None);
+    assert_eq!(acts.iter().filter(|b| r(b).3 == 36).count(), 13, "8 + 5 tiles, 36 tall");
+    assert_eq!(acts.iter().filter(|b| r(b).3 == 34).count(), 3, "three 34 px rows (+ inert)");
+    for zone in ["zone.top-half", "zone.bottom-half", "zone.return"] {
+        assert_eq!(kit.handler_boxes(&boxes, "WinAct", Some(zone)).len(), 1, "{zone}");
+    }
+    assert_eq!(kit.handler_boxes(&boxes, "WinMenu", Some("")).len(), 1, "the backdrop");
+}
+
+const APP_MENU: &str = r#"Page P {
+    WinAppWindow { showSidebar: true, showProps: true, appMenuOpen: true } {
+        contentArea {
+            Text("body")
+        }
+        appMenu {
+            WinMenu { width: 240 } {
+                items {
+                    WinMenuRow { label: "Datei", icon: "", kind: "header", shortcut: "", selected: false }
+                    WinMenuItem { id: "new", label: "Neues Fenster", icon: "plus", kind: "", act: false, shortcut: "Strg+N", selected: false }
+                    WinMenuDivider { }
+                    WinMenuItem { id: "close", label: "Fenster schließen", icon: "xmark", kind: "danger", act: true, shortcut: "", selected: false }
+                }
+            }
+        }
+    }
+}"#;
+
+#[test]
+fn the_app_menu_hangs_under_the_more_button_and_its_rows_dispatch() {
+    let nxir = compile(APP_MENU);
+    let kit = Kit::mount(&nxir, FixtureEnv::default());
+    let boxes = kit.boxes(1280, 800);
+    let panel = &material_boxes(&boxes, Material::Overlay)[0];
+    let (x, y, w, h) = r(panel);
+    assert_eq!((x + w, y, w), (1280 - 145, 0, 240), "its right edge on the ⋮'s");
+    assert_eq!(panel.visual.corner_radius.top_left.as_i32(), 16);
+    assert_eq!(h, 4 + 26 + 36 + 9 + 36 + 4, "padding 4 · header 26 · rows 36 · divider 9");
+    let pick = r(&kit.handler_boxes(&boxes, "WinMenuPick", Some("new"))[0]);
+    let act = r(&kit.handler_boxes(&boxes, "WinAct", Some("close"))[0]);
+    assert_eq!((pick.3, act.3), (36, 36), "a plain row picks, an act row is a window action");
+    assert_eq!(kit.handler_boxes(&boxes, "WinMenu", Some("")).len(), 1, "the backdrop closes");
+}
+
+// ── the dialogs ─────────────────────────────────────────────────────────────────────────────
+
+const ALERT: &str = r#"Page P {
+    Stack {
+        Text("behind")
+        if $state.shown {
+            WinAlert { id: "a", title: "Löschen?", message: "Nicht rückgängig.", cancelLabel: "Abbrechen", confirmLabel: "Löschen", destructive: true }
+        } else {
+            Stack { }
+        }
+    }
+}"#;
+
+#[test]
+fn the_alert_is_a_300_px_card_that_closes_on_a_backdrop_tap() {
+    let nxir = compile(ALERT);
+    let mut kit = Kit::mount(&nxir, FixtureEnv::default());
+    let boxes = kit.boxes(1280, 800);
+    let card = r(&material_boxes(&boxes, Material::Overlay)[0]);
+    assert_eq!((card.0, card.2, card.3), (490, 300, 20 + 22 + 4 + 18 + 16 + 1 + 46));
+    let cancel = r(&kit.handler_boxes(&boxes, "AlertCancel", Some("a"))[0]);
+    let confirm = r(&kit.handler_boxes(&boxes, "AlertConfirm", Some("a"))[0]);
+    assert_eq!((cancel.3, confirm.3, cancel.0 + cancel.2 + 1), (46, 46, confirm.0), "edge to edge");
+    // A press on the card's text closes nothing (the card absorbs it) …
+    let message = r(&text_box(kit.scene(), &boxes, "Nicht rückgängig."));
+    kit.tap(&boxes, (message.0 + 4, message.1 + 4));
+    assert_eq!((kit.view.take_dismissed(), kit.field("shown")), (None, Value::Bool(true)));
+    // … a press on the backdrop cancels, like the design's alert.
+    kit.tap(&boxes, (20, 20));
+    assert_eq!(kit.view.take_dismissed(), Some(DismissReason::Backdrop));
+    assert_eq!(kit.field("shown"), Value::Bool(false));
+}
+
+#[test]
+fn the_modal_is_440_wide_with_a_titled_header_a_body_and_a_footer() {
+    let modal = |footer: bool| {
+        format!(
+            r#"Page P {{
+    Stack {{
+        if $state.shown {{
+            WinModal {{ id: "m", title: "Umbenennen", noFooter: {} }} {{
+                body {{
+                    Text("Neuer Name")
+                }}
+                footer {{
+                    Text("Sichern")
+                }}
+            }}
+        }} else {{
+            Stack {{ }}
+        }}
+    }}
+}}"#,
+            !footer
+        )
+    };
+    let nxir = compile(&modal(true));
+    let mut kit = Kit::mount(&nxir, FixtureEnv::default());
+    let boxes = kit.boxes(1280, 800);
+    let panel = r(&material_boxes(&boxes, Material::Overlay)[0]);
+    // header 16 + 28 + 16 · hairline · body 20 + 20 + 20 · hairline · footer 12 + 20 + 12
+    assert_eq!((panel.0, panel.2, panel.3), (420, 440, 60 + 1 + 60 + 1 + 44));
+    let close = r(&kit.handler_boxes(&boxes, "ModalClose", Some("m"))[0]);
+    assert_eq!((close.0 + close.2, close.2), (panel.0 + panel.2 - 20, 28));
+    kit.tap(&boxes, (20, 20));
+    assert_eq!(kit.field("shown"), Value::Bool(false), "the backdrop closes a modal");
+    let nxir = compile(&modal(false));
+    let kit = Kit::mount(&nxir, FixtureEnv::default());
+    let boxes = kit.boxes(1280, 800);
+    assert_eq!(r(&material_boxes(&boxes, Material::Overlay)[0]).3, 60 + 1 + 60, "no footer");
+}
+
+// ── the pane, the rows, the action bar ──────────────────────────────────────────────────────
+
+const PARTS: &str = r#"Page P {
+    WinAppWindow { showSidebar: true, showProps: true } {
+        sidebarLeft {
+            WinPane { title: "", showHeader: false, showFooter: false, bare: true, flush: true, scrolls: false, noDividers: false } {
+                body {
+                    WinSideHeader { label: "Orte" }
+                    WinSideItem { id: "a", label: "Dokumente", sub: "", icon: "folder", active: true, iconSize: 16, hasBadge: false, badge: "" }
+                    WinSideItem { id: "b", label: "Verbindungen", sub: "WLAN, Bluetooth", icon: "wifi", active: false, iconSize: 18, hasBadge: true, badge: "2" }
+                }
+            }
+        }
+        contentArea {
+            WinPane { title: "Inhalt", showHeader: true, showFooter: true, bare: false, flush: false, scrolls: false, noDividers: false } {
+                body {
+                    Text("row")
+                }
+                footer {
+                    Text("3 Objekte")
+                }
+            }
+        }
+        sidebarRight {
+            WinPane { title: "Eigenschaften", showHeader: true, showFooter: false, bare: false, flush: false, scrolls: false, noDividers: false } {
+                body {
+                    WinPropRow { label: "Art", value: "PDF", icon: "", last: false }
+                    WinPropRow { label: "Größe", value: "2,4 MB", icon: "", last: true }
+                }
+            }
+        }
+        actionBar {
+            WinActionBar { } {
+                items {
+                    WinActionItem { id: "new", label: "Neu", icon: "plus", kind: "primary", active: true }
+                    WinActionDivider { }
+                    WinActionItem { id: "del", label: "Löschen", icon: "trash", kind: "danger", active: false }
+                }
+            }
+        }
+    }
+}"#;
+
+#[test]
+fn a_pane_is_an_opaque_16_px_panel_with_44_px_strips() {
+    let nxir = compile(PARTS);
+    let kit = Kit::mount(&nxir, FixtureEnv::default());
+    let boxes = kit.boxes(1280, 800);
+    // Two panels (content, properties); the bare sidebar sits on the window glass.
+    let panes = material_boxes(&boxes, Material::Pane);
+    assert_eq!(panes.iter().map(r).collect::<Vec<_>>(), [(256, 0, 768, 792), (1032, 0, 240, 792)]);
+    let pane = &panes[0];
+    assert_eq!(pane.visual.corner_radius.top_left.as_i32(), 16);
+    assert!(pane.visual.inset_highlight.is_some(), "the lit top line");
+    assert!(pane.visual.border.top.is_some_and(|b| b.width.as_i32() == 1), "a 1 px separator edge");
+    // header 44 (title body 14/600 at padding 16) · hairline · body padded 4 8 · footer 44
+    let at = |t: &str| {
+        let b = r(&text_box(kit.scene(), &boxes, t));
+        (b.0, b.1)
+    };
+    assert_eq!(at("Inhalt"), (256 + 16, 12));
+    assert_eq!(at("row"), (256 + 8, 44 + 1 + 4));
+    assert_eq!(at("3 Objekte"), (256 + 12, 792 - 44 + 12));
+}
+
+#[test]
+fn rows_take_the_design_metrics() {
+    let nxir = compile(PARTS);
+    let kit = Kit::mount(&nxir, FixtureEnv::default());
+    let boxes = kit.boxes(1280, 800);
+    // Properties: 32 px label/value rows (footnote, padding 8 12), a separator between.
+    let label = |t: &str| r(&text_box(kit.scene(), &boxes, t));
+    assert_eq!((label("Art").0, label("Art").1), (1032 + 8 + 12, 49 + 8));
+    assert_eq!(label("Größe").1, 49 + 32 + 1 + 8, "one 1 px separator between the rows");
+    let value = label("PDF");
+    assert_eq!(value.0 + value.2, 1032 + 240 - 8 - 12, "the value is right-aligned");
+    // Sidebar: a 30 px overline header, then 36 px rows (46 with a second line).
+    let rows: Vec<_> = ["a", "b"]
+        .iter()
+        .map(|id| kit.handler_boxes(&boxes, "WinMenuPick", Some(id))[0].clone())
+        .collect();
+    assert_eq!((r(&rows[0]), r(&rows[1])), ((8, 30, 240, 36), (8, 66, 240, 46)));
+    assert!(rows[0].visual.background.is_some() && rows[1].visual.background.is_none(), "active");
+    assert_eq!(label("ORTE").1, 12, "the overline header is upper-cased by its style");
+}
+
+#[test]
+fn the_action_bar_floats_12_px_above_the_content_and_marks_the_active_item() {
+    let nxir = compile(PARTS);
+    let kit = Kit::mount(&nxir, FixtureEnv::default());
+    let boxes = kit.boxes(1280, 800);
+    let bar = &material_boxes(&boxes, Material::Overlay)[0];
+    let (x, y, w, h) = r(bar);
+    assert_eq!((y + h, h, 2 * x + w), (792 - 12, 4 + 49 + 4, 256 + 256 + 768), "centred");
+    assert_eq!(bar.visual.corner_radius.top_left.as_i32(), 9999, "a capsule");
+    let new = r(&kit.handler_boxes(&boxes, "WinAct", Some("new"))[0]);
+    assert!(new.3 == 49 && new.2 >= 60, "TabBar items: 49 tall, at least 60 wide");
+    assert!(pinned(&kit, &boxes, "WinAct", Some("new")), "the indicator marks the active item");
+    assert!(!pinned(&kit, &boxes, "WinAct", Some("del")));
 }

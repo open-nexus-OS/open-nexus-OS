@@ -3,6 +3,8 @@
 
 # Design-token audit — design `reference/tokens/` + `component-api.d.ts` vs. implementation
 
+> **Superseded by RFC-0116 (TASK-0353 P2)** — a historical record: the names, scales and gaps below predate the one token set; the current vocabulary is `docs/dev/dsl/modifiers.md` and `docs/dev/ui/foundations/visual/token-reconciliation.md`.
+
 Audit vom 2026-07-14 (Quelle: the design artifacts (design system)
 + `component-api.d.ts` gegen `userspace/ui/theme-tokens`, `resources/themes/base.nxtheme.toml`,
 DSL-Registry). Die BEHOBENEN Punkte sind markiert; der Rest ist die offene Arbeitsliste.

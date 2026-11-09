@@ -30,5 +30,5 @@ Component SecPower {
             }
         }
     }
-    .gap(3)
+    .gap(24)
 }

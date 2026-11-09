@@ -1,183 +1,78 @@
 [theme]
 name = "dark"
-version = 1
+version = 2
 
-# Dark overrides only what differs from base (qualifier chain falls back to base
-# for anything omitted). See docs/dev/ui/foundations/visual/token-reconciliation.md.
+# Dark overrides every role and shadow colour that differs from light (RFC-0116); the values are
+# the design artifacts' dark token values converted to hex.
 [tokens]
-# modal/sheet backdrop dim (design dark --glass-scrim rgba(0,0,0,.45))
+background = "#0a0a0a"
+label = "#ffffffeb"
+labelSecondary = "#ffffff94"
+labelTertiary = "#ffffff4d"
+separator = "#ffffff1a"
+fill = "#78788052"
+fillHover = "#ffffff1a"
+fillActive = "#ffffff2e"
+glassPanel = "#ffffff1a"
+glassWindow = "#2a2c34d1"
+glassCard = "#ffffff14"
+glassEdge = "#ffffff24"
+surfacePane = "#2c313d"
+surfaceOverlay = "#252833"
 scrim = "#00000073"
-accent = "#60a5fa"
-accentFg = "#0a0a0a"
-# design .dark neutrals: bg/card oklch(0.145)=#0a0a0a; secondary/muted/accent/
-# border oklch(0.269)=#262626; muted-fg oklch(0.708)=#a1a1a1; ring 0.439=#525252.
-# surface uses the sidebar tone oklch(0.205)=#171717 so panels still separate
-# from the desktop background (design dark cards are flat + border).
-bg = "#0a0a0a"
-fg = "#fafafa"
-surface = "#171717"
-surfaceAlt = "#262626"
-border = "#262626"
-# translucent hairline (design dark divider rgba(255,255,255,.10))
-divider = "#ffffff1a"
-muted = "#262626"
-mutedFg = "#a1a1a1"
-focusRing = "#60a5fa"
-# brand / chrome (design dark — oklch→hex)
 primary = "#fafafa"
-primaryFg = "#171717"
-card = "#0a0a0a"
-cardFg = "#fafafa"
-popover = "#0a0a0a"
-popoverFg = "#fafafa"
-secondary = "#262626"
-secondaryFg = "#fafafa"
-destructive = "#fa5a55"
-# sidebar (design dark)
-sidebar = "#171717"
-sidebarFg = "#fafafa"
-sidebarPrimary = "#1447e6"
-sidebarPrimaryFg = "#fafafa"
-sidebarAccent = "#262626"
-sidebarAccentFg = "#fafafa"
-sidebarBorder = "#262626"
-# charts (design dark)
-chart1 = "#1447e6"
-chart2 = "#00bc7d"
-chart3 = "#fe9a00"
-chart4 = "#ad46ff"
-chart5 = "#ff2056"
-# text-on-glass + interaction washes (dark theme = light ink).
-# Alphas are the design's (--glass-text-primary .90 / -secondary .45 /
-# -strong .95), not the rounder .95/.60/1.0 that had drifted in. The DS answer
-# to "light ink over a bright photo" is `.textShadow(strong)`, not a hotter
-# alpha — pushing secondary to .60 flattened the primary/secondary step that
-# the whole on-glass hierarchy rests on.
-glassTextPrimary = "#ffffffe6"
-glassTextSecondary = "#ffffff73"
-glassTextStrong = "#fffffff2"
-glassHover = "#ffffff26"
-glassActive = "#ffffff33"
-# On-glass control ink (RFC-0082 — the login design's dark column).
-glassIcon = "#ffffffd9"
-glassPlaceholder = "#ffffff73"
-glassFocus = "#ffffff8c"
-glassFill = "#ffffff33"
-glassFillStrong = "#ffffff29"
-# Wallpaper legibility: dark mode leans on a much denser tint (the design's
-# 55% black) because light ink over a bright photo is the harder direction.
-wallpaperTint = "#0000008c"
-wallpaperVignette = "#00000080"
-# Dark ink is light, so the shadow flips to black — a drop shadow proper.
-textShadow = "#00000066"
-textShadowStrong = "#000000b3"
-toggleOffBg = "#ffffff24"
-# The groove cuts deeper over a dark surface (design dark --track
-# rgba(0,0,0,.30)); the fill stays white and inherits from base.
-sliderTrack = "#0000004d"
-glassTint = "#171717"
-glassEdge = "#ffffff54"
+onPrimary = "#171717"
+accent = "#3b82f6"
+danger = "#fa5a55"
+success = "#22c55e"
+warning = "#f59e0b"
+wallpaperTint = "#00000059"
+labelShadow = "#0000008c"
 
-[material.surface]
-type = "opaque"
+[shadow.shadow1]
+x = 0
+y = 1
+blur = 3
+spread = 0
+color = "#00000066"
+inset = false
 
-# Dark liquid-glass materials (design .dark values).
-# RFC-0082: the login design's dark glass is a DARK tint (rgba(18,18,20,.4)),
-# not the white wash these levels used to carry — over a photograph a white
-# wash greys the image out instead of sinking into it. That still holds for
-# the CARD/WINDOW levels below.
-#
-# glassPanel goes back to the white wash, because design artifacts: panels
-# specifies it outright: `--glass-panel-bg: rgba(255,255,255,0.10)` dark,
-# `0.50` light. A #121214 tint at 40 % is the opposite polarity and four
-# times the coverage — panels read several shades too dark against the
-# design, which is exactly how they looked. Depth here comes from
-# blur(72) + saturate, not from covering the wallpaper up.
-#
-# `.material(panel)` is shared with the dock and taskbar. That is the point:
-# one panel material, one depth — but it does mean this line moves them too.
-[material.glassPanel]
-type = "glass"
-blurRadiusDp = 72
-downsampleFactor = 4
-tintColor = "#ffffff"
-tintAlpha = 0.10
-edgeHighlightColor = "#ffffff"
-edgeHighlightAlpha = 0.22
-borderColor = "#ffffff"
-borderAlpha = 0.18
+[shadow.shadow2]
+x = 0
+y = 4
+blur = 12
+spread = 0
+color = "#00000066"
+inset = false
 
-[material.glassCard]
-type = "glass"
-blurRadiusDp = 20
-downsampleFactor = 2
-tintColor = "#121214"
-tintAlpha = 0.40
-edgeHighlightColor = "#ffffff"
-edgeHighlightAlpha = 0.08
-borderColor = "#ffffff"
-borderAlpha = 0.10
+[shadow.shadow3]
+x = 0
+y = 10
+blur = 30
+spread = 0
+color = "#00000073"
+inset = false
 
-[material.glassSubtle]
-type = "glass"
-blurRadiusDp = 12
-downsampleFactor = 2
-tintColor = "#ffffff"
-tintAlpha = 0.06
-edgeHighlightColor = "#ffffff"
-edgeHighlightAlpha = 0.05
-borderColor = "#ffffff"
-borderAlpha = 0.10
+[shadow.shadow4]
+x = 0
+y = 25
+blur = 50
+spread = 0
+color = "#00000099"
+inset = false
 
-[material.glassWindow]
-type = "glass"
-blurRadiusDp = 40
-downsampleFactor = 2
-tintColor = "#34363e"
-tintAlpha = 0.82
-tintBottomColor = "#20222a"
-tintBottomAlpha = 0.74
-edgeHighlightColor = "#ffffff"
-edgeHighlightAlpha = 0.14
-borderColor = "#ffffff"
-borderAlpha = 0.12
+[shadow.shadowInset]
+x = 0
+y = 1
+blur = 2
+spread = 0
+color = "#00000059"
+inset = true
 
-[material.glassWindowPane]
-# The design system's `surface-pane`, dark (the design artifacts, 2026-11-03): the level the
-# file listing and the properties list sit on, OPAQUE and flat — one step lighter than the
-# window in its cool hue, so the window blur under it is occluded and never computed, and a
-# scroll band on it composes without a blend (TASK-0351 P14, `band_ground`).
-type = "glass"
-blurRadiusDp = 0
-downsampleFactor = 8
-tintColor = "#2c313d"
-tintAlpha = 1.0
-edgeHighlightColor = "#ffffff"
-edgeHighlightAlpha = 0.0
-borderColor = "#ffffff"
-borderAlpha = 0.08
-
-[material.glassWindowBar]
-# --glass-window-bar-bg dark: linear-gradient(165deg, #40424a@.95, #2e3038@.92).
-type = "glass"
-blurRadiusDp = 40
-downsampleFactor = 2
-tintColor = "#40424a"
-tintAlpha = 0.95
-tintBottomColor = "#2e3038"
-tintBottomAlpha = 0.92
-edgeHighlightColor = "#ffffff"
-edgeHighlightAlpha = 0.16
-borderColor = "#ffffff"
-borderAlpha = 0.16
-
-[material.glassOverlay]
-type = "glass"
-blurRadiusDp = 40
-downsampleFactor = 2
-tintColor = "#222734"
-tintAlpha = 0.80
-edgeHighlightColor = "#ffffff"
-edgeHighlightAlpha = 0.16
-borderColor = "#ffffff"
-borderAlpha = 0.16
+[shadow.edgeHighlight]
+x = 0
+y = 1
+blur = 0
+spread = 0
+color = "#ffffff24"
+inset = true

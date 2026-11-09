@@ -24,24 +24,38 @@ compile-time property; with free-form actions it would be a convention.
 ```nx
 Store CounterStore {
     value: Int = 0 @persist,
+    saved: Bool = false,
+    failed: Int = 0,
 }
 
 Event CounterEvent {
     Inc,
     Dec,
     SaveRequested,
+    Saved,
+    SaveFailed(Int),
 }
 
 reduce CounterEvent {
     Inc => state.value += 1,
     Dec => state.value -= 1,
-    SaveRequested => state.value = state.value,  // reducers stay pure; the effect saves
+    SaveRequested => state.saved = false,  // reducers stay pure; the effect saves
+    Saved => state.saved = true,
+    SaveFailed(code) => state.failed = code,
 }
 
 @effect on SaveRequested {
     match svc.appState.put("counter.value", $state.value) {
         Ok(_) => dispatch(Saved),
         Err(e) => dispatch(SaveFailed(e.code)),
+    }
+}
+
+Page CounterPage {
+    Stack {
+        Text("value")
+        Button { label: @t("counter.save") }
+        on Tap -> dispatch(SaveRequested)
     }
 }
 ```
@@ -72,9 +86,19 @@ Bind a control's **primary prop** to `$state` and the control edits that field.
 Nothing else is declared — no handler, no payload:
 
 ```nx
-Toggle { checked: $state.dark, label: @t("dark") }   // a tap flips it
-TextField { value: $state.query, label: @t("find") } // typing writes it
-Slider { value: $state.brightness }.label(@t("brightness")) // a tap sets the percent
+Store SettingsStore {
+    dark: Bool = false,
+    query: Str = "",
+    brightness: Int = 50,
+}
+
+Page SettingsPage {
+    Stack {
+        Toggle { checked: $state.dark, label: @t("dark") }   // a tap flips it
+        TextField { value: $state.query, label: @t("find") } // typing writes it
+        Slider { value: $state.brightness }.label(@t("brightness")) // a tap sets the percent
+    }
+}
 ```
 
 Which controls bind, and what the interaction does, is one rule in the widget
@@ -87,8 +111,8 @@ slider *is*. A control whose primary prop is a LABEL the app supplies
 `Select` shows a value but its tap opens an app-owned option panel, so the tap
 produces no value either.
 
-A slider's tap SETS the value at the point you touch; there is no drag yet (the
-surface delivers taps, not held moves).
+A slider's tap SETS the value at the point you touch; a held drag does not move it yet
+(the drag gesture exists as `on DragMove`, see `syntax.md`, but the bind rule does not use it).
 
 **A bind writes the FIELD, not a reducer.** That is the point — no event to
 declare — but it means state a reducer used to keep in step with that field is
@@ -119,7 +143,7 @@ Store S {
     failed: Int = 0,
 }
 
-Event E { Load, Loaded(List<Str>), Failed(Int) }
+Event E { Load, Loaded(List<Str>), Failed(Int), }
 
 reduce E {
     Load => { state.busy = true; state.failed = 0; },
@@ -133,18 +157,40 @@ reduce E {
         Err(e) => dispatch(Failed(e)),
     }
 }
+
+Page ListPage {
+    Text("list")
+}
 ```
 
 The page reads the three apart in order — spinner, failure, then content — so
 an empty list renders as "nothing here" rather than as an error:
 
 ```nx
-if $state.busy {
-    Text(@t("common.loading"))
-} else if $state.failed == 0 {
-    List($state.items) { item in Text(item).key(item) }
-} else {
-    Text(@t("list.failed"))
+Store S {
+    items: List<Str> = [],
+    busy: Bool = false,
+    failed: Int = 0,
+}
+
+Event E { Load, }
+
+reduce E { Load => state.busy = true, }
+
+Page ListPage {
+    Stack {
+        if $state.busy {
+            Text(@t("common.loading"))
+        } else if $state.failed == 0 {
+            List($state.items) { item in
+                Text(item).key(item)
+            }
+        } else {
+            Text(@t("list.failed"))
+        }
+        Button { label: @t("common.retry") }
+        on Tap -> dispatch(Load)
+    }
 }
 ```
 
@@ -153,12 +199,8 @@ at the first unhandled failure, so a load without an `Err` arm leaves `busy`
 true for ever.
 
 **Retry is re-dispatching the trigger.** `Load` clears `failed` on the way in,
-so a retry cannot show a stale error over fresh results. Wire it to a button:
-
-```nx
-Button { label: @t("common.retry") }
-on Tap -> dispatch(Load)
-```
+so a retry cannot show a stale error over fresh results. The page above wires it
+to a button: `on Tap -> dispatch(Load)`.
 
 **Automatic retry cannot be written today, and that is deliberate to state
 rather than work around.** An effect body lowers to a bounded LINEAR plan, so

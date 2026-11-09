@@ -1,0 +1,63 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The now-playing card of the Control Center (design artifacts: panels §3):
+// artwork stand-in, title and artist, and the three transport buttons.
+//
+// Drawn ONLY while `MediaStore.nowPlaying` is true. No media session feeds the
+// shell yet, so today the card is absent (the same rule that hides the island
+// and the mini players); the transport buttons are disabled until a session
+// service backs them. The title and artist are the design's demo copy, shared
+// with the mini players.
+
+Component CcNowPlayingCard {
+    Stack {
+        Stack {
+            Stack { }
+                .width(42)
+                .height(42)
+                .bgFade(modeTablet, danger)
+                .rounded(12)
+                .shadow(shadow1)
+            Stack {
+                Text(@t("shell.trackTitle")).textStyle(footnote).fontWeight(semibold).fg(label)
+                Text(@t("shell.trackArtist")).textStyle(caption).fg(labelSecondary)
+            }
+            .grow(1)
+            .minWidth(0)
+            .gap(2)
+        }
+        .direction(row)
+        .align(center)
+        .gap(12)
+        Stack {
+            Circle { size: 36
+                Icon { symbol: "backward.end", size: 15 }
+                    .fg(label)
+            }
+            .disabled(true)
+            .label(@t("control.previous"))
+            Circle { size: 36
+                Icon { symbol: "pause", size: 15 }
+                    .fg(onPrimary)
+            }
+            .bg(primary)
+            .disabled(true)
+            .label(@t("bar.pause"))
+            Circle { size: 36
+                Icon { symbol: "forward.end", size: 15 }
+                    .fg(label)
+            }
+            .disabled(true)
+            .label(@t("bar.next"))
+        }
+        .direction(row)
+        .justify(center)
+        .gap(16)
+    }
+    .gap(8)
+    .paddingX(16)
+    .paddingY(12)
+    .rounded(16)
+    .material(card)
+}

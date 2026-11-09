@@ -1,184 +1,91 @@
 [theme]
 name = "base"
-version = 1
+version = 2
 
-# ── Semantic tokens ─────────────────────────────────────────────────────────
-# Base is the default / fallback layer (light-leaning). dark/light/highcontrast
-# override only what varies; everything else resolves here via the qualifier
-# chain (see ThemeRuntime::resolve / resolve_material).
-#
-# Contract source: the design artifacts (design system)
-# reconciled per docs/dev/ui/foundations/visual/token-reconciliation.md.
-# `accent` is the interactive blue (design --color-info); the neutral design
-# `--color-accent` grey maps to `surfaceAlt`.
+# The design artifacts' token set (RFC-0116). Base carries the LIGHT values and every
+# theme-invariant scale; dark and highcontrast override the roles that differ (the build of
+# the typed tokens refuses a theme-varying role a variant does not author itself). Values are
+# the artifacts' token file converted to hex: rgba alpha = round(a × 255); oklch through OKLab.
+
+# ── Colour roles ────────────────────────────────────────────────────────────────────────────
 [tokens]
-# interactive accent + on-accent
-accent = "#3b82f6"
-accentFg = "#ffffff"
-# surfaces / content (design :root — foreground oklch(0.145)=#0a0a0a; the
-# grey design --color-accent #e9ebef is our SurfaceVariant/hover wash)
-bg = "#ffffff"
-fg = "#0a0a0a"
-surface = "#ffffff"
-surfaceAlt = "#e9ebef"
-border = "#0000001a"
-# translucent hairline per design --glass-divider rgba(0,0,0,.10)
-divider = "#0000001a"
-muted = "#ececf0"
-mutedFg = "#717182"
-# status
-danger = "#ef4444"
-dangerFg = "#ffffff"
-destructive = "#d4183d"
-destructiveFg = "#ffffff"
-warning = "#f59e0b"
-# design says white-on-warning, but amber #f59e0b + white is ~2.1 contrast —
-# near-black ink is the same deliberate a11y tightening as `success` below.
-warningFg = "#0a0a0a"
-# success uses green-600 (not green-500) so white text clears WCAG UI contrast
-# (3.0) — a deliberate a11y tightening of the design #22c55e (which was 2.28).
-success = "#16a34a"
-successFg = "#ffffff"
-info = "#3b82f6"
-infoFg = "#ffffff"
-focusRing = "#3b82f6"
-# brand / chrome (design)
+# Page and text.
+background = "#ffffff"
+label = "#000000e0"
+labelSecondary = "#0000008f"
+labelTertiary = "#0000004d"
+separator = "#0000001a"
+# Control fills; hover and press are layers shown by opacity, never a background.
+fill = "#78788029"
+fillHover = "#0000000f"
+fillActive = "#0000001f"
+# The two blur surfaces, the layer on them, their edge.
+glassPanel = "#ffffff80"
+glassWindow = "#f6f7fae6"
+glassCard = "#ffffff99"
+glassEdge = "#ffffffcc"
+# Opaque surfaces: the pane in a window, everything that floats.
+surfacePane = "#fcfdff"
+surfaceOverlay = "#fbfbfd"
+scrim = "#00000047"
+# Brand, tint, status.
 primary = "#030213"
-primaryFg = "#ffffff"
-card = "#ffffff"
-cardFg = "#0a0a0a"
-popover = "#ffffff"
-popoverFg = "#0a0a0a"
-secondary = "#eceef2"
-secondaryFg = "#030213"
-inputBg = "#f3f3f5"
-switchBg = "#cbced4"
-islandBg = "#000000"
-notifDot = "#ef4444"
-# sidebar (design)
-sidebar = "#fafafa"
-sidebarFg = "#0a0a0a"
-sidebarPrimary = "#030213"
-sidebarPrimaryFg = "#fafafa"
-sidebarAccent = "#f5f5f5"
-sidebarAccentFg = "#171717"
-sidebarBorder = "#e5e5e5"
-# charts (design, light — oklch→hex, see token-reconciliation.md)
+onPrimary = "#ffffff"
+accent = "#2563eb"
+accentGlow = "#3b82f64d"
+onAccent = "#ffffff"
+danger = "#d4183d"
+success = "#16a34a"
+warning = "#d97706"
+# Mode toggles' on-states and the activity runner.
+modeAirplane = "#f97316d9"
+modeDesktop = "#14b8a6d9"
+modeTablet = "#8b5cf6d9"
+island = "#000000"
+# Chart series (the same in both themes).
 chart1 = "#f54900"
 chart2 = "#009689"
 chart3 = "#104e64"
 chart4 = "#ffb900"
 chart5 = "#fe9a00"
-# text-on-glass + interaction washes (RGBA hex; light theme = dark ink).
-# RFC-0082: the three `glassText*` roles are REACHABLE (ColorToken::
-# OnGlass/OnGlassMuted/OnGlassStrong) and carry the login design's ink —
-# a hair blue-black (20,20,26) rather than pure black, which is what reads
-# correctly on a photographic wallpaper. The HUE is ours on purpose; the
-# ALPHAS are the design's (--glass-text-primary .80 / -secondary .40 /
-# -strong .92) after the rounder .95/.68/1.0 was found to be undocumented
-# drift that flattened the primary/secondary step.
-glassTextPrimary = "#14141acc"
-glassTextSecondary = "#14141a66"
-glassTextStrong = "#14141aeb"
-glassHover = "#00000014"
-glassActive = "#0000001f"
-# On-glass control ink (RFC-0082 — the login design's --nx-* contract).
-# `glassIcon` = icon stroke, `glassPlaceholder` = empty-field text,
-# `glassFocus` = the border a focused glass control takes, `glassFill` = the
-# FLAT translucent fill of a control sitting INSIDE glass (a submit button in
-# a pill): never its own glass layer, because nested backdrop blur is not a
-# thing the compositor does.
-glassIcon = "#14141acc"
-glassPlaceholder = "#14141a80"
-glassFocus = "#14141a80"
-glassFill = "#ffffff99"
-# A RAISED control on glass: the design's rgba(255,255,255,.16) function
-# keys — stronger than `glassSubtle` (6% in dark), weaker than a solid fill.
-# On light surfaces the same role is an ink wash, not a white one.
-glassFillStrong = "#0000001f"
-# The accent as a TINT, not a fill: an accent-tinted control that still reads
-# as glass (calculator operator keys, tinted chips). Alpha 0x3d = 24%.
-# `AccentTokens` re-derives this from the LIVE accent, so a user accent moves
-# it too — a literal here would pin every tinted control to the default blue.
-accentSoft = "#3b82f63d"
-# Wallpaper legibility (RFC-0082): a full-bleed wash that keeps content
-# readable without killing the image, plus the bottom stop of the fade that
-# carries the footer.
-wallpaperTint = "#ffffff3d"
-wallpaperVignette = "#ffffff73"
-# Text shadow tints. On a LIGHT wallpaper the shadow is a light halo (dark
-# ink needs a bright bloom to separate), which is why these are white here
-# and black in dark mode — they are legibility, not depth.
-textShadow = "#ffffffb3"
-textShadowStrong = "#fffffff2"
-# The identity color: fully transparent. Needed as the top stop of a fade
-# (`.bgFade(transparent, wallpaperVignette)`) — theme-invariant.
+# The artifacts' readme: the wash over the wallpaper (white 20 % light, black 35 % dark); the
+# component stylesheet: the halo behind an icon label on the wallpaper.
+wallpaperTint = "#ffffff33"
+labelShadow = "#ffffffb3"
 transparent = "#00000000"
-toggleOnBg = "#3b82f6d9"
-toggleOffBg = "#ffffffd9"
-glassTint = "#ffffff"
-glassEdge = "#ffffff54"
-# shadow tint (semantic ColorToken::Shadow)
-shadow = "#00000060"
-# modal/sheet backdrop dim (design --glass-scrim rgba(0,0,0,.28))
-scrim = "#00000047"
-# Range slider (design artifacts: panels `--track` / `--fill`). The track is a
-# groove — dark in BOTH themes, only shallower here over a light surface — and
-# the fill is the bright cap riding in it, white in both. That inverted pair is
-# why these are their own roles instead of borrowed neutrals.
-sliderTrack = "#0000001f"
-sliderFill = "#ffffff"
-sliderIcon = "#00000073"
 
-# ── Length scales (theme-invariant; authored once here) ──────────────────────
-# Semantic small/medium/large map to LengthToken::{Radius,Spacing}{Small,Medium,
-# Large}. The finer design scale (radius sm/md/lg/xl/2xl/3xl/full; the 4px
-# spacing scale) is added as consumers need it — see token-reconciliation.md.
+# ── Scales (theme-invariant) ───────────────────────────────────────────────────────────────
+# The spacing grid itself (0 2 4 6 8 12 16 20 24 32 40 48 px) is a closed list in code; these
+# are its semantic names.
 [spacing]
-small = 8
-medium = 16
-large = 24
+gapInline = 8
+gapGroup = 12
+gapSection = 24
+marginLayout = 16
 
-# Design radius scale: sm=6, base/lg=10 (the control/card look), 2xl=16.
+# Containers are concentric: the outermost `xl`, an inner one parent − padding (never below sm).
 [radius]
-small = 6
-medium = 10
-large = 16
+sm = 8
+md = 12
+lg = 16
+xl = 24
+full = 9999
 
-# Motion durations in ms (reference/tokens/motion.css: 0.10/0.16/0.28/0.40/0.50s).
-# Easing curves are theme-invariant cubic-beziers → nexus-theme-tokens
-# MotionCurveToken. A reduced-motion theme may override these durations to 0.
+# The outer height of every control of a size.
+[control]
+xs = 24
+sm = 30
+md = 36
+lg = 44
+xl = 52
+
+# Motion durations in ms (the curves are the typed tokens' cubic-beziers, TASK-0354).
 [motion]
 instant = 100
 swift = 160
 quick = 280
 base = 400
 slow = 500
-
-# Font sizes in px (design type scale). base = body text.
-# `hero` (RFC-0082) is the lock-screen/clock numeral step — the only rung the
-# baked ladder serves from a Digits-only face, so it is for numerals, not prose.
-[typography]
-xs = 11
-sm = 12
-base = 14
-md = 16
-lg = 18
-xl = 20
-xxl = 24
-xxxl = 30
-display = 36
-hero = 120
-
-# Line-height ×100 (150 = 1.50), consumed as LineHeight::Relative.
-# `flat` is the display-type step (design clock `line-height:1.05`): big
-# numerals need a band barely taller than the glyphs, or the block floats.
-[leading]
-flat = 105
-tight = 125
-snug = 138
-normal = 150
-relaxed = 163
 
 # Stacking order (advisory).
 [zindex]
@@ -189,113 +96,185 @@ modal = 30
 topbar = 40
 island = 50
 
-[material.surface]
-type = "opaque"
+# ── Text styles: size, line, weight, tracking (milli-em), case and figures together ─────────────────
+# The lock screen's time: the design artifacts' display × 2 (128/128/300, −0.02 em, tabular digits).
+[textStyle.clock]
+size = 128
+line = 128
+weight = 300
+trackingMilliEm = -20
+case = "none"
+figures = "tabular"
 
-# ── Liquid-glass materials (design: panel / card / subtle / window / overlay) ─
-# Materials resolve through the qualifier chain (resolve_material): base carries
-# the light values; dark/highcontrast override. tint/edge/border alphas are
-# floats (0..1); blur in dp with a downsample perf factor.
-# RFC-0082: `panel` and `card` carry the LOGIN design's glass recipe — they
-# are the two levels that sit directly on the wallpaper (dock, control center,
-# launcher, and now the lock surface). `edgeHighlightAlpha` is the `inset 0 1px
-# 0` TOP-SHINE line, not a full-height wash: the painter draws it as one pixel
-# row and caps the soft gradient it also feeds (see `Mods::visual`).
-# design artifacts: panels: panels are blur(72px) saturate(180%) — deeper than
-# the 40 this level carried, so a drop-down reads as frosted rather than
-# merely tinted. `.material(panel)` is shared with the dock and taskbar,
-# which is the point: one panel material, one depth.
-[material.glassPanel]
-type = "glass"
-blurRadiusDp = 72
-downsampleFactor = 4
-tintColor = "#ffffff"
-tintAlpha = 0.50
-edgeHighlightColor = "#ffffff"
-edgeHighlightAlpha = 0.22
-borderColor = "#ffffff"
-borderAlpha = 0.75
+[textStyle.display]
+size = 64
+line = 64
+weight = 300
+trackingMilliEm = -20
+case = "none"
+figures = "proportional"
 
-[material.glassCard]
-type = "glass"
-blurRadiusDp = 20
-downsampleFactor = 2
-tintColor = "#ffffff"
-tintAlpha = 0.50
-edgeHighlightColor = "#ffffff"
-edgeHighlightAlpha = 0.60
-borderColor = "#ffffff"
-borderAlpha = 0.70
+[textStyle.largeTitle]
+size = 30
+line = 36
+weight = 700
+trackingMilliEm = -20
+case = "none"
+figures = "proportional"
 
-[material.glassSubtle]
-# Design --glass-subtle-bg: plain rgba(255,255,255,.70) — NO border; blur
-# aligned to the --glass-blur-sm step (the old 12 sat between scale steps).
-type = "glass"
+[textStyle.title1]
+size = 24
+line = 30
+weight = 700
+trackingMilliEm = -15
+case = "none"
+figures = "proportional"
+
+[textStyle.title2]
+size = 20
+line = 26
+weight = 600
+trackingMilliEm = -10
+case = "none"
+figures = "proportional"
+
+[textStyle.title3]
+size = 17
+line = 22
+weight = 600
+trackingMilliEm = -5
+case = "none"
+figures = "proportional"
+
+[textStyle.headline]
+size = 15
+line = 20
+weight = 600
+trackingMilliEm = 0
+case = "none"
+figures = "proportional"
+
+[textStyle.body]
+size = 14
+line = 20
+weight = 400
+trackingMilliEm = 0
+case = "none"
+figures = "proportional"
+
+[textStyle.subheadline]
+size = 13
+line = 18
+weight = 400
+trackingMilliEm = 0
+case = "none"
+figures = "proportional"
+
+[textStyle.footnote]
+size = 12
+line = 16
+weight = 400
+trackingMilliEm = 0
+case = "none"
+figures = "proportional"
+
+[textStyle.caption]
+size = 11
+line = 14
+weight = 500
+trackingMilliEm = 10
+case = "none"
+figures = "proportional"
+
+[textStyle.caption2]
+size = 10
+line = 13
+weight = 500
+trackingMilliEm = 20
+case = "none"
+figures = "proportional"
+
+[textStyle.overline]
+size = 11
+line = 14
+weight = 600
+trackingMilliEm = 60
+case = "upper"
+figures = "proportional"
+
+# ── Shadows (light values; dark overrides the colours) ────────────────────────────────────
+[shadow.shadow1]
+x = 0
+y = 1
+blur = 3
+spread = 0
+color = "#0000001f"
+inset = false
+
+[shadow.shadow2]
+x = 0
+y = 4
+blur = 12
+spread = 0
+color = "#00000024"
+inset = false
+
+[shadow.shadow3]
+x = 0
+y = 10
+blur = 30
+spread = 0
+color = "#00000029"
+inset = false
+
+[shadow.shadow4]
+x = 0
+y = 25
+blur = 50
+spread = 0
+color = "#00000033"
+inset = false
+
+[shadow.shadowInset]
+x = 0
+y = 1
+blur = 2
+spread = 0
+color = "#0000002e"
+inset = true
+
+[shadow.edgeHighlight]
+x = 0
+y = 1
+blur = 0
+spread = 0
+color = "#ffffffd9"
+inset = true
+
+# ── Backdrop materials: only the one surface on the wallpaper blurs ───────────────────────
+[material.ultraThin]
+type = "backdrop"
 blurRadiusDp = 8
+saturationPct = 100
 downsampleFactor = 2
-tintColor = "#ffffff"
-tintAlpha = 0.70
-edgeHighlightColor = "#ffffff"
-edgeHighlightAlpha = 0.10
 
-[material.glassWindow]
-type = "glass"
-# --glass-blur-lg step (30 sat between scale steps)
+[material.thin]
+type = "backdrop"
+blurRadiusDp = 20
+saturationPct = 100
+downsampleFactor = 2
+
+[material.regular]
+type = "backdrop"
 blurRadiusDp = 40
+saturationPct = 180
 downsampleFactor = 2
-# --glass-window-bg: linear-gradient(165deg, #f8f9fb@.94, #eceef3@.90) —
-# tint = top stop, tintBottom = bottom stop (vertical approximation).
-tintColor = "#f8f9fb"
-tintAlpha = 0.94
-tintBottomColor = "#eceef3"
-tintBottomAlpha = 0.90
-edgeHighlightColor = "#ffffff"
-edgeHighlightAlpha = 0.85
-borderColor = "#ffffff"
-borderAlpha = 0.90
 
-[material.glassWindowPane]
-# The design system's `surface-pane` (the design artifacts, 2026-11-03): the CONTENT /
-# PROPERTIES pane inside a window is OPAQUE — one step lighter than the window, in its cool
-# hue, flat, no shine — "opaque so the window blur under it is occluded and never computed".
-# A flat opaque pane is what lets a scroll band on it start from the pane's pixel and be
-# composed without a blend (TASK-0351 P14, `band_ground`); its border stays an ink hairline.
-type = "glass"
-blurRadiusDp = 0
-downsampleFactor = 8
-tintColor = "#fcfdff"
-tintAlpha = 1.0
-edgeHighlightColor = "#ffffff"
-edgeHighlightAlpha = 0.0
-borderColor = "#000000"
-borderAlpha = 0.07
-
-[material.glassWindowBar]
-# --glass-window-bar-bg: linear-gradient(165deg, #ffffff@.90, #f6f7fa@.84).
-# The floating action-bar pill — nearly opaque on purpose: a control strip has
-# to stay readable over whatever content scrolls under it.
-type = "glass"
-blurRadiusDp = 40
-downsampleFactor = 2
-tintColor = "#ffffff"
-tintAlpha = 0.90
-tintBottomColor = "#f6f7fa"
-tintBottomAlpha = 0.84
-edgeHighlightColor = "#ffffff"
-edgeHighlightAlpha = 0.85
-borderColor = "#ffffff"
-borderAlpha = 0.95
-
-[material.glassOverlay]
-type = "glass"
-blurRadiusDp = 40
-downsampleFactor = 2
-tintColor = "#fcfcfe"
-tintAlpha = 0.82
-edgeHighlightColor = "#ffffff"
-edgeHighlightAlpha = 0.20
-borderColor = "#ffffff"
-borderAlpha = 0.85
+[material.thick]
+type = "backdrop"
+blurRadiusDp = 64
+saturationPct = 180
+downsampleFactor = 4
 
 # ── Icon-set linkage (the MAINTAINED vendor repo; licence-clean import) ──────
 # `path` = repo-relative SVG directory; `[icons.symbols]` = OUR SwiftUI-style
@@ -316,6 +295,23 @@ path = "resources/icons/lucide/icons"
 "calculator" = "calculator"
 "square" = "square"
 "play" = "play"
+# TASK-0353: the media mini player, background jobs, call activity and the panels (the design
+# artifacts).
+"pause" = "pause"
+"forward.end" = "skip-forward"
+"backward.end" = "skip-back"
+"chevron.left.forwardslash.chevron.right" = "code"
+"icloud.and.arrow.up" = "cloud-upload"
+"phone" = "phone"
+"phone.down" = "phone-off"
+"flashlight" = "flashlight"
+"laptopcomputer" = "laptop"
+"speaker" = "volume"
+"battery.0" = "battery"
+"cast" = "cast"
+"bell.and.waves.left.and.right" = "bell-ring"
+"archivebox" = "archive"
+"folder.badge.plus" = "folder-plus"
 "power" = "power"
 "magnifyingglass" = "search"
 "gearshape" = "settings"

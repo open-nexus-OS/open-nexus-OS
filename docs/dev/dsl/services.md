@@ -41,11 +41,39 @@ A service call must be the **scrutinee of a `match` that declares both `Ok` and
 `Err`**. That is the only place a call may appear:
 
 ```nx
+Store UsersStore {
+    users: List<Str> = [],
+    loading: Bool = true,
+    error: Int = 0,
+}
+
+Event UsersEvent {
+    LoadUsers,
+    UsersLoaded(List<Str>),
+    LoadFailed(Int),
+}
+
+reduce UsersEvent {
+    LoadUsers => state.loading = true,
+    UsersLoaded(users) => {
+        state.users = users;
+        state.loading = false;
+    },
+    LoadFailed(code) => {
+        state.error = code;
+        state.loading = false;
+    },
+}
+
 @effect on LoadUsers {
     match svc.users.list() {
         Ok(users) => dispatch(UsersLoaded(users)),
         Err(e)    => dispatch(LoadFailed(e)),
     }
+}
+
+Page UsersPage {
+    Text("Users")
 }
 ```
 
@@ -75,11 +103,32 @@ fix, not the caller's to paper over.
 ## Calling a service
 
 ```nx
+Store LibraryStore {
+    rows: List<Str> = [],
+    error: Int = 0,
+}
+
+Event LibraryEvent {
+    LoadRequested,
+    Loaded(List<Str>),
+    LoadFailed(Int),
+}
+
+reduce LibraryEvent {
+    LoadRequested => state.error = 0,
+    Loaded(rows) => state.rows = rows,
+    LoadFailed(code) => state.error = code,
+}
+
 @effect on LoadRequested {
     match svc.library.list() {
         Ok(rows) => dispatch(Loaded(rows)),
         Err(e) => dispatch(LoadFailed(e)),
     }
+}
+
+Page LibraryPage {
+    Text("Library")
 }
 ```
 
@@ -121,11 +170,41 @@ query step (the ONLY execution site for a declared `Query`, see
 [db-queries.md](db-queries.md) for the declaration syntax and the engine):
 
 ```nx
+Store LibraryStore {
+    items: List<Str> = [],
+    nextToken: Str = "",
+    lastError: Int = 0,
+}
+
+Event LibraryEvent {
+    Refresh,
+    Loaded(List<Str>, Str),
+    LoadFailed(Int),
+}
+
+reduce LibraryEvent {
+    Refresh => state.lastError = 0,
+    Loaded(rows, next) => {
+        state.items = rows;
+        state.nextToken = next;
+    },
+    LoadFailed(code) => state.lastError = code,
+}
+
+Query LibraryItems on library {
+    orderBy name,
+    limit 20,
+}
+
 @effect on Refresh {
     match LibraryItems(token: state.nextToken) {
         Ok(rows, next) => dispatch(Loaded(rows, next)),
         Err(e) => dispatch(LoadFailed(e)),
     }
+}
+
+Page LibraryPage {
+    Text("Library")
 }
 ```
 
@@ -162,7 +241,7 @@ the exact `svc.*` mechanics above:
   the tooling turns into the app's OWN process with its OWN manifest caps.
   The developer declares the surface once; the build generates the Rust
   server skeleton, the `svc.<app>.<method>()` checker signatures, and the
-  manifest segment. Qt-like convenience, process-hard capability boundary.
+  manifest segment. Native-code convenience with a process-hard capability boundary.
   Companion crates may link only the curated SDK crate set (audio/video/gfx/
   text processing); device actuation stays behind platform services + caps.
 - **App exports** (manifest v2.2 `exports`): an app exposes abilities under

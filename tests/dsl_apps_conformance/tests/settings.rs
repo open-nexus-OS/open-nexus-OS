@@ -292,11 +292,12 @@ fn back_walks_subpage_then_section_then_overview() {
     let mut h = Harness::new();
     h.send("NavEvent", "WinMenuPick", vec![Value::Str("personal".into())]);
     h.send("NavEvent", "OpenSub", vec![Value::Str("appearance".into())]);
-    assert!(h.shows("Accent colour"), "appearance sub-page did not open: {:?}", h.texts());
+    // Group headers are the overline style: the runtime upper-cases them.
+    assert!(h.shows("ACCENT COLOUR"), "appearance sub-page did not open: {:?}", h.texts());
 
     h.send("NavEvent", "Back", vec![]);
     assert!(h.shows("Reduce transparency"), "back did not land on the section");
-    assert!(!h.shows("Accent colour"), "the sub-page is still showing");
+    assert!(!h.shows("ACCENT COLOUR"), "the sub-page is still showing");
 
     h.send("NavEvent", "Back", vec![]);
     assert!(h.shows("Biometric data"), "back did not land on the overview: {:?}", h.texts());
@@ -433,7 +434,7 @@ fn info_update_row_opens_updates_and_shows_service_truth() {
     let mut h = Harness::new();
     h.send("NavEvent", "WinMenuPick", vec![Value::Str("info".into())]);
     assert!(
-        h.tap_content_until_shows("Update status"),
+        h.tap_content_until_shows("UPDATE STATUS"),
         "the System update row did not open the updates sub-page: {:?}",
         h.texts()
     );

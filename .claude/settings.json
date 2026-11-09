@@ -16,6 +16,15 @@
             "command": "python3 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/protect-zones.py\""
           }
         ]
+      },
+      {
+        "matcher": "Agent|Workflow",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/agent-budget.py\""
+          }
+        ]
       }
     ],
     "SessionStart": [

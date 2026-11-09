@@ -3,15 +3,23 @@
 //
 // The design artifacts' SYSTEM TOAST (5-surface routing, "System ack"): a
 // transient confirmation at the LEFT edge — glyph, title, one line — that
-// needs no action and leaves by itself after 3–5 s. It sits BELOW the shell's
-// 36px top bar (12px under it): drawn in front of everything (RFC-0109 §motion
-// layers), it must never cover the bar. It slides in from the left edge,
-// growing from 0.96 on the spring (`pushInline`). A transient layer
-// (TASK-0074 / ADR-0068): it confines nothing; the HOST's one-shot timer fires
-// `on Dismiss` after `.dismissAfter(ms)` (the DSL holds no clock), a tap on
-// the card dismisses it early — both through `ToastDismiss(id)`, the ONE way
-// out. The notification feed that will route system events here is notifd's
-// (TASK-0123..0125); this is the surface, not the feed.
+// needs no action and leaves by itself after 3–5 s. The card is the opaque
+// overlay surface (surfaceOverlay, a 1 px glassEdge, shadow3, the lit top
+// line), 300 wide, radius 24, padding 12, gap 12: an icon tile 36 × 36 (radius
+// 12 = 24 − 12, concentric) filled with the toast's tone — `accent`, or
+// `tone: "success" | "danger" | "warning"` — carrying a 19 px `onAccent`
+// glyph; the title (subheadline 13/600 `label`) over one line (caption 11/400
+// `labelSecondary`).
+//
+// It sits BELOW the shell's top bar (12 px under it): drawn in front of
+// everything (RFC-0109 §motion layers), it must never cover the bar. It
+// slides in from the left edge, growing from 0.96 on the spring
+// (`pushInline`). A transient layer (TASK-0074 / ADR-0068): it confines
+// nothing; the HOST's one-shot timer fires `on Dismiss` after
+// `.dismissAfter(ms)` (the DSL holds no clock), a tap on the card dismisses it
+// early — both through `ToastDismiss(id)`, the ONE way out. The notification
+// feed that will route system events here is notifd's (TASK-0123..0125); this
+// is the surface, not the feed.
 //
 // STORE CONTRACT (the consuming app declares these — the kit dispatches):
 //   events  ToastDismiss(Str)
@@ -22,38 +30,82 @@ Component WinToast {
         icon: Str,
         title: Str,
         subtitle: Str,
+        tone: Str,
     }
     Stack {
         Stack { }
             .height(48)
         Stack {
             Stack {
-                Panel {
-                    Circle { size: 32
-                        Icon { symbol: $props.icon, size: 14 }
-                            .fg(onGlass)
-                    }
-                    .material(subtle)
+                if $props.tone == "success" {
                     Stack {
-                        Text($props.title).textSize(sm).fontWeight(semibold).fg(onGlass)
-                        Text($props.subtitle).textSize(xs).fg(onGlassMuted)
+                        Icon { symbol: $props.icon, size: 19 }
+                            .fg(onAccent)
                     }
-                    .gap(0)
+                    .width(36)
+                    .height(36)
+                    .shrink(0)
+                    .rounded(md)
+                    .align(center)
+                    .justify(center)
+                    .bg(success)
+                } else if $props.tone == "danger" {
+                    Stack {
+                        Icon { symbol: $props.icon, size: 19 }
+                            .fg(onAccent)
+                    }
+                    .width(36)
+                    .height(36)
+                    .shrink(0)
+                    .rounded(md)
+                    .align(center)
+                    .justify(center)
+                    .bg(danger)
+                } else if $props.tone == "warning" {
+                    Stack {
+                        Icon { symbol: $props.icon, size: 19 }
+                            .fg(onAccent)
+                    }
+                    .width(36)
+                    .height(36)
+                    .shrink(0)
+                    .rounded(md)
+                    .align(center)
+                    .justify(center)
+                    .bg(warning)
+                } else {
+                    Stack {
+                        Icon { symbol: $props.icon, size: 19 }
+                            .fg(onAccent)
+                    }
+                    .width(36)
+                    .height(36)
+                    .shrink(0)
+                    .rounded(md)
+                    .align(center)
+                    .justify(center)
+                    .bg(accent)
                 }
-                .direction(row)
-                .align(center)
-                .gap(2)
-                .material(overlay)
-                .rounded(lg)
-                .padding(2)
-                on Tap -> dispatch(ToastDismiss($props.id))
+                Stack {
+                    Text($props.title).textStyle(subheadline).fontWeight(semibold).fg(label)
+                    Text($props.subtitle).textStyle(caption).fontWeight(normal).fg(labelSecondary)
+                }
+                .gap(0)
+                .grow(1)
             }
-            .width(320)
+            .direction(row)
+            .align(center)
+            .gap(12)
+            .padding(12)
+            .width(300)
+            .material(overlay)
+            .rounded(xl)
+            on Tap -> dispatch(ToastDismiss($props.id))
             Spacer
         }
         .direction(row)
         .align(start)
-        .paddingX(3)
+        .paddingX(12)
     }
     .overlay(transient)
     .dismissAfter(4000)

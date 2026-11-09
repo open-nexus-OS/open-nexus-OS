@@ -55,6 +55,17 @@ the build through the **theme**, not hard-coded:
   join is painted once). The former import cut every segment into its own
   filled quad and the fill sampled one point per pixel: at 17 px the 1.4 px
   stroke turned into stair steps with gaps (TASK-0251 P2a step 3).
+- A `<rect rx/ry>` keeps its rounded corners (quarter arcs), so `square`,
+  `sidebar.left/right` and the window's maximise glyph match the design.
+- The design artifacts set a few strokes per icon (the window controls 2.5, a
+  chevron 2.2 or 2.4, a chip's × 3): `Icon::lucide(sym).stroke_tenths(25)` —
+  tenths of the 24-unit viewbox; the set's own width is `20`.
+- The design's raw-path glyphs that have no file (a list row's check, the
+  reorder handle) are `Icon::polylines(&[…])` — polylines in the normalized
+  `0..1000` viewbox (`c * 1000 / 24`), stroked like the set.
+- `with_ink(node, color)` is `currentColor`: a container re-inks the glyph (or
+  text) it holds — a destructive row's leading icon turns `danger`, a selected
+  sidebar item's icon `onAccent`, a resting tab's icon the label at 62 %.
 
 Only names in `[icons.symbols]` exist at runtime — the other ~3400 Lucide
 files are not baked (binary size stays flat).
@@ -85,23 +96,29 @@ The registry as authored in `[icons.symbols]` (SSOT:
 | Symbol name | Lucide file | Typical use |
 |---|---|---|
 | `airplane` | `plane` | flight mode toggle |
+| `archivebox` | `archive` | compress / archive |
 | `arrow.clockwise` | `refresh-cw` | refresh / reload |
 | `arrow.counterclockwise` | `rotate-ccw` | undo / revert |
 | `arrow.down` | `arrow-down` | sort / move down |
 | `arrow.down.circle` | `download` | downloads |
 | `arrow.left` | `arrow-left` | back navigation |
 | `arrow.right` | `arrow-right` | forward navigation |
-| `arrow.up.arrow.down` | `arrow-up-down` | sort direction |
 | `arrow.up` | `arrow-up` | sort / move up |
+| `arrow.up.arrow.down` | `arrow-up-down` | sort direction |
 | `arrow.uturn.backward` | `undo-2` | restore from trash |
+| `backward.end` | `skip-back` | media: previous |
+| `battery.0` | `battery` | battery, outline |
 | `battery.75` | `battery-full` | status battery |
 | `bell` | `bell` | notifications |
+| `bell.and.waves.left.and.right` | `bell-ring` | an urgent notification |
 | `bluetooth` | `bluetooth` | BT toggle |
 | `calculator` | `calculator` | calculator app |
 | `calendar` | `calendar` | dates (created / modified) |
+| `cast` | `cast` | screen casting |
 | `checkmark` | `check` | confirmation, checkbox |
 | `chevron.down` | `chevron-down` | expanders, dropdowns |
 | `chevron.left` | `chevron-left` | back / previous |
+| `chevron.left.forwardslash.chevron.right` | `code` | a build / code job |
 | `chevron.right` | `chevron-right` | disclosure, next |
 | `chevron.up` | `chevron-up` | collapse |
 | `columns.2` | `columns-2` | split window mode |
@@ -113,12 +130,17 @@ The registry as authored in `[icons.symbols]` (SSOT:
 | `ellipsis.vertical` | `ellipsis-vertical` | overflow menu (window toolbar) |
 | `eye` | `eye` | view / visibility menu |
 | `film` | `video` | videos folder |
+| `flashlight` | `flashlight` | flashlight toggle |
 | `folder` | `folder` | folders, file type |
+| `folder.badge.plus` | `folder-plus` | new folder |
+| `forward.end` | `skip-forward` | media: next |
 | `gearshape` | `settings` | settings |
 | `house` | `house` | home (nav pill) |
+| `icloud.and.arrow.up` | `cloud-upload` | an upload / backup job |
 | `info.circle` | `info` | help / about |
 | `internaldrive` | `hard-drive` | storage device |
 | `ipad` | `tablet` | tablet shell mode |
+| `laptopcomputer` | `laptop` | the desktop view mode |
 | `list.bullet` | `list` | list view mode |
 | `lock` | `lock` | lock / privacy / id |
 | `magnifyingglass` | `search` | search |
@@ -132,8 +154,11 @@ The registry as authored in `[icons.symbols]` (SSOT:
 | `music.note` | `music` | audio folder |
 | `paintpalette` | `palette` | theme / accent |
 | `paperplane` | `send` | send message |
+| `pause` | `pause` | pause media |
 | `pencil` | `pencil` | edit |
 | `person` | `user` | account / avatar fallback |
+| `phone` | `phone` | call activity |
+| `phone.down` | `phone-off` | end / decline a call |
 | `photo` | `image` | pictures folder |
 | `play` | `play` | play media |
 | `plus` | `plus` | increment / add / new |
@@ -141,13 +166,14 @@ The registry as authored in `[icons.symbols]` (SSOT:
 | `shippingbox` | `box` | size (bytes) |
 | `sidebar.left` | `panel-left` | toggle left sidebar |
 | `sidebar.right` | `panel-right` | toggle right sidebar |
+| `speaker` | `volume` | volume slider (no waves) |
 | `speaker.wave` | `volume-2` | sound |
+| `square` | `square` | freeform window mode / zoom |
 | `square.and.arrow.up` | `share-2` | share |
+| `square.grid` | `layout-grid` | launcher / app grid |
 | `square.grid.2x2` | `grid-2x2` | tile view mode |
 | `square.grid.3x3` | `grid-3x3` | grid view mode |
-| `square.grid` | `layout-grid` | launcher / app grid |
 | `square.pencil` | `square-pen` | modified / rename |
-| `square` | `square` | freeform window mode / zoom |
 | `star` | `star` | favourite / recent |
 | `sun.max` | `sun` | light mode / brightness |
 | `trash` | `trash` | delete (destructive) |

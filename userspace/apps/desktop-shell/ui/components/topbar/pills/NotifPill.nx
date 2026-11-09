@@ -1,79 +1,86 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The notifications pill (design artifacts: panels §2). Desktop carries the full
-// row — bell with its red dot, then a mail glyph with its count, a chat glyph
-// and a calendar glyph — because a desktop bar has the width to show WHAT is
-// waiting. Touch modes show the bell alone.
+// The notifications pill (design artifacts: TopBar). Desktop carries the full
+// row — the bell with its unread dot, then the mail glyph with its count, a
+// chat glyph and a calendar glyph (11px, `labelSecondary`) — because a desktop
+// bar has the width to show WHAT is waiting. Touch modes show the bell alone.
 //
-// The red dot sits on the bell through a contained `.overlay()`: the layer
-// fills the bell's box and flex pushes the dot to its top-right corner, which
-// is the only anchoring this DSL offers.
+// The dot and the count follow the notification centre: its cards are demo
+// markup until notifd feeds the shell, and "Alle löschen" (`notifCleared`)
+// empties it — after that nothing is unread, so neither the dot nor the "4"
+// may claim otherwise.
 
 Component NotifPill {
     props: {
         wide: Bool,
+        selected: Bool,
     }
     if $props.wide {
-        Stack {
-            Stack {
-                Icon { symbol: "bell", size: 13 }
-                    .fg(onGlass)
-                Stack {
+        TopBarPill { selected: $props.selected, gap: 6 } {
+            content {
+                BellGlyph { unread: !$state.notifCleared }
+                if $state.notifCleared {
+                    Icon { symbol: "mail", size: 11 }
+                        .fg(labelSecondary)
+                } else {
                     Stack {
-                        Spacer
-                        Circle { size: 5 }
-                            .bg(notifDot)
+                        Icon { symbol: "mail", size: 11 }
+                            .fg(labelSecondary)
+                        Text(@t("notif.mailCount")).textStyle(caption2).fontWeight(bold).fg(labelSecondary).shadow(halo)
                     }
                     .direction(row)
-                    Spacer
+                    .align(center)
+                    .gap(4)
                 }
-                .overlay()
+                Icon { symbol: "message.square", size: 11 }
+                    .fg(labelSecondary)
+                Icon { symbol: "calendar", size: 11 }
+                    .fg(labelSecondary)
             }
-            .width(13)
-            .height(13)
-            Stack {
-                Icon { symbol: "mail", size: 12 }
-                    .fg(onGlass)
-                Text(@t("notif.mailCount")).textSize(xs).fontWeight(bold).fg(onGlass)
-            }
-            .direction(row)
-            .align(center)
-            Icon { symbol: "message.square", size: 12 }
-                .fg(onGlass)
-            Icon { symbol: "calendar", size: 12 }
-                .fg(onGlass)
         }
-        .direction(row)
-        .align(center)
-        .gap(1)
-        .paddingX(2)
-        .height(28)
-        .rounded(full)
     } else {
-        Stack {
-            Stack {
-                Icon { symbol: "bell", size: 13 }
-                    .fg(onGlass)
-                Stack {
-                    Stack {
-                        Spacer
-                        Circle { size: 5 }
-                            .bg(notifDot)
-                    }
-                    .direction(row)
-                    Spacer
-                }
-                .overlay()
+        TopBarPill { selected: $props.selected, gap: 6 } {
+            content {
+                BellGlyph { unread: !$state.notifCleared }
             }
-            .width(13)
-            .height(13)
         }
-        .direction(row)
-        .align(center)
-        .justify(center)
-        .paddingX(2)
-        .height(28)
-        .rounded(full)
     }
+}
+
+// The 13px bell with its 5×5 `danger` dot at top −2 / right −3 (the design
+// overhangs the glyph box; this DSL has no positioned offsets). The box is the
+// glyph grown by that overhang — 16 wide, 2 px above and below — so the dot
+// sits in the layer's top-right corner exactly where the design puts it and
+// the bell stays centred on the pill.
+Component BellGlyph {
+    props: {
+        unread: Bool,
+    }
+    Stack {
+        Stack { }
+            .height(2)
+        Icon { symbol: "bell", size: 13 }
+            .fg(label)
+        Stack { }
+            .height(2)
+        if $props.unread {
+            Stack {
+                Stack {
+                    Spacer
+                    Circle { size: 5 }
+                        .bg(danger)
+                }
+                .direction(row)
+                Spacer
+            }
+            .overlay()
+        } else {
+            Stack { }
+                .overlay()
+        }
+    }
+    .width(16)
+    .height(17)
+    .align(start)
 }

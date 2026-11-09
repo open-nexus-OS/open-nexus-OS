@@ -1,89 +1,116 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! `GlassTextField` — the design-system text field (design `TextField`): an
-//! optional label, a bordered glass input box (leading icon · input · trailing
-//! node), and optional helper/error text — all resolved from theme tokens
-//! (error turns the border danger; focus shows the ring). A pure builder
-//! producing a `LayoutNode::Stack` column. The inner input is the low-level
-//! [`TextField`] primitive (app owns the value). DSL-emittable.
+//! CONTEXT: `GlassTextField` — the design-system text field (design artifacts `TextField`): an
+//! optional label, the field box on the control height of its size (leading icon · prefix ·
+//! input · suffix · clear disc · reveal eye · success check · trailing node) and an optional
+//! helper / error / success line. Resting surface = the control fill (or the glass card layer on
+//! a wallpaper); a validation state recolours the 1 px border; focus draws the 2 px outline
+//! outside the box. A pure builder producing a `LayoutNode::Stack` column; the inner input is
+//! the low-level [`TextField`] primitive (the app owns the value). DSL-emittable.
+//! OWNERS: @ui
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: the tests below; tests/ui_v10_goldens (textfield_*); dsl runtime greeter_surface
+//! ADR: docs/rfcs/RFC-0116-one-token-set-the-design-artifacts-roles-text-styles-grid-shapes-and-materials.md
 
 extern crate alloc;
 
 use alloc::string::String;
 use alloc::vec::Vec;
 use nexus_layout_types::{
-    Align, Direction, EdgeInsets, FlexItem, FontWeight, FxPx, Justify, LayoutNode, LineHeight,
-    Overflow, Rgba8, Stack, TextAlign, TextContent, TextNode, TextStyle, VisualStyle, WhiteSpace,
+    Align, CornerRadius, Direction, EdgeInsets, FlexItem, FontWeight, FxPx, Justify, LayoutNode,
+    Overflow, Rgba8, Stack, VisualStyle,
 };
 use nexus_style::{InteractionState, Style};
-use nexus_theme_tokens::{ColorToken, LengthToken, Tokens, TypographyToken};
+use nexus_theme_tokens::{ColorToken, ControlSize, RadiusToken, Tokens};
 
+use crate::field::{
+    self, box_padding, field_radius, focus_ring, glyph, FieldAppearance, FieldMetrics, FieldState,
+    DISABLED_OPACITY, RING_OFFSET, STROKE_2, STROKE_2_5,
+};
 use crate::TextField;
 
-/// Size preset (design `TextFieldProps.size`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum FieldSize {
-    Sm,
-    #[default]
-    Md,
-    Lg,
-}
+/// Size preset — the control sizes (design `TextFieldProps.size`): xs 24 · sm 30 · md 36 ·
+/// lg 44 · xl 52.
+pub type FieldSize = ControlSize;
 
-impl FieldSize {
-    fn input_size(self) -> TypographyToken {
-        match self {
-            FieldSize::Sm => TypographyToken::Sm,
-            FieldSize::Md => TypographyToken::Base,
-            FieldSize::Lg => TypographyToken::Md,
-        }
-    }
-    fn padding(self) -> EdgeInsets {
-        let (v, h) = match self {
-            FieldSize::Sm => (6, 10),
-            FieldSize::Md => (8, 12),
-            FieldSize::Lg => (10, 14),
-        };
-        EdgeInsets::symmetric(FxPx::new(v), FxPx::new(h))
-    }
-}
+/// The narrowest a field box gets, so a field in a row never collapses to its placeholder.
+pub const MIN_FIELD_WIDTH: i32 = 180;
 
-/// Height of the glass pill and, as its radius, what makes it a pill
-/// (design: 44px tall, `border-radius: 9999px`). 44 is also the minimum
-/// hit target the design requires of every control.
-pub const PILL_HEIGHT: i32 = 44;
-const PILL_RADIUS: i32 = 9999;
-
-/// How the field draws its own box (RFC-0082).
+/// How the field draws its own box.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FieldVariant {
-    /// The design-system default: opaque `Surface`, medium radius, 1px border.
+    /// The design's `filled` field: the control fill, 1 px transparent border, size radius.
     #[default]
     Boxed,
-    /// A glass PILL — `material(panel)`, radius `full`, 44px tall. The lock
-    /// surface and search fields that sit on a wallpaper.
+    /// The design's `glass` field (on a wallpaper or a blur surface — the lock screen): the
+    /// glass card layer, its edge, the edge highlight and `shadow1`. Never blurs.
     Glass,
-    /// NO box at all: just the input run. For composing a field INTO a
-    /// surrounding surface (a pill that also holds a submit button), where a
-    /// second box inside the first would double every border and blur.
+    /// NO box at all (a repo composition aid): just the input run on the control height. For
+    /// composing a field INTO a surrounding surface (a pill that also holds a submit button),
+    /// where a second box inside the first would double every border.
     Bare,
 }
 
 /// A labelled text field.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct GlassTextField {
     label: Option<String>,
     value: String,
     placeholder: Option<String>,
     helper: Option<String>,
     error: Option<String>,
+    validation: FieldState,
     leading: Option<LayoutNode>,
     trailing: Option<LayoutNode>,
+    prefix: Option<String>,
+    suffix: Option<String>,
     size: FieldSize,
     state: InteractionState,
     id: Option<&'static str>,
     secure: bool,
+    revealable: bool,
+    revealed: bool,
+    reveal_id: Option<&'static str>,
+    clearable: bool,
+    clear_id: Option<&'static str>,
     variant: FieldVariant,
+    capsule: bool,
+    read_only: bool,
+    tint: ColorToken,
+    max_length: Option<u32>,
+}
+
+impl Default for GlassTextField {
+    fn default() -> Self {
+        Self {
+            label: None,
+            value: String::new(),
+            placeholder: None,
+            helper: None,
+            error: None,
+            validation: FieldState::Default,
+            leading: None,
+            trailing: None,
+            prefix: None,
+            suffix: None,
+            size: FieldSize::Md,
+            state: InteractionState::Default,
+            id: None,
+            secure: false,
+            revealable: false,
+            revealed: false,
+            reveal_id: None,
+            clearable: false,
+            clear_id: None,
+            variant: FieldVariant::Boxed,
+            capsule: false,
+            read_only: false,
+            tint: ColorToken::Accent,
+            max_length: None,
+        }
+    }
 }
 
 impl GlassTextField {
@@ -103,21 +130,40 @@ impl GlassTextField {
         self.placeholder = Some(placeholder.into());
         self
     }
+    /// Helper text under the field (green while the state is `Success`).
     pub fn helper(mut self, helper: impl Into<String>) -> Self {
         self.helper = Some(helper.into());
         self
     }
-    /// Error message — turns the border danger and replaces the helper line.
+    /// Error message — the state becomes `Error` (danger border) and the message replaces the
+    /// helper line.
     pub fn error(mut self, error: impl Into<String>) -> Self {
         self.error = Some(error.into());
         self
     }
+    /// Validation state without a message: `Error` = the danger border only, `Success` = the
+    /// green border, the check and a green helper.
+    pub fn validation(mut self, state: FieldState) -> Self {
+        self.validation = state;
+        self
+    }
+    /// Leading node (an icon, in `labelSecondary`).
     pub fn leading(mut self, leading: LayoutNode) -> Self {
         self.leading = Some(leading);
         self
     }
     pub fn trailing(mut self, trailing: LayoutNode) -> Self {
         self.trailing = Some(trailing);
+        self
+    }
+    /// Text before the input (field text, weight 500, `labelSecondary`).
+    pub fn prefix(mut self, prefix: impl Into<String>) -> Self {
+        self.prefix = Some(prefix.into());
+        self
+    }
+    /// Text after the input (a unit, a currency sign).
+    pub fn suffix(mut self, suffix: impl Into<String>) -> Self {
+        self.suffix = Some(suffix.into());
         self
     }
     pub fn size(mut self, size: FieldSize) -> Self {
@@ -132,10 +178,35 @@ impl GlassTextField {
         self.id = Some(id);
         self
     }
-    /// Password field: bullets instead of the value; no IME preview/learning
-    /// (RFC-0075).
+    /// Password field: bullets instead of the value; no IME preview/learning (RFC-0075).
     pub fn secure(mut self, secure: bool) -> Self {
         self.secure = secure;
+        self
+    }
+    /// Show the eye button on a password field (opt-in: the app wires the toggle by
+    /// [`reveal_id`](Self::reveal_id) and passes the result back as [`revealed`](Self::revealed)).
+    pub fn revealable(mut self, on: bool) -> Self {
+        self.revealable = on;
+        self
+    }
+    /// The password is shown in clear (still a secure field for the IME).
+    pub fn revealed(mut self, on: bool) -> Self {
+        self.revealed = on;
+        self
+    }
+    /// Interaction id of the eye button.
+    pub fn reveal_id(mut self, id: &'static str) -> Self {
+        self.reveal_id = Some(id);
+        self
+    }
+    /// Show the clear disc while the field holds text (editable fields only).
+    pub fn clearable(mut self, on: bool) -> Self {
+        self.clearable = on;
+        self
+    }
+    /// Interaction id of the clear disc (the app empties the value).
+    pub fn clear_id(mut self, id: &'static str) -> Self {
+        self.clear_id = Some(id);
         self
     }
     /// How the field draws its own box — see [`FieldVariant`].
@@ -143,251 +214,211 @@ impl GlassTextField {
         self.variant = variant;
         self
     }
-    /// Sugar for the glass pill (`FieldVariant::Glass`).
+    /// A capsule box instead of the size radius — the lock-screen password exception.
+    pub fn capsule(mut self, on: bool) -> Self {
+        self.capsule = on;
+        self
+    }
+    /// The lock-screen pill: the glass field as a capsule.
     pub fn pill(self) -> Self {
-        self.variant(FieldVariant::Glass)
+        self.variant(FieldVariant::Glass).capsule(true)
+    }
+    /// Read-only: no fill, a `separator` hairline, no clear disc.
+    pub fn read_only(mut self, on: bool) -> Self {
+        self.read_only = on;
+        self
+    }
+    /// The tint (focus outline; default `Accent`).
+    pub fn tint(mut self, tint: ColorToken) -> Self {
+        self.tint = tint;
+        self
+    }
+    /// Maximum input length.
+    pub fn max_length(mut self, max: u32) -> Self {
+        self.max_length = Some(max);
+        self
     }
 
-    /// The border color for the current state (danger on error, ring on focus).
-    pub fn border_color(&self, tokens: &dyn Tokens) -> Rgba8 {
-        let role = if self.error.is_some() {
-            ColorToken::Danger
-        } else if self.state.shows_focus_ring() {
-            ColorToken::FocusRing
+    /// The validation state in effect: an error message always wins.
+    pub fn field_state(&self) -> FieldState {
+        if self.error.is_some() {
+            FieldState::Error
         } else {
-            ColorToken::Border
-        };
-        tokens.color(role)
+            self.validation
+        }
     }
 
-    fn text(content: &str, style: TextStyle) -> LayoutNode {
-        LayoutNode::Text(
-            TextNode {
-                id: None,
-                content: TextContent::new(String::from(content)),
-                style,
-                item: FlexItem::default(),
-                max_lines: Some(1),
-                min_width: None,
-                max_width: None,
+    /// The visible 1 px border for the current state (`None` = transparent at rest).
+    pub fn border_color(&self, tokens: &dyn Tokens) -> Option<Rgba8> {
+        let appearance = self.appearance()?;
+        let v = field::surface(appearance, self.field_state(), self.read_only, tokens).visual();
+        v.border.top.map(|b| b.color)
+    }
+
+    /// The focus outline's colour: the tint, or the state colour while invalid / valid.
+    pub fn ring_color(&self, tokens: &dyn Tokens) -> Rgba8 {
+        tokens.color(self.field_state().ring(self.tint))
+    }
+
+    /// The surface the variant draws (`None` for `Bare`).
+    fn appearance(&self) -> Option<FieldAppearance> {
+        match self.variant {
+            FieldVariant::Boxed => Some(FieldAppearance::Filled),
+            FieldVariant::Glass => Some(FieldAppearance::Glass),
+            FieldVariant::Bare => None,
+        }
+    }
+
+    fn editable(&self) -> bool {
+        !self.read_only && !self.state.is_disabled()
+    }
+
+    /// The eye button: a transparent circle (`icon + 8`) pulled 4 px into its neighbours'
+    /// gaps, the eye (masked) or the struck eye (revealed) in `labelSecondary`.
+    fn reveal_button(&self, m: &FieldMetrics, tokens: &dyn Tokens) -> LayoutNode {
+        let paths = if self.revealed { field::EYE_OFF } else { field::EYE };
+        let eye = glyph(paths, STROKE_2, m.icon, tokens.color(ColorToken::LabelSecondary));
+        let d = Some(FxPx::new(m.reveal_button()));
+        LayoutNode::Stack(
+            Stack {
+                id: self.reveal_id,
+                align: Align::Center,
+                justify: Justify::Center,
+                min_width: d,
+                max_width: d,
+                min_height: d,
+                max_height: d,
+                item: FlexItem {
+                    flex_shrink: 0,
+                    margin: EdgeInsets {
+                        left: FxPx::new(-4),
+                        right: FxPx::new(-4),
+                        ..EdgeInsets::zero()
+                    },
+                    ..FlexItem::default()
+                },
+                ..Stack::default()
             },
-            VisualStyle::default(),
+            VisualStyle {
+                corner_radius: CornerRadius::uniform(RadiusToken::Full.px()),
+                ..VisualStyle::default()
+            },
+            alloc::vec![eye],
         )
     }
 
-    fn caption_style(tokens: &dyn Tokens, color: ColorToken) -> TextStyle {
-        TextStyle {
-            font_size: tokens.type_size(TypographyToken::Sm),
-            font_weight: FontWeight::Regular,
-            // RFC-0082: the baked face's own line height. This was
-            // `Relative(150)`, which the measurer never honored — now that
-            // `Relative` IS honored it would silently grow every field, so
-            // the intent is stated as "let the face decide" instead.
-            line_height: LineHeight::Absolute(FxPx::new(20)),
-            text_align: TextAlign::Left,
-            color: tokens.color(color),
-            white_space: WhiteSpace::NoWrap,
-        }
+    fn affix(text: &str, m: &FieldMetrics, tokens: &dyn Tokens) -> LayoutNode {
+        let style =
+            m.text.text_style(tokens.color(ColorToken::LabelSecondary), Some(FontWeight::Medium));
+        field::text_node(text, style)
     }
 
-    /// Build the field column (label · input box · helper/error).
+    /// The input box's children, in the design's order.
+    fn box_children(&self, m: &FieldMetrics, tokens: &dyn Tokens) -> Vec<LayoutNode> {
+        let mut out: Vec<LayoutNode> = Vec::new();
+        if let Some(leading) = &self.leading {
+            out.push(leading.clone());
+        }
+        if let Some(prefix) = &self.prefix {
+            out.push(Self::affix(prefix, m, tokens));
+        }
+        let mut tf = TextField::new()
+            .text_style(field::input_style(m, tokens))
+            .value(self.value.clone())
+            .fill_row()
+            .secure(self.secure)
+            .revealed(self.revealed);
+        if let Some(p) = &self.placeholder {
+            tf = tf.placeholder(p.clone());
+        }
+        if let Some(id) = self.id {
+            tf = tf.id(id);
+        }
+        if let Some(max) = self.max_length {
+            tf = tf.max_length(max);
+        }
+        out.push(tf.build());
+        if let Some(suffix) = &self.suffix {
+            out.push(Self::affix(suffix, m, tokens));
+        }
+        if self.clearable && self.editable() && !self.value.is_empty() {
+            out.push(field::clear_disc(m.clear_disc(), self.clear_id, tokens));
+        }
+        if self.secure && self.revealable {
+            out.push(self.reveal_button(m, tokens));
+        }
+        if self.field_state() == FieldState::Success && self.trailing.is_none() {
+            out.push(glyph(field::CHECK, STROKE_2_5, m.icon, tokens.color(ColorToken::Success)));
+        }
+        if let Some(trailing) = &self.trailing {
+            out.push(trailing.clone());
+        }
+        out
+    }
+
+    /// Build the field column (label · input box · message).
     pub fn build(self, tokens: &dyn Tokens) -> LayoutNode {
-        // Input box. `Bare` draws none at all — the caller's surface is the
-        // box, and a second one inside it would double the border and the
-        // backdrop blur.
-        let mut box_style = match self.variant {
-            FieldVariant::Boxed => Style::new()
-                .background(tokens.color(ColorToken::Surface))
-                .rounded(tokens.length(LengthToken::RadiusMedium))
-                .border(tokens.length(LengthToken::BorderThin), self.border_color(tokens)),
-            FieldVariant::Glass => Style::new()
-                .glass(nexus_theme_tokens::MaterialToken::Panel, tokens)
-                .rounded(FxPx::new(PILL_RADIUS))
-                .border(tokens.length(LengthToken::BorderThin), self.border_color(tokens)),
-            FieldVariant::Bare => Style::new(),
+        let m = FieldMetrics::of(self.size);
+        let state = self.field_state();
+        let radius = field_radius(self.size, self.capsule);
+        // `Bare` draws no box — the caller's surface is the box — and so reserves no border.
+        let (box_style, padding) = match self.appearance() {
+            Some(appearance) => (
+                field::surface(appearance, state, self.read_only, tokens).rounded(radius),
+                box_padding(m.pad, FxPx::ZERO),
+            ),
+            None => (Style::new(), EdgeInsets::symmetric(FxPx::ZERO, m.pad)),
         };
-        if self.state.is_disabled() {
-            box_style = box_style.opacity(self.state.opacity());
-        }
-
-        let input = {
-            let mut tf = TextField::new()
-                .style(Style::new())
-                .text_style(TextStyle {
-                    font_size: tokens.type_size(self.size.input_size()),
-                    font_weight: FontWeight::Regular,
-                    // RFC-0082: the baked face's own line height. This was
-                    // `Relative(150)`, which the measurer never honored — now that
-                    // `Relative` IS honored it would silently grow every field, so
-                    // the intent is stated as "let the face decide" instead.
-                    line_height: LineHeight::Absolute(FxPx::new(20)),
-                    text_align: TextAlign::Left,
-                    color: tokens.color(ColorToken::OnSurface),
-                    white_space: WhiteSpace::NoWrap,
-                })
-                .value(self.value.clone())
-                .fill_row()
-                .secure(self.secure);
-            if let Some(p) = &self.placeholder {
-                tf = tf.placeholder(p.clone());
-            }
-            if let Some(id) = self.id {
-                tf = tf.id(id);
-            }
-            tf.build()
-        };
-
-        let mut row_children: Vec<LayoutNode> = Vec::new();
-        if let Some(leading) = self.leading {
-            row_children.push(leading);
-        }
-        row_children.push(input);
-        if let Some(trailing) = self.trailing {
-            row_children.push(trailing);
+        let mut children = self.box_children(&m, tokens);
+        if self.state.shows_focus_ring() && self.appearance().is_some() {
+            children.push(focus_ring(self.ring_color(tokens), radius, padding, RING_OFFSET));
         }
         let field_box = LayoutNode::Stack(
             Stack {
-                id: None,
                 direction: Direction::Row,
-                gap: FxPx::new(8),
-                padding: self.size.padding(),
+                gap: m.gap,
+                padding,
                 align: Align::Center,
-                justify: Justify::Start,
                 overflow: Overflow::Visible,
-                flex_wrap: false,
-                min_width: Some(FxPx::new(180)),
-                max_width: None,
-                // A pill is 44px tall — the design's height AND the minimum
-                // hit target it requires of every control.
-                min_height: (self.variant == FieldVariant::Glass).then(|| FxPx::new(PILL_HEIGHT)),
-                max_height: None,
-                item: FlexItem::default(),
-                text_fit: None,
+                min_width: Some(FxPx::new(MIN_FIELD_WIDTH)),
+                min_height: Some(m.height),
+                max_height: Some(m.height),
+                ..Stack::default()
             },
             box_style.visual(),
-            row_children,
+            children,
         );
 
-        // Column: label? / field box / helper-or-error?
-        // `Align::Stretch` (not `Start`) is what carries a `.grow(1)` from the
-        // page down to the field box: `.grow()` lands on this outer column
-        // only, and a `Start`-aligned column leaves its children at their
-        // intrinsic width — so a field told to fill a 663px row painted its
-        // chrome at `min_width` 180 and left the rest of the strip inert.
+        // Column: label? / field box / message?
+        // `Align::Stretch` (not `Start`) is what carries a `.grow(1)` from the page down to the
+        // field box: `.grow()` lands on this outer column only, and a `Start`-aligned column
+        // leaves its children at their intrinsic width — so a field told to fill a 663px row
+        // painted its chrome at the minimum width and left the rest of the strip inert.
         let mut col: Vec<LayoutNode> = Vec::new();
         if let Some(label) = &self.label {
-            col.push(Self::text(label, Self::caption_style(tokens, ColorToken::OnSurfaceVariant)));
+            col.push(field::label_node(label, &m, tokens));
         }
         col.push(field_box);
-        if let Some(err) = &self.error {
-            col.push(Self::text(err, Self::caption_style(tokens, ColorToken::Danger)));
-        } else if let Some(helper) = &self.helper {
-            col.push(Self::text(helper, Self::caption_style(tokens, ColorToken::OnSurfaceVariant)));
+        if let Some(message) = self.error.as_ref().or(self.helper.as_ref()) {
+            col.push(field::message_node(message, state, tokens));
         }
-
+        let mut visual = VisualStyle::default();
+        if self.state.is_disabled() {
+            visual.opacity = Some(DISABLED_OPACITY);
+        }
         LayoutNode::Stack(
             Stack {
-                id: None,
                 direction: Direction::Column,
-                gap: FxPx::new(4),
-                padding: EdgeInsets::zero(),
+                gap: FxPx::new(8),
                 align: Align::Stretch,
-                justify: Justify::Start,
-                overflow: Overflow::Visible,
-                flex_wrap: false,
-                min_width: None,
-                max_width: None,
-                min_height: None,
-                max_height: None,
-                item: FlexItem::default(),
-                text_fit: None,
+                ..Stack::default()
             },
-            VisualStyle::default(),
+            visual,
             col,
         )
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use nexus_theme_tokens::BaseTokens;
-
-    #[test]
-    fn error_turns_border_danger_and_adds_a_line() {
-        let t = BaseTokens;
-        let f = GlassTextField::new().label("E-Mail").error("Zu kurz");
-        assert_eq!(f.border_color(&t), t.color(ColorToken::Danger));
-        match f.build(&t) {
-            LayoutNode::Stack(_, _, col) => assert_eq!(col.len(), 3, "label + box + error"),
-            _ => panic!(),
-        }
-    }
-
-    #[test]
-    fn plain_field_is_label_plus_box() {
-        let t = BaseTokens;
-        assert_eq!(GlassTextField::new().border_color(&t), t.color(ColorToken::Border));
-        match GlassTextField::new().value("hi").build(&t) {
-            LayoutNode::Stack(_, _, col) => assert_eq!(col.len(), 1, "just the box"),
-            _ => panic!(),
-        }
-    }
-
-    #[test]
-    fn pill_is_glass_full_radius_and_44_tall() {
-        let t = BaseTokens;
-        match GlassTextField::new().placeholder("Passwort").pill().build(&t) {
-            LayoutNode::Stack(_, _, col) => match &col[0] {
-                LayoutNode::Stack(stack, v, _) => {
-                    assert_eq!(stack.min_height, Some(FxPx::new(PILL_HEIGHT)));
-                    assert_eq!(v.corner_radius.top_left, FxPx::new(9999), "radius full = pill");
-                    assert!(
-                        matches!(v.material, nexus_layout_types::SurfaceMaterial::Glass(_)),
-                        "a pill is glass, not an opaque surface"
-                    );
-                    assert!(v.inset_highlight.is_some(), "the inset top-shine");
-                }
-                _ => panic!("expected the field box"),
-            },
-            _ => panic!(),
-        }
-    }
-
-    #[test]
-    fn bare_draws_no_box_at_all() {
-        // Composing a field INTO a surrounding pill: a second box inside the
-        // first would double the border and the backdrop blur.
-        let t = BaseTokens;
-        match GlassTextField::new().variant(FieldVariant::Bare).build(&t) {
-            LayoutNode::Stack(_, _, col) => match &col[0] {
-                LayoutNode::Stack(_, v, _) => {
-                    assert_eq!(v.background, None);
-                    assert_eq!(v.border, nexus_layout_types::EdgeBorder::none());
-                    assert_eq!(v.material, nexus_layout_types::SurfaceMaterial::Opaque);
-                }
-                _ => panic!("expected the field box"),
-            },
-            _ => panic!(),
-        }
-    }
-
-    #[test]
-    fn focus_shows_ring_disabled_dims() {
-        let t = BaseTokens;
-        assert_eq!(
-            GlassTextField::new().state(InteractionState::Focused).border_color(&t),
-            t.color(ColorToken::FocusRing)
-        );
-        // Disabled dims the box (first/only child).
-        match GlassTextField::new().state(InteractionState::Disabled).build(&t) {
-            LayoutNode::Stack(_, _, col) => match &col[0] {
-                LayoutNode::Stack(_, v, _) => {
-                    assert_eq!(v.opacity, Some(InteractionState::Disabled.opacity()))
-                }
-                _ => panic!(),
-            },
-            _ => panic!(),
-        }
-    }
-}
+#[path = "glass_text_field_tests.rs"]
+mod tests;

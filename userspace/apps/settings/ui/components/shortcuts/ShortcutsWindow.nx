@@ -17,13 +17,13 @@ Component ShortcutsWindow {
             Stack {
                 Panel {
                     Stack {
-                        Text(@t("sc.title")).textSize(md).fontWeight(semibold).fg(onGlass)
+                        Text(@t("sc.title")).textStyle(headline).fg(label)
                         Spacer
                         Circle { size: 28
                             Icon { symbol: "xmark", size: 12 }
-                                .fg(onGlassMuted)
+                                .fg(labelSecondary)
                         }
-                        .hitSlop(2)
+                        .hitSlop(8)
                         on Tap -> dispatch(ScClose)
                     }
                     .direction(row)
@@ -37,9 +37,9 @@ Component ShortcutsWindow {
                         }
                         .gap(0)
                         .width(190)
-                        .padding(1)
-                        .rounded(xl)
-                        .material(subtle)
+                        .padding(4)
+                        .rounded(lg)
+                        .material(card)
                         Stack {
                             List($state.shortcuts) { row in
                                 Stack {
@@ -50,38 +50,38 @@ Component ShortcutsWindow {
                         }
                         .gap(0)
                         .grow(1)
-                        .rounded(xl)
-                        .material(subtle)
+                        .rounded(lg)
+                        .material(card)
                         .scroll(vertical)
                     }
                     .direction(row)
                     .align(stretch)
-                    .gap(3)
+                    .gap(12)
                     .height(380)
                     if $state.scCategory == "windows" {
-                        Text(@t("sc.windowsNote")).textSize(xs).leading(normal).fg(onGlassMuted)
+                        Text(@t("sc.windowsNote")).textStyle(caption).fg(labelSecondary)
                     } else if $state.scError != 0 {
-                        Text(@t("sc.error")).textSize(xs).fg(danger)
+                        Text(@t("sc.error")).textStyle(caption).fg(danger)
                     } else {
                         Stack { }
                     }
                     Stack {
                         Button { label: @t("sc.reset") }
-                            .bg(surfaceVariant)
+                            .bg(fill)
                             .disabled(true)
-                        Text(@t("sc.rebindNote")).textSize(xs).leading(normal).fg(onGlassMuted)
+                        Text(@t("sc.rebindNote")).textStyle(caption).fg(labelSecondary)
                             .grow(1)
                         Button { label: @t("sc.done") }
                             on Tap -> dispatch(ScClose)
                     }
                     .direction(row)
                     .align(center)
-                    .gap(3)
+                    .gap(12)
                 }
                 .material(overlay)
-                .rounded(xl)
-                .gap(3)
-                .padding(4)
+                .rounded(lg)
+                .gap(12)
+                .padding(16)
                 on Tap -> dispatch(WinNoop)
             }
             .maxWidth(780)
@@ -91,7 +91,7 @@ Component ShortcutsWindow {
         .direction(row)
         .align(center)
         .grow(1)
-        .paddingX(4)
+        .paddingX(16)
     }
     .overlay(modal)
     .bg(scrim)

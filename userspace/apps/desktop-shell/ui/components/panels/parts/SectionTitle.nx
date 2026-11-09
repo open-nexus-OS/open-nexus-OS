@@ -1,13 +1,13 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// A panel's own heading (design artifacts: panels `.sec-title`): "Mitteilungen",
-// "WLAN", "Ton", "Batterie". The largest type in any panel — one step above
-// the row labels, which is the whole type hierarchy these surfaces have.
+// A panel's own heading (design artifacts: panels title row): "Mitteilungen",
+// "WLAN", "Ton", "Batterie" — headline (15/20/600) in `label`. The largest
+// type in any panel.
 
 Component SectionTitle {
     props: {
         label: Str,
     }
-    Text($props.label).textSize(base).fontWeight(semibold).leading(tight).fg(onGlass)
+    Text($props.label).textStyle(headline).fg(label)
 }

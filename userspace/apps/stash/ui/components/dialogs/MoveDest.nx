@@ -1,0 +1,27 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One destination row in the move dialog: a folder icon + name. Tapping it
+// dispatches MoveTo(path, label) — the file-operations store renames the
+// selection across directories (svc.files.rename) into `path`.
+
+Component MoveDest {
+    props: {
+        path: Str,
+        label: Str,
+    }
+    Stack {
+        Image { source: "mime:inode-directory", size: 22 }
+        Text($props.label).textStyle(body).fontWeight(medium).fg(label)
+        Spacer
+        Icon { symbol: "chevron.right", size: 14 }
+            .fg(labelTertiary)
+    }
+    .direction(row)
+    .align(center)
+    .gap(12)
+    .paddingX(12)
+    .minHeight(44)
+    .rounded(md)
+    on Tap -> dispatch(MoveTo($props.path, $props.label))
+}

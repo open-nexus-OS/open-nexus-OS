@@ -1,0 +1,22 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// "N items" / "1 item" (singular and plural are two catalog keys), footnote
+// `labelSecondary`, 6 px clear of the sort buttons. Hidden while the listing
+// loads or fails: the count is a sentinel until `svc.files.count` lands.
+
+Component ListingCount {
+    if $state.filesLoading == 1 || $state.filesError != 0 {
+        Stack { }
+    } else if $state.fileCount == 1 {
+        Stack {
+            Text(@t("stash.countOne")).textStyle(footnote).fg(labelSecondary).figures(tabular)
+        }
+        .paddingTrailing(6)
+    } else {
+        Stack {
+            Text(@t("stash.countMany", $state.fileCount)).textStyle(footnote).fg(labelSecondary).figures(tabular)
+        }
+        .paddingTrailing(6)
+    }
+}

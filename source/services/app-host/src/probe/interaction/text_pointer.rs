@@ -16,7 +16,7 @@ impl DslApp {
     fn caret_index_at(&self, x: i32, y: i32) -> Option<usize> {
         let f = self.view.text_focus()?;
         let mut idx = 0usize;
-        let (nid, content, font, _) =
+        let (nid, content, font, tracking, _) =
             super::super::paint::caret_input(self.view.scene(), &mut idx, f.box_id, false)?;
         let field = self.layout.boxes.iter().find(|b| b.node_id == f.box_id)?;
         let (fx, fy) = self.on_surface(field);
@@ -31,7 +31,7 @@ impl DslApp {
         // The boundary nearest the point: before char `n` while the point is left of the middle.
         let mut best = (0usize, local.unsigned_abs());
         for n in 1..=content.chars().count() {
-            let w = nexus_text_baked::measure(content.chars().take(n), font) as i32;
+            let w = nexus_text_baked::measure(content.chars().take(n), font, tracking) as i32;
             let d = (local - w).unsigned_abs();
             if d < best.1 {
                 best = (n, d);

@@ -57,11 +57,13 @@ mod tests {
     fn text_style() -> TextStyle {
         TextStyle {
             font_size: px(16),
-            font_weight: FontWeight::Regular,
+            font_weight: FontWeight::Normal,
             line_height: LineHeight::Absolute(px(20)),
             text_align: TextAlign::Left,
             color: nexus_layout_types::Rgba8::WHITE,
             white_space: WhiteSpace::Normal,
+            tracking_milli_em: 0,
+            tabular: false,
         }
     }
     fn txt(s: &str) -> LayoutNode {

@@ -30,16 +30,22 @@ Scope:
   - Korean: Noto Sans KR (SIL OFL 1.1)
 - **Fallback (everything else)**: Noto Sans (SIL OFL 1.1)
 
-**Implementation status (2026-07-22, RFC-0075 Phase 8d)**: the UI Sans chain
-is applied at **bake time** — `userspace/ui/text-baked/build.rs` resolves each
-codepoint to its face (Inter → Noto Sans JP/KR/SC per script) and bakes the
-shared A8 atlases; the OS image carries only atlases, never font files. The
-Noto CJK OTFs are build inputs fetched by `scripts/fetch-fonts.sh` (pinned
-upstream commit + SHA256 — the noto-cjk repo is too large for a submodule);
-Inter stays the `resources/fonts/inter` submodule. Coverage is bounded:
-full kana + compat jamo + the FULL hangul syllable block + the han set
-actually used by shipped catalogs/engines/OSK labels. A runtime font cache
-(TASK-0202) and `ui.font.family` live switching are recorded follow-ups.
+**In the build (RFC-0075 Phase 8d)**: the UI Sans chain is applied at **bake
+time** — `userspace/ui/text-baked/build.rs` resolves each codepoint to its face
+(Inter → Noto Sans JP/KR/SC per script) and bakes the shared A8 atlases; the OS
+image carries only atlases, never font files. The Noto CJK OTFs are build inputs
+fetched by `scripts/fetch-fonts.sh` (pinned upstream commit + SHA256 — the
+noto-cjk repo is too large for a submodule); Inter stays the
+`resources/fonts/inter` submodule. The atlas holds 22 faces (4,044,776 bytes,
+under the 5 MiB budget): one per text style (`typography.md`, RFC-0116) at its
+default weight and one per weight override the apps use, from 10 px to the
+128 px digits-only `clock` face. The CJK tail lives in two faces only, the
+13 px and 14 px Regular faces of `subheadline` and `body`; every other face is
+Latin or digits and falls back to the 14 px face for a codepoint it lacks, so
+CJK in a title renders at 14 px.
+Coverage is bounded: full kana + compat jamo + the FULL hangul syllable block +
+the han set actually used by shipped catalogs/engines/OSK labels. A runtime font
+cache (TASK-0202) and `ui.font.family` live switching are recorded follow-ups.
 
 ### UI Mono (code, logs, terminal-ish surfaces)
 

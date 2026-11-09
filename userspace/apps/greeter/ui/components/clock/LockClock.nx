@@ -1,0 +1,21 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The lock screen's date and time (design artifacts: lock screen). The artifact's clock is
+// display × 2 — the `clock` style, 128 px, tabular digits — on a regular or wide screen and
+// `display` (64 px) on a compact one: its fluid clamp(64, 12vw, 128). The host ticks
+// `ClockEvent::Tick` once a minute (`SessionStore.clock` / `.date`).
+Component LockClock {
+    Stack {
+        Text($state.date).textStyle(title3).fg(labelSecondary).shadow(halo)
+        if device.sizeClass == "compact" {
+            Text($state.clock).textStyle(display).figures(tabular).fg(label).shadow(halo)
+        } else {
+            Text($state.clock).textStyle(clock).fg(label).shadow(halo)
+        }
+    }
+    .align(center)
+    .gap(4)
+    .paddingY(16)
+    .transition(fade)
+}

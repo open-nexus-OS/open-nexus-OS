@@ -102,22 +102,37 @@ impl super::DslApp {
             return false;
         }
         let mut txt = alloc::string::String::new();
-        for (_, content, _, _, _) in self.texts.iter().take(2) {
-            let _ = core::fmt::write(&mut txt, format_args!("'{content}' "));
+        for t in self.texts.iter().take(2) {
+            let _ = core::fmt::write(&mut txt, format_args!("'{}' ", t.content));
         }
         raw_marker(&alloc::format!("apphost: tap ({x},{y}) hit={hit:?} dmg={damage:?} txt={txt}"));
         true
     }
 
     /// The page base's alpha: the surface's (`base_alpha` — 0 on the desktop, opaque for an
-    /// overlay or a fullscreen window, frosted for a floating one) — and opaque for a floating
-    /// window too under solid materials (TASK-0337, reduce transparency).
+    /// overlay or a fullscreen window) — a floating window's is its material's fill, `glassWindow`
+    /// at the token's own alpha (RFC-0116), opaque under solid materials (TASK-0337, reduce
+    /// transparency).
     pub(super) fn page_base_alpha(&self) -> u8 {
+        use nexus_dsl_runtime::theme_tokens::ColorToken;
         if wire::theme_is_solid(self.theme_mode) && self.base_alpha > 0 {
             255
-        } else {
+        } else if self.base_alpha == 0 || self.base_alpha == 255 {
             self.base_alpha
+        } else {
+            tokens_for(self.theme_mode).color(ColorToken::GlassWindow).a
         }
+    }
+
+    /// The page base, BGRA (RFC-0116): a floating window's is its material's fill
+    /// (`glassWindow` at the window's frost), a fullscreen or overlay surface's the opaque
+    /// `background`; the desktop's alpha is 0 (the wallpaper is its base).
+    pub(super) fn page_base(&self) -> [u8; 4] {
+        use nexus_dsl_runtime::theme_tokens::ColorToken;
+        let role =
+            if self.base_alpha == 255 { ColorToken::Background } else { ColorToken::GlassWindow };
+        let c = tokens_for(self.theme_mode).color(role);
+        [c.b, c.g, c.r, self.page_base_alpha()]
     }
 
     /// The whole base layer.
@@ -129,15 +144,11 @@ impl super::DslApp {
     }
 
     /// Renders base rows `[y0, y1)` straight into the slot being drawn (RFC-0114) — the
-    /// damage-limited path. The page base is the theme's Surface token; the scene's own boxes
-    /// are specified against it.
+    /// damage-limited path. The page base is [`Self::page_base`]; the scene's own boxes are
+    /// specified against it.
     pub(super) fn render_rows(&mut self, mem: &mut SurfaceMem, y0: i32, y1: i32) -> bool {
-        use nexus_dsl_runtime::theme_tokens::ColorToken;
         self.overlay_sync();
-        let s = tokens_for(self.theme_mode).color(ColorToken::Surface);
-        // Page base = the theme Surface token: OPAQUE for a desktop/fullscreen surface (the
-        // base layer), frosted-translucent for floating windows (`base_alpha`).
-        let base = [s.b, s.g, s.r, self.page_base_alpha()];
+        let base = self.page_base();
         let (y0, y1) = (y0.max(0), y1.min(self.h as i32));
         let t0 = nsec_now();
         let mut views = core::mem::take(&mut self.view_scratch);
@@ -172,10 +183,8 @@ impl super::DslApp {
         k: usize,
         (y0, y1): (i32, i32),
     ) -> bool {
-        use nexus_dsl_runtime::theme_tokens::ColorToken;
         let Some((rect, (sx, sy))) = self.motion_place(k) else { return true };
-        let s = tokens_for(self.theme_mode).color(ColorToken::Surface);
-        let base = [s.b, s.g, s.r, self.page_base_alpha()];
+        let base = self.page_base();
         let mut views = core::mem::take(&mut self.view_scratch);
         self.base_views(&mut views);
         self.prepare_picks_with(Pass::Motion(k), (rect.1, rect.3), Some((rect.0, rect.2)), &views);
@@ -312,7 +321,7 @@ impl super::DslApp {
             vis_pick.push(bi as u32);
             vis_anim
                 .push(anims.iter().position(|a| a.node_id == b.node_id).map_or(-1, |i| i as i16));
-            if let Ok(ti) = self.texts.binary_search_by_key(&b.node_id, |(id, _, _, _, _)| *id) {
+            if let Ok(ti) = self.texts.binary_search_by_key(&b.node_id, |t| t.node) {
                 vis_text.push((bi as u32, ti as u32));
             }
         }
@@ -331,7 +340,7 @@ impl super::DslApp {
             let t = &self.layout.boxes[bi as usize];
             !self.layout.boxes.iter().any(|g| {
                 g.node_id > t.node_id
-                    && matches!(g.visual.material, nexus_layout_types::SurfaceMaterial::Glass(_))
+                    && g.visual.material.is_some_and(|m| m.blurs() || m.opaque())
                     && !g.glass_nested
                     && in_pass(g)
                     && t.rect.x.0 < g.rect.x.0 + g.rect.width.0
@@ -409,19 +418,30 @@ impl super::DslApp {
             }
             let row = &mut row[left as usize * 4..];
             let (bx, right) = (bx - left, (right - left) as u32);
-            let (_, content, font, color, weight) = &self.texts[ti as usize];
+            let t = &self.texts[ti as usize];
+            let (content, color, tracking) = (&t.content, &t.color, t.tracking);
             // `.textFit`: the LAYOUT chose this run's size from its container's box, so it wins
-            // over the scene's authored `.textSize` — re-resolved with the REQUESTED weight.
-            let font = &match b.text_px {
-                Some(px) => nexus_text_baked::FontSize::nearest(
-                    px.0,
-                    nexus_text_baked::measure_text::BakedTextMeasure::weight(*weight),
+            // over the style's — re-resolved with the REQUESTED weight, its line box scaled alike.
+            let (font, line) = match b.text_px {
+                Some(px) => (
+                    nexus_text_baked::FontSize::nearest(
+                        px.0,
+                        nexus_text_baked::measure_text::BakedTextMeasure::weight(t.weight),
+                    ),
+                    nexus_text_baked::line_height(nexus_text_baked::FontSize::nearest(
+                        px.0,
+                        nexus_text_baked::measure_text::BakedTextMeasure::weight(t.weight),
+                    )) as i32,
                 ),
-                None => *font,
+                None => (t.font, t.line),
             };
+            let font = &font;
+            // RFC-0116: the face's own band sits in the style's line box with half-leading
+            // (`body` is a 17 px band in a 20 px line).
+            let by = by + (line - nexus_text_baked::line_height(*font) as i32) / 2;
             // Animated text node: fade its glyphs by the node opacity and shift them by the
             // horizontal translate (vertical translate + scale on TEXT are the fill path's).
-            let (color, bx_glyph) =
+            let (mut color, bx_glyph) =
                 match anims.iter().find(|a| a.node_id == b.node_id && !a.is_identity()) {
                     Some(a) => {
                         let mut c = *color;
@@ -430,6 +450,8 @@ impl super::DslApp {
                     }
                     None => (*color, bx - dx),
                 };
+            // A faded box (its own and its ancestors' opacity — a disabled control) fades its text.
+            color[3] = (u32::from(color[3]) * u32::from(b.opacity) / 255) as u8;
             // The focused field shows its WHOLE text, scrolled so its caret stays in view
             // (TASK-0346 P2) and clipped to its box; any other run wider than its box is CUT —
             // marked, so a truncated label reads as truncated instead of as a shorter label.
@@ -448,7 +470,7 @@ impl super::DslApp {
             };
             let (cut, ell) = match focused {
                 Some(_) => (content.chars().count(), false),
-                None => nexus_text_baked::ellipsis_cut(content, *font, bw.max(0) as u32),
+                None => nexus_text_baked::ellipsis_cut(content, *font, tracking, bw.max(0) as u32),
             };
             let run = || {
                 content
@@ -456,11 +478,26 @@ impl super::DslApp {
                     .take(cut)
                     .chain(core::iter::once(nexus_text_baked::ELLIPSIS).take(ell as usize))
             };
+            // `.textAlign`: a run narrower than its box sits at the box's centre or right edge (the
+            // focused field keeps its scroll origin).
+            let bx_glyph = match (focused, t.align) {
+                (
+                    None,
+                    nexus_layout_types::TextAlign::Center | nexus_layout_types::TextAlign::Right,
+                ) => {
+                    let w = nexus_text_baked::measure(run(), *font, tracking) as i32;
+                    let slack = (bw - w).max(0);
+                    let right = t.align == nexus_layout_types::TextAlign::Right;
+                    bx_glyph + if right { slack } else { slack / 2 }
+                }
+                _ => bx_glyph,
+            };
             // TASK-0067B: the selection BEHIND the run.
             if let Some(c) = focused {
                 paint_selection_row(row, y_eff, by, bh, bx_glyph, c.selection, right, c.highlight);
             }
-            // RFC-0082: `.textShadow(soft|strong)` — one extra glyph pass at the offset.
+            // The label halo (`.shadow(halo)`, RFC-0116 `labelShadow`): one extra glyph pass at the
+            // offset — the row painter has no offscreen buffer to blur in.
             if let Some(sh) = b.visual.text_shadow.filter(|s| s.color.a > 0) {
                 let sc = sh.color;
                 nexus_text_baked::draw_text_row(
@@ -471,6 +508,7 @@ impl super::DslApp {
                     right,
                     run(),
                     *font,
+                    tracking,
                     [sc.b, sc.g, sc.r, (u32::from(sc.a) * u32::from(color[3]) / 255) as u8],
                 );
             }
@@ -482,6 +520,7 @@ impl super::DslApp {
                 right,
                 run(),
                 *font,
+                tracking,
                 color,
             );
         }
@@ -495,10 +534,12 @@ impl super::DslApp {
         use nexus_dsl_runtime::theme_tokens::ColorToken;
         let f = self.view.text_focus()?;
         let mut idx = 0usize;
-        let (nid, content, font, _) = caret_input(self.view.scene(), &mut idx, f.box_id, false)?;
+        let (nid, content, font, tracking, _) =
+            caret_input(self.view.scene(), &mut idx, f.box_id, false)?;
         // TASK-0067B: the selection as an x span — prefix widths of the DISPLAYED run (a masked
         // password has the same char count).
-        let x_at = |n: usize| nexus_text_baked::measure(content.chars().take(n), font) as i32;
+        let x_at =
+            |n: usize| nexus_text_baked::measure(content.chars().take(n), font, tracking) as i32;
         let a = tokens_for(self.theme_mode).color(ColorToken::Accent);
         Some(CaretPaint {
             nid,
@@ -516,12 +557,13 @@ impl super::DslApp {
             return;
         };
         let mut idx = 0usize;
-        let Some((nid, content, font, _)) =
+        let Some((nid, content, font, tracking, _)) =
             caret_input(self.view.scene(), &mut idx, f.box_id, false)
         else {
             return;
         };
-        let x_at = |n: usize| nexus_text_baked::measure(content.chars().take(n), font) as i32;
+        let x_at =
+            |n: usize| nexus_text_baked::measure(content.chars().take(n), font, tracking) as i32;
         let (caret_x, text_w) = (x_at(f.caret), x_at(content.chars().count()));
         let Some(box_w) =
             self.layout.boxes.iter().find(|b| b.node_id == nid).map(|b| b.rect.width.0)

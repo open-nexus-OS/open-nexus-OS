@@ -53,6 +53,11 @@ struct WindowIntent {
   mode      @1 :WindowMode;
   level     @2 :WindowLevel;
   resizable @3 :Bool;
+  # RFC-0117: the app's default and minimum content size in px (0 = the window manager decides).
+  width     @4 :UInt16;
+  height    @5 :UInt16;
+  minWidth  @6 :UInt16;
+  minHeight @7 :UInt16;
 }
 enum WindowStyle { titlebar @0; hiddenTitlebar @1; plain @2; }
 enum WindowMode  { auto @0; freeform @1; fullscreen @2; }

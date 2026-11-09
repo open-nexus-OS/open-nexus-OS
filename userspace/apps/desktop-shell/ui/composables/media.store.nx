@@ -1,0 +1,17 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// What plays — the one media state the design mirrors in three places: the
+// Activity Runner in the top bar, the taskbar's mini player and the touch
+// dock's small player (design artifacts: TaskbarDock, ActivityRunner).
+//
+// NO MEDIA SESSION YET. Nothing feeds the shell a now-playing state, so
+// nothing plays: the island and both mini players are not drawn (an island
+// with demo art would claim music that is not there). The players keep the
+// design's demo track copy (`shell.trackTitle` / `shell.trackArtist`) for the
+// day a session lands — its effect then sets this field, and the title,
+// artist, artwork and play state join it here.
+
+Store MediaStore {
+    nowPlaying: Bool = false,
+}

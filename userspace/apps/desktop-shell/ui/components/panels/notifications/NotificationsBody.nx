@@ -1,0 +1,61 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The notification centre's content (design artifacts: panels §4, NotificationsBody),
+// shared by the desktop panel (`sheet: false`, the silent tier expanded) and the
+// touch sheet (`sheet: true`, collapsed): title row with "Alle löschen" (hidden
+// when empty), then either the empty state or the two tiers — "Wichtig" (the
+// stacked mail card, Nachrichten and Kalender with their actions) and "Lautlos"
+// (Wetter, Plaza; collapsible).
+//
+// DEMO CONTENT — no notification service feeds the shell yet; see
+// `notifications.store.nx`. The copy is authored, the dismissals are real.
+
+Component NotificationsBody {
+    props: {
+        sheet: Bool,
+    }
+    Stack {
+        Stack {
+            SectionTitle { label: @t("panels.notifications") }
+            Spacer
+            if $state.mailGone && $state.msgGone && $state.calGone && $state.wxGone && $state.plazaGone {
+                Stack { }
+            } else {
+                Stack {
+                    Text(@t("notif.clearAll")).textStyle(caption).fontWeight(medium).fg(labelSecondary)
+                }
+                .height(24)
+                .paddingX(8)
+                .align(center)
+                .justify(center)
+                .rounded(full)
+                .hitSlop(8)
+                on Tap -> dispatch(ClearAll)
+            }
+        }
+        .direction(row)
+        .align(center)
+        .paddingX(2)
+        if $state.mailGone && $state.msgGone && $state.calGone && $state.wxGone && $state.plazaGone {
+            NotifEmpty { }
+        } else {
+            Stack {
+                if $state.mailGone && $state.msgGone && $state.calGone {
+                    Stack { }
+                } else {
+                    NotifImportant { }
+                }
+                if $state.wxGone && $state.plazaGone {
+                    Stack { }
+                } else if $props.sheet {
+                    NotifSilent { open: $state.sheetSilentOpen, sheet: true }
+                } else {
+                    NotifSilent { open: $state.silentOpen, sheet: false }
+                }
+            }
+            .gap(8)
+        }
+    }
+    .gap(8)
+}

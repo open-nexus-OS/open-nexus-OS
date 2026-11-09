@@ -19,7 +19,7 @@ std = []
 # The pixel-real `MeasureText` implementation over these atlases (used by
 # the DSL layout path in windowd's demo mount and the app-host runtime).
 layout = ["dep:nexus-layout-types"]
-# RFC-0080: link the ~4.25 MB coverage blob (`EMBEDDED_ATLAS`) as the DEFAULT
+# RFC-0080: link the ~3.96 MB coverage blob (`EMBEDDED_ATLAS`) as the DEFAULT
 # atlas backing. windowd/host/tests + the VMO owner keep it ON; a consumer
 # that maps a shared atlas VMO (app-host) turns it OFF so the blob never
 # enters its image, and MUST `set_atlas_base` before the first render.
@@ -32,9 +32,9 @@ nexus-layout-types = { path = "../layout-types", optional = true }
 ime-core = { path = "../../ime-core" }
 keymaps = { path = "../../keymaps" }
 fontdue = "0.9"
-# RFC-0082: `fontdue` has no variation-axis API, so the Light/SemiBold rungs
-# of the ladder are instanced on the `wght` axis here and filled by build.rs's
-# own nonzero-winding scanline rasterizer. Regular 400 keeps going through
-# `fontdue` so the 13/16 px coverage stays byte-identical. `gvar-alloc` lifts
-# the stack-only point cap for the larger display outlines.
+# RFC-0082: `fontdue` has no variation-axis API, so every face that is not
+# Regular 400 (300, 500, 600, 700) is instanced on the `wght` axis here and
+# filled by build.rs's own nonzero-winding scanline rasterizer. Regular 400
+# keeps going through `fontdue` so the 13 px coverage stays byte-identical.
+# `gvar-alloc` lifts the stack-only point cap for the larger display outlines.
 ttf-parser = { version = "0.24", features = ["gvar-alloc"] }

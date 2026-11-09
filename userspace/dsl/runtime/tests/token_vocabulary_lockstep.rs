@@ -17,73 +17,26 @@
 //       is why every hairline in a glass window was painted with the OPAQUE
 //       `border` role instead.
 //
-// So this test asserts a BIJECTION, not just coverage: each checker name
-// resolves, and the role it resolves to names itself back. `canonical_name` is
-// an exhaustive match on purpose — adding a `ColorToken` variant breaks THIS
-// FILE's compile until the variant is given a name, and the assertion below
-// then fails until that name is also in the checker's list.
+// So this test asserts a BIJECTION, not just coverage: each checker name resolves, and the role
+// it resolves to names itself back (RFC-0116: the typed tokens' own name table,
+// `ColorToken::name`, is the one place a role is spelled — and it is an exhaustive match, so a
+// new variant breaks the theme crate's compile until it has a name).
 
-use nexus_dsl_core::registry::{token_vocabulary, COLOR_TOKENS};
-use nexus_dsl_runtime::registry::{color_token, material_token};
-use nexus_theme_tokens::ColorToken;
+use nexus_dsl_core::registry::{
+    token_vocabulary, COLOR_TOKENS, RETIRED_TOKENS, SPACING_TOKENS, TEXT_STYLES,
+};
+use nexus_dsl_runtime::registry::{
+    border_width, color_token, figures, font_weight, material, radius, shadow, spacing_token,
+    text_align, text_style,
+};
+use nexus_theme_tokens::{ColorToken, TextStyleToken};
 
-/// The one name a role answers to. Exhaustive by construction.
-fn canonical_name(token: ColorToken) -> &'static str {
-    match token {
-        ColorToken::Surface => "surface",
-        ColorToken::SurfaceVariant => "surfaceVariant",
-        ColorToken::OnSurface => "onSurface",
-        ColorToken::OnSurfaceVariant => "onSurfaceVariant",
-        ColorToken::Accent => "accent",
-        ColorToken::OnAccent => "onAccent",
-        ColorToken::Border => "border",
-        ColorToken::Shadow => "shadow",
-        ColorToken::Background => "background",
-        ColorToken::Primary => "primary",
-        ColorToken::OnPrimary => "onPrimary",
-        ColorToken::Danger => "danger",
-        ColorToken::OnDanger => "onDanger",
-        ColorToken::Warning => "warning",
-        ColorToken::Success => "success",
-        ColorToken::Info => "info",
-        ColorToken::OnWarning => "onWarning",
-        ColorToken::OnSuccess => "onSuccess",
-        ColorToken::OnInfo => "onInfo",
-        ColorToken::FocusRing => "focusRing",
-        ColorToken::IslandBg => "islandBg",
-        ColorToken::Scrim => "scrim",
-        ColorToken::Destructive => "destructive",
-        ColorToken::OnDestructive => "onDestructive",
-        ColorToken::OnGlass => "onGlass",
-        ColorToken::OnGlassMuted => "onGlassMuted",
-        ColorToken::OnGlassStrong => "onGlassStrong",
-        ColorToken::GlassIcon => "glassIcon",
-        ColorToken::GlassPlaceholder => "glassPlaceholder",
-        ColorToken::GlassFocus => "glassFocus",
-        ColorToken::GlassFill => "glassFill",
-        ColorToken::GlassFillStrong => "glassFillStrong",
-        ColorToken::AccentSoft => "accentSoft",
-        ColorToken::WallpaperTint => "wallpaperTint",
-        ColorToken::WallpaperVignette => "wallpaperVignette",
-        ColorToken::TextShadow => "textShadow",
-        ColorToken::TextShadowStrong => "textShadowStrong",
-        ColorToken::Transparent => "transparent",
-        ColorToken::Divider => "divider",
-        ColorToken::GlassHover => "glassHover",
-        ColorToken::GlassActive => "glassActive",
-        ColorToken::ToggleOnBg => "toggleOnBg",
-        ColorToken::ToggleOffBg => "toggleOffBg",
-        ColorToken::NotifDot => "notifDot",
-        ColorToken::SliderTrack => "sliderTrack",
-        ColorToken::SliderFill => "sliderFill",
-        ColorToken::SliderIcon => "sliderIcon",
-    }
-}
-
-/// Every name the checker accepts resolves at runtime, to a role that names
-/// itself back. Both drift directions fail here.
+/// Every name the checker accepts resolves at runtime, to a role that names itself back, in
+/// the typed tokens' order. Both drift directions fail here.
 #[test]
 fn color_vocabulary_is_a_bijection() {
+    let typed: Vec<&str> = ColorToken::ALL.iter().map(|t| t.name()).collect();
+    assert_eq!(COLOR_TOKENS, typed.as_slice(), "the checker's roles are the typed roles, in order");
     for name in COLOR_TOKENS {
         let Some(token) = color_token(name) else {
             panic!(
@@ -91,50 +44,74 @@ fn color_vocabulary_is_a_bijection() {
                  a page using it compiles and then paints the default"
             );
         };
-        assert_eq!(
-            canonical_name(token),
-            *name,
-            "`{name}` resolves to a role whose canonical name is `{}` — two names for one role, \
-             or a copy/paste in one of the two lists",
-            canonical_name(token)
-        );
+        assert_eq!(token.name(), *name);
     }
 }
 
-/// The count is pinned so ADDING a role to `ColorToken` cannot quietly stop at
-/// the enum. `canonical_name` already refuses to compile without an arm; this
-/// catches the next step — an arm that never reaches the checker's list.
+/// The count is pinned so ADDING a role cannot quietly stop at the enum.
 #[test]
 fn every_color_role_is_sayable() {
-    const ROLES: usize = 47;
+    const ROLES: usize = 35;
     assert_eq!(
         COLOR_TOKENS.len(),
         ROLES,
-        "the color vocabulary changed. If you ADDED a role: give it an arm in `canonical_name`, \
-         a name in `dsl/core` COLOR_TOKENS, a `color_token` arm, a `ROLES` entry in \
-         theme-tokens/build.rs, and a value in every resources/themes/*.nxtheme.toml. \
-         Then bump ROLES here."
+        "the colour vocabulary changed. A role is added in RFC-0116 first, then: a `ColorToken` \
+         variant with its name, a `ROLES` entry in theme-tokens/build.rs, a value in every \
+         resources/themes/*.nxtheme.toml, the name in `dsl/core` COLOR_TOKENS. Then bump ROLES."
     );
 }
 
-/// The same seam exists for `.material(...)`: the checker's closed vocabulary
-/// versus `material_token`. A level the checker allows but the runtime drops
-/// falls back to an OPAQUE surface — a glass pane rendered as a flat slab.
+/// A retired name resolves to nothing at runtime either — the checker's message is the only
+/// place it still appears.
 #[test]
-fn material_vocabulary_is_a_bijection() {
-    let vocab = token_vocabulary("material").expect("`material` has a closed vocabulary");
-    for name in vocab {
-        assert!(
-            material_token(name).is_some(),
-            "`{name}` is an allowed `.material(...)` token but `material_token` returns None — \
-             the node would render opaque"
-        );
+fn retired_names_do_not_resolve() {
+    for (vocabulary, old, _) in RETIRED_TOKENS {
+        if *vocabulary == "color" {
+            assert!(color_token(old).is_none(), "retired role `{old}` still resolves");
+        }
+        if *vocabulary == "material" {
+            assert!(material(old).is_none(), "retired material `{old}` still resolves");
+        }
     }
-    assert!(
-        material_token("windowPane").is_some() && material_token("windowBar").is_some(),
-        "the two window levels the design needs must resolve"
-    );
-    assert!(material_token("notAMaterial").is_none());
+}
+
+/// The thirteen text styles: the checker's names are the typed styles' names.
+#[test]
+fn text_style_vocabulary_is_a_bijection() {
+    let typed: Vec<&str> = TextStyleToken::ALL.iter().map(|t| t.name()).collect();
+    assert_eq!(TEXT_STYLES, typed.as_slice());
+    for name in TEXT_STYLES {
+        assert_eq!(text_style(name).map(TextStyleToken::name), Some(*name));
+    }
+}
+
+/// Every closed vocabulary the checker allows resolves at runtime — a name only the checker
+/// knows compiles clean and renders the default (an opaque slab for a material, no shadow, a
+/// zero radius).
+#[test]
+fn every_closed_vocabulary_resolves() {
+    let resolves: &[(&str, fn(&str) -> bool)] = &[
+        ("material", |n| material(n).is_some()),
+        ("shadow", |n| shadow(n).is_some()),
+        ("rounded", |n| radius(n).is_some()),
+        ("corners", |n| radius(n).is_some()),
+        ("border", |n| border_width(n).is_some()),
+        ("fontWeight", |n| font_weight(n).is_some()),
+        ("textAlign", |n| text_align(n).is_some()),
+        ("figures", |n| figures(n).is_some()),
+        ("padding", |n| spacing_token(n).is_some()),
+        ("gap", |n| spacing_token(n).is_some()),
+    ];
+    for (modifier, ok) in resolves {
+        let vocab = token_vocabulary(modifier).expect("a closed vocabulary");
+        for name in vocab {
+            assert!(ok(name), "`.{modifier}({name})` is allowed but resolves to nothing");
+        }
+    }
+    for name in SPACING_TOKENS {
+        assert!(spacing_token(name).is_some());
+    }
+    assert!(material("windowPane").is_none() && material("notAMaterial").is_none());
 }
 
 /// And a THIRD statement of the same seam: motion. `dsl/core`'s

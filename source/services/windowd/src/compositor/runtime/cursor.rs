@@ -14,9 +14,10 @@
 //! the runtime's private state; `pub(super)` so the parent + siblings call it.
 
 use super::*;
+use crate::cursor_assets::CursorSet;
 
 /// First shape-cache slot of the loading-ring frames (after the 6 pointer
-/// shapes); `CURSOR_RING_FRAMES.len()` consecutive slots follow. Fits
+/// shapes); `cursor_assets::RING_FRAMES` consecutive slots follow. Fits
 /// `nexus_display_proto::CURSOR_SHAPE_SLOTS` (16).
 const RING_SLOT_BASE: u8 = 6;
 /// Replies kept while the first cursor upload waits for its answer (a present's ack or a
@@ -25,7 +26,7 @@ const UPLOAD_EARLY_REPLIES: usize = 16;
 /// Ring rotation step (~90ms → 8 frames ≈ 0.72s per revolution).
 const CURSOR_RING_STEP_NS: u64 = 90_000_000;
 /// The ring's sprites per turn.
-const RING_FRAMES: u8 = crate::assets::CURSOR_RING_FRAMES.len() as u8;
+const RING_FRAMES: u8 = crate::cursor_assets::RING_FRAMES as u8;
 /// Wait-ring failsafe: give up on a launch that never surfaces.
 const CURSOR_WAIT_TIMEOUT_NS: u64 = 4_000_000_000;
 
@@ -44,22 +45,17 @@ pub(crate) enum CursorShape {
 }
 
 impl CursorShape {
-    /// Sprite bytes + dimensions + hotspot for this shape.
-    pub(super) fn sprite(self) -> (&'static [u8], u32, u32, i32, i32) {
-        let hot = crate::assets::CURSOR_RESIZE_HOTSPOT;
+    /// Sprite bytes + dimensions + hotspot for this shape in `set` (the theme's variant).
+    pub(super) fn sprite(self, set: &CursorSet) -> (&'static [u8], u32, u32, i32, i32) {
+        let (dim, hot) = (crate::cursor_assets::DIM, crate::cursor_assets::CENTER_HOT);
+        let (arrow_x, arrow_y) = crate::cursor_assets::ARROW_HOT;
         match self {
-            CursorShape::Default => (
-                crate::assets::CURSOR_LEFT_PTR_BGRA,
-                crate::assets::CURSOR_LEFT_PTR_WIDTH,
-                crate::assets::CURSOR_LEFT_PTR_HEIGHT,
-                crate::assets::CURSOR_HOTSPOT_X,
-                crate::assets::CURSOR_HOTSPOT_Y,
-            ),
-            CursorShape::ResizeEw => (crate::assets::CURSOR_RESIZE_EW_BGRA, 32, 32, hot, hot),
-            CursorShape::ResizeNs => (crate::assets::CURSOR_RESIZE_NS_BGRA, 32, 32, hot, hot),
-            CursorShape::ResizeNesw => (crate::assets::CURSOR_RESIZE_NESW_BGRA, 32, 32, hot, hot),
-            CursorShape::ResizeNwse => (crate::assets::CURSOR_RESIZE_NWSE_BGRA, 32, 32, hot, hot),
-            CursorShape::Text => (crate::assets::CURSOR_TEXT_BGRA, 32, 32, hot, hot),
+            CursorShape::Default => (set.arrow, dim, dim, arrow_x, arrow_y),
+            CursorShape::ResizeEw => (set.resize_ew, dim, dim, hot, hot),
+            CursorShape::ResizeNs => (set.resize_ns, dim, dim, hot, hot),
+            CursorShape::ResizeNesw => (set.resize_nesw, dim, dim, hot, hot),
+            CursorShape::ResizeNwse => (set.resize_nwse, dim, dim, hot, hot),
+            CursorShape::Text => (set.text, dim, dim, hot, hot),
         }
     }
 
@@ -121,7 +117,7 @@ impl DisplayServerRuntime {
             return;
         }
         self.cursor_shape = shape;
-        let (_, w, h, hot_x, hot_y) = shape.sprite();
+        let (_, w, h, hot_x, hot_y) = shape.sprite(self.cursor_set());
         self.cursor_hot = (hot_x, hot_y);
         self.cursor_width = w;
         self.cursor_height = h;
@@ -155,8 +151,9 @@ impl DisplayServerRuntime {
         if self.shape_cache_pushed || !self.ensure_gpud_client() {
             return;
         }
+        let set = self.cursor_set();
         for shape in CursorShape::ALL {
-            let (bitmap, w, h, hot_x, hot_y) = shape.sprite();
+            let (bitmap, w, h, hot_x, hot_y) = shape.sprite(set);
             let bgra_len = (w as usize).saturating_mul(h as usize).saturating_mul(4);
             if bgra_len == 0 || bgra_len > bitmap.len() {
                 return;
@@ -187,7 +184,7 @@ impl DisplayServerRuntime {
         }
         // Loading-ring frames ride the same cache (slots RING_SLOT_BASE..):
         // uploaded once, cycled with the 2-byte SELECT while a launch waits.
-        for (i, bitmap) in crate::assets::CURSOR_RING_FRAMES.iter().enumerate() {
+        for (i, bitmap) in set.ring.iter().enumerate() {
             let (w, h) = (32u32, 32u32);
             let hot = 16u32;
             let bgra_len = (w * h * 4) as usize;
@@ -217,6 +214,40 @@ impl DisplayServerRuntime {
         }
         self.shape_cache_pushed = true;
         let _ = debug_println("windowd: cursor shape cache pushed");
+    }
+
+    /// The pointer variant the active theme shows (TASK-0353 P8): the black set on a light theme,
+    /// the white one on a dark theme.
+    pub(super) fn cursor_set(&self) -> &'static CursorSet {
+        crate::cursor_assets::for_light(self.theme_mode == crate::theme::ThemeMode::Light)
+    }
+
+    /// The theme changed: gpud's shape cache takes the theme's variant and the pointer shows it at
+    /// once — the shapes and the ring frames are pushed again, the current shape (or the ring's
+    /// frame) is selected anew and a software pointer's rectangle is presented. A cache not pushed
+    /// yet has nothing to swap: its first push takes the theme's set.
+    pub(super) fn apply_cursor_theme(&mut self) {
+        if !self.shape_cache_pushed {
+            return;
+        }
+        self.shape_cache_pushed = false;
+        self.push_cursor_shape_cache_to_gpud();
+        if !self.shape_cache_pushed {
+            return; // the push failed: shape changes fall back to the upload path
+        }
+        let slot = if self.cursor_ring_active {
+            RING_SLOT_BASE + self.cursor_ring_frame
+        } else {
+            self.cursor_shape.id()
+        };
+        let _ = self.send_gpud_fire_forget(&[GPU_SELECT_CURSOR_SHAPE_OP, slot]);
+        let (x, y) = (self.state.cursor_x, self.state.cursor_y);
+        self.queue_cursor_damage(x, y, x, y);
+        let _ = debug_println(&alloc::format!(
+            "windowd: cursor theme (mode={} set={})",
+            self.theme_mode.as_str(),
+            self.cursor_set().name
+        ));
     }
 
     /// A launch started (app or post-login shell): show the animated wait
@@ -312,7 +343,7 @@ impl DisplayServerRuntime {
         if !self.ensure_gpud_client() {
             return;
         }
-        let (bitmap, w, h, hot_x, hot_y) = self.cursor_shape.sprite();
+        let (bitmap, w, h, hot_x, hot_y) = self.cursor_shape.sprite(self.cursor_set());
         let bgra_len = (w as usize).saturating_mul(h as usize).saturating_mul(4);
         if bgra_len == 0 || bgra_len > bitmap.len() {
             return;

@@ -1,0 +1,51 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The last letter row: [Shift 1.5] [letters] [⌫ 1.5] (weights ×2: a key 2, Shift and ⌫ 3).
+// Shift is drawn disabled — the rows carry no shifted labels or keys (spec gap G5). The
+// keymap's action key (⌫) is the row's LAST cell, so `take`/`skip` split it off to carry the
+// fn look and its own weight, and the letters weigh 2 per letter, whatever the layout's
+// count, so Shift and ⌫ stay one and a half keys wide.
+
+Component ShiftRow {
+    Stack {
+        Stack {
+            OskFnIcon { symbol: "arrow.up", size: 20, fg: "labelTertiary" }
+        }
+        .direction(row)
+        .basis(0)
+        .grow(3)
+        .disabled(true)
+        .label(@t("osk.shift"))
+        List(take($state.row3, len($state.row3) - 1)) { cell in
+            Stack {
+                RowCell { label: cell.label, key: cell.key, action: cell.action }
+            }
+            .direction(row)
+            .basis(0)
+            .grow(1)
+            .key(cell.label)
+        }
+        .direction(row)
+        .gap(8)
+        .basis(0)
+        .grow(2 * (len($state.row3) - 1))
+        List(skip($state.row3, len($state.row3) - 1)) { cell in
+            Stack {
+                RowCell { label: cell.label, key: cell.key, action: cell.action }
+            }
+            .direction(row)
+            .basis(0)
+            .grow(1)
+            .key(cell.label)
+        }
+        .direction(row)
+        .gap(8)
+        .basis(0)
+        .grow(3)
+    }
+    .direction(row)
+    .gap(8)
+    .basis(0)
+    .grow(1)
+}

@@ -9,19 +9,15 @@
 // Hidden by default (`rightOpen = 0`); the top bar's right toggle reveals it.
 
 Component PropsPane {
-    Panel {
-        Text(@t("set.props")).textSize(sm).fontWeight(semibold).fg(onGlass)
-        Stack { }
-            .height(1)
-            .bg(divider)
-        WinPropRow { label: @t("set.propDevice"), value: @t("set.propDeviceV"), icon: "cpu" }
-        WinPropRow { label: @t("set.propOs"), value: @t("set.propOsV"), icon: "info.circle" }
-        WinPropRow { label: @t("set.propDisplay"), value: @t("set.propDisplayV"), icon: "desktopcomputer" }
-        WinPropRow { label: @t("set.propStorage"), value: @t("set.propStorageV"), icon: "internaldrive" }
-        Spacer
+    WinPane { title: @t("set.props"), showHeader: true, showFooter: false, bare: device.sizeClass == "compact", flush: false, scrolls: false, noDividers: false } {
+        body {
+            Stack {
+                WinPropRow { label: @t("set.propDevice"), value: @t("set.propDeviceV"), icon: "", last: false }
+                WinPropRow { label: @t("set.propOs"), value: @t("set.propOsV"), icon: "", last: false }
+                WinPropRow { label: @t("set.propDisplay"), value: @t("set.propDisplayV"), icon: "", last: false }
+                WinPropRow { label: @t("set.propStorage"), value: @t("set.propStorageV"), icon: "", last: true }
+            }
+            .gap(0)
+        }
     }
-    .material(windowPane)
-    .rounded(xxl)
-    .gap(1)
-    .grow(1)
 }

@@ -40,7 +40,15 @@ impl DisplayServerRuntime {
         let Some(patch) = self.atlas_alloc.alloc(PATCH, PATCH) else {
             return false;
         };
-        let s = self.theme().surface;
+        // The window colour is its material's fill (RFC-0116: `window` → `glassWindow`), made
+        // opaque: one opaque layer, no blur. With reduce transparency on it is the solid theme's
+        // grey, the colour the app's own window paints (TASK-0353).
+        let fill = nexus_theme_tokens::recipe(nexus_layout_types::Material::Window).fill;
+        let s = if self.solid_materials {
+            self.theme_mode.solid_bgra(fill)
+        } else {
+            self.theme_color(fill)
+        };
         self.fill_atlas_patch(&patch, [s[0], s[1], s[2], 255]);
         crate::atlas::note_atlas_content_write();
         self.apps[idx].solid = Some(patch);
@@ -156,17 +164,22 @@ pub(super) struct SolidSnap {
 }
 
 impl SolidSnap {
-    /// Slot `app`'s solid surface, if it shows one (edge to edge, unshadowed, when fullscreen).
-    pub(super) fn of(app: &AppWindowSlot, fullscreen: bool) -> Option<Self> {
+    /// Slot `app`'s solid surface, if it shows one, in the window's `shape` (edge to edge,
+    /// unshadowed, when fullscreen).
+    pub(super) fn of(
+        app: &AppWindowSlot,
+        fullscreen: bool,
+        shape: crate::window_shape::WindowShape,
+    ) -> Option<Self> {
         let win = &app.win;
         app.solid.map(|patch| Self {
             patch,
             frame: (win.x.max(0) as u32, win.y.max(0) as u32, win.w, win.h),
-            radius: if fullscreen { 0 } else { super::app_window::APP_WIN_RADIUS },
+            radius: if fullscreen { 0 } else { shape.radius },
             shadow: if fullscreen {
                 (0, 0, 0)
             } else {
-                (win.shadow_blur, win.shadow_offset_y, win.shadow_alpha)
+                (shape.shadow_blur, shape.shadow_offset_y, shape.shadow_alpha)
             },
         })
     }

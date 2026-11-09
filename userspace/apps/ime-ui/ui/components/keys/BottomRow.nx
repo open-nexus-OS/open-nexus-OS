@@ -1,0 +1,158 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The bottom row (design artifacts: OnScreenKeyboard bottom row), weights ×20 on
+// `.basis(0)`: [123 1.3] [globe 1.15] [space 5.6] [. 1] [return 2.2]; in the compact size
+// class [123 1.5] [globe 1.15] [space 4.6, no label] [return 1.9] and no "." key. The labels
+// are the fn size (footnote medium). "123" is drawn disabled: the number and symbol layers
+// need their rows as keymap data (spec gap G5). The globe is an `fn` key (decision Q14) that
+// cycles the system layout, committing a running composition first (`CommitCycle` — imed
+// resets the engine on a switch); return is the `accent` key and reads "確定" while something
+// composes (imed's Enter commits the composition as typed). The space and return names
+// follow the UI language — following the keyboard's layout needs layout metadata as data
+// (G6). Compact keeps the return NAME: the corner-arrow glyph is not in the theme's symbol
+// table.
+
+Component BottomRow {
+    if device.sizeClass == compact {
+        Stack {
+            Stack {
+                Text(@t("osk.num")).textStyle(footnote).fontWeight(medium).fg(labelTertiary)
+            }
+            .align(center)
+            .justify(center)
+            .basis(0)
+            .grow(30)
+            .bg(fill)
+            .rounded(md)
+            .shadow(shadow1)
+            .disabled(true)
+            .label(@t("osk.symbols"))
+            if $state.preedit != "" {
+                Stack {
+                    OskFnIcon { symbol: "globe", size: 18, fg: "label" }
+                }
+                .direction(row)
+                .basis(0)
+                .grow(23)
+                .label(@t("osk.globe"))
+                on Tap -> dispatch(CommitCycle)
+            } else {
+                Stack {
+                    OskFnIcon { symbol: "globe", size: 18, fg: "label" }
+                }
+                .direction(row)
+                .basis(0)
+                .grow(23)
+                .label(@t("osk.globe"))
+                on Tap -> dispatch(CycleLayout)
+            }
+            Stack { }
+                .basis(0)
+                .grow(92)
+                .bg(glassCard)
+                .rounded(md)
+                .shadow(shadow1)
+                .label(@t("osk.space"))
+            on Tap -> dispatch(Key(" "))
+            Stack {
+                if $state.preedit != "" {
+                    Text(@t("osk.confirm")).textStyle(footnote).fontWeight(medium).fg(onAccent)
+                } else {
+                    Text(@t("osk.enter")).textStyle(footnote).fontWeight(medium).fg(onAccent)
+                }
+            }
+            .align(center)
+            .justify(center)
+            .basis(0)
+            .grow(38)
+            .bg(accent)
+            .rounded(md)
+            .shadow(shadow1)
+            .label(@t("osk.enter"))
+            on Tap -> dispatch(Action("enter"))
+        }
+        .direction(row)
+        .gap(8)
+        .basis(0)
+        .grow(1)
+    } else {
+        Stack {
+            Stack {
+                Text(@t("osk.num")).textStyle(footnote).fontWeight(medium).fg(labelTertiary)
+            }
+            .align(center)
+            .justify(center)
+            .basis(0)
+            .grow(26)
+            .bg(fill)
+            .rounded(md)
+            .shadow(shadow1)
+            .disabled(true)
+            .label(@t("osk.symbols"))
+            if $state.preedit != "" {
+                Stack {
+                    OskFnIcon { symbol: "globe", size: 18, fg: "label" }
+                }
+                .direction(row)
+                .basis(0)
+                .grow(23)
+                .label(@t("osk.globe"))
+                on Tap -> dispatch(CommitCycle)
+            } else {
+                Stack {
+                    OskFnIcon { symbol: "globe", size: 18, fg: "label" }
+                }
+                .direction(row)
+                .basis(0)
+                .grow(23)
+                .label(@t("osk.globe"))
+                on Tap -> dispatch(CycleLayout)
+            }
+            Stack {
+                Text(@t("osk.space")).textStyle(footnote).fontWeight(medium).fg(label)
+            }
+            .align(center)
+            .justify(center)
+            .basis(0)
+            .grow(112)
+            .bg(glassCard)
+            .rounded(md)
+            .shadow(shadow1)
+            .label(@t("osk.space"))
+            on Tap -> dispatch(Key(" "))
+            Stack {
+                Text(".").textStyle(title2).fontWeight(medium).fg(label)
+            }
+            .align(center)
+            .justify(center)
+            .basis(0)
+            .grow(20)
+            .bg(glassCard)
+            .rounded(md)
+            .shadow(shadow1)
+            .label(".")
+            on Tap -> dispatch(Key("."))
+            Stack {
+                if $state.preedit != "" {
+                    Text(@t("osk.confirm")).textStyle(footnote).fontWeight(medium).fg(onAccent)
+                } else {
+                    Text(@t("osk.enter")).textStyle(footnote).fontWeight(medium).fg(onAccent)
+                }
+            }
+            .align(center)
+            .justify(center)
+            .basis(0)
+            .grow(44)
+            .bg(accent)
+            .rounded(md)
+            .shadow(shadow1)
+            .label(@t("osk.enter"))
+            on Tap -> dispatch(Action("enter"))
+        }
+        .direction(row)
+        .gap(8)
+        .basis(0)
+        .grow(1)
+    }
+}

@@ -1,0 +1,40 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// A cell of the last letter row, dispatched by its DATA wherever it sits: an empty `action` is
+// a character key (`glassCard`, sends `Key`), a non-empty one is an action key — the keymap's
+// ⌫ — drawn with the fn look (`fill`) and sending `Action`. The caller keys the cell's wrapper
+// (a collection's key is read from a widget root, never from a component reference).
+
+Component RowCell {
+    props: {
+        label: Str,
+        key: Str,
+        action: Str,
+    }
+    if $props.action == "" {
+        Stack {
+            Text($props.label).textStyle(title2).fontWeight(medium).fg(label)
+        }
+        .align(center)
+        .justify(center)
+        .grow(1)
+        .bg(glassCard)
+        .rounded(md)
+        .shadow(shadow1)
+        .label($props.label)
+        on Tap -> dispatch(Key($props.key))
+    } else {
+        Stack {
+            Text($props.label).textStyle(title2).fontWeight(medium).fg(label)
+        }
+        .align(center)
+        .justify(center)
+        .grow(1)
+        .bg(fill)
+        .rounded(md)
+        .shadow(shadow1)
+        .label(@t("osk.backspace"))
+        on Tap -> dispatch(Action($props.action))
+    }
+}

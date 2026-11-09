@@ -7,6 +7,13 @@
 // here. The globe key cycles the SYSTEM layout (`svc.ime.layout` → imed
 // persists `input.keymap`; the change comes BACK as KeymapEvent — the
 // store never guesses). The strip mirrors imed's preedit/candidate pushes.
+// A running composition is COMMITTED before the keyboard closes and before
+// a layout switch (design artifacts: OnScreenKeyboard) — imed resets the
+// engine on a switch, so the typed text would otherwise be lost. imed's
+// Enter commits while it composes and passes Enter on otherwise, so the
+// view picks the committing event while the mirrored preedit is non-empty
+// (`CommitDismiss`, `CommitCycle`; spec gap G9) — an effect plan has no
+// branches.
 
 Store OskStore {
     keymap: Str = "",
@@ -31,6 +38,8 @@ Event OskEvent {
     Action(Str),
     CycleLayout,
     Dismiss,
+    CommitDismiss,
+    CommitCycle,
     Select(Int),
     Sent(Bool),
     SendFailed(Int),
@@ -54,6 +63,8 @@ reduce OskEvent {
     Action(a) => state.sent = state.sent,
     CycleLayout => state.sent = state.sent,
     Dismiss => state.sent = state.sent,
+    CommitDismiss => state.sent = state.sent,
+    CommitCycle => state.sent = state.sent,
     Select(i) => state.sent = state.sent,
     Sent(ok) => {
         if ok {
@@ -145,7 +156,29 @@ reduce ImeStripEvent {
     }
 }
 
+@effect on CommitDismiss {
+    match svc.ime.action("enter") {
+        Ok(ok) => dispatch(Sent(ok)),
+        Err(e) => dispatch(SendFailed(e)),
+    }
+    match svc.settings.set("window.control", "minimize") {
+        Ok(ok) => dispatch(Sent(ok)),
+        Err(e) => dispatch(SendFailed(e)),
+    }
+}
+
 @effect on CycleLayout {
+    match svc.ime.cycle(state.keymap) {
+        Ok(ok) => dispatch(Sent(ok)),
+        Err(e) => dispatch(SendFailed(e)),
+    }
+}
+
+@effect on CommitCycle {
+    match svc.ime.action("enter") {
+        Ok(ok) => dispatch(Sent(ok)),
+        Err(e) => dispatch(SendFailed(e)),
+    }
     match svc.ime.cycle(state.keymap) {
         Ok(ok) => dispatch(Sent(ok)),
         Err(e) => dispatch(SendFailed(e)),

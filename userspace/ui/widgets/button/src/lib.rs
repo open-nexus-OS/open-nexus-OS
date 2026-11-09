@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![cfg_attr(not(test), no_std)]
+#![forbid(unsafe_code)]
 
-//! `Button` — a styled, identified, clickable container.
+//! `Button` — a styled, identified, clickable container — and [`GlassButton`], the
+//! design-system button built on it.
 //!
 //! A pure builder producing a `LayoutNode::Stack` that centers a caller-supplied
 //! content node (a label/icon `LayoutNode`). The `id` is the **interaction id**:
@@ -20,7 +22,10 @@ use nexus_layout_types::{
 use nexus_style::Style;
 
 mod glass_button;
-pub use glass_button::{ButtonSize, ButtonVariant, GlassButton};
+mod look;
+pub use glass_button::{ButtonShape, ButtonSize, GlassButton, IconPosition};
+pub use look::ButtonVariant;
+pub use nexus_style::control::Role;
 
 /// A styled clickable container centering its content.
 #[derive(Debug, Clone)]

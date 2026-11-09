@@ -1,0 +1,91 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The keyboard toolbar (design artifacts: OnScreenKeyboard toolbar; TASK-0067B) — ONE row,
+// composing or not: the language chip (the layout's tag, set in upper case by `overline`,
+// and the running composition after it), the candidate strip, then the ghost keys. Only the
+// clipboard and close are live; emoji (no colour-emoji glyphs are baked), voice input,
+// settings and more are drawn disabled (`labelTertiary`) and take no press — a control that
+// does nothing must not look like one that does (decision Q3: kept, before close). The clipboard's selected
+// state is the persistent `fill` layer, as in the design. While something composes, opening
+// the clipboard and closing the keyboard commit it first (`ClipCommitOpen`,
+// `CommitDismiss`).
+
+Component OskToolbar {
+    Stack {
+        if $state.keymap != "" {
+            Stack {
+                Text($state.keymap).textStyle(overline).fg(labelSecondary)
+                if $state.preedit != "" {
+                    Text($state.preedit).textStyle(headline).fg(label)
+                }
+            }
+            .direction(row)
+            .align(center)
+            .gap(4)
+            .paddingX(8)
+            .height(36)
+            .bg(fill)
+            .rounded(full)
+        }
+        CandidateStrip { }
+        Stack {
+            OskGhostKey { symbol: "face.smiling", size: 20, bg: "transparent", fg: "labelTertiary" }
+        }
+        .disabled(true)
+        .label(@t("osk.emoji"))
+        if $state.oskPanel == "clipboard" {
+            Stack {
+                OskGhostKey { symbol: "doc.on.clipboard", size: 20, bg: "fill", fg: "labelSecondary" }
+            }
+            .label(@t("osk.clipboard"))
+            on Tap -> dispatch(ClipToggle)
+        } else {
+            if $state.preedit != "" {
+                Stack {
+                    OskGhostKey { symbol: "doc.on.clipboard", size: 20, bg: "transparent", fg: "labelSecondary" }
+                }
+                .label(@t("osk.clipboard"))
+                on Tap -> dispatch(ClipCommitOpen)
+            } else {
+                Stack {
+                    OskGhostKey { symbol: "doc.on.clipboard", size: 20, bg: "transparent", fg: "labelSecondary" }
+                }
+                .label(@t("osk.clipboard"))
+                on Tap -> dispatch(ClipToggle)
+            }
+        }
+        Stack {
+            OskGhostKey { symbol: "mic", size: 20, bg: "transparent", fg: "labelTertiary" }
+        }
+        .disabled(true)
+        .label(@t("osk.voice"))
+        Stack {
+            OskGhostKey { symbol: "gearshape", size: 20, bg: "transparent", fg: "labelTertiary" }
+        }
+        .disabled(true)
+        .label(@t("osk.settings"))
+        Stack {
+            OskGhostKey { symbol: "ellipsis", size: 20, bg: "transparent", fg: "labelTertiary" }
+        }
+        .disabled(true)
+        .label(@t("osk.more"))
+        if $state.preedit != "" {
+            Stack {
+                OskGhostKey { symbol: "xmark", size: 18, bg: "transparent", fg: "labelSecondary" }
+            }
+            .label(@t("osk.close"))
+            on Tap -> dispatch(CommitDismiss)
+        } else {
+            Stack {
+                OskGhostKey { symbol: "xmark", size: 18, bg: "transparent", fg: "labelSecondary" }
+            }
+            .label(@t("osk.close"))
+            on Tap -> dispatch(Dismiss)
+        }
+    }
+    .direction(row)
+    .align(center)
+    .gap(8)
+    .height(36)
+}

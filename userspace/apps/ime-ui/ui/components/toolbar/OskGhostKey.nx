@@ -1,0 +1,27 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// A toolbar ghost key (design artifacts: KeyboardKey `ghost`): a 36 px square, radius md,
+// transparent — or `fill` when it is the selected toggle — with the icon in
+// `labelSecondary`, or `labelTertiary` (the disabled role) on a control that does nothing
+// yet. The caller wraps it in the Stack that owns the tap, the label and the disabled state
+// (a handler binds to a node; a component reference is not one).
+
+Component OskGhostKey {
+    props: {
+        symbol: Str,
+        size: Int,
+        bg: Str,
+        fg: Str,
+    }
+    Stack {
+        Icon { symbol: $props.symbol, size: $props.size }
+            .fg($props.fg)
+    }
+    .align(center)
+    .justify(center)
+    .width(36)
+    .height(36)
+    .rounded(md)
+    .bg($props.bg)
+}

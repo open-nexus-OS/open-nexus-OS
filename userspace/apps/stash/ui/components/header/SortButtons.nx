@@ -1,0 +1,28 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The header's sort controls: direction (flips asc / desc), by size, by type.
+// One sort model — `sortBy` / `sortDir` in the view store — drives them all.
+
+Component SortButtons {
+    Stack {
+        Stack {
+            SortButton { icon: "arrow.up.arrow.down", active: false }
+        }
+        .label(@t("stash.sortDir"))
+        on Tap -> dispatch(SortDir)
+        Stack {
+            SortButton { icon: "shippingbox", active: $state.sortBy == "size" }
+        }
+        .label(@t("stash.sortSize"))
+        on Tap -> dispatch(SortBy("size"))
+        Stack {
+            SortButton { icon: "folder", active: $state.sortBy == "kind" }
+        }
+        .label(@t("stash.sortKind"))
+        on Tap -> dispatch(SortBy("kind"))
+    }
+    .direction(row)
+    .align(center)
+    .gap(2)
+}

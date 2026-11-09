@@ -1,0 +1,21 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The key area (RFC-0075 Phase 8b; design artifacts: OnScreenKeyboard, KeyboardKey): the
+// number row and the three letter rows are pure DATA from the keymaps SSOT (`svc.ime.rows`,
+// row 0 = digits), then the bottom row. The clipboard's cards take the area's place while
+// they are open (TASK-0067B). Every row has the same share of the height, gap 8. The number
+// row stays in every size class because the WM's band is one height for all of them — five
+// rows of keys fill it. A layout's own rows never branch here.
+
+Component KeyRows {
+    Stack {
+        KeyRow { cells: $state.row0 }
+        KeyRow { cells: $state.row1 }
+        KeyRow { cells: $state.row2 }
+        ShiftRow { }
+        BottomRow { }
+    }
+    .gap(8)
+    .grow(1)
+}

@@ -1,0 +1,47 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Settings mode's body: a centred form (max 640) with the "View" section —
+// a titled group whose rows are the switches that decide WHAT the listing
+// shows — and its footer BELOW the group. Today the one switch the file
+// service backs is hidden files; a row for a switch nothing reads would be a
+// control that lies, so the others wait for their state.
+
+Component SettingsView {
+    Stack {
+        Stack {
+            Text(@t("stash.setViewSection")).textStyle(overline).fg(labelSecondary)
+                .paddingX(8)
+            Stack {
+                Stack {
+                    Icon { symbol: "eye", size: 18 }
+                        .fg(labelSecondary)
+                    Stack {
+                        Text(@t("stash.setHidden")).textStyle(body).fontWeight(medium).fg(label)
+                        Text(@t("stash.setHiddenHint")).textStyle(footnote).fg(labelSecondary)
+                    }
+                    .gap(0)
+                    .grow(1)
+                    Toggle { checked: $state.showHidden, label: @t("stash.setHidden") }
+                    on Tap -> dispatch(ToggleHidden)
+                }
+                .direction(row)
+                .align(center)
+                .gap(12)
+                .paddingX(16)
+                .paddingY(12)
+                .minHeight(56)
+            }
+            .material(card)
+            .rounded(lg)
+            Text(@t("stash.setViewHint")).textStyle(footnote).fg(labelSecondary)
+                .paddingX(8)
+        }
+        .gap(8)
+        .maxWidth(640)
+        .grow(1)
+    }
+    .direction(row)
+    .justify(center)
+    .padding(16)
+}

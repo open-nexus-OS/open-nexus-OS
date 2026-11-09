@@ -65,6 +65,7 @@ fn ink_of(content: &str, font: nexus_text_baked::FontSize, width: i32) -> u32 {
             w as u32,
             content.chars(),
             font,
+            nexus_text_baked::Tracking::NONE,
             [255u8, 255, 255, 255],
         );
         sum += row.chunks_exact(4).map(|p| u32::from(p[3])).sum::<u32>();

@@ -256,12 +256,20 @@ fn measure(app: &str, w: i32, h: i32, host: &mut dyn EffectHost) -> Frame {
 /// `settings` emits nothing at mount without its services (the stub host), so only its layout
 /// is held.
 const BUDGET: [(&str, usize, usize); 4] = [
-    // chat re-measured 2026-10-21 (TASK-0337: window-kit's chrome in its own surface — the
-    // bar and the window scaffold moved from windowd into the app): 296 368 / 469 544 B.
-    ("chat", 326_000, 517_000),
-    ("settings", 0, 243_000),
-    ("stash", 99_000, 210_000),
-    ("desktop-shell", 64_000, 103_000),
+    // chat re-measured 2026-11-09 (TASK-0357: the layout measures a node once per constraint
+    // per pass — the per-pass measure cache): 295 712 / 459 456 B.
+    ("chat", 326_000, 506_000),
+    // settings re-measured 2026-11-09 (TASK-0353 + TASK-0357: the sidebar on the kit's WinPane
+    // with header and footer around a scrolling body, 263 boxes, laid out with the per-pass
+    // measure cache; the kit's strip pair is the largest share, a window-kit gap): layout
+    // 396 168 B.
+    ("settings", 0, 436_000),
+    // stash re-measured 2026-11-09 (TASK-0353: the modular rebuild on the kit's WinPane, bare
+    // sidebar and floating action bar — 206 boxes instead of 179): 140 592 / 218 632 B.
+    ("stash", 155_000, 240_000),
+    // desktop-shell re-measured 2026-11-09 (TASK-0353: the bars and panels on the design
+    // artifacts, with the per-pass measure cache): 92 216 / 105 408 B.
+    ("desktop-shell", 102_000, 116_000),
 ];
 
 /// The arena holds every recorded frame — checked when this file builds, so the one test

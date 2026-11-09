@@ -46,6 +46,8 @@ Store CalcStore {
     digits: Int = 1,
     acc: Fx = 0.0,
     op: Str = "",
+    // The pending operator's key glyph (÷ × − +) — what the expression line prints.
+    opGlyph: Str = "",
     // The small line above the number ("1.234,5 x 8 =").
     history: Str = "",
     // 1 after a computation / at rest: the next digit starts a new entry.
@@ -64,7 +66,9 @@ Event CalcEvent {
     // The decimal separator, also as the key's own literal, so the displayed
     // mark matches the key without a locale round-trip.
     Sep(Str),
-    Op(Str),
+    // (machine operator, key glyph): the arithmetic branches on the first, the expression line
+    // prints the second ("1.234 ÷", not "1.234 /").
+    Op(Str, Str),
     Eq,
     Clear,
     Neg,
@@ -128,7 +132,7 @@ reduce CalcEvent {
             state.disp = state.disp;
         }
     },
-    Op(o) => {
+    Op(o, glyph) => {
         if state.op == "" {
             state.acc = state.value;
         } else {
@@ -160,18 +164,20 @@ reduce CalcEvent {
         } else {
             state.value = state.acc;
             state.disp = @t("calc.value", state.acc);
-            state.history = @t("calc.hist.op", state.acc, o);
+            state.history = @t("calc.hist.op", state.acc, glyph);
         }
         state.op = o;
+        state.opGlyph = glyph;
         state.fresh = 1;
         state.dotted = 0;
         state.dirty = 1;
     },
     Eq => {
+        // "=" without a pending operation clears the expression line (the artifact).
         if state.op == "" {
-            state.history = state.history;
+            state.history = "";
         } else {
-            state.history = @t("calc.hist.eq", state.acc, state.op, state.value);
+            state.history = @t("calc.hist.eq", state.acc, state.opGlyph, state.value);
             if state.op == "+" {
                 state.value = state.acc + state.value;
             } else {
@@ -189,15 +195,16 @@ reduce CalcEvent {
                     }
                 }
             }
+            // An error keeps "a ÷ 0 =" above "Fehler" (the artifact).
             if state.err == 1 {
                 state.disp = @t("calc.error");
-                state.history = "";
             } else {
                 state.disp = @t("calc.value", state.value);
             }
         }
         state.acc = 0.0;
         state.op = "";
+        state.opGlyph = "";
         state.fresh = 1;
         state.dotted = 0;
         state.dirty = 1;
@@ -218,6 +225,7 @@ reduce CalcEvent {
         } else {
             state.acc = 0.0;
             state.op = "";
+            state.opGlyph = "";
             state.history = "";
         }
     },

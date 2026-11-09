@@ -19,8 +19,8 @@ use nexus_layout_types::FxPx;
 use nexus_theme_tokens::BaseTokens;
 
 // The injector's points — the Control-Center pill in the top bar, the power button in the open
-// panel's header, a background spot (the workspace) a press must NOT reach while the alert is
-// open, and the alert's Confirm button ("Shut down") — are display-space centres at 1280×800 in
+// panel's header, a background spot (the workspace) whose press cancels the open alert instead of
+// reaching the workspace, and the alert's Confirm button ("Shut down") — are display-space centres at 1280×800 in
 // the DESKTOP layout the QEMU lanes log into, read from `scenarios/targets.toml`
 // (`common::inject_point`, TASK-0333 6f-3): the scenario presses exactly what this test asserts.
 
@@ -126,13 +126,16 @@ fn power_button_opens_the_alert_and_cancel_escape_confirm_close_it() {
     assert_eq!(power(&view, "powerPrompt"), Value::Bool(true));
     assert_eq!(view.overlays().modal_depth(), 1, "the alert is the shell's modal");
 
-    // Background press while open: the alert absorbs — nothing opens, nothing closes.
+    // A background press cancels the alert (the design artifacts' rule: an alert closes on a
+    // backdrop tap) — through its `on Dismiss`, so nothing behind it is reached.
     tap(&mut view, &device, &symbols, common::inject_point("modal_background"));
-    tap(&mut view, &device, &symbols, pill);
-    assert_eq!(power(&view, "powerPrompt"), Value::Bool(true));
-    assert_eq!(view.take_dismissed(), None);
+    assert_eq!(view.take_dismissed(), Some(DismissReason::Backdrop));
+    assert_eq!(power(&view, "powerPrompt"), Value::Bool(false));
+    assert_eq!(view.overlays().modal_depth(), 0);
 
     // ESC cancels.
+    tap(&mut view, &device, &symbols, button);
+    assert_eq!(power(&view, "powerPrompt"), Value::Bool(true));
     let mut host = NullHost;
     view.dismiss_top(&BaseTokens, &device, &locale, &mut host, DismissReason::Escape).expect("esc");
     assert_eq!(view.take_dismissed(), Some(DismissReason::Escape));

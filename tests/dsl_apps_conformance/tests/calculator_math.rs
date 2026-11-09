@@ -110,7 +110,15 @@ fn the_design_worked_example() {
         "typed entry must echo what was pressed, got {:?}",
         scene_texts(&view)
     );
-    send(&mut view, &tokens, &device, &locale, &mut host, "Op", vec![Value::Str("*".into())]);
+    send(
+        &mut view,
+        &tokens,
+        &device,
+        &locale,
+        &mut host,
+        "Op",
+        vec![Value::Str("*".into()), Value::Str("×".into())],
+    );
     type_number(&mut view, &tokens, &device, &locale, &mut host, "8");
     send(&mut view, &tokens, &device, &locale, &mut host, "Eq", vec![]);
     let texts = scene_texts(&view);
@@ -127,7 +135,15 @@ fn decimals_are_real() {
     let calc = Calc::new();
     session!(calc, view, tokens, device, locale, host);
     type_number(&mut view, &tokens, &device, &locale, &mut host, "0.5");
-    send(&mut view, &tokens, &device, &locale, &mut host, "Op", vec![Value::Str("+".into())]);
+    send(
+        &mut view,
+        &tokens,
+        &device,
+        &locale,
+        &mut host,
+        "Op",
+        vec![Value::Str("+".into()), Value::Str("+".into())],
+    );
     type_number(&mut view, &tokens, &device, &locale, &mut host, "0.25");
     send(&mut view, &tokens, &device, &locale, &mut host, "Eq", vec![]);
     let texts = scene_texts(&view);
@@ -153,13 +169,26 @@ fn division_by_zero_reports_an_error() {
     let calc = Calc::new();
     session!(calc, view, tokens, device, locale, host);
     type_number(&mut view, &tokens, &device, &locale, &mut host, "8");
-    send(&mut view, &tokens, &device, &locale, &mut host, "Op", vec![Value::Str("/".into())]);
+    send(
+        &mut view,
+        &tokens,
+        &device,
+        &locale,
+        &mut host,
+        "Op",
+        vec![Value::Str("/".into()), Value::Str("÷".into())],
+    );
     type_number(&mut view, &tokens, &device, &locale, &mut host, "0");
     send(&mut view, &tokens, &device, &locale, &mut host, "Eq", vec![]);
     let texts = scene_texts(&view);
     assert!(
         texts.iter().any(|t| t == "Error" || t == "Fehler"),
         "division by zero must say so, got {texts:?}"
+    );
+    // The expression stays above the error, printed with the key's glyph (the artifact).
+    assert!(
+        texts.iter().any(|t| t.contains('÷') && t.ends_with('=')),
+        "the expression \"8 ÷ 0 =\" stays above the error, got {texts:?}"
     );
     // …and the next digit recovers rather than wedging.
     type_number(&mut view, &tokens, &device, &locale, &mut host, "3");

@@ -12,5 +12,3 @@ path = "src/lib.rs"
 nexus-layout-types = { path = "../../layout-types" }
 nexus-theme-tokens = { path = "../../theme-tokens" }
 nexus-widget-text = { path = "../text" }
-nexus-style = { path = "../../style" }
-nexus-widget-panel = { path = "../panel" }

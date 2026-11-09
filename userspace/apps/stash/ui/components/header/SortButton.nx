@@ -1,0 +1,34 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One round 30 px sort button (glyph 13). The sort key it stands for shows
+// the `fill` layer while it is the active one. The tap is the use site's.
+
+Component SortButton {
+    props: {
+        icon: Str,
+        active: Bool,
+    }
+    if $props.active {
+        Stack {
+            Icon { symbol: $props.icon, size: 13 }
+                .fg(label)
+        }
+        .width(30)
+        .height(30)
+        .rounded(full)
+        .align(center)
+        .justify(center)
+        .bg(fill)
+    } else {
+        Stack {
+            Icon { symbol: $props.icon, size: 13 }
+                .fg(labelSecondary)
+        }
+        .width(30)
+        .height(30)
+        .rounded(full)
+        .align(center)
+        .justify(center)
+    }
+}

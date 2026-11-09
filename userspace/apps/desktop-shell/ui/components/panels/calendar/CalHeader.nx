@@ -1,59 +1,82 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Calendar header (design artifacts: panels §5): month + year on the left, three
-// 24px buttons on the right — previous · a dot that returns to today · next.
+// Calendar header (design artifacts: panels §5): month + year on the left, two
+// accent chevrons on the right — previous · next, 2 px apart. Sizes follow the
+// calendar's two modes: sm in the desktop panel (headline, 28 px buttons,
+// 17 px glyphs), md in the touch sheet (title3, 32 px, 20 px). There is no
+// "Heute" button in the design: today is selected by default and a day tap
+// only highlights.
 //
 // The month name comes from an i18n key per authored month, not from a locale
-// date format: the DSL cannot format a date, and `de-DE` month names have to
-// come from somewhere. That makes the month label translatable like every
-// other string, which is the right outcome for the wrong reason.
+// date format: the DSL cannot format a date, and the month names have to come
+// from somewhere. That makes the month label translatable like every other
+// string, which is the right outcome for the wrong reason.
+
+Component CalTitle {
+    props: {
+        text: Str,
+    }
+    if device.profile == desktop {
+        Text($props.text).textStyle(headline).fg(label)
+    } else {
+        Text($props.text).textStyle(title3).fg(label)
+    }
+}
+
+Component CalNavBtn {
+    props: {
+        symbol: Str,
+    }
+    if device.profile == desktop {
+        Stack {
+            Icon { symbol: $props.symbol, size: 17 }
+                .fg(accent)
+        }
+        .width(28)
+        .height(28)
+        .align(center)
+        .justify(center)
+        .rounded(full)
+        .hitSlop(8)
+    } else {
+        Stack {
+            Icon { symbol: $props.symbol, size: 20 }
+                .fg(accent)
+        }
+        .width(32)
+        .height(32)
+        .align(center)
+        .justify(center)
+        .rounded(full)
+        .hitSlop(8)
+    }
+}
 
 Component CalHeader {
     Stack {
         if $state.calMonth == 0 {
-            Text(@t("cal.monthPrev")).textSize(sm).fontWeight(semibold).fg(onGlass)
+            CalTitle { text: @t("cal.monthPrev") }
         } else if $state.calMonth == 2 {
-            Text(@t("cal.monthNext")).textSize(sm).fontWeight(semibold).fg(onGlass)
+            CalTitle { text: @t("cal.monthNext") }
         } else {
-            Text(@t("cal.monthNow")).textSize(sm).fontWeight(semibold).fg(onGlass)
+            CalTitle { text: @t("cal.monthNow") }
         }
         Spacer
         Stack {
-            Icon { symbol: "chevron.left", size: 14 }
-                .fg(onGlassMuted)
+            Stack {
+                CalNavBtn { symbol: "chevron.left" }
+            }
+            on Tap -> dispatch(CalPrev)
+            Stack {
+                CalNavBtn { symbol: "chevron.right" }
+            }
+            on Tap -> dispatch(CalNext)
         }
-        .width(24)
-        .height(24)
-        .align(center)
-        .justify(center)
-        .rounded(full)
-        .hitSlop(2)
-        on Tap -> dispatch(CalPrev)
-        Stack {
-            Circle { size: 6 }
-                .bg(onGlassMuted)
-        }
-        .width(24)
-        .height(24)
-        .align(center)
-        .justify(center)
-        .rounded(full)
-        .hitSlop(2)
-        on Tap -> dispatch(CalToday)
-        Stack {
-            Icon { symbol: "chevron.right", size: 14 }
-                .fg(onGlassMuted)
-        }
-        .width(24)
-        .height(24)
-        .align(center)
-        .justify(center)
-        .rounded(full)
-        .hitSlop(2)
-        on Tap -> dispatch(CalNext)
+        .direction(row)
+        .gap(2)
     }
     .direction(row)
     .align(center)
-    .paddingX(1)
+    .paddingLeading(8)
 }

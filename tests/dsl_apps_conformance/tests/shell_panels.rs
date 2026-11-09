@@ -230,15 +230,15 @@ fn the_appearance_button_renders_differently_per_theme() {
         shell.open("control");
         common::layout_boxes(&shell.view)
             .iter()
-            .filter_map(|b| b.visual.background_gradient)
-            .map(|(a, b)| (a.r, a.g, a.b, b.r, b.g, b.b))
+            .filter_map(|b| b.visual.background)
+            .map(|c| (c.r, c.g, c.b, c.a))
             .collect::<Vec<_>>()
     };
     assert_ne!(
         structure("dark"),
         structure("light"),
         "the Control Center must paint a different appearance button per theme — \
-         moon on indigo while dark, sun on amber while light"
+         moon on modeTablet while dark, sun on warning while light"
     );
 }
 
@@ -261,7 +261,7 @@ fn every_demo_control_reaches_no_service() {
         ("PowerEvent", "ToggleNoStandby", vec![]),
         ("CalEvent", "CalPrev", vec![]),
         ("CalEvent", "CalNext", vec![]),
-        ("CalEvent", "CalToday", vec![]),
+        ("CalEvent", "CalSelect", vec![Value::Int(12)]),
         ("NotifEvent", "ClearAll", vec![]),
         ("ControlEvent", "ToggleMute", vec![]),
     ] {
@@ -312,9 +312,13 @@ fn the_calendar_pages_and_clamps() {
     shell.send("CalEvent", "CalNext", vec![]);
     assert_eq!(month(&shell.view), next, "past the last month it must clamp, not wrap");
 
-    shell.send("CalEvent", "CalToday", vec![]);
-    assert_eq!(month(&shell.view), now, "the dot returns to the current month");
+    // A day selection only highlights: the same month stays on screen (v3 has no
+    // "Heute" button — today is selected by default).
+    shell.send("CalEvent", "CalSelect", vec![Value::Int(12)]);
+    assert_eq!(month(&shell.view), next, "selecting a day must not page the month");
 
+    shell.send("CalEvent", "CalPrev", vec![]);
+    assert_eq!(month(&shell.view), now, "previous returns to the current month");
     shell.send("CalEvent", "CalPrev", vec![]);
     let prev = month(&shell.view);
     assert_ne!(now, prev);
@@ -375,13 +379,22 @@ fn the_view_mode_tile_is_tappable_across_its_whole_width() {
 
     let boxes = common::layout_boxes(&view);
     let handlers: Vec<usize> = view.handlers().iter().map(|(id, _)| *id).collect();
-    // The four connectivity tiles: handler boxes inside the panel, 42px tall.
+    // The four connectivity tiles: handler boxes inside the panel, 43px tall (RFC-0116 type: caption 14 + caption2 13 + padding 8×2).
     let mut tiles: Vec<_> = boxes
         .iter()
-        .filter(|b| handlers.contains(&b.node_id) && b.rect.height.0 == 42 && b.rect.y.0 > 36)
+        .filter(|b| handlers.contains(&b.node_id) && b.rect.height.0 == 43 && b.rect.y.0 > 36)
         .collect();
     tiles.sort_by_key(|b| (b.rect.y.0, b.rect.x.0));
-    assert_eq!(tiles.len(), 4, "the Control Center has four connectivity tiles");
+    let candidates: Vec<(i32, i32, i32, i32)> = boxes
+        .iter()
+        .filter(|b| handlers.contains(&b.node_id) && b.rect.y.0 > 36)
+        .map(|b| (b.rect.x.0, b.rect.y.0, b.rect.width.0, b.rect.height.0))
+        .collect();
+    assert_eq!(
+        tiles.len(),
+        4,
+        "the Control Center has four connectivity tiles; handler boxes (x, y, w, h): {candidates:?}"
+    );
 
     // Equal columns (the design's `1fr 1fr`), or one tile is narrower than
     // the card it fills and the difference is dead space.

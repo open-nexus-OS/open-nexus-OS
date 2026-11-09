@@ -16,34 +16,34 @@ Component ChatListRow {
     Stack {
         Circle { size: 36
             Icon { symbol: "person", size: 16 }
-                .fg(onSurface)
+                .fg(label)
         }
-        .material(subtle)
+        .material(card)
         Stack {
-            Text($props.name).textSize(base).fg(onSurface)
-            Text($props.last).textSize(xs).fg(onSurfaceVariant)
+            Text($props.name).textStyle(body).fg(label)
+            Text($props.last).textStyle(caption).fg(labelSecondary)
         }
         .gap(0)
         Spacer
         Stack {
-            Text($props.time).textSize(xs).fg(onSurfaceVariant)
+            Text($props.time).textStyle(caption).fg(labelSecondary)
             if $props.unread != "" {
                 Circle { size: 18
-                    Text($props.unread).textSize(xs).fg(onAccent)
+                    Text($props.unread).textStyle(caption).fg(onAccent)
                 }
                 .bg(accent)
             } else {
                 Stack { }
             }
         }
-        .gap(1)
+        .gap(4)
         .align(end)
     }
     .direction(row)
     .align(center)
-    .gap(2)
-    .paddingX(2)
+    .gap(8)
+    .paddingX(8)
     .height(56)
-    .rounded(lg)
+    .rounded(md)
     on Tap -> dispatch(OpenThread($props.id, $props.name))
 }

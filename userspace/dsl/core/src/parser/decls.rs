@@ -367,8 +367,11 @@ impl Parser<'_> {
         let mut mode = WindowMode::default();
         let mut level = WindowLevel::default();
         let mut resizable = false;
+        let (mut width, mut height, mut min_width, mut min_height) = (None, None, None, None);
         while !self.eat(&TokenKind::RBrace) {
-            let key = self.ident("a window field (style, mode, level, resizable)")?;
+            let key = self.ident(
+                "a window field (style, mode, level, resizable, width, height, minWidth, minHeight)",
+            )?;
             self.expect(&TokenKind::Colon, "`:`")?;
             match key.text.as_str() {
                 "style" => {
@@ -411,11 +414,19 @@ impl Parser<'_> {
                         _ => return Err(self.unexpected("`true` or `false`")),
                     };
                 }
+                // RFC-0117: the default and minimum content size, px at desktop scale.
+                "width" => width = Some(self.window_px(&key)?),
+                "height" => height = Some(self.window_px(&key)?),
+                "minWidth" => min_width = Some(self.window_px(&key)?),
+                "minHeight" => min_height = Some(self.window_px(&key)?),
                 other => {
                     return Err(Diagnostic::new(
                         DiagCode::UnknownField,
                         key.span,
-                        format!("unknown window field `{other}` (expected style, mode, level, resizable)"),
+                        format!(
+                            "unknown window field `{other}` (expected style, mode, level, \
+                             resizable, width, height, minWidth, minHeight)"
+                        ),
                     ));
                 }
             }
@@ -423,7 +434,38 @@ impl Parser<'_> {
             let _ = self.eat(&TokenKind::Comma) || self.eat(&TokenKind::Semi);
         }
         let span = start.to(self.prev_span());
-        Ok(WindowDecl { style, mode, level, resizable, span })
+        // A default below the minimum on the same axis cannot be honoured (RFC-0117).
+        for (axis, default, min) in [("width", width, min_width), ("height", height, min_height)] {
+            if let (Some(d), Some(m)) = (default, min) {
+                if d < m {
+                    return Err(Diagnostic::new(
+                        DiagCode::TypeMismatch,
+                        span,
+                        format!("window {axis} {d} is below its minimum {m}"),
+                    ));
+                }
+            }
+        }
+        Ok(WindowDecl { style, mode, level, resizable, width, height, min_width, min_height, span })
+    }
+
+    /// A window size in px: an integer literal in `1..=8192` (RFC-0117).
+    fn window_px(&mut self, key: &crate::ast::Ident) -> Result<u16, Diagnostic> {
+        match self.peek().clone() {
+            TokenKind::IntLit(v) => {
+                self.bump();
+                if (1..=8192).contains(&v) {
+                    Ok(v as u16)
+                } else {
+                    Err(Diagnostic::new(
+                        DiagCode::TypeMismatch,
+                        key.span,
+                        format!("window `{}` takes 1..=8192 px, got {v}", key.text),
+                    ))
+                }
+            }
+            _ => Err(self.unexpected("a size in px (an integer)")),
+        }
     }
 }
 

@@ -1,18 +1,19 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The label ABOVE a card (design artifacts: panels `.group-label`): "Verfügbare
-// Netzwerke", "Ausgabe", "Energieprofil", "Anstehend". Dimmed, inset 4px from
-// the card's edge so it reads as a caption for the group rather than a row
-// inside it.
+// The label ABOVE a card (design artifacts: panels group label): "Verfügbare
+// Netzwerke", "Ausgabe", "Energieprofil", "Anstehend". Caption in
+// `labelSecondary`, inset 4 px from the card's edge so it reads as a caption
+// for the group rather than a row inside it; 4 px of extra space above (on
+// top of the panel's gap) separate it from the block before.
 
 Component GroupLabel {
     props: {
         label: Str,
     }
     Stack {
-        Text($props.label).textSize(xs).leading(tight).fg(onGlassMuted)
+        Text($props.label).textStyle(caption).fg(labelSecondary)
     }
-    .paddingX(1)
-    .paddingBottom(1)
+    .paddingX(4)
+    .paddingTop(4)
 }

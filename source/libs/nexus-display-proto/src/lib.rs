@@ -70,6 +70,8 @@ pub mod surface_adopt;
 pub mod surface_alloc;
 /// The app's side of a surface buffer: its answer to a create, the present of a slot (RFC-0114 §3).
 pub mod surface_buffers;
+/// The window intent, the content rect and the app's window size (RFC-0117).
+pub mod surface_intent;
 pub mod surface_pressure;
 /// Why an app's channel went quiet: a window closed on purpose, a compositor back (RFC-0112).
 pub mod surface_restart;

@@ -1,0 +1,107 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The face of a menu row (design artifacts `Menu` item), drawn by `WinMenuRow`: padding 8 12
+// (36 px), radius 12, the icon slot, the label (body 14/500), the shortcut (footnote,
+// right-aligned) and the trailing mark. `tone` colours the icon and the label, `note` the
+// shortcut — role names, so the row's treatment is data (`label`, `danger`, `labelTertiary`).
+// `selected` pins the `fill` layer (the row whose submenu is open).
+
+Component WinMenuFace {
+    props: {
+        label: Str,
+        icon: Str,
+        kind: Str,
+        shortcut: Str,
+        tone: Str,
+        note: Str,
+        selected: Bool,
+    }
+    if $props.selected {
+        Stack {
+            WinMenuIcon { icon: $props.icon, tone: $props.tone }
+            Stack {
+                Text($props.label).textStyle(body).fontWeight(medium).fg($props.tone)
+            }
+            .grow(1)
+            .paddingTrailing(8)
+            Text($props.shortcut).textStyle(footnote).fg($props.note).shrink(0)
+            WinMenuMark { kind: $props.kind }
+        }
+        .direction(row)
+        .align(center)
+        .paddingY(8)
+        .paddingX(12)
+        .rounded(md)
+        .bg(fill)
+    } else {
+        Stack {
+            WinMenuIcon { icon: $props.icon, tone: $props.tone }
+            Stack {
+                Text($props.label).textStyle(body).fontWeight(medium).fg($props.tone)
+            }
+            .grow(1)
+            .paddingTrailing(8)
+            Text($props.shortcut).textStyle(footnote).fg($props.note).shrink(0)
+            WinMenuMark { kind: $props.kind }
+        }
+        .direction(row)
+        .align(center)
+        .paddingY(8)
+        .paddingX(12)
+        .rounded(md)
+    }
+}
+
+// The icon slot: 16 px in a 25 px slot (8 px to the label), or an empty slot without an icon.
+Component WinMenuIcon {
+    props: {
+        icon: Str,
+        tone: Str,
+    }
+    if $props.icon != "" {
+        Stack {
+            Icon { symbol: $props.icon, size: 16 }
+                .fg($props.tone)
+        }
+        .width(25)
+        .shrink(0)
+        .align(start)
+    } else {
+        Stack { }
+            .shrink(0)
+    }
+}
+
+// The trailing mark: a checkmark (`check`, `accent`), a chevron to a submenu (`sub` right,
+// `subLeft` left, `labelTertiary`), or an empty slot on every other row.
+Component WinMenuMark {
+    props: {
+        kind: Str,
+    }
+    if $props.kind == "check" {
+        Stack {
+            Icon { symbol: "checkmark", size: 14 }
+                .fg(accent)
+        }
+        .paddingLeading(8)
+        .shrink(0)
+    } else if $props.kind == "sub" {
+        Stack {
+            Icon { symbol: "chevron.right", size: 14 }
+                .fg(labelTertiary)
+        }
+        .paddingLeading(8)
+        .shrink(0)
+    } else if $props.kind == "subLeft" {
+        Stack {
+            Icon { symbol: "chevron.left", size: 14 }
+                .fg(labelTertiary)
+        }
+        .paddingLeading(8)
+        .shrink(0)
+    } else {
+        Stack { }
+            .shrink(0)
+    }
+}

@@ -26,17 +26,17 @@ Component ApFolderTile {
             Stack { }
                 .height(24)
                 .width(44)
-                .rounded(md)
+                .rounded(sm)
                 .bgGradient($props.base, $props.base)
         }
         .gap(0)
         .align(start)
-        Text($props.label).textSize(xs).fg(onGlassMuted)
+        Text($props.label).textStyle(caption).fg(labelSecondary)
     }
-    .gap(1)
+    .gap(4)
     .align(center)
-    .padding(1)
-    .rounded(lg)
-    .border(thin)
+    .padding(4)
+    .rounded(md)
+    .border(hairline)
     .borderColor(transparent)
 }

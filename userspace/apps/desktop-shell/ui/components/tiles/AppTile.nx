@@ -38,7 +38,7 @@ Component AppTile {
         } else {
             Stack {
                 Icon { symbol: $props.icon, size: 28 }
-                    .fg(onSurface)
+                    .fg(label)
             }
             .width(56)
             .height(56)
@@ -51,7 +51,7 @@ Component AppTile {
             Stack { }
                 .width(4)
                 .height(4)
-                .bg(onSurface)
+                .bg(label)
                 .rounded(2)
                 .opacity(179)
         } else {
@@ -59,8 +59,8 @@ Component AppTile {
                 .width(4)
                 .height(4)
         }
-        Text($props.label).textSize(sm).fg(onSurface)
+        Text($props.label).textStyle(footnote).fg(label)
     }
     .align(center)
-    .gap(1)
+    .gap(4)
 }

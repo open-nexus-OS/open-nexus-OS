@@ -1,38 +1,33 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The clock pill (design artifacts: panels §2) — the Kalender opener. Desktop
+// The clock pill (design artifacts: TopBar) — the Kalender opener. Desktop
 // shows time · date, the touch modes only the time: the same trigger, trimmed
-// to the room the mode has.
+// to the room the mode has. The time and the "·" are footnote semibold, the
+// date caption in `labelSecondary`; every label carries the wallpaper halo.
 //
-// 28px tall inside a 36px bar with no resting background — hover and open
-// state are the only fills, painted by the interaction chain. The handler
-// lives at the use site (`TopBar`), so this stays a pure shape.
+// `$state.date` is the clock tick's long form ("Freitag, 23. Oktober"), which
+// the launcher shares; the design's short form ("Fr, 23. Okt.") needs a second
+// argument on the host's `Tick` (app-host `probe/clock.rs`) — open.
 
 Component ClockPill {
     props: {
         wide: Bool,
+        selected: Bool,
     }
     if $props.wide {
-        Stack {
-            Text($state.clock).textSize(sm).fontWeight(semibold).fg(onGlass)
-            Text(@t("shell.dot")).textSize(xs).fg(onGlassMuted)
-            Text($state.date).textSize(xs).fg(onGlassMuted)
+        TopBarPill { selected: $props.selected, gap: 6 } {
+            content {
+                Text($state.clock).textStyle(footnote).fontWeight(semibold).figures(tabular).fg(label).shadow(halo)
+                Text(@t("shell.dot")).textStyle(footnote).fontWeight(semibold).fg(labelSecondary).shadow(halo)
+                Text($state.date).textStyle(caption).fg(labelSecondary).shadow(halo)
+            }
         }
-        .direction(row)
-        .align(center)
-        .gap(1)
-        .paddingX(2)
-        .height(28)
-        .rounded(full)
     } else {
-        Stack {
-            Text($state.clock).textSize(sm).fontWeight(semibold).fg(onGlass)
+        TopBarPill { selected: $props.selected, gap: 6 } {
+            content {
+                Text($state.clock).textStyle(footnote).fontWeight(semibold).figures(tabular).fg(label).shadow(halo)
+            }
         }
-        .direction(row)
-        .align(center)
-        .paddingX(2)
-        .height(28)
-        .rounded(full)
     }
 }

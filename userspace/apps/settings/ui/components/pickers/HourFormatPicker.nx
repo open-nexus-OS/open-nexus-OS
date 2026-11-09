@@ -1,0 +1,20 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The `hourfmt` picker's option list on a `PickerSheet`; the page layer mounts it while
+// `$state.picker == "hourfmt"`.
+
+Component HourFormatPicker {
+    PickerSheet { title: @t("gen.hourFormat") } {
+        options {
+            Stack {
+                PickerOption { label: @t("gen.hour24"), selected: $state.hourFmt == "24h" }
+            }
+            on Tap -> dispatch(SetHourFmt("24h"))
+            Stack {
+                PickerOption { label: @t("gen.hour12"), selected: $state.hourFmt == "12h" }
+            }
+            on Tap -> dispatch(SetHourFmt("12h"))
+        }
+    }
+}

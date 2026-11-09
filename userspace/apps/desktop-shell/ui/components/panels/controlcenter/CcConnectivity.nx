@@ -2,21 +2,18 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // The 2×2 tile grid (design artifacts: panels §3, row 2): WLAN · Bluetooth on the
-// left, Flugmodus · Ansichtsmodus on the right. Two `.grow(1)` columns rather
-// than a grid — the DSL has no `Grid`, and two equal flex columns ARE
-// `grid-template-columns: 1fr 1fr`.
-//
-// The two columns are stated at 144 = (328 − 2×16 − 8) / 2 rather than grown.
-// `.grow(1)` is flex-grow over an AUTO basis, so it splits only the FREE space
-// and the column holding the longer label came out 17px wider — which also
-// left the narrower tile's right-hand slice outside its own hit box, so taps
-// there reached the panel's no-op absorber and the mode switch "did nothing".
+// left, Flugmodus · Ansichtsmodus on the right, in two `card` columns of 142 =
+// (328 − 2×16 − 12) / 2 with a 12 px gap. The columns are stated, not grown:
+// `.grow(1)` splits only the FREE space over an auto basis, so the column
+// holding the longer label came out wider and the narrower tile's slice fell
+// outside its hit box (taps reached the panel's no-op absorber).
 //
 // The Ansichtsmodus tile is the shell's layout switch and the one tile here
-// that is REAL. It is also the only tile that is ALWAYS active: it never means
-// "off", it names which of two modes you are in, so it changes colour, glyph
-// and label instead of dimming. Its state comes from `device.profile`, never a
-// store — see `controlcenter.store.nx`.
+// that is REAL. It is ALWAYS on: it names which of two modes you are in, so it
+// changes tint, glyph and label instead of dimming. Its state comes from
+// `device.profile`, never a store — see `controlcenter.store.nx`. The glyph is
+// the monitor / tablet pair the theme's symbol map has (the design's laptop
+// glyph is not mapped yet).
 
 Component CcConnectivity {
     Stack {
@@ -27,7 +24,7 @@ Component CcConnectivity {
                     label: @t("control.wifi"),
                     subOn: @t("control.wifiNet"),
                     subOff: @t("control.off"),
-                    accent: "#3b82f6",
+                    tint: "accent",
                     active: $state.wifiOn,
                 }
             }
@@ -39,17 +36,17 @@ Component CcConnectivity {
                     label: @t("control.bluetooth"),
                     subOn: @t("control.on"),
                     subOff: @t("control.off"),
-                    accent: "#3b82f6",
+                    tint: "accent",
                     active: $state.bluetoothOn,
                 }
             }
             .direction(row)
             on Tap -> dispatch(ToggleBluetooth)
         }
-        .gap(2)
-        .width(144)
-        .padding(3)
-        .rounded(20)
+        .gap(8)
+        .width(142)
+        .padding(12)
+        .rounded(16)
         .material(card)
         Stack {
             Stack {
@@ -58,7 +55,7 @@ Component CcConnectivity {
                     label: @t("control.airplane"),
                     subOn: @t("control.on"),
                     subOff: @t("control.off"),
-                    accent: "#f97316",
+                    tint: "modeAirplane",
                     active: $state.airplaneOn,
                 }
             }
@@ -67,11 +64,11 @@ Component CcConnectivity {
             if device.profile == desktop {
                 Stack {
                     ToggleTile {
-                        icon: "desktopcomputer",
+                        icon: "laptopcomputer",
                         label: @t("control.desktop"),
                         subOn: @t("control.viewMode"),
                         subOff: @t("control.viewMode"),
-                        accent: "#14b8a6",
+                        tint: "modeDesktop",
                         active: true,
                     }
                 }
@@ -84,7 +81,7 @@ Component CcConnectivity {
                         label: @t("control.tablet"),
                         subOn: @t("control.viewMode"),
                         subOff: @t("control.viewMode"),
-                        accent: "#8b5cf6",
+                        tint: "modeTablet",
                         active: true,
                     }
                 }
@@ -92,12 +89,12 @@ Component CcConnectivity {
                 on Tap -> dispatch(SetMode("desktop"))
             }
         }
-        .gap(2)
-        .width(144)
-        .padding(3)
-        .rounded(20)
+        .gap(8)
+        .width(142)
+        .padding(12)
+        .rounded(16)
         .material(card)
     }
     .direction(row)
-    .gap(2)
+    .gap(12)
 }

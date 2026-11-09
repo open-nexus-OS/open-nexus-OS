@@ -1,17 +1,22 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The on-screen keyboard surface (RFC-0075 Phase 8b): a chromeless OVERLAY
-// window docked by windowd to the bottom display edge. Top line = the
-// TOOLBAR while nothing composes (emoji · clipboard · voice · settings ·
-// more, TASK-0067B — the clipboard swaps the keys for CARDS of the history,
-// a tap inserts one) and the composition STRIP while the IME composes
-// (preedit + up to 8 candidates; tap commits). The key
-// rows are pure DATA (`svc.ime.rows` from the keymaps SSOT, reloaded on
-// `KeymapEvent::Changed`) — 180 languages are 180 data tables, never an
-// `if` tree here. The globe key cycles the SYSTEM layout (order = platform
-// data); the change round-trips through settingsd and comes back as the
-// next KeymapEvent.
+// The on-screen keyboard surface (RFC-0075 Phase 8b; design artifacts: OnScreenKeyboard,
+// docked): a chromeless OVERLAY window that windowd docks to the bottom display edge at the
+// band height it owns. One opaque TRAY fills the band: the toolbar on top (language chip ·
+// candidates · emoji · clipboard · voice · settings · more · close — TASK-0067B), under it
+// exactly one body, the keys or the clipboard's cards, which always takes the same height so
+// the keyboard never jumps. The key rows are pure DATA (`svc.ime.rows` from the keymaps SSOT,
+// reloaded on `KeymapEvent::Changed`) — 180 languages are 180 data tables, never an `if` tree
+// here. The globe key cycles the SYSTEM layout (order = platform data); the change
+// round-trips through settingsd and comes back as the next KeymapEvent.
+//
+// The tray is the floating-surface recipe spelled out — `surfaceOverlay` with a `fill` layer
+// on top, `shadow3` and the lit top edge, radius xl on the two corners that do not touch the
+// screen edge — rather than `.material(overlay)`: inside that material `glassCard` resolves to
+// half the `fill`, and the design keeps the keys raw `glassCard`, LIGHTER than the tray in both
+// themes. Geometry (4-pt grid, decision Q1): padding 8, gaps 8, a 36 px toolbar; the key rows
+// share what is left of the band, five rows of 44 px in today's 312 px band.
 
 Window {
     style: plain,
@@ -21,42 +26,21 @@ Window {
 
 Page OskPage {
     Stack {
-        // TASK-0067B: while nothing composes, the line above the keys is the
-        // toolbar (emoji · clipboard · voice · settings · more); while the IME
-        // composes it is the candidate strip.
-        if $state.preedit == "" && $state.c1 == "" {
-            OskToolbar { }
-        } else {
-            CandidateStrip { }
-        }
-        if $state.oskPanel == "clipboard" {
-            ClipboardCards { }
-        } else {
-            KeyRows { }
-        }
         Stack {
-            Stack {
-                Button { label: $state.keymap }
+            OskToolbar { }
+            if $state.oskPanel == "clipboard" {
+                ClipboardCards { }
+            } else {
+                KeyRows { }
             }
-            on Tap -> dispatch(CycleLayout)
-            Stack {
-                Button { label: @t("osk.space") }
-                on Tap -> dispatch(Key(" "))
-            }
-            .paddingX(8)
-            Button { label: @t("osk.enter") }
-            on Tap -> dispatch(Action("enter"))
-            Stack {
-                Button { label: "X" }
-            }
-            .paddingX(4)
-            on Tap -> dispatch(Dismiss)
         }
-        .direction(row)
-        .gap(1)
-        .align(center)
+        .grow(1)
+        .gap(8)
+        .padding(8)
+        .bg(fill)
+        .corners(xl, xl, 0, 0)
     }
-    .gap(1)
-    .padding(2)
-    .align(center)
+    .bg(surfaceOverlay)
+    .corners(xl, xl, 0, 0)
+    .shadow(shadow3, edgeHighlight)
 }

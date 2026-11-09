@@ -11,20 +11,23 @@
 // beside it reads the same field, so the two cannot contradict.
 
 Component CcSoundCard {
+    props: {
+        label: Str,
+    }
     Stack {
-        SectionRow { icon: "speaker.wave", label: @t("control.volume") }
+        SectionRow { icon: "speaker.wave", label: $props.label }
         Stack {
-            Slider { value: $state.volume, icon: "speaker.wave.1" }
+            Slider { value: $state.volume, icon: "speaker" }
                 .label(@t("control.volume"))
             MuteButton { }
         }
         .direction(row)
         .align(center)
-        .gap(2)
+        .gap(12)
     }
-    .gap(2)
-    .paddingX(4)
-    .paddingY(3)
-    .rounded(20)
+    .gap(8)
+    .paddingX(16)
+    .paddingY(12)
+    .rounded(16)
     .material(card)
 }

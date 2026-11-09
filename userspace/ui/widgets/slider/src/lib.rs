@@ -2,50 +2,67 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![cfg_attr(not(test), no_std)]
+#![forbid(unsafe_code)]
 
-//! `Slider` — the design-system range slider (design artifacts: panels `.slider`):
-//! a recessed pill TRACK with a bright FILL growing from the left, and a glyph
-//! riding at a fixed inset inside that fill.
+//! `Slider` — the design-system range slider (the design artifacts' `Slider`), value 0..=100.
 //!
-//! There is no separate thumb. The fill's own leading edge is the handle, which
-//! is why it carries a minimum width — at value 0 the cap must still be visible
-//! and grabbable rather than collapsing to a hairline.
+//! [`SliderVariant::Control`] (the builder's default, the Control Center bar): a 28 px
+//! capsule in `fill` with the recessed well, and a white fill (`onAccent`, `shadow1`; an
+//! explicit tint colours it) growing from the left that never gets narrower than its 28 px
+//! cap — its leading edge IS the handle. The glyph rides inside the fill at a fixed 7 px inset
+//! in `island` at 50 % (the tint's on-colour at 85 % on a tinted fill); the fill sweeps over it.
 //!
-//! Width is NOT fixed. The track is a flex child that takes whatever its row
-//! grants it, and the fill/rest split is expressed as flex WEIGHTS (value vs
-//! 100 − value) rather than pixels — the layout equivalent of the design's
-//! `width: 70%`. A builder that computed pixels here would have to be told the
-//! row width, and every card the slider sits in has a different one.
+//! [`SliderVariant::Thumb`] (the artifacts' default slider): a 28 px hit track holding a 6 px
+//! `fill` track, the tint fill with its glow up to the value, a 20 px white thumb (`shadow1`)
+//! and optional tick marks below the track.
 //!
-//! The embedded glyph arrives as a ready-made node (`leading`), so this crate
-//! stays free of the icon set: symbol-name resolution is a DSL-layer concern.
+//! Width is NOT fixed: the root takes the row's free space, and the fill/rest split is expressed
+//! as flex WEIGHTS (value vs 100 − value) — the layout equivalent of the design's `width: 70%`,
+//! so the builder never needs the row width. The root is the track in both variants: a tap's
+//! fraction across the root IS the value (the DSL's track-fraction bind). The glyph arrives as a
+//! ready-made node (`leading`), so this crate stays free of the icon set. Hover never repaints;
+//! a disabled slider dims to 0.45.
 
 extern crate alloc;
 
-use nexus_layout_types::{
-    Align, CornerRadius, Direction, EdgeInsets, FlexItem, FxPx, Justify, LayoutNode, Overflow,
-    Stack, VisualStyle,
-};
-use nexus_style::InteractionState;
-use nexus_theme_tokens::{ColorToken, Tokens};
+mod thumb;
 
-/// Track height; the radius is half of it, so the track is a true pill.
+use nexus_layout_types::{
+    Align, Direction, EdgeInsets, FlexItem, FxPx, Justify, LayoutNode, Stack, VisualStyle,
+};
+use nexus_style::control::{on_tint, with_alpha_percent};
+use nexus_style::{Dim, InteractionState, Style};
+use nexus_theme_tokens::{ColorToken, RadiusToken, ShadowToken, Tokens};
+
+/// Track height of the control bar (and the thumb variant's hit track); a true capsule.
 const TRACK_H: i32 = 28;
-const RADIUS: i32 = TRACK_H / 2;
 /// The fill never shrinks below this: its leading edge IS the handle, and a
 /// handle you cannot see is one you cannot grab.
 const MIN_FILL: i32 = 28;
 /// Inset of the embedded glyph from the track's leading edge. Fixed — the
 /// glyph does not travel with the value, the fill sweeps OVER it.
-const GLYPH_INSET: i32 = 8;
+const GLYPH_INSET: i32 = 7;
+
+/// Which slider.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SliderVariant {
+    /// The Control Center bar: a white fill carrying the glyph, no thumb.
+    #[default]
+    Control,
+    /// The artifacts' default slider: a thin track, a tint fill and a white thumb.
+    Thumb,
+}
 
 /// A horizontal range slider (value 0..=100).
 #[derive(Debug, Default)]
 pub struct Slider {
     value: u8,
+    variant: SliderVariant,
     state: InteractionState,
     id: Option<&'static str>,
     leading: Option<LayoutNode>,
+    tint: Option<ColorToken>,
+    ticks: u8,
 }
 
 impl Slider {
@@ -59,6 +76,11 @@ impl Slider {
         self
     }
 
+    pub fn variant(mut self, variant: SliderVariant) -> Self {
+        self.variant = variant;
+        self
+    }
+
     pub fn state(mut self, state: InteractionState) -> Self {
         self.state = state;
         self
@@ -69,10 +91,23 @@ impl Slider {
         self
     }
 
-    /// The glyph embedded in the fill (brightness sun, volume speaker). Built
-    /// by the caller so this crate needs no icon dependency.
+    /// The glyph embedded in the control bar's fill (brightness sun, volume speaker). Built by
+    /// the caller so this crate needs no icon dependency; the slider sets its colour.
     pub fn leading(mut self, node: LayoutNode) -> Self {
         self.leading = Some(node);
+        self
+    }
+
+    /// An explicit tint: the thumb slider's fill (default accent); on the control bar it
+    /// colours the fill (default white).
+    pub fn tint(mut self, tint: ColorToken) -> Self {
+        self.tint = Some(tint);
+        self
+    }
+
+    /// Tick marks below the thumb slider's track: `count` evenly spaced, ends included (0 = none).
+    pub fn ticks(mut self, count: u8) -> Self {
+        self.ticks = count;
         self
     }
 
@@ -82,58 +117,69 @@ impl Slider {
         self.value as u32
     }
 
-    /// A flex bar: `weight` decides its share of the track, `min_w` its floor.
-    fn bar(
-        weight: u32,
-        min_w: Option<i32>,
-        visual: VisualStyle,
-        padding: EdgeInsets,
-        children: alloc::vec::Vec<LayoutNode>,
-    ) -> LayoutNode {
+    fn dim(&self, visual: &mut VisualStyle) {
+        if self.state.is_disabled() {
+            visual.opacity = Some(self.state.opacity_as(Dim::Control));
+        }
+    }
+
+    /// The root track node (both variants): it takes the row's free space.
+    fn track(&self, visual: VisualStyle, children: alloc::vec::Vec<LayoutNode>) -> LayoutNode {
+        let h = Some(FxPx::new(TRACK_H));
         LayoutNode::Stack(
             Stack {
-                id: None,
+                id: self.id,
                 direction: Direction::Row,
-                gap: FxPx::ZERO,
-                padding,
                 align: Align::Center,
                 justify: Justify::Start,
-                overflow: Overflow::Visible,
-                flex_wrap: false,
-                min_width: min_w.map(FxPx::new),
-                max_width: None,
-                min_height: Some(FxPx::new(TRACK_H)),
-                max_height: Some(FxPx::new(TRACK_H)),
-                item: FlexItem { flex_grow: weight, ..FlexItem::default() },
-                text_fit: None,
+                min_height: h,
+                max_height: h,
+                // The track takes the row's free space (design `flex: 1`).
+                item: FlexItem { flex_grow: 1, ..FlexItem::default() },
+                ..Stack::default()
             },
             visual,
             children,
         )
     }
 
-    /// Build the slider node.
-    pub fn build(self, tokens: &dyn Tokens) -> LayoutNode {
-        let weight = self.fill_weight();
-        let fill_visual = VisualStyle {
-            background: Some(tokens.color(ColorToken::SliderFill)),
-            corner_radius: CornerRadius::uniform(FxPx::new(RADIUS)),
-            ..VisualStyle::default()
+    /// The glyph in the control bar's fill: `island` at 50 %, or the tint's on-colour at 85 %
+    /// on a tinted fill. The row painter has no group opacity, so the emphasis is the glyph's
+    /// paint (a glyph is one shaped box).
+    fn glyph(&self, node: LayoutNode, tokens: &dyn Tokens) -> LayoutNode {
+        let color = match self.tint {
+            Some(tint) => with_alpha_percent(tokens.color(on_tint(tint)), 85),
+            None => with_alpha_percent(tokens.color(ColorToken::Island), 50),
         };
-        // The design's `inset 0 1px 2px rgba(0,0,0,.30)`. The row-based
-        // painter has no offscreen buffer to blur in, so the 2px falloff is
-        // not reproducible; the 1px inset LINE is, and it is what actually
-        // reads as a groove at this size.
-        let track_visual = VisualStyle {
-            background: Some(tokens.color(ColorToken::SliderTrack)),
-            corner_radius: CornerRadius::uniform(FxPx::new(RADIUS)),
-            inset_highlight: Some(tokens.color(ColorToken::SliderTrack)),
-            opacity: self.state.is_disabled().then(|| self.state.opacity()),
-            ..VisualStyle::default()
-        };
+        match node {
+            LayoutNode::Stack(stack, mut visual, children) => {
+                if visual.background.is_some() {
+                    visual.background = Some(color);
+                }
+                LayoutNode::Stack(stack, visual, children)
+            }
+            other => other,
+        }
+    }
 
-        let glyph = self.leading.map(|node| alloc::vec![node]).unwrap_or_default();
-        let fill = Self::bar(
+    fn control(mut self, tokens: &dyn Tokens) -> LayoutNode {
+        let weight = self.fill_weight();
+        let fill_visual = Style::new()
+            .background(tokens.color(self.tint.unwrap_or(ColorToken::OnAccent)))
+            .rounded_token(RadiusToken::Full)
+            .shadow_token(tokens, ShadowToken::Shadow1)
+            .visual();
+        // The recessed well (`shadowInset`) as the painter's one-pixel top line in its dark
+        // colour — the painter has no blurred inset shadow.
+        let mut track_visual = Style::new()
+            .background_token(tokens, ColorToken::Fill)
+            .rounded_token(RadiusToken::Full)
+            .shadow_token(tokens, ShadowToken::Inset)
+            .visual();
+        self.dim(&mut track_visual);
+        let glyph =
+            self.leading.take().map(|n| alloc::vec![self.glyph(n, tokens)]).unwrap_or_default();
+        let fill = bar(
             weight,
             Some(MIN_FILL),
             fill_visual,
@@ -144,7 +190,7 @@ impl Slider {
         // At 100 the rest would be a zero-weight, zero-width node: omit it
         // rather than ask the engine to lay out nothing.
         if weight < 100 {
-            children.push(Self::bar(
+            children.push(bar(
                 100 - weight,
                 None,
                 VisualStyle::default(),
@@ -152,124 +198,43 @@ impl Slider {
                 alloc::vec![],
             ));
         }
-
-        LayoutNode::Stack(
-            Stack {
-                id: self.id,
-                direction: Direction::Row,
-                gap: FxPx::ZERO,
-                padding: EdgeInsets::zero(),
-                align: Align::Center,
-                justify: Justify::Start,
-                overflow: Overflow::Visible,
-                flex_wrap: false,
-                min_width: None,
-                max_width: None,
-                min_height: Some(FxPx::new(TRACK_H)),
-                max_height: Some(FxPx::new(TRACK_H)),
-                // The track takes the row's free space (design `flex: 1`).
-                item: FlexItem { flex_grow: 1, ..FlexItem::default() },
-                text_fit: None,
-            },
-            track_visual,
-            children,
-        )
+        self.track(track_visual, children)
     }
+
+    /// Build the slider node.
+    pub fn build(self, tokens: &dyn Tokens) -> LayoutNode {
+        match self.variant {
+            SliderVariant::Control => self.control(tokens),
+            SliderVariant::Thumb => self.thumb(tokens),
+        }
+    }
+}
+
+/// A flex bar: `weight` decides its share of the track, `min_w` its floor.
+fn bar(
+    weight: u32,
+    min_w: Option<i32>,
+    visual: VisualStyle,
+    padding: EdgeInsets,
+    children: alloc::vec::Vec<LayoutNode>,
+) -> LayoutNode {
+    let h = Some(FxPx::new(TRACK_H));
+    LayoutNode::Stack(
+        Stack {
+            direction: Direction::Row,
+            padding,
+            align: Align::Center,
+            justify: Justify::Start,
+            min_width: min_w.map(FxPx::new),
+            min_height: h,
+            max_height: h,
+            item: FlexItem { flex_grow: weight, ..FlexItem::default() },
+            ..Stack::default()
+        },
+        visual,
+        children,
+    )
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use nexus_theme_tokens::BaseTokens;
-
-    fn children(node: &LayoutNode) -> &[LayoutNode] {
-        match node {
-            LayoutNode::Stack(_, _, children) => children,
-            _ => panic!("the slider builds a Stack"),
-        }
-    }
-
-    fn stack(node: &LayoutNode) -> &Stack {
-        match node {
-            LayoutNode::Stack(stack, _, _) => stack,
-            _ => panic!("expected a Stack"),
-        }
-    }
-
-    #[test]
-    fn fill_weight_tracks_value() {
-        assert_eq!(Slider::new().value(0).fill_weight(), 0);
-        assert_eq!(Slider::new().value(100).fill_weight(), 100);
-        assert_eq!(Slider::new().value(200).value(50).fill_weight(), 50, "clamps");
-    }
-
-    /// The fill and the remainder always add up to the whole track, whatever
-    /// width the row hands down. That is the property a pixel-computing
-    /// builder could not have.
-    #[test]
-    fn fill_and_rest_weights_sum_to_the_whole_track() {
-        let t = BaseTokens;
-        for value in [0, 1, 37, 50, 99] {
-            let node = Slider::new().value(value).build(&t);
-            let kids = children(&node);
-            assert_eq!(kids.len(), 2, "value {value}: fill + rest");
-            let fill = stack(&kids[0]).item.flex_grow;
-            let rest = stack(&kids[1]).item.flex_grow;
-            assert_eq!(fill + rest, 100, "value {value}: weights must partition the track");
-            assert_eq!(fill, u32::from(value));
-        }
-    }
-
-    /// At zero the fill is still THERE — it is the handle. This inverts the
-    /// old builder's contract, where value 0 dropped the fill bar entirely and
-    /// left a bare thumb sitting on an empty track.
-    #[test]
-    fn the_fill_survives_value_zero_as_the_handle() {
-        let t = BaseTokens;
-        let node = Slider::new().value(0).build(&t);
-        let kids = children(&node);
-        let fill = stack(&kids[0]);
-        assert_eq!(fill.item.flex_grow, 0, "no share of the free space…");
-        assert_eq!(fill.min_width, Some(FxPx::new(MIN_FILL)), "…but never narrower than the cap");
-    }
-
-    #[test]
-    fn full_value_has_no_rest_bar() {
-        let t = BaseTokens;
-        let node = Slider::new().value(100).build(&t);
-        assert_eq!(children(&node).len(), 1, "the fill IS the track at 100");
-    }
-
-    /// The embedded glyph sits inside the FILL at a fixed inset, so the fill
-    /// sweeps over it as the value grows instead of pushing it along.
-    #[test]
-    fn the_glyph_rides_inside_the_fill_at_a_fixed_inset() {
-        let t = BaseTokens;
-        let glyph = LayoutNode::Stack(
-            Stack { id: Some("glyph"), ..Default::default() },
-            VisualStyle::default(),
-            alloc::vec![],
-        );
-        let node = Slider::new().value(70).leading(glyph).build(&t);
-        let fill = &children(&node)[0];
-        assert_eq!(stack(fill).padding.left, FxPx::new(GLYPH_INSET));
-        assert_eq!(children(fill).len(), 1, "the glyph is a child of the fill, not the track");
-        assert_eq!(stack(&children(fill)[0]).id, Some("glyph"));
-    }
-
-    /// A slider with no glyph is still a valid slider (the design's Ton panel
-    /// reuses the same control without one in the compact case).
-    #[test]
-    fn the_glyph_is_optional() {
-        let t = BaseTokens;
-        let node = Slider::new().value(40).build(&t);
-        assert!(children(&children(&node)[0]).is_empty());
-    }
-
-    #[test]
-    fn the_id_reaches_the_track() {
-        let t = BaseTokens;
-        let node = Slider::new().value(60).id("vol").build(&t);
-        assert_eq!(stack(&node).id, Some("vol"));
-    }
-}
+mod tests;

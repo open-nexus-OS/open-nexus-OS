@@ -64,7 +64,7 @@ pub(crate) fn fit_size(
 
 /// The style a text node should be measured and painted with, given whatever
 /// `.textFit` context it sits in. `None` inherited size = the node keeps its
-/// own authored `.textSize`.
+/// own text style's size.
 pub(crate) fn fitted_style(
     measure: &dyn MeasureText,
     content: &TextContent,
@@ -75,6 +75,18 @@ pub(crate) fn fitted_style(
     let mut out = style.clone();
     if let Some(ctx) = inherited {
         out.font_size = fit_size(measure, content, style, ctx.target, ctx.min, width_limit);
+        // The style's line box belongs to its own size (RFC-0116: `title2` is 20 px on a 26 px
+        // line); a fitted size keeps that ratio, or a 40 px glyph would sit in a 26 px line.
+        if let nexus_layout_types::LineHeight::Absolute(line) = style.line_height {
+            if style.font_size.0 > 0 {
+                let scaled = (i64::from(line.0) * i64::from(out.font_size.0)
+                    + i64::from(style.font_size.0) / 2)
+                    / i64::from(style.font_size.0);
+                out.line_height = nexus_layout_types::LineHeight::Absolute(FxPx::new(
+                    scaled.clamp(1, 4095) as i32,
+                ));
+            }
+        }
     }
     out
 }

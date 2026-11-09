@@ -8,15 +8,14 @@
 //! the OS uses from `userspace/ui/widgets/*` — the DSL widget IS the kit
 //! widget, so a page and a hand-written surface cannot render it differently.
 
-use super::{
-    material_token, plain_grid, plain_stack, radius, spacing, text_node, value_px, value_text, Mods,
-};
+use super::controls::{self, control_size, tint};
+use super::{plain_grid, plain_stack, spacing, text_node, value_px, value_text, Mods};
 use crate::store::Value;
 use alloc::string::String;
 use nexus_layout_types::{
-    Align, Direction, EdgeInsets, FxPx, GlassLevel, Justify, LayoutNode, Spacer,
+    Align, Direction, EdgeInsets, FxPx, Justify, LayoutNode, Material, Spacer,
 };
-use nexus_theme_tokens::{ColorToken, MaterialToken, Tokens};
+use nexus_theme_tokens::{ColorToken, RadiusToken, SpaceToken, TextStyleToken, Tokens};
 
 pub(super) fn build_widget_inner(
     kind: &str,
@@ -31,7 +30,7 @@ pub(super) fn build_widget_inner(
         "Grid" => {
             // Container primitive: the engine's REAL fixed-column grid.
             // `columns: n` = n equal 1fr tracks (row-major fill), `.gap()` =
-            // column gap, `rowGap:` = row gap (same spacing scale; defaults
+            // column gap, `rowGap:` = row gap (px on the spacing grid; defaults
             // to the column gap inside the engine).
             let columns = match prop("columns") {
                 Some(Value::Int(n)) => (*n).clamp(1, 12) as usize,
@@ -44,17 +43,18 @@ pub(super) fn build_widget_inner(
             plain_grid(columns, row_gap, mods, tokens, children)
         }
         "Panel" => {
-            // Container primitive: a Stack with the panel-glass surface
-            // pre-applied — explicit `.material/.rounded/.padding` win.
+            // Container primitive: a Stack with the panel surface pre-applied (RFC-0116: the
+            // outermost surface is `xl`, content inset `marginLayout`) — explicit
+            // `.material/.rounded/.padding` win.
             let mut m = mods.clone();
             if m.material.is_none() {
-                m.material = material_token("panel");
+                m.material = Some(Material::Panel);
             }
-            if m.rounded.is_none() {
-                m.rounded = Some(radius("lg"));
+            if m.rounded.is_none() && m.corners.is_none() {
+                m.rounded = Some(RadiusToken::Xl.px());
             }
             if m.padding == EdgeInsets::zero() {
-                m.padding = EdgeInsets::all(spacing(3));
+                m.padding = EdgeInsets::all(SpaceToken::MarginLayout.px());
             }
             plain_stack(&m, tokens, children)
         }
@@ -68,7 +68,7 @@ pub(super) fn build_widget_inner(
             let mut m = mods.clone();
             m.width = Some(size);
             m.height = Some(size);
-            m.rounded = Some(radius("full"));
+            m.rounded = Some(RadiusToken::Full.px());
             if m.align.is_none() {
                 m.align = Some(Align::Center);
             }
@@ -80,7 +80,11 @@ pub(super) fn build_widget_inner(
         "Card" => {
             // Kit promotion: GlassCard (Panel + material tokens) is the SSOT.
             let mut card = nexus_widget_card::GlassCard::new().padding(
-                if mods.padding == EdgeInsets::zero() { spacing(3) } else { mods.padding.top },
+                if mods.padding == EdgeInsets::zero() {
+                    SpaceToken::GapGroup.px()
+                } else {
+                    mods.padding.top
+                },
             );
             if mods.direction == Some(Direction::Row) {
                 card = card.row();
@@ -105,18 +109,26 @@ pub(super) fn build_widget_inner(
                 Some("warning") => BadgeVariant::Warning,
                 Some("outline") => BadgeVariant::Outline,
                 Some("active") => BadgeVariant::Active,
+                Some("filled") => BadgeVariant::Filled,
+                Some("tinted") => BadgeVariant::Tinted,
                 _ => BadgeVariant::Default,
             };
-            let badge = Badge::new().variant(variant);
+            let mut badge = Badge::new().variant(variant);
+            if let Some(tint) = tint(props) {
+                badge = badge.tint(tint);
+            }
+            if let Some(size) = control_size(props) {
+                badge = badge.size(size);
+            }
             let fg = badge.foreground(tokens);
             let label_node = {
-                let mods = Mods {
-                    text_size: Some(nexus_theme_tokens::TypographyToken::Sm),
-                    ..Default::default()
-                };
+                let mods =
+                    Mods { text_style: Some(TextStyleToken::Caption2), ..Default::default() };
                 let mut node = text_node(label, &mods, tokens);
                 if let LayoutNode::Text(text, _) = &mut node {
                     text.style.color = fg;
+                    // A badge is mostly a count: its digits are tabular (RFC-0116 M-3).
+                    text.style.tabular = true;
                 }
                 node
             };
@@ -127,6 +139,12 @@ pub(super) fn build_widget_inner(
             let label = prop("label").map(value_text).unwrap_or_default();
             let selected = matches!(prop("selected"), Some(Value::Bool(true)));
             let mut chip = Chip::new(label).selected(selected);
+            if let Some(size) = control_size(props) {
+                chip = chip.size(size);
+            }
+            if let Some(tint) = tint(props) {
+                chip = chip.tint(tint);
+            }
             if mods.disabled {
                 chip = chip.state(nexus_style::InteractionState::Disabled);
             }
@@ -148,34 +166,18 @@ pub(super) fn build_widget_inner(
             }
             // The arm used to drop `mods` on the floor: `.material(card)` on an
             // Avatar was a silent no-op and every avatar was a flat grey disc.
-            if let Some(nexus_layout_types::SurfaceMaterial::Glass(level)) = mods.material {
-                avatar = avatar.material(match level {
-                    GlassLevel::Panel => MaterialToken::Panel,
-                    GlassLevel::Card => MaterialToken::Card,
-                    GlassLevel::Subtle => MaterialToken::Subtle,
-                    GlassLevel::Window => MaterialToken::Window,
-                    GlassLevel::WindowPane => MaterialToken::WindowPane,
-                    GlassLevel::WindowBar => MaterialToken::WindowBar,
-                    GlassLevel::Overlay => MaterialToken::Overlay,
-                });
+            if let Some(material) = mods.material {
+                avatar = avatar.material(material);
             }
             if let Some(fg) = mods.fg {
                 avatar = avatar.fg(fg);
             }
-            if let Some(size) = mods.text_size {
-                avatar = avatar.type_size(size);
+            if let Some(style) = mods.text_style {
+                avatar = avatar.type_size(style);
             }
             avatar.build(tokens)
         }
-        "Checkbox" => {
-            use nexus_widget_checkbox::GlassCheckbox;
-            let checked = matches!(prop("checked"), Some(Value::Bool(true)));
-            let mut cb = GlassCheckbox::new().checked(checked);
-            if mods.disabled {
-                cb = cb.state(nexus_style::InteractionState::Disabled);
-            }
-            cb.build(tokens)
-        }
+        "Checkbox" => controls::checkbox(props, mods, tokens),
         "Slider" => {
             use nexus_widget_slider::Slider;
             let value = match prop("value") {
@@ -186,14 +188,14 @@ pub(super) fn build_widget_inner(
             // The glyph embedded in the fill (`icon: "sun.max"`). Resolved
             // HERE, not in the widget crate: symbol names are a DSL-layer
             // vocabulary, and keeping it that way spares the slider a
-            // dependency on the whole icon set. `sliderIcon` is dark in every
-            // theme because the fill it sits on is bright in every theme.
+            // dependency on the whole icon set. The glyph is `island` (black) in
+            // every theme because the fill it sits on is white in every theme.
             let icon = prop("icon").map(value_text).unwrap_or_default();
             if let Some(lucide) = nexus_widget_icon::lucide_symbol_named(&icon) {
                 slider = slider.leading(
                     nexus_widget_icon::Icon::lucide(lucide)
-                        .size(13)
-                        .color(ColorToken::SliderIcon)
+                        .size(14)
+                        .color(ColorToken::Island)
                         .build(tokens),
                 );
             }
@@ -211,8 +213,8 @@ pub(super) fn build_widget_inner(
             if let Some(Value::Int(size)) = prop("size") {
                 spinner = spinner.size(*size as i32);
             }
-            if let Some(fg) = mods.fg {
-                spinner = spinner.color(fg);
+            if let Some(color) = tint(props).or(mods.fg) {
+                spinner = spinner.color(color);
             }
             spinner.build(tokens)
         }
@@ -230,8 +232,17 @@ pub(super) fn build_widget_inner(
             // `Spinner` above. Without it a battery meter is progress-blue:
             // the widget's default is the design's `Info`, and a page had no
             // way to say "this bar means charge, not progress".
-            if let Some(fg) = mods.fg {
-                bar = bar.color(fg);
+            if let Some(color) = tint(props).or(mods.fg) {
+                bar = bar.color(color);
+            }
+            if let Some(size) = control_size(props) {
+                bar = bar.size(size);
+            }
+            if let Some(label) = prop("label").map(value_text).filter(|l| !l.is_empty()) {
+                bar = bar.label(label);
+            }
+            if matches!(prop("showValue"), Some(Value::Bool(true))) {
+                bar = bar.show_value(true);
             }
             bar.build(tokens)
         }
@@ -325,6 +336,12 @@ pub(super) fn build_widget_inner(
             if let Some(ph) = prop("placeholder").map(value_text) {
                 sb = sb.placeholder(ph);
             }
+            if let Some(size) = control_size(props) {
+                sb = sb.size(size);
+            }
+            if let Some(tint) = tint(props) {
+                sb = sb.tint(tint);
+            }
             if mods.disabled {
                 sb = sb.state(nexus_style::InteractionState::Disabled);
             }
@@ -342,6 +359,9 @@ pub(super) fn build_widget_inner(
             }
             if let Some(ph) = prop("placeholder").map(value_text) {
                 sel = sel.placeholder(ph);
+            }
+            if let Some(size) = control_size(props) {
+                sel = sel.size(size);
             }
             if mods.disabled {
                 sel = sel.state(nexus_style::InteractionState::Disabled);
@@ -366,44 +386,7 @@ pub(super) fn build_widget_inner(
             let value = prop("value").map(value_text).unwrap_or_default();
             text_node(value, mods, tokens)
         }
-        "Button" => {
-            // Kit promotion: the design-system GlassButton is the SSOT for
-            // button visuals; DSL modifiers select variant/state, the kit
-            // decides the look. Structure: root → content stack (index 0) →
-            // label text (0) + declared children (1+) — `child_path_prefix`
-            // mirrors this for handler/child paths.
-            let label = prop("label").map(value_text).unwrap_or_default();
-            let variant = if mods.bg == Some(ColorToken::Danger) {
-                nexus_widget_button::ButtonVariant::Destructive
-            } else if mods.bg == Some(ColorToken::SurfaceVariant) {
-                nexus_widget_button::ButtonVariant::Secondary
-            } else {
-                nexus_widget_button::ButtonVariant::Default
-            };
-            let state = if mods.disabled {
-                nexus_style::InteractionState::Disabled
-            } else {
-                nexus_style::InteractionState::Default
-            };
-            let label_mods = Mods {
-                fg: Some(mods.fg.unwrap_or(ColorToken::OnAccent)),
-                text_size: mods.text_size,
-                ..Mods::default()
-            };
-            let mut content = alloc::vec![text_node(label, &label_mods, tokens)];
-            content.extend(children);
-            let content_mods = Mods {
-                direction: Some(Direction::Row),
-                align: Some(Align::Center),
-                gap: mods.gap,
-                ..Mods::default()
-            };
-            nexus_widget_button::GlassButton::new()
-                .variant(variant)
-                .state(state)
-                .content(plain_stack(&content_mods, tokens, content))
-                .build(tokens)
-        }
+        "Button" => controls::button(props, mods, tokens, children),
         "TextField" => {
             // Kit promotion: GlassTextField (label + field + focus tokens).
             use nexus_widget_text_field::{FieldSize, FieldVariant, GlassTextField};
@@ -430,8 +413,10 @@ pub(super) fn build_widget_inner(
                 _ => FieldVariant::Boxed,
             });
             field = field.size(match prop("size").map(value_text).as_deref() {
+                Some("xs") => FieldSize::Xs,
                 Some("sm") => FieldSize::Sm,
                 Some("lg") => FieldSize::Lg,
+                Some("xl") => FieldSize::Xl,
                 _ => FieldSize::Md,
             });
             if mods.disabled {
@@ -439,14 +424,7 @@ pub(super) fn build_widget_inner(
             }
             field.secure(matches!(prop("secure"), Some(Value::Bool(true)))).build(tokens)
         }
-        "Toggle" => {
-            let checked = matches!(prop("checked"), Some(Value::Bool(true)));
-            let mut toggle = nexus_widget_toggle::GlassToggle::new().checked(checked);
-            if mods.disabled {
-                toggle = toggle.state(nexus_style::InteractionState::Disabled);
-            }
-            toggle.build(tokens)
-        }
+        "Toggle" => controls::toggle(props, mods, tokens),
         "Image" => {
             // Two baked artwork paths, chosen by the `source` scheme:
             //   * `"mime:<token>"` — a file-type icon from `nexus-mime-icons`.
@@ -501,7 +479,7 @@ pub(super) fn build_widget_inner(
             if let Some(lucide) = nexus_widget_icon::lucide_symbol_named(&name) {
                 return nexus_widget_icon::Icon::lucide(lucide)
                     .size(size)
-                    .color(mods.fg.unwrap_or(ColorToken::OnSurfaceVariant))
+                    .color(mods.fg.unwrap_or(ColorToken::LabelSecondary))
                     .build(tokens);
             }
             let symbol = match name.as_str() {
@@ -518,12 +496,12 @@ pub(super) fn build_widget_inner(
             match symbol {
                 Some(symbol) => nexus_widget_icon::Icon::new(symbol)
                     .size(size)
-                    .color(mods.fg.unwrap_or(ColorToken::OnSurfaceVariant))
+                    .color(mods.fg.unwrap_or(ColorToken::LabelSecondary))
                     .build(tokens),
                 None => {
                     // Unknown symbol: honest tinted placeholder box.
                     let box_mods = Mods {
-                        bg: Some(mods.fg.unwrap_or(ColorToken::OnSurfaceVariant)),
+                        bg: Some(mods.fg.unwrap_or(ColorToken::LabelSecondary)),
                         rounded: Some(FxPx::new(3)),
                         padding: EdgeInsets::all(FxPx::new(8)),
                         ..Mods::default()

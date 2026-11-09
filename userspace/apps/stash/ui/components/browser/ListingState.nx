@@ -1,0 +1,44 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// What the listing says when it has no rows to show: a centred state block —
+// icon, title, body, an optional action. `icon` and the texts come from the
+// caller; `action` draws the filled "New folder" button (an empty folder
+// offers to fill itself). Loading shows a spinner instead of an icon.
+
+Component ListingState {
+    props: {
+        icon: Str,
+        title: Str,
+        body: Str,
+        busy: Bool,
+        action: Bool,
+    }
+    Stack {
+        if $props.busy {
+            Spinner { size: 28 }
+        } else {
+            Icon { symbol: $props.icon, size: 48 }
+                .fg(labelSecondary)
+        }
+        Text($props.title).textStyle(headline).fg(label)
+        if $props.body != "" {
+            Text($props.body).textStyle(body).fg(labelSecondary).textAlign(center).maxWidth(320)
+        } else {
+            Stack { }
+        }
+        if $props.action {
+            Stack {
+                Button { label: @t("stash.newFolder"), variant: "prominent" }
+                on Tap -> dispatch(NewFolder)
+            }
+            .paddingTop(12)
+        } else {
+            Stack { }
+        }
+    }
+    .align(center)
+    .gap(8)
+    .paddingX(16)
+    .paddingY(48)
+}

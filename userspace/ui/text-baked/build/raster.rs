@@ -3,7 +3,7 @@
 
 //! Build-time glyph rasterizer for the `wght`-instanced faces (RFC-0082).
 //!
-//! `fontdue` has no variation-axis API, so Light 300 and SemiBold 600 come
+//! `fontdue` has no variation-axis API, so every weight but Regular 400 comes
 //! from `ttf-parser` outlines that still have to be filled. This is that fill:
 //! contours flattened by chord length, then scanline-filled with the NONZERO
 //! winding rule — the rule TrueType outlines are authored against. Even-odd

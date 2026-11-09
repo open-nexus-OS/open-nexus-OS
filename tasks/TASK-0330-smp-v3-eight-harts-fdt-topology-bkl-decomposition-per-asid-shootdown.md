@@ -3,10 +3,22 @@ schema: 1
 id: TASK-0330
 title: "SMP v3: n harts from the FDT (boot-sized per-hart state, 64-bit CpuSet ABI, MAX_CPUS deleted) + cluster topology, per-hart PLIC/IRQ affinity, the IPC router and the address spaces out of the BKL, per-ASID shootdown"
 status: draft
-status_note: "recut 2026-10-06 to the end state"
+status_note: "recut 2026-10-06 to the end state; P0 seeded 2026-11-09 (W46), the phases after P0 are planned in the repo"
 owner: ["@kernel-team"]
 created: 2026-09-21
+updated: 2026-11-09
 subsystem: kernel
+kind: service
+novelty: variant
+estimate: 3
+goal:
+  metric: "harts online on the board; BKL max hold and max wait on the board"
+  baseline: "4 of 8 harts (MAX_CPUS = 4, the second cluster stays HSM STOPPED); bkl budget max_hold=10 ms, max_wait=10615 us (S0, 2026-10-10, before layers 6 and 8)"
+  target: "KSELFTEST: smp online ok harts=8 clusters=2 on the board, IRQs served off hart 0, 0 lost harts in 10 QEMU -smp 8 boots"
+  instrument: "KSELFTEST: smp online line · KGATE: smp bringup line · bkl budget line (core/trap/lock_stats.rs)"
+consumer: L8.3
+depends_on: []
+follow_ups: []
 implements: [RFC-0102]
 links:
   - label: "Execution order (the lane this belongs to)"
@@ -25,6 +37,11 @@ links:
     target: tasks/TRACK-TIME-AS-RESOURCE.md
   - label: "RFC/ADR seeds (at P0)"
     target: "RFC-0102 SMP lock decomposition, the cluster-aware spreading ADR and the BKL split-order ADR (from R9) at the next free numbers when seeded — 0072 and 0073 were taken meanwhile (GPU programs 2026-10-15; object lifetime / death as an event 2026-10-20)"
+phases:
+  - id: P0
+    story: "today's SMP baseline is measured after layers 6 and 8: harts online, the BKL's holds and waits with their top holders, the lost-hart rate, and the MAX_CPUS inventory re-checked against the code TASK-0352 changed"
+    state: planned
+    gate: "board: KGATE: smp bringup and bkl budget lines logged (harts online N of 8, max_hold, max_wait, top 3 holders in ms); QEMU: 10 boots at -smp 8 with the lost-hart count; the S0 inventory table updated with the count of MAX_CPUS-sized statics and literal masks left"
 ---
 
 > Status (migrated 2026-11-02): Draft (recut 2026-10-06 to the end state — n harts from the FDT, not `MAX_CPUS` 4 → 8; no distributed kernel; seeded 2026-09-21 by the hardware fast track — `tasks/IMPLEMENTATION-ORDER.md`; starts after Block 3)

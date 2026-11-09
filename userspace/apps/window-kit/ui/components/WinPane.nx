@@ -1,0 +1,203 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The design artifacts' WindowPane — ONE zone of a window, the same anatomy for
+// the sidebar, the content and the properties pane:
+//   header  min 44, padding 4 16 (bare: 4 12): the `title` (body 14/600
+//           label) and/or a custom `header` slot (a breadcrumb), then the
+//           `actions` slot right-aligned (WinButtonFace circles, gap 2), 8 px
+//           apart, a hairline under it;
+//   body    the `body` slot, padding 4 8 (`flush`: 0), clipped — or a scroll
+//           layer of its own with `scrolls` (then nothing inside may scroll);
+//   footer  min 44, padding 4 12 (bare: 4 8), gap 8, a hairline above it.
+// The panel (default) is OPAQUE: surfacePane, a 1 px `separator` edge, the lit
+// top line and radius 16 — concentric with the window's 24 across the 8 px
+// body inset. It occludes the window's blur, so only the strips between panes
+// need it. `bare` drops the panel and sits the zone directly on the window
+// glass (the sidebar's default); `noDividers` drops the hairlines.
+//
+// The pane fills its region (`WinAppWindow` decides the width) and grows to
+// the region's height. A card inside an opaque pane re-tints to `fill` at half
+// alpha by itself (the runtime's pane rule) — nothing to special-case here.
+//
+// Pass every prop: a header or a footer is drawn only when its Bool asks for
+// it (the DSL cannot ask whether a slot was bound). `title: ""` with
+// `showHeader: true` gives the custom `header` slot the strip on its own.
+//
+// The two arms (bare, panel) repeat the zones: a slot cannot be forwarded into another
+// component, and the panel's surface sits on the root, so only the slot-free leaves
+// (`WinPaneTitle`, `WinPaneRule`) are shared.
+
+Component WinPane {
+    props: {
+        title: Str,
+        showHeader: Bool,
+        showFooter: Bool,
+        bare: Bool,
+        flush: Bool,
+        scrolls: Bool,
+        noDividers: Bool,
+    }
+    slot header
+    slot actions
+    slot body
+    slot footer
+    if $props.bare {
+        Stack {
+            if $props.showHeader {
+                Stack {
+                    WinPaneTitle { title: $props.title }
+                    Slot header
+                    Stack { }
+                        .grow(1)
+                        .shrink(0)
+                    Stack {
+                        Slot actions
+                    }
+                    .direction(row)
+                    .align(center)
+                    .gap(2)
+                    .paddingLeading(8)
+                    .shrink(0)
+                }
+                .direction(row)
+                .align(center)
+                .minHeight(44)
+                .paddingY(4)
+                .paddingX(12)
+                WinPaneRule { hidden: $props.noDividers }
+            } else {
+                Stack { }
+            }
+            if $props.scrolls {
+                if $props.flush {
+                    Stack {
+                        Slot body
+                    }
+                    .grow(1)
+                    .scroll(vertical)
+                } else {
+                    Stack {
+                        Slot body
+                    }
+                    .grow(1)
+                    .paddingY(4)
+                    .paddingX(8)
+                    .scroll(vertical)
+                }
+            } else {
+                if $props.flush {
+                    Stack {
+                        Slot body
+                    }
+                    .grow(1)
+                    .overflow(hidden)
+                } else {
+                    Stack {
+                        Slot body
+                    }
+                    .grow(1)
+                    .paddingY(4)
+                    .paddingX(8)
+                    .overflow(hidden)
+                }
+            }
+            if $props.showFooter {
+                WinPaneRule { hidden: $props.noDividers }
+                Stack {
+                    Slot footer
+                }
+                .direction(row)
+                .align(center)
+                .gap(8)
+                .minHeight(44)
+                .paddingY(4)
+                .paddingX(8)
+            } else {
+                Stack { }
+            }
+        }
+        .grow(1)
+    } else {
+        Stack {
+            if $props.showHeader {
+                Stack {
+                    WinPaneTitle { title: $props.title }
+                    Slot header
+                    Stack { }
+                        .grow(1)
+                        .shrink(0)
+                    Stack {
+                        Slot actions
+                    }
+                    .direction(row)
+                    .align(center)
+                    .gap(2)
+                    .paddingLeading(8)
+                    .shrink(0)
+                }
+                .direction(row)
+                .align(center)
+                .minHeight(44)
+                .paddingY(4)
+                .paddingX(16)
+                WinPaneRule { hidden: $props.noDividers }
+            } else {
+                Stack { }
+            }
+            if $props.scrolls {
+                if $props.flush {
+                    Stack {
+                        Slot body
+                    }
+                    .grow(1)
+                    .scroll(vertical)
+                } else {
+                    Stack {
+                        Slot body
+                    }
+                    .grow(1)
+                    .paddingY(4)
+                    .paddingX(8)
+                    .scroll(vertical)
+                }
+            } else {
+                if $props.flush {
+                    Stack {
+                        Slot body
+                    }
+                    .grow(1)
+                    .overflow(hidden)
+                } else {
+                    Stack {
+                        Slot body
+                    }
+                    .grow(1)
+                    .paddingY(4)
+                    .paddingX(8)
+                    .overflow(hidden)
+                }
+            }
+            if $props.showFooter {
+                WinPaneRule { hidden: $props.noDividers }
+                Stack {
+                    Slot footer
+                }
+                .direction(row)
+                .align(center)
+                .gap(8)
+                .minHeight(44)
+                .paddingY(4)
+                .paddingX(12)
+            } else {
+                Stack { }
+            }
+        }
+        .material(pane)
+        .rounded(lg)
+        .border(hairline)
+        .borderColor(separator)
+        .shadow(edgeHighlight)
+        .grow(1)
+    }
+}

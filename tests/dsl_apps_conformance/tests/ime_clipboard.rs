@@ -1,11 +1,13 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! TASK-0067B: the keyboard's clipboard against the REAL compiled `ime-ui` — while nothing
-//! composes the line above the keys is the toolbar (only the clipboard is live; emoji, voice,
-//! settings and more take no press); the clipboard swaps the keys for CARDS of the history
-//! (`svc.clipboard.list`), a card's press reads the item's full text (`svc.clipboard.read`)
-//! and inserts it through imed (`svc.ime.insert`); while the IME composes the strip returns.
+//! TASK-0067B / TASK-0353: the keyboard's clipboard against the REAL compiled `ime-ui` — the
+//! toolbar is one row, composing or not (only the clipboard and close are live; emoji, voice,
+//! settings and more take no press, nor do Shift and "123" in the keys); the clipboard swaps
+//! the keys for CARDS of the history (`svc.clipboard.list`), a card's press reads the item's
+//! full text (`svc.clipboard.read`) and inserts it through imed (`svc.ime.insert`); while the
+//! IME composes, opening the clipboard, closing the keyboard and switching the layout commit
+//! the composition first (`svc.ime.action("enter")`, design artifacts: OnScreenKeyboard).
 
 // reason: test harness — a failed compile/mount step must panic loudly.
 #![allow(clippy::expect_used, clippy::unwrap_used)]
@@ -121,13 +123,14 @@ fn the_toolbar_opens_the_cards_and_a_card_is_inserted() {
     let sym = |n: &str| symbols.iter().position(|s| s == n).expect(n) as u32;
     let mut host = OskHost { seq_sym: sym("seq"), text_sym: sym("text"), calls: Vec::new() };
 
-    // Idle: the toolbar's ONE live entry is the clipboard; the bottom bar has its four.
+    // Idle: the toolbar's live entries are the clipboard and close; the bottom row has its
+    // globe, space, "." and return (the host serves no rows here).
     let toggle =
         find(&view, &symbols, "OskClipEvent", "ClipToggle", None).expect("clipboard entry");
     assert_eq!(
         taps(&view, &symbols).len(),
-        5,
-        "toolbar: clipboard only; bottom bar: 4 — the dimmed entries take no press"
+        6,
+        "toolbar: clipboard + close; bottom row: 4 — the disabled entries take no press"
     );
 
     press(&mut view, &device, &symbols, &mut host, toggle);
@@ -159,29 +162,134 @@ fn the_toolbar_opens_the_cards_and_a_card_is_inserted() {
     );
 }
 
-#[test]
-fn test_reject_toolbar_while_composing() {
-    let nxir = common::compile("ime-ui");
-    let device = FixtureEnv::tablet("landscape");
-    let symbols = common::program_symbols(&nxir);
-    let mut view = {
-        let keys: Vec<u32> = Vec::new();
-        let locale = IdentityLocale { symbols: &symbols, keys: &keys };
-        View::mount(&nxir, &BaseTokens, &device, &locale).expect("mounts")
-    };
+fn mount<'a>(nxir: &'a [u8], device: &FixtureEnv, symbols: &[String]) -> View<'a> {
+    let keys: Vec<u32> = Vec::new();
+    let locale = IdentityLocale { symbols, keys: &keys };
+    View::mount(nxir, &BaseTokens, device, &locale).expect("mounts")
+}
+
+fn osk_host(symbols: &[String]) -> OskHost {
     let sym = |n: &str| symbols.iter().position(|s| s == n).expect(n) as u32;
-    let mut host = OskHost { seq_sym: sym("seq"), text_sym: sym("text"), calls: Vec::new() };
+    OskHost { seq_sym: sym("seq"), text_sym: sym("text"), calls: Vec::new() }
+}
+
+/// Puts the keyboard into a running composition: a preedit and two candidates.
+fn compose(view: &mut View, device: &FixtureEnv, host: &mut OskHost, symbols: &[String]) {
     common::dispatch(
-        &mut view,
-        &device,
-        &mut host,
-        &symbols,
+        view,
+        device,
+        host,
+        symbols,
         "ImeStripEvent",
         "Preedit",
         vec![Value::Str("ka".to_string())],
     );
+    let mut cands = vec![Value::Str("か".to_string()), Value::Str("カ".to_string())];
+    cands.resize(8, Value::Str(String::new()));
+    common::dispatch(view, device, host, symbols, "ImeStripEvent", "Cands", cands);
+}
+
+fn last_calls(host: &OskHost, n: usize) -> Vec<String> {
+    host.calls.iter().rev().take(n).rev().cloned().collect()
+}
+
+#[test]
+fn the_clipboard_commits_a_running_composition_first() {
+    let nxir = common::compile("ime-ui");
+    let device = FixtureEnv::tablet("landscape");
+    let symbols = common::program_symbols(&nxir);
+    let mut view = mount(&nxir, &device, &symbols);
+    let mut host = osk_host(&symbols);
+    compose(&mut view, &device, &mut host, &symbols);
+
+    // The toolbar stays while the IME composes; its clipboard entry commits first.
     assert!(
         find(&view, &symbols, "OskClipEvent", "ClipToggle", None).is_none(),
-        "the strip owns the line while the IME composes"
+        "while composing the clipboard opens through the committing event"
     );
+    let open = find(&view, &symbols, "OskClipEvent", "ClipCommitOpen", None)
+        .expect("the clipboard entry stays while composing");
+    press(&mut view, &device, &symbols, &mut host, open);
+    assert_eq!(
+        last_calls(&host, 2),
+        ["ime.action(\"enter\")".to_string(), "clipboard.list(\"\")".to_string()],
+        "the composition is committed, then the history is listed"
+    );
+    assert_eq!(
+        view.runtime.field("OskClipStore", "oskPanel").cloned(),
+        Some(Value::Str("clipboard".into()))
+    );
+}
+
+#[test]
+fn closing_and_switching_commit_a_running_composition_first() {
+    let nxir = common::compile("ime-ui");
+    let device = FixtureEnv::tablet("landscape");
+    let symbols = common::program_symbols(&nxir);
+    let mut view = mount(&nxir, &device, &symbols);
+    let mut host = osk_host(&symbols);
+    compose(&mut view, &device, &mut host, &symbols);
+
+    let cycle = find(&view, &symbols, "OskEvent", "CommitCycle", None).expect("globe key");
+    press(&mut view, &device, &symbols, &mut host, cycle);
+    assert_eq!(
+        last_calls(&host, 2),
+        ["ime.action(\"enter\")".to_string(), "ime.cycle(\"\")".to_string()],
+        "imed resets the engine on a switch — the composition is committed before it"
+    );
+
+    let close = find(&view, &symbols, "OskEvent", "CommitDismiss", None).expect("close key");
+    press(&mut view, &device, &symbols, &mut host, close);
+    assert_eq!(
+        last_calls(&host, 2),
+        ["ime.action(\"enter\")".to_string(), "settings.set(\"window.control\")".to_string()],
+        "the composition is committed, then the keyboard hides"
+    );
+}
+
+#[test]
+fn test_reject_unbacked_controls_take_no_press() {
+    let nxir = common::compile("ime-ui");
+    let device = FixtureEnv::tablet("landscape");
+    let symbols = common::program_symbols(&nxir);
+    let mut view = mount(&nxir, &device, &symbols);
+    let mut host = osk_host(&symbols);
+    let s = |t: &str| Value::Str(t.to_string());
+
+    // Idle: exactly the six live controls take a press — emoji, voice, settings, more, Shift
+    // and "123" are drawn disabled and have no handler at all.
+    let idle: [(&str, &str, Option<Value>); 6] = [
+        ("OskClipEvent", "ClipToggle", None),
+        ("OskEvent", "Dismiss", None),
+        ("OskEvent", "CycleLayout", None),
+        ("OskEvent", "Key", Some(s(" "))),
+        ("OskEvent", "Key", Some(s("."))),
+        ("OskEvent", "Action", Some(s("enter"))),
+    ];
+    for (event, case, arg) in &idle {
+        assert!(find(&view, &symbols, event, case, arg.as_ref()).is_some(), "{event}::{case}");
+    }
+    assert_eq!(taps(&view, &symbols).len(), idle.len(), "no press beyond the live controls");
+
+    // Composing: the same controls through their committing events, plus one per candidate.
+    compose(&mut view, &device, &mut host, &symbols);
+    let composing: [(&str, &str, Option<Value>); 8] = [
+        ("OskClipEvent", "ClipCommitOpen", None),
+        ("OskEvent", "CommitDismiss", None),
+        ("OskEvent", "CommitCycle", None),
+        ("OskEvent", "Key", Some(s(" "))),
+        ("OskEvent", "Key", Some(s("."))),
+        ("OskEvent", "Action", Some(s("enter"))),
+        ("OskEvent", "Select", Some(Value::Int(0))),
+        ("OskEvent", "Select", Some(Value::Int(1))),
+    ];
+    for (event, case, arg) in &composing {
+        assert!(find(&view, &symbols, event, case, arg.as_ref()).is_some(), "{event}::{case}");
+    }
+    assert_eq!(
+        taps(&view, &symbols).len(),
+        composing.len(),
+        "an empty candidate slot takes no press either"
+    );
+    assert!(host.calls.is_empty(), "nothing was pressed: {:?}", host.calls);
 }

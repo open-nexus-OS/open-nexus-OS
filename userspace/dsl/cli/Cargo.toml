@@ -17,3 +17,7 @@ nexus-dsl-ir = { path = "../ir", features = ["write"] }
 nexus-dsl-runtime = { path = "../runtime" }
 nexus-theme-tokens = { path = "../../ui/theme-tokens" }
 nexus-layout-types = { path = "../../ui/layout-types" }
+# `render`: the host preview paints with the shared painter and the baked text.
+nexus-layout = { path = "../../ui/layout" }
+nexus-scene-raster = { path = "../../ui/scene_raster" }
+nexus-text-baked = { path = "../../ui/text-baked", features = ["layout"] }

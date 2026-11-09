@@ -53,6 +53,12 @@ pub struct WindowDecl {
     pub mode: WindowMode,
     pub level: WindowLevel,
     pub resizable: bool,
+    /// RFC-0117: the default content size of a freeform window (px; `None` = the WM decides).
+    pub width: Option<u16>,
+    pub height: Option<u16>,
+    /// RFC-0117: the smallest content size the app tolerates (px; `None` = the WM's own).
+    pub min_width: Option<u16>,
+    pub min_height: Option<u16>,
     pub span: Span,
 }
 

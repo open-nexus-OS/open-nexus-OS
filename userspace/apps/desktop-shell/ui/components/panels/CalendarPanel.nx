@@ -1,34 +1,18 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Kalender (design artifacts: panels §5): 288 wide, radius 24, anchored top left.
-// Month header with navigation, a Monday-first week grid, and up to three
-// coming appointments.
-//
-// DEMO DATA — the shell has no calendar service and the DSL has no clock
-// arithmetic, so the three months are authored (see `CalMonthNow`) and
-// `CalStore` pages between them. Everything the user can do here works; what
-// it shows is fixed.
+// Kalender (design artifacts: panels §5): 288 wide, radius xl 24, anchored top
+// left, padding 12. The panel STAYS GLASS (`panel` material); its content is
+// `calendar/CalendarBody` — month header with navigation, a Monday-first week
+// grid, and up to three coming appointments.
 
 Component CalendarPanel {
     Stack {
-        CalHeader { }
-        CalWeekHeader { }
-        if $state.calMonth == 0 {
-            CalMonthPrev { }
-        } else if $state.calMonth == 2 {
-            CalMonthNext { }
-        } else {
-            CalMonthNow { }
-        }
-        GroupLabel { label: @t("cal.upcoming") }
-        CalUpcoming { }
+        CalendarBody { }
     }
     .width(288)
-    .gap(2)
-    .padding(3)
-    .rounded(24)
+    .padding(12)
+    .rounded(xl)
     .material(panel)
-    .shadow(xxl)
     .transition(slideDown)
 }

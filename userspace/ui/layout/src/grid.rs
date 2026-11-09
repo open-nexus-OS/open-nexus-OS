@@ -72,15 +72,12 @@ impl LayoutEngine {
             scroll_offset: container_scroll,
             overflow: grid.overflow,
             glass_nested: ctx.in_glass,
+            opacity: ctx.opacity_of(style),
             scroll_root: ctx.scroll_root,
             text_px: None,
         });
-        // Descendants nest under this container's glass, if any.
-        let ctx = PlaceCtx {
-            in_glass: ctx.in_glass
-                || matches!(style.material, nexus_layout_types::SurfaceMaterial::Glass(_)),
-            ..ctx
-        };
+        // Descendants nest under this container's glass, if any, faded by its opacity.
+        let ctx = ctx.under(style);
         // RFC-0109: a top-level scrolling grid is the scroll root of its cells (see `place_stack`).
         let (ctx, container_clip) = scroll_root(grid.overflow, node_id, ctx, container_clip);
         let padding = grid.padding;

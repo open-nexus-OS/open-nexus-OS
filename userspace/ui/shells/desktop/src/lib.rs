@@ -25,10 +25,10 @@ pub mod desktop_scene;
 
 use alloc::vec;
 use nexus_layout_types::{
-    FlexItem, LayoutNode, Rgba8, TextContent, TextNode, TextStyle, VisualStyle,
+    FlexItem, LayoutNode, Material, Rgba8, TextContent, TextNode, VisualStyle,
 };
 use nexus_style::Style;
-use nexus_theme_tokens::{ColorToken, LengthToken, Tokens};
+use nexus_theme_tokens::{ColorToken, RadiusToken, SpaceToken, TextStyleToken, Tokens};
 use nexus_widget_button::Button;
 use nexus_widget_panel::Panel;
 use nexus_widget_text_field::TextField;
@@ -40,7 +40,7 @@ fn label(content: &'static str, color: Rgba8) -> LayoutNode {
         TextNode {
             id: None,
             content: TextContent::new(content),
-            style: TextStyle { color, ..TextStyle::default() },
+            style: TextStyleToken::Body.text_style(color, None),
             item: FlexItem::default(),
             max_lines: Some(1),
             min_width: None,
@@ -54,13 +54,13 @@ fn label(content: &'static str, color: Rgba8) -> LayoutNode {
 /// a chat window (title bar + close + a list viewport). Every color/radius/space
 /// comes from `tokens` — rebrand by swapping the theme, switch shells by manifest.
 pub fn build_desktop_scene(tokens: &dyn Tokens) -> LayoutNode {
-    let on_surface = tokens.color(ColorToken::OnSurface);
-    let sp_sm = tokens.length(LengthToken::SpacingSmall);
-    let sp_md = tokens.length(LengthToken::SpacingMedium);
+    let on_surface = tokens.color(ColorToken::Label);
+    let sp_sm = SpaceToken::GapInline.px();
+    let sp_md = SpaceToken::MarginLayout.px();
 
     let topbar = Panel::row()
         .id("topbar")
-        .style(Style::new().background_token(tokens, ColorToken::SurfaceVariant))
+        .style(Style::new().background_token(tokens, ColorToken::Fill))
         .padding(sp_sm)
         .gap(sp_sm)
         .child(
@@ -68,8 +68,8 @@ pub fn build_desktop_scene(tokens: &dyn Tokens) -> LayoutNode {
                 .id("menu_btn")
                 .style(
                     Style::new()
-                        .background_token(tokens, ColorToken::Surface)
-                        .rounded_token(tokens, LengthToken::RadiusSmall),
+                        .background_token(tokens, ColorToken::Fill)
+                        .rounded_token(RadiusToken::Full),
                 )
                 .padding(sp_sm)
                 .content(label("menu", on_surface))
@@ -81,8 +81,8 @@ pub fn build_desktop_scene(tokens: &dyn Tokens) -> LayoutNode {
                 .placeholder("Search…")
                 .style(
                     Style::new()
-                        .background_token(tokens, ColorToken::Surface)
-                        .rounded_token(tokens, LengthToken::RadiusSmall),
+                        .background_token(tokens, ColorToken::Fill)
+                        .rounded_token(RadiusToken::Md),
                 )
                 .build(),
         )
@@ -92,7 +92,7 @@ pub fn build_desktop_scene(tokens: &dyn Tokens) -> LayoutNode {
                 .style(
                     Style::new()
                         .background_token(tokens, ColorToken::Accent)
-                        .rounded_token(tokens, LengthToken::RadiusSmall),
+                        .rounded_token(RadiusToken::Full),
                 )
                 .padding(sp_sm)
                 .content(label("chat", tokens.color(ColorToken::OnAccent)))
@@ -107,16 +107,11 @@ pub fn build_desktop_scene(tokens: &dyn Tokens) -> LayoutNode {
     let chat_window = Window::new()
         .id("chat_window")
         .titlebar_id("chat_titlebar")
-        .style(
-            Style::new()
-                .background_token(tokens, ColorToken::Surface)
-                .rounded_token(tokens, LengthToken::RadiusLarge)
-                .blur(20, 140),
-        )
+        .style(Style::new().material(Material::Window, tokens).rounded_token(RadiusToken::Lg))
         .title(label("Chat", on_surface))
         .close_button(
             "chat_close",
-            Style::new().rounded_token(tokens, LengthToken::RadiusSmall),
+            Style::new().rounded_token(RadiusToken::Full),
             label("x", on_surface),
         )
         .body(vec![viewport])
@@ -141,13 +136,9 @@ fn target_card(
 ) -> LayoutNode {
     Panel::column()
         .id(id)
-        .style(
-            Style::new()
-                .background_token(tokens, bg)
-                .rounded_token(tokens, LengthToken::RadiusMedium),
-        )
-        .padding(tokens.length(LengthToken::SpacingMedium))
-        .child(label(text, tokens.color(ColorToken::OnSurface)))
+        .style(Style::new().background_token(tokens, bg).rounded_token(RadiusToken::Md))
+        .padding(SpaceToken::MarginLayout.px())
+        .child(label(text, tokens.color(ColorToken::Label)))
         .build()
 }
 
@@ -158,30 +149,25 @@ fn target_card(
 /// windowd lays this out (`nexus_layout`) and rasterizes it into an atlas layer;
 /// gpud composites it over the wallpaper.
 pub fn build_target_panel(tokens: &dyn Tokens) -> LayoutNode {
-    let on_surface = tokens.color(ColorToken::OnSurface);
-    let muted = tokens.color(ColorToken::OnSurfaceVariant);
-    let sp_sm = tokens.length(LengthToken::SpacingSmall);
-    let sp_md = tokens.length(LengthToken::SpacingMedium);
+    let on_surface = tokens.color(ColorToken::Label);
+    let muted = tokens.color(ColorToken::LabelSecondary);
+    let sp_sm = SpaceToken::GapInline.px();
+    let sp_md = SpaceToken::MarginLayout.px();
 
     let cards = Panel::row()
         .id("target_cards")
         .gap(sp_sm)
         .children(vec![
-            target_card(tokens, "card_hover", "hover", ColorToken::SurfaceVariant),
+            target_card(tokens, "card_hover", "hover", ColorToken::Fill),
             target_card(tokens, "card_click", "click", ColorToken::Accent),
-            target_card(tokens, "card_scroll", "scroll", ColorToken::SurfaceVariant),
-            target_card(tokens, "card_keyboard", "keyboard", ColorToken::SurfaceVariant),
+            target_card(tokens, "card_scroll", "scroll", ColorToken::Fill),
+            target_card(tokens, "card_keyboard", "keyboard", ColorToken::Fill),
         ])
         .build();
 
     Panel::column()
         .id("target_panel")
-        .style(
-            Style::new()
-                .background_token(tokens, ColorToken::Surface)
-                .rounded_token(tokens, LengthToken::RadiusLarge)
-                .border_token(tokens, LengthToken::BorderThin, ColorToken::Border),
-        )
+        .style(Style::new().material(Material::Overlay, tokens).rounded_token(RadiusToken::Lg))
         .padding(sp_md)
         .gap(sp_sm)
         .children(vec![
@@ -231,7 +217,11 @@ mod tests {
         let scene = build_target_panel(&t);
         let LayoutNode::Stack(root, visual, children) = scene else { panic!("root is a Stack") };
         assert_eq!(root.id, Some("target_panel"));
-        assert_eq!(visual.background, Some(t.color(ColorToken::Surface)), "themed surface bg");
+        assert_eq!(
+            visual.background,
+            Some(t.color(ColorToken::SurfaceOverlay)),
+            "themed surface bg"
+        );
         assert!(visual.border.top.is_some(), "themed border");
         assert_ne!(visual.corner_radius, Default::default(), "rounded corners");
         // title + subtitle + the card row.
@@ -242,6 +232,6 @@ mod tests {
         assert_eq!(card_kids.len(), 4, "hover/click/scroll/keyboard cards");
         // The click card is themed differently (Accent) from the others.
         assert_eq!(stack_bg(&card_kids[1]), Some(t.color(ColorToken::Accent)));
-        assert_eq!(stack_bg(&card_kids[0]), Some(t.color(ColorToken::SurfaceVariant)));
+        assert_eq!(stack_bg(&card_kids[0]), Some(t.color(ColorToken::Fill)));
     }
 }

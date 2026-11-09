@@ -6,15 +6,17 @@ use std::path::Path;
 
 use crate::error::ThemeError;
 
-/// Known top-level sections in `.nxtheme.toml`.
+/// Known top-level sections in `.nxtheme.toml` (RFC-0116). A section outside this list — the
+/// retired `[typography]` and `[leading]` among them — fails the load.
 const KNOWN_SECTIONS: &[&str] = &[
     "theme",
     "tokens",
     "material",
     "spacing",
     "radius",
-    "typography",
-    "leading",
+    "control",
+    "textStyle",
+    "shadow",
     "zindex",
     "motion",
     "icons",
@@ -23,13 +25,19 @@ const KNOWN_SECTIONS: &[&str] = &[
 /// Known keys in the `[theme]` section.
 const KNOWN_THEME_KEYS: &[&str] = &["name", "version"];
 
-/// Valid material type values.
-const KNOWN_MATERIAL_TYPES: &[&str] = &["opaque", "glass"];
+/// The keys of a `[material.<name>]` backdrop, all required.
+const BACKDROP_KEYS: &[&str] = &["type", "blurRadiusDp", "saturationPct", "downsampleFactor"];
+
+/// The keys of a `[textStyle.<name>]`, all required.
+const TEXT_STYLE_KEYS: &[&str] = &["size", "line", "weight", "trackingMilliEm", "case", "figures"];
+
+/// The keys of a `[shadow.<name>]`, all required.
+const SHADOW_KEYS: &[&str] = &["x", "y", "blur", "spread", "color", "inset"];
 
 /// Validate that all top-level sections in the TOML are known.
 pub fn validate_sections(sections: &HashSet<String>, path: &Path) -> Result<(), ThemeError> {
     for section in sections {
-        // Material subsections like `material.surface` or `material.glassLow`
+        // Sub-tables like `material.regular` or `textStyle.body`
         // are checked separately; here we only validate the top-level prefix.
         let top = section.split('.').next().unwrap_or(&section);
         if !KNOWN_SECTIONS.contains(&top) {
@@ -146,43 +154,137 @@ pub fn validate_scale_section(
     Ok(())
 }
 
-/// Validate a `[material.*]` subsection.
-pub fn validate_material_section(table: &toml::Table, path: &Path) -> Result<(), ThemeError> {
-    // Must have a "type" key
-    let material_type =
-        table.get("type").and_then(|v| v.as_str()).ok_or_else(|| ThemeError::SchemaValidation {
-            path: path.to_path_buf(),
-            message: "material section requires a 'type' key".to_string(),
-        })?;
-
-    if !KNOWN_MATERIAL_TYPES.contains(&material_type) {
-        return Err(ThemeError::SchemaValidation {
-            path: path.to_path_buf(),
-            message: format!(
-                "unknown material type '{material_type}'; expected one of: {}",
-                KNOWN_MATERIAL_TYPES.join(", ")
-            ),
-        });
-    }
-
-    if material_type == "glass" {
-        let required = &[
-            "blurRadiusDp",
-            "downsampleFactor",
-            "tintColor",
-            "tintAlpha",
-            "edgeHighlightColor",
-            "edgeHighlightAlpha",
-        ];
-        for key in required {
-            if !table.contains_key(*key) {
-                return Err(ThemeError::SchemaValidation {
-                    path: path.to_path_buf(),
-                    message: format!("glass material requires key '{key}'"),
-                });
-            }
+/// Exactly `keys`, each present: a table with a missing or an unknown key is refused.
+fn exact_keys(
+    table: &toml::Table,
+    keys: &[&str],
+    what: &str,
+    path: &Path,
+) -> Result<(), ThemeError> {
+    for key in keys {
+        if !table.contains_key(*key) {
+            return Err(ThemeError::SchemaValidation {
+                path: path.to_path_buf(),
+                message: format!("{what} requires key '{key}'"),
+            });
         }
     }
+    for key in table.keys() {
+        if !keys.contains(&key.as_str()) {
+            return Err(ThemeError::UnknownKey {
+                key: format!("{what}.{key}"),
+                path: path.to_path_buf(),
+            });
+        }
+    }
+    Ok(())
+}
 
+/// An integer in `range`, or a schema error naming `what`.
+fn int_in(
+    table: &toml::Table,
+    key: &str,
+    range: core::ops::RangeInclusive<i64>,
+    what: &str,
+    path: &Path,
+) -> Result<i64, ThemeError> {
+    match table.get(key).and_then(|v| v.as_integer()) {
+        Some(v) if range.contains(&v) => Ok(v),
+        other => Err(ThemeError::SchemaValidation {
+            path: path.to_path_buf(),
+            message: format!("{what}.{key} must be an integer in {range:?}, got {other:?}"),
+        }),
+    }
+}
+
+/// Validate a `[material.<name>]` backdrop: `type = "backdrop"`, blur, saturation, downsample.
+pub fn validate_material_section(
+    name: &str,
+    table: &toml::Table,
+    path: &Path,
+) -> Result<(), ThemeError> {
+    let what = format!("[material.{name}]");
+    exact_keys(table, BACKDROP_KEYS, &what, path)?;
+    if table.get("type").and_then(|v| v.as_str()) != Some("backdrop") {
+        return Err(ThemeError::SchemaValidation {
+            path: path.to_path_buf(),
+            message: format!("{what}: type must be \"backdrop\" (colours are roles)"),
+        });
+    }
+    int_in(table, "blurRadiusDp", 0..=128, &what, path)?;
+    int_in(table, "saturationPct", 0..=400, &what, path)?;
+    int_in(table, "downsampleFactor", 1..=16, &what, path)?;
+    Ok(())
+}
+
+/// Validate a `[textStyle.<name>]`: size and line in px, weight a multiple of 100 in 300–700,
+/// signed tracking in milli-em, case `none` or `upper`, figures `proportional` or `tabular`.
+pub fn validate_text_style_section(
+    name: &str,
+    table: &toml::Table,
+    path: &Path,
+) -> Result<(), ThemeError> {
+    let what = format!("[textStyle.{name}]");
+    exact_keys(table, TEXT_STYLE_KEYS, &what, path)?;
+    let size = int_in(table, "size", 6..=128, &what, path)?;
+    let line = int_in(table, "line", 6..=160, &what, path)?;
+    if line < size {
+        return Err(ThemeError::SchemaValidation {
+            path: path.to_path_buf(),
+            message: format!("{what}: line {line} is shorter than size {size}"),
+        });
+    }
+    let weight = int_in(table, "weight", 300..=700, &what, path)?;
+    if weight % 100 != 0 {
+        return Err(ThemeError::SchemaValidation {
+            path: path.to_path_buf(),
+            message: format!("{what}.weight must be a multiple of 100, got {weight}"),
+        });
+    }
+    int_in(table, "trackingMilliEm", -200..=200, &what, path)?;
+    match table.get("case").and_then(|v| v.as_str()) {
+        Some("none" | "upper") => {}
+        other => {
+            return Err(ThemeError::SchemaValidation {
+                path: path.to_path_buf(),
+                message: format!("{what}.case must be \"none\" or \"upper\", got {other:?}"),
+            })
+        }
+    }
+    match table.get("figures").and_then(|v| v.as_str()) {
+        Some("proportional" | "tabular") => Ok(()),
+        other => Err(ThemeError::SchemaValidation {
+            path: path.to_path_buf(),
+            message: format!(
+                "{what}.figures must be \"proportional\" or \"tabular\", got {other:?}"
+            ),
+        }),
+    }
+}
+
+/// Validate a `[shadow.<name>]`: signed offsets and spread, a blur, a hex colour, `inset`.
+pub fn validate_shadow_section(
+    name: &str,
+    table: &toml::Table,
+    path: &Path,
+) -> Result<(), ThemeError> {
+    let what = format!("[shadow.{name}]");
+    exact_keys(table, SHADOW_KEYS, &what, path)?;
+    int_in(table, "x", -64..=64, &what, path)?;
+    int_in(table, "y", -64..=64, &what, path)?;
+    int_in(table, "blur", 0..=128, &what, path)?;
+    int_in(table, "spread", -64..=64, &what, path)?;
+    if !table.get("color").and_then(|v| v.as_str()).is_some_and(|c| c.starts_with('#')) {
+        return Err(ThemeError::SchemaValidation {
+            path: path.to_path_buf(),
+            message: format!("{what}.color must be a hex colour string"),
+        });
+    }
+    if table.get("inset").and_then(|v| v.as_bool()).is_none() {
+        return Err(ThemeError::SchemaValidation {
+            path: path.to_path_buf(),
+            message: format!("{what}.inset must be a boolean"),
+        });
+    }
     Ok(())
 }

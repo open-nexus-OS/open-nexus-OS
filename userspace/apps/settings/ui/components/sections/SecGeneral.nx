@@ -146,10 +146,10 @@ Component SecGeneral {
             }
         }
         if $state.regionError != 0 {
-            Text(@t("set.applyFailed")).textSize(xs).fg(danger)
+            Text(@t("set.applyFailed")).textStyle(caption).fg(danger)
         } else {
             Stack { }
         }
     }
-    .gap(3)
+    .gap(24)
 }

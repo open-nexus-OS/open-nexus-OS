@@ -1,0 +1,32 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One row of character keys (design artifacts: KeyboardKey): every cell is DATA from the
+// keymaps SSOT (`svc.ime.rows`) and an exact share of the row (`.basis(0).grow(1)`), gap 8. A
+// key is `glassCard` with `label` text in title2 medium, radius md, `shadow1`; its tap sends
+// the cell's key. The number row and the first two letter rows are this component.
+
+Component KeyRow {
+    props: {
+        cells: List<OskKey>,
+    }
+    List($props.cells) { cell in
+        Stack {
+            Text(cell.label).textStyle(title2).fontWeight(medium).fg(label)
+        }
+        .align(center)
+        .justify(center)
+        .basis(0)
+        .grow(1)
+        .bg(glassCard)
+        .rounded(md)
+        .shadow(shadow1)
+        .key(cell.label)
+        .label(cell.label)
+        on Tap -> dispatch(Key(cell.key))
+    }
+    .direction(row)
+    .gap(8)
+    .basis(0)
+    .grow(1)
+}

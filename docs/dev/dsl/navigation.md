@@ -9,16 +9,29 @@ Navigation is designed to be deterministic:
 - bounded history,
 - stable param parsing and errors.
 
-## Example (illustrative)
+## Example
+
+A route table plus the `navigate` handler action:
 
 ```nx
 Routes {
-  "/" -> Home
-  "/detail/:id" -> Detail(id: Int)
+    "/" -> Home;
+    "/detail/:id" -> Detail(id: Int);
 }
 
-// in an effect or event handler:
-navigate("/detail/7")
+Page Home {
+    Stack {
+        Button { label: @t("home.open") }
+        on Tap -> navigate("/detail/7")
+    }
+}
+
+Page Detail {
+    Stack {
+        Button { label: @t("common.back") }
+        on Tap -> navigate("/")
+    }
+}
 ```
 
 Notes:

@@ -1,0 +1,134 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The keyboard's clipboard (TASK-0067B; design artifacts: OnScreenKeyboard clipboard panel)
+// in place of the keys, at their height: a header (the overline title and "Alle löschen" while
+// items exist), the history's CARDS in a scrolling grid (4 columns wide, 3 regular, 2
+// compact; rows 104), and the panel bar [ABC] · [⌫]. A card's tap inserts that item into
+// the focused field (`svc.clipboard.read` for the full text → `svc.ime.insert`, which imed
+// commits like typed text). The history comes from clipboardd, which lets the keyboard list
+// and clear it because windowd names the keyboard's overlay as the IME owner; "Alle löschen"
+// removes every unpinned item, and nothing can be pinned yet, so it clears the history.
+//
+// A card is `glassCard`, radius lg, `shadow1`; its text is subheadline (the design's size
+// at a 44 px key), one line — the three-line clamp waits for text wrapping. The card's
+// delete button is drawn disabled: clipboardd has no delete-one, no pin and no timestamps
+// (spec gap G8), so the pin and the time caption have nothing to show. The tap target is the
+// card body above that footer, so a press on the disabled button never pastes.
+
+Component ClipboardCards {
+    Stack {
+        Stack {
+            Text(@t("osk.clipboard")).textStyle(overline).fg(labelSecondary)
+            Spacer
+            if !$state.oskClipsDenied && len($state.oskClips) > 0 {
+                Stack {
+                    Text(@t("osk.clearAll")).textStyle(footnote).fontWeight(semibold).fg(accent)
+                }
+                .align(center)
+                .justify(center)
+                .paddingX(12)
+                .height(24)
+                .rounded(full)
+                .label(@t("osk.clearAll"))
+                on Tap -> dispatch(ClipClear)
+            }
+        }
+        .direction(row)
+        .align(center)
+        .gap(8)
+        .paddingX(4)
+        .height(24)
+        if $state.oskClipsDenied {
+            Stack {
+                Text(@t("osk.clipDenied")).textStyle(subheadline).fg(labelSecondary)
+            }
+            .align(center)
+            .justify(center)
+            .grow(1)
+            .padding(16)
+        } else {
+            if len($state.oskClips) == 0 {
+                Stack {
+                    Text(@t("osk.clipEmpty")).textStyle(subheadline).fg(labelSecondary)
+                }
+                .align(center)
+                .justify(center)
+                .grow(1)
+                .padding(16)
+            } else {
+                Stack {
+                    if device.sizeClass == compact {
+                        List($state.oskClips) { clip in
+                            Stack {
+                                ClipCard { seq: clip.seq, text: clip.text }
+                            }
+                            .key(clip.seq)
+                            .grow(1)
+                        }
+                        .columns(2)
+                        .gap(8)
+                    } else {
+                        if device.sizeClass == regular {
+                            List($state.oskClips) { clip in
+                                Stack {
+                                    ClipCard { seq: clip.seq, text: clip.text }
+                                }
+                                .key(clip.seq)
+                                .grow(1)
+                            }
+                            .columns(3)
+                            .gap(8)
+                        } else {
+                            List($state.oskClips) { clip in
+                                Stack {
+                                    ClipCard { seq: clip.seq, text: clip.text }
+                                }
+                                .key(clip.seq)
+                                .grow(1)
+                            }
+                            .columns(4)
+                            .gap(8)
+                        }
+                    }
+                }
+                .grow(1)
+                .scroll(vertical)
+            }
+        }
+        Stack {
+            Stack {
+                Text(@t("osk.abc")).textStyle(footnote).fontWeight(medium).fg(label)
+            }
+            .align(center)
+            .justify(center)
+            .basis(0)
+            .grow(13)
+            .bg(fill)
+            .rounded(md)
+            .shadow(shadow1)
+            .label(@t("osk.abc"))
+            on Tap -> dispatch(ClipToggle)
+            Stack { }
+                .basis(0)
+                .grow(80)
+            Stack {
+                Text("⌫").textStyle(title2).fontWeight(medium).fg(label)
+            }
+            .align(center)
+            .justify(center)
+            .basis(0)
+            .grow(13)
+            .bg(fill)
+            .rounded(md)
+            .shadow(shadow1)
+            .label(@t("osk.backspace"))
+            on Tap -> dispatch(Action("backspace"))
+        }
+        .direction(row)
+        .gap(8)
+        .height(44)
+    }
+    .gap(8)
+    .grow(1)
+}

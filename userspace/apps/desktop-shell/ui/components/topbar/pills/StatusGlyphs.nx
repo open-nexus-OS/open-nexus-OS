@@ -1,0 +1,46 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The status glyphs the top bar shows in both places it shows status — the
+// desktop's separate WLAN / Ton / Akku pills and the touch modes' combined
+// status pill — so the live-state rule lives once: WLAN struck through when
+// off, the speaker struck through when muted (`volume == 0`), both in
+// `labelSecondary`. A bar that showed "connected" while the tile below it
+// said "Aus" would be worse than showing nothing. (The struck-through forms
+// are the repo's honest state; the reference design draws only the on state.)
+//
+// The battery glyph is the fixed `battery.75`: there is no power service, so
+// the percentage is the design's demo "78%" (`control.batteryPct`) and the
+// glyph cannot fill to a charge nobody reads.
+
+Component WifiGlyph {
+    if $state.wifiOn {
+        Icon { symbol: "wifi", size: 13 }
+            .fg(label)
+    } else {
+        Icon { symbol: "wifi.slash", size: 13 }
+            .fg(labelSecondary)
+    }
+}
+
+Component SoundGlyph {
+    if $state.volume == 0 {
+        Icon { symbol: "speaker.slash", size: 13 }
+            .fg(labelSecondary)
+    } else {
+        Icon { symbol: "speaker.wave", size: 13 }
+            .fg(label)
+    }
+}
+
+// Glyph + percentage, 4 apart — footnote semibold, the pill's text style.
+Component BatteryGlyph {
+    Stack {
+        Icon { symbol: "battery.75", size: 13 }
+            .fg(label)
+        Text(@t("control.batteryPct")).textStyle(footnote).fontWeight(semibold).figures(tabular).fg(label).shadow(halo)
+    }
+    .direction(row)
+    .align(center)
+    .gap(4)
+}

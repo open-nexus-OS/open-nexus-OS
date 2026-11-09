@@ -202,12 +202,14 @@ pub(crate) fn eval(ctx: &mut EvalCtx<'_>, expr: ir::expr::Reader<'_>) -> Result<
                         _ => Err(RtError::TypeMismatch),
                     }
                 }
-                // len(list): the page-dot count — `if len($state.apps) > 16`
-                // guards dot k. `arg` is a shape-keeping zero literal.
+                // len(list): the page-dot count — `if len($state.apps) > 16` guards dot k.
+                // len(text): its characters — the calculator steps its display style by the
+                // formatted number's length. `arg` is a shape-keeping zero literal.
                 ir::ListOpKind::Len => {
                     let base = eval(ctx, lop.get_base().map_err(|_| RtError::Malformed)?)?;
                     match base {
                         Value::List(items) => Ok(Value::Int(items.len() as i64)),
+                        Value::Str(text) => Ok(Value::Int(text.chars().count() as i64)),
                         _ => Err(RtError::TypeMismatch),
                     }
                 }

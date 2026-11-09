@@ -1,35 +1,42 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// One properties-pane row (design artifacts `ListItem` in the "Eigenschaften"
-// pane): leading icon, label, value right-aligned in the STRONG on-glass
-// role — the value is the information, the label only names it. 50px row
-// height and a hairline between rows come from the design's list metrics.
+// One properties-pane row (design artifacts: the AppWindow / WindowPane
+// properties rows): the label left in `labelSecondary`, the value right-aligned
+// at weight 500 in `label` — the value is the information, the label only
+// names it — footnote 12/16, gap 8, padding 8 12: a 32 px row. A 1 px
+// `separator` sits between rows; `last: true` drops it under the final one.
+// No icon in v3 (`icon` is still accepted and ignored).
 // Pure display: the pane's CONTENT is the app's selection reactivity (render
-// different rows for `$state.selection`).
+// different rows for `$state.selection`), inside a `WinPane` body (4 8).
 
 Component WinPropRow {
     props: {
         label: Str,
         value: Str,
         icon: Str,
+        last: Bool,
     }
     Stack {
         Stack {
-            Icon { symbol: $props.icon, size: 15 }
-                .fg(onGlassMuted)
-            Text($props.label).textSize(sm).fg(onGlass)
-            Spacer
-            Text($props.value).textSize(sm).fg(onGlassStrong)
+            Text($props.label).textStyle(footnote).fg(labelSecondary).shrink(0)
+            Stack { }
+                .grow(1)
+                .shrink(0)
+            Text($props.value).textStyle(footnote).fontWeight(medium).fg(label).textAlign(right)
         }
         .direction(row)
         .align(center)
-        .gap(2)
-        .paddingX(2)
-        .height(50)
-        Stack { }
-            .height(1)
-            .bg(divider)
+        .gap(8)
+        .paddingY(8)
+        .paddingX(12)
+        if $props.last {
+            Stack { }
+        } else {
+            Stack { }
+                .height(1)
+                .bg(separator)
+        }
     }
     .gap(0)
 }

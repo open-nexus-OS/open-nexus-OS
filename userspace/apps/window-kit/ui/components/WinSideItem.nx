@@ -1,21 +1,28 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// One navigation-sidebar row (design artifacts `Sidebar`): icon + title
-// (+ optional subtitle), accent-filled when active. Tap dispatches
-// `WinMenuPick(id)` — the app's reducer routes nav ids (by convention
-// prefixed "nav.") to its section state.
+// One navigation-sidebar row (design artifacts `Sidebar`, variant plain): icon
+// + label, padding 8 12, gap 12, radius 12, at least 36 tall; the label body
+// 14 at weight 500 in `label`, the icon in the label's colour (the design's
+// .85). ACTIVE = an `accent` fill with `onAccent` icon and label at weight 600.
+// Tap dispatches `WinMenuPick(id)` — the app's reducer routes nav ids (by
+// convention prefixed "nav.") to its section state. Rows sit 2 px apart in a
+// list padded 4 8 (the app's `WinPane` body).
 //
-// The icon sits in a PINNED 16px box and the text column takes `.grow(1)`.
-// Without both, a long two-line label wins the flex negotiation and squeezes
-// the icon to a two-pixel sliver — which is what the settings sidebar looked
-// like the first time it shipped twelve German section names.
+// `sub` adds a second line (caption 11/400 in `labelSecondary` — `onAccent`
+// when active), the settings design's two-line row: 48 tall. `sub: ""` is the
+// one-line row. `iconSize` is the glyph in px (16 when omitted; the settings
+// design draws 18). `hasBadge` shows `badge` in an 18 px capsule at the end
+// (caption 11/700 `onAccent` on `danger`; a 16 % `onAccent` wash when active).
 //
-// Two-line rows (title + smaller description, the design's DEFAULT sidebar
-// form) are 38px with tight leading; `sub: ""` = the compact one-line row
-// (32px, the design's "Sidebar kompakt"). Both carry `.hitSlop(3)` so the
-// input target stays at ~44px even where the visual row is denser — the
-// design's own sidebar rows are ~35px.
+// The icon sits in a PINNED box and the text column takes `.grow(1)`. Without
+// both, a long label wins the flex negotiation and squeezes the icon to a
+// two-pixel sliver — which is what the settings sidebar looked like the first
+// time it shipped twelve German section names. `.hitSlop(4)` keeps the input
+// target at 44 px over the 36 px rows.
+//
+// STORE CONTRACT (the consuming app declares these — the kit dispatches):
+//   events  WinMenuPick(Str)
 
 Component WinSideItem {
     props: {
@@ -24,102 +31,114 @@ Component WinSideItem {
         sub: Str,
         icon: Str,
         active: Bool,
+        iconSize: Int,
+        hasBadge: Bool,
+        badge: Str,
     }
-    if $props.active && $props.sub != "" {
+    if $props.active {
         Stack {
             Stack {
-                Icon { symbol: $props.icon, size: 15 }
+                Icon { symbol: $props.icon, size: $props.iconSize }
                     .fg(onAccent)
             }
             .width(16)
+            .minWidth($props.iconSize)
+            .maxWidth($props.iconSize)
+            .shrink(0)
             .align(center)
             .justify(center)
-            Stack {
-                Text($props.label).textSize(sm).leading(tight).fg(onAccent)
-                Text($props.sub).textSize(xs).leading(tight).fg(onAccent)
+            if $props.sub != "" {
+                Stack {
+                    Text($props.label).textStyle(body).fontWeight(semibold).fg(onAccent)
+                    Text($props.sub).textStyle(caption).fontWeight(normal).fg(onAccent)
+                }
+                .gap(0)
+                .grow(1)
+            } else {
+                Stack {
+                    Text($props.label).textStyle(body).fontWeight(semibold).fg(onAccent)
+                }
+                .gap(0)
+                .grow(1)
             }
-            .gap(0)
-            .grow(1)
+            if $props.hasBadge {
+                Stack {
+                    Text($props.badge).textStyle(caption).fontWeight(bold).fg(onAccent)
+                }
+                .minWidth(18)
+                .height(18)
+                .paddingX(4)
+                .rounded(full)
+                .shrink(0)
+                .align(center)
+                .justify(center)
+                .tint(onAccent)
+            } else {
+                Stack { }
+                    .shrink(0)
+            }
         }
         .direction(row)
         .align(center)
-        .gap(2)
-        .paddingX(2)
-        .height(38)
-        .hitSlop(3)
-        .rounded(lg)
+        .gap(12)
+        .paddingY(6)
+        .paddingX(12)
+        .minHeight(36)
+        .hitSlop(4)
+        .rounded(md)
         .bg(accent)
-        on Tap -> dispatch(WinMenuPick($props.id))
-    } else if $props.active {
-        Stack {
-            Stack {
-                Icon { symbol: $props.icon, size: 15 }
-                    .fg(onAccent)
-            }
-            .width(16)
-            .align(center)
-            .justify(center)
-            Stack {
-                Text($props.label).textSize(sm).fg(onAccent)
-            }
-            .gap(0)
-            .grow(1)
-        }
-        .direction(row)
-        .align(center)
-        .gap(2)
-        .paddingX(2)
-        .height(32)
-        .hitSlop(3)
-        .rounded(lg)
-        .bg(accent)
-        on Tap -> dispatch(WinMenuPick($props.id))
-    } else if $props.sub != "" {
-        Stack {
-            Stack {
-                Icon { symbol: $props.icon, size: 15 }
-                    .fg(onGlassMuted)
-            }
-            .width(16)
-            .align(center)
-            .justify(center)
-            Stack {
-                Text($props.label).textSize(sm).leading(tight).fg(onGlass)
-                Text($props.sub).textSize(xs).leading(tight).fg(onGlassMuted)
-            }
-            .gap(0)
-            .grow(1)
-        }
-        .direction(row)
-        .align(center)
-        .gap(2)
-        .paddingX(2)
-        .height(38)
-        .hitSlop(3)
-        .rounded(lg)
         on Tap -> dispatch(WinMenuPick($props.id))
     } else {
         Stack {
             Stack {
-                Icon { symbol: $props.icon, size: 15 }
-                    .fg(onGlassMuted)
+                Icon { symbol: $props.icon, size: $props.iconSize }
+                    .fg(label)
             }
             .width(16)
+            .minWidth($props.iconSize)
+            .maxWidth($props.iconSize)
+            .shrink(0)
             .align(center)
             .justify(center)
-            Stack {
-                Text($props.label).textSize(sm).fg(onGlass)
+            if $props.sub != "" {
+                Stack {
+                    Text($props.label).textStyle(body).fontWeight(medium).fg(label)
+                    Text($props.sub).textStyle(caption).fontWeight(normal).fg(labelSecondary)
+                }
+                .gap(0)
+                .grow(1)
+            } else {
+                Stack {
+                    Text($props.label).textStyle(body).fontWeight(medium).fg(label)
+                }
+                .gap(0)
+                .grow(1)
             }
-            .gap(0)
-            .grow(1)
+            if $props.hasBadge {
+                Stack {
+                    Text($props.badge).textStyle(caption).fontWeight(bold).fg(onAccent)
+                }
+                .minWidth(18)
+                .height(18)
+                .paddingX(4)
+                .rounded(full)
+                .shrink(0)
+                .align(center)
+                .justify(center)
+                .bg(danger)
+            } else {
+                Stack { }
+                    .shrink(0)
+            }
         }
         .direction(row)
         .align(center)
-        .gap(2)
-        .paddingX(2)
-        .height(32)
-        .hitSlop(3)
-        .rounded(lg)
+        .gap(12)
+        .paddingY(6)
+        .paddingX(12)
+        .minHeight(36)
+        .hitSlop(4)
+        .rounded(md)
         on Tap -> dispatch(WinMenuPick($props.id))
     }
 }

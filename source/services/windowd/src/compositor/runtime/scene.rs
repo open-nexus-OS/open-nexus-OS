@@ -112,10 +112,10 @@ impl DisplayServerRuntime {
         let cursor_hot = self.cursor_hot;
         let hw_cursor = self.hw_cursor_active;
         let pointer_hidden = self.capture.pointer_hidden();
-        // The fullscreen window (if any): its composite drops the rounded
-        // corners + drop shadow (nothing to round/shadow against at the
-        // display edges — straight edge-to-edge content, user decision).
+        // The fullscreen window (if any) drops the rounded corners + drop shadow (edge to edge,
+        // user decision); every other window takes the theme's shape (RFC-0116, `window_shape`).
         let fullscreen_id = self.windows.fullscreen_active();
+        let shape = self.theme_mode.window_shape();
         // Live resize (the "glass frame grows, content 1:1" path): while the app
         // window is actively edge-resized, the frame (app_win.w/h) grows past the
         // client's content band. Composite the backdrop blur + rounding at the
@@ -165,7 +165,7 @@ impl DisplayServerRuntime {
                 height: base.1,
             });
             let glass = body.map(|body| {
-                let mut p = win.glass_params(body);
+                let mut p = win.glass_params(body, shape);
                 p.gpu_glass = gpu_glass;
                 if fullscreen {
                     p.radius = 0;
@@ -214,7 +214,7 @@ impl DisplayServerRuntime {
                     layer_id: key,
                     live: super::surface_motion::live(&layers, at),
                 }),
-                solid: super::solid_surface::SolidSnap::of(&self.apps[idx], fullscreen),
+                solid: super::solid_surface::SolidSnap::of(&self.apps[idx], fullscreen, shape),
             };
         }
         // Desktop base surface (declarative, Umbau #17): the shell/greeter

@@ -1,0 +1,50 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The top bar's toolbar cells (design artifacts: WindowButton): each button sits centred in a
+// 32 px cell instead of a row gap (2 px between circles), so a hidden (`""`) button leaves an
+// empty slot and no gap, and the cluster stays centred.
+//   WinToolCell  a tool (`WinTool(symbol)`), its fill pinned while `active`;
+//   WinNavCell   back · forward · refresh (`WinNav(action)`); `disabled` keeps the arrow and
+//                drops its tap.
+
+Component WinToolCell {
+    props: {
+        symbol: Str,
+        active: Bool,
+    }
+    if $props.symbol != "" {
+        Stack {
+            WinButtonFace { symbol: $props.symbol, size: 14, active: $props.active, danger: false, disabled: false, large: false }
+        }
+        .width(32)
+        .align(center)
+        on Tap -> dispatch(WinTool($props.symbol))
+    } else {
+        Stack { }
+    }
+}
+
+Component WinNavCell {
+    props: {
+        symbol: Str,
+        action: Str,
+        disabled: Bool,
+    }
+    if $props.symbol == "" {
+        Stack { }
+    } else if $props.disabled {
+        Stack {
+            WinButtonFace { symbol: $props.symbol, size: 14, active: false, danger: false, disabled: true, large: false }
+        }
+        .width(32)
+        .align(center)
+    } else {
+        Stack {
+            WinButtonFace { symbol: $props.symbol, size: 14, active: false, danger: false, disabled: false, large: false }
+        }
+        .width(32)
+        .align(center)
+        on Tap -> dispatch(WinNav($props.action))
+    }
+}

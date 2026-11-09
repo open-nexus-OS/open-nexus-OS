@@ -24,7 +24,7 @@ Current entry points:
 - `docs/dev/ui/components/design-system.md`
 - `docs/dev/ui/components/inventory.md` — IST state of all 54 design components across the three
   UI expressions + the "promote the best" convergence verdict per component
-- `docs/dev/ui/foundations/visual/token-reconciliation.md` — the four token sources → one SSOT
+- `docs/dev/ui/foundations/visual/token-reconciliation.md` — the design artifacts' one token set (RFC-0116) and where each part lives
 - `docs/dev/ui/input/input.md`
 - `docs/dev/ui/foundations/visual/typography.md`
 - `docs/dev/ui/status/notifications.md`

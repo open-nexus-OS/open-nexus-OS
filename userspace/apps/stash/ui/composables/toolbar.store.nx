@@ -1,0 +1,70 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// TOOLBAR domain: the top bar's tools — the view switch (grid / list) and the
+// search field. `WinTool(t)` is the kit's one tool event, so everything it
+// writes lives here: `viewMode`, the open search field and its live query.
+// The magnifier toggles the field, and closing it clears the query.
+//
+// Typing re-issues the listing with the query. `SearchChanged` carries NO
+// payload: `TextField`'s auto-bind has already written `searchQuery`, and the
+// handler only reports that it moved. The count rides the SAME filter pair
+// (ListingStore), so the "N items" line can never disagree with the rows.
+//
+// A tool press also closes any chrome menu (the View submenu dispatches the
+// same event to switch the layout).
+
+Store ToolbarStore {
+    // Last pressed tool that has no state of its own.
+    tool: Str = "",
+    // View mode: "list" (rows) | "grid" (tiles).
+    viewMode: Str = "list",
+    searchOpen: Int = 0,
+    searchQuery: Str = "",
+}
+
+Event ToolbarEvent {
+    WinTool(Str),
+    SearchChanged,
+    SearchClear,
+}
+
+reduce ToolbarEvent {
+    WinTool(t) => {
+        if t == "square.grid.2x2" {
+            state.viewMode = "grid";
+        } else if t == "list.bullet" {
+            state.viewMode = "list";
+        } else if t == "magnifyingglass" {
+            if state.searchOpen == 1 {
+                state.searchOpen = 0;
+                state.searchQuery = "";
+            } else {
+                state.searchOpen = 1;
+            }
+        } else if state.tool == t {
+            state.tool = "";
+        } else {
+            state.tool = t;
+        }
+    },
+    SearchChanged => state.searchQuery = state.searchQuery,
+    SearchClear => state.searchQuery = "",
+}
+
+// The magnifier closing the field clears the query, so the listing must come
+// back unfiltered — the effect belongs on `WinTool`, the event that is really
+// dispatched (an effect on an event nothing dispatches is a ROOT effect that
+// runs at mount, reducer arm included).
+@effect on WinTool(t) {
+    dispatch(WinMenu(""));
+    dispatch(Relist);
+}
+
+@effect on SearchChanged {
+    dispatch(Reload);
+}
+
+@effect on SearchClear {
+    dispatch(Relist);
+}

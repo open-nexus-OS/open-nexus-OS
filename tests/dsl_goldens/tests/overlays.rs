@@ -41,7 +41,7 @@ reduce E {
 
 Page P {
     Stack {
-        Text("Behind the overlay").textSize(lg)
+        Text("Behind the overlay").textStyle(title3)
         Button { label: "Open" } on Tap -> dispatch(Show("alert"))
         if $state.which == "alert" {
             WinAlert {
@@ -58,10 +58,10 @@ Page P {
         if $state.which == "modal" {
             WinModal { id: "m", title: "Rename item" } {
                 body {
-                    Text("A body of text the app owns.").textSize(sm)
+                    Text("A body of text the app owns.").textStyle(footnote)
                 }
                 footer {
-                    Button { label: "Cancel" }.bg(surfaceVariant) on Tap -> dispatch(ModalClose("m"))
+                    Button { label: "Cancel" }.bg(fill) on Tap -> dispatch(ModalClose("m"))
                     Button { label: "Save" } on Tap -> dispatch(WinNoop)
                 }
             }
@@ -79,8 +79,8 @@ Page P {
             Stack { }
         }
     }
-    .padding(4)
-    .gap(2)
+    .padding(16)
+    .gap(8)
 }
 "#;
 

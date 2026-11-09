@@ -27,16 +27,15 @@ Component SetRow {
     slot trailing
     Stack {
         if $props.icon != "" {
-            Icon { symbol: $props.icon, size: 16 }
-                .fg(onGlassMuted)
+            Icon { symbol: $props.icon, size: 18 }
+                .fg(labelSecondary)
         } else {
             Stack { }
-                .width(16)
         }
         Stack {
-            Text($props.title).textSize(sm).fontWeight(medium).fg(onGlass)
+            Text($props.title).textStyle(body).fontWeight(medium).fg(label)
             if $props.subtitle != "" {
-                Text($props.subtitle).textSize(xs).fg(onGlassMuted)
+                Text($props.subtitle).textStyle(footnote).fg(labelSecondary)
             } else {
                 Stack { }
             }
@@ -45,16 +44,16 @@ Component SetRow {
         .grow(1)
         Slot trailing
         if $props.showChevron {
-            Icon { symbol: "chevron.right", size: 14 }
-                .fg(onGlassMuted)
+            Icon { symbol: "chevron.right", size: 16 }
+                .fg(labelTertiary)
         } else {
             Stack { }
         }
     }
     .direction(row)
     .align(center)
-    .gap(3)
-    .paddingX(4)
-    .paddingY(2)
-    .minHeight(52)
+    .gap(12)
+    .paddingX(16)
+    .paddingY(12)
+    .minHeight(48)
 }

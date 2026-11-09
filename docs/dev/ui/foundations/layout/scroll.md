@@ -51,7 +51,8 @@ and owned by the app: windowd routes the wheel and composes, it runs no physics.
   package will emit items for — with prefetch, anchors by key, prepared-text extents and
   QuerySpec paging.
 - A drag scrolls nothing: it reaches the DSL's drag triggers only.
-- Press, selection and focus as wash opacity; hover grow and press dip as layer properties.
+- Selection and focus as wash opacity (hover and press are washes since TASK-0353 P7:
+  `docs/dev/ui/foundations/animation.md` § Interaction motion); a press's dip as a layer property.
 
 ## Proof
 

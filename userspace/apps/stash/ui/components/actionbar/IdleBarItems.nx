@@ -1,0 +1,26 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The bar with nothing selected: create and sort. New writes a real folder
+// (NewFolder → svc.files.mkdir); Sort cycles name → kind → date (the app-host
+// reorders); More opens the selection menu.
+
+Component IdleBarItems {
+    Stack {
+        Stack {
+            BarFace { label: @t("stash.actNew"), icon: "plus", kind: "", active: true }
+        }
+        on Tap -> dispatch(NewFolder)
+        Stack {
+            BarFace { label: @t("stash.actSort"), icon: "arrow.up.arrow.down", kind: "", active: false }
+        }
+        on Tap -> dispatch(CycleSort)
+        Stack {
+            BarFace { label: @t("stash.actMore"), icon: "ellipsis", kind: "", active: false }
+        }
+        on Tap -> dispatch(WinMenu("ctx"))
+    }
+    .direction(row)
+    .align(center)
+    .gap(2)
+}

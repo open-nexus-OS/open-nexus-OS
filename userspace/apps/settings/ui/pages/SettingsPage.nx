@@ -50,59 +50,23 @@ Page SettingsPage {
                 NavSidebar { }
             }
             contentArea {
-                Panel {
-                    // Content header: breadcrumb trail, hairline, then the
-                    // mode. Only the BODY scrolls — the design's window never
-                    // scrolls as a whole, only pane bodies do.
-                    if $state.mode == "overview" {
-                        CrumbBar { section: "", sub: "" }
-                    } else if $state.section == "connections" {
-                        CrumbBar { section: @t("sec.connections"), sub: "" }
-                    } else if $state.section == "devices" {
-                        CrumbBar { section: @t("sec.devices"), sub: "" }
-                    } else if $state.section == "sound" {
-                        CrumbBar { section: @t("sec.sound"), sub: "" }
-                    } else if $state.section == "display" {
-                        CrumbBar { section: @t("sec.display"), sub: "" }
-                    } else if $state.section == "notif" {
-                        CrumbBar { section: @t("sec.notif"), sub: "" }
-                    } else if $state.section == "personal" && $state.subPage == "appearance" {
-                        CrumbBar { section: @t("sec.personal"), sub: @t("per.appearance") }
-                    } else if $state.section == "personal" {
-                        CrumbBar { section: @t("sec.personal"), sub: "" }
-                    } else if $state.section == "apps" {
-                        CrumbBar { section: @t("sec.apps"), sub: "" }
-                    } else if $state.section == "general" {
-                        CrumbBar { section: @t("sec.general"), sub: "" }
-                    } else if $state.section == "accounts" {
-                        CrumbBar { section: @t("sec.accounts"), sub: "" }
-                    } else if $state.section == "privacy" {
-                        CrumbBar { section: @t("sec.privacy"), sub: "" }
-                    } else if $state.section == "power" {
-                        CrumbBar { section: @t("sec.power"), sub: "" }
-                    } else if $state.subPage == "updates" {
-                        CrumbBar { section: @t("sec.info"), sub: @t("inf.update") }
-                    } else {
-                        CrumbBar { section: @t("sec.info"), sub: "" }
+                WinPane { title: "", showHeader: true, showFooter: false, bare: false, flush: true, scrolls: true, noDividers: false } {
+                    header {
+                        CrumbTrail { }
                     }
-                    Stack { }
-                        .height(1)
-                        .bg(divider)
-                    Stack {
-                        if $state.mode == "overview" {
-                            OverviewGrid { }
-                        } else {
-                            SectionView { }
+                    body {
+                        Stack {
+                            if $state.mode == "overview" {
+                                OverviewGrid { }
+                            } else {
+                                SectionView { }
+                            }
                         }
+                        .paddingX(20)
+                        .paddingTop(16)
+                        .paddingBottom(24)
                     }
-                    .grow(1)
-                    .paddingY(2)
-                    .scroll(vertical)
                 }
-                .material(windowPane)
-                .rounded(xxl)
-                .gap(2)
-                .grow(1)
             }
             sidebarRight {
                 PropsPane { }
@@ -131,150 +95,7 @@ Page SettingsPage {
         } else {
             Stack { }
         }
-        if $state.picker == "language" {
-            PickerSheet { title: @t("gen.language") } {
-                options {
-                    Stack {
-                        PickerOption { label: @t("lang.de"), selected: $state.locale == "de-DE" }
-                    }
-                    on Tap -> dispatch(SetLocale("de-DE"))
-                    Stack {
-                        PickerOption { label: @t("lang.en"), selected: $state.locale == "en-US" }
-                    }
-                    on Tap -> dispatch(SetLocale("en-US"))
-                    Stack {
-                        PickerOption { label: @t("lang.ja"), selected: $state.locale == "ja-JP" }
-                    }
-                    on Tap -> dispatch(SetLocale("ja-JP"))
-                    Stack {
-                        PickerOption { label: @t("lang.ko"), selected: $state.locale == "ko-KR" }
-                    }
-                    on Tap -> dispatch(SetLocale("ko-KR"))
-                    Stack {
-                        PickerOption { label: @t("lang.zh"), selected: $state.locale == "zh-CN" }
-                    }
-                    on Tap -> dispatch(SetLocale("zh-CN"))
-                }
-            }
-        } else {
-            Stack { }
-        }
-        if $state.picker == "region" {
-            PickerSheet { title: @t("gen.region") } {
-                options {
-                    Stack {
-                        PickerOption { label: @t("region.de"), selected: $state.country == "DE" }
-                    }
-                    on Tap -> dispatch(SetCountry("DE"))
-                    Stack {
-                        PickerOption { label: @t("region.us"), selected: $state.country == "US" }
-                    }
-                    on Tap -> dispatch(SetCountry("US"))
-                    Stack {
-                        PickerOption { label: @t("region.kr"), selected: $state.country == "KR" }
-                    }
-                    on Tap -> dispatch(SetCountry("KR"))
-                    Stack {
-                        PickerOption { label: @t("region.jp"), selected: $state.country == "JP" }
-                    }
-                    on Tap -> dispatch(SetCountry("JP"))
-                    Stack {
-                        PickerOption { label: @t("region.cn"), selected: $state.country == "CN" }
-                    }
-                    on Tap -> dispatch(SetCountry("CN"))
-                }
-            }
-        } else {
-            Stack { }
-        }
-        if $state.picker == "layout" {
-            PickerSheet { title: @t("gen.layout") } {
-                options {
-                    Stack {
-                        PickerOption { label: @t("keymap.de"), selected: $state.keymap == "de" }
-                    }
-                    on Tap -> dispatch(SetKeymap("de"))
-                    Stack {
-                        PickerOption { label: @t("keymap.us"), selected: $state.keymap == "us" }
-                    }
-                    on Tap -> dispatch(SetKeymap("us"))
-                    Stack {
-                        PickerOption { label: @t("keymap.kr"), selected: $state.keymap == "kr" }
-                    }
-                    on Tap -> dispatch(SetKeymap("kr"))
-                    Stack {
-                        PickerOption { label: @t("keymap.jp"), selected: $state.keymap == "jp" }
-                    }
-                    on Tap -> dispatch(SetKeymap("jp"))
-                    Stack {
-                        PickerOption { label: @t("keymap.zh"), selected: $state.keymap == "zh" }
-                    }
-                    on Tap -> dispatch(SetKeymap("zh"))
-                }
-            }
-        } else {
-            Stack { }
-        }
-        if $state.picker == "zone" {
-            PickerSheet { title: @t("gen.zone") } {
-                options {
-                    Stack {
-                        PickerOption { label: @t("zone.berlin"), selected: $state.zone == "Europe/Berlin" }
-                    }
-                    on Tap -> dispatch(SetZone("Europe/Berlin"))
-                    Stack {
-                        PickerOption { label: @t("zone.london"), selected: $state.zone == "Europe/London" }
-                    }
-                    on Tap -> dispatch(SetZone("Europe/London"))
-                    Stack {
-                        PickerOption { label: @t("zone.newyork"), selected: $state.zone == "America/New_York" }
-                    }
-                    on Tap -> dispatch(SetZone("America/New_York"))
-                    Stack {
-                        PickerOption { label: @t("zone.losangeles"), selected: $state.zone == "America/Los_Angeles" }
-                    }
-                    on Tap -> dispatch(SetZone("America/Los_Angeles"))
-                    Stack {
-                        PickerOption { label: @t("zone.tokyo"), selected: $state.zone == "Asia/Tokyo" }
-                    }
-                    on Tap -> dispatch(SetZone("Asia/Tokyo"))
-                    Stack {
-                        PickerOption { label: @t("zone.shanghai"), selected: $state.zone == "Asia/Shanghai" }
-                    }
-                    on Tap -> dispatch(SetZone("Asia/Shanghai"))
-                    Stack {
-                        PickerOption { label: @t("zone.seoul"), selected: $state.zone == "Asia/Seoul" }
-                    }
-                    on Tap -> dispatch(SetZone("Asia/Seoul"))
-                    Stack {
-                        PickerOption { label: @t("zone.sydney"), selected: $state.zone == "Australia/Sydney" }
-                    }
-                    on Tap -> dispatch(SetZone("Australia/Sydney"))
-                    Stack {
-                        PickerOption { label: @t("zone.utc"), selected: $state.zone == "UTC" }
-                    }
-                    on Tap -> dispatch(SetZone("UTC"))
-                }
-            }
-        } else {
-            Stack { }
-        }
-        if $state.picker == "hourfmt" {
-            PickerSheet { title: @t("gen.hourFormat") } {
-                options {
-                    Stack {
-                        PickerOption { label: @t("gen.hour24"), selected: $state.hourFmt == "24h" }
-                    }
-                    on Tap -> dispatch(SetHourFmt("24h"))
-                    Stack {
-                        PickerOption { label: @t("gen.hour12"), selected: $state.hourFmt == "12h" }
-                    }
-                    on Tap -> dispatch(SetHourFmt("12h"))
-                }
-            }
-        } else {
-            Stack { }
-        }
+        PickerLayers { }
     }
     .grow(1)
 }

@@ -21,11 +21,12 @@ Component CcHeader {
         on Tap -> dispatch(PowerAsk)
         HeaderIconButton { icon: "gearshape" }
         Circle { size: 30
-            Text(@t("control.userInitial")).textSize(xs).fontWeight(bold).fg(onGlass)
+            Text(@t("control.userInitial")).textStyle(caption).fontWeight(semibold).fg(label)
         }
-        .material(subtle)
+        .material(card)
+        .shadow(edgeHighlight)
     }
     .direction(row)
     .align(center)
-    .gap(1)
+    .gap(4)
 }

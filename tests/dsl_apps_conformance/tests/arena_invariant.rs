@@ -304,7 +304,7 @@ fn nothing_emission_allocates_outlives_its_generation() {
         &[("WinMenu", vec![Value::Str("app".into())]), ("WinMenu", vec![Value::Str("".into())])],
         FRAMES,
     );
-    drive("stash", "StashEvent", &[("WinLeft", vec![]), ("WinRight", vec![])], FRAMES);
+    drive("stash", "WindowEvent", &[("WinLeft", vec![]), ("WinRight", vec![])], FRAMES);
     drive_text_focus(FRAMES);
     drive_failed_emits();
 }

@@ -1,15 +1,17 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The capture panel (TASK-0068): the desktop reference's screenshot bar in the
-// shell's glass, styled like the notifications — overlay glass, xl radius, the
-// round X at its top right. Above: the three modes (Selection, Screen,
-// Window). Below: the photo/film switch on the left — film is greyed out and
-// disabled (`.disabled(true)`: no press, no hover) until recording exists
-// (TASK-0105) — the shutter in the middle, the pointer toggle on the right;
-// both sides equally wide, so the shutter sits at the panel's centre. The
-// panel absorbs its own presses and drags (`CapNoop`): a drag that starts on
-// it never draws a selection.
+// The capture panel (TASK-0068): the desktop reference's screenshot bar. It
+// floats over the frozen frame, so it is the opaque floating surface
+// (`overlay`: surfaceOverlay, the glass edge, shadow3 and the lit top line —
+// the recipe), radius xl as the outermost surface, padding 12, with the
+// round X (a 30 px circle, the sm control) at its top right. Above: the three
+// modes (Selection, Screen, Window). Below: the photo/film switch on the
+// left — film is greyed out and disabled (`.disabled(true)`: no press, no
+// hover) until recording exists (TASK-0105) — the shutter in the middle, the
+// pointer toggle on the right; both sides equally wide, so the shutter sits
+// at the panel's centre. The panel absorbs its own presses and drags
+// (`CapNoop`): a drag that starts on it never draws a selection.
 
 Component CapturePanel {
     Stack {
@@ -19,11 +21,11 @@ Component CapturePanel {
             Panel {
                 Stack {
                     Spacer
-                    Circle { size: 28
+                    Circle { size: 30
                         Icon { symbol: "xmark", size: 12 }
-                            .fg(onGlassMuted)
+                            .fg(labelSecondary)
                     }
-                    .hitSlop(2)
+                    .hitSlop(8)
                     .label(@t("capture.close"))
                     on Tap -> dispatch(CapCancel)
                 }
@@ -59,7 +61,7 @@ Component CapturePanel {
                 }
                 .direction(row)
                 .justify(center)
-                .gap(3)
+                .gap(12)
                 Stack {
                     Stack {
                         Stack {
@@ -82,15 +84,15 @@ Component CapturePanel {
                         .disabled(true)
                     }
                     .direction(row)
-                    .gap(1)
+                    .gap(4)
                     .width(100)
                     Spacer
                     Circle { size: 64
                         Circle { size: 52 }
-                            .bg(onGlassStrong)
+                            .bg(label)
                     }
-                    .border(medium)
-                    .borderColor(onGlassStrong)
+                    .border(ring)
+                    .borderColor(label)
                     .label(@t("capture.shoot"))
                     on Tap -> dispatch(CapShoot)
                     Spacer
@@ -114,9 +116,8 @@ Component CapturePanel {
             }
             .material(overlay)
             .rounded(xl)
-            .shadow(xl)
-            .gap(3)
-            .padding(3)
+            .gap(12)
+            .padding(12)
             .width(440)
             on Tap -> dispatch(CapNoop)
             on DragStart -> dispatch(CapNoop)

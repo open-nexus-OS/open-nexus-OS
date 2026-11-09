@@ -39,7 +39,8 @@ across every environment; the app re-declares nothing per device.
 | `mode` | `auto` · `freeform` · `fullscreen` | Preferred default window mode. `auto` lets the policy choose. |
 | `level` | `normal` · `desktop` · `overlay` | Z-band. `desktop` = the bottom shell layer; `overlay` = above normal windows. |
 | `resizable` | `true` · `false` | Whether the app tolerates arbitrary content sizes. `false` + `fullscreen` = a fixed full-screen surface (the shell). |
-| `defaultSize` | `w × h` | Preferred freeform size; ignored when the policy is fullscreen-only. |
+| `width` · `height` | px | Preferred freeform content size; ignored when the policy is fullscreen-only (RFC-0117). |
+| `minWidth` · `minHeight` | px | The smallest content size the app tolerates; windowd never resizes, tiles or restores below it (RFC-0117). |
 
 The app declares *preferences*; the policy decides what is honoured. A locked
 kiosk app that declared `titlebar` still gets no title bar — the policy wins.
@@ -138,9 +139,10 @@ every frame. That does not scale to 5K/120Hz. So the seam is **not** a bitmap; i
 is **material-tagged layers**:
 
 - The app submits **one or more surfaces**, each carrying a **material**:
-  `opaque`, or `glass{ level, radius, shadow }` (levels from the design-system
-  glass tokens — panel/card/subtle/window). The app paints only *content* into
-  the surface; it never paints wallpaper, blur, or shadow.
+  `opaque`, or `glass{ level, radius, shadow }` (the level is a blur bucket of the
+  token set's backdrops — `panel` and `window` regular, `thin`, `ultraThin`, `dock`
+  thick; `docs/dev/ui/foundations/visual/materials.md`). The app paints only
+  *content* into the surface; it never paints wallpaper, blur, or shadow.
 - **windowd composites** each layer via the `nexus-gfx` glass primitive: it
   supplies the live backdrop blur (sampling what is behind the layer), the SDF
   rounded corners, and the shadow — the exact recipe the app-client window and

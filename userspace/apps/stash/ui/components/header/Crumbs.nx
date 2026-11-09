@@ -1,0 +1,48 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The breadcrumb, three levels like the design (Dieser PC › Bilder › Urlaub
+// 2026), each ancestor a tap target — which is why this is not the
+// `Breadcrumbs` widget (one node, no per-crumb taps). No extra state: the
+// middle crumb is `backLabel`, the label we came from, which every
+// navigation already writes. Ancestors are medium / `labelSecondary`; the
+// leaf is the one semibold `label` crumb; the chevrons are `labelTertiary`.
+
+Component Crumbs {
+    Stack {
+        Stack {
+            Text(@t("stash.thisPc")).textStyle(subheadline).fontWeight(medium).fg(labelSecondary)
+        }
+        on Tap -> dispatch(WinMenuPick("nav.storage"))
+        if $state.backLabel != "" {
+            Stack {
+                Icon { symbol: "chevron.right", size: 14 }
+                    .fg(labelTertiary)
+                Stack {
+                    Text($state.backLabel).textStyle(subheadline).fontWeight(medium).fg(labelSecondary)
+                }
+                on Tap -> dispatch(WinNav("back"))
+            }
+            .direction(row)
+            .align(center)
+            .gap(4)
+        } else {
+            Stack { }
+        }
+        if $state.folderLabel != "" {
+            Stack {
+                Icon { symbol: "chevron.right", size: 14 }
+                    .fg(labelTertiary)
+                Text($state.folderLabel).textStyle(subheadline).fontWeight(semibold).fg(label)
+            }
+            .direction(row)
+            .align(center)
+            .gap(4)
+        } else {
+            Stack { }
+        }
+    }
+    .direction(row)
+    .align(center)
+    .gap(4)
+}

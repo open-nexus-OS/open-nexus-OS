@@ -16,30 +16,30 @@ Component ScCategory {
         Stack {
             Icon { symbol: $props.icon, size: 15 }
                 .fg(onAccent)
-            Text($props.label).textSize(sm).fg(onAccent)
+            Text($props.label).textStyle(footnote).fg(onAccent)
         }
         .direction(row)
         .align(center)
-        .gap(2)
-        .paddingX(2)
+        .gap(8)
+        .paddingX(8)
         .height(32)
-        .hitSlop(3)
-        .rounded(lg)
+        .hitSlop(12)
+        .rounded(md)
         .bg(accent)
         on Tap -> dispatch(ScPick($props.id))
     } else {
         Stack {
             Icon { symbol: $props.icon, size: 15 }
-                .fg(onGlassMuted)
-            Text($props.label).textSize(sm).fg(onGlass)
+                .fg(labelSecondary)
+            Text($props.label).textStyle(footnote).fg(label)
         }
         .direction(row)
         .align(center)
-        .gap(2)
-        .paddingX(2)
+        .gap(8)
+        .paddingX(8)
         .height(32)
-        .hitSlop(3)
-        .rounded(lg)
+        .hitSlop(12)
+        .rounded(md)
         on Tap -> dispatch(ScPick($props.id))
     }
 }

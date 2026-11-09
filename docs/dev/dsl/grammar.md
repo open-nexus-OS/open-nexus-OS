@@ -148,9 +148,17 @@ complete node, and `List($state.rows) { row in … }` uses both.
 node's modifiers belongs to that node, not to the enclosing `PropBlock`:
 
 ```nx
-Stack {
-    Button { label: "-" }.bg(surfaceVariant)
-    on Tap -> dispatch(Dec)        // Button's handler, not Stack's
+Event E { Dec, }
+
+reduce E { Dec => state.n -= 1, }
+
+Store S { n: Int = 0, }
+
+Page P {
+    Stack {
+        Button { label: "-" }.bg(fill)
+        on Tap -> dispatch(Dec)        // Button's handler, not Stack's
+    }
 }
 ```
 

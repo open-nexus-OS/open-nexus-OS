@@ -42,16 +42,28 @@ use nexus_layout::LayoutBox;
 /// request at 36px has already resolved to the SemiBold rung, so re-resolving
 /// a `.textFit` size from the face alone would silently change weight.
 ///
-/// SHARED alias on purpose: `probe::state`, `probe::paint::collect` and this
-/// module must agree, and three hand-written copies of the tuple is exactly
-/// how the OS build broke while `just check` stayed green.
-pub(crate) type TextRun = (
-    usize,
-    alloc::string::String,
-    nexus_text_baked::FontSize,
-    [u8; 4],
-    nexus_layout_types::FontWeight,
-);
+/// SHARED on purpose: `probe::state`, `probe::paint::collect` and this module must agree, and
+/// three hand-written copies of a tuple is exactly how the OS build once broke while
+/// `just check` stayed green — a named struct breaks loudly instead.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct TextRun {
+    /// The node's pre-order id (= its `LayoutBox::node_id`).
+    pub(crate) node: usize,
+    pub(crate) content: alloc::string::String,
+    /// The baked face the style resolves to.
+    pub(crate) font: nexus_text_baked::FontSize,
+    /// BGRA.
+    pub(crate) color: [u8; 4],
+    /// The requested weight: a `.textFit` size re-resolves with it, since the face alone cannot
+    /// give it back.
+    pub(crate) weight: nexus_layout_types::FontWeight,
+    /// Letter-spacing (RFC-0116: the text style's tracking).
+    pub(crate) tracking: nexus_text_baked::Tracking,
+    /// The style's line box in px; the face's own band sits in it with half-leading.
+    pub(crate) line: i32,
+    /// `.textAlign`: where a run narrower than its box sits in it.
+    pub(crate) align: nexus_layout_types::TextAlign,
+}
 
 /// Pixel-equality of two boxes for damage purposes. `node_id` is
 /// deliberately ignored (see module doc); `hit_slop` never paints.
@@ -109,14 +121,14 @@ pub(crate) fn flat_fill(v: &nexus_layout_types::VisualStyle) -> bool {
 
 /// A plain rectangle: no gradient, border, corner, shadow, highlight, shape or glass.
 fn plain_rect(v: &nexus_layout_types::VisualStyle) -> bool {
-    use nexus_layout_types::{CornerRadius, EdgeBorder, ShapeKind, SurfaceMaterial};
+    use nexus_layout_types::{CornerRadius, EdgeBorder, ShapeKind};
     v.shape == ShapeKind::Rect
         && v.background_gradient.is_none()
         && v.border == EdgeBorder::default()
         && v.corner_radius == CornerRadius::default()
         && v.shadow.is_none()
         && v.inset_highlight.is_none()
-        && v.material == SurfaceMaterial::Opaque
+        && v.material.is_none()
 }
 
 /// The rows a box's own pixels can change between two geometries of the SAME
@@ -150,16 +162,25 @@ fn geometry_only(a: &LayoutBox, b: &LayoutBox) -> bool {
         && a.text_px == b.text_px
 }
 
-/// Whether the compositor's glass regions moved (a glass ROOT's rect, level,
-/// radius or shadow — what the structure's regions declare): only then must a
-/// geometry change re-declare them.
+/// Whether the compositor's regions moved (a region box's rect, material, radius, shadow or
+/// opacity — what the structure's regions declare, RFC-0116: a blur root or an opaque surface):
+/// only then must a geometry change re-declare them.
 pub(crate) fn glass_roots_changed(old: &[LayoutBox], new: &[LayoutBox]) -> bool {
-    use nexus_layout_types::SurfaceMaterial;
     let roots = |boxes: &[LayoutBox]| {
         boxes
             .iter()
-            .filter(|b| !b.glass_nested && matches!(b.visual.material, SurfaceMaterial::Glass(_)))
-            .map(|b| (b.rect, b.visual.material, b.visual.corner_radius, b.visual.shadow.is_some()))
+            .filter(|b| {
+                b.visual.material.is_some_and(|m| (m.blurs() && !b.glass_nested) || m.opaque())
+            })
+            .map(|b| {
+                (
+                    b.rect,
+                    b.visual.material,
+                    b.visual.corner_radius,
+                    b.visual.shadow.is_some(),
+                    b.visual.opacity,
+                )
+            })
             .collect::<alloc::vec::Vec<_>>()
     };
     roots(old) != roots(new)
@@ -297,10 +318,16 @@ fn base_rows(
     // `boxes[idx - 1]` is its box — guarded, a miss degrades to full.
     let (ot, nt) = (old_texts.len(), new_texts.len());
     let run_eq = |a: &TextRun, at: &[LayoutBox], b: &TextRun, bt: &[LayoutBox]| {
-        if a.1 != b.1 || a.2 != b.2 || a.3 != b.3 {
+        if a.content != b.content
+            || a.font != b.font
+            || a.color != b.color
+            || a.tracking != b.tracking
+            || a.line != b.line
+            || a.align != b.align
+        {
             return Some(false);
         }
-        let (ab, bb) = (at.get(a.0.checked_sub(1)?)?, bt.get(b.0.checked_sub(1)?)?);
+        let (ab, bb) = (at.get(a.node.checked_sub(1)?)?, bt.get(b.node.checked_sub(1)?)?);
         Some(ab.rect == bb.rect && ab.clip_rect == bb.clip_rect)
     };
     let mut tp = 0;
@@ -326,12 +353,12 @@ fn base_rows(
         }
     }
     for t in &old_texts[tp..ot - ts] {
-        let Some(b) = t.0.checked_sub(1).and_then(|i| old_boxes.get(i)) else { return None };
-        split(&mut span, b, held_old(t.0));
+        let Some(b) = t.node.checked_sub(1).and_then(|i| old_boxes.get(i)) else { return None };
+        split(&mut span, b, held_old(t.node));
     }
     for t in &new_texts[tp..nt - ts] {
-        let Some(b) = t.0.checked_sub(1).and_then(|i| new_boxes.get(i)) else { return None };
-        split(&mut span, b, held_new(t.0));
+        let Some(b) = t.node.checked_sub(1).and_then(|i| new_boxes.get(i)) else { return None };
+        split(&mut span, b, held_new(t.node));
     }
     let Some((y0, y1)) = span else {
         return Some((0, 0)); // state moved, pixels did not
@@ -351,7 +378,7 @@ fn base_rows(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nexus_layout_types::{FxPx, GlassLevel, Rect, Rgba8, SurfaceMaterial, VisualStyle};
+    use nexus_layout_types::{FxPx, Material, Rect, Rgba8, VisualStyle};
 
     fn boxed(id: usize, y: i32, h: i32) -> LayoutBox {
         LayoutBox {
@@ -372,7 +399,7 @@ mod tests {
     fn an_appended_overlay_damages_only_its_rows() {
         let old = vec![boxed(1, 0, 40), boxed(2, 40, 400)];
         let mut menu = boxed(3, 60, 175);
-        menu.visual.material = SurfaceMaterial::Glass(GlassLevel::Overlay);
+        menu.visual.material = Some(Material::Overlay);
         let new = vec![boxed(1, 0, 40), boxed(2, 40, 400), menu];
         let span = changed_row_span(&old, &new, &[], &[], 800);
         assert_eq!(span, Some((58, 237)), "overlay rows + 2px margin");
@@ -499,7 +526,7 @@ mod tests {
     #[test]
     fn glass_roots_change_only_with_a_glass_root() {
         let mut panel = boxed(3, 600, 120);
-        panel.visual.material = SurfaceMaterial::Glass(GlassLevel::Panel);
+        panel.visual.material = Some(Material::Panel);
         let old = vec![boxed(1, 0, 100), panel.clone()];
         let moved_band = vec![boxed(1, 0, 120), panel.clone()];
         assert!(!glass_roots_changed(&old, &moved_band));
@@ -530,18 +557,17 @@ mod tests {
         assert_eq!(span, Some((98, 132)));
     }
 
-    /// A text run for `node_id` carrying `content`, built THROUGH the
-    /// [`TextRun`] alias — the tuple's shape lives in exactly one place, so a
-    /// field added to the alias breaks here loudly instead of the tests
-    /// silently building a differently-shaped tuple (which is how they stopped
-    /// compiling when the requested weight was appended).
+    /// A text run for `node_id` carrying `content`.
     fn run(node_id: usize, content: &str) -> TextRun {
-        (
-            node_id,
-            alloc::string::String::from(content),
-            nexus_text_baked::FontSize::Small,
-            [0, 0, 0, 255],
-            nexus_layout_types::FontWeight::Regular,
-        )
+        TextRun {
+            node: node_id,
+            content: alloc::string::String::from(content),
+            font: nexus_text_baked::FontSize::S14W400,
+            color: [0, 0, 0, 255],
+            weight: nexus_layout_types::FontWeight::Normal,
+            tracking: nexus_text_baked::Tracking::NONE,
+            line: 20,
+            align: nexus_layout_types::TextAlign::Left,
+        }
     }
 }

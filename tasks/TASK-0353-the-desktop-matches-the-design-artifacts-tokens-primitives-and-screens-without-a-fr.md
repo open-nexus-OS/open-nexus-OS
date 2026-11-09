@@ -5,7 +5,7 @@ title: "The desktop matches the design artifacts: tokens, primitives and screens
 status: in_progress
 owner: ["@ui"]
 created: 2026-11-03
-updated: 2026-11-05
+updated: 2026-11-09
 subsystem: ui
 components: [desktop-shell, app-host, windowd, window-kit, widgets]
 kind: ui
@@ -41,13 +41,16 @@ phases:
     done: 2026-11-03
     evidence: "docs/dev/ui/foundations/quality/latency-reference.md (7 numbers, >= 2 sources each; 60 Hz reference panel, 50 ms tap, 16.7 ms frame, 200-400 ms springs critically damped)"
   - id: P2
-    story: "tokens and primitives carry the new design (colour, type, radii, spacing)"
-    state: planned
-    gate: "host goldens updated; token deltas 0 of M"
+    story: "the themes, the theme crate, the typed tokens and the DSL speak the design artifacts' reduced set and nothing else: 31 colour roles, 12 text styles, the 4-pt grid, 5 radii, 6 shadows, 4 materials, 5 control heights - in light, dark and high contrast; the old names are gone from themes, code and apps (RFC-0116)"
+    state: done
+    gate: "repo-wide search: 0 old token names in resources/themes, theme-tokens, the DSL registries, userspace/apps and userspace/ui; every role resolves in light, dark and high contrast (theme tests); host goldens updated"
+    started: 2026-11-09
+    done: 2026-11-09
+    evidence: build/logs/host--2026-11-09T-p2-tokens
   - id: P3
-    story: "every screen of the artifacts looks like the artifact on the board"
+    story: "every screen of the artifacts looks like the artifact on the board: the top bar, the panels, the launcher, the taskbar, the toasts, the lock screen, the window chrome, Settings, Stash, Calculator, Chat and the on-screen keyboard, in light and dark"
     state: planned
-    gate: "board-visual acked for N of N screens; deltas 0 of M"
+    gate: "board-visual acked for N of N screens in light and dark; deltas 0 of M (the P0 inventory)"
   - id: P4
     story: "the new design costs the frame nothing"
     state: planned
@@ -60,6 +63,16 @@ phases:
     story: "userspace/apps and userspace/ui/widgets hold only what ships: demo-exit0 and launcher removed, widgets/window/chrome removed if nothing uses it"
     state: planned
     gate: "0 references to demo-exit0, apps/launcher and window::chrome in code, manifests, product.toml, markers and qemu-test.sh (or chrome's user named and kept); just test-all green"
+  - id: P7
+    story: "the primitives follow the artifacts' components: the shape follows the role (capsule, circle, value field, computed container radius), every control of a size has one height, hover and press show a fill layer without repainting the element, and only the surface on the wallpaper blurs"
+    state: building
+    gate: "host goldens per primitive in light and dark (widgets, window-kit); a hover in the lanes rasters no element row (apphost hops input); 0 nested blurs in the shell's frames (gpud blend kinds)"
+    started: 2026-11-09
+  - id: P8
+    story: "the pointer follows the theme: the dark pointer in light mode, the white one in dark mode, every shape (arrow, text, resize, the wait ring) switched with the theme without a restart"
+    state: building
+    gate: "QEMU: windowd: cursor theme (mode=light set=black) and (mode=dark set=white) after a theme switch; host: both sprite sets rendered from the one source; board: both acked"
+    started: 2026-11-05
 ---
 
 ## The ask

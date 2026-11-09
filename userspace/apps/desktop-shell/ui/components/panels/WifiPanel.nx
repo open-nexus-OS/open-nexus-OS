@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// WLAN panel (design artifacts: panels §6): 300 wide, radius 30, top right,
+// WLAN panel (design artifacts: panels §6): 300 wide, radius xl 24, top right,
 // DESKTOP mode only — in touch modes its contents fold into the Control
 // Center, which is why nothing here duplicates a tile the CC already owns
 // except "Nur Kabel", a wired-networking choice the CC has no room for.
@@ -20,14 +20,15 @@ Component WifiPanel {
             SectionTitle { label: @t("panels.wifi") }
             Spacer
             Stack {
-                GlassToggle { checked: $state.wifiOn }
+                Toggle { checked: $state.wifiOn, label: @t("panels.wifi") }
             }
             .direction(row)
             on Tap -> dispatch(ToggleWifi)
         }
         .direction(row)
         .align(center)
-        .paddingX(1)
+        .paddingX(2)
+        .paddingBottom(4)
         Stack {
             Stack {
                 ToggleTile {
@@ -35,15 +36,15 @@ Component WifiPanel {
                     label: @t("wifi.wiredOnly"),
                     subOn: @t("wifi.wiredOnlyOn"),
                     subOff: @t("wifi.wiredOnlyOff"),
-                    accent: "#3b82f6",
+                    tint: "accent",
                     active: $state.wiredOnly,
                 }
             }
             .direction(row)
             on Tap -> dispatch(ToggleWiredOnly)
         }
-        .padding(3)
-        .rounded(20)
+        .padding(12)
+        .rounded(16)
         .material(card)
         GroupLabel { label: @t("wifi.available") }
         if $state.wifiOn && $state.wiredOnly == false {
@@ -69,8 +70,8 @@ Component WifiPanel {
                 .direction(row)
                 on Tap -> dispatch(PickNet("cafe"))
             }
-            .padding(1)
-            .rounded(20)
+            .padding(4)
+            .rounded(16)
             .material(card)
         } else {
             // Dimmed AND inert: no tap handlers at all, so a disabled list
@@ -81,19 +82,18 @@ Component WifiPanel {
                 RadioRow { label: @t("wifi.net.neighbour"), sub: "", icon: "", bars: 2, locked: true, active: $state.selectedNet == "neighbour" }
                 RadioRow { label: @t("wifi.net.cafe"), sub: "", icon: "", bars: 1, locked: false, active: $state.selectedNet == "cafe" }
             }
-            .padding(1)
-            .rounded(20)
+            .padding(4)
+            .rounded(16)
             .material(card)
-            .opacity(102)
+            .opacity(115)
         }
     }
     .width(300)
-    .gap(2)
-    .paddingX(4)
-    .paddingTop(3)
-    .paddingBottom(4)
-    .rounded(30)
+    .gap(8)
+    .paddingX(16)
+    .paddingTop(8)
+    .paddingBottom(16)
+    .rounded(xl)
     .material(panel)
-    .shadow(xxl)
     .transition(slideDown)
 }

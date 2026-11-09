@@ -55,6 +55,42 @@ fn texts(v: &View<'_>) -> Vec<String> {
     out
 }
 
+/// Every text node with its layout node id (pre-order, absolute children after their in-flow
+/// siblings — the order the layout engine numbers boxes in) and its style.
+fn text_nodes(v: &View<'_>) -> Vec<(usize, String, nexus_layout_types::TextStyle)> {
+    use nexus_layout_types::{LayoutNode, Position};
+    fn walk(
+        n: &LayoutNode,
+        index: &mut usize,
+        out: &mut Vec<(usize, String, nexus_layout_types::TextStyle)>,
+    ) {
+        *index += 1;
+        match n {
+            LayoutNode::Text(t, _) => {
+                out.push((*index, String::from(t.content.as_str()), t.style.clone()))
+            }
+            LayoutNode::Stack(_, _, c) => {
+                let absolute = |c: &&LayoutNode| matches!(c.item().position, Position::Absolute);
+                for ch in c.iter().filter(|c| !absolute(c)) {
+                    walk(ch, index, out);
+                }
+                for ch in c.iter().filter(absolute) {
+                    walk(ch, index, out);
+                }
+            }
+            LayoutNode::Grid(_, _, c) => {
+                for ch in c {
+                    walk(ch, index, out);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    walk(v.scene(), &mut 0, &mut out);
+    out
+}
+
 #[test]
 fn the_whole_pipeline_from_tap_to_pixels() {
     let nxir = common::compile("calculator");
@@ -158,11 +194,21 @@ fn the_whole_pipeline_from_tap_to_pixels() {
     );
 
     // ---- stage 5: the value has a real box ---------------------------------
+    // The display numeral is the "7" above the keypad (the key's own label is the other "7").
+    // Its style follows the number's length (the design artifacts: display 64 Light for a short
+    // number), so it is found by its text, not by a fitted size.
     let after = lay(&view);
-    let display_box = after
-        .boxes
-        .iter()
-        .find(|b| b.rect.y.0 < 130 && b.rect.width.0 > 0 && b.text_px.is_some())
+    let key_top = key_boxes.iter().map(|(_, b)| b.rect.y.0).min().unwrap_or(i32::MAX);
+    let (display_box, style) = text_nodes(&view)
+        .into_iter()
+        .filter(|(_, content, _)| content == "7")
+        .find_map(|(id, _, style)| {
+            after
+                .boxes
+                .iter()
+                .find(|b| b.node_id == id && b.rect.y.0 < key_top && b.rect.width.0 > 0)
+                .map(|b| (b.clone(), style))
+        })
         .expect("stage 5: the display numeral has no box");
     assert!(
         display_box.rect.height.0 > 0,
@@ -171,10 +217,12 @@ fn the_whole_pipeline_from_tap_to_pixels() {
     );
 
     // ---- stage 6: the glyphs rasterise -------------------------------------
-    let font = nexus_text_baked::FontSize::nearest(
-        display_box.text_px.expect("fitted").0,
-        nexus_text_baked::Weight::Light,
-    );
+    let font = match display_box.text_px {
+        Some(px) => {
+            nexus_text_baked::FontSize::nearest(px.0, BakedTextMeasure::weight(style.font_weight))
+        }
+        None => BakedTextMeasure::font(&style),
+    };
     let mut ink = 0u32;
     for row in 0..nexus_text_baked::line_height(font) {
         let mut buf = vec![0u8; (display_box.rect.width.0.max(1) * 4) as usize];
@@ -186,6 +234,7 @@ fn the_whole_pipeline_from_tap_to_pixels() {
             display_box.rect.width.0.max(1) as u32,
             "7".chars(),
             font,
+            nexus_text_baked::Tracking::NONE,
             [255, 255, 255, 255],
         );
         ink += buf.chunks_exact(4).map(|p| u32::from(p[3])).sum::<u32>();

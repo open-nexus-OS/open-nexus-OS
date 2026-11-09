@@ -5,7 +5,7 @@ role: reference
 subsystem: devx
 sources: [source/apps/selftest-client/proof-manifest, source/libs/nexus-proof-manifest, source/apps/selftest-client/build.rs, source/apps/selftest-client/src/os_lite/profile.rs, tools/qmp_scenario.py]
 contracts: [RFC-0038, RFC-0014, ADR-0027, ADR-0089]
-verified: 2026-11-04
+verified: 2026-11-09
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -111,6 +111,10 @@ retry = 2
 | `settle_s` | a declared pause with no event to wait for (bounded) |
 
 A `click` is also acknowledged by app-host's tap readback; a miss (`input tap miss at`) is retried.
+A launch step ends on the app's first frame, app-host's launch line (`apphost: ux launch `): a
+window has one surface, laid out for its store when it is created. A tile and its return
+re-create the surface, so their steps still `expect` `apphost: resized` and `then` the new
+surface's first present (`WINDOWD: surface presented id=`).
 Points and typed words come from `scenarios/targets.toml` (`[targets]`, `[words]`), the same file
 the shell conformance tests in `tests/dsl_apps_conformance/tests/` read. Every step logs its
 duration (`scenario step ok`). The contract is checked on the host:

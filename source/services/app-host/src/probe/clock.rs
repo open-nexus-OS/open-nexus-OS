@@ -157,7 +157,7 @@ impl super::DslApp {
         };
         if reemit_ok {
             self.relayout_retained();
-            self.hovered = None;
+            self.interaction_reset();
             self.anim_sync();
             changed = true;
         }
@@ -215,7 +215,7 @@ impl super::DslApp {
             return false;
         }
         self.relayout_retained();
-        self.hovered = None;
+        self.interaction_reset();
         self.anim_sync();
         // Bounded end-to-end proof (RFC-0077): ≤8 per boot, tag only.
         static LOCALE_MARKS: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);

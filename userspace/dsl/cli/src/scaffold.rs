@@ -28,9 +28,9 @@ pub fn cmd_init(args: &[String]) -> ExitCode {
         ),
         (
             "ui/pages/MainPage.nx",
-            "Page MainPage {\n    Stack {\n        Text($state.title).textSize(lg)\n        \
+            "Page MainPage {\n    Stack {\n        Text($state.title).textStyle(title3)\n        \
              Button { label: \"Count\" }\n        on Tap -> dispatch(Increment)\n    }\n    \
-             .padding(4)\n    .gap(2)\n}\n",
+             .padding(4)\n    .gap(8)\n}\n",
         ),
         ("ui/pages/Routes.nx", "Routes {\n    \"/\" -> MainPage;\n}\n"),
     ];
@@ -76,7 +76,7 @@ pub fn cmd_add(args: &[String]) -> ExitCode {
         "page" => (
             format!("ui/pages/{name}.nx"),
             format!(
-                "Page {name} {{\n    Stack {{\n        Text(\"{name}\")\n    }}\n    .padding(4)\n}}\n"
+                "Page {name} {{\n    Stack {{\n        Text(\"{name}\")\n    }}\n    .padding(16)\n}}\n"
             ),
         ),
         "component" => (

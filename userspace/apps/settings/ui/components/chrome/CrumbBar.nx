@@ -40,5 +40,5 @@ Component CrumbBar {
     }
     .direction(row)
     .align(center)
-    .gap(2)
+    .gap(8)
 }

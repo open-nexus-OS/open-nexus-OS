@@ -13,10 +13,10 @@ Component SectionRow {
     }
     Stack {
         Icon { symbol: $props.icon, size: 13 }
-            .fg(onGlassMuted)
-        Text($props.label).textSize(xs).fontWeight(semibold).leading(tight).fg(onGlassMuted)
+            .fg(labelSecondary)
+        Text($props.label).textStyle(caption).fontWeight(semibold).fg(labelSecondary)
     }
     .direction(row)
     .align(center)
-    .gap(1)
+    .gap(6)
 }

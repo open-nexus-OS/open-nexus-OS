@@ -131,25 +131,37 @@ Track C (Tier 1). Concurrent animations are capped at `MAX_NODE_ANIMS` /
 
 ### Interaction motion (design feel)
 
-Pointer interactions ride the SAME driver + per-node transform (no extra loop):
-**hover** springs the hovered handler box to 1.06, cascading to the contained
-subtree anchored at the control's center; **press** dips to 0.92 and pops
-elastically past identity (280 ms keyframe).
+Pointer interactions follow the design artifacts' interaction rules (RFC-0116).
+**Hover never changes a control** — no scale, no repaint: it shows the control's
+HOVER LAYER, and a press its PRESS LAYER, by opacity alone. Each layer is a WASH
+the compositor draws (RFC-0109, materials rule 3): a patch of the store in the
+theme's colour (`fillHover` / `fillActive`; over a tint fill — accent, danger,
+label… — the on-fill pair, white 14 % / black 12 %) spread over the control the
+hover anchors (`app-host/src/hover_wash.rs` picks the child that really draws
+the control, so a pill's wash follows the pill's radius, not its square
+wrapper's), moved with its scroll layer. The app fades the opacity on the frame
+pulse — hover over `swift` (160 ms), press over `instant` (100 ms), the `smooth`
+curve — and states it per frame as motion, never a raster
+(`app-host/src/interaction_layer.rs`).
 
-The hover's plate is no paint: it is a WASH LAYER the compositor draws
-(RFC-0109, materials rule 3) — the theme's `glassHover` patch spread over the
-control the hover anchors (`app-host/src/hover_wash.rs` picks the child that
-really draws the control, so a pill's wash follows the pill's radius, not its
-square wrapper's), moved with its scroll layer, its opacity the colour's alpha.
-A hover change re-rasters nothing; the grow spring above is the remaining
-raster motion (motion as layer properties is the follow-on).
+A **press is held**: windowd's TAP is the press, its RELEASE the release (or the
+pointer leaving the control). While it is down the control dips on the SAME
+driver + per-node transform the declared motion uses, by its category
+(`app-host/src/press_kind.rs`, from the shape the v3 rules give a role): an
+action control (capsule or circle) to 0.95 — `instant` ease-out down, `quick`
+spring-soft back; a ghost circle of a window's chrome to 0.88 on the same
+curves; an app icon's TILE (the image that is the control; the label stays) to
+0.92 on the icon spring both ways, with no layer unless a rounded button holds
+it; a row, a tile, a field keep their size and show the press layer only.
 
 Kinds that animate a PART instead of the whole control carry
 a structural `press_offset` on their handler (`registry::press_offset`, like
-`child_path`): the **toggle** stretches its THUMB along the travel axis
+`child_path`) and take no layer: the **toggle** stretches its THUMB along the
+travel axis by `round(w · 0.3)`, anchored to the end it stands at
 (`NodeAnim.scale_y_pct` — a non-uniform-scale superset where `None` mirrors the
 uniform scale byte-identically, radius follows the SMALLER axis so the knob
-stays a capsule) and elastically slides it in from the old end after the flip.
+stays a capsule), slides it in from the old end after the flip — `quick`,
+spring-soft — and lets the stretch go with the release.
 
 ### Widget animation (kit widgets)
 

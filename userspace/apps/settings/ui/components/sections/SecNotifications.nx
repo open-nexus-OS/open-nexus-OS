@@ -35,5 +35,5 @@ Component SecNotifications {
             }
         }
     }
-    .gap(3)
+    .gap(24)
 }

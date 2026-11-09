@@ -5,7 +5,7 @@ title: "Type ramp v2 + on-glass surface tokens"
 status: in_progress
 owners: ["@ui"]
 created: 2026-07-26
-updated: 2026-07-26
+updated: 2026-11-09
 subsystem: ui
 tasks: [TASK-0305]
 links:
@@ -22,6 +22,8 @@ links:
 ---
 
 # RFC-0082: Type ramp v2 + on-glass surface tokens
+
+> **Superseded in part by [RFC-0116](RFC-0116-one-token-set-the-design-artifacts-roles-text-styles-grid-shapes-and-materials.md)** — its type ramp (`textSize`, `leading`, the sparse ladder) and its on-glass roles (`onGlass*`, `glass*` text roles, `textShadow`) are replaced by the twelve text styles and the label roles; its atlas mechanics (the baked shared atlas, the charset budget, the fallback face) stay.
 
 ## Status at a Glance
 

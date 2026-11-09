@@ -4,37 +4,32 @@
 // The stacked mail card (design artifacts: panels §4): a badged front card with a
 // second card showing behind it, so "several" reads without listing them.
 //
-// The design overlaps the two — the back card is full size, inset 8px per
-// side and translated 7px DOWN, so only that sliver of it shows. There is no
-// transform here and no negative margin, so the sliver is a real box below the
-// front card. It has to be tall enough to carry a card's corner radius: at the
-// design's 7px the radius clamps to 3.5 and the thing reads as a pill bar
-// rather than the bottom edge of a card, which is exactly how it looked. 10px
-// with a 10px radius reads as an edge; dimming it and letting the front card's
-// shadow fall across it puts it behind.
-//
-// `.overlay()` is deliberately not used to get a true overlap: it lifts a
-// child OUT of flow and paints it LAST, i.e. in FRONT of the card it is
-// supposed to sit behind.
+// The design overlaps the two (the back card is full size, inset 8 px and
+// 7 px lower). There is no transform or negative margin, so the peek is a real
+// band under the front card: 8 inset per side, 7 px high, rounded only at the
+// bottom (`.corners`), on a `card` layer with the front card's shadow falling
+// across it — it reads as the lower edge of a card behind.
 
 Component NotifStack {
     Stack {
         NotifCard {
+            kind: "mail",
             appId: "chat",
             app: @t("notif.mail"),
             time: @t("notif.t5min"),
             title: @t("notif.mailTitle"),
             body: @t("notif.mailBody"),
             badge: @t("notif.mailCount"),
+            act1: "",
+            act2: "",
         }
         Stack {
             Stack { }
-                .height(10)
-                .rounded(10)
+                .height(7)
+                .corners(0, 0, 7, 7)
                 .material(card)
-                .opacity(190)
         }
-        .paddingX(2)
+        .paddingX(8)
     }
     .gap(0)
 }

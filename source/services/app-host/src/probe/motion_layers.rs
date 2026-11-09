@@ -118,10 +118,11 @@ fn union(a: Option<(i32, i32)>, b: (i32, i32)) -> Option<(i32, i32)> {
     Some(a.map_or(b, |a| (a.0.min(b.0), a.1.max(b.1))))
 }
 
-/// The patch a layer in slot `k` draws its backdrop from: patch 0 is the hover wash's, the rest
-/// one per slot while the structure's patches last.
+/// The patch a layer in slot `k` draws its backdrop from: the first and the last patch are the
+/// interaction layers' (`crate::interaction_layer::WIRE_PATCHES`), the ones between one per slot
+/// while they last (a layer past them paints its backdrop into its store rows).
 fn backdrop_patch(k: usize) -> Option<usize> {
-    (k + 1 < lw::MAX_PATCHES).then_some(k + 1)
+    (k + 2 < lw::MAX_PATCHES).then_some(k + 1)
 }
 
 impl super::DslApp {
@@ -277,7 +278,7 @@ impl super::DslApp {
 
     /// Whether node `node_id` carries a text run (it paints glyphs).
     fn has_text(&self, node_id: usize) -> bool {
-        self.texts.binary_search_by_key(&node_id, |t| t.0).is_ok()
+        self.texts.binary_search_by_key(&node_id, |t| t.node).is_ok()
     }
 
     /// The placed motion layer whose subtree holds node `node_id`.

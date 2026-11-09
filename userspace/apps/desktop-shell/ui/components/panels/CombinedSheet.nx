@@ -1,0 +1,39 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The combined Kalender + Mitteilungen sheet (design artifacts: MobilePanels, phone
+// and portrait tablet): the touch modes' one way to the calendar and to the
+// notifications. Anchored top 44 / left 12 / bottom 12 by `PanelHost`, at most
+// 406 wide, on an `overlay` surface (opaque, shadow3 + the lit top edge) with
+// radius xl 24 and padding 16 all round.
+//
+// Content, top to bottom, in one vertical scroll layer: the calendar at its md
+// sizes (`CalendarBody`), a 1 px separator, then the notifications with the
+// "Lautlos" tier collapsed (`NotificationsBody { sheet: true }`). There is no
+// header and no grabber. The design's 28 px bottom fade is a mask the DSL does
+// not have; the scroll viewport clips instead.
+
+Component CombinedSheet {
+    Stack {
+        Stack {
+            CalendarBody { }
+            Stack {
+                Stack { }
+                    .height(1)
+                    .bg(separator)
+            }
+            .paddingX(2)
+            NotificationsBody { sheet: true }
+        }
+        .gap(16)
+        .padding(16)
+        .scroll(vertical)
+        .grow(1)
+    }
+    .grow(1)
+    .maxWidth(406)
+    .rounded(xl)
+    .material(overlay)
+    .overflow(hidden)
+    .transition(slideDown)
+}

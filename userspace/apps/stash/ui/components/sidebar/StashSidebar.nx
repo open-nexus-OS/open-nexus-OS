@@ -1,0 +1,37 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The places sidebar on the window glass (a bare `WinPane`: no surface of its
+// own, in an overlay the overlay IS the surface): a 44 px "Navigation" header
+// strip, the eight places as 36 px rows with 18 px glyphs, and the account
+// block as the footer strip. The rows dispatch `WinMenuPick(id)`, which the
+// navigation store routes to a real path. The account block is not a button.
+
+Component StashSidebar {
+    WinPane { title: "", showHeader: true, showFooter: true, bare: true, flush: true, scrolls: false, noDividers: false } {
+        header {
+            Text(@t("stash.nav")).textStyle(subheadline).fontWeight(semibold).fg(labelSecondary)
+        }
+        body {
+            Stack {
+                WinSideItem { id: "nav.recent", label: @t("stash.recent"), sub: "", icon: "star", iconSize: 18, active: $state.section == "recent" }
+                WinSideItem { id: "nav.pictures", label: @t("stash.pictures"), sub: "", icon: "photo", iconSize: 18, active: $state.section == "pictures" }
+                WinSideItem { id: "nav.videos", label: @t("stash.videos"), sub: "", icon: "film", iconSize: 18, active: $state.section == "videos" }
+                WinSideItem { id: "nav.audio", label: @t("stash.audio"), sub: "", icon: "music.note", iconSize: 18, active: $state.section == "audio" }
+                WinSideItem { id: "nav.docs", label: @t("stash.docs"), sub: "", icon: "doc.text", iconSize: 18, active: $state.section == "docs" }
+                WinSideItem { id: "nav.downloads", label: @t("stash.downloads"), sub: "", icon: "arrow.down.circle", iconSize: 18, active: $state.section == "downloads" }
+                WinSideItem { id: "nav.storage", label: @t("stash.storage"), sub: "", icon: "internaldrive", iconSize: 18, active: $state.section == "storage" }
+                WinSideItem { id: "nav.trash", label: @t("stash.trash"), sub: "", icon: "trash", iconSize: 18, active: $state.section == "trash" }
+            }
+            .gap(0)
+        }
+        footer {
+            Avatar { initials: "J", size: 34 }
+            Stack {
+                Text(@t("stash.userName")).textStyle(subheadline).fontWeight(medium).fg(label)
+                Text(@t("stash.userSub")).textStyle(caption).fg(labelSecondary)
+            }
+            .gap(0)
+        }
+    }
+}

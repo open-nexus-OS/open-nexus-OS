@@ -1,0 +1,33 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The transcript: the window's scroll layer (RFC-0109), one row per resident message — yours
+// pushed right, the peer's left, by the message's sequence parity — and its end loads the next
+// page (`EndReached` → `LoadMore`).
+
+Component ChatTranscript {
+    Stack {
+        List($state.messages) { msg in
+            Stack {
+                if msg.seq % 2 == 0 {
+                    Spacer
+                } else {
+                    Stack { }
+                }
+                ChatBubble { mine: msg.seq % 2 == 0, text: msg.text }
+                if msg.seq % 2 == 0 {
+                    Stack { }
+                } else {
+                    Spacer
+                }
+            }
+            .direction(row)
+            .key(msg.seq)
+        }
+        .gap(8)
+    }
+    .grow(1)
+    .padding(12)
+    .scroll(vertical)
+    on EndReached -> dispatch(LoadMore)
+}

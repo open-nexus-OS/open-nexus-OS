@@ -112,7 +112,7 @@ pub(super) fn rejoin(
             let _ = nexus_abi::cap_close(send);
             continue;
         }
-        let intent = wire::encode_surface_intent(win.style, win.level, win.mode, false, win.nonce);
+        let intent = win.frame();
         if client.send(&intent, Wait::Blocking).is_err() {
             continue;
         }

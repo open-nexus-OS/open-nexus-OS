@@ -18,7 +18,11 @@
 //
 // Each layer is emitted by exactly one store field (`powerPrompt`, `toast`)
 // and leaves only through the kit's dispatched events — the runtime never
-// hides an overlay by itself.
+// hides an overlay by itself. ONE system toast at a time (`toast` holds one
+// id), under the top bar at the left edge (the kit places it); its tone says
+// what kind of news it is — a saved capture `accent` (the design's own
+// example), a capture that failed `danger`, a feature with no service behind
+// it yet `warning`.
 
 Component ShellOverlays {
     Stack {
@@ -50,6 +54,7 @@ Component ShellOverlays {
                 icon: "camera",
                 title: @t("capture.savedTitle"),
                 subtitle: $state.capSaved,
+                tone: "accent",
             }
         } else {
             if $state.toast == "capture" && $state.capToast == "failed" {
@@ -58,6 +63,7 @@ Component ShellOverlays {
                     icon: "camera",
                     title: @t("capture.failedTitle"),
                     subtitle: @t("capture.failedBody"),
+                    tone: "danger",
                 }
             } else {
                 Stack { }
@@ -69,6 +75,7 @@ Component ShellOverlays {
                 icon: "power",
                 title: @t("power.toastTitle"),
                 subtitle: @t("power.toastBody"),
+                tone: "warning",
             }
         } else {
             Stack { }

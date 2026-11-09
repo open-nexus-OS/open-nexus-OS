@@ -16,10 +16,10 @@ Component SearchModeButton {
     if $props.inert {
         Circle { size: 44
             Icon { symbol: $props.icon, size: 17 }
-                .fg(onGlassMuted)
+                .fg(labelSecondary)
         }
         .material(panel)
-        .shadow(xl)
+        .shadow(shadow3)
         .opacity(140)
         .label($props.label)
     } else {
@@ -32,15 +32,15 @@ Component SearchModeButton {
                 .bg(accent)
             }
             .material(panel)
-            .shadow(xl)
+            .shadow(shadow3)
             .label($props.label)
         } else {
             Circle { size: 44
                 Icon { symbol: $props.icon, size: 17 }
-                    .fg(onGlass)
+                    .fg(label)
             }
             .material(panel)
-            .shadow(xl)
+            .shadow(shadow3)
             .label($props.label)
         }
     }

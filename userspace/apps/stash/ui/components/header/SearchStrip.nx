@@ -1,0 +1,74 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The search strip, between the header and the list: a 30 px capsule on the
+// `fill` layer (padding 0 12, gap 6, magnifier 14), clear and "Cancel"
+// beside it. Closed, it draws nothing.
+//
+// `TextField { variant: "bare" }`, NOT `SearchBar`: `SearchBar` renders a
+// `TextInput` but is absent from the auto-bind list, so its hit does not
+// resolve to a `Bind` and `focus_text_at` clears focus — it could not be typed
+// into. `bare` keeps the widget from drawing its own box inside this one.
+//
+// `on Change` on the WRAPPER is the live-filter contract: the auto-bind writes
+// `searchQuery` and the dispatch re-issues the listing per keystroke. The
+// wrapper has to be a ROW and the FIELD carries `.grow(1)`, because the hit
+// box is the `TextInput` itself — a default (column) stack grows a child's
+// height while leaving its width intrinsic, and a click right of the text
+// would claim no focus (windowd would drop every imed commit). `.label(…)` is
+// the a11y name (renders nothing); the `label:` prop would draw a caption.
+// `.transition(fade)` is enter-only by design: the field fades in, closes hard.
+
+Component SearchStrip {
+    if $state.searchOpen == 1 {
+        Stack {
+            Stack {
+                Icon { symbol: "magnifyingglass", size: 14 }
+                    .fg(labelSecondary)
+                Stack {
+                    TextField {
+                        value: $state.searchQuery,
+                        placeholder: @t("stash.searchHint"),
+                        variant: "bare",
+                    }
+                    .grow(1)
+                    .label(@t("stash.searchHint"))
+                }
+                .direction(row)
+                .align(center)
+                .grow(1)
+                on Change -> dispatch(SearchChanged)
+                Stack {
+                    Icon { symbol: "xmark", size: 12 }
+                        .fg(labelSecondary)
+                }
+                .width(24)
+                .height(24)
+                .rounded(full)
+                .align(center)
+                .justify(center)
+                on Tap -> dispatch(SearchClear)
+            }
+            .direction(row)
+            .align(center)
+            .gap(6)
+            .paddingX(12)
+            .height(30)
+            .rounded(full)
+            .bg(fill)
+            .grow(1)
+            Stack {
+                Text(@t("stash.cancel")).textStyle(subheadline).fontWeight(medium).fg(accent)
+            }
+            on Tap -> dispatch(WinTool("magnifyingglass"))
+        }
+        .direction(row)
+        .align(center)
+        .gap(12)
+        .paddingX(12)
+        .paddingY(8)
+        .transition(fade)
+    } else {
+        Stack { }
+    }
+}

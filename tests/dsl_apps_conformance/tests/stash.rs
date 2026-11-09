@@ -14,7 +14,7 @@
 mod common;
 
 use nexus_dsl_runtime::{FixtureEnv, IdentityLocale, NoIo, View};
-use nexus_layout_types::{LayoutNode, SurfaceMaterial};
+use nexus_layout_types::{LayoutNode, Material};
 
 fn children(node: &LayoutNode) -> &[LayoutNode] {
     match node {
@@ -74,6 +74,18 @@ fn with_stash<R>(
     f(&mut view, &tokens, &device, &locale)
 }
 
+/// The event type that declares `case`. The state is split by domain (one `Event` binds to one
+/// `Store`), so a case no longer lives in one `StashEvent`: the window kit's cases are in
+/// `WindowEvent` / `ToolbarEvent` / `NavEvent`, the rest by their domain.
+fn event_of(case: &str) -> &'static str {
+    match case {
+        "Pick" => "SelectionEvent",
+        "WinTool" => "ToolbarEvent",
+        "SettingsOpen" | "SettingsClose" => "ViewEvent",
+        _ => "WindowEvent",
+    }
+}
+
 /// Dispatches an event case by name with no payload.
 fn fire(
     view: &mut View<'_>,
@@ -84,7 +96,7 @@ fn fire(
 ) {
     let (event, case_idx) = view
         .runtime()
-        .event_case("StashEvent", case)
+        .event_case(event_of(case), case)
         .unwrap_or_else(|| panic!("stash declares `{case}`"));
     let mut host = NoIo;
     view.dispatch(tokens, device, locale, &mut host, event, case_idx, Vec::new())
@@ -99,19 +111,20 @@ fn stash_compiles_and_mounts() {
     });
 }
 
-/// All three regions carry a `windowPane` surface, written by THIS APP in the
-/// slot bodies — the scaffold paints nothing (see `window_kit.rs`). The levels
-/// are the assertion, not the count: `panel` here would be the near-black dock
-/// tile that made the file listing read as a black slab inside a grey window.
+/// The content and the properties regions carry a `pane` surface (the kit's `WinPane`); the
+/// sidebar is bare on the window glass (the design's AppWindow: no pane behind the places). The
+/// materials are the assertion, not the count: `panel` here would be a blur surface on the
+/// wallpaper inside a window (RFC-0116: one blur per stack). The properties pane is hidden at
+/// launch, so it is opened first.
 #[test]
-fn every_region_carries_a_window_pane_the_app_wrote_itself() {
-    use nexus_layout_types::GlassLevel;
-    with_stash(|view, _, _, _| {
+fn the_content_and_properties_regions_carry_a_window_pane() {
+    with_stash(|view, tokens, device, locale| {
+        fire(view, tokens, device, locale, "WinRight");
         let mut levels = Vec::new();
-        fn walk(node: &LayoutNode, out: &mut Vec<GlassLevel>) {
+        fn walk(node: &LayoutNode, out: &mut Vec<Material>) {
             if let LayoutNode::Stack(_, visual, _) = node {
-                if let SurfaceMaterial::Glass(level) = visual.material {
-                    out.push(level);
+                if let Some(material) = visual.material {
+                    out.push(material);
                 }
             }
             for child in children(node) {
@@ -119,15 +132,15 @@ fn every_region_carries_a_window_pane_the_app_wrote_itself() {
             }
         }
         walk(view.scene(), &mut levels);
-        let panes = levels.iter().filter(|l| **l == GlassLevel::WindowPane).count();
-        assert_eq!(panes, 3, "sidebar, content and properties each write one pane: {levels:?}");
+        let panes = levels.iter().filter(|l| **l == Material::Pane).count();
+        assert_eq!(panes, 2, "content and properties each carry one pane: {levels:?}");
         assert!(
-            levels.contains(&GlassLevel::WindowBar),
-            "the floating action bar is the denser `windowBar` level: {levels:?}"
+            levels.contains(&Material::Overlay),
+            "the floating action bar is the opaque `overlay` surface: {levels:?}"
         );
         assert!(
-            !levels.contains(&GlassLevel::Panel),
-            "no region may fall back to the wallpaper-tile `panel` level: {levels:?}"
+            !levels.iter().any(|m| m.blurs()),
+            "no region inside the window may blur (one blur per stack): {levels:?}"
         );
     });
 }
@@ -135,6 +148,7 @@ fn every_region_carries_a_window_pane_the_app_wrote_itself() {
 #[test]
 fn settings_mode_replaces_the_content_and_hides_the_properties_pane() {
     with_stash(|view, tokens, device, locale| {
+        fire(view, tokens, device, locale, "WinRight");
         let before = texts(view.scene());
         assert!(
             before.iter().any(|t| t == "Properties"),
@@ -165,6 +179,7 @@ fn settings_mode_replaces_the_content_and_hides_the_properties_pane() {
 #[test]
 fn the_properties_pane_follows_the_selection() {
     with_stash(|view, tokens, device, locale| {
+        fire(view, tokens, device, locale, "WinRight");
         let empty = texts(view.scene());
         assert!(
             empty.iter().any(|t| t.starts_with("Select a file")),
@@ -172,7 +187,7 @@ fn the_properties_pane_follows_the_selection() {
         );
 
         let (event, case) =
-            view.runtime().event_case("StashEvent", "Pick").expect("stash declares Pick");
+            view.runtime().event_case("SelectionEvent", "Pick").expect("stash declares Pick");
         let mut host = NoIo;
         let payload = vec![
             nexus_dsl_runtime::Value::Str(String::from("IMG_4521.jpg")),
@@ -199,7 +214,7 @@ fn the_action_bar_swaps_its_items_on_selection() {
         assert!(idle.iter().any(|t| t == "New"), "no selection = create/sort: {idle:?}");
         assert!(!idle.iter().any(|t| t == "Move"), "no file actions yet: {idle:?}");
 
-        let (event, case) = view.runtime().event_case("StashEvent", "Pick").expect("Pick");
+        let (event, case) = view.runtime().event_case("SelectionEvent", "Pick").expect("Pick");
         let mut host = NoIo;
         let payload = vec![
             nexus_dsl_runtime::Value::Str(String::from("a.txt")),
@@ -226,8 +241,10 @@ fn the_search_field_opens_and_clears() {
     // emits is what makes this test able to fail.
     with_stash(|view, tokens, device, locale| {
         let magnifier = |view: &mut nexus_dsl_runtime::View<'_>| {
-            let (event, case) =
-                view.runtime().event_case("StashEvent", "WinTool").expect("stash declares WinTool");
+            let (event, case) = view
+                .runtime()
+                .event_case("ToolbarEvent", "WinTool")
+                .expect("stash declares WinTool");
             let mut host = NoIo;
             view.dispatch(
                 tokens,
@@ -287,7 +304,7 @@ fn the_view_mode_switches_between_list_and_grid() {
         let list = texts(view.scene());
         assert!(list.iter().any(|t| t == "Date"), "list mode shows column headers: {list:?}");
 
-        let (event, case) = view.runtime().event_case("StashEvent", "WinTool").expect("WinTool");
+        let (event, case) = view.runtime().event_case("ToolbarEvent", "WinTool").expect("WinTool");
         let mut host = NoIo;
         view.dispatch(
             tokens,
@@ -321,7 +338,7 @@ fn the_view_mode_switches_between_list_and_grid() {
 fn tapping_the_open_search_field_claims_text_focus() {
     with_stash(|view, tokens, device, locale| {
         let (event, case) =
-            view.runtime().event_case("StashEvent", "WinTool").expect("stash declares WinTool");
+            view.runtime().event_case("ToolbarEvent", "WinTool").expect("stash declares WinTool");
         let mut host = NoIo;
         view.dispatch(
             tokens,

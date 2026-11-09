@@ -1,47 +1,59 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// One day cell (design artifacts: panels §5): a 28px number circle with a 4px dot
-// beneath it. Today is a filled blue circle with a bold white numeral; a day
-// with an appointment carries a red dot.
-//
-// The dot's height is reserved even when there is no dot, so a month with
-// appointments is not taller than one without and the grid does not jump when
-// you page through it — the design calls this out explicitly.
-//
-// `label: ""` is an empty leading cell (the days before the 1st). It keeps its
-// full size so the columns stay aligned.
+// One day cell (design artifacts: panels §5, CalendarView): the number circle
+// (`CalDay`) with a 4 px dot row beneath it. Selection: today is selected by
+// default and a tap only moves the highlight (`CalStore.calSel`); a day of the
+// neighbouring month (`out`) is inert. The dot's height is reserved even
+// without a dot, so months with and without appointments are equally tall; the
+// dot takes the event's tint role (`tint`).
+
+Component CalDot {
+    props: {
+        tint: Str,
+        dim: Bool,
+    }
+    if $props.tint != "" {
+        if $props.dim {
+            Circle { size: 4 }
+                .bg($props.tint)
+                .opacity(115)
+        } else {
+            Circle { size: 4 }
+                .bg($props.tint)
+        }
+    } else {
+        Stack { }
+            .height(4)
+    }
+}
 
 Component CalCell {
     props: {
         label: Str,
+        day: Int,
         today: Bool,
-        event: Bool,
+        out: Bool,
+        tint: Str,
     }
-    Stack {
-        if $props.today {
-            Circle { size: 28
-                Text($props.label).textSize(sm).fontWeight(bold).fg(onInfo)
-            }
-            .bg(info)
-        } else {
-            Stack {
-                Text($props.label).textSize(sm).fg(onGlass)
-            }
-            .width(28)
-            .height(28)
-            .align(center)
-            .justify(center)
+    if $props.out {
+        Stack {
+            CalDay { label: $props.label, selected: false, today: false, out: true }
+            CalDot { tint: $props.tint, dim: true }
         }
-        if $props.event {
-            Circle { size: 4 }
-                .bgGradient("#f87171", "#f87171")
-        } else {
-            Stack { }
-                .height(4)
+        .grow(1)
+        .align(center)
+        .gap(2)
+        .paddingBottom(2)
+    } else {
+        Stack {
+            CalDay { label: $props.label, selected: $state.calSel == $props.day && $state.calSelMonth == $state.calMonth, today: $props.today, out: false }
+            CalDot { tint: $props.tint, dim: false }
         }
+        .grow(1)
+        .align(center)
+        .gap(2)
+        .paddingBottom(2)
+        on Tap -> dispatch(CalSelect($props.day))
     }
-    .grow(1)
-    .align(center)
-    .gap(0)
 }

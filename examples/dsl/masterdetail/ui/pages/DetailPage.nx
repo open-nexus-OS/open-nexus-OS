@@ -3,11 +3,11 @@
 
 Page DetailPage {
     Stack {
-        Text(@t("library.detail")).textSize(lg)
+        Text(@t("library.detail")).textStyle(title3)
         Text($state.selected)
         Button { label: @t("common.back") }
         on Tap -> navigate("/")
     }
-    .padding(4)
-    .gap(3)
+    .padding(16)
+    .gap(12)
 }

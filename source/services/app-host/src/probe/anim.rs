@@ -30,6 +30,7 @@ use animation::{
 
 mod damage;
 mod interaction;
+pub(super) use interaction::HeldPress;
 use nexus_dsl_runtime::theme_tokens::Tokens;
 use nexus_dsl_runtime::{AnimIntent, AnimKind, LOOP_CAROUSEL, LOOP_CAROUSEL_SPOKES, LOOP_SWEEP};
 use nexus_scene_raster::NodeAnim;
@@ -38,8 +39,8 @@ use nexus_scene_raster::NodeAnim;
 /// cap). Bounds the driver, the value-diff table, and the paint transform
 /// table so none grows on the heap. Sized for the modifier
 /// anims + widget loops (a Spinner carousel alone holds 12 spoke entries) +
-/// the INTERACTION motions (hover-grow/press-bounce can touch several nodes
-/// while sweeping the pointer).
+/// the INTERACTION motions (a press dip and its spring back, the toggle
+/// thumb's stretch and slide).
 pub(super) const MAX_NODE_ANIMS: usize = 32;
 /// Expanded (subtree-cascaded) paint transform cap — each animated container
 /// may fan out to its contained boxes (tile + glyph + label…).
@@ -565,14 +566,16 @@ impl super::DslApp {
             .seen
             .retain(|(id, _)| present.iter().any(|(p, i)| p == id && i.kind != AnimKind::Loop));
         // Keep a node's transform when it is intent-driven OR its driver
-        // animation still runs — INTERACTION motions (hover/press) target
-        // handler boxes that carry no intent and must survive re-emits (a tap
-        // re-emits the scene mid-press-bounce).
+        // animation still runs OR a held press dips it — INTERACTION motions
+        // target handler boxes that carry no intent and must survive re-emits
+        // (a tap re-emits the scene mid-dip; a press stays down for seconds).
+        let held = self.press_target();
         let driver = &self.anim.driver;
         let loops = &self.anim.loops;
         self.anim.anims.retain(|a| {
             let layer = LayerId(a.node_id as u64);
             present.iter().any(|(p, _)| *p == a.node_id)
+                || held == Some(a.node_id)
                 || driver.is_active(layer, AnimProp::ScaleX)
                 || driver.is_active(layer, AnimProp::Opacity)
                 || driver.is_active(layer, AnimProp::TranslateX)
@@ -652,8 +655,8 @@ impl super::DslApp {
     /// Expand the per-node transforms into a SUBTREE CASCADE for the painter:
     /// each animated container also transforms every box laid out INSIDE it
     /// (pre-order descendants ≈ rect containment + higher `node_id`),
-    /// anchored at the CONTAINER's center — a hovered launcher tile grows
-    /// tile, glyph and all as one control (the design interaction feel).
+    /// anchored at the CONTAINER's center — a pressed button dips pill,
+    /// glyph and label as one control (the design interaction feel).
     /// A box with its OWN animation keeps its own entry. Alloc-free, bounded
     /// by `out.len()`.
     pub(super) fn expand_node_anims(&self, out: &mut [NodeAnim]) -> usize {

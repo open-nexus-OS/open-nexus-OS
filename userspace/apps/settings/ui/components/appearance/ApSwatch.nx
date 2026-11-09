@@ -24,8 +24,8 @@ Component ApSwatch {
                 .fg(onAccent)
         }
         .bgGradient($props.hex, $props.hex)
-        .border(medium)
-        .borderColor(onGlass)
+        .border(ring)
+        .borderColor(label)
     } else {
         Circle { size: 28 }
             .bgGradient($props.hex, $props.hex)

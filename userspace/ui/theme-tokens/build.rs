@@ -5,269 +5,278 @@
 // for build-time codegen; the restriction lints target runtime code only.
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-//! Generate the typed color-token snapshots from the `.nxtheme.toml` SSOT
-//! (RFC-0070 D3). This kills the previously hand-authored `BaseTokens` values,
-//! which had drifted from the theme files. Emits one `<qualifier>_color` fn per
-//! theme, resolving each semantic `ColorToken` role through the theme's
-//! qualifier chain. `LengthToken` (radii/spacing) stays a hand-authored scale
-//! until the invariant `[scale]` sections land (token-reconciliation.md step 2).
+//! Generate the typed token snapshots from the `.nxtheme.toml` SSOT (RFC-0116): per theme the
+//! colour of every role, every shadow and every backdrop; once the theme-invariant scales —
+//! radii, the semantic gaps, control heights, the 13 text styles, motion durations. The match
+//! arms are exhaustive over the crate's enums, so a role here that the enum lacks (or the
+//! reverse) fails the compile; a theme-varying role a variant does not author itself fails the
+//! build (it would silently inherit the light value).
 
+use std::fmt::Write as _;
 use std::path::Path;
 use std::{env, fs};
 
-use nexus_theme::{Material, Qualifier, ThemeRuntime};
+use nexus_theme::{Qualifier, ThemeRuntime};
 
 /// Repo `resources/themes`, relative to this crate (`userspace/ui/theme-tokens`).
 const THEMES_DIR: &str = "../../../resources/themes";
 
-/// `MaterialToken` level → `[material.*]` name. Frosted backdrop saturation is a
-/// fixed 140% (the material files carry no saturation key).
-const MATERIALS: &[(&str, &str)] = &[
-    ("Panel", "glassPanel"),
-    ("Card", "glassCard"),
-    ("Subtle", "glassSubtle"),
-    ("Window", "glassWindow"),
-    ("WindowPane", "glassWindowPane"),
-    ("WindowBar", "glassWindowBar"),
-    ("Overlay", "glassOverlay"),
-];
-const GLASS_SATURATION: u32 = 140;
-
-/// Semantic `ColorToken` role → `.nxtheme.toml` token name. The single place the
-/// runtime role vocabulary binds to authored token names.
+/// `ColorToken` variant → `.nxtheme.toml` key (= the DSL name).
 const ROLES: &[(&str, &str)] = &[
-    ("Surface", "surface"),
-    ("SurfaceVariant", "surfaceAlt"),
-    ("OnSurface", "fg"),
-    ("OnSurfaceVariant", "mutedFg"),
-    ("Accent", "accent"),
-    ("OnAccent", "accentFg"),
-    ("Border", "border"),
-    ("Shadow", "shadow"),
-    ("Background", "bg"),
-    ("Primary", "primary"),
-    ("OnPrimary", "primaryFg"),
-    ("Danger", "danger"),
-    ("OnDanger", "dangerFg"),
-    ("Warning", "warning"),
-    ("Success", "success"),
-    ("Info", "info"),
-    ("OnWarning", "warningFg"),
-    ("OnSuccess", "successFg"),
-    ("OnInfo", "infoFg"),
-    ("FocusRing", "focusRing"),
-    ("IslandBg", "islandBg"),
+    ("Background", "background"),
+    ("Label", "label"),
+    ("LabelSecondary", "labelSecondary"),
+    ("LabelTertiary", "labelTertiary"),
+    ("Separator", "separator"),
+    ("Fill", "fill"),
+    ("FillHover", "fillHover"),
+    ("FillActive", "fillActive"),
+    ("GlassPanel", "glassPanel"),
+    ("GlassWindow", "glassWindow"),
+    ("GlassCard", "glassCard"),
+    ("GlassEdge", "glassEdge"),
+    ("SurfacePane", "surfacePane"),
+    ("SurfaceOverlay", "surfaceOverlay"),
     ("Scrim", "scrim"),
-    ("Destructive", "destructive"),
-    ("OnDestructive", "destructiveFg"),
-    // RFC-0082 — content that sits on glass or directly on the wallpaper.
-    ("OnGlass", "glassTextPrimary"),
-    ("OnGlassMuted", "glassTextSecondary"),
-    ("OnGlassStrong", "glassTextStrong"),
-    ("GlassIcon", "glassIcon"),
-    ("GlassPlaceholder", "glassPlaceholder"),
-    ("GlassFocus", "glassFocus"),
-    ("GlassFill", "glassFill"),
-    ("GlassFillStrong", "glassFillStrong"),
-    ("AccentSoft", "accentSoft"),
+    ("Primary", "primary"),
+    ("OnPrimary", "onPrimary"),
+    ("Accent", "accent"),
+    ("AccentGlow", "accentGlow"),
+    ("OnAccent", "onAccent"),
+    ("Danger", "danger"),
+    ("Success", "success"),
+    ("Warning", "warning"),
+    ("ModeAirplane", "modeAirplane"),
+    ("ModeDesktop", "modeDesktop"),
+    ("ModeTablet", "modeTablet"),
+    ("Island", "island"),
+    ("Chart1", "chart1"),
+    ("Chart2", "chart2"),
+    ("Chart3", "chart3"),
+    ("Chart4", "chart4"),
+    ("Chart5", "chart5"),
     ("WallpaperTint", "wallpaperTint"),
-    ("WallpaperVignette", "wallpaperVignette"),
-    ("TextShadow", "textShadow"),
-    ("TextShadowStrong", "textShadowStrong"),
+    ("LabelShadow", "labelShadow"),
     ("Transparent", "transparent"),
-    // Authored in every theme since the first token pass, but unreachable
-    // until they had a role here — the gate is this table, not the TOML.
-    ("Divider", "divider"),
-    ("GlassHover", "glassHover"),
-    ("GlassActive", "glassActive"),
-    ("ToggleOnBg", "toggleOnBg"),
-    ("ToggleOffBg", "toggleOffBg"),
-    ("NotifDot", "notifDot"),
-    // The range-slider pair. A slider is the one control whose track is a
-    // RECESS in both themes (dark-on-light and dark-on-dark) while its fill is
-    // bright in both — no existing role has that polarity, and borrowing
-    // `scrim` for it would mean a modal backdrop and a volume track drift
-    // together the next time either is tuned.
-    ("SliderTrack", "sliderTrack"),
-    ("SliderFill", "sliderFill"),
-    ("SliderIcon", "sliderIcon"),
+];
+
+/// The roles whose light and dark values differ: dark and high contrast author each one.
+const THEME_VARYING: &[&str] = &[
+    "background",
+    "label",
+    "labelSecondary",
+    "labelTertiary",
+    "separator",
+    "fill",
+    "fillHover",
+    "fillActive",
+    "glassPanel",
+    "glassWindow",
+    "glassCard",
+    "glassEdge",
+    "surfacePane",
+    "surfaceOverlay",
+    "scrim",
+    "primary",
+    "onPrimary",
+    "accent",
+    "danger",
+    "success",
+    "warning",
+    "wallpaperTint",
+    "labelShadow",
+];
+
+/// `ShadowToken` variant → `[shadow.<name>]`.
+const SHADOWS: &[(&str, &str)] = &[
+    ("Shadow1", "shadow1"),
+    ("Shadow2", "shadow2"),
+    ("Shadow3", "shadow3"),
+    ("Shadow4", "shadow4"),
+    ("Inset", "shadowInset"),
+    ("EdgeHighlight", "edgeHighlight"),
+];
+
+/// `BackdropToken` variant → `[material.<name>]`.
+const BACKDROPS: &[(&str, &str)] =
+    &[("UltraThin", "ultraThin"), ("Thin", "thin"), ("Regular", "regular"), ("Thick", "thick")];
+
+/// `TextStyle` variant → `[textStyle.<name>]`.
+const TEXT_STYLES: &[(&str, &str)] = &[
+    ("Clock", "clock"),
+    ("Display", "display"),
+    ("LargeTitle", "largeTitle"),
+    ("Title1", "title1"),
+    ("Title2", "title2"),
+    ("Title3", "title3"),
+    ("Headline", "headline"),
+    ("Body", "body"),
+    ("Subheadline", "subheadline"),
+    ("Footnote", "footnote"),
+    ("Caption", "caption"),
+    ("Caption2", "caption2"),
+    ("Overline", "overline"),
+];
+
+const QUALIFIERS: [(&str, Qualifier); 4] = [
+    ("base", Qualifier::Base),
+    ("dark", Qualifier::Dark),
+    ("light", Qualifier::Light),
+    ("highcontrast", Qualifier::HighContrast),
 ];
 
 fn main() {
     println!("cargo:rerun-if-changed={THEMES_DIR}");
-
     let mut runtime = ThemeRuntime::load(Path::new(THEMES_DIR))
         .unwrap_or_else(|e| panic!("nexus-theme-tokens: load {THEMES_DIR}: {e:?}"));
 
-    let mut generated = String::from(
+    // RFC-0116 completeness: a theme-varying role or a shadow a variant leaves to inheritance
+    // would show the light value on a dark (or high-contrast) screen.
+    for q in [Qualifier::Dark, Qualifier::HighContrast] {
+        for role in THEME_VARYING {
+            assert!(
+                runtime.defines_token(q, role),
+                "nexus-theme-tokens: {q:?} must author the theme-varying role '{role}'"
+            );
+        }
+        for (_, name) in SHADOWS {
+            assert!(
+                runtime.defines_shadow(q, name),
+                "nexus-theme-tokens: {q:?} must author shadow '{name}'"
+            );
+        }
+    }
+
+    let mut out = String::from(
         "// @generated by build.rs from resources/themes/*.nxtheme.toml — do not edit.\n\n",
     );
-
-    for (fn_prefix, qualifier) in [
-        ("base", Qualifier::Base),
-        ("dark", Qualifier::Dark),
-        ("light", Qualifier::Light),
-        ("highcontrast", Qualifier::HighContrast),
-    ] {
-        runtime.set_qualifier(qualifier);
-        generated.push_str(&format!(
-            "pub(crate) fn {fn_prefix}_color(token: ColorToken) -> Rgba8 {{\n    match token {{\n"
+    for (prefix, q) in QUALIFIERS {
+        runtime.set_qualifier(q);
+        out.push_str(&format!(
+            "pub(crate) fn {prefix}_color(token: ColorToken) -> Rgba8 {{\n    match token {{\n"
         ));
-        for (role, token_name) in ROLES {
-            let c = runtime.resolve(token_name).unwrap_or_else(|e| {
-                panic!("nexus-theme-tokens: role {role} → token '{token_name}': {e:?}")
-            });
-            generated.push_str(&format!(
-                "        ColorToken::{role} => Rgba8::new({}, {}, {}, {}),\n",
+        for (variant, key) in ROLES {
+            let c = runtime
+                .resolve(key)
+                .unwrap_or_else(|e| panic!("nexus-theme-tokens: role {variant} → '{key}': {e:?}"));
+            out.push_str(&format!(
+                "        ColorToken::{variant} => Rgba8::new({}, {}, {}, {}),\n",
                 c.r, c.g, c.b, c.a
             ));
         }
-        generated.push_str("    }\n}\n\n");
-    }
+        out.push_str("    }\n}\n\n");
 
-    // Glass materials → GlassSurface per qualifier (pre-composite color × alpha).
-    for (fn_prefix, qualifier) in [
-        ("base", Qualifier::Base),
-        ("dark", Qualifier::Dark),
-        ("light", Qualifier::Light),
-        ("highcontrast", Qualifier::HighContrast),
-    ] {
-        runtime.set_qualifier(qualifier);
-        generated.push_str(&format!(
-            "pub(crate) fn {fn_prefix}_glass(token: MaterialToken) -> GlassSurface {{\n    match token {{\n"
+        out.push_str(&format!(
+            "pub(crate) fn {prefix}_shadow(token: ShadowToken) -> ShadowSpec {{\n    match token {{\n"
         ));
-        for (variant, mat_name) in MATERIALS {
-            let g = match runtime.resolve_material(mat_name) {
-                Some(Material::Glass(g)) => g.clone(),
-                _ => panic!("nexus-theme-tokens: material '{mat_name}' missing or not glass"),
-            };
-            let alpha = |a: f32| (a.clamp(0.0, 1.0) * 255.0).round() as u8;
-            let tint_bottom = match g.tint_bottom_color {
-                Some(c) => format!(
-                    "Some(Rgba8::new({}, {}, {}, {}))",
-                    c.r,
-                    c.g,
-                    c.b,
-                    alpha(g.tint_bottom_alpha.unwrap_or(1.0))
-                ),
-                None => "None".to_string(),
-            };
-            let border = match g.border_color {
-                Some(c) => format!(
-                    "Some(Rgba8::new({}, {}, {}, {}))",
-                    c.r,
-                    c.g,
-                    c.b,
-                    alpha(g.border_alpha.unwrap_or(1.0))
-                ),
-                None => "None".to_string(),
-            };
-            generated.push_str(&format!(
-                "        MaterialToken::{variant} => GlassSurface {{ tint: Rgba8::new({}, {}, {}, {}), tint_bottom: {}, edge: Rgba8::new({}, {}, {}, {}), border: {}, blur_radius: {}, saturation: {}, downsample: {} }},\n",
-                g.tint_color.r, g.tint_color.g, g.tint_color.b, alpha(g.tint_alpha),
-                tint_bottom,
-                g.edge_highlight_color.r, g.edge_highlight_color.g, g.edge_highlight_color.b, alpha(g.edge_highlight_alpha),
-                border, g.blur_radius_dp, GLASS_SATURATION, g.downsample_factor,
+        for (variant, name) in SHADOWS {
+            let s = runtime
+                .resolve_shadow(name)
+                .unwrap_or_else(|| panic!("nexus-theme-tokens: shadow '{name}' missing"));
+            out.push_str(&format!(
+                "        ShadowToken::{variant} => ShadowSpec {{ x: {}, y: {}, blur: {}, spread: {}, color: Rgba8::new({}, {}, {}, {}), inset: {} }},\n",
+                s.x, s.y, s.blur, s.spread, s.color.r, s.color.g, s.color.b, s.color.a, s.inset
             ));
         }
-        generated.push_str("    }\n}\n\n");
+        out.push_str("    }\n}\n\n");
+
+        out.push_str(&format!(
+            "pub(crate) fn {prefix}_backdrop(token: BackdropToken) -> Backdrop {{\n    match token {{\n"
+        ));
+        for (variant, name) in BACKDROPS {
+            let b = runtime
+                .resolve_material(name)
+                .unwrap_or_else(|| panic!("nexus-theme-tokens: backdrop '{name}' missing"));
+            out.push_str(&format!(
+                "        BackdropToken::{variant} => Backdrop {{ blur: {}, saturation: {}, downsample: {} }},\n",
+                b.blur_radius_dp, b.saturation_pct, b.downsample_factor
+            ));
+        }
+        out.push_str("    }\n}\n\n");
     }
 
-    // Length scale (theme-invariant → resolve at Base). BorderThin is the fixed
-    // 1px hairline (no authored token).
+    // Theme-invariant scales, resolved at base.
     runtime.set_qualifier(Qualifier::Base);
-    let radius = |name: &str| {
+    let scale = |section: &str, name: &str| {
         runtime
-            .resolve_radius(name)
-            .unwrap_or_else(|| panic!("nexus-theme-tokens: [radius] '{name}' missing"))
+            .resolve_scale(section, name)
+            .unwrap_or_else(|| panic!("nexus-theme-tokens: [{section}] '{name}' missing"))
     };
-    let spacing = |name: &str| {
-        runtime
-            .resolve_spacing(name)
-            .unwrap_or_else(|| panic!("nexus-theme-tokens: [spacing] '{name}' missing"))
+    let arms = |enum_name: &str, section: &str, pairs: &[(&str, &str)]| -> String {
+        pairs.iter().fold(String::new(), |mut acc, (v, n)| {
+            let _ = writeln!(acc, "        {enum_name}::{v} => FxPx::new({}),", scale(section, n));
+            acc
+        })
     };
-    generated.push_str(&format!(
-        "pub(crate) fn scale_length(token: LengthToken) -> FxPx {{\n    match token {{\n\
-         \x20       LengthToken::RadiusSmall => FxPx::new({}),\n\
-         \x20       LengthToken::RadiusMedium => FxPx::new({}),\n\
-         \x20       LengthToken::RadiusLarge => FxPx::new({}),\n\
-         \x20       LengthToken::SpacingSmall => FxPx::new({}),\n\
-         \x20       LengthToken::SpacingMedium => FxPx::new({}),\n\
-         \x20       LengthToken::SpacingLarge => FxPx::new({}),\n\
-         \x20       LengthToken::BorderThin => FxPx::new(1),\n    }}\n}}\n",
-        radius("small") as i32,
-        radius("medium") as i32,
-        radius("large") as i32,
-        spacing("small") as i32,
-        spacing("medium") as i32,
-        spacing("large") as i32,
+    out.push_str("pub(crate) fn radius_px(token: RadiusToken) -> FxPx {\n    match token {\n");
+    out.push_str(&arms(
+        "RadiusToken",
+        "radius",
+        &[("Sm", "sm"), ("Md", "md"), ("Lg", "lg"), ("Xl", "xl"), ("Full", "full")],
     ));
+    out.push_str("    }\n}\n\n");
+    out.push_str("pub(crate) fn space_px(token: SpaceToken) -> FxPx {\n    match token {\n");
+    out.push_str(&arms(
+        "SpaceToken",
+        "spacing",
+        &[
+            ("GapInline", "gapInline"),
+            ("GapGroup", "gapGroup"),
+            ("GapSection", "gapSection"),
+            ("MarginLayout", "marginLayout"),
+        ],
+    ));
+    out.push_str("    }\n}\n\n");
+    out.push_str(
+        "pub(crate) fn control_height_px(size: ControlSize) -> FxPx {\n    match size {\n",
+    );
+    out.push_str(&arms(
+        "ControlSize",
+        "control",
+        &[("Xs", "xs"), ("Sm", "sm"), ("Md", "md"), ("Lg", "lg"), ("Xl", "xl")],
+    ));
+    out.push_str("    }\n}\n\n");
 
-    // Typography scale (theme-invariant → resolve at Base).
-    let type_scale: &[(&str, &str)] = &[
-        ("Xs", "xs"),
-        ("Sm", "sm"),
-        ("Base", "base"),
-        ("Md", "md"),
-        ("Lg", "lg"),
-        ("Xl", "xl"),
-        ("Xxl", "xxl"),
-        ("Xxxl", "xxxl"),
-        ("Display", "display"),
-        ("Hero", "hero"),
-    ];
-    generated
-        .push_str("pub(crate) fn type_size(token: TypographyToken) -> FxPx {\n    match token {\n");
-    for (variant, name) in type_scale {
-        let px = runtime
-            .resolve_scale("typography", name)
-            .unwrap_or_else(|| panic!("nexus-theme-tokens: [typography] '{name}' missing"));
-        generated.push_str(&format!(
-            "        TypographyToken::{variant} => FxPx::new({}),\n",
-            px as i32
+    out.push_str(
+        "pub(crate) fn text_style_spec(style: TextStyleToken) -> TextStyleSpec {\n    match style {\n",
+    );
+    for (variant, name) in TEXT_STYLES {
+        let s = runtime
+            .resolve_text_style(name)
+            .unwrap_or_else(|| panic!("nexus-theme-tokens: text style '{name}' missing"));
+        let weight = match s.weight {
+            300 => "Light",
+            400 => "Normal",
+            500 => "Medium",
+            600 => "Semibold",
+            700 => "Bold",
+            w => panic!("nexus-theme-tokens: text style '{name}' weight {w}"),
+        };
+        out.push_str(&format!(
+            "        TextStyleToken::{variant} => TextStyleSpec {{ size: {}, line: {}, weight: FontWeight::{weight}, tracking_milli_em: {}, upper: {}, tabular: {} }},\n",
+            s.size, s.line, s.tracking_milli_em, s.upper, s.tabular
         ));
     }
-    generated.push_str("    }\n}\n\n");
+    out.push_str("    }\n}\n\n");
 
-    // Leading scale as a PERCENTAGE of the font size (theme-invariant).
-    let leading_scale: &[(&str, &str)] = &[
-        ("Flat", "flat"),
-        ("Tight", "tight"),
-        ("Snug", "snug"),
-        ("Normal", "normal"),
-        ("Relaxed", "relaxed"),
-    ];
-    generated
-        .push_str("pub(crate) fn leading_pct(token: LeadingToken) -> u32 {\n    match token {\n");
-    for (variant, name) in leading_scale {
-        let pct = runtime
-            .resolve_scale("leading", name)
-            .unwrap_or_else(|| panic!("nexus-theme-tokens: [leading] '{name}' missing"));
-        generated.push_str(&format!("        LeadingToken::{variant} => {pct},\n"));
-    }
-    generated.push_str("    }\n}\n\n");
-
-    // Motion durations in ms (theme-invariant → resolve at Base; a
-    // reduced-motion theme would override [motion] to 0).
-    let motion_scale: &[(&str, &str)] = &[
+    out.push_str(
+        "pub(crate) fn motion_duration_ms(token: MotionDurationToken) -> u32 {\n    match token {\n",
+    );
+    for (variant, name) in [
         ("Instant", "instant"),
         ("Swift", "swift"),
         ("Quick", "quick"),
         ("Base", "base"),
         ("Slow", "slow"),
-    ];
-    generated.push_str(
-        "pub(crate) fn motion_duration_ms(token: MotionDurationToken) -> u32 {\n    match token {\n",
-    );
-    for (variant, name) in motion_scale {
-        let ms = runtime
-            .resolve_scale("motion", name)
-            .unwrap_or_else(|| panic!("nexus-theme-tokens: [motion] '{name}' missing"));
-        generated.push_str(&format!("        MotionDurationToken::{variant} => {ms},\n"));
+    ] {
+        out.push_str(&format!(
+            "        MotionDurationToken::{variant} => {},\n",
+            scale("motion", name)
+        ));
     }
-    generated.push_str("    }\n}\n");
+    out.push_str("    }\n}\n");
 
     let out_dir = env::var("OUT_DIR").expect("OUT_DIR");
-    fs::write(Path::new(&out_dir).join("generated_tokens.rs"), generated)
+    fs::write(Path::new(&out_dir).join("generated_tokens.rs"), out)
         .expect("write generated_tokens.rs");
 }

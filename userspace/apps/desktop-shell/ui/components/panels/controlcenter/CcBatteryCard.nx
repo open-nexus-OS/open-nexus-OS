@@ -12,21 +12,21 @@
 
 Component CcBatteryCard {
     Stack {
-        Icon { symbol: "battery.75", size: 14 }
+        Icon { symbol: "battery.0", size: 14 }
             .fg(success)
-        Text(@t("control.battery")).textSize(xs).fontWeight(semibold).fg(onGlassMuted)
+        Text(@t("panels.battery")).textStyle(caption).fontWeight(semibold).fg(labelSecondary)
         Spacer
         Stack {
             Meter { percent: 78 }
         }
         .width(80)
-        Text(@t("control.batteryPct")).textSize(xs).fg(onGlassMuted)
+        Text(@t("control.batteryPct")).textStyle(caption).fg(labelSecondary)
     }
     .direction(row)
     .align(center)
-    .gap(2)
-    .paddingX(4)
-    .paddingY(2)
-    .rounded(20)
+    .gap(8)
+    .paddingX(16)
+    .paddingY(12)
+    .rounded(16)
     .material(card)
 }

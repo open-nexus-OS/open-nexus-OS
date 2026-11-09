@@ -35,10 +35,6 @@ pub(super) struct DslApp {
     /// fallback — bleed through), frosted-translucent for floating
     /// windows (the glass material over the blurred backdrop).
     pub(super) base_alpha: u8,
-    /// The surface is the desktop base (`level=desktop`): its regions are the shell's glass
-    /// (dock, bar, cards on the wallpaper). A window's regions follow the materials rules
-    /// (TASK-0337): one glass, the pane opaque, the rest tint.
-    pub(super) desktop: bool,
     /// Surface dimensions (the WM-composed content rect, or the probe
     /// default). Layout width + render bounds derive from these — a
     /// full-screen shell lays out at the display size, a windowed app at its
@@ -81,10 +77,14 @@ pub(super) struct DslApp {
     pub(super) store_w: u16,
     /// windowd placed no store at the last create (`NO_STORE`): every scroll layer is flat.
     pub(super) store_refused: bool,
-    /// The wash patch's place in the store (`probe/band.rs`).
+    /// The wash patches' place in the store (`probe/band.rs`).
     pub(super) patch: (u16, u16),
-    /// The wash's opacity — the theme's hover colour's alpha (the patch is opaque).
-    pub(super) wash_opacity: u8,
+    /// The theme's hover and press layer colours on the patches (`crate::interaction_layer`).
+    pub(super) palette: crate::interaction_layer::Palette,
+    /// The hover and press layers shown or fading — washes the compositor draws (RFC-0116).
+    pub(super) layers: crate::interaction_layer::Layers,
+    /// The press held down (windowd's TAP until its RELEASE): what it dipped, what it washes.
+    pub(super) press: Option<super::anim::HeldPress>,
     /// The structure changed since the last `OP_SURFACE_TREE` (regions, layers, bands).
     pub(super) tree_dirty: bool,
     /// The structure last sent — what windowd checks a motion against (`probe/band.rs`).

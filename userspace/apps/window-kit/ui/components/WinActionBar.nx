@@ -1,0 +1,45 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The design artifacts' WindowActionBar container: the floating capsule at the
+// bottom of a content pane — a TabBar on the opaque OVERLAY surface (it floats
+// above the content, so it never blurs): surfaceOverlay, a 1 px glassEdge,
+// shadow3 and the lit top line, padding 4, items 2 px apart. The items are
+// `WinActionFace` (wrapped in the app's tap) or `WinActionItem`; the one the
+// app marks `active` carries the `fill` indicator. `WinActionDivider` is the
+// bar's 1 px separator (margin 8 4). `WinAppWindow`'s `actionBar` slot floats
+// the bar centred over the content region, 12 px above its bottom.
+//
+//     WinActionBar { } {
+//         items {
+//             Stack { WinActionFace { label: …, icon: "plus", kind: "", active: true } }
+//             on Tap -> dispatch(NewFolder)
+//             WinActionDivider { }
+//             WinActionItem { id: "more", label: …, icon: "ellipsis", kind: "", active: false }
+//         }
+//     }
+
+Component WinActionBar {
+    slot items
+    Stack {
+        Slot items
+    }
+    .direction(row)
+    .align(center)
+    .gap(2)
+    .padding(4)
+    .material(overlay)
+    .rounded(full)
+}
+
+// The bar's divider: 1 px `separator`, 8 px clear of the bar's top and bottom
+// edges (the items' 49 px less 2 × 8), 4 px to its neighbours.
+Component WinActionDivider {
+    Stack {
+        Stack { }
+            .width(1)
+            .height(33)
+            .bg(separator)
+    }
+    .paddingX(4)
+}

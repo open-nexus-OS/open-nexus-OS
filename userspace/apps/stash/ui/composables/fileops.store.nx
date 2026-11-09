@@ -1,0 +1,126 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// FILE OPERATIONS domain: the writes — new folder, soft delete (to
+// /Papierkorb), restore, hard delete, copy and move — each a real nxfs
+// operation through svc.files.*. `selName` (SelectionStore) is still set
+// while the operation runs and is cleared only by the completion bridge, which
+// also reloads the folder.
+//
+//   moveOpen  the move-destination dialog (WinModal, closed by ModalClose)
+//
+// The reducers only own `moveOpen`; closing the menu, clearing the selection
+// and reloading cross into other domains through effects.
+
+Store OpsStore {
+    moveOpen: Int = 0,
+}
+
+Event OpsEvent {
+    NewFolder,
+    FolderCreated(Bool),
+    TrashSel,
+    RestoreSel,
+    DeleteSel,
+    Deleted(Bool),
+    CopySel,
+    Copied(Bool),
+    MoveStart,
+    MoveTo(Str, Str),
+    ModalClose(Str),
+    Moved(Bool),
+}
+
+reduce OpsEvent {
+    NewFolder => state.moveOpen = state.moveOpen,
+    FolderCreated(ok) => state.moveOpen = state.moveOpen,
+    TrashSel => state.moveOpen = state.moveOpen,
+    RestoreSel => state.moveOpen = state.moveOpen,
+    DeleteSel => state.moveOpen = state.moveOpen,
+    Deleted(ok) => state.moveOpen = state.moveOpen,
+    CopySel => state.moveOpen = state.moveOpen,
+    Copied(ok) => state.moveOpen = state.moveOpen,
+    MoveStart => state.moveOpen = 1,
+    // Keep selName for the rename effect; close the dialog.
+    MoveTo(dest, label) => state.moveOpen = 0,
+    // The dialog's close glyph, the backdrop and ESC.
+    ModalClose(id) => state.moveOpen = 0,
+    Moved(ok) => state.moveOpen = state.moveOpen,
+}
+
+// New folder: a real nxfs home write.
+@effect on NewFolder {
+    dispatch(WinMenu(""));
+    match svc.files.mkdir(state.path + "/Neuer Ordner") {
+        Ok(ok) => dispatch(FolderCreated(ok)),
+        Err(e) => dispatch(FilesFailed(e)),
+    }
+}
+
+@effect on FolderCreated(ok) {
+    dispatch(Reload);
+}
+
+// Soft delete: move the selection to /Papierkorb. Emptying / hard delete
+// happens inside /Papierkorb.
+@effect on TrashSel {
+    dispatch(WinMenu(""));
+    match svc.files.rename(state.path + "/" + state.selName, "/Papierkorb/" + state.selName) {
+        Ok(ok) => dispatch(Deleted(ok)),
+        Err(e) => dispatch(FilesFailed(e)),
+    }
+}
+
+// Restore from /Papierkorb → back to the home root.
+@effect on RestoreSel {
+    dispatch(WinMenu(""));
+    match svc.files.rename("/Papierkorb/" + state.selName, "/" + state.selName) {
+        Ok(ok) => dispatch(Deleted(ok)),
+        Err(e) => dispatch(FilesFailed(e)),
+    }
+}
+
+@effect on DeleteSel {
+    dispatch(WinMenu(""));
+    match svc.files.remove(state.path + "/" + state.selName) {
+        Ok(ok) => dispatch(Deleted(ok)),
+        Err(e) => dispatch(FilesFailed(e)),
+    }
+}
+
+// The entry is gone: forget the selection, reload the folder.
+@effect on Deleted(ok) {
+    dispatch(ClearSelection);
+    dispatch(Reload);
+}
+
+// Copy the selection in place ("Kopie von <name>"), then reload.
+@effect on CopySel {
+    dispatch(WinMenu(""));
+    match svc.files.copy(state.path + "/" + state.selName, state.path + "/Kopie von " + state.selName) {
+        Ok(ok) => dispatch(Copied(ok)),
+        Err(e) => dispatch(FilesFailed(e)),
+    }
+}
+
+@effect on Copied(ok) {
+    dispatch(Reload);
+}
+
+// Opening the destination dialog closes the menu it was started from.
+@effect on MoveStart {
+    dispatch(WinMenu(""));
+}
+
+// Move the selection into `dest` (a rename across directories).
+@effect on MoveTo(dest, label) {
+    match svc.files.rename(state.path + "/" + state.selName, dest + "/" + state.selName) {
+        Ok(ok) => dispatch(Moved(ok)),
+        Err(e) => dispatch(FilesFailed(e)),
+    }
+}
+
+@effect on Moved(ok) {
+    dispatch(ClearSelection);
+    dispatch(Reload);
+}

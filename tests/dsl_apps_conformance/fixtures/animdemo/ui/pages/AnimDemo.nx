@@ -21,17 +21,17 @@ reduce DemoEvent {
 Page AnimDemo {
     Stack {
         Text($state.value)
-            .textSize(xl)
+            .textStyle(title2).fontWeight(normal)
             .effect(wiggle, trigger: $state.value)
         Stack { Spacer }
             .width(80)
             .height(6)
-            .bg(surfaceVariant)
+            .bg(fill)
             .animate(fadeScale, value: $state.value)
         Skeleton { width: 180, height: 16 }
         Button { label: "+" }
         on Tap -> dispatch(Bump)
     }
-    .gap(2)
-    .padding(3)
+    .gap(8)
+    .padding(12)
 }

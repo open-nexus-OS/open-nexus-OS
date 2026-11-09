@@ -1,0 +1,19 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// A pane header's title (`WinPane`): body 14/600 `label`, 8 px before what follows;
+// nothing without one.
+
+Component WinPaneTitle {
+    props: {
+        title: Str,
+    }
+    if $props.title != "" {
+        Stack {
+            Text($props.title).textStyle(body).fontWeight(semibold).fg(label)
+        }
+        .paddingTrailing(8)
+    } else {
+        Stack { }
+    }
+}

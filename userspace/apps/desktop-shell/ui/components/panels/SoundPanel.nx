@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Ton panel (design artifacts: panels §6): 300 wide, radius 30, top right,
+// Ton panel (design artifacts: panels §6): 300 wide, radius xl 24, top right,
 // DESKTOP mode only. Output devices, input devices, and the SAME volume card
 // the Control Center shows — `CcSoundCard` is reused verbatim rather than
 // re-drawn, which is what makes "ein gemeinsamer Lautstärke-Zustand" true by
@@ -15,7 +15,8 @@ Component SoundPanel {
         Stack {
             SectionTitle { label: @t("panels.sound") }
         }
-        .paddingX(1)
+        .paddingX(2)
+        .paddingBottom(4)
         GroupLabel { label: @t("sound.output") }
         Stack {
             Stack {
@@ -34,8 +35,8 @@ Component SoundPanel {
             .direction(row)
             on Tap -> dispatch(PickOutput("display"))
         }
-        .padding(1)
-        .rounded(20)
+        .padding(4)
+        .rounded(16)
         .material(card)
         GroupLabel { label: @t("sound.input") }
         Stack {
@@ -50,18 +51,17 @@ Component SoundPanel {
             .direction(row)
             on Tap -> dispatch(PickInput("micExternal"))
         }
-        .padding(1)
-        .rounded(20)
+        .padding(4)
+        .rounded(16)
         .material(card)
-        CcSoundCard { }
+        CcSoundCard { label: @t("control.volume") }
     }
     .width(300)
-    .gap(2)
-    .paddingX(4)
-    .paddingTop(3)
-    .paddingBottom(4)
-    .rounded(30)
+    .gap(8)
+    .paddingX(16)
+    .paddingTop(8)
+    .paddingBottom(16)
+    .rounded(xl)
     .material(panel)
-    .shadow(xxl)
     .transition(slideDown)
 }

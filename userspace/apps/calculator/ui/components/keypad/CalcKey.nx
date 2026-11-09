@@ -1,28 +1,27 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// One key of the keypad (design artifacts: calculator, the 4x5 grid).
+// One key of the keypad (design artifacts: calculator, the 4x5 grid of circles).
 //
-// NOT a `Button`: the kit widget consumes only `label`/`.bg`/`.fg`/
-// `.textSize`/`.disabled`/`.gap`/flex and DROPS `.width/.height/.padding/
-// .rounded/.material/.shadow/.border/.align`, so it cannot carry the
-// design's radius-14 glass tile at all. Every shell tile is built the same
-// way (`Stack { Text }` + `on Tap`).
+// THE SHAPE FOLLOWS THE CELL, like the reference desktop calculator: every key is
+// `.rounded(full)` on a flex-grown cell. At the window's minimum (340x600, RFC-0117) a cell is
+// square, so the key is the artifact's 63.5 px circle; a wider window widens the cells and the
+// circles become pills; the zero key (two tracks + the gap) is a capsule at every size. The
+// label tracks the key (`.textFit`, % of the key's height) and lands on the artifact's styles at
+// the minimum: digits, operators and "=" title1 24 (38 %), ± and % title2 20 (31 %), AC title3
+// 17 medium (27 %), capped at the largest face of the style's weight (30).
 //
-// `kind` picks the surface, because `.material($props.x)` does not exist —
-// modifier arguments are literal tokens, never expressions, so the choice has
-// to be a branch (the same reason `WinAppWindow` spells out its arms):
-//   digit    glass card      -- the design's `--glass-card-bg`
-//   function raised wash     -- rgba(255,255,255,.16)
-//   operator accent TINT     -- accent @ 24%, still reads as glass
-//   equals   accent FILL     -- accent @ 82% + white label + drop shadow
+// NOT a `Button`: the caller owns the OUTER flex (`.basis(0).grow(n)`) and the `on Tap`, because
+// a handler binds to a NODE and components are not nodes. The key's own `.grow(1)` is
+// load-bearing: inside a row wrapper, cross-axis stretch gives the key its height, but its width
+// only follows the allocation if it grows.
 //
-// The caller owns the OUTER flex (`.basis(0).grow(n)`) and the `on Tap`,
-// because a handler binds to a NODE and components are not nodes. The key's
-// own `.grow(1)` is separate and load-bearing: inside a row wrapper, cross-axis
-// stretch gives the key its HEIGHT for free, but its WIDTH only follows the
-// allocation if it grows — without it the key painted at label width (23px)
-// inside an 81px cell.
+// `kind` picks the look (modifier arguments are literal tokens, so the choice is a branch):
+//   digit    glass: glassCard (= fill at half alpha inside the pane) + glassEdge + shadow1
+//   clear    secondary: fill + separator hairline, title3 medium (AC)
+//   function secondary: fill + separator hairline, title2 (± %)
+//   operator tinted accent: accent @16 %, accent label, no border
+//   equals   filled accent: accent + onAccent label + shadow2
 Component CalcKey {
     props: {
         label: Str,
@@ -31,67 +30,81 @@ Component CalcKey {
     if $props.kind == "equals" {
         Stack {
             Text($props.label)
-                .textSize(xl)
+                .textStyle(title1)
                 .fg(onAccent)
-                .fontWeight(medium)
         }
         .direction(row)
         .align(center)
         .justify(center)
         .grow(1)
-        .rounded(14)
+        .rounded(full)
         .bg(accent)
-        .shadow(md)
-        // The label tracks the KEY, not a breakpoint: ~30% of the key's own
-        // height, floored at the smallest baked rung so a 204x120 window
-        // degrades instead of overflowing, capped at the largest Latin one.
-        .textFit(30, 11, 52)
+        .shadow(shadow2)
+        .textFit(38, 17, 30)
     } else {
         if $props.kind == "operator" {
             Stack {
                 Text($props.label)
-                    .textSize(xl)
-                    .fg(onGlassStrong)
+                    .textStyle(title1)
+                    .fg(accent)
             }
             .direction(row)
             .align(center)
             .justify(center)
             .grow(1)
-            .rounded(14)
-            .bg(accentSoft)
-            .border(hairline)
-            .borderColor(glassFocus)
-            .textFit(30, 11, 52)
+            .rounded(full)
+            .tint(accent)
+            .textFit(38, 17, 30)
         } else {
-            if $props.kind == "function" {
+            if $props.kind == "clear" {
                 Stack {
                     Text($props.label)
-                        .textSize(xl)
-                        .fg(onGlassStrong)
+                        .textStyle(title3)
                         .fontWeight(medium)
+                        .fg(label)
                 }
                 .direction(row)
                 .align(center)
                 .justify(center)
                 .grow(1)
-                .rounded(14)
-                .bg(glassFillStrong)
+                .rounded(full)
+                .bg(fill)
                 .border(hairline)
-                .borderColor(border)
-                .textFit(28, 11, 44)
+                .borderColor(separator)
+                .textFit(27, 13, 24)
             } else {
-                Stack {
-                    Text($props.label)
-                        .textSize(xl)
-                        .fg(onGlassStrong)
+                if $props.kind == "function" {
+                    Stack {
+                        Text($props.label)
+                            .textStyle(title2)
+                            .fg(label)
+                    }
+                    .direction(row)
+                    .align(center)
+                    .justify(center)
+                    .grow(1)
+                    .rounded(full)
+                    .bg(fill)
+                    .border(hairline)
+                    .borderColor(separator)
+                    .textFit(31, 15, 30)
+                } else {
+                    Stack {
+                        Text($props.label)
+                            .textStyle(title1)
+                            .fg(label)
+                    }
+                    .direction(row)
+                    .align(center)
+                    .justify(center)
+                    .grow(1)
+                    .rounded(full)
+                    .bg(glassCard)
+                    .border(hairline)
+                    .borderColor(glassEdge)
+                    .shadow(shadow1, edgeHighlight)
+                    .textFit(38, 17, 30)
                 }
-                .direction(row)
-                .align(center)
-                .justify(center)
-                .grow(1)
-                .rounded(14)
-                .material(card)
-                .textFit(30, 11, 52)
             }
         }
     }

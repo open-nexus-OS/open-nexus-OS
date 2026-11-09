@@ -11,17 +11,18 @@
 //! independent). DSL-emittable.
 //!
 //! The built-in [`Symbol`] set covers the essential UI glyphs (single filled
-//! outlines). The full curated symbol library (Lucide SVG → normalized `Path`
-//! at build time) fills the SAME `Icon` API later — no API churn — and the
-//! renderer already draws `ShapeKind::Path`, so it needs no core change.
+//! outlines); the theme-linked line set ([`LucideSymbol`], imported at build time) is the
+//! design artifacts' icon renderer: stroked polylines at the set's width, or at a per-icon
+//! width ([`Icon::stroke_tenths`] — the chrome's 2.2–3). [`with_ink`] is `currentColor`: a
+//! container re-inks the glyph or text it holds (a selected row turns its icon `onAccent`).
 
 extern crate alloc;
 
 use nexus_layout_types::{
     Align, CornerRadius, Direction, EdgeInsets, FlexItem, FxPx, Justify, LayoutNode, Overflow,
-    PathPoint, PathShape, ShapeKind, Stack, VisualStyle,
+    PathPoint, PathShape, Rgba8, ShapeKind, Stack, VisualStyle,
 };
-use nexus_theme_tokens::{ColorToken, Tokens, TypographyToken};
+use nexus_theme_tokens::{ColorToken, TextStyleToken, Tokens};
 
 // Imported Lucide line symbols: `LucideSymbol` + `lucide_contours`.
 include!(concat!(env!("OUT_DIR"), "/lucide.rs"));
@@ -123,12 +124,12 @@ pub struct Icon {
 }
 
 impl Icon {
-    /// A `16px`, `OnSurface` built-in symbol.
+    /// A `16px`, `Label` built-in symbol.
     pub fn new(symbol: Symbol) -> Self {
         Self {
             shape: ShapeKind::Path(symbol.path()),
             size: FxPx::new(16),
-            color: ColorToken::OnSurface,
+            color: ColorToken::Label,
             id: None,
         }
     }
@@ -146,19 +147,48 @@ impl Icon {
         Self {
             shape: ShapeKind::Stroke { paths, width_milli: LUCIDE_STROKE_MILLI },
             size: FxPx::new(16),
-            color: ColorToken::OnSurface,
+            color: ColorToken::Label,
             id: None,
         }
     }
 
+    /// A custom line symbol — the design artifacts' raw-path icons (a list row's check, a
+    /// reorder handle, the window menu's tile glyphs): polylines in the normalized `0..1000`
+    /// viewbox (a 24-unit path coordinate `c` is `c * 1000 / 24`), stroked like the imported
+    /// set — its width, round caps and joins.
+    pub fn polylines(contours: &[&[(u16, u16)]]) -> Self {
+        let paths = contours
+            .iter()
+            .map(|c| PathShape {
+                points: c.iter().map(|&(x, y)| PathPoint::new(x, y)).collect(),
+                closed: false,
+            })
+            .collect();
+        Self {
+            shape: ShapeKind::Stroke { paths, width_milli: LUCIDE_STROKE_MILLI },
+            size: FxPx::new(16),
+            color: ColorToken::Label,
+            id: None,
+        }
+    }
+
+    /// The stroke width of a line symbol in tenths of the set's 24-unit viewbox (`22` = the
+    /// design's `strokeWidth 2.2`); the set's own width is `20`. A filled symbol has no stroke
+    /// and ignores it.
+    pub fn stroke_tenths(mut self, tenths: u16) -> Self {
+        if let ShapeKind::Stroke { width_milli, .. } = &mut self.shape {
+            *width_milli = stroke_milli(tenths);
+        }
+        self
+    }
     /// Explicit pixel size.
     pub fn size(mut self, px: i32) -> Self {
         self.size = FxPx::new(px.max(1));
         self
     }
-    /// Size from the type scale (matches adjacent text — the SwiftUI behaviour).
-    pub fn type_size(mut self, tokens: &dyn Tokens, token: TypographyToken) -> Self {
-        self.size = tokens.type_size(token);
+    /// Size from a text style (matches adjacent text — the SwiftUI behaviour).
+    pub fn type_size(mut self, token: TextStyleToken) -> Self {
+        self.size = FxPx::new(i32::from(token.spec().size));
         self
     }
     /// Tint (the "foreground color").
@@ -201,6 +231,43 @@ impl Icon {
             alloc::vec![],
         )
     }
+}
+
+/// A stroke width in tenths of the 24-unit viewbox → the normalized `0..1000` viewbox.
+const fn stroke_milli(tenths: u16) -> u16 {
+    ((tenths as u32 * 1000 + 120) / 240) as u16
+}
+
+/// `currentColor`: re-ink a built glyph (an [`Icon`]'s vector shape) or a text run in `color`.
+/// A container that colours its content uses this — a destructive row's leading icon follows the
+/// title into `danger`, a selected item turns its icon `onAccent`, a dimmed rail icon takes the
+/// label at 62 %. Only the node itself is touched; any other node (an avatar, a control, a box)
+/// keeps its own colours.
+#[must_use]
+pub fn with_ink(node: LayoutNode, color: Rgba8) -> LayoutNode {
+    match node {
+        LayoutNode::Stack(stack, mut visual, children) if is_glyph(&visual.shape) => {
+            visual.background = Some(color);
+            LayoutNode::Stack(stack, visual, children)
+        }
+        LayoutNode::Text(mut text, visual) => {
+            text.style.color = color;
+            LayoutNode::Text(text, visual)
+        }
+        other => other,
+    }
+}
+
+/// Whether a shape is a glyph drawn in its node's ink (not a filled box).
+fn is_glyph(shape: &ShapeKind) -> bool {
+    matches!(
+        shape,
+        ShapeKind::Path(_)
+            | ShapeKind::Vector(_)
+            | ShapeKind::Stroke { .. }
+            | ShapeKind::TriangleUp
+            | ShapeKind::TriangleDown
+    )
 }
 
 #[cfg(test)]
@@ -273,9 +340,76 @@ mod tests {
     }
 
     #[test]
-    fn type_size_matches_the_scale() {
+    fn a_line_symbol_takes_a_per_icon_stroke() {
         let t = BaseTokens;
-        let icon = Icon::new(Symbol::Plus).type_size(&t, TypographyToken::Base);
-        assert_eq!(icon.size, t.type_size(TypographyToken::Base));
+        // The set's own 2 → 83; the chrome's 2.5 → 104; a filled symbol ignores it.
+        assert_eq!(stroke_milli(20), LUCIDE_STROKE_MILLI);
+        match Icon::lucide(LucideSymbol::Minus).stroke_tenths(25).build(&t) {
+            LayoutNode::Stack(_, v, _) => {
+                assert!(matches!(v.shape, ShapeKind::Stroke { width_milli: 104, .. }));
+            }
+            _ => panic!(),
+        }
+        match Icon::new(Symbol::Plus).stroke_tenths(25).build(&t) {
+            LayoutNode::Stack(_, v, _) => assert!(matches!(v.shape, ShapeKind::Path(_))),
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn a_custom_path_is_a_stroked_symbol() {
+        // The design's reorder handle: three 16-unit lines at y 8/12/16 of the 24 viewbox.
+        const HANDLE: &[&[(u16, u16)]] =
+            &[&[(167, 333), (833, 333)], &[(167, 500), (833, 500)], &[(167, 667), (833, 667)]];
+        match Icon::polylines(HANDLE).size(18).build(&BaseTokens) {
+            LayoutNode::Stack(stack, v, _) => {
+                assert_eq!(stack.min_width, Some(FxPx::new(18)));
+                match v.shape {
+                    ShapeKind::Stroke { paths, width_milli } => {
+                        assert_eq!(paths.len(), 3);
+                        assert_eq!(width_milli, LUCIDE_STROKE_MILLI);
+                    }
+                    _ => panic!("a custom path is stroked"),
+                }
+            }
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn a_rounded_rect_keeps_its_corners() {
+        // `square` is `<rect … rx="2"/>`: a closed outline whose corners are arcs, so it has
+        // more points than the four corners of a sharp box (plus the closing point).
+        let contours = lucide_contours(LucideSymbol::Square);
+        assert_eq!(contours.len(), 1);
+        assert!(contours[0].len() > 5, "rx must round the corners");
+        assert_eq!(contours[0].first(), contours[0].last(), "the outline closes");
+    }
+
+    #[test]
+    fn ink_recolours_glyphs_and_text_only() {
+        let t = BaseTokens;
+        let red = t.color(ColorToken::Danger);
+        match with_ink(Icon::lucide(LucideSymbol::Check).build(&t), red) {
+            LayoutNode::Stack(_, v, _) => assert_eq!(v.background, Some(red)),
+            _ => panic!(),
+        }
+        let boxed = LayoutNode::Stack(
+            Stack::default(),
+            VisualStyle { background: Some(t.color(ColorToken::Fill)), ..VisualStyle::default() },
+            alloc::vec![],
+        );
+        match with_ink(boxed, red) {
+            LayoutNode::Stack(_, v, _) => {
+                assert_eq!(v.background, Some(t.color(ColorToken::Fill)), "a box keeps its fill")
+            }
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn type_size_matches_the_scale() {
+        let icon = Icon::new(Symbol::Plus).type_size(TextStyleToken::Body);
+        assert_eq!(icon.size, FxPx::new(i32::from(TextStyleToken::Body.spec().size)));
     }
 }

@@ -369,6 +369,11 @@ fn build_message(
                     WindowLevel::Overlay => ir::WindowLevel::Overlay,
                 });
                 w.set_resizable(intent.resizable);
+                // RFC-0117: 0 = absent (the window manager decides).
+                w.set_width(intent.width.unwrap_or(0));
+                w.set_height(intent.height.unwrap_or(0));
+                w.set_min_width(intent.min_width.unwrap_or(0));
+                w.set_min_height(intent.min_height.unwrap_or(0));
             }
         }
 

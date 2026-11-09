@@ -8,9 +8,11 @@
 use super::*;
 
 impl super::DslApp {
-    /// The material-tagged regions of the current layout (the R1 seam): each `LayoutBox` whose
-    /// `.material()` is glass becomes a `LayerDesc` (base-layer rect + level + radius +
-    /// shadow); windowd composites each as a real frosted `nexus-gfx` layer. They ride the
+    /// The material-tagged regions of the current layout (the R1 seam, RFC-0116): a blur
+    /// surface on the wallpaper (`panel`, `window`, `dock`, `thin`, `ultraThin`) becomes a glass
+    /// `LayerDesc` of its backdrop's bucket — windowd composites it as a real frosted
+    /// `nexus-gfx` layer — and an opaque surface (`pane`, `overlay`) an occluder; a `card` is
+    /// painted into the surface and is no region. They ride the
     /// surface's structure (`band::send_tree`), so a re-created surface declares them anew with
     /// its first present — and windowd clears them at create, so neither side can carry a stale
     /// set alone. A box of a band's content is no region: it moves with its layer, its tint is in
@@ -24,7 +26,6 @@ impl super::DslApp {
         out: &mut [wire::LayerDesc; wire::MAX_SURFACE_LAYERS],
         nodes: &mut [usize; wire::MAX_SURFACE_LAYERS],
     ) -> usize {
-        use nexus_layout_types::{GlassLevel, SurfaceMaterial};
         let mut expanded =
             [nexus_scene_raster::NodeAnim::identity(0); super::anim::MAX_EXPANDED_ANIMS];
         let k = self.expand_node_anims(&mut expanded);
@@ -48,37 +49,16 @@ impl super::DslApp {
             if self.in_band(b) {
                 continue;
             }
-            // Only glass ROOTS become compositor regions: nested glass
-            // blends into its parent's pixels (`glass_nested`), so a region
-            // per inner card would both re-blur what the root already
-            // frosts AND overflow the 16-layer wire cap — a settings-like
-            // page carries ~27 glass nodes but only 3-4 roots.
-            if b.glass_nested {
-                continue;
-            }
-            if n >= wire::MAX_SURFACE_LAYERS {
-                dropped += 1;
-                continue;
-            }
-            // The wire `glass_level` is a BLUR BUCKET, not the material: the
-            // tint, shine, hairline and gradient are already painted into this
-            // surface's own pixels by `Style::glass`, and windowd reads the
-            // level only to pick a backdrop radius (`scene.rs`: panel/overlay
-            // 40, card 20, subtle 8). So the two window levels ride the bucket
-            // whose radius the theme authors for them — `windowPane` 20 = card,
-            // `windowBar` 40 = panel — instead of costing two new wire values
-            // that would carry no extra information.
-            // The materials rules (docs/dev/ui/foundations/visual/materials.md, TASK-0337)
-            // inside a WINDOW: the content pane is an OPAQUE region (no blur, an occluder —
-            // its pixels are painted opaque); bars, cards and subtle rows are tint, painted
-            // into the surface and no region at all; the window's own glass, panels and
-            // overlays (the functional layer) stay glass. The desktop base keeps every
-            // region as glass: its regions sit straight on the wallpaper.
+            let Some(material) = b.visual.material else { continue };
             let full = b.visual.opacity.is_none_or(|o| o.0 >= 255);
             if wire::theme_is_solid(self.theme_mode) {
-                // Solid materials (TASK-0337): every material box is painted at its tint's full
-                // opacity — an opaque region (an occluder), never a blur.
-                if matches!(b.visual.material, SurfaceMaterial::Opaque) || !full {
+                // Solid materials (TASK-0337): every material box is painted at its fill's full
+                // opacity — an opaque region (an occluder) for a root, never a blur.
+                if b.glass_nested || !full || material == nexus_layout_types::Material::Card {
+                    continue;
+                }
+                if n >= wire::MAX_SURFACE_LAYERS {
+                    dropped += 1;
                     continue;
                 }
                 let Some((x, y, w, h)) = fit(b) else { continue };
@@ -96,33 +76,13 @@ impl super::DslApp {
                 n += 1;
                 continue;
             }
-            let (material, glass_level) = match b.visual.material {
-                SurfaceMaterial::Glass(GlassLevel::Panel) => {
-                    (wire::MATERIAL_GLASS, wire::GLASS_PANEL)
-                }
-                SurfaceMaterial::Glass(GlassLevel::Card) if self.desktop => {
-                    (wire::MATERIAL_GLASS, wire::GLASS_CARD)
-                }
-                SurfaceMaterial::Glass(GlassLevel::Subtle) if self.desktop => {
-                    (wire::MATERIAL_GLASS, wire::GLASS_SUBTLE)
-                }
-                SurfaceMaterial::Glass(GlassLevel::Window) => {
-                    (wire::MATERIAL_GLASS, wire::GLASS_WINDOW)
-                }
-                // Opaque only while it is drawn at full opacity: a faded pane shows what lies
-                // below it, and an occluder that is not would leave a hole.
-                SurfaceMaterial::Glass(GlassLevel::WindowPane) if full => {
-                    (wire::MATERIAL_OPAQUE, 0)
-                }
-                SurfaceMaterial::Glass(GlassLevel::WindowPane) => continue,
-                SurfaceMaterial::Glass(GlassLevel::Overlay) => {
-                    (wire::MATERIAL_GLASS, wire::GLASS_OVERLAY)
-                }
-                SurfaceMaterial::Glass(GlassLevel::Card)
-                | SurfaceMaterial::Glass(GlassLevel::Subtle)
-                | SurfaceMaterial::Glass(GlassLevel::WindowBar)
-                | SurfaceMaterial::Opaque => continue,
+            let Some((material, glass_level)) = region_kind(material, b.glass_nested, full) else {
+                continue;
             };
+            if n >= wire::MAX_SURFACE_LAYERS {
+                dropped += 1;
+                continue;
+            }
             let Some((x, y, w, h)) = fit(b) else { continue };
             layers[n] = wire::LayerDesc {
                 x,
@@ -151,5 +111,30 @@ impl super::DslApp {
             raw_marker(&alloc::format!("apphost: {dropped} glass regions over the layer cap"));
         }
         n
+    }
+}
+
+/// The region a material box declares (RFC-0116), if any: `(MATERIAL_*, GLASS_*)`.
+///
+/// A blur surface is a glass region of its backdrop's bucket — only as a ROOT: one blur per
+/// stack, and a nested one blends into its parent's pixels. An opaque surface drawn at full
+/// opacity is an occluder wherever it sits (a pane occludes the window's blur, a menu a
+/// panel's); faded, it shows what lies below and must not claim to hide it. A card is painted,
+/// never a region.
+pub(super) fn region_kind(
+    material: nexus_layout_types::Material,
+    nested: bool,
+    full: bool,
+) -> Option<(u8, u8)> {
+    use nexus_layout_types::Material;
+    let glass = |level| (!nested).then_some((wire::MATERIAL_GLASS, level));
+    match material {
+        Material::Panel => glass(wire::GLASS_PANEL),
+        Material::Window => glass(wire::GLASS_WINDOW),
+        Material::Dock => glass(wire::GLASS_DOCK),
+        Material::Thin => glass(wire::GLASS_THIN),
+        Material::UltraThin => glass(wire::GLASS_ULTRA_THIN),
+        Material::Pane | Material::Overlay => full.then_some((wire::MATERIAL_OPAQUE, 0)),
+        Material::Card => None,
     }
 }

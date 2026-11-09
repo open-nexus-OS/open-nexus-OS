@@ -61,18 +61,41 @@ one place: as the scrutinee of a `match` with both arms.
 
 ### Initial load: root effects (no lifecycle hook)
 
-There is **no** `on Mount`/`useEffect` in the language — a second, imperative
+There is **no** `on Mount` lifecycle hook in the language — a second, imperative
 effect-trigger model is exactly what `principles.md` §5 forbids. The initial
 load falls out of the **dataflow** instead:
 
 ```nx
-Event UserListEvent { LoadUsers, UsersLoaded(List<User>), LoadFailed(Int) }
+Store UserListStore {
+    users: List<Str> = [],
+    loading: Bool = true,
+}
 
+Event UserListEvent {
+    LoadUsers,
+    UsersLoaded(List<Str>),
+    LoadFailed(Int),
+}
+
+reduce UserListEvent {
+    LoadUsers => state.loading = true,
+    UsersLoaded(users) => {
+        state.users = users;
+        state.loading = false;
+    },
+    LoadFailed(code) => state.loading = false,
+}
+
+// `LoadUsers` has an effect and no dispatcher: a root.
 @effect on LoadUsers {
     match svc.users.list() {
         Ok(users) => dispatch(UsersLoaded(users)),
-        Err(e)    => dispatch(LoadFailed(e)),
+        Err(e) => dispatch(LoadFailed(e)),
     }
+}
+
+Page UserListPage {
+    Text("Users")
 }
 ```
 
@@ -88,34 +111,43 @@ via `View::run_initial_effects`; the host calls it once right after mount.
 
 ## Pages and components
 
-A `Page` body **is** its view. Components declare `props` first:
+A `Page` body **is** its view. Components declare `props` first. A `.key(…)` goes on a node
+in the loop body — a bare component reference drops it (NX0411), so wrap the reference in a
+`Stack` and key that:
 
 ```nx
+Store S { users: List<Str> = [], loading: Bool = false, }
+Event E { Open(Str), }
+reduce E { Open(id) => state.loading = true, }
+
 Page UserListPage {
     Stack {
         if $state.loading {
             Text(@t("common.loading"))
         } else {
             List($state.users) { user in
-                UserRow { user: user, onOpen: UserListEvent::Open }.key(user.id)
+                Stack {
+                    UserRow { user: user, onOpen: E::Open }
+                }
+                .key(user)
             }
         }
     }
-    .padding(4)
-    .gap(2)
+    .padding(16)
+    .gap(8)
 }
 
 Component UserRow {
     props: {
-        user: User,
+        user: Str,
         onOpen: EventRef,
     }
     Stack {
-        Avatar { initials: $props.user.initials }
-        Text($props.user.name).textSize(base)
+        Avatar { initials: $props.user }
+        Text($props.user).textStyle(body)
     }
     .direction(row)
-    .gap(3)
+    .gap(gapGroup)
     on Tap -> emit($props.onOpen)
 }
 ```
@@ -126,41 +158,64 @@ Single-primary-prop widgets accept positional sugar: `Text("Hi")` ≡
 ### Container primitives: `Panel` and `Circle`
 
 Two named containers for the shapes every surface is built from — both host
-arbitrary children (icons, text, stacks) and take every modifier:
+arbitrary children (icons, text, stacks) and take every modifier. `Panel` is the panel
+material (`panel`, a blur) unless `.material(…)` says otherwise; `Circle`'s `size` pins a
+square box with a full radius and centers its content:
 
 ```nx
-Panel {                       // panel-glass surface: material(panel) +
-    Text(@t("net.title"))     // rounded(lg) + padding(3) pre-applied;
-    Slider { value: $state.v }// explicit .material/.rounded/.padding win
-}
-.width(328)
+Store S { v: Fx = 0.5, }
 
-Circle { size: 22             // perfectly round: size pins a square box,
-    Icon { symbol: "play", size: 12 } // radius is welded to full, content
-}                             // centers on both axes
-.material(subtle)
+Page P {
+    Stack {
+        Panel {
+            Text(@t("net.title"))
+            Slider { value: $state.v }.label(@t("net.volume"))
+        }
+        .width(328)
+        Circle { size: 22
+            Icon { symbol: "play", size: 12 }
+        }
+        .bg(fill)
+    }
+}
 ```
 
-`Panel` is the building block for Control-Center tiles, window content
-panels and the properties sidebar; `Circle` for round buttons, badges and
-avatar-like elements. Both are sugar over `Stack` — same layout semantics,
-no new paint machinery.
+`Panel` is the building block for a surface on the wallpaper (the Control
+Center, the notification and launcher panels); a layer inside it is
+`.material(card)` or opaque (`pane`, `overlay`) — a blur inside a blur is NX0414.
+`Circle` is for round buttons, badges and avatar-like elements. Both are sugar
+over `Stack` — same layout semantics, no new paint machinery.
 
 ## Conditionals
 
 Plain `if/else`, including on the device environment:
 
 ```nx
-if device.profile == desktop {
-    SplitView { /* sidebar + content */ }
-} else {
-    Stack { /* single column */ }
+Page P {
+    if device.profile == desktop {
+        Stack {
+            Stack { Text("sidebar") }.width(240)
+            Stack { Text("content") }.grow(1)
+        }
+        .direction(row)
+    } else {
+        Stack {
+            Text("single column")
+        }
+    }
 }
 ```
 
 `if` on `device.profile` without a final `else` is a warning (a device you didn't
 think of gets the default branch, not a blank screen). `match` is available and must
 be exhaustive.
+
+A branch is always exactly ONE node of its parent. The chosen arm's single node is emitted
+as it is (no wrapper); an arm with several nodes is wrapped in a column `Stack` — so three
+`if`s inside one arm of a row stack VERTICALLY; give each its own top-level `if` instead. An
+`if` whose conditions are all false and that has no `else` emits an empty `Stack`: no size,
+but an in-flow child — in a container with a `.gap(n)` it takes a gap, exactly like an
+explicit `else { Stack { } }`.
 
 ## Loops and collections
 
@@ -174,36 +229,57 @@ be exhaustive.
 Chained utility calls with token arguments (full catalog: `modifiers.md`):
 
 ```nx
-Button { label: @t("cta") }
-  .padding(4)
-  .bg(accent)
-  .fg(onAccent)
-  .textSize(sm)
-  .rounded(md)
-  .shadow(sm)
+Page CtaPage {
+    Stack {
+        Text(@t("cta")).textStyle(body).fontWeight(medium).fg(onAccent)
+    }
+    .paddingX(16)
+    .bg(accent)
+    .rounded(full)
+    .shadow(shadow2)
+}
 ```
 
 - duplicate modifiers on one node = error;
 - modifiers are pure;
-- arguments are semantic tokens — raw hex/px values are not expressible in app code
-  (they belong to theme authoring, see `docs/dev/ui/foundations/visual/colors.md`);
+- arguments are names from the one token set (RFC-0116) — a raw hex colour is not
+  expressible in app code (values belong to theme authoring, see
+  `docs/dev/ui/foundations/visual/colors.md`); spacing is px on the 4-pt grid, an off-grid
+  value is a compile error; sizes and radii may be raw px;
 - token arguments of closed vocabularies are **checked at compile time**:
-  `.fg(oNSurface)` is an error with a "did you mean" hint, not a silent no-op.
+  `.fg(Label)` is an error with a "did you mean" hint, not a silent no-op, and a retired
+  name (`.fg(onSurface)`) is an error naming its replacement (`label`).
 
 ### Motion
 
 Semantic motion tokens with explicit categories — no free-form animation language:
 
 ```nx
-Button { label: @t("cta") }
-  .animate(snappy, value: $state.enabled)
-  .transition(fadeScale)
-  .effect(wiggle, trigger: $state.nudgeTick)
+Store S { enabled: Bool = false, nudgeTick: Int = 0, }
+
+Event E { Toggle, }
+
+reduce E { Toggle => state.enabled = !state.enabled, }
+
+Page MotionPage {
+    Button { label: @t("cta") }
+    .animate(snappy, value: $state.enabled)
+    .transition(fadeScale)
+    .effect(wiggle, trigger: $state.nudgeTick)
+    on Tap -> dispatch(Toggle)
+}
 ```
 
 - `.animate(token, value:)` — animate state-driven property changes;
 - `.transition(token)` — insert/remove/open/close lifecycle motion;
 - `.effect(token, trigger:)` — bounded attention effect when the trigger changes.
+
+Reduced-motion behaviour is part of each token's contract. There are no keyframes, no
+free-form animation variables and no one-off utilities. The app stays out of the per-frame
+loop: a `.transition` is the compositor's — app-host rasters the subtree once and windowd moves
+the layer (ADR-0097, [`docs/adr/0097-windowd-moves-the-declared-layers-an-app-states-a-transition-once.md`](../../adr/0097-windowd-moves-the-declared-layers-an-app-states-a-transition-once.md));
+`.animate` and `.effect` are ticked by app-host's animation driver on the frame pulse and the
+painter applies the per-node transform. See `docs/dev/ui/foundations/animation.md`.
 
 ### Layering: `.overlay()` goes ON TOP
 
@@ -214,32 +290,55 @@ up in front, and (because later ids win hit-testing) it swallows every tap.
 A backdrop is a **background** on a container that wraps the content:
 
 ```nx
-Stack {                       // content, tinted
-    /* zones */
+Page P {
+    Stack {
+        Stack {
+            Text("zones")
+        }
+        .grow(1)
+        .bg(wallpaperTint)
+    }
 }
-.grow(1)
-.bg(wallpaperTint)
 ```
 
 ### Modal and transient layers (`on Dismiss`, ADR-0068)
 
 ```nx
-if $state.confirm {
+Store S { confirm: Bool = false, toast: Str = "", }
+Event E { Cancel, Noop, HideToast, Ask, }
+reduce E {
+    Ask => state.confirm = true,
+    Cancel => state.confirm = false,
+    Noop => state.confirm = state.confirm,
+    HideToast => state.toast = "",
+}
+Page P {
     Stack {
-        Stack { Button { label: "Cancel" } on Tap -> dispatch(Cancel) }.width(320)
-            on Tap -> dispatch(Noop)        // the panel absorbs its own taps
+        if $state.confirm {
+            Stack {
+                Stack {
+                    Button { label: "Cancel" }
+                    on Tap -> dispatch(Cancel)
+                }
+                .width(320)
+                on Tap -> dispatch(Noop)
+            }
+            .overlay(modal)
+            .bg(scrim)
+            on Dismiss -> dispatch(Cancel)
+        } else {
+            Stack { }
+        }
+        if $state.toast != "" {
+            Stack { Text($state.toast) }
+            .overlay(transient)
+            .dismissAfter(4000)
+            on Dismiss -> dispatch(HideToast)
+        } else {
+            Stack { }
+        }
     }
-    .overlay(modal)                        // bounded stack (max 4), focus trap, confinement
-    .bg(scrim)
-    on Dismiss -> dispatch(Cancel)         // ESC and the backdrop fire THIS — the one way out
-} else { Stack { } }
-
-if $state.toast != "" {
-    Stack { Text($state.toast) }
-    .overlay(transient)                    // confines nothing
-    .dismissAfter(4000)                    // the host's timer fires `on Dismiss`
-    on Dismiss -> dispatch(HideToast)
-} else { Stack { } }
+}
 ```
 
 The runtime never hides a layer by itself: `on Dismiss` dispatches, the reducer changes the
@@ -261,7 +360,18 @@ happened outside its own input:
 | `CaptureOpen` · `CaptureScreen` · `CaptureWindow` | Print · Shift+Print · Alt+Print (the desktop surface only — RFC-0095) |
 
 ```nx
-on ClipboardChanged -> dispatch(ClipsReload)   // the open history re-reads at once
+Store ClipsStore { reloads: Int = 0, }
+
+Event ClipsEvent { ClipsReload, }
+
+reduce ClipsEvent { ClipsReload => state.reloads = state.reloads + 1, }
+
+Page ClipsPage {
+    Stack {
+        Text(@t("clips.title"))
+    }
+    on ClipboardChanged -> dispatch(ClipsReload)   // the open history re-reads at once
+}
 ```
 
 ### The drag gesture (`DragStart` · `DragMove` · `DragEnd`, RFC-0095)
@@ -280,21 +390,26 @@ deltas. The repaint is the rows the change touched (a box that only moved or res
 damages what its new geometry changes), not the frame.
 
 ```nx
-Stack { … }
-on DragStart -> dispatch(SelBegin)     // reduce: state.anchorX = device.dragStartX; …
-on DragMove -> dispatch(SelMove)       // reduce: state.w = device.dragX - state.anchorX; …
-on DragEnd -> dispatch(SelEnd)
+Store SelStore { anchorX: Int = 0, w: Int = 0, }
+
+Event SelEvent { SelBegin, SelMove, SelEnd, }
+
+reduce SelEvent {
+    SelBegin => state.anchorX = device.dragStartX,
+    SelMove => state.w = device.dragX - state.anchorX,
+    SelEnd => state.w = 0,
+}
+
+Page SelectPage {
+    Stack {
+        Text(@t("select.hint"))
+    }
+    on DragStart -> dispatch(SelBegin)
+    on DragMove -> dispatch(SelMove)
+    on DragEnd -> dispatch(SelEnd)
+}
 ```
 
-
-Reduced-motion behavior is part of each token's contract. There are no CSS-style
-keyframes, no free-form animation variables, no magic one-off utilities.
-
-These are **implemented** (TASK-0062/0075): the app-host `AnimationDriver` ticks
-the intent on the compositor frame pulse and the painter applies the per-node
-transform (the app stays out of the per-frame loop). See
-`docs/dev/ui/foundations/animation.md`. Live demo:
-`userspace/apps/counter/ui/pages/CounterPage.nx`.
 
 ## Escape hatch: `NativeWidget`
 
@@ -302,14 +417,16 @@ For surfaces the first-party catalog cannot express (document canvas, waveform,
 video preview), a capability-gated native view node exists:
 
 ```nx
+Store S { seriesId: Int = 1, }
 Page FancyChartPage {
-    NativeWidget(handle: "org.example.widgets.ChartV1", props: { seriesId: $state.seriesId })
+    NativeWidget { handle: "org.example.widgets.ChartV1" }
 }
 ```
 
-Constraints: deterministic rendering for the same inputs,
-bounded resources, no direct IO (services via effects only), a11y contract required.
-No dynamic code loading.
+The compiler accepts the node and its `handle`; no host renderer binds a handle yet, so
+treat it as a reserved extension point. The contract it will have to meet: deterministic
+rendering for the same inputs, bounded resources, no direct IO (services via effects only),
+an a11y contract. No dynamic code loading.
 
 ## Changelog
 

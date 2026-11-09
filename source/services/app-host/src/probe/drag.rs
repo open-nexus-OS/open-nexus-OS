@@ -123,28 +123,33 @@ impl super::DslApp {
                     drag.pending = Some((x, y));
                 }
                 self.pointer = Some((x, y));
-                return;
+                // The pointer left the pressed control: its press lets go (RFC-0116).
+                self.press_left(x, y) && self.interaction_release()
             }
-            wire::INPUT_KIND_RELEASE => self.drag_end(x, y, dirty, dirty_rows),
+            wire::INPUT_KIND_RELEASE => {
+                // The press lets go first: its spring back survives the drag's re-emit.
+                let released = self.interaction_release();
+                self.drag_end(x, y, dirty, dirty_rows) || released
+            }
             wire::INPUT_KIND_LEAVE => {
                 if self.text_hover_clear() {
                     super::boot::send_cursor_hint(client, surface_id, false);
                 }
-                // The wash goes (motion); the un-hover spring needs pulses too.
-                self.hover_clear() && self.anim_active()
+                // The layers fade out (motion), a held press lets go.
+                let released = self.interaction_release();
+                self.hover_clear() || released
             }
             _ => {
                 // Editable-field hover → windowd cursor hint (I-beam), sent only on CHANGE.
                 if let Some(over) = self.text_hover(x, y) {
                     super::boot::send_cursor_hint(client, surface_id, over);
                 }
-                // Frame-aligned hover: the wash layer moves (motion, RFC-0109) — never a
-                // raster; a started grow spring ticks on the frame pulse.
-                self.hover(x, y) && self.anim_active()
+                // Frame-aligned hover: the layer fades (motion, RFC-0109) — never a raster.
+                self.hover(x, y)
             }
         };
-        // Started interaction springs or animations tick on the frame pulse.
-        if repaint && self.anim_active() {
+        // Started springs, animations and layer fades tick on the frame pulse.
+        if repaint && (self.anim_active() || self.layers_live()) {
             let _ = client.send(&wire::encode_surface_frame_req(surface_id), Wait::Blocking);
         }
     }

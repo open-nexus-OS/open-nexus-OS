@@ -1,16 +1,34 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The window's three-zone top chrome (design artifacts: design system window
-// frame): LEADING app chip (window-mode menu) + left-sidebar toggle ·
-// CENTER toolbar slots (up to three tool icons; "" hides a slot) ·
-// TRAILING ⋯ app menu + properties-sidebar toggle + window controls.
-// Dispatches into the consuming app's WindowStore (see window-kit manifest
-// for the store contract).
+// The window's title chrome (design artifacts: Window · WindowMenu ·
+// WindowButton · WindowControls): one 52 px row (padding 8 12 around 36 px of
+// controls) in three zones —
+//   LEADING  (gap 4)  the app chip (the app's icon + a chevron, never the app
+//                     name) that opens the window menu, then the sidebar toggle;
+//   TOOLBAR  (gap 2)  back · forward · refresh | tool1 | tool2 · tool3, centred
+//                     on the WINDOW (an out-of-flow layer over the row, so
+//                     unequal leading/trailing zones cannot push it off-centre);
+//   TRAILING (gap 2)  the properties toggle, the ⋮ app menu, a 1×16 divider
+//                     (margin 0 8, only when one of those two exists) and the
+//                     window controls (three 36 px circles).
+// Every button is a `WinButtonFace` circle: glyph `labelSecondary`, a pinned
+// `fill` layer + `label` glyph while ACTIVE — a tool mode (`tool1Active` …),
+// a shown pane (the toggles), an open menu (the chip, the ⋮). A symbol of ""
+// hides its button; `navBackDisabled`/`navFwdDisabled` keep the arrow and
+// drop its tap (the design always shows Vorwärts, dimmed without a target).
 //
-// A tool slot can be ACTIVE (`tool1Active` …): the design pins the hover
-// surface on the pressed tool, so Suche / Kacheln / Liste show which mode the
-// window is in instead of looking identical to the tools that do nothing.
+// The toggles read the store contract to know whether their pane is shown,
+// mirroring `WinAppWindow`'s tiers: the sidebar is inline on `wide` and an
+// overlay below it; the properties pane is inline down to `regular` and an
+// overlay on `compact`. The chip is open while `menu == "app"`, the ⋮ while
+// `menu == "more"` — or whenever the app says so (`moreActive`, for the
+// submenu ids only the app knows).
+//
+// Dispatches into the consuming app's window store (see the window-kit
+// manifest for the store contract: fields menu · leftOpen · rightOpen ·
+// paneL · paneR, events WinMenu · WinLeft · WinRight · WinTool · WinNav ·
+// WinAct). Its parts: `WinAppChip`, `WinNavCell`/`WinToolCell`, `WinBarRule`.
 
 Component WinTopBar {
     props: {
@@ -24,270 +42,134 @@ Component WinTopBar {
         navBack: Str,
         navFwd: Str,
         navRefresh: Str,
+        navBackDisabled: Bool,
+        navFwdDisabled: Bool,
         // The sidebar toggles and the app's own "more" menu (TASK-0337: one window path —
         // a window without sidebars or an app menu shows no control for them). The symbol
         // to draw, or "" to hide — the navigation group's rule.
         sideLeft: Str,
         sideRight: Str,
         more: Str,
+        moreActive: Bool,
         appId: Str,
     }
     Stack {
-        // App chip: the app's REAL baked icon (the small colored svg) when an
-        // `appId` is given, else the theme glyph. Tap opens the window menu.
-        // The chevron marks it as a menu affordance, not decoration.
-        if $props.appId != "" {
-            Stack {
-                Image { source: $props.appId, size: 24 }
-                Icon { symbol: "chevron.down", size: 10 }
-                    .fg(onGlassMuted)
-            }
-            .direction(row)
-            .align(center)
-            .gap(0)
-            .height(30)
-            on Tap -> dispatch(WinMenu("app"))
-        } else {
-            Circle { size: 26
-                Icon { symbol: $props.icon, size: 14 }
-                    .fg(onGlass)
-            }
-            .material(subtle)
-            on Tap -> dispatch(WinMenu("app"))
-        }
-        if $props.sideLeft != "" {
-            Stack {
-                Icon { symbol: $props.sideLeft, size: 15 }
-                    .fg(onGlassMuted)
-            }
-            .width(30)
-            .height(30)
-            .rounded(md)
-            .align(center)
-            .justify(center)
-            on Tap -> dispatch(WinLeft)
-        } else {
-            Stack { }
-        }
-        // Optional navigation group (file-manager back / forward / refresh).
-        // Empty symbol = hidden, so apps that don't navigate stay unaffected.
-        if $props.navBack != "" {
-            Stack {
-                Icon { symbol: $props.navBack, size: 15 }
-                    .fg(onGlassMuted)
-            }
-            .width(30)
-            .height(30)
-            .rounded(md)
-            .align(center)
-            .justify(center)
-            on Tap -> dispatch(WinNav("back"))
-        } else {
-            Stack { }
-        }
-        if $props.navFwd != "" {
-            Stack {
-                Icon { symbol: $props.navFwd, size: 15 }
-                    .fg(onGlassMuted)
-            }
-            .width(30)
-            .height(30)
-            .rounded(md)
-            .align(center)
-            .justify(center)
-            on Tap -> dispatch(WinNav("fwd"))
-        } else {
-            Stack { }
-        }
-        // Divider between the navigation group and the tool cluster.
-        if $props.navRefresh != "" {
-            Stack {
+        // ── leading: the app chip + the sidebar toggle ──────────────────
+        Stack {
+            WinAppChip { icon: $props.icon, appId: $props.appId }
+            if $props.sideLeft != "" {
                 Stack {
-                    Icon { symbol: $props.navRefresh, size: 15 }
-                        .fg(onGlassMuted)
+                    WinButtonFace {
+                        symbol: $props.sideLeft,
+                        size: 14,
+                        active: (device.sizeClass == "wide" && $state.leftOpen == 1) || (device.sizeClass != "wide" && $state.paneL == 1),
+                        danger: false,
+                        disabled: false,
+                        large: false,
+                    }
                 }
-                .width(30)
-                .height(30)
-                .rounded(md)
-                .align(center)
-                .justify(center)
-                on Tap -> dispatch(WinNav("refresh"))
+                on Tap -> dispatch(WinLeft)
+            } else {
                 Stack { }
-                    .width(1)
-                    .height(16)
-                    .bg(divider)
+            }
+        }
+        .direction(row)
+        .align(center)
+        .gap(4)
+        Spacer
+        // ── trailing: properties toggle · ⋮ · divider · window controls ─
+        Stack {
+            if $props.sideRight != "" {
+                Stack {
+                    WinButtonFace {
+                        symbol: $props.sideRight,
+                        size: 14,
+                        active: (device.sizeClass != "compact" && $state.rightOpen == 1) || (device.sizeClass == "compact" && $state.paneR == 1),
+                        danger: false,
+                        disabled: false,
+                        large: false,
+                    }
+                }
+                on Tap -> dispatch(WinRight)
+            } else {
+                Stack { }
+            }
+            // VERTICAL ellipsis: the design draws the toolbar's "Mehr" as
+            // `circle cx=12 cy=5|12|19` and the action bar's as `cx=5|12|19 cy=12`.
+            // Two different glyphs, not one rotated — so two symbols.
+            // Two arms, not `moreActive || …`: an `if` reads an omitted prop as false, `||`
+            // rejects it — and apps leave `moreActive` out.
+            if $props.more != "" {
+                if $props.moreActive {
+                    Stack {
+                        WinButtonFace { symbol: $props.more, size: 16, active: true, danger: false, disabled: false, large: false }
+                    }
+                    on Tap -> dispatch(WinMenu("more"))
+                } else {
+                    Stack {
+                        WinButtonFace { symbol: $props.more, size: 16, active: $state.menu == "more", danger: false, disabled: false, large: false }
+                    }
+                    on Tap -> dispatch(WinMenu("more"))
+                }
+            } else {
+                Stack { }
+            }
+            WinBarRule { show: $props.sideRight != "" || $props.more != "", pad: 8 }
+            Stack {
+                WinButtonFace { symbol: "minus", size: 14, active: false, danger: false, disabled: false, large: true }
+            }
+            on Tap -> dispatch(WinAct("minimize"))
+            Stack {
+                WinButtonFace { symbol: "square", size: 13, active: false, danger: false, disabled: false, large: true }
+            }
+            on Tap -> dispatch(WinAct("zoom"))
+            Stack {
+                WinButtonFace { symbol: "xmark", size: 14, active: false, danger: true, disabled: false, large: true }
+            }
+            on Tap -> dispatch(WinAct("close"))
+        }
+        .direction(row)
+        .align(center)
+        .gap(2)
+        // ── the toolbar, centred on the window ──────────────────────────
+        // An out-of-flow layer over the row's content box (padding 12 on both
+        // sides, so its centre IS the window's). It has no handler of its own:
+        // a press beside a tool falls through to the row's drag handler, and
+        // the zones under it keep their buttons.
+        if $props.navBack != "" || $props.navFwd != "" || $props.navRefresh != "" || $props.tool1 != "" || $props.tool2 != "" || $props.tool3 != "" {
+            Stack {
+                Spacer
+                Stack {
+                    WinNavCell { symbol: $props.navBack, action: "back", disabled: $props.navBackDisabled }
+                    WinNavCell { symbol: $props.navFwd, action: "fwd", disabled: $props.navFwdDisabled }
+                    WinNavCell { symbol: $props.navRefresh, action: "refresh", disabled: false }
+                    // Between the navigation group and the tools; between the search tool and
+                    // the view-mode pair.
+                    WinBarRule { show: ($props.navBack != "" || $props.navFwd != "" || $props.navRefresh != "") && ($props.tool1 != "" || $props.tool2 != "" || $props.tool3 != ""), pad: 4 }
+                    WinToolCell { symbol: $props.tool1, active: $props.tool1Active }
+                    WinBarRule { show: $props.tool1 != "" && $props.tool2 != "", pad: 4 }
+                    WinToolCell { symbol: $props.tool2, active: $props.tool2Active }
+                    WinToolCell { symbol: $props.tool3, active: $props.tool3Active }
+                }
+                .direction(row)
+                .align(center)
+                Spacer
             }
             .direction(row)
             .align(center)
-            .gap(1)
+            .overlay()
         } else {
             Stack { }
         }
-        Spacer
-        if $props.tool1 != "" {
-            if $props.tool1Active {
-                Stack {
-                    Icon { symbol: $props.tool1, size: 15 }
-                        .fg(onAccent)
-                }
-                .width(30)
-                .height(30)
-                .rounded(md)
-                .align(center)
-                .justify(center)
-                .bg(accent)
-                on Tap -> dispatch(WinTool($props.tool1))
-            } else {
-                Stack {
-                    Icon { symbol: $props.tool1, size: 15 }
-                        .fg(onGlassMuted)
-                }
-                .width(30)
-                .height(30)
-                .rounded(md)
-                .align(center)
-                .justify(center)
-                on Tap -> dispatch(WinTool($props.tool1))
-            }
-        } else {
-            Stack { }
-        }
-        // Divider between the search tool and the view-mode pair.
-        if $props.tool2 != "" {
-            Stack { }
-                .width(1)
-                .height(16)
-                .bg(divider)
-        } else {
-            Stack { }
-        }
-        if $props.tool2 != "" {
-            if $props.tool2Active {
-                Stack {
-                    Icon { symbol: $props.tool2, size: 15 }
-                        .fg(onAccent)
-                }
-                .width(30)
-                .height(30)
-                .rounded(md)
-                .align(center)
-                .justify(center)
-                .bg(accent)
-                on Tap -> dispatch(WinTool($props.tool2))
-            } else {
-                Stack {
-                    Icon { symbol: $props.tool2, size: 15 }
-                        .fg(onGlassMuted)
-                }
-                .width(30)
-                .height(30)
-                .rounded(md)
-                .align(center)
-                .justify(center)
-                on Tap -> dispatch(WinTool($props.tool2))
-            }
-        } else {
-            Stack { }
-        }
-        if $props.tool3 != "" {
-            if $props.tool3Active {
-                Stack {
-                    Icon { symbol: $props.tool3, size: 15 }
-                        .fg(onAccent)
-                }
-                .width(30)
-                .height(30)
-                .rounded(md)
-                .align(center)
-                .justify(center)
-                .bg(accent)
-                on Tap -> dispatch(WinTool($props.tool3))
-            } else {
-                Stack {
-                    Icon { symbol: $props.tool3, size: 15 }
-                        .fg(onGlassMuted)
-                }
-                .width(30)
-                .height(30)
-                .rounded(md)
-                .align(center)
-                .justify(center)
-                on Tap -> dispatch(WinTool($props.tool3))
-            }
-        } else {
-            Stack { }
-        }
-        Spacer
-        // VERTICAL ellipsis: the design draws the toolbar's "Mehr" as
-        // `circle cx=12 cy=5|12|19` and the action bar's as `cx=5|12|19 cy=12`.
-        // Two different glyphs, not one rotated — so two symbols.
-        if $props.more != "" {
-            Stack {
-                Icon { symbol: $props.more, size: 15 }
-                    .fg(onGlassMuted)
-            }
-            .width(30)
-            .height(30)
-            .rounded(md)
-            .align(center)
-            .justify(center)
-            on Tap -> dispatch(WinMenu("more"))
-        } else {
-            Stack { }
-        }
-        if $props.sideRight != "" {
-            Stack {
-                Icon { symbol: $props.sideRight, size: 15 }
-                    .fg(onGlassMuted)
-            }
-            .width(30)
-            .height(30)
-            .rounded(md)
-            .align(center)
-            .justify(center)
-            on Tap -> dispatch(WinRight)
-        } else {
-            Stack { }
-        }
-        Stack {
-            Icon { symbol: "minus", size: 14 }
-                .fg(onGlassMuted)
-        }
-        .width(30)
-        .height(30)
-        .rounded(md)
-        .align(center)
-        .justify(center)
-        on Tap -> dispatch(WinAct("minimize"))
-        Stack {
-            Icon { symbol: "square", size: 12 }
-                .fg(onGlassMuted)
-        }
-        .width(30)
-        .height(30)
-        .rounded(md)
-        .align(center)
-        .justify(center)
-        on Tap -> dispatch(WinAct("zoom"))
-        Stack {
-            Icon { symbol: "xmark", size: 14 }
-                .fg(danger)
-        }
-        .width(30)
-        .height(30)
-        .rounded(md)
-        .align(center)
-        .justify(center)
-        on Tap -> dispatch(WinAct("close"))
     }
     .direction(row)
     .align(center)
-    .gap(1)
-    .paddingX(2)
-    .height(40)
+    .paddingX(12)
+    .paddingY(8)
+    .height(52)
     // The chrome row IS the window's grab strip (phone-style windowing: a
     // chromeless window has no WM title bar, so its own top chrome moves it).
-    // A press on any EMPTY stretch of the row — the spacers around the
+    // A press on any EMPTY stretch of the row — around the zones and the
     // toolbar — lands here and asks windowd to start a pointer drag
     // (`window.control = "move"`); every control above wins its own tap
     // first, exactly like the buttons in a WM title bar.

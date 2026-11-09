@@ -3,221 +3,191 @@
 
 # The Canonical IR (`.nxir`)
 
-`nx dsl build` lowers `.nx` source into a deterministic, bounded, binary IR. The IR is
-**the contract of the whole system**: the host interpreter and the app-host process
-execute the same IR under one written semantics — nothing may be implemented in only
-one place.
+The compiler lowers `.nx` source into a deterministic, bounded, binary IR. The IR is
+**the contract of the whole system**: the app-host process and the host harness (CLI,
+conformance and golden suites) execute the same IR with the same runtime crate
+(`userspace/dsl/runtime`) — nothing may be implemented in only one place. How the
+language maps onto it: [syntax.md](syntax.md), [state.md](state.md). How it runs:
+[runtime.md](runtime.md).
 
 ## Formats
 
-- **Canonical**: `.nxir` — Cap'n Proto (schema: `tools/nexus-idl/schemas/ui_ir.capnp`),
-  chosen for zero-parse bounded reads (an app mount validates and indexes; it never
-  parses text or compiles).
-- **Derived**: `.nxir.json` — deterministic JSON view for host goldens and debugging
-  only. Never consumed at runtime.
+| Format | Role |
+|---|---|
+| `.nxir` | **Canonical.** Cap'n Proto, schema `tools/nexus-idl/schemas/ui_ir.capnp`; chosen for zero-parse bounded reads — a mount validates and indexes, it never parses text or compiles. |
+| `.nxir.json` | Derived summary written by `nx-dsl build --emit-json` ([cli.md](cli.md)): program hash, byte length, schema version, entry page, table sizes and the symbol list. For debugging only; never read at runtime. |
+
+Rust bindings and the loader live in `userspace/dsl/ir` (`read`, `validate`, `node_id`,
+`hashing`); the version constants are `SCHEMA_MAJOR` / `SCHEMA_MINOR` in its `lib.rs`.
 
 ## Top-level structure
 
 ```capnp
 struct UiProgram {
-  schemaVersion :UInt16;   # major.minor; readers reject unknown majors
-  programHash   :Data;     # SHA-256 over canonical bytes with this field zeroed
-  sourceDigest  :Data;     # digest of the canonical source set (build provenance)
-  symbols       :List(Text);      # interned, sorted, unique; all refs are u32 ids
-  stores        :List(Store);
-  events        :List(EventDecl);
-  reducers      :List(Reducer);   # (store, event) -> Body
-  effects       :List(EffectPlan);
-  components    :List(Component); # includes Pages; view templates
-  routes        :List(Route);
-  i18nKeys      :List(I18nKey);
-  querySpecs    :List(QuerySpec);
-  conditions    :List(DeviceCond);# device.* branch conditions, deduplicated
-  assets        :List(AssetRef);  # name, kind, digest
-  budgets       :Budgets;         # caps: nodes, expr size, list len, str len, ...
+  schemaVersionMajor :UInt16;        # readers reject any other major
+  schemaVersionMinor :UInt16;
+  programHash        :Data;          # SHA-256 over the canonical bytes with this field zeroed
+  sourceDigest       :Data;          # SHA-256 of the canonical source set (provenance)
+  symbols            :List(Text);    # interned, sorted, unique; every reference is a u32 index
+  budgets            :Budgets;
+  types              :List(TypeDef); # program-declared enums/records
+  stores             :List(Store);
+  events             :List(EventDecl);
+  reducers           :List(Reducer); # (store, event) -> exhaustive arms over the event's cases
+  effects            :List(EffectPlan);
+  components         :List(Component); # pages are components with isPage
+  routes             :List(Route);
+  i18nKeys           :List(I18nKey);
+  querySpecs         :List(QuerySpec);
+  assets             :List(AssetRef);  # name, kind (svg | localeCatalog | raw), digest
+  entryPage          :UInt32;        # index into components; the "/" route's page, else the first page
+  window             :WindowIntent;  # the app's Window declaration (see window.md)
 }
 ```
 
+`Budgets` carries seven caps: `maxViewNodes`, `maxExprNodes`, `maxListLen`, `maxStrLen`,
+`maxEffectSteps`, `maxLocals`, `maxChildren`. The compiler writes one default set
+(`DEFAULT_BUDGETS` in `userspace/dsl/core/src/lower/mod.rs`: 4096 · 1024 · 1024 · 4096 ·
+16 · 32 · 64). See *Validation on load* for which of them the loader enforces.
+
 ## Reducers and effects: total expression trees
 
-Reducer bodies and effect plans are stored as **typed expression/statement trees**, not
-bytecode. The representation has no back-edges, so **termination holds by
-construction** — no verifier, no fuel counters. Iteration exists only as capped
-collection combinators (`map`, `filter`, `findFirst`, `removeWhere`, `append`-with-cap).
+Reducer bodies and effect plans are **typed expression/statement trees**, not bytecode.
+The representation has no back-edges, so termination holds by construction — no verifier,
+no fuel counter.
 
-- The interpreter walks the trees directly over Cap'n Proto readers (zero-parse) —
-  the same code on the host and inside the app-host process.
-- It implements the small-step semantics document; the conformance corpus
-  (`(state, event) → state'` fixtures) pins that semantics.
-- Every expression node carries its type; the loader **re-typechecks on mount**
-  (fail-closed against tampered bundles).
+| Construct | IR form |
+|---|---|
+| Statements | `set` (`=`, `+=`, `-=` on a state path), `let`, `if/else`, `match` over an enum |
+| Expressions | literals (bool, int, Q32.32 fixed, string, enum case, list), `fieldGet`, `localGet`, `paramGet`, unary and binary operators (`+ - * / %`, comparisons, `&& ||`, string concat), record field read, `fmtI18n`, `deviceGet` |
+| List operations | `len`, `tail`, `skip`, `take` (the ones the compiler lowers and the runtime evaluates); `+` concatenates strings and lists |
 
-Effect plans are bounded step lists (`call` with timeout + `onOk`/`onErr` dispatches,
-`dispatch`, `query`), not general code.
+The schema also declares `get`, `append`, `removeWhere`, `map`, `filter`, `findFirst`,
+`isEmpty` and `contains` list operations; the runtime does not evaluate them and the
+compiler does not emit them. The runtime evaluates `recordMake` and `optionSome` /
+`optionNone`, which the compiler does not emit either. There are no loops: iteration is a
+list operation.
+
+- The interpreter walks the trees directly over Cap'n Proto readers, the same code on the
+  host and in the app-host process; the `(state, event) → state'` corpus in
+  `tests/dsl_conformance` pins the semantics ([testing.md](testing.md)).
+- Every expression node carries a `TypeRef` (`bool`, `int`, `fx`, `str`, `enumType`,
+  `record`, `list`, `option`, `result`, `eventRef`, `idType`, `unit`, `opaque`). The
+  compiler lowers whatever it cannot name to `opaque` (see [types.md](types.md)); the
+  loader does not re-typecheck expressions.
+
+Effect plans are bounded step lists — `call` (service call with `onOk` / `onErr`
+dispatches and a result slot), `dispatch`, `query` (a `QuerySpec` page request) — not
+general code. A call binds its result on Ok and continues; on Err it dispatches `onErr`
+and stops. A service call carries no client timeout ([services.md](services.md)).
 
 ## Stable node identity
 
 Every layout-relevant view node carries a persisted 64-bit id:
 
 ```text
-nodeId = hash64(component symbol ∥ structural path ∥ optional user key)
+nodeId = FNV-1a-64(length-prefixed component name ∥ structural child indices)
 ```
 
-Collection items derive ids at runtime from their `.key(expr)` value with the same
-hash. Consequences:
+The algorithm is part of the IR contract (`userspace/dsl/ir/src/node_id.rs`) and never
+changes within a schema major. It is identity, not integrity — integrity is
+`programHash`. Collection items derive their id at runtime as
+`keyed_item_id(template nodeId, key bytes)` from their `.key(expr)` value. Consequences:
 
-- the retained instance tree, golden snapshots, and a11y references all
-  agree on identity across rebuilds;
-- equivalent recompilations never change identity because of formatting or file
-  traversal order;
-- keyed items keep their local state across reorders.
+- the retained instance tree and the golden snapshots agree on identity across rebuilds;
+- equivalent recompilations never change identity because of formatting or file order;
+- keyed items keep their per-instance `state:` across reorders ([state.md](state.md)).
+
+Path segments are disjoint by construction: a plain child is its index, a branch arm is
+`(arm << 8) | j`, the else body is `0xff00 | j`, and a component slot body bound at a
+call site is `caller_path ++ [0x00F5_0000, slot_index, j]`, so ids never collide.
 
 ## Field classification
 
-Every widget property and modifier is classified in the compiler SSOT
-(`userspace/dsl/core/modifiers.toml`, mirrored in `modifiers.md`):
+Every modifier has a class in the compiler catalog (`MODIFIERS` in
+`userspace/dsl/core/src/registry.rs`, mirrored in [modifiers.md](modifiers.md); the row
+index is the persisted `modId`):
 
-- **layout** — constraints, spacing, text content/typography, visibility: dirties
-  measurement + placement;
-- **paint** — colors, tokens, opacity, shape, motion: repaint only, never remeasure;
-- **semantics** — labels, roles, hints: a11y tree only, no pixels.
+- **layout** — constraints, spacing, text metrics, visibility: dirties measurement and
+  placement;
+- **paint** — colours, opacity, shape, motion: repaint only, never remeasure;
+- **semantics** — labels, roles, hints: no pixels.
 
-Each binding site in the IR records which classes it can dirty; the runtime's
-dependency index (store field → binding sites) turns a dispatched event into a minimal,
-class-partitioned dirty set. This is the mechanism behind microsecond-scale reactive
-updates.
+The runtime classifies at emit time: while it emits a scene it records, for every state
+field an emitted site reads (a binding, a branch condition, a modifier argument, a
+component prop), a dependency `(store, field) → Damage` with `Damage` one of `None`,
+`Paint`, `Layout` (`userspace/dsl/runtime/src/emit/deps.rs`). `View::dispatch` returns the
+strongest class among the fields the event changed. The dependency index is derived from
+the IR on every emit; it is not stored in it.
 
 ## Canonicalization (determinism)
 
-- symbols sorted and unique; all order-insensitive lists sorted by symbol id;
-- modifier lists in catalog order; duplicate modifiers are a build error;
-- canonical Cap'n Proto encoding; no host timestamps, paths, or environment leakage;
-- `programHash` computed over the canonical bytes;
-- **invariant proven in CI**: building the same source twice yields byte-identical
-  `.nxir` (`build; build; cmp`).
+- symbols are sorted and unique; stores, events, components, queries and routes are
+  ordered by name (routes by path); property and argument lists by symbol id;
+- each modifier list is sorted by `modId` (catalog order); a duplicate modifier is the
+  error `NX0403`;
+- slots keep declaration order (that order is their index space); bound slot arguments
+  are ascending by slot index and the validator rejects any other order;
+- canonical Cap'n Proto encoding; no host timestamps, paths or environment leakage;
+- `programHash` is computed over the canonical bytes with the hash field zeroed;
+- building the same source twice yields byte-identical `.nxir`
+  (`dsl_v0_1a_host::determinism::build_is_byte_deterministic`), and the golden
+  `tests/dsl_v0_1a_host/goldens/proof_surface.nxir` is byte-compared.
 
 ## Schema evolution rules
 
-1. Field numbers are **append-only**; nothing is renumbered or reused.
-2. **Minor** version bump = additive fields with defaults; older readers keep working.
-3. **Major** version bump = readers reject; requires a migration note.
-4. Every schema change requires (a) an entry in the changelog below, (b) regenerated IR
-   golden fixtures (byte-compared in CI).
-5. The validator and the runtime must agree exactly: the runtime never tolerates what
-   the validator rejects.
+1. Field numbers are **append-only**; nothing is renumbered or reused. A retired field
+   keeps its ordinal under a `retired…` name.
+2. **Minor** bump = additive fields with defaults (or a retirement that nothing in the
+   tree reads); readers gate on the major only.
+3. **Major** bump = readers reject; requires a migration note.
+4. Every schema change adds a row to the table below and refreshes the IR goldens.
+5. The validator and the runtime agree exactly: the runtime never tolerates what the
+   validator rejects and never re-checks what it proved.
 
-## Budgets & validation on load
+A program that uses a newer construct needs a runtime at or above its minor: an older
+reader meeting an unknown union variant fails with `Malformed`.
 
-`Budgets` caps the whole program (node count, expression sizes, list/string caps,
-effect steps, route count). The app-host validates budgets, types, symbol references,
-and the program hash before mounting; any failure is a deterministic launch error —
-never a partial mount.
+## Validation on load
 
-## Changelog
+`validate_program` runs once at mount, before anything trusts the payload, and returns the
+first violated invariant as a stable `IrError`:
 
-- **v1.8 unchanged (2026-10-06, TASK-0074)** — no bump: `.overlay(modal|transient)` rides the
-  existing `Modifier.args` token of modId 48 and `.dismissAfter(ms)` is a new catalog entry
-  (modId 56, append-only, `TokenArg.int`); the new trigger `Dismiss` is a symbol like every
-  trigger. The modal stack, confinement and dismissal are runtime-derived from the emitted
-  scene (ADR-0068) — nothing new is serialized, every v1.8 program reads as before. Goldens
-  unchanged.
-- **v1.8 (2026-09-20, TASK-0077B)** — `Handler.bind` carries `BindWrite { target, value }`.
-  A two-way bind now states BOTH halves: the state path it writes, and the `BindValue` rule
-  that turns the interaction into a value — `toggleBool` (the current Bool is inverted),
-  `text` (the interaction carries the string), `trackFraction` (the point's position across
-  the control's own box, as a percent 0..=100).
+| Check | Error |
+|---|---|
+| schema major equals `SCHEMA_MAJOR` | `UnsupportedMajor` |
+| digest fields are 32 bytes | `BadDigest` |
+| `programHash` equals the recomputed hash (feature `hash-verify`) | `HashMismatch` |
+| symbols are sorted and unique | `SymbolsNotCanonical` |
+| every index (stores, events, components, routes, entry page, slots, component refs) is in range | `DanglingRef` |
+| view-node count against `maxViewNodes` and children per node against `maxChildren`, slot bodies included | `BudgetExceeded` |
+| message decodes within its traversal budget | `Malformed` |
 
-  Why the rule travels in the IR rather than being re-derived from the widget kind: the
-  compiler already decides it (that is how v1.2's auto-synthesis works), and the widget
-  catalog lives in the compiler, which the runtime deliberately cannot see. A runtime table
-  keyed by kind would be a second answer to one question — and it would mean changing the
-  runtime could silently change what an already-compiled `.nxir` does. Written down, a
-  program is self-contained.
+Only `maxViewNodes` and `maxChildren` are checked against the program's contents;
+the other five caps are written into the IR and are not enforced by the loader.
+`hash-verify` is a default feature of `nexus-dsl-ir`: the CLI and host tests recompute the
+hash; the app-host build disables it and treats the payload as inside its trust boundary. A validation failure is a deterministic launch error, never a partial mount.
 
-  Until this version a bind said only WHERE to write, so the runtime guessed the HOW from
-  the value's type: a Bool was flipped and everything else quietly did nothing. That is why
-  `Slider`, whose value is a number, could not be bound at all — the honest thing was to
-  synthesize no handler rather than a dead one. It binds from this version on.
-  The capnp ordinal `@4` stays occupied by `retiredBind` — ordinals are burned, never reused.
-- **v1.7 (2026-09-19, TASK-0077B)** — additive: `Store.keyed`. A component's `state:` block is
-  PER INSTANCE. The identity is the one this document already specifies above
-  (§"Stable node identity"): `ViewNode.nodeId` for a plain node, and
-  `keyed_item_id(nodeId, key)` for a collection item — which is why the third consequence
-  listed there, *"keyed items keep their local state across reorders"*, is true from this
-  version on rather than only promised. No new identity field was added: the build-time half
-  was already persisted, and this is the runtime half finding its caller.
-- **v1.6 (2026-09-19, TASK-0077B)** — **subtractive**: `CallStep.timeoutMs` is retired. A
-  service call carries no client clock; the exchange ends with the reply or with the service's
-  death and nothing else (RFC-0093 §7, RFC-0096). The app-host stopped reading the number in
-  TASK-0054C P2-a, so the language stopped asking for it. `timeoutMs:` on a `svc.*` call is
-  now `NX0412`; `NX0409` (which demanded it) is retired with it.
-  The capnp ordinal `@3` stays occupied by `retiredTimeoutMs` — capnp ordinals must be
-  sequential — and must never be reused. Nothing writes or reads it. This is the first
-  subtractive minor: safe only because everything in-tree builds together and readers gate on
-  the MAJOR alone.
-- **v1.5 (2026-07-27, RFC-0084)** — additive: component **slots**.
-  `Component.slots` (declared slot name symbol ids, in DECLARATION order —
-  that order IS the index space), `ViewNode.slot :SlotRef` (a placeholder
-  addressing the ENCLOSING component's list), `ComponentRef.slots
-  :List(SlotArg)` (bound slots only, **ascending by `slot`** — the canonical
-  form; the validator rejects any other order) and `SlotArg { slot, body }`.
+## Schema versions
 
-  Two laws are wire-visible. A `SlotArg.body` is lowered ONCE, at the
-  callsite, in the **caller's** scope: `$props`/`$state`/locals/`.key()`
-  inside it resolve against the enclosing component, never the callee. And a
-  bound slot **splices** its N nodes at the placeholder's real tree position —
-  the runtime never inserts a container, because that would reset the flex
-  context and break `.grow`/`.width` on the receiving region. An unbound slot
-  contributes ZERO nodes, never an empty box.
+Current writer: **1.8**.
 
-  Node identity for a slot body derives from the caller:
-  `static_node_id(caller, caller_path ++ [0x00F5_0000, slot_idx, j])`. The tag
-  is disjoint from plain child indices and from the branch tags
-  (`(i << 8) | j`, `0xff00 | j`), so ids never collide.
+| Minor | Change | Task |
+|---|---|---|
+| 1.0 | Initial schema: interned sorted symbols, budgets, expression-tree reducers, linear effect plans, components with persisted node ids, routes, i18n keys, `QuerySpec` skeleton, assets. Golden `proof_surface.nxir`. | TASK-0075 |
+| 1.1 | `Handler.navigate` — a `Str` route-path expression (`on Tap -> navigate("/detail/7")`). | TASK-0077 |
+| 1.2 | `Handler.bind` — two-way binding, synthesized at lowering when an interactive widget's primary prop is `$state`-bound. | TASK-0077B |
+| 1.3 | `QuerySpec` v1 (`paramCount`, `preds`, `orderCol`, `descending`, `limit`; `QueryOp` = eq/ge/le); `QueryStep.token` / `rowsSlot` / `nextSlot`. Strict `<` / `>` are rejected at lowering (`NX0501`). | TASK-0078B |
+| 1.4 | `UiProgram.window` (`WindowIntent`). | — |
+| 1.5 | Component slots: `Component.slots`, `ViewNode.slot`, `ComponentRef.slots`, `SlotArg`. Bound slots splice at the placeholder; an unbound slot contributes zero nodes. A slot body is lowered once, in the caller's scope. | RFC-0084 |
+| 1.6 | Subtractive: `CallStep.timeoutMs` retired (ordinal `@3` is `retiredTimeoutMs`); `timeoutMs:` on a call is `NX0412`. | TASK-0077B |
+| 1.7 | `Store.keyed` — per-instance state addressed by node identity. | TASK-0077B |
+| 1.8 | `Handler.bind` carries `BindWrite { target, value }` (ordinal `@4` is `retiredBind`). `BindValue` = `toggleBool` (invert the Bool), `text` (the interaction's string), `trackFraction` (position across the control's box, percent 0–100). | TASK-0077B |
 
-  Validation tightened in the same pass: `ComponentRef.component` is now
-  bounds-checked (it never was — `validate.rs` had a documented no-op arm and
-  the runtime called `components.get(idx)` unguarded), and `count_view_nodes`
-  recurses into `ComponentRef.slots[*].body` so slot bodies count against
-  `maxViewNodes`/`maxChildren` instead of escaping them.
+The bind rule travels in the IR because the compiler already decides it from the widget
+catalog and the runtime deliberately cannot see that catalog: a runtime table keyed by
+widget kind would be a second answer to one question, and changing the runtime could
+silently change what an already compiled `.nxir` does.
 
-  Compatibility is one-way and stated rather than enforced: `SCHEMA_MAJOR`
-  gates only the major, so an old reader meeting a program that USES `slot`
-  gets `NotInSchema` → `IrError::Malformed`. Everything in-tree builds
-  together; a program using `Slot` requires a runtime at minor ≥ 5.
-
-  Golden refreshed: `proof_surface.nxir` (a slot-free program) changed by
-  exactly 33 bytes — offset 10 (`schemaVersionMinor` 4 → 5) and the 32-byte
-  `programHash`. Same length, no structural drift, which is the additive
-  guarantee holding.
-- **golden refresh (2026-07-17, repo hygiene)** — no schema change: the
-  `proof_surface.nxir` golden had drifted behind the boot-proven compiler
-  output (post-TASK-0078B emitter state); regenerated via `UPDATE_GOLDENS=1
-  cargo test -p dsl_v0_1a_host` (3968 → 4064 bytes).
-- **v1.3 (2026-07-06, TASK-0078B)** — additive: `QuerySpec` grows the v1
-  shape (`paramCount`, `preds` (col/op/value; `QueryOp` = eq/ge/le),
-  `orderCol`, `descending`, `limit`); `QueryStep` grows `token` (page-token
-  expression), `rowsSlot`, `nextSlot` (the Ok path binds rows + next token;
-  the Err path binds the stable error code into `rowsSlot` — only one path
-  ever runs). Predicate values are const literals or `paramGet` only, bound
-  from `QueryStep.args` in declaration order. Strict `<`/`>` comparisons are
-  reserved for the v2 builder; lowering rejects them today (NX0501).
-- **v1.2 (2026-07-06, TASK-0077B)** — additive: `Handler.bind` (two-way
-  binding write target). Auto-synthesized at lowering when an interactive
-  kind's primary prop is `$state`-bound (`Toggle { checked: $state.on }` ⇒ a
-  Tap-bind flipping the Bool; `TextField { value: $state.q }` ⇒ a Change-bind
-  writing the text). The write goes through the store's compare-and-mark path
-  — the same single mutation machinery reducers use. *(Superseded by v1.8: the
-  bind carries its value rule beside the target.)*
-- **v1.1 (2026-07-06, TASK-0077)** — additive: `Handler.navigate` (a Str-typed
-  route-path expression; `on Tap -> navigate("/detail/7")`). Readers of 1.0
-  see an unknown union variant and must treat such handlers as inert.
-- **v1.0 (2026-07-06, TASK-0075)** — initial schema
-  (`tools/nexus-idl/schemas/ui_ir.capnp`): `UiProgram` with interned sorted
-  symbols, budgets, expression-tree reducers, linear effect plans
-  (call/dispatch/query steps; a call binds its result on Ok and continues,
-  dispatches `onErr` and stops on Err), components/pages with persisted
-  NodeIds, routes, i18n keys, QuerySpec skeleton, assets. `TypeRef` includes
-  an `opaque` placeholder for not-yet-statically-known types (service/domain
-  schemas replace it in v0.2b); the loader skips re-typecheck for
-  opaque-typed nodes. Golden: `tests/dsl_v0_1a_host/goldens/proof_surface.nxir`.
+`WindowIntent.width`, `height`, `minWidth` and `minHeight` (RFC-0117) are additive;
+`lib.rs` lists no minor of their own for them, so the writer stays at 1.8.

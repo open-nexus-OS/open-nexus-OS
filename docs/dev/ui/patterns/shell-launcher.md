@@ -118,9 +118,9 @@ their contents fold into the Control Center. `PanelHost` guards those three ids
 on `device.profile`, so a panel id can never render something no pill can
 reach.
 
-Geometry (design §2): bar 36, pills 28 with `.hitSlop(2)` so the BAR is the
+Geometry (design §2): bar 36, pills 28 with `.hitSlop(8)` so the BAR is the
 touch target; panels anchored `top: 44` via a leading `Stack{}.height(8)` and
-`left/right: 12` via `.paddingX(3)` around a `Spacer` — `.overlay()` has no
+`left/right: 12` via `.paddingX(12)` around a `Spacer` — `.overlay()` has no
 anchor API, so anchoring is flex. Widths 328 · 330 · 288 · 300/300/300, radii
 30 · 26 · 24 · 30. Entrance: Control Center `slideUp`, the other five
 `slideDown` (a drop-down falls out of the bar; it does not rise into it).

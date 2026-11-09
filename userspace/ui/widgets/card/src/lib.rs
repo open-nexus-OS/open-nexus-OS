@@ -2,66 +2,98 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![cfg_attr(not(test), no_std)]
+#![forbid(unsafe_code)]
 
-//! `GlassCard` — the design-system frosted-glass container (design `GlassCard`):
-//! the foundational liquid-glass surface every panel/card/row is built on. A
-//! pure builder that resolves a [`MaterialToken`] level into a `Style` (fill
-//! tint + top-shine border + backdrop blur) and delegates the box + children to
-//! the [`Panel`] container primitive. DSL-emittable.
+//! `GlassCard` — the design-system glass container (the design artifacts' `GlassCard`): the
+//! surface every panel, dock pill and nested card is built on. Only `panel` (regular blur) and
+//! `dock` (thick blur) blur — the one blur of their stack, and `.material(false)` drops it when
+//! the panel itself sits on a blur surface; `card`, `inner` and `subtle` are painted layers on
+//! a blur surface and never blur; `overlay` is the opaque floating surface.
+//!
+//! | level   | fill           | edge        | shadow                   | radius |
+//! |---------|----------------|-------------|--------------------------|--------|
+//! | panel   | glassPanel     | glassEdge   | shadow4 + edgeHighlight  | xl 24  |
+//! | dock    | glassPanel     | glassEdge   | shadow4 + edgeHighlight  | xl 24  |
+//! | card    | glassCard      | glassEdge   | shadow2                  | lg 16  |
+//! | inner   | glassCard      | glassEdge   | —                        | lg 16  |
+//! | subtle  | glassCard      | —           | —                        | lg 16  |
+//! | overlay | surfaceOverlay | glassEdge   | shadow3 + edgeHighlight  | xl 24  |
+//!
+//! Every level clips its content. A nested container takes the computed concentric radius
+//! (`.concentric(parent_radius, padding)`). A pure builder resolving the level into a `Style`
+//! (through `Style::material`, the one recipe) and delegating the box to the [`Panel`]
+//! container primitive. DSL-emittable.
 
 extern crate alloc;
 
 use alloc::vec::Vec;
-use nexus_layout_types::{FxPx, LayoutNode};
+use nexus_layout_types::{FxPx, LayoutNode, Material, Overflow};
 use nexus_style::Style;
-use nexus_theme_tokens::{LengthToken, MaterialToken, Tokens};
+use nexus_theme_tokens::{concentric, ColorToken, RadiusToken, ShadowToken, Tokens};
 use nexus_widget_panel::Panel;
 
-/// Surface level (design `GlassCard.variant`). `dock`/`inner` reuse the
-/// panel/card materials; `window`/`overlay` expose the denser materials for the
-/// window and overlay components.
+/// Surface level (the design's `GlassCard.variant`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CardLevel {
+    /// A panel on the wallpaper (Control Center, notifications): regular blur.
     #[default]
     Panel,
+    /// The dock / taskbar pill: thick blur.
     Dock,
+    /// A card on a blur surface: `shadow2`, no blur.
     Card,
+    /// A dense inner grouping: no shadow, no blur.
     Inner,
+    /// The lightest layer (rows): no edge, no shadow, no blur.
     Subtle,
-    Window,
+    /// The opaque floating panel (sheets, dropdown panels): `surfaceOverlay`, no blur.
     Overlay,
 }
 
 impl CardLevel {
-    /// The glass material backing this level.
-    pub fn material(self) -> MaterialToken {
+    /// The material backing this level.
+    pub fn material(self) -> Material {
         match self {
-            CardLevel::Panel | CardLevel::Dock => MaterialToken::Panel,
-            CardLevel::Card | CardLevel::Inner => MaterialToken::Card,
-            CardLevel::Subtle => MaterialToken::Subtle,
-            CardLevel::Window => MaterialToken::Window,
-            CardLevel::Overlay => MaterialToken::Overlay,
+            CardLevel::Panel => Material::Panel,
+            CardLevel::Dock => Material::Dock,
+            CardLevel::Card | CardLevel::Inner | CardLevel::Subtle => Material::Card,
+            CardLevel::Overlay => Material::Overlay,
         }
     }
 
-    /// Corner radius token for this level.
-    pub fn radius(self) -> LengthToken {
+    /// Corner radius token for this level: xl for the surfaces, lg for the layers on them.
+    pub fn radius(self) -> RadiusToken {
         match self {
-            CardLevel::Subtle => LengthToken::RadiusSmall,
-            CardLevel::Card | CardLevel::Inner => LengthToken::RadiusMedium,
-            _ => LengthToken::RadiusLarge,
+            CardLevel::Panel | CardLevel::Dock | CardLevel::Overlay => RadiusToken::Xl,
+            CardLevel::Card | CardLevel::Inner | CardLevel::Subtle => RadiusToken::Lg,
         }
     }
 }
 
-/// A frosted-glass container.
-#[derive(Debug, Clone, Default)]
+/// A glass container.
+#[derive(Debug, Clone)]
 pub struct GlassCard {
     level: CardLevel,
+    material: bool,
+    radius: Option<FxPx>,
     row: bool,
     id: Option<&'static str>,
     padding: FxPx,
     children: Vec<LayoutNode>,
+}
+
+impl Default for GlassCard {
+    fn default() -> Self {
+        Self {
+            level: CardLevel::default(),
+            material: true,
+            radius: None,
+            row: false,
+            id: None,
+            padding: FxPx::ZERO,
+            children: Vec::new(),
+        }
+    }
 }
 
 impl GlassCard {
@@ -79,6 +111,24 @@ impl GlassCard {
     pub fn level(mut self, level: CardLevel) -> Self {
         self.level = level;
         self
+    }
+
+    /// Panel and dock only: `false` keeps the fill but drops the backdrop blur (the panel sits
+    /// on another blur surface — never blur over blur). No effect on the other levels.
+    pub fn material(mut self, material: bool) -> Self {
+        self.material = material;
+        self
+    }
+
+    /// An explicit corner radius (default: the level's).
+    pub fn radius(mut self, radius: FxPx) -> Self {
+        self.radius = Some(radius);
+        self
+    }
+
+    /// The radius of a container nested in one of radius `parent` with `padding`.
+    pub fn concentric(self, parent: FxPx, padding: FxPx) -> Self {
+        self.radius(concentric(parent, padding))
     }
 
     pub fn id(mut self, id: &'static str) -> Self {
@@ -101,18 +151,32 @@ impl GlassCard {
         self
     }
 
-    /// The resolved glass [`Style`] (fill tint + shine border + backdrop blur).
+    /// The resolved surface [`Style`] (fill, edge, shadow, lit edge, radius, backdrop blur).
     pub fn style(&self, tokens: &dyn Tokens) -> Style {
-        // RFC-0082: `Style::glass` is the ONE definition of the recipe
-        // (tint, shine wash, `inset 0 1px 0` top-shine, hairline, blur).
-        // Hand-rolling it here is how the card lost its shine while the DSL's
-        // `.material(card)` had one.
-        Style::new()
-            .glass(self.level.material(), tokens)
-            .rounded(tokens.length(self.level.radius()))
+        let radius = self.radius.unwrap_or_else(|| self.level.radius().px());
+        let level = self.level;
+        if !self.material && level.material().blurs() {
+            // The same surface without its blur: a plain painted box (no material, so the
+            // compositor makes no region of it).
+            return Style::new()
+                .background_token(tokens, ColorToken::GlassPanel)
+                .border_token(tokens, ColorToken::GlassEdge)
+                .shadow_token(tokens, ShadowToken::Shadow4)
+                .shadow_token(tokens, ShadowToken::EdgeHighlight)
+                .rounded(radius);
+        }
+        // `Style::material` is the ONE definition of a material's recipe.
+        let s = Style::new().material(level.material(), tokens).rounded(radius);
+        match level {
+            // The dock is the panel's elevation on the thick blur.
+            CardLevel::Dock => s.shadow_token(tokens, ShadowToken::Shadow4),
+            CardLevel::Card => s.shadow_token(tokens, ShadowToken::Shadow2),
+            CardLevel::Subtle => s.no_border(),
+            CardLevel::Panel | CardLevel::Inner | CardLevel::Overlay => s,
+        }
     }
 
-    /// Build the glass container node (delegates the box to [`Panel`]).
+    /// Build the glass container node (delegates the box to [`Panel`]; it clips its content).
     pub fn build(self, tokens: &dyn Tokens) -> LayoutNode {
         let style = self.style(tokens);
         let mut panel = if self.row { Panel::row() } else { Panel::column() };
@@ -120,64 +184,13 @@ impl GlassCard {
         if let Some(id) = self.id {
             panel = panel.id(id);
         }
-        panel.build()
+        let mut node = panel.build();
+        if let LayoutNode::Stack(stack, _, _) = &mut node {
+            stack.overflow = Overflow::Hidden;
+        }
+        node
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use nexus_theme_tokens::{BaseTokens, DarkTokens};
-
-    #[test]
-    fn levels_map_to_materials() {
-        assert_eq!(CardLevel::Panel.material(), MaterialToken::Panel);
-        assert_eq!(CardLevel::Dock.material(), MaterialToken::Panel);
-        assert_eq!(CardLevel::Inner.material(), MaterialToken::Card);
-        assert_eq!(CardLevel::Subtle.material(), MaterialToken::Subtle);
-    }
-
-    #[test]
-    fn style_is_frosted_from_the_material() {
-        let t = DarkTokens;
-        let s = GlassCard::new().level(CardLevel::Panel).style(&t);
-        let g = t.glass(MaterialToken::Panel);
-        assert_eq!(s.visual().background, Some(g.tint));
-        assert_eq!(s.backdrop_blur().map(|b| b.radius), Some(g.blur_radius));
-        assert!(s.visual().border.top.is_some(), "shine/border from material");
-    }
-
-    #[test]
-    fn subtle_is_less_blurred_than_panel() {
-        let t = BaseTokens;
-        let panel = GlassCard::new().level(CardLevel::Panel).style(&t);
-        let subtle = GlassCard::new().level(CardLevel::Subtle).style(&t);
-        assert!(
-            subtle.backdrop_blur().unwrap().radius < panel.backdrop_blur().unwrap().radius,
-            "subtle rows blur less than panels"
-        );
-    }
-
-    #[test]
-    fn builds_a_panel_with_id_and_children() {
-        let t = BaseTokens;
-        let node = GlassCard::new()
-            .id("control-center")
-            .level(CardLevel::Card)
-            .child(LayoutNode::Spacer(nexus_layout_types::Spacer {
-                id: None,
-                flex_grow: 0,
-                min_size: Some(FxPx::new(10)),
-                item: nexus_layout_types::FlexItem::default(),
-            }))
-            .build(&t);
-        match node {
-            LayoutNode::Stack(stack, visual, children) => {
-                assert_eq!(stack.id, Some("control-center"));
-                assert!(visual.background.is_some());
-                assert_eq!(children.len(), 1);
-            }
-            _ => panic!("GlassCard must build a Stack (via Panel)"),
-        }
-    }
-}
+mod tests;

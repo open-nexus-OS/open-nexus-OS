@@ -37,5 +37,5 @@ Component SecAccounts {
             }
         }
     }
-    .gap(3)
+    .gap(24)
 }

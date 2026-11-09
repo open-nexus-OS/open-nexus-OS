@@ -29,7 +29,7 @@ Greeter-UI → die **DSL-Greeter-App**. Alles Deklarative (Fenster-Rolle/Chrome/
 
 | Datei | Ziel | Warum |
 |---|---|---|
-| `theme.rs` | (KORRIGIERT 2026-07-10) bleibt als dünner Konsument — die WERTE sind schon build-generiert aus `resources/themes/*.nxtheme.toml` (Value-SSOT). Die echte Dopplung: `ui/theme-tokens` hartcodiert seine Werte → dort aus denselben `.nxtheme.toml` generieren | eine Value-Quelle für Compositor UND Apps |
+| `theme.rs` | **ERLEDIGT 2026-11-09 (RFC-0116)** — bleibt als dünner Konsument: jede Farbe kommt aus den typisierten Tokens (`nexus-theme-tokens`, generiert aus `resources/themes/*.nxtheme.toml`); der gebackene Theme-Schnappschuss in windowds `build.rs` ist weg, die Blur-Radien liest der Compositor aus den Backdrops des Themes | eine Value-Quelle für Compositor UND Apps |
 | `app_menu.rs` | DSL-Shell-App | Apps-Menü = Shell-UI |
 | ~~`dock.rs` (+ Dock-Teile in `wm.rs`)~~ | **ERLEDIGT 2026-07-30 (RFC-0086)** | Gelöscht: Minimieren zielt jetzt auf die SHELL-Taskbar/Dock. windowd pusht das Fenster-Set (`OP_SURFACE_WINDOWS 27`), die Shell aktiviert per `OP_SURFACE_TASKBAR 28`; Minimize-Animation fliegt auf die Taskbar-Bandmitte (`taskbar_anchor`), windowd kennt keine Tile-Positionen |
 | `assets.rs` (Icons) | Shell-/Widget-Assets | UI-Assets gehören der UI |

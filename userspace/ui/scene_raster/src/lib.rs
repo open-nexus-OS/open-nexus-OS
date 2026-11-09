@@ -174,7 +174,22 @@ pub(crate) fn paint_box_row_at(
     // painted first so the box fill covers its own footprint. Analytic
     // rounded-rect SDF with a linear falloff over the blur radius — a
     // one-shot cost at (re)render time, never per frame.
-    if let Some(shadow) = b.visual.shadow {
+    //
+    // A compositor region's shadow is the compositor's: app-host declares a blur root (and a
+    // fully opaque pane/overlay root) as a region with its shadow, and windowd draws that shadow
+    // under the region, blurred on the GPU. Painting it here as well doubled it — and only on
+    // the box's own rows (this row loop never visits the rows above or below a box), so the
+    // second shadow ended flat at the box's top and bottom edge.
+    let full = b.visual.opacity.is_none_or(|o| o.0 >= 255);
+    let region =
+        !b.glass_nested && b.visual.material.is_some_and(|m| m.blurs() || (m.opaque() && full));
+    // A faded box paints every colour at its effective opacity (`LayoutBox::opacity`, its own
+    // times its ancestors'), so a disabled control dims as one.
+    let op = u32::from(b.opacity);
+    let fade =
+        |c: Rgba8| if op == 255 { c } else { Rgba8 { a: (u32::from(c.a) * op / 255) as u8, ..c } };
+    if let Some(shadow) = b.visual.shadow.filter(|_| !region) {
+        let shadow = nexus_layout_types::BoxShadow { color: fade(shadow.color), ..shadow };
         paint_shadow_row(canvas, &shadow, b, x, y, w, h);
     }
     // A vertical gradient wins over the flat fill: substitute this row's
@@ -182,7 +197,8 @@ pub(crate) fn paint_box_row_at(
     let background = match b.visual.background_gradient {
         Some((top, bottom)) => Some(gradient_row_color(top, bottom, canvas.y, y, h)),
         None => background,
-    };
+    }
+    .map(fade);
     if let Some(bg) = background {
         let (xf, yf, wf, hf) = (x as f32, y as f32, w as f32, h as f32);
         match &b.visual.shape {
@@ -195,16 +211,16 @@ pub(crate) fn paint_box_row_at(
                 // beneath the region must not bake through — the COMPOSITOR
                 // supplies the backdrop (destination-so-far blur of
                 // everything already composited under the region). NESTED
-                // glass (a `subtle` row on a `windowPane` pane) blends
+                // glass (a card row on a blur surface) blends
                 // src-over instead: it sits on its parent's tint, and only
                 // the root's single region asks the compositor for blur.
                 // Replacing unconditionally is how every glass stack showed
                 // nothing but the wallpaper — each inner rect erased its
                 // parent's pixels and the only backdrop left was the
                 // window's.
-                if matches!(b.visual.material, nexus_layout_types::SurfaceMaterial::Glass(_))
-                    && !b.glass_nested
-                {
+                // A card is a translucent layer and always blends; a blur root takes the
+                // compositor's backdrop and an opaque surface covers what is under it.
+                if b.visual.material.is_some_and(|m| m.blurs() || m.opaque()) && !b.glass_nested {
                     let r = radius.max(0).min(w / 2).min(h / 2);
                     canvas.fill_round_rect_row_replace(x, y, w, h, r, bg);
                 } else {
@@ -239,12 +255,12 @@ pub(crate) fn paint_box_row_at(
                         if o + 3 < rgba.len() && rgba[o + 3] > 0 {
                             canvas.blend(
                                 px,
-                                nexus_layout_types::Rgba8 {
+                                fade(nexus_layout_types::Rgba8 {
                                     r: rgba[o],
                                     g: rgba[o + 1],
                                     b: rgba[o + 2],
                                     a: rgba[o + 3],
-                                },
+                                }),
                             );
                         }
                     }
@@ -272,10 +288,16 @@ pub(crate) fn paint_box_row_at(
     };
     // The `inset 0 1px 0` top-shine goes UNDER the border ring: the hairline
     // is the outermost pixel, the shine the one just inside it.
-    if let Some(shine) = b.visual.inset_highlight {
-        paint_inset_highlight_row(canvas, (x, y, w, h), radius, &b.visual.border, shine);
+    let mut border = b.visual.border;
+    for side in [&mut border.top, &mut border.right, &mut border.bottom, &mut border.left] {
+        if let Some(edge) = side.as_mut() {
+            edge.color = fade(edge.color);
+        }
     }
-    paint_borders_row(canvas, x, y, w, h, radius, &b.visual.border);
+    if let Some(shine) = b.visual.inset_highlight {
+        paint_inset_highlight_row(canvas, (x, y, w, h), radius, &border, fade(shine));
+    }
+    paint_borders_row(canvas, x, y, w, h, radius, &border);
 }
 
 /// One row of a soft drop shadow: signed distance to the (offset, spread-
@@ -384,13 +406,13 @@ mod tests {
     /// a whole page of stacked panes showed nothing but the window backdrop.
     #[test]
     fn nested_glass_blends_while_root_glass_replaces() {
-        use nexus_layout_types::{GlassLevel, SurfaceMaterial};
-        // Root pane: opaque-ish grey tint. Nested row: half-transparent white.
+        use nexus_layout_types::Material;
+        // Root pane: opaque grey. Nested card: half-transparent white.
         let mut pane = boxed(0, 0, 20, 1, 0, Rgba8 { r: 80, g: 80, b: 80, a: 255 });
-        pane.visual.material = SurfaceMaterial::Glass(GlassLevel::WindowPane);
+        pane.visual.material = Some(Material::Pane);
         let mut row = boxed(0, 0, 10, 1, 0, Rgba8 { r: 255, g: 255, b: 255, a: 128 });
         row.node_id = 2;
-        row.visual.material = SurfaceMaterial::Glass(GlassLevel::Subtle);
+        row.visual.material = Some(Material::Card);
         row.glass_nested = true;
 
         let mut buf = [0u8; 20 * 4];
@@ -405,13 +427,66 @@ mod tests {
             &buf[..4]
         );
 
-        // Same row as a ROOT (mis-stamped) would REPLACE: alpha drops to the
-        // tint's own 128 — proving the flag is what separates the two paths.
+        // A card never replaces, nested or not: it is a translucent layer, never a blur root
+        // (RFC-0116), so unnested it still blends onto the pane.
         row.glass_nested = false;
         let mut buf2 = [0u8; 20 * 4];
         let mut canvas2 = RowCanvas::new(&mut buf2, 0, 20);
-        paint_row(&mut canvas2, &[pane, row]);
-        assert_eq!(buf2[3], 128, "root glass replaces (alpha = tint): rgba={:?}", &buf2[..4]);
+        paint_row(&mut canvas2, &[pane.clone(), row.clone()]);
+        assert_eq!(buf2[3], 255, "an unnested card still blends: rgba={:?}", &buf2[..4]);
+
+        // A blur ROOT replaces: alpha drops to the tint's own 128 — the compositor's backdrop
+        // shows through it, so nothing the app drew under it may bake in.
+        row.visual.material = Some(Material::Thin);
+        let mut buf3 = [0u8; 20 * 4];
+        let mut canvas3 = RowCanvas::new(&mut buf3, 0, 20);
+        paint_row(&mut canvas3, &[pane, row]);
+        assert_eq!(buf3[3], 128, "a blur root replaces (alpha = tint): rgba={:?}", &buf3[..4]);
+    }
+
+    /// A compositor region's shadow is windowd's: a blur root (and a fully opaque pane root)
+    /// paints no shadow of its own — painting it doubled the compositor's and cut it flat at the
+    /// box's top and bottom rows. A card is no region: its shadow stays the painter's.
+    #[test]
+    fn a_region_roots_shadow_is_the_compositors() {
+        use nexus_layout_types::{BoxShadow, Material};
+        let shadowed = |material: Material, opacity: Option<u32>| {
+            let mut b = boxed(10, 0, 10, 1, 0, Rgba8 { r: 255, g: 255, b: 255, a: 255 });
+            b.visual.material = Some(material);
+            b.visual.opacity = opacity.map(nexus_layout_types::Fraction);
+            b.visual.shadow = Some(BoxShadow {
+                offset_x: FxPx::new(0),
+                offset_y: FxPx::new(0),
+                blur_radius: FxPx::new(8),
+                spread: FxPx::new(0),
+                color: Rgba8 { r: 0, g: 0, b: 0, a: 200 },
+            });
+            let mut buf = [0u8; 30 * 4];
+            let mut canvas = RowCanvas::new(&mut buf, 0, 30);
+            paint_row(&mut canvas, &[b]);
+            buf[8 * 4 + 3] // a pixel left of the box: shadow or nothing
+        };
+        assert_eq!(shadowed(Material::Panel, None), 0, "a blur root's shadow is windowd's");
+        assert_eq!(shadowed(Material::Overlay, None), 0, "an opaque root's shadow is windowd's");
+        assert!(shadowed(Material::Card, None) > 0, "a card keeps its painted shadow");
+        assert!(shadowed(Material::Overlay, Some(128)) > 0, "a faded overlay is no region");
+    }
+
+    /// A faded box (its effective opacity below 255) paints its fill at that fraction: a white
+    /// box at half opacity over nothing leaves half-alpha white, the same box opaque full white.
+    #[test]
+    fn a_faded_box_paints_its_fill_at_its_opacity() {
+        let paint = |opacity: u8| {
+            let mut b = boxed(0, 0, 4, 1, 0, Rgba8 { r: 255, g: 255, b: 255, a: 255 });
+            b.opacity = opacity;
+            let mut buf = [0u8; 4 * 4];
+            let mut canvas = RowCanvas::new(&mut buf, 0, 4);
+            paint_row(&mut canvas, &[b]);
+            [buf[4], buf[7]]
+        };
+        assert_eq!(paint(255), [255, 255]);
+        let [c, a] = paint(128);
+        assert!((127..=129).contains(&c) && (127..=129).contains(&a), "half: c={c} a={a}");
     }
 
     #[test]

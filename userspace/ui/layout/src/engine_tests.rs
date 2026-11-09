@@ -58,11 +58,13 @@ mod tests {
     fn text_style() -> TextStyle {
         TextStyle {
             font_size: px(16),
-            font_weight: FontWeight::Regular,
+            font_weight: FontWeight::Normal,
             line_height: LineHeight::Absolute(px(20)),
             text_align: TextAlign::Left,
             color: nexus_layout_types::Rgba8::WHITE,
             white_space: WhiteSpace::Normal,
+            tracking_milli_em: 0,
+            tabular: false,
         }
     }
     fn txt(s: &str) -> LayoutNode {
@@ -451,5 +453,69 @@ mod tests {
         // The scroll viewport fills the pane (block fill-available), it does
         // not collapse to its measured 0 nor balloon to its 390px content.
         assert_eq!(scroller.rect.width, px(120));
+    }
+
+    /// A box's effective opacity is its own times its ancestors': a half-opaque text inside a
+    /// half-opaque stack ends at a quarter, its parent at a half, a sibling outside at full.
+    #[test]
+    fn opacity_multiplies_down_the_tree() {
+        let half = || VisualStyle { opacity: Some(Fraction(128)), ..VisualStyle::default() };
+        let faded_text = match txt("inner") {
+            LayoutNode::Text(t, _) => LayoutNode::Text(t, half()),
+            other => other,
+        };
+        let faded =
+            LayoutNode::Stack(nexus_layout_types::Stack::default(), half(), vec![faded_text]);
+        let root = s_col(vec![faded, txt("outside")]);
+        let r =
+            LayoutEngine::new().layout(&root, px(800), &MockMeasure { char_width: px(8) }).unwrap();
+        let opacity: Vec<u8> = r.boxes.iter().map(|b| b.opacity).collect();
+        // Pre-order: the root, the faded stack, its text, the outside text.
+        assert_eq!(opacity, vec![255, 128, 64, 255]);
+    }
+
+    /// The measurement cache: twelve nested rows, each growing its one child. Every level
+    /// measures its child at its natural width, then again at the width it grows to, and the
+    /// placing pass asks the same again — 49 measurements of the one text without the cache
+    /// (four per level), 14 with it (about one per level, as the widths differ per level).
+    #[test]
+    fn a_deep_tree_measures_its_text_a_bounded_number_of_times() {
+        struct Counting {
+            inner: MockMeasure,
+            n: core::cell::Cell<usize>,
+        }
+        impl MeasureText for Counting {
+            fn prepare(&self, c: &TextContent, s: &TextStyle) -> PreparedTextHandle {
+                self.n.set(self.n.get() + 1);
+                self.inner.prepare(c, s)
+            }
+            fn measure_width(&self, h: &PreparedTextHandle) -> FxPx {
+                self.inner.measure_width(h)
+            }
+            fn layout_lines(&self, h: &PreparedTextHandle, w: FxPx, m: Option<u32>) -> LineLayout {
+                self.inner.layout_lines(h, w, m)
+            }
+        }
+        const LEVELS: usize = 12;
+        let mut node = txt("deep");
+        for _ in 0..LEVELS {
+            match &mut node {
+                LayoutNode::Stack(s, _, _) => s.item.flex_grow = 1,
+                LayoutNode::Text(t, _) => t.item.flex_grow = 1,
+                _ => {}
+            }
+            node = s_col(vec![node]);
+            if let LayoutNode::Stack(s, _, _) = &mut node {
+                s.direction = Direction::Row;
+            }
+        }
+        let m = Counting { inner: MockMeasure { char_width: px(8) }, n: core::cell::Cell::new(0) };
+        let r = LayoutEngine::new().layout(&node, px(800), &m).unwrap();
+        assert_eq!(r.boxes.len(), LEVELS + 1, "the tree laid out");
+        assert!(
+            m.n.get() <= 2 * LEVELS,
+            "the text was measured {} times: the cache should keep it near one per level",
+            m.n.get()
+        );
     }
 }

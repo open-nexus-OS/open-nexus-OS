@@ -1,0 +1,48 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The important tier (design artifacts: panels §4): its header, the stacked mail card, then
+// Nachrichten and Kalender with their two actions each, each until dismissed (DEMO CONTENT,
+// see `notifications.store.nx`).
+
+Component NotifImportant {
+    Stack {
+        NotifSubHeader { icon: "bell", title: @t("notif.important") }
+        if $state.mailGone == false {
+            NotifStack { }
+        } else {
+            Stack { }
+        }
+        if $state.msgGone == false {
+            NotifCard {
+                kind: "msg",
+                appId: "chat",
+                app: @t("notif.messages"),
+                time: @t("notif.t12min"),
+                title: @t("notif.msgTitle"),
+                body: @t("notif.msgBody"),
+                badge: "",
+                act1: @t("notif.reply"),
+                act2: @t("notif.markRead"),
+            }
+        } else {
+            Stack { }
+        }
+        if $state.calGone == false {
+            NotifCard {
+                kind: "cal",
+                appId: "settings",
+                app: @t("notif.calendar"),
+                time: @t("notif.t1h"),
+                title: @t("notif.calTitle"),
+                body: @t("notif.calBody"),
+                badge: "",
+                act1: @t("notif.snooze"),
+                act2: @t("notif.open"),
+            }
+        } else {
+            Stack { }
+        }
+    }
+    .gap(8)
+}

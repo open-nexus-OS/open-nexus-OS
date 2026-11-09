@@ -3,19 +3,19 @@
 
 #![cfg_attr(not(test), no_std)]
 
-//! `Text` — the design-system text primitive: a themed `LayoutNode::Text`
-//! builder (size from the typography scale, weight, semantic color, alignment,
-//! line clamp). The single place components turn a string into a text node, so
-//! type sizing/coloring stays consistent and token-driven. DSL-emittable.
+//! `Text` — the design-system text primitive: a themed `LayoutNode::Text` builder. Text is set
+//! only through the 12 text styles (RFC-0116: size, line, weight, tracking and case together;
+//! a weight override is the one deviation), a colour role, alignment and a line clamp. The single
+//! place components turn a string into a text node, so type stays consistent and token-driven.
 
 extern crate alloc;
 
 use alloc::string::String;
 use nexus_layout_types::{
-    FlexItem, FontWeight, FxPx, LayoutNode, LineHeight, TextAlign, TextContent, TextNode,
-    TextStyle, VisualStyle, WhiteSpace,
+    FlexItem, FontWeight, LayoutNode, TextAlign, TextContent, TextNode, TextStyle, VisualStyle,
+    WhiteSpace,
 };
-use nexus_theme_tokens::{ColorToken, Tokens, TypographyToken};
+use nexus_theme_tokens::{ColorToken, TextStyleToken, Tokens};
 
 // Re-export FontWeight so callers style weight without a second import path.
 pub use nexus_layout_types::FontWeight as Weight;
@@ -24,8 +24,8 @@ pub use nexus_layout_types::FontWeight as Weight;
 #[derive(Debug, Clone)]
 pub struct Text {
     content: String,
-    size: TypographyToken,
-    weight: FontWeight,
+    style: TextStyleToken,
+    weight: Option<FontWeight>,
     color: ColorToken,
     align: TextAlign,
     max_lines: Option<u32>,
@@ -33,35 +33,43 @@ pub struct Text {
 }
 
 impl Text {
-    /// Body text (14px, regular, `OnSurface`, single line).
+    /// Body text (`body`, `label`, one line).
     pub fn new(content: impl Into<String>) -> Self {
         Self {
             content: content.into(),
-            size: TypographyToken::Base,
-            weight: FontWeight::Regular,
-            color: ColorToken::OnSurface,
+            style: TextStyleToken::Body,
+            weight: None,
+            color: ColorToken::Label,
             align: TextAlign::Left,
             max_lines: Some(1),
             wrap: false,
         }
     }
 
-    /// A title (24px, semibold, `OnSurface`).
+    /// A title (`title1`).
     pub fn title(content: impl Into<String>) -> Self {
-        Self::new(content).size(TypographyToken::Xxl).weight(FontWeight::Semibold)
+        Self::new(content).text_style(TextStyleToken::Title1)
     }
 
-    /// A caption (12px, regular, muted).
+    /// A caption (`footnote`, `labelSecondary`).
     pub fn caption(content: impl Into<String>) -> Self {
-        Self::new(content).size(TypographyToken::Sm).color(ColorToken::OnSurfaceVariant)
+        Self::new(content).text_style(TextStyleToken::Footnote).color(ColorToken::LabelSecondary)
     }
 
-    pub fn size(mut self, size: TypographyToken) -> Self {
-        self.size = size;
+    /// A section header (`overline`, `labelSecondary`): 11/14 semibold, tracked +0.06 em and
+    /// set in capitals — the header of a list section, a sidebar group or a menu.
+    pub fn overline(content: impl Into<String>) -> Self {
+        Self::new(content).text_style(TextStyleToken::Overline).color(ColorToken::LabelSecondary)
+    }
+
+    /// The text style (size, line, weight, tracking and case).
+    pub fn text_style(mut self, style: TextStyleToken) -> Self {
+        self.style = style;
         self
     }
+    /// A weight override (the one deviation from the style the contract allows).
     pub fn weight(mut self, weight: FontWeight) -> Self {
-        self.weight = weight;
+        self.weight = Some(weight);
         self
     }
     pub fn color(mut self, color: ColorToken) -> Self {
@@ -79,29 +87,24 @@ impl Text {
         self
     }
 
-    /// The resolved `TextStyle` for the current theme.
-    pub fn style(&self, tokens: &dyn Tokens) -> TextStyle {
+    /// The resolved layout `TextStyle` for the current theme.
+    pub fn layout_style(&self, tokens: &dyn Tokens) -> TextStyle {
         TextStyle {
-            font_size: tokens.type_size(self.size),
-            font_weight: self.weight,
-            // RFC-0082: the baked face's own line height. This was
-            // `Relative(150)`, which the measurer never honored — now that
-            // `Relative` IS honored it would silently grow every field, so
-            // the intent is stated as "let the face decide" instead.
-            line_height: LineHeight::Absolute(FxPx::new(20)),
             text_align: self.align,
-            color: tokens.color(self.color),
             white_space: if self.wrap { WhiteSpace::Normal } else { WhiteSpace::NoWrap },
+            ..self.style.text_style(tokens.color(self.color), self.weight)
         }
     }
 
-    /// Build the text node.
+    /// Build the text node (an upper-case style sets its content in capitals).
     pub fn build(self, tokens: &dyn Tokens) -> LayoutNode {
-        let style = self.style(tokens);
+        let style = self.layout_style(tokens);
+        let content =
+            if self.style.spec().upper { self.content.to_uppercase() } else { self.content };
         LayoutNode::Text(
             TextNode {
                 id: None,
-                content: TextContent::new(self.content),
+                content: TextContent::new(content),
                 style,
                 item: FlexItem::default(),
                 max_lines: self.max_lines,
@@ -116,14 +119,43 @@ impl Text {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nexus_layout_types::{FxPx, LineHeight};
     use nexus_theme_tokens::BaseTokens;
 
     #[test]
-    fn presets_resolve_size_and_color_from_tokens() {
+    fn presets_resolve_the_text_styles_and_roles() {
         let t = BaseTokens;
-        assert_eq!(Text::new("x").style(&t).font_size, t.type_size(TypographyToken::Base));
-        assert_eq!(Text::title("H").style(&t).font_weight, FontWeight::Semibold);
-        assert_eq!(Text::caption("c").style(&t).color, t.color(ColorToken::OnSurfaceVariant));
+        let body = Text::new("x").layout_style(&t);
+        assert_eq!(
+            (body.font_size, body.line_height),
+            (FxPx::new(14), LineHeight::Absolute(FxPx::new(20)))
+        );
+        assert_eq!(Text::title("H").layout_style(&t).font_weight, FontWeight::Bold);
+        assert_eq!(Text::caption("c").layout_style(&t).color, t.color(ColorToken::LabelSecondary));
+        assert_eq!(
+            Text::new("x").weight(FontWeight::Medium).layout_style(&t).font_weight,
+            FontWeight::Medium
+        );
+    }
+
+    #[test]
+    fn an_overline_sets_capitals_and_tracking() {
+        match Text::new("Netzwerk").text_style(TextStyleToken::Overline).build(&BaseTokens) {
+            LayoutNode::Text(node, _) => {
+                assert_eq!(node.content.as_str(), "NETZWERK");
+                assert_eq!(node.style.tracking_milli_em, 60);
+            }
+            _ => panic!("Text must build a Text node"),
+        }
+        // The preset: the secondary label, and capitals beyond ASCII.
+        match Text::overline("Geräte").build(&BaseTokens) {
+            LayoutNode::Text(node, _) => {
+                assert_eq!(node.content.as_str(), "GERÄTE");
+                assert_eq!(node.style.color, BaseTokens.color(ColorToken::LabelSecondary));
+                assert_eq!(node.style.font_weight, FontWeight::Semibold);
+            }
+            _ => panic!("Text must build a Text node"),
+        }
     }
 
     #[test]

@@ -186,6 +186,8 @@ pub(crate) struct AppWindowSlot {
     /// The floating frame before the first tile — Return's target (`None` = never tiled).
     pub(crate) pre_tile: Option<crate::zones::TileFrame>,
     pub(crate) intent_resizable: bool,
+    /// The app's minimum content size (RFC-0117, `0` = absent), from its create.
+    pub(crate) intent_min: (u16, u16),
     /// The app's DEDICATED event channel (SEND cap slot, `OP_SURFACE_EVENTS`).
     #[cfg(nexus_env = "os")]
     pub(crate) event_channel: Option<u32>,
@@ -254,10 +256,6 @@ impl AppWindowSlot {
             0,
             app_window::APP_WIN_MAX_W,
             app_window::APP_WIN_MAX_H,
-            app_window::APP_WIN_RADIUS,
-            18,
-            5,
-            90,
         );
         Self {
             key: 0,
@@ -276,6 +274,7 @@ impl AppWindowSlot {
             zone: crate::zones::Zone::None,
             pre_tile: None,
             intent_resizable: true,
+            intent_min: (0, 0),
             #[cfg(nexus_env = "os")]
             event_channel: None,
             frame_pulse_pending: false,
@@ -856,7 +855,7 @@ impl DisplayServerRuntime {
                 crate::window_scene::WindowId::Desktop,
             ]),
             cursor_shape: cursor::CursorShape::Default,
-            cursor_hot: (crate::assets::CURSOR_HOTSPOT_X, crate::assets::CURSOR_HOTSPOT_Y),
+            cursor_hot: crate::cursor_assets::ARROW_HOT,
             resize_drag: None,
         })
     }

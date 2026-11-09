@@ -1,46 +1,66 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The Dynamic Island (design artifacts: launcher: collapsed 118×28, solid black
-// pill, pinned top-centre). Collapsed content = now-playing hint: 14×14
-// rounded art square + four level bars (static resting frame — animated bars
-// + hover expansion to 288×64 land with the media service).
+// The Activity Runner in the bar (design artifacts: TopBar, ActivityRunner):
+// 118×28, the `island` capsule — black in both themes, so its marks are
+// white (`onAccent`) rather than labels that would flip with the theme. The
+// compact media form: a 14×14 album square (radius 4) and four 3px level
+// bars (8 / 12 / 6 / 10, 2 apart, bottom-aligned) at the dark scope's
+// secondary strength (.58), the two centred as one group, 8 apart.
+//
+// `TopBar` mounts it only while something plays (`nowPlaying`): with nothing
+// live there is no island. Still open, each blocked on a capability: the
+// artwork (no album image source — the art is the design's placeholder
+// gradient, vertical here), the bars' level loop, the expanded runner
+// (340×70 media, 300×70 call and navigation) with its spring morph and the
+// tap/hover that opens it, and the toggle/timer/call activities — they need
+// the media session and an activity feed.
 
 Component Island {
     Stack {
         Stack { }
             .width(14)
             .height(14)
-            .bg(accent)
-            .rounded(sm)
-        Spacer
-        Stack { }
-            .width(3)
-            .height(8)
-            .bg(onAccent)
-            .rounded(full)
-        Stack { }
-            .width(3)
-            .height(12)
-            .bg(onAccent)
-            .rounded(full)
-        Stack { }
-            .width(3)
-            .height(6)
-            .bg(onAccent)
-            .rounded(full)
-        Stack { }
-            .width(3)
-            .height(10)
-            .bg(onAccent)
-            .rounded(full)
+            .bgFade(modeTablet, danger)
+            .rounded(4)
+        Stack {
+            Stack { }
+                .width(3)
+                .height(8)
+                .bg(onAccent)
+                .opacity(148)
+                .rounded(full)
+            Stack { }
+                .width(3)
+                .height(12)
+                .bg(onAccent)
+                .opacity(148)
+                .rounded(full)
+            Stack { }
+                .width(3)
+                .height(6)
+                .bg(onAccent)
+                .opacity(148)
+                .rounded(full)
+            Stack { }
+                .width(3)
+                .height(10)
+                .bg(onAccent)
+                .opacity(148)
+                .rounded(full)
+        }
+        .direction(row)
+        .align(end)
+        .gap(2)
+        .height(12)
     }
     .direction(row)
+    .align(center)
+    .justify(center)
+    .gap(8)
+    .paddingX(12)
     .width(118)
     .height(28)
-    .bg(islandBg)
+    .bg(island)
     .rounded(full)
-    .align(center)
-    .paddingX(3)
-    .gap(1)
 }

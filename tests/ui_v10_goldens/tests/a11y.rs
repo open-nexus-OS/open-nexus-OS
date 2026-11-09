@@ -12,10 +12,17 @@ use ui_v10_goldens::{contrast_ratio, root_size, swatch, CONTRAST_TEXT, CONTRAST_
 
 #[test]
 fn body_text_pairs_meet_aa() {
-    // OnSurface/Surface and OnPrimary/Primary must clear normal-text AA (4.5).
+    // `label` on every opaque surface (RFC-0116: the page, the pane, the floating surface) and
+    // OnPrimary/Primary must clear normal-text AA (4.5).
     for t in [&BaseTokens as &dyn Tokens, &DarkTokens as &dyn Tokens] {
-        let text = contrast_ratio(t.color(ColorToken::OnSurface), t.color(ColorToken::Surface));
-        assert!(text >= CONTRAST_TEXT, "OnSurface/Surface contrast {text:.2} < {CONTRAST_TEXT}");
+        for surface in [ColorToken::Background, ColorToken::SurfacePane, ColorToken::SurfaceOverlay]
+        {
+            let text = contrast_ratio(t.color(ColorToken::Label), t.color(surface));
+            assert!(
+                text >= CONTRAST_TEXT,
+                "Label/{surface:?} contrast {text:.2} < {CONTRAST_TEXT}"
+            );
+        }
         let primary = contrast_ratio(t.color(ColorToken::OnPrimary), t.color(ColorToken::Primary));
         assert!(
             primary >= CONTRAST_TEXT,
@@ -26,13 +33,13 @@ fn body_text_pairs_meet_aa() {
 
 #[test]
 fn filled_control_pairs_meet_ui_contrast() {
-    // Filled control fg/bg must clear UI-component contrast (3.0) in both themes.
+    // Filled control fg/bg must clear UI-component contrast (3.0) in both themes. A status badge
+    // is a tint wash with the status as its text (the design artifacts' primitives), so no
+    // filled status pair exists to lint.
     for t in [&BaseTokens as &dyn Tokens, &DarkTokens as &dyn Tokens] {
         let pairs = [
             (ColorToken::OnAccent, ColorToken::Accent), // Default/Active button
-            (ColorToken::OnDanger, ColorToken::Danger), // Destructive
-            (ColorToken::OnSuccess, ColorToken::Success), // Success badge
-            (ColorToken::OnWarning, ColorToken::Warning), // Warning badge
+            (ColorToken::OnAccent, ColorToken::Danger), // Destructive
         ];
         for (fg, bg) in pairs {
             let c = contrast_ratio(t.color(fg), t.color(bg));
@@ -47,11 +54,17 @@ fn component_foregrounds_track_their_variant() {
     let t = BaseTokens;
     assert_eq!(
         GlassButton::new().variant(ButtonVariant::Destructive).foreground(&t),
-        t.color(ColorToken::OnDanger)
+        t.color(ColorToken::OnAccent)
+    );
+    // The filled badge pair the lint above checks (OnAccent on Danger); a status badge is a
+    // wash with the status as its text.
+    assert_eq!(
+        Badge::new().variant(BadgeVariant::Destructive).foreground(&t),
+        t.color(ColorToken::OnAccent)
     );
     assert_eq!(
         Badge::new().variant(BadgeVariant::Success).foreground(&t),
-        t.color(ColorToken::OnSuccess)
+        t.color(ColorToken::Success)
     );
 }
 

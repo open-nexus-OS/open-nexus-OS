@@ -181,7 +181,8 @@ impl Rig {
 
     fn handler_center(&self, case: &str, payload: Option<&Value>) -> Option<(i32, i32)> {
         let boxes = common::layout_boxes(&self.view);
-        let (e, c) = self.view.runtime.event_case("CaptureEvent", case).expect("case");
+        // By the case's name: the capture's cases span two events (the overlay and its selection).
+        let (e, c) = *self.view.runtime.event_cases_named(case).first().expect("case");
         let tap = self.symbols.iter().position(|s| s == "Tap").expect("Tap") as u32;
         let (box_id, _) = self.view.handlers().iter().find(|(_, h)| {
             h.trigger == tap

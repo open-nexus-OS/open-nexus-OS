@@ -1,34 +1,85 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The dock mini player (design artifacts: launcher `Player`): card glass,
-// 24×24 album square, track title + artist column, round play button.
-// Demo now-playing content (mirrors the design's static demo) until the
-// media service lands; it then binds the island's now-playing state.
+// The media mini player (design artifacts: TaskbarDock `MiniPlayer`) — a
+// `card` layer on the bar's blur (glassCard + the glass edge, no blur of its
+// own), radius 12. `compact` picks the size: the taskbar's big player (padding
+// 4 8 4 4, gap 8, art 28, text 76, play 24 + skip) or the touch dock's small
+// one (padding 4 6 4 4, gap 6, art 24, text 64, title caption2, play 20, no
+// skip). The art's radius is concentric to the card (12 − 4 = 8).
+//
+// Mounted only while something plays (`nowPlaying`, `media.store.nx`). Until
+// a media session feeds it, the title and artist are the design's demo copy,
+// the art is its placeholder gradient (vertical here: no diagonal fill, no
+// album image source), and the transport buttons are disabled — there is
+// nothing to send them to. Mounted means playing, so the transport button shows `pause`;
+// the skip button `forward.end`.
 
 Component MiniPlayer {
-    Stack {
-        Stack { }
-            .width(24)
-            .height(24)
-            .bg(accent)
-            .rounded(md)
-        Stack {
-            Text(@t("shell.trackTitle")).textSize(xs).fg(onSurface)
-            Text(@t("shell.trackArtist")).textSize(xs).fg(onSurfaceVariant)
-        }
-        .gap(0)
-        Circle { size: 22
-            Icon { symbol: "play", size: 12 }
-                .fg(onSurface)
-        }
-        .material(subtle)
+    props: {
+        compact: Bool,
     }
-    .direction(row)
-    .align(center)
-    .gap(2)
-    .paddingX(2)
-    .paddingY(1)
-    .material(card)
-    .rounded(lg)
+    if $props.compact {
+        Stack {
+            Stack { }
+                .width(24)
+                .height(24)
+                .bgFade(modeTablet, danger)
+                .rounded(sm)
+            Stack {
+                Text(@t("shell.trackTitle")).textStyle(caption2).fontWeight(semibold).fg(label)
+                Text(@t("shell.trackArtist")).textStyle(caption2).fg(labelSecondary)
+            }
+            .width(64)
+            Circle { size: 20
+                Icon { symbol: "pause", size: 9 }
+                    .fg(onPrimary)
+            }
+            .bg(label)
+            .disabled(true)
+            .label(@t("bar.pause"))
+        }
+        .direction(row)
+        .align(center)
+        .gap(6)
+        .paddingY(4)
+        .paddingLeading(4)
+        .paddingTrailing(6)
+        .material(card)
+        .rounded(md)
+    } else {
+        Stack {
+            Stack { }
+                .width(28)
+                .height(28)
+                .bgFade(modeTablet, danger)
+                .rounded(sm)
+            Stack {
+                Text(@t("shell.trackTitle")).textStyle(caption).fontWeight(semibold).fg(label)
+                Text(@t("shell.trackArtist")).textStyle(caption2).fg(labelSecondary)
+            }
+            .width(76)
+            Circle { size: 24
+                Icon { symbol: "pause", size: 10 }
+                    .fg(onPrimary)
+            }
+            .bg(label)
+            .disabled(true)
+            .label(@t("bar.pause"))
+            Circle { size: 24
+                Icon { symbol: "forward.end", size: 10 }
+                    .fg(labelSecondary)
+            }
+            .disabled(true)
+            .label(@t("bar.next"))
+        }
+        .direction(row)
+        .align(center)
+        .gap(8)
+        .paddingY(4)
+        .paddingLeading(4)
+        .paddingTrailing(8)
+        .material(card)
+        .rounded(md)
+    }
 }

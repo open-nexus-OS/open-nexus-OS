@@ -42,7 +42,6 @@ Store DemoStore {
     tgLockPreview: Bool = true,
     tgBadges: Bool = true,
     // Personalisierung
-    tgReduceTransparency: Bool = false,
     tgReduceMotion: Bool = false,
     // Apps
     tgAutoUpdate: Bool = true,

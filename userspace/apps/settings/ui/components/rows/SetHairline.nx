@@ -10,10 +10,12 @@
 Component SetHairline {
     Stack {
         Stack { }
+            .width(6)
+        Stack { }
             .height(1)
             .grow(1)
-            .bg(divider)
+            .bg(separator)
     }
     .direction(row)
-    .paddingX(4)
+    .paddingLeading(40)
 }

@@ -71,6 +71,9 @@ pub(crate) struct EmitCtx<'a, 'p> {
     /// The slot bodies THIS component instance received (RFC-0084), or `None`
     /// for a page / a component emitted outside any reference.
     pub slots: Option<&'a SlotFrame<'a, 'p>>,
+    /// The node being emitted sits inside an opaque surface (`pane`, `overlay`): its kit widget
+    /// and its modifiers resolve `glassCard` through [`registry::PaneTokens`] (RFC-0116).
+    pub on_opaque: bool,
 }
 
 impl EmitCtx<'_, '_> {
@@ -206,6 +209,7 @@ pub(crate) fn emit_view<'p>(
                 path,
                 components: ctx.components,
                 slots: frame.as_ref(),
+                on_opaque: ctx.on_opaque,
             };
             emit_view(&mut inner, view)
         }
@@ -368,6 +372,21 @@ fn emit_widget<'p>(
         }
     }
 
+    // The surface this node sits on (its own context), and the one its children sit on: an opaque
+    // material (`pane`, `overlay`) puts them on an opaque surface, a blur material on glass, any
+    // other node leaves the surface as it is (a card on a pane is still on the pane). The `Panel`
+    // widget is a panel unless its material says otherwise.
+    let on_opaque = ctx.on_opaque;
+    let surface =
+        mods.material.or((kind == "Panel").then_some(nexus_layout_types::Material::Panel));
+    if let Some(material) = surface {
+        if material.opaque() {
+            ctx.on_opaque = true;
+        } else if material.blurs() {
+            ctx.on_opaque = false;
+        }
+    }
+
     // Children. Their final-tree position depends on the kit builder's
     // structure (registry::child_path) — prefix + base keep handler/text
     // paths honest.
@@ -414,7 +433,10 @@ fn emit_widget<'p>(
             AnimIntent::new(AnimKind::Loop, animation::MotionToken::Pulse.id(), sub),
         ));
     }
-    Ok(registry::build_widget(&kind, &props, &mods, ctx.tokens, children))
+    ctx.on_opaque = on_opaque;
+    let pane = registry::PaneTokens(ctx.tokens);
+    let tokens: &dyn nexus_theme_tokens::Tokens = if on_opaque { &pane } else { ctx.tokens };
+    Ok(registry::build_widget(&kind, &props, &mods, tokens, children))
 }
 
 /// Continuous-loop sub-kind for inherently-animated kit widgets (None = the

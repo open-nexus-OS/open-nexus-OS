@@ -125,7 +125,7 @@ impl super::DslApp {
             return false;
         }
         self.relayout_retained();
-        self.hovered = None;
+        self.interaction_reset();
         self.anim_sync();
         true
     }

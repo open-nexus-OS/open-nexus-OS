@@ -100,9 +100,10 @@ fn design_kit_widgets_mount_through_the_dsl() {
 /// `Select` and `Breadcrumbs` were kit crates the DSL could not name, so a
 /// page needing them hand-rolled a lookalike. Now that they are registered,
 /// pin what they actually PAINT: the select shows its value (not its
-/// placeholder), and the breadcrumb renders every crumb with the `›`
-/// separators between them. A missing runtime arm would fall through to a
-/// bare Stack and both assertions would read back empty.
+/// placeholder), and the breadcrumb renders every crumb with the chevron
+/// glyphs (design `Breadcrumbs`: `chevron-right` 14) between them. A missing
+/// runtime arm would fall through to a bare Stack and both assertions would
+/// read back empty.
 #[test]
 fn select_and_breadcrumbs_render_their_content() {
     let view = mount(
@@ -124,11 +125,27 @@ fn select_and_breadcrumbs_render_their_content() {
     for crumb in ["Einstellungen", "Verbindungen", "Datennutzung"] {
         assert!(found.iter().any(|t| t == crumb), "crumb {crumb} missing: {found:?}");
     }
-    assert_eq!(
-        found.iter().filter(|t| t.as_str() == "›").count(),
-        2,
-        "three crumbs need two separators: {found:?}"
-    );
+    // The separators are stroked glyphs between the crumbs of the trail's row.
+    fn separators(node: &nexus_layout_types::LayoutNode) -> Option<usize> {
+        use nexus_layout_types::{LayoutNode, ShapeKind};
+        let LayoutNode::Stack(_, _, children) = node else { return None };
+        let is_crumb = |c: &LayoutNode| match c {
+            LayoutNode::Stack(_, _, kids) => match kids.first() {
+                Some(LayoutNode::Text(t, _)) => t.content.as_str() == "Datennutzung",
+                _ => false,
+            },
+            _ => false,
+        };
+        let is_glyph = |c: &LayoutNode| match c {
+            LayoutNode::Stack(_, v, _) => matches!(v.shape, ShapeKind::Stroke { .. }),
+            _ => false,
+        };
+        if children.iter().any(is_crumb) {
+            return Some(children.iter().filter(|c| is_glyph(c)).count());
+        }
+        children.iter().find_map(separators)
+    }
+    assert_eq!(separators(view.scene()), Some(2), "three crumbs need two separators");
 }
 
 /// A `Breadcrumbs` whose `items` is not a list must still render something

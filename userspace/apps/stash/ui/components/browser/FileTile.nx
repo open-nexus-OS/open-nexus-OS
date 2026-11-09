@@ -1,0 +1,28 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One grid tile — the same interaction as `FileRow`: a tap selects; the tap
+// of a selected folder opens it (`opens`, decided at the use site).
+
+Component FileTile {
+    props: {
+        id: Str,
+        name: Str,
+        kind: Str,
+        size: Str,
+        icon: Str,
+        active: Bool,
+        opens: Bool,
+    }
+    if $props.opens {
+        Stack {
+            FileTileBody { name: $props.name, size: $props.size, icon: $props.icon, active: $props.active }
+        }
+        on Tap -> dispatch(OpenDir($props.name))
+    } else {
+        Stack {
+            FileTileBody { name: $props.name, size: $props.size, icon: $props.icon, active: $props.active }
+        }
+        on Tap -> dispatch(Pick($props.id, $props.name, $props.kind, $props.size, ""))
+    }
+}

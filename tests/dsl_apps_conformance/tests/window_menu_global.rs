@@ -38,7 +38,7 @@ const ZONES: [&str; 11] = [
 ];
 
 /// Each app declares the kit's events in its own enum.
-const APPS: [(&str, &str); 2] = [("settings", "WindowEvent"), ("stash", "StashEvent")];
+const APPS: [(&str, &str); 2] = [("settings", "WindowEvent"), ("stash", "WindowEvent")];
 
 /// The `WinAct` payloads of every Tap handler on screen.
 fn tap_acts(view: &View, symbols: &[String], events: &str) -> Vec<String> {
@@ -122,5 +122,5 @@ fn test_reject_window_menu_tiles_outside_the_open_menu() {
     let keys: Vec<u32> = Vec::new();
     let locale = IdentityLocale { symbols: &symbols, keys: &keys };
     let view = View::mount(&nxir, &BaseTokens, &device, &locale).expect("mounts");
-    assert!(tap_acts(&view, &symbols, "StashEvent").iter().all(|a| !a.starts_with("zone.")));
+    assert!(tap_acts(&view, &symbols, "WindowEvent").iter().all(|a| !a.starts_with("zone.")));
 }

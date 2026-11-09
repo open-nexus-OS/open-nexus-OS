@@ -1,23 +1,22 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// A single-glyph top-bar pill — the desktop mode's WLAN, Ton and Control
-// Center openers. One component with an `icon` prop rather than three
-// near-identical files: they differ only in the glyph and in which panel their
-// use site opens.
+// A single-glyph top-bar pill (design artifacts: TopBar) — the desktop mode's
+// Control Center opener and the search (the search is the repo's, TASK-0067B:
+// the reference bar has no magnifier, it stays because it works). One
+// component with an `icon` prop rather than near-identical files: they differ
+// only in the glyph and in what their use site opens. The WLAN and Ton pills
+// show live state and use `WifiGlyph` / `SoundGlyph` instead.
 
 Component GlyphPill {
     props: {
         icon: Str,
+        selected: Bool,
     }
-    Stack {
-        Icon { symbol: $props.icon, size: 13 }
-            .fg(onGlass)
+    TopBarPill { selected: $props.selected, gap: 0 } {
+        content {
+            Icon { symbol: $props.icon, size: 13 }
+                .fg(label)
+        }
     }
-    .direction(row)
-    .align(center)
-    .justify(center)
-    .paddingX(2)
-    .height(28)
-    .rounded(full)
 }

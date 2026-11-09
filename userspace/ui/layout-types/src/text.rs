@@ -32,18 +32,14 @@ impl LineHeight {
     }
 }
 
-/// Font weight. Matches Inter's available weights.
-///
-/// The baked ladder (RFC-0082) serves three instances — Light 300,
-/// Regular 400 and SemiBold 600 — so `Medium` renders as Regular and `Bold`
-/// as SemiBold. That collapse lives in the text layer's weight mapping, not
-/// here: this enum stays the authoring vocabulary.
+/// Font weight on Inter's axis — the five weights the text styles and their overrides use
+/// (RFC-0116); the baked atlas carries a face for every (size, weight) a style needs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FontWeight {
     /// Large headlines only — never a default UI weight
     /// (`docs/dev/ui/foundations/visual/typography.md`).
     Light = 300,
-    Regular = 400,
+    Normal = 400,
     Medium = 500,
     Semibold = 600,
     Bold = 700,
@@ -69,17 +65,25 @@ pub struct TextStyle {
     pub text_align: TextAlign,
     pub color: Rgba8,
     pub white_space: WhiteSpace,
+    /// Letter spacing in thousandths of an em, signed (RFC-0116: the text style's tracking —
+    /// `display` −20, `overline` +60). Measure and draw add it after every glyph.
+    pub tracking_milli_em: i16,
+    /// Tabular figures (CSS `tabular-nums`): every digit advances by the face's widest digit, so
+    /// a changing number never shifts (the design artifacts' counts, clocks and values).
+    pub tabular: bool,
 }
 
 impl Default for TextStyle {
     fn default() -> Self {
         Self {
             font_size: FxPx::new(16),
-            font_weight: FontWeight::Regular,
+            font_weight: FontWeight::Normal,
             line_height: LineHeight::Absolute(FxPx::new(20)),
             text_align: TextAlign::Left,
             color: Rgba8::WHITE,
             white_space: WhiteSpace::Normal,
+            tracking_milli_em: 0,
+            tabular: false,
         }
     }
 }

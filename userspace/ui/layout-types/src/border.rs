@@ -124,73 +124,6 @@ impl Default for TextShadow {
     }
 }
 
-/// Pre-defined shadow levels matching common UI densities.
-/// Each variant maps to a canonical `BoxShadow` via `to_box_shadow()`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ShadowLevel {
-    /// sm: subtle elevation (2px blur, 1px offset)
-    Sm,
-    /// md: moderate elevation (6px blur, 2px offset) — default
-    Md,
-    /// lg: pronounced elevation (12px blur, 4px offset)
-    Lg,
-    /// xl: heavy elevation (20px blur, 6px offset)
-    Xl,
-    /// 2xl: dramatic elevation (32px blur, 10px offset)
-    Xxl2,
-}
-
-impl ShadowLevel {
-    /// Convert a shadow level to its canonical `BoxShadow`.
-    pub const fn to_box_shadow(self) -> BoxShadow {
-        match self {
-            Self::Sm => BoxShadow {
-                offset_x: FxPx::ZERO,
-                offset_y: FxPx::new(1),
-                blur_radius: FxPx::new(2),
-                spread: FxPx::ZERO,
-                color: Rgba8 { r: 0, g: 0, b: 0, a: 31 },
-            },
-            // Design elevation scale (reference/tokens/spacing.css):
-            // md 0 4 12 .15 · lg 0 8 24 .18 · xl 0 12 32 .22 · 2xl 0 25 50 .25.
-            Self::Md => BoxShadow {
-                offset_x: FxPx::ZERO,
-                offset_y: FxPx::new(4),
-                blur_radius: FxPx::new(12),
-                spread: FxPx::ZERO,
-                color: Rgba8 { r: 0, g: 0, b: 0, a: 38 },
-            },
-            Self::Lg => BoxShadow {
-                offset_x: FxPx::ZERO,
-                offset_y: FxPx::new(8),
-                blur_radius: FxPx::new(24),
-                spread: FxPx::ZERO,
-                color: Rgba8 { r: 0, g: 0, b: 0, a: 46 },
-            },
-            Self::Xl => BoxShadow {
-                offset_x: FxPx::ZERO,
-                offset_y: FxPx::new(12),
-                blur_radius: FxPx::new(32),
-                spread: FxPx::ZERO,
-                color: Rgba8 { r: 0, g: 0, b: 0, a: 56 },
-            },
-            Self::Xxl2 => BoxShadow {
-                offset_x: FxPx::ZERO,
-                offset_y: FxPx::new(25),
-                blur_radius: FxPx::new(50),
-                spread: FxPx::ZERO,
-                color: Rgba8 { r: 0, g: 0, b: 0, a: 64 },
-            },
-        }
-    }
-}
-
-impl Default for ShadowLevel {
-    fn default() -> Self {
-        Self::Md
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PathPoint {
     pub x_milli: u16,
@@ -252,39 +185,44 @@ pub enum ShapeKind {
 /// Separated from layout properties — paint-only changes don't invalidate measurement.
 ///
 /// Phase 6a: added `shadow`, `text_shadow`. `opacity` is a 0-255 fraction
-/// Design-system glass level — the frosted-panel materials (blur strength +
-/// translucency step). The compositor maps each to a real cached backdrop blur;
-/// the app never blurs anything itself (docs/dev/ui/patterns/windowing/window-intent.md).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum GlassLevel {
-    /// Strongest blur, most translucent — dock / control center / launcher.
-    #[default]
+/// The material of a surface (RFC-0116): which colour role it is filled with and whether it
+/// blurs what lies behind it. Only the one surface of a stack that sits on the wallpaper blurs
+/// (`Panel`, `Window`, `Dock`, `Thin`, `UltraThin`); `Card` is a translucent layer on such a
+/// surface and never blurs; `Pane` (inside a window) and `Overlay` (everything that floats)
+/// are opaque. The compositor turns a blurring node into a backdrop-blurred layer, a `Pane`
+/// into an occluder; the app never blurs anything itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Material {
+    /// A panel on the wallpaper (Control Center, notifications, launcher): glassPanel, regular blur.
     Panel,
-    /// Cards nested inside panels.
-    Card,
-    /// Settings rows / list items — subtle.
-    Subtle,
-    /// Denser window material — solider so document content stays legible.
+    /// An app window: glassWindow, regular blur.
     Window,
-    /// The content / properties PANE inside a window (`--glass-window-pane-bg`).
-    /// Sits on the window's own glass, so it is far more transmissive than
-    /// `Panel`, which sits straight on the wallpaper.
-    WindowPane,
-    /// The floating action-bar pill inside a window (`--glass-window-bar-bg`).
-    WindowBar,
-    /// Strongest overlay material (modals/sheets — design `--glass-overlay`).
+    /// The dock, the taskbar, the launcher backdrop: glassPanel, thick blur.
+    Dock,
+    /// A light standalone piece on the wallpaper: glassPanel, thin blur.
+    Thin,
+    /// A small standalone piece on the wallpaper: glassPanel, ultra-thin blur.
+    UltraThin,
+    /// A card, a grouped row or a tile on a blur surface: glassCard, no blur.
+    Card,
+    /// The opaque pane inside a window: surfacePane.
+    Pane,
+    /// A floating surface (modal, alert, menu, popover, toast, keyboard): surfaceOverlay, opaque.
     Overlay,
 }
 
-/// The compositing material of a node's surface region: opaque fill, or frosted
-/// glass at a [`GlassLevel`]. A node tagged `.material(panel|card|subtle|window)`
-/// becomes a **glass layer** the display server composites over the live
-/// backdrop; the default is opaque (a normal painted rect).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum SurfaceMaterial {
-    #[default]
-    Opaque,
-    Glass(GlassLevel),
+impl Material {
+    /// Whether the compositor blurs the backdrop under this surface.
+    #[must_use]
+    pub const fn blurs(self) -> bool {
+        matches!(self, Self::Panel | Self::Window | Self::Dock | Self::Thin | Self::UltraThin)
+    }
+
+    /// Whether the surface is opaque (an occluder for what lies under it).
+    #[must_use]
+    pub const fn opaque(self) -> bool {
+        matches!(self, Self::Pane | Self::Overlay)
+    }
 }
 
 /// (0 = fully transparent, 255 = fully opaque).
@@ -315,7 +253,6 @@ pub struct VisualStyle {
     /// `edgeHighlight` alpha is a crisp line here and, at a fraction of its
     /// strength, a soft wash there.
     pub inset_highlight: Option<Rgba8>,
-    /// Compositing material — `Opaque` (default) or frosted `Glass(level)`. The
-    /// compositor turns a glass node into a real backdrop-blurred layer.
-    pub material: SurfaceMaterial,
+    /// The surface's material (RFC-0116); `None` = a plain painted box.
+    pub material: Option<Material>,
 }

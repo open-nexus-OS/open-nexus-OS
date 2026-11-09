@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Control Center (design artifacts: panels §3): 328 wide, radius 30, anchored top
+// Control Center (design artifacts: panels §3): 328 wide, radius xl 24, anchored top
 // right. The touch modes' one hub — in tablet/phone the WiFi, Ton and Batterie
 // panels do not exist and their contents fold in here, which is why this is
 // the only panel present in every mode.
@@ -12,29 +12,36 @@
 // `ControlStore`, and both read their current value from `device.*` so a
 // re-mount cannot leave them showing the wrong side of the switch.
 //
-// Section order and spacing are the design's; the paddings are the 4px grid's
-// nearest step to it (16 for the sides, 12/16 top and bottom against 10/14).
+// Section order and spacing are the design's (padding 8/16/16, 12 between the
+// blocks). The panel STAYS GLASS (operator decision): `panel` material — regular
+// blur, glass edge, shadow4 and the lit top edge come from the recipe — and the
+// cards on it are `card` layers. The now-playing card shows only while a
+// media session plays (none exists yet, so it is absent — no demo claim).
 
 Component ControlCenterPanel {
     Stack {
         CcHeader { }
         CcConnectivity { }
         CcBrightnessCard { }
-        CcSoundCard { }
+        CcSoundCard { label: @t("control.sound") }
+        if $state.nowPlaying {
+            CcNowPlayingCard { }
+        } else {
+            Stack { }
+        }
         CcBatteryCard { }
         if $state.applyError != 0 {
-            Text(@t("control.applyFailed")).textSize(xs).fg(danger)
+            Text(@t("control.applyFailed")).textStyle(caption).fg(danger)
         } else {
             Stack { }
         }
     }
     .width(328)
-    .gap(2)
-    .paddingX(4)
-    .paddingTop(3)
-    .paddingBottom(4)
-    .rounded(30)
+    .gap(12)
+    .paddingX(16)
+    .paddingTop(8)
+    .paddingBottom(16)
+    .rounded(xl)
     .material(panel)
-    .shadow(xxl)
     .transition(slideUp)
 }

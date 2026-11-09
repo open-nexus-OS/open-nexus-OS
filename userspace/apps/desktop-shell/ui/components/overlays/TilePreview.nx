@@ -21,24 +21,24 @@ Component TilePreview {
             if device.tilePreview == "fill" {
                 Stack { }
                     .grow(1)
-                    .bg(accentSoft)
-                    .border(thin)
+                    .tint(accent)
+                    .border(hairline)
                     .borderColor(accent)
-                    .rounded(lg)
+                    .rounded(md)
             } else {
                 if device.tilePreview == "left-half" {
                     Stack {
                         Stack { }
                             .grow(1)
-                            .bg(accentSoft)
-                            .border(thin)
+                            .tint(accent)
+                            .border(hairline)
                             .borderColor(accent)
-                            .rounded(lg)
+                            .rounded(md)
                         Stack { }
                             .grow(1)
                     }
                     .direction(row)
-                    .gap(2)
+                    .gap(8)
                     .grow(1)
                 } else {
                     if device.tilePreview == "right-half" {
@@ -47,27 +47,27 @@ Component TilePreview {
                                 .grow(1)
                             Stack { }
                                 .grow(1)
-                                .bg(accentSoft)
-                                .border(thin)
+                                .tint(accent)
+                                .border(hairline)
                                 .borderColor(accent)
-                                .rounded(lg)
+                                .rounded(md)
                         }
                         .direction(row)
-                        .gap(2)
+                        .gap(8)
                         .grow(1)
                     } else {
                         if device.tilePreview == "top-half" {
                             Stack {
                                 Stack { }
                                     .grow(1)
-                                    .bg(accentSoft)
-                                    .border(thin)
+                                    .tint(accent)
+                                    .border(hairline)
                                     .borderColor(accent)
-                                    .rounded(lg)
+                                    .rounded(md)
                                 Stack { }
                                     .grow(1)
                             }
-                            .gap(2)
+                            .gap(8)
                             .grow(1)
                         } else {
                             if device.tilePreview == "bottom-half" {
@@ -76,12 +76,12 @@ Component TilePreview {
                                         .grow(1)
                                     Stack { }
                                         .grow(1)
-                                        .bg(accentSoft)
-                                        .border(thin)
+                                        .tint(accent)
+                                        .border(hairline)
                                         .borderColor(accent)
-                                        .rounded(lg)
+                                        .rounded(md)
                                 }
-                                .gap(2)
+                                .gap(8)
                                 .grow(1)
                             } else {
                                 TilePreviewQuarter { }
@@ -93,7 +93,7 @@ Component TilePreview {
         }
     }
     .overlay()
-    .padding(2)
+    .padding(8)
 }
 
 // The four quarter hints: a 2×2 flex grid with ONE painted cell.
@@ -103,10 +103,10 @@ Component TilePreviewQuarter {
             if device.tilePreview == "top-left" {
                 Stack { }
                     .grow(1)
-                    .bg(accentSoft)
-                    .border(thin)
+                    .tint(accent)
+                    .border(hairline)
                     .borderColor(accent)
-                    .rounded(lg)
+                    .rounded(md)
             } else {
                 Stack { }
                     .grow(1)
@@ -114,26 +114,26 @@ Component TilePreviewQuarter {
             if device.tilePreview == "top-right" {
                 Stack { }
                     .grow(1)
-                    .bg(accentSoft)
-                    .border(thin)
+                    .tint(accent)
+                    .border(hairline)
                     .borderColor(accent)
-                    .rounded(lg)
+                    .rounded(md)
             } else {
                 Stack { }
                     .grow(1)
             }
         }
         .direction(row)
-        .gap(2)
+        .gap(8)
         .grow(1)
         Stack {
             if device.tilePreview == "bottom-left" {
                 Stack { }
                     .grow(1)
-                    .bg(accentSoft)
-                    .border(thin)
+                    .tint(accent)
+                    .border(hairline)
                     .borderColor(accent)
-                    .rounded(lg)
+                    .rounded(md)
             } else {
                 Stack { }
                     .grow(1)
@@ -141,19 +141,19 @@ Component TilePreviewQuarter {
             if device.tilePreview == "bottom-right" {
                 Stack { }
                     .grow(1)
-                    .bg(accentSoft)
-                    .border(thin)
+                    .tint(accent)
+                    .border(hairline)
                     .borderColor(accent)
-                    .rounded(lg)
+                    .rounded(md)
             } else {
                 Stack { }
                     .grow(1)
             }
         }
         .direction(row)
-        .gap(2)
+        .gap(8)
         .grow(1)
     }
-    .gap(2)
+    .gap(8)
     .grow(1)
 }

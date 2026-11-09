@@ -1,0 +1,24 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One power button on the lock screen: a 44 px glass circle with its glyph. Drawn DISABLED:
+// the greeter holds no power permission and no service backs sleep, restart or shut down
+// here yet (unfinished controls are disabled, not deleted).
+Component PowerButton {
+    props: {
+        symbol: Str,
+        name: Str,
+    }
+    Circle {
+        size: 44,
+        Icon {
+            symbol: $props.symbol,
+            size: 17,
+        }
+        .fg(label)
+    }
+    .material(panel)
+    .shadow(shadow2)
+    .disabled(true)
+    .label($props.name)
+}

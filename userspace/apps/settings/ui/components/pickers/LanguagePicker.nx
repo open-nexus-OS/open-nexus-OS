@@ -1,0 +1,32 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The `language` picker's option list on a `PickerSheet`; the page layer mounts it while
+// `$state.picker == "language"`.
+
+Component LanguagePicker {
+    PickerSheet { title: @t("gen.language") } {
+        options {
+            Stack {
+                PickerOption { label: @t("lang.de"), selected: $state.locale == "de-DE" }
+            }
+            on Tap -> dispatch(SetLocale("de-DE"))
+            Stack {
+                PickerOption { label: @t("lang.en"), selected: $state.locale == "en-US" }
+            }
+            on Tap -> dispatch(SetLocale("en-US"))
+            Stack {
+                PickerOption { label: @t("lang.ja"), selected: $state.locale == "ja-JP" }
+            }
+            on Tap -> dispatch(SetLocale("ja-JP"))
+            Stack {
+                PickerOption { label: @t("lang.ko"), selected: $state.locale == "ko-KR" }
+            }
+            on Tap -> dispatch(SetLocale("ko-KR"))
+            Stack {
+                PickerOption { label: @t("lang.zh"), selected: $state.locale == "zh-CN" }
+            }
+            on Tap -> dispatch(SetLocale("zh-CN"))
+        }
+    }
+}

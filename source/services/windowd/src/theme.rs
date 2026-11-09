@@ -1,25 +1,25 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-//! ⚠ CLEANUP-MAP (korrigiert): KEEP als dünner Konsument — die Token-WERTE sind
-//! build-generiert aus resources/themes/*.nxtheme.toml (Value-SSOT). Offen ist die
-//! App-Seite: ui/theme-tokens hartcodiert Werte → aus denselben .nxtheme.toml generieren.
+//! ⚠ CLEANUP-MAP (docs/dev/ui/windowd-cleanup-map.md): KEEP as a thin consumer — reached: the
+//! values come from the typed tokens, one value source for the compositor AND the apps.
 //
 
-//! CONTEXT: Runtime theme tokens (TASK-0072 Phase 9). The two qualifier
-//! snapshots (`Dark`/`Light`) are baked from the vendored `.nxtheme.toml`
-//! authoring by `build.rs` (`assets::THEME_DARK`/`THEME_LIGHT`) as
-//! [`ThemeTokens`] consts; the compositor holds the active [`ThemeMode`] and
-//! reads its colors from the matching snapshot, so a light/dark switch is a
-//! const swap + a full redraw — no rebuild. Colors are BGRA8888 (the
-//! framebuffer order), so surface renderers can write them directly.
+//! CONTEXT: The compositor's theme (TASK-0072 Phase 9, RFC-0116). The compositor holds the
+//! active [`ThemeMode`] and reads a colour from the typed tokens of that mode
+//! (`nexus-theme-tokens`, generated from the same `resources/themes/*.nxtheme.toml` authoring
+//! as every app's), so a light/dark switch is a mode swap + a full redraw — no rebuild, and no
+//! second baked copy of the theme in windowd. Colours come out BGRA8888 (the framebuffer
+//! order), so surface renderers can write them directly.
 //! OWNERS: @ui
 //! STATUS: Experimental
 //! API_STABILITY: Unstable
 
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
+use nexus_theme_tokens::{ColorToken, DarkTokens, LightTokens, SolidTokens, Tokens};
+
 /// The user's light/dark preference (the `ui.theme.mode` settings key).
-/// (Consumed by the os-lite compositor runtime; host builds only see the
-/// baked const types, hence the scoped allows in this module.)
+/// (Consumed by the os-lite compositor runtime only.)
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ThemeMode {
@@ -45,31 +45,34 @@ impl ThemeMode {
             _ => None,
         }
     }
-}
 
-/// One baked theme snapshot: the semantic tokens the compositor's chrome uses,
-/// in BGRA8888. Field names mirror the `.nxtheme.toml` token vocabulary —
-/// the FULL vocabulary is baked by build.rs even where the chrome reads only a
-/// subset today (declared token surface, not dead weight).
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct ThemeTokens {
-    /// Primary surface / window glass body tint.
-    pub surface: [u8; 4],
-    /// Secondary surface (rows, alt fills).
-    pub surface_alt: [u8; 4],
-    /// Hairline borders / section frames.
-    pub border: [u8; 4],
-    /// Primary foreground (labels, titles).
-    pub fg: [u8; 4],
-    /// Muted foreground (placeholders, secondary text).
-    pub muted_fg: [u8; 4],
-    /// Accent (hover tints, active state, values).
-    pub accent: [u8; 4],
-    /// Foreground ON an accent fill.
-    pub accent_fg: [u8; 4],
-    /// Frosted-glass body tint (translucent).
-    pub glass_tint: [u8; 4],
-    /// Glass edge highlight.
-    pub glass_edge: [u8; 4],
+    /// The colour of `role` under this mode, BGRA8888.
+    pub(crate) fn bgra(self, role: ColorToken) -> [u8; 4] {
+        let c = match self {
+            ThemeMode::Dark => DarkTokens.color(role),
+            ThemeMode::Light => LightTokens.color(role),
+        };
+        [c.b, c.g, c.r, c.a]
+    }
+
+    /// The colour of `role` under this mode with reduce transparency on (`ui.material = solid`):
+    /// the solid theme's grey surfaces, the colour app-host paints the same role in.
+    pub(crate) fn solid_bgra(self, role: ColorToken) -> [u8; 4] {
+        static SOLID_DARK: SolidTokens = SolidTokens { base: &DarkTokens };
+        static SOLID_LIGHT: SolidTokens = SolidTokens { base: &LightTokens };
+        let c = match self {
+            ThemeMode::Dark => SOLID_DARK.color(role),
+            ThemeMode::Light => SOLID_LIGHT.color(role),
+        };
+        [c.b, c.g, c.r, c.a]
+    }
+
+    /// An app window's shape under this mode (RFC-0116: the `window` material's radius, shadow
+    /// and backdrop).
+    pub(crate) fn window_shape(self) -> crate::window_shape::WindowShape {
+        match self {
+            ThemeMode::Dark => crate::window_shape::window_shape(&DarkTokens),
+            ThemeMode::Light => crate::window_shape::window_shape(&LightTokens),
+        }
+    }
 }

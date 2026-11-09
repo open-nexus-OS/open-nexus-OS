@@ -17,6 +17,7 @@ use crate::ast::{
 use alloc::string::String;
 
 mod expr;
+mod window;
 use expr::{call_args_to, expr_to, pattern_to, type_to};
 
 const INDENT: &str = "    ";
@@ -42,7 +43,7 @@ pub fn format_file(file: &File) -> String {
     out
 }
 
-fn indent_to(out: &mut String, level: usize) {
+pub(super) fn indent_to(out: &mut String, level: usize) {
     for _ in 0..level {
         out.push_str(INDENT);
     }
@@ -246,38 +247,7 @@ fn decl_to(out: &mut String, decl: &Decl) {
             }
             out.push_str("}\n");
         }
-        Decl::Window(window) => {
-            use crate::ast::{WindowLevel, WindowMode, WindowStyle};
-            out.push_str("Window {\n");
-            indent_to(out, 1);
-            out.push_str("style: ");
-            out.push_str(match window.style {
-                WindowStyle::Titlebar => "titlebar",
-                WindowStyle::HiddenTitlebar => "hiddenTitlebar",
-                WindowStyle::Plain => "plain",
-            });
-            out.push_str(",\n");
-            indent_to(out, 1);
-            out.push_str("mode: ");
-            out.push_str(match window.mode {
-                WindowMode::Auto => "auto",
-                WindowMode::Freeform => "freeform",
-                WindowMode::Fullscreen => "fullscreen",
-            });
-            out.push_str(",\n");
-            indent_to(out, 1);
-            out.push_str("level: ");
-            out.push_str(match window.level {
-                WindowLevel::Normal => "normal",
-                WindowLevel::Desktop => "desktop",
-                WindowLevel::Overlay => "overlay",
-            });
-            out.push_str(",\n");
-            indent_to(out, 1);
-            out.push_str("resizable: ");
-            out.push_str(if window.resizable { "true" } else { "false" });
-            out.push_str(",\n}\n");
-        }
+        Decl::Window(window) => window::window_to(out, window),
     }
 }
 

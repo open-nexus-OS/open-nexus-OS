@@ -1,0 +1,48 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The content pane's header (48 px, padding 0 12): the app's title on the overview; with a
+// thread open, the back button (`CloseThread`), the contact's avatar, name and status.
+
+Component ChatHeader {
+    Stack {
+        if $state.thread == "" {
+            Stack {
+                Text(@t("chat.title")).textStyle(title3).fg(label)
+            }
+            .direction(row)
+            .align(center)
+            .gap(8)
+        } else {
+            Stack {
+                Stack {
+                    Icon { symbol: "chevron.left", size: 16 }
+                        .fg(labelSecondary)
+                }
+                .width(28)
+                .height(28)
+                .rounded(sm)
+                .align(center)
+                .justify(center)
+                on Tap -> dispatch(CloseThread)
+                Circle { size: 28
+                    Icon { symbol: "person", size: 14 }
+                        .fg(label)
+                }
+                .material(card)
+                Stack {
+                    Text($state.threadName).textStyle(body).fg(label)
+                    Text(@t("chat.online")).textStyle(caption).fg(labelSecondary)
+                }
+                .gap(0)
+            }
+            .direction(row)
+            .align(center)
+            .gap(8)
+        }
+    }
+    .paddingX(12)
+    .height(48)
+    .align(start)
+    .justify(center)
+}

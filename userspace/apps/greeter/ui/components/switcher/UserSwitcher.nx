@@ -1,0 +1,33 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The other users, bottom left: a small avatar and the name each; a tap picks that user
+// (`Pick(id)` re-points the password field and clears the secret).
+Component UserSwitcher {
+    Stack {
+        List($state.users) { user in
+            Stack {
+                if user.id == $state.selected {
+                    Stack
+                } else {
+                    Stack {
+                        Avatar {
+                            name: user.label,
+                            size: 44,
+                        }
+                        .material(card)
+                        .fg(label)
+                        .shadow(shadow2)
+                        Text(user.label).textStyle(caption).fontWeight(semibold).fg(labelSecondary).shadow(halo)
+                    }
+                    .align(center)
+                    .gap(4)
+                }
+            }
+            .key(user.id)
+            on Tap -> dispatch(Pick(user.id))
+        }
+        .direction(row)
+        .gap(16)
+    }
+}

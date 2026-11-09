@@ -11,9 +11,9 @@
 // there. `.basis(0)` gives both axes the exact division, and `.basis(10).grow(2)`
 // spans two tracks across the gap.
 //
-// UNITS: `.gap` is in 4px STEPS (design 10px -> 3 steps = 12px), while
-// `.basis` is RAW px like `.width` — so the span's basis is 12, matching the
-// gap it straddles in pixels, not in steps.
+// UNITS: `.gap` and `.basis` are px (RFC-0116), so the span's basis is the 12 px gap it
+// straddles. The rows share the height and the keys the width: at the window's minimum the cells
+// are square (circles), a wider window widens them (pills) — see `CalcKey`.
 //
 // The `.direction(row)` on every key wrapper is LOAD-BEARING: a flex-grown row
 // child is allocated the shared width, but its subtree keeps its own natural
@@ -22,9 +22,16 @@
 Component CalcKeypad {
     Stack {
         Stack {
-            Stack { CalcKey { label: "AC", kind: "function" } }
-                .direction(row).basis(0).grow(1)
-            on Tap -> dispatch(Clear)
+            // "C" clears the entry while there is one, "AC" everything (the store's two stages).
+            if $state.dirty == 1 {
+                Stack { CalcKey { label: "C", kind: "clear" } }
+                    .direction(row).basis(0).grow(1)
+                on Tap -> dispatch(Clear)
+            } else {
+                Stack { CalcKey { label: "AC", kind: "clear" } }
+                    .direction(row).basis(0).grow(1)
+                on Tap -> dispatch(Clear)
+            }
             Stack { CalcKey { label: "±", kind: "function" } }
                 .direction(row).basis(0).grow(1)
             on Tap -> dispatch(Neg)
@@ -33,9 +40,9 @@ Component CalcKeypad {
             on Tap -> dispatch(Percent)
             Stack { CalcKey { label: "÷", kind: "operator" } }
                 .direction(row).basis(0).grow(1)
-            on Tap -> dispatch(Op("/"))
+            on Tap -> dispatch(Op("/", "÷"))
         }
-        .direction(row).gap(3).basis(0).grow(1)
+        .direction(row).gap(12).basis(0).grow(1)
 
         Stack {
             Stack { CalcKey { label: "7", kind: "digit" } }
@@ -49,9 +56,9 @@ Component CalcKeypad {
             on Tap -> dispatch(Digit(9.0, "9"))
             Stack { CalcKey { label: "×", kind: "operator" } }
                 .direction(row).basis(0).grow(1)
-            on Tap -> dispatch(Op("*"))
+            on Tap -> dispatch(Op("*", "×"))
         }
-        .direction(row).gap(3).basis(0).grow(1)
+        .direction(row).gap(12).basis(0).grow(1)
 
         Stack {
             Stack { CalcKey { label: "4", kind: "digit" } }
@@ -65,9 +72,9 @@ Component CalcKeypad {
             on Tap -> dispatch(Digit(6.0, "6"))
             Stack { CalcKey { label: "−", kind: "operator" } }
                 .direction(row).basis(0).grow(1)
-            on Tap -> dispatch(Op("-"))
+            on Tap -> dispatch(Op("-", "−"))
         }
-        .direction(row).gap(3).basis(0).grow(1)
+        .direction(row).gap(12).basis(0).grow(1)
 
         Stack {
             Stack { CalcKey { label: "1", kind: "digit" } }
@@ -81,9 +88,9 @@ Component CalcKeypad {
             on Tap -> dispatch(Digit(3.0, "3"))
             Stack { CalcKey { label: "+", kind: "operator" } }
                 .direction(row).basis(0).grow(1)
-            on Tap -> dispatch(Op("+"))
+            on Tap -> dispatch(Op("+", "+"))
         }
-        .direction(row).gap(3).basis(0).grow(1)
+        .direction(row).gap(12).basis(0).grow(1)
 
         Stack {
             // Two tracks plus the gap they straddle — a grid span without Grid.
@@ -97,8 +104,8 @@ Component CalcKeypad {
                 .direction(row).basis(0).grow(1)
             on Tap -> dispatch(Eq)
         }
-        .direction(row).gap(3).basis(0).grow(1)
+        .direction(row).gap(12).basis(0).grow(1)
     }
-    .gap(3)
+    .gap(12)
     .grow(1)
 }

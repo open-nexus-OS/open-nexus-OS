@@ -89,10 +89,17 @@ mod motion_math;
 // instead, where host tests can actually reach it.
 #[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
 mod hover_wash;
+// A control's hover and press layers (RFC-0116): the theme's colours on the wash patches and
+// their fades. Same one-cfg shape: the pointer and the pulse drive it from `probe/`.
+#[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
+mod interaction_layer;
+// What a press does to a control (its dip, its curves, its layers). Same one-cfg shape.
 #[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
 mod layout_diff;
 #[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
 mod modal_edge;
+#[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
+mod press_kind;
 // The surface's buffer, the pure part (RFC-0114): a slot's rows, the copy-forward, the clean
 // spans. Same one-cfg shape as `band_math`: the mapping is in `probe/surface_mem.rs`.
 #[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]

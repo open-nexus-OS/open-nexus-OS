@@ -277,15 +277,13 @@ impl DisplayServerRuntime {
         }
     }
 
-    /// The active theme's baked color snapshot (TASK-0072 Phase 9).
-    pub(super) fn theme(&self) -> &'static crate::theme::ThemeTokens {
-        match self.theme_mode {
-            crate::theme::ThemeMode::Dark => &crate::assets::THEME_DARK,
-            crate::theme::ThemeMode::Light => &crate::assets::THEME_LIGHT,
-        }
+    /// The colour of `role` in the active theme, BGRA (TASK-0072 Phase 9; the typed tokens of
+    /// RFC-0116).
+    pub(super) fn theme_color(&self, role: nexus_theme_tokens::ColorToken) -> [u8; 4] {
+        self.theme_mode.bgra(role)
     }
 
-    /// Switch the active light/dark theme: swap the token snapshot, re-render
+    /// Switch the active light/dark theme: swap the theme mode, re-render
     /// every themed surface (invalidating glass blur caches), full-frame damage,
     /// and emit the honest marker. No-op when already in `mode`. Wired to
     /// settingsd's `ui.theme.mode` apply hook + the settings panel toggle
@@ -295,6 +293,8 @@ impl DisplayServerRuntime {
             return;
         }
         self.theme_mode = mode;
+        // TASK-0353 P8: the pointer follows the theme (the black set on light, the white on dark).
+        self.apply_cursor_theme();
         // Theme-matched wallpaper: swap the baked source (same decoded size,
         // LUTs stay valid); the full-frame damage below repaints the display
         // AND the retained plane from the new pixels.
@@ -331,10 +331,10 @@ impl DisplayServerRuntime {
                 crate::theme::ThemeMode::Light => b"windowd: wallpaper swapped light\n".as_slice(),
             });
         }
-        // The app-client window chrome follows the theme (re-rendered from
-        // `self.theme()`); app/shell CONTENT re-themes via the RFC-0083
-        // presentation snapshot (reemit, no remount) — pumped after the
-        // generation bump below.
+        // windowd's own themed pixels (the solid surface of a starting window)
+        // read `self.theme_color()` from the next fill on; app/shell CONTENT
+        // re-themes via the RFC-0083 presentation snapshot (reemit, no
+        // remount) — pumped after the generation bump below.
         for slot in self.apps.iter_mut() {
             slot.win.blur_valid = false;
         }

@@ -1,123 +1,106 @@
 [theme]
 name = "highcontrast"
-version = 1
+version = 2
 
-# High-contrast a11y theme. No design numeric contract exists for this variant
-# (intentional — see token-reconciliation.md): it overrides colors for maximum
-# contrast and zeroes blur on every glass material. Neutrals/brand tokens not
-# listed here resolve from base.
+# High contrast has no design contract; it maps every theme-varying role onto black and white
+# with strong edges, opaque surfaces and no blur, so nothing inherits a light value on black
+# (RFC-0116: every role resolves in every theme).
 [tokens]
+background = "#000000"
+label = "#ffffff"
+labelSecondary = "#e6e6e6"
+labelTertiary = "#b3b3b3"
+separator = "#ffffff"
+fill = "#ffffff33"
+fillHover = "#ffffff40"
+fillActive = "#ffffff66"
+glassPanel = "#000000f2"
+glassWindow = "#000000f2"
+glassCard = "#1a1a1a"
+glassEdge = "#ffffff"
+surfacePane = "#000000"
+surfaceOverlay = "#0a0a0a"
+scrim = "#000000b3"
+primary = "#ffffff"
+onPrimary = "#000000"
 accent = "#60a5fa"
-accentFg = "#000000"
-bg = "#000000"
-fg = "#ffffff"
-surface = "#1a1a1a"
-surfaceAlt = "#2a2a2a"
-border = "#ffffff"
-divider = "#cccccc"
-muted = "#cccccc"
-mutedFg = "#ffffff"
+accentGlow = "#60a5fa66"
+onAccent = "#000000"
 danger = "#ff4444"
-dangerFg = "#000000"
-destructive = "#ff4444"
-destructiveFg = "#000000"
-warning = "#ffaa00"
-warningFg = "#000000"
 success = "#44ff44"
-successFg = "#000000"
-info = "#60a5fa"
-infoFg = "#000000"
-focusRing = "#ffffff"
-notifDot = "#ff4444"
-# a11y: the slider's groove/cap pair goes fully opaque — a 12%-black track is
-# invisible to the eyes this theme exists for.
-sliderTrack = "#000000"
-sliderFill = "#ffffff"
-sliderIcon = "#000000"
-glassTextPrimary = "#ffffff"
-glassTextSecondary = "#cccccc"
-glassTextStrong = "#ffffff"
+warning = "#ffaa00"
+wallpaperTint = "#000000b3"
+labelShadow = "#000000"
 
-[material.surface]
-type = "opaque"
+[shadow.shadow1]
+x = 0
+y = 1
+blur = 3
+spread = 0
+color = "#00000066"
+inset = false
 
-# a11y: blur=0 on every level; solid high-contrast tint + full-white edge/border.
-[material.glassPanel]
-type = "glass"
+[shadow.shadow2]
+x = 0
+y = 4
+blur = 12
+spread = 0
+color = "#00000066"
+inset = false
+
+[shadow.shadow3]
+x = 0
+y = 10
+blur = 30
+spread = 0
+color = "#00000073"
+inset = false
+
+[shadow.shadow4]
+x = 0
+y = 25
+blur = 50
+spread = 0
+color = "#00000099"
+inset = false
+
+[shadow.shadowInset]
+x = 0
+y = 1
+blur = 2
+spread = 0
+color = "#00000059"
+inset = true
+
+[shadow.edgeHighlight]
+x = 0
+y = 1
+blur = 0
+spread = 0
+color = "#ffffff4d"
+inset = true
+
+# No blur in high contrast: every backdrop is flat.
+[material.ultraThin]
+type = "backdrop"
 blurRadiusDp = 0
-downsampleFactor = 8
-tintColor = "#000000"
-tintAlpha = 0.85
-edgeHighlightColor = "#ffffff"
-edgeHighlightAlpha = 0.2
-borderColor = "#ffffff"
-borderAlpha = 1.0
+saturationPct = 100
+downsampleFactor = 2
 
-[material.glassCard]
-type = "glass"
+[material.thin]
+type = "backdrop"
 blurRadiusDp = 0
-downsampleFactor = 8
-tintColor = "#000000"
-tintAlpha = 0.85
-edgeHighlightColor = "#ffffff"
-edgeHighlightAlpha = 0.2
-borderColor = "#ffffff"
-borderAlpha = 1.0
+saturationPct = 100
+downsampleFactor = 2
 
-[material.glassSubtle]
-type = "glass"
+[material.regular]
+type = "backdrop"
 blurRadiusDp = 0
-downsampleFactor = 8
-tintColor = "#000000"
-tintAlpha = 0.85
-edgeHighlightColor = "#ffffff"
-edgeHighlightAlpha = 0.2
-borderColor = "#ffffff"
-borderAlpha = 1.0
+saturationPct = 100
+downsampleFactor = 2
 
-[material.glassWindow]
-type = "glass"
+[material.thick]
+type = "backdrop"
 blurRadiusDp = 0
-downsampleFactor = 8
-tintColor = "#000000"
-tintAlpha = 0.95
-edgeHighlightColor = "#ffffff"
-edgeHighlightAlpha = 0.2
-borderColor = "#ffffff"
-borderAlpha = 1.0
-
-[material.glassWindowPane]
-# a11y: the design pane is a 0.32–0.48 wash — unreadable here. High contrast
-# takes the same near-solid ink + full-alpha outline as every other level; the
-# pane keeps only its ROLE (a distinct region), not its transmission.
-type = "glass"
-blurRadiusDp = 0
-downsampleFactor = 8
-tintColor = "#000000"
-tintAlpha = 0.95
-edgeHighlightColor = "#ffffff"
-edgeHighlightAlpha = 0.2
-borderColor = "#ffffff"
-borderAlpha = 1.0
-
-[material.glassWindowBar]
-type = "glass"
-blurRadiusDp = 0
-downsampleFactor = 8
-tintColor = "#000000"
-tintAlpha = 1.0
-edgeHighlightColor = "#ffffff"
-edgeHighlightAlpha = 0.2
-borderColor = "#ffffff"
-borderAlpha = 1.0
-
-[material.glassOverlay]
-type = "glass"
-blurRadiusDp = 0
-downsampleFactor = 8
-tintColor = "#000000"
-tintAlpha = 0.95
-edgeHighlightColor = "#ffffff"
-edgeHighlightAlpha = 0.2
-borderColor = "#ffffff"
-borderAlpha = 1.0
+saturationPct = 100
+downsampleFactor = 2

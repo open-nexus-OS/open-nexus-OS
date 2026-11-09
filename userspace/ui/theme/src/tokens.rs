@@ -166,26 +166,43 @@ impl ScaleMap {
     }
 }
 
-/// Material definition for UI surfaces.
-#[derive(Debug, Clone)]
-pub enum Material {
-    Opaque,
-    Glass(GlassMaterial),
+/// A backdrop material (RFC-0116): the blur a surface on the wallpaper puts behind itself.
+/// Its colour is a role (`glassPanel`, `glassWindow`); only the one surface of a stack that
+/// sits on the wallpaper carries a backdrop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Backdrop {
+    /// Blur radius in layout px (0 = none: the high-contrast theme).
+    pub blur_radius_dp: u32,
+    /// Backdrop saturation in percent (100 = unchanged).
+    pub saturation_pct: u32,
+    /// The compositor's downsample factor for the blur.
+    pub downsample_factor: u32,
 }
 
-/// Glass (frosted) material parameters.
-#[derive(Debug, Clone)]
-pub struct GlassMaterial {
-    pub blur_radius_dp: u32,
-    pub downsample_factor: u32,
-    pub tint_color: ColorValue,
-    pub tint_alpha: f32,
-    /// Optional bottom stop of a two-stop tint gradient (`tintBottomColor`).
-    pub tint_bottom_color: Option<ColorValue>,
-    /// Alpha of the bottom tint stop (`tintBottomAlpha`).
-    pub tint_bottom_alpha: Option<f32>,
-    pub edge_highlight_color: ColorValue,
-    pub edge_highlight_alpha: f32,
-    pub border_color: Option<ColorValue>,
-    pub border_alpha: Option<f32>,
+/// One text style (RFC-0116): size, line height, weight, tracking and case together.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TextStyleSpec {
+    /// Font size in px.
+    pub size: u32,
+    /// Line height in px.
+    pub line: u32,
+    /// Weight on the 300–700 axis (a multiple of 100).
+    pub weight: u32,
+    /// Letter spacing in thousandths of an em (signed).
+    pub tracking_milli_em: i32,
+    /// The style sets its text in upper case (`overline`).
+    pub upper: bool,
+    /// The style's digits are tabular (one width — `clock`).
+    pub tabular: bool,
+}
+
+/// One shadow (RFC-0116): offset, blur, spread and colour; `inset` draws inside the box.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ShadowSpec {
+    pub x: i32,
+    pub y: i32,
+    pub blur: u32,
+    pub spread: i32,
+    pub color: ColorValue,
+    pub inset: bool,
 }

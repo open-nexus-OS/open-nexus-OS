@@ -1,82 +1,129 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// One notification card (design artifacts: panels `.ncard`): a 38px app icon and
-// a text column of app name · relative time · title · body.
+// One notification card (design artifacts: panels NCard): a 40 px app icon (a
+// baked size, radius 12, shadow2) and a text column — app name · relative time
+// · title · one-line body — on a `card` of radius 16 with shadow1. An optional
+// action row (`act1` / `act2` non-empty) sits under the text, inset by the icon
+// and the gap (4 + a 40 px spacer + 8 = the design's 52 px): two secondary buttons that both dismiss the card
+// (`Dismiss(kind)`).
 //
 // `badge` non-empty pins a counter to the icon's top-right through a contained
-// `.overlay()` — the layer fills the 38px icon box and ordinary flex (a row
-// with a leading `Spacer`, then a trailing `Spacer` below it) puts the badge
-// in its corner. That is the only anchoring this DSL has; the design's 6px
-// overhang past the icon is not reachable, so the badge sits just inside.
+// `.overlay()`: the layer fills the icon box and ordinary flex puts the badge in
+// its corner. The design's 4 px overhang past the icon is not reachable (no
+// offset / negative margin), so the badge sits just inside.
 //
-// The body is one line with an ellipsis in the design. There is no ellipsis
-// in this platform (`.truncate` is a declared no-op), so a long body wraps.
-// Kept as a known deviation rather than hidden by shortening the demo text.
+// The body is one line; a longer one is cut with an ellipsis. The card itself
+// is not interactive (no hover layer) — only its buttons are.
 //
-// The card carries the design's own `0 2px 10px` shadow. That is what makes
-// the stacked mail card read as a STACK: the front card casts onto the one
-// behind it. It was not safe to add before — an outer shadow used to be
-// painted under its own element, so a translucent card darkened itself.
-//
-// Times are RELATIVE words, never clock times — the design is explicit, and a
-// wall-clock stamp on a card the shell cannot refresh would age visibly.
+// Times are RELATIVE words, never clock times: a wall-clock stamp on a card the
+// shell cannot refresh would age visibly.
+
+Component NotifAction {
+    props: {
+        text: Str,
+    }
+    Stack {
+        Text($props.text).textStyle(footnote).fontWeight(medium).fg(label)
+    }
+    .grow(1)
+    .height(30)
+    .align(center)
+    .justify(center)
+    .rounded(full)
+    .bg(fill)
+    .border(hairline)
+    .borderColor(separator)
+}
 
 Component NotifCard {
     props: {
+        kind: Str,
         appId: Str,
         app: Str,
         time: Str,
         title: Str,
         body: Str,
         badge: Str,
+        act1: Str,
+        act2: Str,
     }
     Stack {
-        if $props.badge != "" {
-            Stack {
-                Image { source: $props.appId, size: 38 }
-                Stack {
-                    Stack {
-                        Spacer
-                        CountBadge { count: $props.badge }
-                    }
-                    .direction(row)
-                    Spacer
-                }
-                .overlay()
-            }
-            .width(38)
-            .height(38)
-            .shrink(0)
-        } else {
-            Stack {
-                Image { source: $props.appId, size: 38 }
-            }
-            .width(38)
-            .height(38)
-            .shrink(0)
-        }
         Stack {
+            if $props.badge != "" {
+                Stack {
+                    Image { source: $props.appId, size: 40 }
+                    Stack {
+                        Stack {
+                            Spacer
+                            CountBadge { count: $props.badge }
+                        }
+                        .direction(row)
+                        Spacer
+                    }
+                    .overlay()
+                }
+                .width(40)
+                .height(40)
+                .shrink(0)
+            } else {
+                Stack {
+                    Image { source: $props.appId, size: 40 }
+                }
+                .width(40)
+                .height(40)
+                .shrink(0)
+            }
             Stack {
-                Text($props.app).textSize(xs).fontWeight(semibold).leading(tight).fg(onGlass)
-                Spacer
-                Text($props.time).textSize(xs).leading(tight).fg(onGlassMuted)
+                Stack {
+                    Text($props.app).textStyle(caption).fontWeight(semibold).fg(label)
+                    Spacer
+                    Text($props.time).textStyle(caption2).fontWeight(normal).fg(labelSecondary)
+                }
+                .direction(row)
+                .align(center)
+                .gap(8)
+                .paddingBottom(2)
+                Text($props.title).textStyle(footnote).fontWeight(semibold).fg(label)
+                Text($props.body).textStyle(caption).fontWeight(normal).fg(labelSecondary)
+            }
+            .gap(0)
+            .grow(1)
+            .minWidth(0)
+            .direction(column)
+        }
+        .direction(row)
+        .align(start)
+        .gap(12)
+        if $props.act1 != "" {
+            Stack {
+                Stack { }
+                    .width(40)
+                    .shrink(0)
+                Stack {
+                    NotifAction { text: $props.act1 }
+                }
+                .direction(row)
+                .grow(1)
+                on Tap -> dispatch(Dismiss($props.kind))
+                Stack {
+                    NotifAction { text: $props.act2 }
+                }
+                .direction(row)
+                .grow(1)
+                on Tap -> dispatch(Dismiss($props.kind))
             }
             .direction(row)
-            .align(center)
-            Text($props.title).textSize(sm).fontWeight(semibold).leading(tight).fg(onGlass)
-            Text($props.body).textSize(xs).leading(tight).fg(onGlassMuted)
+            .gap(8)
+            .paddingTop(8)
+            .paddingLeading(4)
+        } else {
+            Stack { }
         }
-        .gap(0)
-        .grow(1)
-        .minWidth(0)
-        .direction(column)
     }
-    .direction(row)
-    .align(start)
-    .gap(3)
-    .padding(3)
-    .rounded(18)
+    .gap(0)
+    .padding(12)
+    .rounded(16)
     .material(card)
-    .shadow(sm)
+    .shadow(shadow1)
 }

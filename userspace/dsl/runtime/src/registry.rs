@@ -7,29 +7,35 @@
 //! widget kind lives here, so promoting a kind to a richer kit component (or
 //! adding one) never touches the walker.
 
+mod controls;
+mod pane;
 mod tokens;
 mod widgets;
 
+pub(crate) use pane::PaneTokens;
+
 pub use tokens::{
-    border_width, color_token, font_weight, leading, radius, shadow_level, spacing, text_align,
-    text_shadow, type_size, TextShadowStep,
+    border_width, color_token, figures, font_weight, material, radius, shadow, spacing,
+    spacing_token, text_align, text_style, tint_alpha, ShadowName,
 };
 
 use crate::store::Value;
 use alloc::string::String;
 use nexus_layout_types::{
-    Align, CornerRadius, Direction, EdgeInsets, FlexItem, FxPx, GlassLevel, Justify, LayoutNode,
-    Overflow, Stack, SurfaceMaterial, TextContent, TextNode, TextStyle, VisualStyle,
+    Align, CornerRadius, Direction, EdgeInsets, FlexItem, FxPx, Justify, LayoutNode, Material,
+    Overflow, Rgba8, Stack, TextContent, TextNode, VisualStyle,
 };
-use nexus_theme_tokens::{ColorToken, MaterialToken, Tokens, TypographyToken};
+use nexus_theme_tokens::{ColorToken, ShadowToken, TextStyleToken, Tokens};
 
 /// Layout/paint configuration accumulated from a node's modifiers.
 #[derive(Clone)]
 pub struct Mods {
     /// `.bgGradient(top, bottom)` — vertical linear fill (wins over `bg`).
     pub bg_gradient: Option<([u8; 4], [u8; 4])>,
-    /// `.shadow(sm|md|lg|xl|xxl)` — design elevation (BoxShadow scale).
-    pub shadow: Option<nexus_layout_types::ShadowLevel>,
+    /// `.shadow(a, b?)` — an elevation (`shadow1`…`shadow4`), the recessed well (`shadowInset`),
+    /// the lit top edge (`edgeHighlight`) and/or the label halo (`halo`), resolved against the
+    /// theme (RFC-0116).
+    pub shadows: [Option<ShadowName>; 2],
     pub padding: EdgeInsets,
     pub gap: FxPx,
     /// Fixed box sizes in raw px (`.width(320)`); `full` is a no-op today
@@ -53,32 +59,39 @@ pub struct Mods {
     pub justify: Option<Justify>,
     pub bg: Option<ColorToken>,
     pub fg: Option<ColorToken>,
+    /// `.tint(role, level?)` — the role at a wash strength (alpha), as the background.
+    pub tint: Option<(ColorToken, u8)>,
     pub rounded: Option<FxPx>,
-    pub text_size: Option<TypographyToken>,
-    /// `.fontWeight(light|regular|medium|semibold|bold)` — resolved against
-    /// the baked ladder at paint time (RFC-0082).
+    /// `.corners(tl, tr, br, bl)` — per-corner radii (wins over `rounded`).
+    pub corners: Option<CornerRadius>,
+    /// `.textStyle(<style>)` — size, line height, weight and tracking together (RFC-0116);
+    /// `None` = `body`.
+    pub text_style: Option<TextStyleToken>,
+    /// `.fontWeight(light|normal|medium|semibold|bold)` — the one override of the style's weight.
     pub font_weight: Option<nexus_layout_types::FontWeight>,
-    /// `.leading(flat|tight|snug|normal|relaxed)` — line height as a
-    /// percentage of the font size; `None` = the face's own line height.
-    pub leading: Option<nexus_theme_tokens::LeadingToken>,
+    /// `.figures(tabular|proportional)` — overrides the style's figure width (`Some(true)` =
+    /// tabular digits).
+    pub figures: Option<bool>,
     /// `.textAlign(left|center|right)`.
     pub text_align: Option<nexus_layout_types::TextAlign>,
-    /// `.textShadow(none|soft|strong)` — legibility for text sitting on a
-    /// wallpaper (RFC-0082). NOT a blurred shadow; see [`TextShadowStep`].
-    pub text_shadow: Option<TextShadowStep>,
-    /// `.border(<length token>)` — hairline width; pairs with `border_color`.
+    /// `.truncate(n)`: the text keeps at most `n` lines (the painter cuts the last with an
+    /// ellipsis); `None` = it wraps freely.
+    pub max_lines: Option<u32>,
+    /// `.border(hairline|ring)` — width; pairs with `border_color`.
     pub border_width: Option<FxPx>,
     /// `.borderColor(<color token>)`.
     pub border_color: Option<ColorToken>,
-    /// `.hitSlop(n)` — outward growth of the input rect only (spacing scale,
-    /// 1 step = 4px). Layout and pixels are untouched; see
-    /// [`nexus_layout_types::FlexItem::hit_slop`].
+    /// `.borderTint(role)` — a border in the role at the `border` wash strength (30 %).
+    pub border_tint: Option<ColorToken>,
+    /// `.hitSlop(px)` — outward growth of the input rect only. Layout and pixels are untouched;
+    /// see [`nexus_layout_types::FlexItem::hit_slop`].
     pub hit_slop: nexus_layout_types::FxPx,
     pub opacity: Option<u8>,
     pub disabled: bool,
-    /// Compositing material (`.material(panel|card|subtle|window|opaque)`) — a
-    /// glass node becomes a backdrop-blurred layer at the compositor.
-    pub material: Option<SurfaceMaterial>,
+    /// Compositing material (`.material(panel|window|dock|thin|ultraThin|card|pane|overlay)`,
+    /// RFC-0116) — a blur material becomes a backdrop-blurred region at the compositor, an
+    /// opaque one an occluder; the recipe (fill, edge, shadow) paints here.
+    pub material: Option<Material>,
     /// `.scroll(vertical|horizontal|paged)`: this container is a scroll layer (RFC-0109) — its
     /// content is drawn once into a band and the compositor moves it by the offset the host's
     /// physics commits (never a re-layout, never a re-raster per step). Several per page.
@@ -128,7 +141,7 @@ impl Default for Mods {
     fn default() -> Self {
         Self {
             bg_gradient: None,
-            shadow: None,
+            shadows: [None, None],
             padding: EdgeInsets::zero(),
             gap: FxPx::ZERO,
             hit_slop: FxPx::ZERO,
@@ -148,14 +161,17 @@ impl Default for Mods {
             justify: None,
             bg: None,
             fg: None,
+            tint: None,
             rounded: None,
-            text_size: None,
+            corners: None,
+            text_style: None,
             font_weight: None,
-            leading: None,
+            figures: None,
             text_align: None,
-            text_shadow: None,
+            max_lines: None,
             border_width: None,
             border_color: None,
+            border_tint: None,
             opacity: None,
             disabled: false,
             material: None,
@@ -170,20 +186,10 @@ impl Default for Mods {
     }
 }
 
-/// Maps a `.material(<token>)` name to its [`SurfaceMaterial`]. Unknown tokens
-/// return `None` (the checker rejects them; here they leave the default opaque).
-pub fn material_token(name: &str) -> Option<SurfaceMaterial> {
-    Some(match name {
-        "opaque" => SurfaceMaterial::Opaque,
-        "panel" => SurfaceMaterial::Glass(GlassLevel::Panel),
-        "card" => SurfaceMaterial::Glass(GlassLevel::Card),
-        "subtle" => SurfaceMaterial::Glass(GlassLevel::Subtle),
-        "window" => SurfaceMaterial::Glass(GlassLevel::Window),
-        "windowPane" => SurfaceMaterial::Glass(GlassLevel::WindowPane),
-        "windowBar" => SurfaceMaterial::Glass(GlassLevel::WindowBar),
-        "overlay" => SurfaceMaterial::Glass(GlassLevel::Overlay),
-        _ => return None,
-    })
+/// `color` at `alpha` (a role's own alpha multiplied — `accentGlow` is already translucent).
+fn with_alpha(color: Rgba8, alpha: u8) -> Rgba8 {
+    let a = (u16::from(color.a) * u16::from(alpha) + 127) / 255;
+    Rgba8 { a: a as u8, ..color }
 }
 
 impl Mods {
@@ -193,86 +199,84 @@ impl Mods {
         if let Some(bg) = self.bg {
             visual.background = Some(tokens.color(bg));
         }
+        if let Some((role, alpha)) = self.tint {
+            visual.background = Some(with_alpha(tokens.color(role), alpha));
+        }
         if let Some((top, bottom)) = self.bg_gradient {
             visual.background_gradient = Some((
-                nexus_layout_types::Rgba8 { r: top[0], g: top[1], b: top[2], a: top[3] },
-                nexus_layout_types::Rgba8 {
-                    r: bottom[0],
-                    g: bottom[1],
-                    b: bottom[2],
-                    a: bottom[3],
-                },
+                Rgba8 { r: top[0], g: top[1], b: top[2], a: top[3] },
+                Rgba8 { r: bottom[0], g: bottom[1], b: bottom[2], a: bottom[3] },
             ));
         }
         if let Some(rounded) = self.rounded {
             visual.corner_radius = CornerRadius::uniform(rounded);
         }
-        if let Some(level) = self.shadow {
-            visual.shadow = Some(level.to_box_shadow());
+        if let Some(corners) = self.corners {
+            visual.corner_radius = corners;
+        }
+        for shadow in self.shadows.into_iter().flatten() {
+            let token = match shadow {
+                // The halo: one extra glyph pass of the text, 1 px down, in `labelShadow`.
+                ShadowName::Halo => {
+                    visual.text_shadow = Some(nexus_layout_types::TextShadow {
+                        offset_x: FxPx::ZERO,
+                        offset_y: FxPx::new(1),
+                        blur_radius: FxPx::ZERO,
+                        color: tokens.color(ColorToken::LabelShadow),
+                    });
+                    continue;
+                }
+                ShadowName::Token(token) => token,
+            };
+            let spec = tokens.shadow(token);
+            match token {
+                // Both draw inside the box as the one-pixel top line the painter has: the lit
+                // edge in its light colour, the well (`shadowInset`) in its dark one.
+                ShadowToken::EdgeHighlight | ShadowToken::Inset => {
+                    visual.inset_highlight = Some(spec.color);
+                }
+                _ => visual.shadow = Some(nexus_style::box_shadow(spec)),
+            }
         }
         if let Some(opacity) = self.opacity {
             visual.opacity = Some(nexus_layout_types::Fraction(u32::from(opacity)));
         }
         if self.disabled {
-            // The InteractionState::Disabled wash (140/255).
-            visual.opacity = Some(nexus_layout_types::Fraction(140));
+            // A disabled container dims like an action (the design's default family, 0.50);
+            // the kit controls dim by their own family (`nexus_style::Dim`).
+            visual.opacity = Some(nexus_style::Dim::default().opacity());
         }
         if let Some(material) = self.material {
-            visual.material = material;
-            // Glass without an explicit `.bg()` takes the design-system
-            // recipe: tint, capped shine wash, `inset 0 1px 0` top-shine and
-            // the 1px hairline. `Style::glass` is the ONE definition — kit
-            // widgets call the same builder, so a page and a hand-written
-            // widget cannot render the same level differently (RFC-0082).
-            if visual.background.is_none() {
-                if let nexus_layout_types::SurfaceMaterial::Glass(level) = material {
-                    use nexus_layout_types::GlassLevel;
-                    let token = match level {
-                        GlassLevel::Panel => MaterialToken::Panel,
-                        GlassLevel::Card => MaterialToken::Card,
-                        GlassLevel::Subtle => MaterialToken::Subtle,
-                        GlassLevel::Window => MaterialToken::Window,
-                        GlassLevel::WindowPane => MaterialToken::WindowPane,
-                        GlassLevel::WindowBar => MaterialToken::WindowBar,
-                        GlassLevel::Overlay => MaterialToken::Overlay,
-                    };
-                    let glass = nexus_style::Style::new().glass(token, tokens).visual();
-                    visual.background = glass.background;
-                    visual.inset_highlight = glass.inset_highlight;
-                    if visual.background_gradient.is_none() {
-                        visual.background_gradient = glass.background_gradient;
-                    }
-                    // The content pane is OPAQUE (the materials rules, TASK-0337): its tint
-                    // at full alpha — nothing shows through the content layer, so the
-                    // compositor blurs nothing under it and draws nothing below it.
-                    if level == GlassLevel::WindowPane {
-                        if let Some(bg) = visual.background.as_mut() {
-                            bg.a = 255;
-                        }
-                        if let Some((top, bottom)) = visual.background_gradient.as_mut() {
-                            top.a = 255;
-                            bottom.a = 255;
-                        }
-                    }
-                    if visual.border == nexus_layout_types::EdgeBorder::none() {
-                        visual.border = glass.border;
-                    }
-                }
+            // The material's recipe (RFC-0116: fill, glass edge, shadow, edge highlight) is the
+            // ONE definition — `Style::material`, which every kit widget calls too, so a page
+            // and a hand-written widget cannot render the same material differently. What the
+            // page set explicitly wins; the compositor reads `visual.material` for the blur.
+            let recipe = nexus_style::Style::new().material(material, tokens).visual();
+            visual.material = Some(material);
+            if visual.background.is_none() && visual.background_gradient.is_none() {
+                visual.background = recipe.background;
+            }
+            if visual.border == nexus_layout_types::EdgeBorder::none() {
+                visual.border = recipe.border;
+            }
+            if visual.shadow.is_none() {
+                visual.shadow = recipe.shadow;
+            }
+            if visual.inset_highlight.is_none() {
+                visual.inset_highlight = recipe.inset_highlight;
             }
         }
-        // An explicit `.border()/.borderColor()` overrides the material's
-        // hairline (both default to the theme's value when only one is given).
-        if self.border_width.is_some() || self.border_color.is_some() {
-            let width = self
-                .border_width
-                .unwrap_or_else(|| tokens.length(nexus_theme_tokens::LengthToken::BorderThin));
-            let color = self
-                .border_color
-                .map_or_else(|| tokens.color(ColorToken::Border), |token| tokens.color(token));
+        // An explicit `.border()/.borderColor()/.borderTint()` overrides the material's edge
+        // (the width defaults to the hairline, the colour to `separator`).
+        if self.border_width.is_some() || self.border_color.is_some() || self.border_tint.is_some()
+        {
+            let width = self.border_width.unwrap_or(nexus_theme_tokens::HAIRLINE);
+            let color = match (self.border_tint, self.border_color) {
+                (Some(role), _) => with_alpha(tokens.color(role), tint_alpha("border")),
+                (None, Some(role)) => tokens.color(role),
+                (None, None) => tokens.color(ColorToken::Separator),
+            };
             visual.border = nexus_layout_types::EdgeBorder::all(width, color);
-        }
-        if let Some(shadow) = self.text_shadow {
-            visual.text_shadow = Some(shadow.resolve(tokens));
         }
         visual
     }
@@ -385,33 +389,26 @@ fn plain_grid(
 }
 
 fn text_node(value: String, mods: &Mods, tokens: &dyn Tokens) -> LayoutNode {
-    let mut style = TextStyle {
-        color: tokens.color(mods.fg.unwrap_or(ColorToken::OnSurface)),
-        ..TextStyle::default()
-    };
-    if let Some(size) = mods.text_size {
-        style.font_size = tokens.type_size(size);
-    }
-    if let Some(weight) = mods.font_weight {
-        style.font_weight = weight;
-    }
+    // RFC-0116: a text node is one of the thirteen styles (`body` unless it says otherwise) — size,
+    // line box, weight and tracking together; `.fontWeight` is the one override and `overline`
+    // sets its text in upper case.
+    let style_token = mods.text_style.unwrap_or(TextStyleToken::Body);
+    let color = tokens.color(mods.fg.unwrap_or(ColorToken::Label));
+    let mut style = style_token.text_style(color, mods.font_weight);
     if let Some(align) = mods.text_align {
         style.text_align = align;
     }
-    // `.leading()` is the only EXPLICIT line-height signal; without it the
-    // struct default stays and the text measurer uses the baked face's own
-    // line height (RFC-0082 — `BakedTextMeasure::line_height`).
-    if let Some(step) = mods.leading {
-        style.line_height =
-            nexus_layout_types::LineHeight::Relative(FxPx::new(tokens.leading_pct(step) as i32));
+    if let Some(tabular) = mods.figures {
+        style.tabular = tabular;
     }
+    let value = if style_token.spec().upper { value.to_uppercase() } else { value };
     LayoutNode::Text(
         TextNode {
             id: None,
             content: TextContent(value),
             style,
             item: FlexItem::default(),
-            max_lines: None,
+            max_lines: mods.max_lines,
             min_width: None,
             max_width: None,
         },

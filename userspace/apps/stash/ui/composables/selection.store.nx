@@ -1,0 +1,49 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// SELECTION domain: the one selected entry. It drives the properties pane
+// and the action bar's item set (a selection swaps create/sort for the file
+// operations). Opening a folder is NOT here — a selected folder's next tap
+// dispatches `OpenDir` (navigation), chosen at the row by its `opens` prop.
+//
+// Navigation, deletes and moves clear the selection through an effect that
+// dispatches `ClearSelection`.
+
+Store SelectionStore {
+    selection: Str = "",
+    selName: Str = "",
+    selKind: Str = "",
+    selSize: Str = "",
+    selDate: Str = "",
+}
+
+Event SelectionEvent {
+    Pick(Str, Str, Str, Str, Str),
+    ClearSelection,
+}
+
+reduce SelectionEvent {
+    // Files toggle selection.
+    Pick(id, name, kind, size, date) => {
+        if state.selection == id {
+            state.selection = "";
+            state.selName = "";
+            state.selKind = "";
+            state.selSize = "";
+            state.selDate = "";
+        } else {
+            state.selection = id;
+            state.selName = name;
+            state.selKind = kind;
+            state.selSize = size;
+            state.selDate = date;
+        }
+    },
+    ClearSelection => {
+        state.selection = "";
+        state.selName = "";
+        state.selKind = "";
+        state.selSize = "";
+        state.selDate = "";
+    },
+}

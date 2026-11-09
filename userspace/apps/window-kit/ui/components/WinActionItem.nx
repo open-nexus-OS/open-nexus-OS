@@ -1,17 +1,18 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// One floating-action-bar button that dispatches the kit's `WinAct(id)` —
-// the window-standard actions (more, share, …). The LOOK lives in
-// `WinActionFace`, so an app whose button dispatches its own event
+// One action-bar item that dispatches the kit's `WinAct(id)` — the
+// window-standard actions (more, share, …). The LOOK lives in
+// `WinActionFace`, so an app whose item dispatches its own event
 // (`NewFolder`, `CopySel`, …) wraps that face directly instead of
-// re-implementing the button:
+// re-implementing the item:
 //
-//     Stack { WinActionFace { label: …, icon: …, kind: "" } }
+//     Stack { WinActionFace { label: …, icon: …, kind: "", active: false } }
 //     on Tap -> dispatch(NewFolder)
 //
 // The bar's visible item set is the app's SELECTION REACTIVITY — compose
-// different items when `$state.selection` changes.
+// different items when `$state.selection` changes; `active` marks the item the
+// indicator rests on (the last pressed one).
 
 Component WinActionItem {
     props: {
@@ -19,9 +20,10 @@ Component WinActionItem {
         label: Str,
         icon: Str,
         kind: Str,
+        active: Bool,
     }
     Stack {
-        WinActionFace { label: $props.label, icon: $props.icon, kind: $props.kind }
+        WinActionFace { label: $props.label, icon: $props.icon, kind: $props.kind, active: $props.active }
     }
     on Tap -> dispatch(WinAct($props.id))
 }

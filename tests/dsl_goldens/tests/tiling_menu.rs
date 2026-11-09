@@ -15,6 +15,7 @@ const MENU: &str = include_str!("../../../userspace/apps/window-kit/ui/component
 const GLYPH: &str =
     include_str!("../../../userspace/apps/window-kit/ui/components/WinTileGlyph.nx");
 const ITEM: &str = include_str!("../../../userspace/apps/window-kit/ui/components/WinMenuItem.nx");
+const FACE: &str = include_str!("../../../userspace/apps/window-kit/ui/components/WinMenuFace.nx");
 
 const APP: &str = r#"
 Store S {
@@ -42,7 +43,7 @@ Page P {
             close: "Close",
         }
     }
-    .padding(4)
+    .padding(16)
 }
 "#;
 
@@ -55,7 +56,7 @@ fn mount<'p>(nxir: &'p [u8], tokens: &dyn Tokens) -> View<'p> {
 
 #[test]
 fn window_menu_with_tile_glyphs_matches_its_goldens_light_and_dark() {
-    let nxir = compile(&format!("{GLYPH}\n{ITEM}\n{MENU}\n{APP}"));
+    let nxir = compile(&format!("{GLYPH}\n{ITEM}\n{FACE}\n{MENU}\n{APP}"));
     for (theme, tokens) in [("light", &LightTokens as &dyn Tokens), ("dark", &DarkTokens)] {
         let view = mount(&nxir, tokens);
         ui_v10_goldens::check_golden(&format!("kit_window_menu_{theme}"), view.scene()).unwrap();

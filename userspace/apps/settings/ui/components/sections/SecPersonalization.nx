@@ -109,8 +109,23 @@ Component SecPersonalization {
         }
         SetGroup { label: @t("per.gEffects"), note: "" } {
             rows {
-                SetRow { title: @t("per.reduceTransparency"), subtitle: "", icon: "eye", showChevron: false } {
-                    trailing { Toggle { checked: $state.tgReduceTransparency, label: @t("per.reduceTransparency") } }
+                // The one control of `ui.material` (TASK-0353, reduce transparency): windowd and
+                // every app-host switch to the solid theme live — grey panels and windows,
+                // lighter cards, nothing blurred. The row dispatches; the toggle shows the state.
+                if $state.apMaterial == "solid" {
+                    Stack {
+                        SetRow { title: @t("per.reduceTransparency"), subtitle: "", icon: "eye", showChevron: false } {
+                            trailing { Toggle { checked: true, label: @t("per.reduceTransparency") } }
+                        }
+                    }
+                    on Tap -> dispatch(SetMaterial("glass"))
+                } else {
+                    Stack {
+                        SetRow { title: @t("per.reduceTransparency"), subtitle: "", icon: "eye", showChevron: false } {
+                            trailing { Toggle { checked: false, label: @t("per.reduceTransparency") } }
+                        }
+                    }
+                    on Tap -> dispatch(SetMaterial("solid"))
                 }
                 SetHairline { }
                 SetRow { title: @t("per.reduceMotion"), subtitle: "", icon: "eye", showChevron: false } {
@@ -119,5 +134,5 @@ Component SecPersonalization {
             }
         }
     }
-    .gap(3)
+    .gap(24)
 }

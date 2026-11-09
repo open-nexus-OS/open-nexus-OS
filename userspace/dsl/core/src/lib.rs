@@ -129,7 +129,7 @@ Component UserRow {
         onOpen: EventRef,
     }
     Stack {
-        Text($props.user.name).textSize(base)
+        Text($props.user.name).textStyle(body)
     }
     .direction(row)
     .gap(3)
@@ -189,7 +189,7 @@ Routes {
             r#"
 Component UserRow {
     props: { user: User, onOpen: EventRef, }
-    Stack { Text($props.user.name).textSize(base) }
+    Stack { Text($props.user.name).textStyle(body) }
     .direction(row)
     on Tap -> emit($props.onOpen)
 }

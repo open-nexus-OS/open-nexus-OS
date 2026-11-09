@@ -9,6 +9,7 @@
 //! `has_errors(&diags)` (warnings pass unless `--deny-warn`).
 
 mod lints;
+mod materials;
 mod modifiers;
 mod names;
 mod queries;
@@ -54,6 +55,7 @@ pub fn check_file(file: &File) -> (Model<'_>, Vec<Diagnostic>) {
     names::check_references(file, &model, &mut diags);
     slots::check(file, &model, &mut diags);
     lints::run(file, &model, &mut diags);
+    materials::run(&model, &mut diags);
     (model, diags)
 }
 

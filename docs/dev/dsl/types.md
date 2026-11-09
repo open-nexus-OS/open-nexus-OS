@@ -1,74 +1,114 @@
 <!-- Copyright 2026 Open Nexus OS Contributors -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# Type System
+# Types and Values
 
-The DSL is statically typed, deterministic, and deliberately small. Every value that can
-appear in state, props, events, or expressions has one of the types below. There are no
-user-defined generics (see `patterns.md` for the component/props patterns that replace
-them); the built-in parametric types (`List`, `Option`, `Result`) are the only ones.
+The language is deliberately small and deterministic. Declarations carry type annotations;
+the values the runtime holds are a closed set; there are no floats and no user-defined
+generics ([patterns.md](patterns.md) shows the component/props patterns that replace
+them).
 
-## Scalar types
+## Annotations
 
-| Type   | Representation | Notes |
-|--------|----------------|-------|
-| `Bool` | true/false | |
-| `Int`  | signed 64-bit integer | wrapping is an error (checked); use explicit saturating ops if needed |
-| `Fx`   | Q32.32 fixed-point | the **only** fractional type — no floats anywhere in observable semantics; matches the layout engine's fixed-point pixels |
-| `Str`  | UTF-8, length-capped | cap from the program budget or a per-field cap; concatenation is bounded |
+Annotations appear on store fields, component props, component `state:` fields, event case
+payloads, route params and query params.
 
-Float nondeterminism is excluded structurally: there is no `Float` type. Literals with a
-decimal point (`1.5`) are `Fx`.
+| Annotation | Values | Zero value | Notes |
+|---|---|---|---|
+| `Bool` | `true` / `false` | `false` | |
+| `Int` | signed 64-bit | `0` | arithmetic is checked: overflow and division by zero are runtime errors (`Overflow`, `DivByZero`), never wrapping |
+| `Fx` | Q32.32 fixed point | `0` | the **only** fractional type; a literal with a decimal point (`1.5`) is `Fx`; multiplication and division widen to 128 bits and report `Overflow` if the result does not fit |
+| `Str` | UTF-8 text | `""` | `+` concatenates |
+| `List<T>` | ordered list | empty | `+` concatenates lists; `len`, `take`, `skip`, `tail` read them ([ir.md](ir.md)) |
+| `Option<T>` | accepted as an annotation | no value | the surface language has no `Some`/`None` literal |
+| `EventRef` | a reference to an event case | — | a **prop** type: how a component raises an event ([patterns.md](patterns.md)) |
 
-## Composite types
+Any other type name is accepted and lowers to `opaque` — "not statically known" — so it is
+not checked. There is no `Float` type, so float nondeterminism cannot enter the semantics.
 
-| Type | Notes |
-|------|-------|
-| `Enum` | declared by `Event` declarations and standalone enums; matched exhaustively |
-| `Record` | nominal, flat-ish product type; fields are typed; construction is total (all fields) |
-| `List<T>` | ordered, **capacity-capped** (cap from budget or declaration); the workhorse collection |
-| `Option<T>` | present/absent; must be matched (no implicit unwrap) |
-| `Result<T, E>` | returned by every `svc.*` call; `E` is always a stable error-code enum; both arms must be handled (error otherwise) |
+```nx
+Store CartStore {
+    count: Int = 0,
+    scale: Fx = 1.5,
+    title: Str = "cart",
+    names: List<Str> = [],
+}
 
-## Id and token types
+Event CartEvent {
+    Add(Str),
+    Clear,
+}
 
-- **Typed ids**: route params and entity references are nominal id types
-  (e.g. `UserId`), not bare `Int`/`Str` — prevents cross-wiring.
-- **Design tokens**: modifier arguments are token types (`ColorToken`, `LengthToken`,
-  `TypographyToken`, `MotionToken`, …) generated from the theme SSOT
-  (`resources/themes/*.nxtheme.toml`). Raw values (hex colors, px numbers) are not
-  expressible in app code; raw values belong to theme authoring.
-- **Field handles**: query predicates take generated typed field handles
-  (e.g. `UserField::Role`), never strings (see `db-queries.md`).
+reduce CartEvent {
+    Add(name) => state.names = state.names + [name],
+    Clear => state.names = [],
+}
 
-## Where types live
+Page CartPage {
+    Stack {
+        Text($state.title)
+        Button { label: "Clear" }
+        on Tap -> dispatch(Clear)
+    }
+}
+```
 
-| Position | Allowed types |
-|----------|---------------|
-| `Store` fields | all data types; `@persist` fields must be serializable (all data types are) |
-| `Event` payloads | all data types |
-| `Component` props | all data types + `EventRef` (a typed reference to an event to emit) |
-| Route params | scalar + id types |
-| Modifier args | token types + `Int`/`Fx`/`Bool` where the catalog says so |
-| `device.*` | read-only environment record (see `profiles.md`) |
+## What the compiler checks, and what the runtime does
 
-## Budgets
+The compiler resolves names, arities and enum cases, requires every `reduce` and `match` to
+cover every case (`NX0304`), enforces reducer purity (`NX0405`) and the `Ok`/`Err` pairing
+of service calls (`NX0407`), and validates token arguments (below). It does **not** infer
+or compare expression types: `Int + Str` compiles and fails when evaluated. At runtime
+every value carries its kind (`Unit`, `Bool`, `Int`, `Fx`, `Str`, `List`, enum case,
+record) and an operation on the wrong kind stops that evaluation with `TypeMismatch`.
+Declare fields with the right annotation and keep expressions homogeneous.
 
-Budgets are part of the type system's contract and are carried in the IR:
+## Composite values
 
-- every `List<T>` has a capacity (default from the program budget, override per field);
-- every `Str` has a length cap;
-- expression trees have a node budget per reducer/effect;
-- exceeding a budget at build time is an error; at runtime (e.g. a service returning too
-  many rows) it is a deterministic, observable error value — never silent truncation.
+| Value | Where it comes from |
+|---|---|
+| Enum case | an `Event` declaration: `Event NavEvent { Go, Pick(Str) }` declares the cases and their payload types; a case is written bare inside `dispatch(Pick("a"))` and as `NavEvent::Pick("a")` in expression position (for instance an `EventRef` prop); `reduce` and `match` cover every case |
+| Record | the result of a service call (`row.name` reads a field); there is no record declaration or literal in the language |
+| Service result | every `svc.*` call yields a result that must be matched with both `Ok(v)` and `Err(e)` arms; `Err` carries a stable numeric error code, never a formatted string ([services.md](services.md)) |
 
-## Type inference
+## Where annotations are allowed
 
-Local and minimal: literals and `let` bindings infer from the right-hand side; state and
-prop fields, event payloads, and props are always explicitly annotated. There is no
-global inference — a declaration's type is readable at its site.
+| Position | Notes |
+|---|---|
+| `Store` fields | any annotation; a trailing `@persist` marks the field for the restore snapshot ([runtime.md](runtime.md)) |
+| `Event` case payloads | `Case(Int, Str)` |
+| `Component` `props:` | any annotation plus `EventRef` |
+| Component `state:` | per-instance fields with a default ([state.md](state.md)) |
+| Route params | `"/detail" -> DetailPage(id: Int)` ([navigation.md](navigation.md)) |
+| `Query` params | `Bool`, `Int`, `Fx`, `Str` only (`NX0306` otherwise); `limit` is 1–1000 ([db-queries.md](db-queries.md)) |
+| Modifier args | tokens, `Int`, `Fx`, `Bool` or expressions, as the catalog says ([modifiers.md](modifiers.md)) |
+| `device.*` | read-only environment values ([profiles.md](profiles.md)) |
 
-## Changelog
+## Design tokens
 
-- **v1 (2026-07-06)** — initial contract: scalars (`Bool/Int/Fx/Str`), composites
-  (`Enum/Record/List/Option/Result`), typed ids, token types, budgets-as-types.
+Modifier arguments name the one token set (RFC-0116): colour roles, text styles, radii,
+shadows, materials and motion tokens. They are closed vocabularies checked at compile time
+(`TOKEN_VOCABULARIES` in `userspace/dsl/core/src/registry/vocab.rs`) and resolved through the
+typed tokens (`ColorToken`, `TextStyleToken`, `RadiusToken`, `ShadowToken`, … in
+`nexus-theme-tokens`), whose values come from `resources/themes/*.nxtheme.toml`. A name
+outside the vocabulary is an error with a "did you mean" hint, and a retired name names its
+replacement. A colour role may also come from data as a role-name `Str`
+(`.bg($props.tint)`). A hex colour is not expressible in app code; only `.bgGradient`
+artwork, which is data, takes `"#rrggbb"` strings. Spacing is whole px on the grid
+`0 2 4 6 8 12 16 20 24 32 40 48` or a spacing name; sizes (`.width(320)`) and radii take raw
+px as well.
+
+## Bounds
+
+| Bound | Value | Where |
+|---|---|---|
+| Source file | 512 KiB | lexer, `NX0003` |
+| Identifier | 128 bytes | lexer, `NX0004` |
+| Nesting depth | 64 levels | parser, `NX0105` |
+| Literals | `Int` is `i64`; an out-of-range `Int` or `Fx` literal is `NX0005` | lexer |
+| View nodes / children per node | 4096 / 64 | loader ([ir.md](ir.md)) |
+| Query `limit` | 1–1000 | checker, `NX0410` |
+
+Every program also carries list, string, expression and effect-step caps in its IR budgets;
+the loader does not check them and the runtime does not truncate or reject a list or string
+for its length.

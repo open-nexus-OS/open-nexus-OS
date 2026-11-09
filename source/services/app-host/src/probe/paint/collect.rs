@@ -25,51 +25,35 @@ pub(in crate::probe) fn collect_texts(
     *index += 1;
     match node {
         N::Text(text, _) => {
-            let font = nexus_text_baked::measure_text::BakedTextMeasure::font(&text.style);
             let c = text.style.color;
-            out.push((
-                *index,
-                alloc::string::String::from(text.content.as_str()),
-                font,
-                [c.b, c.g, c.r, c.a],
-                text.style.font_weight,
-            ));
+            out.push(run_of(*index, text.content.as_str(), &text.style, [c.b, c.g, c.r, c.a]));
         }
         N::TextInput(input, _) => {
             // RFC-0075 Phase 8c: a TextField's typed content (already
             // bullet-masked for `secure`) — or its dimmed placeholder
             // while empty. This arm was MISSING: no TextField ever
             // painted its text (the store/insert side was always fine).
-            let font = nexus_text_baked::measure_text::BakedTextMeasure::font(&input.style);
             let c = input.style.color;
             if !input.content.as_str().is_empty() {
-                out.push((
+                out.push(run_of(
                     *index,
-                    alloc::string::String::from(input.content.as_str()),
-                    font,
+                    input.content.as_str(),
+                    &input.style,
                     [c.b, c.g, c.r, c.a],
-                    input.style.font_weight,
                 ));
             } else if let Some(placeholder) = &input.placeholder {
                 // Placeholder at ~55% of the content color (dimmed).
                 let dim = |v: u8| ((u16::from(v) * 140) / 255) as u8;
-                out.push((
+                out.push(run_of(
                     *index,
-                    alloc::string::String::from(placeholder.as_str()),
-                    font,
+                    placeholder.as_str(),
+                    &input.style,
                     [dim(c.b), dim(c.g), dim(c.r), c.a],
-                    input.style.font_weight,
                 ));
             } else {
                 // Empty field without placeholder: keep an (empty) run —
                 // the caret bar anchors to a paint entry.
-                out.push((
-                    *index,
-                    alloc::string::String::new(),
-                    font,
-                    [c.b, c.g, c.r, c.a],
-                    input.style.font_weight,
-                ));
+                out.push(run_of(*index, "", &input.style, [c.b, c.g, c.r, c.a]));
             }
         }
         N::Stack(_, _, children) => {
@@ -94,6 +78,27 @@ pub(in crate::probe) fn collect_texts(
     }
 }
 
+/// One run of `content` set in `style` (RFC-0116: the face, the tracking and the line box the
+/// layout measured it with — the painter must add the same).
+fn run_of(
+    node: usize,
+    content: &str,
+    style: &nexus_layout_types::TextStyle,
+    color: [u8; 4],
+) -> crate::layout_diff::TextRun {
+    use nexus_text_baked::measure_text::BakedTextMeasure;
+    crate::layout_diff::TextRun {
+        node,
+        content: alloc::string::String::from(content),
+        font: BakedTextMeasure::font(style),
+        color,
+        weight: style.font_weight,
+        tracking: BakedTextMeasure::tracking(style),
+        line: BakedTextMeasure::line_box(style) as i32,
+        align: style.text_align,
+    }
+}
+
 /// Whether the engine defers this child to the absolute pass (a Stack's
 /// `.overlay()` children get their node ids AFTER every in-flow sibling).
 pub(super) fn is_absolute(node: &nexus_layout_types::LayoutNode) -> bool {
@@ -107,16 +112,18 @@ pub(in crate::probe) fn caret_input<'a>(
     index: &mut usize,
     target: usize,
     inside: bool,
-) -> Option<(usize, &'a str, nexus_text_baked::FontSize, [u8; 4])> {
+) -> Option<(usize, &'a str, nexus_text_baked::FontSize, nexus_text_baked::Tracking, [u8; 4])> {
     use nexus_layout_types::LayoutNode as N;
     *index += 1;
     let here = *index;
     let inside = inside || here == target;
     match node {
         N::TextInput(input, _) if inside => {
-            let font = nexus_text_baked::measure_text::BakedTextMeasure::font(&input.style);
+            use nexus_text_baked::measure_text::BakedTextMeasure;
+            let (font, tracking) =
+                (BakedTextMeasure::font(&input.style), BakedTextMeasure::tracking(&input.style));
             let c = input.style.color;
-            Some((here, input.content.as_str(), font, [c.b, c.g, c.r, c.a]))
+            Some((here, input.content.as_str(), font, tracking, [c.b, c.g, c.r, c.a]))
         }
         N::Stack(_, _, children) => {
             // Same visit order as the engine and `collect_texts`: in-flow
@@ -199,17 +206,17 @@ pub(in crate::probe) fn dump_text_runs(
     boxes: &[nexus_layout::LayoutBox],
 ) {
     super::raw_marker(&alloc::format!("apphost: {} text runs", texts.len()));
-    for (idx, content, font, _, weight) in texts.iter().take(8) {
-        let b = boxes.iter().find(|b| b.node_id == *idx);
-        let painted = b.and_then(|b| b.text_px).map_or(*font, |px| {
+    for t in texts.iter().take(8) {
+        let b = boxes.iter().find(|b| b.node_id == t.node);
+        let painted = b.and_then(|b| b.text_px).map_or(t.font, |px| {
             nexus_text_baked::FontSize::nearest(
                 px.0,
-                nexus_text_baked::measure_text::BakedTextMeasure::weight(*weight),
+                nexus_text_baked::measure_text::BakedTextMeasure::weight(t.weight),
             )
         });
         super::raw_marker(&alloc::format!(
             "apphost: run '{}' face={:?} px={:?} box={:?}",
-            content,
+            t.content,
             painted,
             b.and_then(|b| b.text_px).map(|p| p.0),
             b.map(|b| (b.rect.x.0, b.rect.y.0, b.rect.width.0, b.rect.height.0)),

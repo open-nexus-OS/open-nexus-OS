@@ -1,12 +1,15 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// One dock app icon (design artifacts: launcher dock pill entry, `AppIcon sm`,
-// LAUNCHER-SPEC §2/§8): tile 48, radius 13, no label — per-app artwork
-// sprite, gradient tile, or the uniform glass tile. `running` renders the
-// 4×4 dot under the tile (§7: app runs in the background, tap brings it
-// forward); the marker slot keeps its height either way. Tap handlers
-// attach at the use site.
+// One touch-dock app icon (design artifacts: TaskbarDock, `AppIcon sm`): 48×48,
+// radius 12, shadow2, no label — the bundle's baked artwork, else the
+// manifest's gradient tile, else the plain card tile (fallbacks for apps
+// without artwork, same radius and shadow; the registry row carries no icon
+// variant, so a freestanding icon keeps the native shadow). With `marker` the
+// 4×4 running dot sits 2 below (`label` @ .70, transparent while the app has
+// no window — the slot keeps its height either way); the phone dock passes
+// `marker: false` and has no dot at all. The radius is the icon's, so the
+// host's hover wash takes its shape. Tap handlers attach at the use site.
 
 Component DockTile {
     props: {
@@ -16,10 +19,17 @@ Component DockTile {
         iconBottom: Str,
         iconArt: Str,
         running: Bool,
+        marker: Bool,
     }
     Stack {
         if $props.iconArt != "" {
-            Image { source: $props.iconArt, size: 48 }
+            Stack {
+                Image { source: $props.iconArt, size: 48 }
+            }
+            .width(48)
+            .height(48)
+            .rounded(md)
+            .shadow(shadow2)
         } else { if $props.iconTop != "" {
             Stack {
                 Icon { symbol: $props.icon, size: 24 }
@@ -28,34 +38,42 @@ Component DockTile {
             .width(48)
             .height(48)
             .bgGradient($props.iconTop, $props.iconBottom)
-            .rounded(13)
+            .rounded(md)
+            .shadow(shadow2)
             .align(center)
             .justify(center)
         } else {
             Stack {
                 Icon { symbol: $props.icon, size: 24 }
-                    .fg(onSurface)
+                    .fg(label)
             }
             .width(48)
             .height(48)
             .material(card)
-            .rounded(13)
+            .rounded(md)
+            .shadow(shadow2)
             .align(center)
             .justify(center)
         } }
-        if $props.running {
-            Stack { }
-                .width(4)
-                .height(4)
-                .bg(onSurface)
-                .rounded(2)
-                .opacity(179)
+        if $props.marker {
+            if $props.running {
+                Stack { }
+                    .width(4)
+                    .height(4)
+                    .bg(label)
+                    .rounded(full)
+                    .opacity(179)
+            } else {
+                Stack { }
+                    .width(4)
+                    .height(4)
+            }
         } else {
             Stack { }
-                .width(4)
-                .height(4)
+                .overlay()
         }
     }
     .align(center)
-    .gap(0)
+    .gap(2)
+    .rounded(md)
 }

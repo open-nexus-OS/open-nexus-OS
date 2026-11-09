@@ -7,6 +7,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-11-09 (every DSL app built like a template — TASK-0357)
+
+- **Every app is modular and explains itself**: thin route pages that compose feature
+  components (`ui/components/<feature>/`), stores split by domain, a README per app with the
+  template's sections (routes, stores and events, services, window, structure, tests, known
+  limits), and a gate that keeps it so (`app_structure.rs`: page ≤ 100, component ≤ 150, store
+  ≤ 200 logical lines, README sections, i18n, a test per app, no byte copies) with a baseline
+  that only shrinks — 23 entries → 3 (the window store each app still copies, and two kit
+  components that render slots). The keyboard, the shell, the window kit, Chat, the greeter,
+  Settings and Stash were split with before/after dumps of their laid-out scenes: identical.
+- **A smoke run per app**: every route mounts and every event case reduces and runs its effects
+  with neutral payloads while every service refuses, on a phone and on the desktop — 502 cases
+  (`app_smoke.rs`, `Runtime::case_probes`/`route_probes`). New `ime_keys.rs`: the keyboard's
+  keys with real rows.
+- **An `Int` modifier argument may be an expression** (`.columns($props.cols)`,
+  `.grow($state.share)`): `.columns`, `.grow`, `.shrink`, `.basis`, `.opacity`, `.truncate`
+  and `.dismissAfter` read it like the size arguments, as a layout dependency — before, the
+  runtime read it as 0 without a word.
+- **The layout measures a node once per constraint per pass** (a per-pass measurement cache):
+  Settings' 49 texts were measured 1,361 times per pass, now 586; every app's layout bytes
+  dropped (chat 469 → 459 kB, Settings 415 → 396 kB).
+- **The launcher's page dots sit centred and in a row**: one slot per page carrying its own
+  spacing — before, an absent page left a gap (4 px off centre), three or more pages stacked
+  their dots in a column, and an overfull launcher squeezed them to nothing.
+
+### Changed - 2026-11-09 (one token set: the design artifacts' vocabulary — TASK-0353 P2)
+
+- **The themes and the typed tokens carry the design artifacts' set and nothing else**
+  (RFC-0116): 35 colour roles (the artifacts' 31 plus `wallpaperTint`, `labelShadow`,
+  `transparent`), 13 text styles (`clock`, the lock screen's time at 128 px, among them), the
+  spacing names, radii, control heights, shadows and four backdrops, in light, dark and high
+  contrast. The old keys are gone; the typed tokens' build
+  fails on a role a theme leaves to inherit. windowd reads its colours from the same typed
+  tokens — its baked theme snapshot is gone.
+- **The DSL names only the set.** Colour roles by name or from data (`.bg($props.tint)`);
+  `.textStyle` (id 58) with `.fontWeight` as its one override; spacing in px on the 4-pt grid or
+  `gapInline`/`gapGroup`/`gapSection`/`marginLayout` (it was 4 px steps; off-grid does not
+  compile); radii `sm 8 · md 12 · lg 16 · xl 24 · full`; new `.tint`, `.borderTint` and
+  `.corners`; `.shadow(a, b?)` with `halo`, `.border(hairline | ring)`, eight materials.
+  `textSize`, `leading` and `textShadow` are retired, every retired name is a compile error
+  naming its replacement, and a blur inside a blur is NX0414. All 171 `.nx` sources migrated,
+  goldens re-blessed.
+- **The atlas holds the styles' faces**: 22 exact (size, weight) faces up to the 128 px
+  digits-only `clock` face (the greeter's clock on regular and wide screens, `display` on
+  compact), an in-between size on the largest face not above it; letter-spacing in measurement
+  and drawing; a style's line box is authoritative and `.textFit` scales it.
+- **The compositor's glass levels are the backdrops**: `GLASS_THIN` and `GLASS_ULTRA_THIN` (the
+  former card and subtle buckets), `GLASS_DOCK` new (thick); `GLASS_OVERLAY` (4) is retired — a
+  pane or an overlay is an opaque occluder, a card is painted. windowd reads the blur radii from
+  the theme; a floating window's base is `glassWindow`, the hover patch `fillHover`.
+
+### Changed - 2026-11-05 (the pointer follows the theme — TASK-0353 P8)
+
+- **The dark pointer in light mode, the white one in dark mode** (the Mocu cursor theme's two
+  variants): windowd renders the arrow, the text beam, the four resize arrows and the wait ring
+  once per variant at build time (`build_support/cursors.rs`), the colours read from the cursor
+  theme's own `themes.txt`; the active set follows `ui.theme.mode` (`src/cursor_assets.rs`) and a
+  theme switch pushes it into gpud's shape cache again and selects the current shape anew
+  (`windowd: cursor theme (mode= set=)`). A screenshot carries the same sprite. The single-set
+  cursor constants left `assets.rs`.
+
 ### Fixed - 2026-11-05 (a launch's wait ring no longer spins the compositor — TASK-0351 P16)
 
 - **The wait ring steps on windowd's one-shot wake, never on a present's completion.** It advanced

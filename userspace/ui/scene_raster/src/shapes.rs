@@ -124,7 +124,8 @@ impl RowCanvas<'_> {
         }
         let n = (self.buf.len() / 4) as i32;
         let (s0, s1) = (s0.max(0).min(self.width).min(n), s1.min(self.width).min(n));
-        (s1 > s0).then_some((s0 as usize * 4, s1 as usize * 4))
+        // Lazy: an empty span may end below 0, and its `usize` cast would overflow the multiply.
+        (s1 > s0).then(|| (s0 as usize * 4, s1 as usize * 4))
     }
 
     /// Src-over blend of one colour over span `[x0, x1)` — exactly `blend` on each pixel, its

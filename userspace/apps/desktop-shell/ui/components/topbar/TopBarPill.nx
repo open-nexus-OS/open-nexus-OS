@@ -1,20 +1,47 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// One top-bar pill (design: hover-fill only, no persistent background —
-// the hover wash comes from the interaction chain). Tap handlers attach at
-// the use site.
+// One top-bar pill (design artifacts: TopBar) — the capsule every opener in the
+// bar shares: 28 tall in the 36px bar, padding 0 8, its content centred in a
+// row. It has no resting background: the labels sit on the wallpaper with the
+// halo, the host's wash is the hover layer, and while the pill's panel is OPEN
+// it carries the persistent `fill` layer (the design's selected state). The
+// pills differ only in what they show and in their inner gap, so the content
+// arrives through the `content` slot; the tap handler sits at the use site
+// (`TopBar`), which decides what a pill opens.
+//
+// `selected` swaps the capsule instead of laying a fill over it: an
+// out-of-flow layer is placed after the in-flow labels and would wash over
+// the text.
 
 Component TopBarPill {
     props: {
-        label: Str,
+        selected: Bool,
+        gap: Int,
     }
-    Stack {
-        Text($props.label).textSize(xs).fg(onSurface)
+    slot content
+    if $props.selected {
+        Stack {
+            Slot content
+        }
+        .direction(row)
+        .align(center)
+        .justify(center)
+        .gap($props.gap)
+        .paddingX(8)
+        .height(28)
+        .rounded(full)
+        .bg(fill)
+    } else {
+        Stack {
+            Slot content
+        }
+        .direction(row)
+        .align(center)
+        .justify(center)
+        .gap($props.gap)
+        .paddingX(8)
+        .height(28)
+        .rounded(full)
     }
-    .paddingX(2)
-    .paddingY(1)
-    .rounded(full)
-    .align(center)
-    .justify(center)
 }

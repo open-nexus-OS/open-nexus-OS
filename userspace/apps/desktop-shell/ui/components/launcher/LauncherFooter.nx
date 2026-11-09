@@ -9,7 +9,7 @@
 Component LauncherFooter {
     Stack {
         Stack {
-            Text(@t("launcher.userInitial")).textSize(sm).fg(onAccent)
+            Text(@t("launcher.userInitial")).textStyle(footnote).fg(onAccent)
         }
         .width(34)
         .height(34)
@@ -17,33 +17,33 @@ Component LauncherFooter {
         .rounded(full)
         .align(center)
         .justify(center)
-        Text(@t("launcher.userName")).textSize(sm).fg(onSurface)
+        Text(@t("launcher.userName")).textStyle(footnote).fg(label)
         Spacer
         Stack {
             Icon { symbol: "gearshape", size: 15 }
-                .fg(onSurface)
+                .fg(label)
         }
         .width(36)
         .height(36)
         .align(center)
         .justify(center)
         .material(card)
-        .rounded(lg)
+        .rounded(md)
         on Tap -> dispatch(Launch("settings"))
         Stack {
             Icon { symbol: "power", size: 15 }
-                .fg(onSurface)
+                .fg(label)
         }
         .width(36)
         .height(36)
         .align(center)
         .justify(center)
         .material(card)
-        .rounded(lg)
+        .rounded(md)
         on Tap -> dispatch(SetPanel(""))
     }
     .direction(row)
     .align(center)
-    .gap(2)
-    .paddingY(2)
+    .gap(8)
+    .paddingY(8)
 }

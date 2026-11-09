@@ -21,32 +21,32 @@ Component ScRow {
             .grow(1)
             ScKeys { keys: $props.keys, alt: $props.alt }
             Button { label: @t("sc.change") }
-                .bg(surfaceVariant)
+                .bg(fill)
                 .disabled(true)
         }
         .direction(row)
         .align(center)
-        .gap(3)
-        .paddingX(4)
-        .paddingY(2)
+        .gap(12)
+        .paddingX(16)
+        .paddingY(8)
         .minHeight(48)
     } else {
         Stack {
             Stack {
                 ScName { id: $props.id }
-                Text(@t("sc.inactive")).textSize(xs).fg(onGlassMuted)
+                Text(@t("sc.inactive")).textStyle(caption).fg(labelSecondary)
             }
             .gap(0)
             .grow(1)
             ScKeys { keys: $props.keys, alt: $props.alt }
             Button { label: @t("sc.change") }
-                .bg(surfaceVariant)
+                .bg(fill)
         }
         .direction(row)
         .align(center)
-        .gap(3)
-        .paddingX(4)
-        .paddingY(2)
+        .gap(12)
+        .paddingX(16)
+        .paddingY(8)
         .minHeight(48)
         .disabled(true)
     }

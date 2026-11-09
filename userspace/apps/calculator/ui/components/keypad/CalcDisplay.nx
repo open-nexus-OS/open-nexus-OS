@@ -1,76 +1,63 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The display card (design: min-height 104, radius 14, `--glass-card-bg`,
-// content bottom-RIGHT aligned, history line above the number).
+// The display (design artifacts: calculator): NO surface — the expression line and the number
+// sit on the pane, bottom-right, gap 4, padding 8 (top/bottom) 4 (left/right).
 //
-// `flex-shrink:0` in the design = a fixed minimum here: the KEYPAD absorbs
-// every extra pixel of window height, which is what the user asked for.
+// The number's style follows the length of the formatted string, as in the artifact:
+// up to 8 characters display (64 Light), up to 12 largeTitle (30 Bold), longer title1 (24 Bold).
+// `len` counts characters (separators and the sign included). Digits are tabular, so a
+// number never shifts as it changes.
 //
-// The number carries `.textFit(85, 16, 52)` — 85% of the card's own height,
-// which lands on the design's 52px at the design's 104px card. The width
-// step-down then reproduces the design's 52/38/30 ramp for free: a long
-// number simply stops fitting at the larger rungs, instead of being cut with
-// an ellipsis or hard-coded against a digit count.
+// HEIGHT: the artifact's display is 104 tall and leaves 20.5 px free above the keypad's first
+// row; the free space belongs to the display here (min 124, content bottom-aligned, so it looks
+// the same), which makes the keypad's cells exactly square at the window's minimum (340x600) —
+// circles there, pills in a wider window (`CalcKey`).
 //
-// MOTION (a deviation, recorded): the design specifies only a press
-// `scale(0.94)`, which the DSL cannot express — there is no press-down/up
-// trigger, only `Tap`. What the numeral carries instead is an attention
-// `.effect(wiggle)`: motion on the thing that actually changed.
-//
-// The card itself carries NO `.animate`, and this is load-bearing rather than
-// an omission. `.animate(token, value: expr)` is a PRESENT/ABSENT binding —
-// `MotionToken::resting` puts an opacity-primary token at opacity 0 whenever
-// the driving value folds to 0 — so `.animate(snappy, value: $state.disp)`
-// rested this card at zero alpha and the host cascade carried that to the
-// history line and the number inside it. A blank display for a day, while the
-// store, the layout and the text runs were all correct. The display is always
-// present; there is no honest `value:` for it. Motion on change is `.effect`,
-// which is where it now lives.
+// MOTION: none (the artifact has no display motion). The card itself must never carry an
+// `.animate(…, value:)` either: a present/absent binding rests at opacity 0 when its value
+// folds to 0, which once blanked this display for a day.
 Component CalcDisplay {
-    // NO props for the live values. Store field names are program-GLOBAL in
-    // this DSL, so a component reads `$state.x` directly — that is what every
-    // working live-value component does (`Text($state.clock)` in ClockPill,
-    // `Text($state.preedit)` in the OSK). Threading a changing value through a
-    // prop is the one thing the calculator did differently, and props are for
-    // STATIC per-instance data (`CalcKey`'s label/kind), not for state.
+    // Live values are read from the store (`$state.x`, store fields are program-global); props
+    // are for static per-instance data.
     Stack {
-        // The history line ("1.234,5 x 8 ="), right-aligned above the number.
+        // The expression line ("1.234 + 8 ="): kept 18 tall when empty so the number never jumps.
         Stack {
             Spacer
             Text($state.history)
-                .textSize(base)
-                .fontWeight(medium)
-                .fg(onGlassMuted)
+                .textStyle(subheadline)
+                .figures(tabular)
+                .fg(labelSecondary)
         }
         .direction(row)
-        // The numeral row TAKES the card's height, because `.textFit` reads
-        // its container's box: left at its text height (20px) the target came
-        // out at 17px instead of the design's 52.
+        .minHeight(18)
         Stack {
             Spacer
-            // EXPLICIT `.textSize` even though `.textFit` normally overrides
-            // it: the fit is a refinement, never the only thing standing
-            // between the value and the screen. Without it this Text's size
-            // came solely from a modifier that had never run on a device, so
-            // any failure there took the whole number with it.
-            Text($state.disp)
-                .textSize(display)
-                .fg(onGlassStrong)
-                .fontWeight(light)
-                .effect(wiggle, trigger: $state.disp)
+            if len($state.disp) > 12 {
+                Text($state.disp)
+                    .textStyle(title1)
+                    .figures(tabular)
+                    .fg(label)
+            } else {
+                if len($state.disp) > 8 {
+                    Text($state.disp)
+                        .textStyle(largeTitle)
+                        .figures(tabular)
+                        .fg(label)
+                } else {
+                    Text($state.disp)
+                        .textStyle(display)
+                        .figures(tabular)
+                        .fg(label)
+                }
+            }
         }
         .direction(row)
-        .align(center)
-        .grow(1)
-        .textFit(70, 16, 52)
     }
-    .minHeight(104)
-    .rounded(14)
-    .material(card)
-    // 4px steps: design 8/10/12 padding + 4 gap -> 2/2/3 steps + 1 step.
-    .paddingX(2)
-    .paddingTop(2)
-    .paddingBottom(3)
-    .gap(1)
+    .minHeight(124)
+    .justify(end)
+    .paddingX(4)
+    .paddingTop(8)
+    .paddingBottom(8)
+    .gap(4)
 }

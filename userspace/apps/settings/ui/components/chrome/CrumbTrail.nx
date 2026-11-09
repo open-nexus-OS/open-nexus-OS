@@ -1,0 +1,39 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The content header's trail, resolved from the navigation state. One place maps
+// (mode, section, subPage) to the localized crumbs; `CrumbBar` only draws them.
+
+Component CrumbTrail {
+        if $state.mode == "overview" {
+            CrumbBar { section: "", sub: "" }
+        } else if $state.section == "connections" {
+            CrumbBar { section: @t("sec.connections"), sub: "" }
+        } else if $state.section == "devices" {
+            CrumbBar { section: @t("sec.devices"), sub: "" }
+        } else if $state.section == "sound" {
+            CrumbBar { section: @t("sec.sound"), sub: "" }
+        } else if $state.section == "display" {
+            CrumbBar { section: @t("sec.display"), sub: "" }
+        } else if $state.section == "notif" {
+            CrumbBar { section: @t("sec.notif"), sub: "" }
+        } else if $state.section == "personal" && $state.subPage == "appearance" {
+            CrumbBar { section: @t("sec.personal"), sub: @t("per.appearance") }
+        } else if $state.section == "personal" {
+            CrumbBar { section: @t("sec.personal"), sub: "" }
+        } else if $state.section == "apps" {
+            CrumbBar { section: @t("sec.apps"), sub: "" }
+        } else if $state.section == "general" {
+            CrumbBar { section: @t("sec.general"), sub: "" }
+        } else if $state.section == "accounts" {
+            CrumbBar { section: @t("sec.accounts"), sub: "" }
+        } else if $state.section == "privacy" {
+            CrumbBar { section: @t("sec.privacy"), sub: "" }
+        } else if $state.section == "power" {
+            CrumbBar { section: @t("sec.power"), sub: "" }
+        } else if $state.subPage == "updates" {
+            CrumbBar { section: @t("sec.info"), sub: @t("inf.update") }
+        } else {
+            CrumbBar { section: @t("sec.info"), sub: "" }
+        }
+}

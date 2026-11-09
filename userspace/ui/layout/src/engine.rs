@@ -39,10 +39,10 @@ pub(crate) struct LayoutConstraints {
     /// node FILLS the constraint box instead of hugging its content — the
     /// page root spans the surface, so `.align(center)` + `Spacer` really
     /// center. Never propagated to children (they keep content sizing).
-    definite: bool,
+    pub(crate) definite: bool,
     /// The INHERITED font size from the nearest `.textFit` ancestor, like a
     /// CSS `font-size` handed down the subtree. `None` = use each text node's
-    /// own authored `.textSize`.
+    /// own text style's size.
     pub(crate) text_px: Option<crate::textfit::FitCtx>,
 }
 
@@ -65,15 +65,16 @@ impl LayoutConstraints {
 pub struct LayoutEngine {
     max_nodes: usize,
     max_depth: usize,
+    pub(crate) cache: crate::measure_cache::MeasureCache,
 }
 
 impl LayoutEngine {
     pub fn new() -> Self {
-        Self { max_nodes: DEFAULT_MAX_NODES, max_depth: DEFAULT_MAX_DEPTH }
+        Self::with_limits(DEFAULT_MAX_NODES, DEFAULT_MAX_DEPTH)
     }
 
     pub fn with_limits(max_nodes: usize, max_depth: usize) -> Self {
-        Self { max_nodes, max_depth }
+        Self { max_nodes, max_depth, cache: Default::default() }
     }
 
     pub fn layout(
@@ -98,8 +99,9 @@ impl LayoutEngine {
     ) -> Result<LayoutResult, LayoutError> {
         let mut node_count = 0;
         let mut boxes = Vec::new();
-        // The ROOT is the surface: definite constraints make it fill the
-        // viewport (a hugging root collapsed every centered page top-left).
+        self.cache.clear(); // a new scene: no size of the last pass may hit
+                            // The ROOT is the surface: definite constraints fill the viewport (a hugging root
+                            // collapsed every centered page top-left).
         let constraints = LayoutConstraints::definite(available_width, available_height);
         self.place_node(
             root,
@@ -188,6 +190,7 @@ impl LayoutEngine {
                     scroll_offset,
                     overflow: Overflow::Visible,
                     glass_nested: ctx.in_glass,
+                    opacity: ctx.opacity,
                     scroll_root: ctx.scroll_root,
                     text_px: None,
                 });
@@ -241,7 +244,7 @@ impl LayoutEngine {
             text.min_width.or(text.item.min_width),
             text.max_width.or(text.item.max_width),
         );
-        // `.textFit` from an ancestor replaces the authored `.textSize`, then
+        // `.textFit` from an ancestor replaces the text style's size, then
         // steps DOWN until the run fits `width_limit` — which is what turns a
         // long number into a smaller one instead of an ellipsis.
         let fitted = crate::textfit::fitted_style(
@@ -283,9 +286,9 @@ impl LayoutEngine {
             scroll_offset,
             overflow: Overflow::Visible,
             glass_nested: ctx.in_glass,
+            opacity: ctx.opacity_of(style),
             scroll_root: ctx.scroll_root,
-            // Only when a `.textFit` ancestor actually overrode the authored
-            // size — the painter falls back to the scene's own font otherwise.
+            // Only when a `.textFit` ancestor overrode the size (else the scene's own font).
             text_px: constraints.text_px.map(|_| fitted.font_size),
         });
         Ok(NodeSize { width, height })
@@ -305,8 +308,7 @@ impl LayoutEngine {
         measure: &dyn MeasureText,
         boxes: &mut Vec<LayoutBox>,
     ) -> Result<NodeSize, LayoutError> {
-        // Treat TextInput like a Text node for layout: use its content for
-        // measurement, defaulting to placeholder if content is empty.
+        // A TextInput lays out like a Text: its content, else its placeholder, is measured.
         let display_content = if input.content.as_str().is_empty() {
             input.placeholder.as_ref().map(|p| p.as_str()).unwrap_or("")
         } else {
@@ -355,8 +357,7 @@ impl LayoutEngine {
         boxes: &mut Vec<LayoutBox>,
     ) -> Result<NodeSize, LayoutError> {
         let measured = self.measure_stack(stack, children, constraints, depth, measure)?;
-        // Definite constraints (the viewport root): FILL the constraint box —
-        // content sizing (hug) is for nested stacks only.
+        // Definite constraints (the viewport root) FILL the box; only nested stacks hug.
         let width = if constraints.definite { constraints.max_width } else { measured.width };
         let height = if constraints.definite {
             constraints.max_height.unwrap_or(measured.height)
@@ -392,10 +393,11 @@ impl LayoutEngine {
             scroll_offset: container_scroll,
             overflow: stack.overflow,
             glass_nested: ctx.in_glass,
+            opacity: ctx.opacity_of(style),
             scroll_root: ctx.scroll_root,
             text_px: None,
         });
-        let ctx = ctx.under(style.material);
+        let ctx = ctx.under(style);
         // RFC-0109: a top-level scroll container is the scroll ROOT of its content — placed at
         // identity, clipped only by what clips inside it (the compositor clips it to the
         // viewport, where it scrolls). One nested in another's content clips like `Hidden`.
@@ -403,10 +405,8 @@ impl LayoutEngine {
         let padding = stack.padding;
         let content_x = x + padding.left - container_scroll.0;
         let content_y = y + padding.top - container_scroll.1;
-        // A scroll viewport lays its children out UNBOUNDED on the main axis:
-        // content is allowed to overflow the clip (that overflow IS the
-        // scrollable extent). A definite height here made the inner list
-        // shrink its rows to fit — nothing left to scroll.
+        // A scroll viewport lays its children out UNBOUNDED on the main axis: the overflow IS
+        // the scrollable extent (a definite height shrank the rows — nothing left to scroll).
         // `.textFit`: the container's content box is settled HERE, before any
         // child is placed, so the derived size is a constant for the subtree —
         // that is what makes it terminate. A hugging container would size
@@ -833,7 +833,7 @@ impl LayoutEngine {
         })
     }
 
-    pub(crate) fn measure_node(
+    pub(crate) fn measure_node_raw(
         &self,
         node: &LayoutNode,
         constraints: LayoutConstraints,

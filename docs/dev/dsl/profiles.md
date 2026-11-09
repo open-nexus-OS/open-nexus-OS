@@ -48,12 +48,14 @@ Rules:
 Plain `if/else` on the environment (evaluated top-to-bottom):
 
 ```nx
-if device.profile == phone {
-    Stack { /* phone layout */ }
-} else if device.profile == tablet {
-    Stack { /* tablet layout */ }
-} else {
-    Stack { /* default (desktop/tv/auto/…) */ }
+Page HomePage {
+    if device.profile == phone {
+        Stack { Text("phone layout") }
+    } else if device.profile == tablet {
+        Stack { Text("tablet layout") }
+    } else {
+        Stack { Text("default layout (desktop, tv, auto, ...)") }
+    }
 }
 ```
 

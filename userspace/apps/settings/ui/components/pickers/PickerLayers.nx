@@ -1,0 +1,22 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The picker overlays: at most one sheet is open, `$state.picker` names it. Siblings of
+// the window on the page root (the page owns the z-order); a closed layer mounts an
+// empty `Stack`, so it never swallows a tap.
+
+Component PickerLayers {
+    if $state.picker == "language" {
+        LanguagePicker { }
+    } else if $state.picker == "region" {
+        RegionPicker { }
+    } else if $state.picker == "layout" {
+        LayoutPicker { }
+    } else if $state.picker == "zone" {
+        ZonePicker { }
+    } else if $state.picker == "hourfmt" {
+        HourFormatPicker { }
+    } else {
+        Stack { }
+    }
+}

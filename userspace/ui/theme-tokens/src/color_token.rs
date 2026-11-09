@@ -1,137 +1,173 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: The semantic COLOR vocabulary — one enum, one arm per role in
-//! `resources/themes/*.nxtheme.toml`. Split out of `lib.rs` (module-size
-//! ratchet): the role list grows with the design system, while the `Tokens`
-//! trait and the length/type/motion scales next door do not.
-//!
-//! Adding a role is a SIX-place lock-step (`token_vocabulary_lockstep`
-//! enforces it): here, `theme-tokens/build.rs` ROLES, every
-//! `resources/themes/*.nxtheme.toml`, `dsl/core` COLOR_TOKENS, the
-//! `dsl/runtime` `color_token` arm, and the test's canonical name.
+//! CONTEXT: The colour vocabulary (RFC-0116): exactly the design artifacts' roles plus the two
+//! design values they keep outside their token file (`WallpaperTint`, `LabelShadow`) and
+//! `Transparent`. One enum; its canonical names are the theme keys and the DSL names, so the
+//! theme build (`build.rs` ROLES, exhaustive over this enum), the DSL checker (`dsl/core`
+//! COLOR_TOKENS) and the runtime map (`dsl/runtime` `color_token`) stay in lock-step
+//! (`token_vocabulary_lockstep` enforces it).
 //! OWNERS: @ui
 //! STATUS: Functional
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: userspace/dsl/runtime/tests/token_vocabulary_lockstep.rs
+//! TEST_COVERAGE: userspace/dsl/runtime/tests/token_vocabulary_lockstep.rs; the tests in lib.rs
 
-/// Semantic color roles. Add roles here (and to every theme) rather than using
-/// raw colors in widgets/shells.
+/// Semantic colour roles — colours are roles, never swatches.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ColorToken {
-    /// Base surface (panels, cards, sheets).
-    Surface,
-    /// A raised/variant surface (hover, selected rows).
-    SurfaceVariant,
-    /// Primary content (text/icons) on `Surface`.
-    OnSurface,
-    /// Secondary/dimmed content on `Surface`.
-    OnSurfaceVariant,
-    /// Accent / primary action.
-    Accent,
-    /// Content on `Accent`.
-    OnAccent,
-    /// Hairline borders / separators.
-    Border,
-    /// Shadow tint.
-    Shadow,
-    /// Window/desktop background.
+    /// Opaque page area behind content that is not on the wallpaper.
     Background,
-    /// Brand ink (headings, high-emphasis).
+    /// Primary text and icons.
+    Label,
+    /// Metadata, section labels, inactive icons.
+    LabelSecondary,
+    /// Placeholders and disabled text only.
+    LabelTertiary,
+    /// Every hairline: dividers, list separators, pane and chip borders.
+    Separator,
+    /// The resting fill of a control on a surface.
+    Fill,
+    /// The hover layer (shown by opacity, never a background).
+    FillHover,
+    /// The press layer (shown by opacity, never a background).
+    FillActive,
+    /// A blur surface on the wallpaper: panels, dock, launcher sheets.
+    GlassPanel,
+    /// An app window's blur surface.
+    GlassWindow,
+    /// A translucent layer on a blur surface: cards, grouped rows, tiles.
+    GlassCard,
+    /// The 1 px light edge of every glass layer.
+    GlassEdge,
+    /// The opaque pane inside a window.
+    SurfacePane,
+    /// The opaque floating surface: modal, alert, menu, popover, toast, keyboard.
+    SurfaceOverlay,
+    /// The dimming layer behind a modal overlay.
+    Scrim,
+    /// The brand's solid button.
     Primary,
-    /// Content on `Primary`.
+    /// Text and icons on `Primary`.
     OnPrimary,
-    /// Destructive / danger action.
+    /// The one tint: on-states, selection, links, focus.
+    Accent,
+    /// The soft glow under an on-state control.
+    AccentGlow,
+    /// Text and icons on `Accent` and `Danger`.
+    OnAccent,
+    /// Destructive actions, errors, the notification dot.
     Danger,
-    /// Content on `Danger`.
-    OnDanger,
+    /// Success and online status.
+    Success,
     /// Warning status.
     Warning,
-    /// Success status.
-    Success,
-    /// Informational status.
-    Info,
-    /// Content on `Warning`.
-    OnWarning,
-    /// Content on `Success`.
-    OnSuccess,
-    /// Content on `Info`.
-    OnInfo,
-    /// Focus ring / keyboard focus indicator.
-    FocusRing,
-    /// The Dynamic-Island pill fill (solid black in both themes).
-    IslandBg,
-    /// Modal/sheet backdrop dim (design `--glass-scrim`).
-    Scrim,
-    /// Destructive action (design role distinct from `Danger`).
-    Destructive,
-    /// Content on `Destructive`.
-    OnDestructive,
-
-    // ---- RFC-0082: content on glass / directly on the wallpaper ----
-    // These exist because the lock surface, the dock and the launcher paint
-    // over a PHOTOGRAPH, not over `Surface`. `OnSurface` is tuned for a solid
-    // panel and disappears on a bright sky.
-    /// Primary text on glass or wallpaper.
-    OnGlass,
-    /// Secondary/dimmed text on glass or wallpaper.
-    OnGlassMuted,
-    /// High-emphasis text on glass or wallpaper.
-    OnGlassStrong,
-    /// Icon stroke on glass.
-    GlassIcon,
-    /// Placeholder text inside a glass field.
-    GlassPlaceholder,
-    /// Border color a FOCUSED glass control takes (distinct from the solid
-    /// `FocusRing` blue — on glass the ring is a tint of the ink).
-    GlassFocus,
-    /// Flat translucent fill of a control sitting INSIDE glass (a submit
-    /// button in a pill). Never its own glass layer — the compositor does not
-    /// nest backdrop blur.
-    GlassFill,
-    /// A RAISED control on glass — stronger than `GlassSubtle`'s tint, weaker
-    /// than a solid fill (the calculator's function keys, a pressed chip).
-    GlassFillStrong,
-    /// The accent as a TINT rather than a fill: an accent-flavoured control
-    /// that still reads as glass. Re-derived from the LIVE accent by
-    /// [`AccentTokens`], so a user accent moves it too.
-    AccentSoft,
-    /// Full-bleed wash over the wallpaper that keeps content legible.
+    /// The airplane-mode toggle's on-state.
+    ModeAirplane,
+    /// The desktop-mode switch's on-state.
+    ModeDesktop,
+    /// The tablet-mode switch's on-state.
+    ModeTablet,
+    /// The activity runner's background.
+    Island,
+    /// Chart series 1–5.
+    Chart1,
+    Chart2,
+    Chart3,
+    Chart4,
+    Chart5,
+    /// The wash over the wallpaper that keeps content legible.
     WallpaperTint,
-    /// Bottom stop of the wallpaper legibility fade.
-    WallpaperVignette,
-    /// Soft text-shadow tint (light halo in light mode, drop shadow in dark).
-    TextShadow,
-    /// Strong text-shadow tint for small labels over busy imagery.
-    TextShadowStrong,
-    /// Fully transparent — the identity color, used as a gradient stop.
+    /// The halo behind an icon label on the wallpaper.
+    LabelShadow,
+    /// No colour (a gradient stop, a hidden edge).
     Transparent,
+}
 
-    // ---- Roles that were AUTHORED in every `.nxtheme.toml` but had no
-    // ---- variant here, so nothing above the theme file could reach them.
-    /// Hairline separator (design `--glass-divider`). Distinct from `Border`:
-    /// a divider is a translucent wash that reads on glass, `Border` is the
-    /// opaque control outline. Painting hairlines with `Border` is why every
-    /// separator in a glass window was a solid `#262626` bar.
-    Divider,
-    /// Hover wash over an interactive surface (design `--glass-hover-bg`).
-    GlassHover,
-    /// Pressed/active wash over an interactive surface
-    /// (design `--glass-active-bg`).
-    GlassActive,
-    /// Track fill of a switch in the ON state (design `--glass-toggle-on-bg`).
-    ToggleOnBg,
-    /// Track fill of a switch in the OFF state.
-    ToggleOffBg,
-    /// The notification dot (design `--glass-notif-dot`, always red).
-    NotifDot,
-    /// Recessed track of a range slider (design `--track`) — dark in BOTH
-    /// themes, because the track reads as a groove cut into the surface.
-    SliderTrack,
-    /// Filled portion of a range slider (design `--fill`) — bright in both,
-    /// the inverse polarity of its own track.
-    SliderFill,
-    /// The glyph embedded IN a slider's fill (design `.slider .embed`). It
-    /// sits on `SliderFill`, so it is dark in both themes like the track.
-    SliderIcon,
+impl ColorToken {
+    /// Every role, in declaration order.
+    pub const ALL: [ColorToken; 35] = [
+        ColorToken::Background,
+        ColorToken::Label,
+        ColorToken::LabelSecondary,
+        ColorToken::LabelTertiary,
+        ColorToken::Separator,
+        ColorToken::Fill,
+        ColorToken::FillHover,
+        ColorToken::FillActive,
+        ColorToken::GlassPanel,
+        ColorToken::GlassWindow,
+        ColorToken::GlassCard,
+        ColorToken::GlassEdge,
+        ColorToken::SurfacePane,
+        ColorToken::SurfaceOverlay,
+        ColorToken::Scrim,
+        ColorToken::Primary,
+        ColorToken::OnPrimary,
+        ColorToken::Accent,
+        ColorToken::AccentGlow,
+        ColorToken::OnAccent,
+        ColorToken::Danger,
+        ColorToken::Success,
+        ColorToken::Warning,
+        ColorToken::ModeAirplane,
+        ColorToken::ModeDesktop,
+        ColorToken::ModeTablet,
+        ColorToken::Island,
+        ColorToken::Chart1,
+        ColorToken::Chart2,
+        ColorToken::Chart3,
+        ColorToken::Chart4,
+        ColorToken::Chart5,
+        ColorToken::WallpaperTint,
+        ColorToken::LabelShadow,
+        ColorToken::Transparent,
+    ];
+
+    /// The canonical name: the theme key and the DSL name.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            ColorToken::Background => "background",
+            ColorToken::Label => "label",
+            ColorToken::LabelSecondary => "labelSecondary",
+            ColorToken::LabelTertiary => "labelTertiary",
+            ColorToken::Separator => "separator",
+            ColorToken::Fill => "fill",
+            ColorToken::FillHover => "fillHover",
+            ColorToken::FillActive => "fillActive",
+            ColorToken::GlassPanel => "glassPanel",
+            ColorToken::GlassWindow => "glassWindow",
+            ColorToken::GlassCard => "glassCard",
+            ColorToken::GlassEdge => "glassEdge",
+            ColorToken::SurfacePane => "surfacePane",
+            ColorToken::SurfaceOverlay => "surfaceOverlay",
+            ColorToken::Scrim => "scrim",
+            ColorToken::Primary => "primary",
+            ColorToken::OnPrimary => "onPrimary",
+            ColorToken::Accent => "accent",
+            ColorToken::AccentGlow => "accentGlow",
+            ColorToken::OnAccent => "onAccent",
+            ColorToken::Danger => "danger",
+            ColorToken::Success => "success",
+            ColorToken::Warning => "warning",
+            ColorToken::ModeAirplane => "modeAirplane",
+            ColorToken::ModeDesktop => "modeDesktop",
+            ColorToken::ModeTablet => "modeTablet",
+            ColorToken::Island => "island",
+            ColorToken::Chart1 => "chart1",
+            ColorToken::Chart2 => "chart2",
+            ColorToken::Chart3 => "chart3",
+            ColorToken::Chart4 => "chart4",
+            ColorToken::Chart5 => "chart5",
+            ColorToken::WallpaperTint => "wallpaperTint",
+            ColorToken::LabelShadow => "labelShadow",
+            ColorToken::Transparent => "transparent",
+        }
+    }
+
+    /// The role a canonical name names (`None` for anything else).
+    #[must_use]
+    pub fn from_name(name: &str) -> Option<ColorToken> {
+        ColorToken::ALL.into_iter().find(|t| t.name() == name)
+    }
 }

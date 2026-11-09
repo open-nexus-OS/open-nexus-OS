@@ -16,7 +16,7 @@
 
 use animation::{AnimProp, MotionCategory, MotionToken};
 use nexus_layout::LayoutBox;
-use nexus_layout_types::{LayoutNode, Overflow, Position, Rgba8, SurfaceMaterial};
+use nexus_layout_types::{LayoutNode, Overflow, Position, Rgba8};
 
 /// A rectangle `(x0, y0, x1, y1)` in surface pixels.
 pub(crate) type Span = (i32, i32, i32, i32);
@@ -96,7 +96,7 @@ fn paints(b: &LayoutBox, has_text: bool) -> bool {
         || v.background_gradient.is_some()
         || v.shadow.is_some()
         || v.inset_highlight.is_some()
-        || matches!(v.material, SurfaceMaterial::Glass(_))
+        || v.material.is_some()
         || matches!(b.overflow, Overflow::Scroll(_))
 }
 

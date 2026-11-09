@@ -148,17 +148,17 @@ impl DisplayServerRuntime {
         let Some((id, edge, start, (gx, gy))) = self.resize_drag else {
             return;
         };
-        let min_y = match id {
-            WindowId::App(i) => self.drag_bounds(i as usize).min_y,
-            _ => 0,
+        let (min_y, (min_w, min_h)) = match id {
+            WindowId::App(i) => (self.drag_bounds(i as usize).min_y, self.app_min_size(i as usize)),
+            _ => (0, (MIN_WIN_W, MIN_WIN_H)),
         };
         let frame = Frame::resized(
             start,
             edge,
             cx - gx,
             cy - gy,
-            MIN_WIN_W,
-            MIN_WIN_H,
+            min_w,
+            min_h,
             self.mode.width,
             self.mode.height,
             min_y,
@@ -264,6 +264,12 @@ impl DisplayServerRuntime {
         self.queue_full_frame_damage();
     }
 
+    /// The window's minimum content size: the app's (RFC-0117) and the WM's, within the work area.
+    pub(super) fn app_min_size(&self, idx: usize) -> (u32, u32) {
+        let work = (self.mode.width, self.work_area_h());
+        crate::window_size::minimum(self.apps[idx].intent_min, (MIN_WIN_W, MIN_WIN_H), work)
+    }
+
     /// Tell the app-client its current CONTENT rect (`OP_SURFACE_RECT`) so it
     /// re-creates its surface at that size (WM owns geometry).
     pub(crate) fn push_app_content_rect(&mut self, idx: usize) {
@@ -294,8 +300,11 @@ impl DisplayServerRuntime {
         // axes (mode-bounded). The glass composite samples at most the content
         // (`glass_params`), so growing past it never over-reads; on release
         // `end_window_resize` pushes this size and the app re-creates its surface.
-        let w = w.min(self.mode.width);
-        let h = h.min(self.mode.height);
+        // Never below the app's minimum (RFC-0117): a tile zone or a restore smaller than it
+        // gives the window its minimum on that axis.
+        let (min_w, min_h) = self.app_min_size(idx);
+        let w = w.max(min_w).min(self.mode.width);
+        let h = h.max(min_h).min(self.mode.height);
         self.apps[idx].win.set_frame(x, y, w, h);
         let new = self.window_damage_rect(id);
         self.queue_gpu_blit_rect(new);

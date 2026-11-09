@@ -1,0 +1,17 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// A pane zone's hairline (`WinPane`): `separator`, 1 px, or an empty slot with `noDividers`.
+
+Component WinPaneRule {
+    props: {
+        hidden: Bool,
+    }
+    if $props.hidden {
+        Stack { }
+    } else {
+        Stack { }
+            .height(1)
+            .bg(separator)
+    }
+}

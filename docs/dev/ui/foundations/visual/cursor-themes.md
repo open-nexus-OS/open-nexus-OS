@@ -43,6 +43,14 @@ Rationale:
 - preserve cursor edge contrast against both light and dark surfaces,
 - keep one deterministic high-contrast default for accessibility mode.
 
+Implemented (TASK-0353 P8): `windowd` renders every shape it uses — the arrow, the text beam,
+the four resize arrows and the wait ring — once per variant at build time
+(`source/services/windowd/build_support/cursors.rs`), with the fill, stroke and shadow colours
+read from the theme's own `src/themes.txt` (`Mocu-White-Right`, `Mocu-Black-Right`). The active
+set follows the theme (`src/cursor_assets.rs`: light → black, dark → white); a theme switch pushes
+the set into gpud's shape cache again and selects the current shape anew
+(`windowd: cursor theme (mode= set=)`). Screenshots carry the same sprite.
+
 ## HiDPI Size Policy
 
 Use deterministic logical tiers:

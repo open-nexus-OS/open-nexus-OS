@@ -61,9 +61,10 @@ Loops are allowed but must be bounded:
 - cap max result size
 - require explicit ordering
 
-Example (illustrative):
+Example (pseudo-code — the builder surface is the v2 roadmap above; today a query is the
+declarative `Query` form shown below):
 
-```nx
+```text
 for f in filters { // bounded (e.g. max 16)
   query = query.where(f.field, f.value)
 }
@@ -72,9 +73,10 @@ query = query.orderBy(UserField::Name, Asc)
 
 ## Effects-first execution
 
-Execution belongs in an effect:
+Execution belongs in an effect. The shape (pseudo-code; the compiled form is the query step
+below):
 
-```nx
+```text
 @effect on LoadRequested {
   match svc.db.users.query(query, limit=50) {
     Ok(rows) => dispatch(Loaded(rows)),
@@ -92,9 +94,9 @@ Recommended posture:
 
 ## Typical shape in UI code
 
-Illustrative flow:
+Illustrative flow (pseudo-code):
 
-```nx
+```text
 reduce(state, event) -> state {
   match event {
     SearchChanged(text) => {
@@ -321,11 +323,44 @@ Execution happens ONLY via the query step inside an `@effect`
 (the checker rejects execution in reducers, `NX0405`):
 
 ```nx
+Store LibraryStore {
+    items: List<Str> = [],
+    cursor: Str = "",
+    nextToken: Str = "",
+    lastError: Int = 0,
+}
+
+Event LibraryEvent {
+    Refresh,
+    Loaded(List<Str>, Str),
+    LoadFailed(Int),
+}
+
+reduce LibraryEvent {
+    Refresh => state.lastError = 0,
+    Loaded(rows, next) => {
+        state.items = rows;
+        state.nextToken = next;
+    },
+    LoadFailed(code) => state.lastError = code,
+}
+
+Query FromName on library {
+    params: { from: Str, },
+    where name >= from,
+    orderBy name,
+    limit 20,
+}
+
 @effect on Refresh {
     match FromName(from: state.cursor, token: state.nextToken) {
         Ok(rows, next) => dispatch(Loaded(rows, next)),
         Err(e) => dispatch(LoadFailed(e)),
     }
+}
+
+Page LibraryPage {
+    Text("library")
 }
 ```
 

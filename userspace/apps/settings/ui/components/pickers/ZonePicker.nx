@@ -1,0 +1,48 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The `zone` picker's option list on a `PickerSheet`; the page layer mounts it while
+// `$state.picker == "zone"`.
+
+Component ZonePicker {
+    PickerSheet { title: @t("gen.zone") } {
+        options {
+            Stack {
+                PickerOption { label: @t("zone.berlin"), selected: $state.zone == "Europe/Berlin" }
+            }
+            on Tap -> dispatch(SetZone("Europe/Berlin"))
+            Stack {
+                PickerOption { label: @t("zone.london"), selected: $state.zone == "Europe/London" }
+            }
+            on Tap -> dispatch(SetZone("Europe/London"))
+            Stack {
+                PickerOption { label: @t("zone.newyork"), selected: $state.zone == "America/New_York" }
+            }
+            on Tap -> dispatch(SetZone("America/New_York"))
+            Stack {
+                PickerOption { label: @t("zone.losangeles"), selected: $state.zone == "America/Los_Angeles" }
+            }
+            on Tap -> dispatch(SetZone("America/Los_Angeles"))
+            Stack {
+                PickerOption { label: @t("zone.tokyo"), selected: $state.zone == "Asia/Tokyo" }
+            }
+            on Tap -> dispatch(SetZone("Asia/Tokyo"))
+            Stack {
+                PickerOption { label: @t("zone.shanghai"), selected: $state.zone == "Asia/Shanghai" }
+            }
+            on Tap -> dispatch(SetZone("Asia/Shanghai"))
+            Stack {
+                PickerOption { label: @t("zone.seoul"), selected: $state.zone == "Asia/Seoul" }
+            }
+            on Tap -> dispatch(SetZone("Asia/Seoul"))
+            Stack {
+                PickerOption { label: @t("zone.sydney"), selected: $state.zone == "Australia/Sydney" }
+            }
+            on Tap -> dispatch(SetZone("Australia/Sydney"))
+            Stack {
+                PickerOption { label: @t("zone.utc"), selected: $state.zone == "UTC" }
+            }
+            on Tap -> dispatch(SetZone("UTC"))
+        }
+    }
+}

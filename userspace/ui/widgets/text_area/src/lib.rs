@@ -2,13 +2,20 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![cfg_attr(not(test), no_std)]
+#![forbid(unsafe_code)]
 
-//! `TextArea` — the design-system multiline input (design `TextArea`): a label,
-//! a bordered glass box sized for `rows`, and a footer with helper/error text
-//! and an optional character counter. A pure builder producing a
-//! `LayoutNode::Stack` column. v1 renders the value as multiline text (the app
-//! owns the value; a dedicated multiline edit primitive is a follow-up).
+//! CONTEXT: `TextArea` — the design-system multiline input (design artifacts `TextArea`): an
+//! optional label, the field box sized for `rows` lines of the field text (per-size vertical and
+//! horizontal padding, the field surface, the size radius or the one-line capsule radius, the
+//! focus outline) and a footer with the helper / error / success message and the `n/max`
+//! counter. A pure builder producing a `LayoutNode::Stack` column; the value renders as
+//! multiline text (the app owns it — a multiline edit primitive is not in the layout yet).
 //! DSL-emittable.
+//! OWNERS: @ui
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: the tests below; tests/ui_v10_goldens (textarea)
+//! ADR: docs/rfcs/RFC-0116-one-token-set-the-design-artifacts-roles-text-styles-grid-shapes-and-materials.md
 
 extern crate alloc;
 
@@ -16,14 +23,15 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use nexus_layout_types::{
-    Align, Direction, EdgeInsets, FlexItem, FontWeight, FxPx, Justify, LayoutNode, LineHeight,
-    Overflow, Spacer, Stack, TextAlign, TextContent, TextNode, TextStyle, VisualStyle, WhiteSpace,
+    Align, Direction, EdgeInsets, FlexItem, FontWeight, FxPx, Justify, LayoutNode, Overflow, Stack,
+    TextContent, TextNode, TextStyle, VisualStyle, WhiteSpace,
 };
-use nexus_style::{InteractionState, Style};
-use nexus_theme_tokens::{ColorToken, LengthToken, Tokens, TypographyToken};
-
-/// Approximate line box height (px) at body size.
-const LINE: i32 = 20;
+use nexus_style::InteractionState;
+use nexus_theme_tokens::{ColorToken, ControlSize, TextStyleToken, Tokens, HAIRLINE};
+use nexus_widget_text_field::field::{
+    self, focus_ring, FieldAppearance, FieldMetrics, FieldState, DISABLED_OPACITY, RING_OFFSET,
+};
+use nexus_widget_text_field::MIN_FIELD_WIDTH;
 
 /// A multiline text input.
 #[derive(Debug, Clone)]
@@ -33,9 +41,16 @@ pub struct TextArea {
     placeholder: Option<String>,
     helper: Option<String>,
     error: Option<String>,
+    validation: FieldState,
     rows: u32,
     max_length: Option<u32>,
     show_count: bool,
+    auto_grow: bool,
+    read_only: bool,
+    capsule: bool,
+    size: ControlSize,
+    appearance: FieldAppearance,
+    tint: ColorToken,
     state: InteractionState,
     id: Option<&'static str>,
 }
@@ -48,9 +63,16 @@ impl Default for TextArea {
             placeholder: None,
             helper: None,
             error: None,
-            rows: 3,
+            validation: FieldState::Default,
+            rows: 4,
             max_length: None,
             show_count: false,
+            auto_grow: false,
+            read_only: false,
+            capsule: false,
+            size: ControlSize::Md,
+            appearance: FieldAppearance::Filled,
+            tint: ColorToken::Accent,
             state: InteractionState::Default,
             id: None,
         }
@@ -78,10 +100,17 @@ impl TextArea {
         self.helper = Some(helper.into());
         self
     }
+    /// Error message — the state becomes `Error` and the message leads the footer.
     pub fn error(mut self, error: impl Into<String>) -> Self {
         self.error = Some(error.into());
         self
     }
+    /// Validation state without a message (danger or success border).
+    pub fn validation(mut self, state: FieldState) -> Self {
+        self.validation = state;
+        self
+    }
+    /// Visible lines (default 4).
     pub fn rows(mut self, rows: u32) -> Self {
         self.rows = rows.max(1);
         self
@@ -91,9 +120,39 @@ impl TextArea {
         self.max_length = Some(max);
         self
     }
-    /// Show an `x/limit` counter (requires `max_length`).
+    /// Show an `n/limit` counter (requires `max_length`).
     pub fn show_count(mut self, show: bool) -> Self {
         self.show_count = show;
+        self
+    }
+    /// The box grows with the text instead of clipping it at `rows`.
+    pub fn auto_grow(mut self, on: bool) -> Self {
+        self.auto_grow = on;
+        self
+    }
+    /// Read-only: no fill, a `separator` hairline.
+    pub fn read_only(mut self, on: bool) -> Self {
+        self.read_only = on;
+        self
+    }
+    /// The one-line capsule radius (a message bubble) instead of the size radius.
+    pub fn capsule(mut self, on: bool) -> Self {
+        self.capsule = on;
+        self
+    }
+    /// The control size (field text, padding and line height follow it).
+    pub fn size(mut self, size: ControlSize) -> Self {
+        self.size = size;
+        self
+    }
+    /// The box surface: filled (default) or the glass card layer.
+    pub fn appearance(mut self, appearance: FieldAppearance) -> Self {
+        self.appearance = appearance;
+        self
+    }
+    /// The tint (focus outline; default `Accent`).
+    pub fn tint(mut self, tint: ColorToken) -> Self {
+        self.tint = tint;
         self
     }
     pub fn state(mut self, state: InteractionState) -> Self {
@@ -105,221 +164,148 @@ impl TextArea {
         self
     }
 
-    fn caption(tokens: &dyn Tokens, text: String, color: ColorToken) -> LayoutNode {
-        LayoutNode::Text(
-            TextNode {
-                id: None,
-                content: TextContent::new(text),
-                style: TextStyle {
-                    font_size: tokens.type_size(TypographyToken::Sm),
-                    font_weight: FontWeight::Regular,
-                    // RFC-0082: the baked face's own line height. This was
-                    // `Relative(150)`, which the measurer never honored — now that
-                    // `Relative` IS honored it would silently grow every field, so
-                    // the intent is stated as "let the face decide" instead.
-                    line_height: LineHeight::Absolute(FxPx::new(20)),
-                    text_align: TextAlign::Left,
-                    color: tokens.color(color),
-                    white_space: WhiteSpace::NoWrap,
-                },
-                item: FlexItem::default(),
-                max_lines: Some(1),
-                min_width: None,
-                max_width: None,
-            },
-            VisualStyle::default(),
-        )
-    }
-
-    fn border_role(&self) -> ColorToken {
+    /// The validation state in effect: an error message always wins.
+    pub fn field_state(&self) -> FieldState {
         if self.error.is_some() {
-            ColorToken::Danger
-        } else if self.state.shows_focus_ring() {
-            ColorToken::FocusRing
+            FieldState::Error
         } else {
-            ColorToken::Border
+            self.validation
         }
     }
 
-    /// Build the text-area column.
-    pub fn build(self, tokens: &dyn Tokens) -> LayoutNode {
-        let border = tokens.color(self.border_role());
-        let mut box_style = Style::new()
-            .background(tokens.color(ColorToken::Surface))
-            .rounded(tokens.length(LengthToken::RadiusMedium))
-            .border(tokens.length(LengthToken::BorderThin), border);
-        if self.state.is_disabled() {
-            box_style = box_style.opacity(self.state.opacity());
+    /// The box's vertical padding: 4 / 4 / 8 / 12 / 12.
+    pub fn pad_y(&self) -> i32 {
+        match self.size {
+            ControlSize::Xs | ControlSize::Sm => 4,
+            ControlSize::Md => 8,
+            ControlSize::Lg | ControlSize::Xl => 12,
         }
+    }
 
-        // Body: value in primary ink, or placeholder in muted ink.
-        let (body_text, body_color) = if self.value.is_empty() {
-            (self.placeholder.clone().unwrap_or_default(), ColorToken::OnSurfaceVariant)
+    /// The box's minimum height: `rows × line + 2 × padY + 2` (the 1 px border on both edges).
+    pub fn min_box_height(&self) -> i32 {
+        let line = FieldMetrics::of(self.size).line();
+        self.rows as i32 * line + 2 * self.pad_y() + 2
+    }
+
+    /// The box radius: the size radius, or half the one-line box (`(line + 2·padY + 2) / 2`).
+    pub fn radius(&self) -> FxPx {
+        if self.capsule {
+            FxPx::new((FieldMetrics::of(self.size).line() + 2 * self.pad_y() + 2) / 2)
         } else {
-            (self.value.clone(), ColorToken::OnSurface)
+            self.size.field_radius().px()
+        }
+    }
+
+    /// The footer: message (state colour) and the counter, footnote, inset 2 px.
+    fn footer(&self, state: FieldState, tokens: &dyn Tokens) -> Option<LayoutNode> {
+        let message = self.error.as_ref().or(self.helper.as_ref());
+        let counter = (self.show_count && self.max_length.is_some()).then(|| {
+            let n = self.value.chars().count();
+            let style =
+                TextStyleToken::Footnote.text_style(tokens.color(ColorToken::LabelSecondary), None);
+            field::text_node(format!("{}/{}", n, self.max_length.unwrap_or(0)), style)
+        });
+        if message.is_none() && counter.is_none() {
+            return None;
+        }
+        let mut kids: Vec<LayoutNode> = Vec::new();
+        if let Some(message) = message {
+            let style = TextStyleToken::Footnote.text_style(tokens.color(state.message()), None);
+            kids.push(field::text_node(message.as_str(), style));
+        }
+        let mut row = Stack {
+            direction: Direction::Row,
+            gap: FxPx::new(8),
+            align: Align::Center,
+            justify: Justify::SpaceBetween,
+            ..Stack::default()
+        };
+        row.item.margin.left = FxPx::new(2);
+        if let Some(counter) = counter {
+            if kids.is_empty() {
+                // `margin-left: auto`: a lone counter still sits at the end.
+                row.justify = Justify::End;
+            }
+            kids.push(counter);
+        }
+        Some(LayoutNode::Stack(row, VisualStyle::default(), kids))
+    }
+
+    /// Build the text-area column (label · box · footer).
+    pub fn build(self, tokens: &dyn Tokens) -> LayoutNode {
+        let m = FieldMetrics::of(self.size);
+        let state = self.field_state();
+        let radius = self.radius();
+        let style = field::surface(self.appearance, state, self.read_only, tokens).rounded(radius);
+        // Body: the value in `label`, or the placeholder in `labelTertiary`.
+        let (body_text, body_color) = if self.value.is_empty() {
+            (self.placeholder.clone().unwrap_or_default(), ColorToken::LabelTertiary)
+        } else {
+            (self.value.clone(), ColorToken::Label)
         };
         let body = LayoutNode::Text(
             TextNode {
                 id: self.id,
                 content: TextContent::new(body_text),
                 style: TextStyle {
-                    font_size: tokens.type_size(TypographyToken::Base),
-                    font_weight: FontWeight::Regular,
-                    // RFC-0082: the baked face's own line height. This was
-                    // `Relative(150)`, which the measurer never honored — now that
-                    // `Relative` IS honored it would silently grow every field, so
-                    // the intent is stated as "let the face decide" instead.
-                    line_height: LineHeight::Absolute(FxPx::new(20)),
-                    text_align: TextAlign::Left,
-                    color: tokens.color(body_color),
                     white_space: WhiteSpace::Normal,
+                    ..m.text.text_style(tokens.color(body_color), Some(FontWeight::Medium))
                 },
-                item: FlexItem::default(),
-                max_lines: Some(self.rows),
-                min_width: None,
-                max_width: None,
+                max_lines: (!self.auto_grow).then_some(self.rows),
+                ..TextNode::default()
             },
             VisualStyle::default(),
         );
-        let field_box = LayoutNode::Stack(
-            Stack {
-                id: None,
-                direction: Direction::Column,
-                gap: FxPx::ZERO,
-                padding: EdgeInsets::symmetric(FxPx::new(8), FxPx::new(12)),
-                align: Align::Start,
-                justify: Justify::Start,
-                overflow: Overflow::Hidden,
-                flex_wrap: false,
-                min_width: Some(FxPx::new(200)),
-                max_width: None,
-                min_height: Some(FxPx::new(self.rows as i32 * LINE)),
-                max_height: None,
-                item: FlexItem::default(),
-                text_fit: None,
-            },
-            box_style.visual(),
-            alloc::vec![body],
-        );
-
-        // Footer: helper/error on the left, counter on the right.
-        let left = self
-            .error
-            .clone()
-            .map(|e| Self::caption(tokens, e, ColorToken::Danger))
-            .or_else(|| {
-                self.helper.clone().map(|h| Self::caption(tokens, h, ColorToken::OnSurfaceVariant))
-            });
-        let counter = (self.show_count && self.max_length.is_some()).then(|| {
-            let n = self.value.chars().count();
-            Self::caption(
-                tokens,
-                format!("{}/{}", n, self.max_length.unwrap_or(0)),
-                ColorToken::OnSurfaceVariant,
-            )
-        });
-
-        let mut col: Vec<LayoutNode> = Vec::new();
-        if let Some(label) = self.label.clone() {
-            col.push(Self::caption(tokens, label, ColorToken::OnSurfaceVariant));
-        }
-        col.push(field_box);
-        if left.is_some() || counter.is_some() {
-            let mut footer: Vec<LayoutNode> = Vec::new();
-            if let Some(l) = left {
-                footer.push(l);
-            }
-            footer.push(LayoutNode::Spacer(Spacer {
-                id: None,
-                flex_grow: 1,
-                min_size: Some(FxPx::new(8)),
-                item: FlexItem::default(),
-            }));
-            if let Some(c) = counter {
-                footer.push(c);
-            }
-            col.push(LayoutNode::Stack(
-                Stack {
-                    id: None,
-                    direction: Direction::Row,
-                    gap: FxPx::new(8),
-                    padding: EdgeInsets::zero(),
-                    align: Align::Center,
-                    justify: Justify::Start,
-                    overflow: Overflow::Visible,
-                    flex_wrap: false,
-                    min_width: None,
-                    max_width: None,
-                    min_height: None,
-                    max_height: None,
-                    item: FlexItem::default(),
-                    text_fit: None,
-                },
-                VisualStyle::default(),
-                footer,
+        let pad_y = FxPx::new(self.pad_y());
+        let padding = EdgeInsets::symmetric(pad_y + HAIRLINE, m.pad + HAIRLINE);
+        let mut kids = alloc::vec![body];
+        if self.state.shows_focus_ring() {
+            kids.push(focus_ring(
+                tokens.color(state.ring(self.tint)),
+                radius,
+                padding,
+                RING_OFFSET,
             ));
         }
-
+        let field_box = LayoutNode::Stack(
+            Stack {
+                direction: Direction::Column,
+                padding,
+                align: Align::Stretch,
+                overflow: if self.auto_grow { Overflow::Visible } else { Overflow::Hidden },
+                min_width: Some(FxPx::new(MIN_FIELD_WIDTH)),
+                min_height: Some(FxPx::new(self.min_box_height())),
+                ..Stack::default()
+            },
+            style.visual(),
+            kids,
+        );
+        let mut col: Vec<LayoutNode> = Vec::new();
+        if let Some(label) = &self.label {
+            col.push(field::label_node(label, &m, tokens));
+        }
+        col.push(field_box);
+        if let Some(footer) = self.footer(state, tokens) {
+            col.push(footer);
+        }
+        let mut visual = VisualStyle::default();
+        if self.state.is_disabled() {
+            visual.opacity = Some(DISABLED_OPACITY);
+        }
         LayoutNode::Stack(
             Stack {
-                id: None,
                 direction: Direction::Column,
-                gap: FxPx::new(4),
-                padding: EdgeInsets::zero(),
-                align: Align::Start,
-                justify: Justify::Start,
-                overflow: Overflow::Visible,
-                flex_wrap: false,
-                min_width: None,
-                max_width: None,
-                min_height: None,
-                max_height: None,
+                gap: FxPx::new(8),
+                align: Align::Stretch,
                 item: FlexItem::default(),
-                text_fit: None,
+                ..Stack::default()
             },
-            VisualStyle::default(),
+            visual,
             col,
         )
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use nexus_theme_tokens::BaseTokens;
-
-    #[test]
-    fn rows_size_the_box_and_error_adds_footer() {
-        let t = BaseTokens;
-        let ta = TextArea::new().label("Notiz").rows(5).error("Pflichtfeld");
-        assert_eq!(ta.border_role(), ColorToken::Danger);
-        match ta.build(&t) {
-            LayoutNode::Stack(_, _, col) => {
-                assert_eq!(col.len(), 3, "label + box + footer");
-                // box min height = rows * LINE.
-                match &col[1] {
-                    LayoutNode::Stack(s, _, _) => {
-                        assert_eq!(s.min_height, Some(FxPx::new(5 * LINE)))
-                    }
-                    _ => panic!(),
-                }
-            }
-            _ => panic!(),
-        }
-    }
-
-    #[test]
-    fn counter_requires_show_count_and_max_length() {
-        let t = BaseTokens;
-        // No counter without show_count.
-        match TextArea::new().value("hi").max_length(280).build(&t) {
-            LayoutNode::Stack(_, _, col) => assert_eq!(col.len(), 1, "just the box"),
-            _ => panic!(),
-        }
-        // With both → footer appears.
-        match TextArea::new().value("hi").max_length(280).show_count(true).build(&t) {
-            LayoutNode::Stack(_, _, col) => assert_eq!(col.len(), 2, "box + footer"),
-            _ => panic!(),
-        }
-    }
-}
+mod tests;
