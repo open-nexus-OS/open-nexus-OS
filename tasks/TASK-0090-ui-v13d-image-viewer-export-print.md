@@ -3,8 +3,10 @@ schema: 1
 id: TASK-0090
 title: "UI v13d: Image Viewer app (png/jpeg/svg) + zoom/pan/rotate/export + clipboard image + print integration"
 status: draft
+status_note: "recut 2026-11-10: the viewer is TASK-0369 P5 (the Images app of the design artifacts), the decoders TASK-0369 P1; export and print stay here"
 owner: ["@ui"]
 created: 2025-12-23
+updated: 2026-11-10
 subsystem: ui
 tracks: [TRACK-NEXUSMEDIA-SDK, TRACK-MEDIA-APPS]
 links:

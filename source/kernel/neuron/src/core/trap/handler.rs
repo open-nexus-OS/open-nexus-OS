@@ -265,7 +265,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
             if matches!(outcome, crate::smp::ReschedTrapOutcome::Acked)
                 && frame.sstatus & SSTATUS_SPP == 0
             {
-                if let Ok(mut kernel) = KernelGuard::acquire() {
+                if let Ok(mut kernel) = KernelGuard::acquire_as(crate::lock_share::IPI) {
                     // ADR-0082: the IPI may carry an order for the interrupted task.
                     if super::pending::run_pending_guarded(frame, &mut kernel) {
                         return;
@@ -335,7 +335,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
             const SSTATUS_SPP: usize = 1 << 8;
             let interrupted_user = frame.sstatus & SSTATUS_SPP == 0;
             if interrupted_user {
-                if let Ok(mut kernel) = KernelGuard::acquire() {
+                if let Ok(mut kernel) = KernelGuard::acquire_as(crate::lock_share::TIMER) {
                     // BKL held for the whole delivery+preempt sequence (A2a);
                     // released on scope exit, before the asm epilogue runs.
                     // ADR-0082: an order left for the interrupted task runs first.
@@ -502,7 +502,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
         }
 
         // Acquire the BKL for the full syscall dispatch (A2a).
-        let mut kernel = match KernelGuard::acquire() {
+        let mut kernel = match KernelGuard::acquire_as(frame.x[17]) {
             Ok(kernel) => kernel,
             Err(reason) => {
                 // RFC-0003: keep logs unified and deterministic; avoid ad-hoc debug spam.

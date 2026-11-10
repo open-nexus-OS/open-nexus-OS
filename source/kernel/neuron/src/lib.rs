@@ -478,6 +478,13 @@ mod ipc_stats;
 // riscv/none-only), so the window rule and the units run on host. Fed by `trap::budgets`.
 #[path = "core/trap/lock_stats.rs"]
 mod lock_stats;
+// TASK-0330 P0: where the kernel lock's time goes (per holder, in sum) and how long a
+// runnable task waits for a hart (per class) — both NOT target-gated, host-tested. Fed by
+// `trap::runtime::KernelGuard` at release and by the scheduler at dispatch.
+#[path = "core/trap/lock_share.rs"]
+mod lock_share;
+#[path = "sched/ready_stats.rs"]
+mod ready_stats;
 // TASK-0333 6c-1a (ADR-0079): the pure cache-maintenance rule — NOT target-gated, so the
 // decode and the decision run on host. Fed by `trap::cache_right`.
 #[path = "core/trap/cbo_rule.rs"]

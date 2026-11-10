@@ -5,7 +5,7 @@ role: guide
 subsystem: kernel
 sources: [source/kernel/neuron/src/core/smp, source/kernel/neuron/src/sync, source/kernel/neuron/src/core/cpu_main.rs, source/kernel/neuron/src/core/trap/runtime.rs]
 contracts: [RFC-0021, ADR-0049, ADR-0052]
-verified: 2026-11-02
+verified: 2026-11-10
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -37,7 +37,14 @@ the gate:
 - `KINIT: cpuN online` per hart, `KINIT: hartN disabled by the tree — not started` for a hart the
   device tree disables;
 - `KGATE: smp bringup ok mask=0x…`, or `KGATE: smp bringup DEGRADED expected=… got=…` — a lost hart
-  degrades the boot loudly instead of killing it.
+  degrades the boot loudly instead of killing it;
+- `KINIT: isa from hart=… base= f= d= v= …` — what the tree states the harts offer, one line per
+  run of harts stating the same (`source/kernel/neuron/src/core/boot_fdt.rs`);
+- `KINIT: cpuN speed (loop_us= iters= left=)` — the time of one fixed two-instruction loop when
+  the hart first enters its scheduling loop; the same loop runs on the stock system for the
+  comparison of the clocks (`docs/board/measurements/2026-11-10-smp-baseline/hartspeed.rs`).
+
+RFC-0118 replaces `MAX_CPUS` by the tree's hart count (TASK-0330 P1).
 
 ## CPU identity
 
@@ -65,6 +72,16 @@ BKL so log lines stay whole) takes no lock, phased syscalls drop it for their
 expensive middle, cpu0 (display and input) gets right of way while it waits, and a hart spinning on
 the BKL keeps servicing TLB shootdown requests. Hold and wait times are budgeted in
 `source/kernel/neuron/src/core/trap/budgets.rs`; a breach fails the boot gate.
+
+Every take names its holder (`KernelGuard::acquire_as`: a syscall number, or the timer, an
+IPI, an external interrupt, a fault, the scheduling loop), and the boot-end fence prints where
+the lock's time went in the steady window (`source/kernel/neuron/src/core/trap/lock_share.rs`,
+`baseline.rs`): `KINIT: bkl held us (sched= ipc= mm= task= caps= misc= timer= ipi= ext= fault=
+idle=)`, `KINIT: bkl takes (…)` and `KINIT: bkl top sum` for the three largest holders;
+`KINIT: ready latency class=…` states how long a runnable task waited for a hart, per QoS class
+(`source/kernel/neuron/src/sched/ready_stats.rs`). The lines are read in
+`docs/board/measurements/2026-11-10-smp-baseline/`. The lock's end is RFC-0102: classes with one
+rank order, a budget per class, no global lock.
 
 ## Rescheduling
 

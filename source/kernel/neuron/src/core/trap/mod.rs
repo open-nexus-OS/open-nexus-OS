@@ -138,6 +138,8 @@ impl TrapFrame {
 // original visibility; submodule-private helpers are widened to pub(super) only.
 // NOTE: `uart_dbg_block!`/`ecall_log` above must stay ABOVE these `mod` items
 // (macro_rules textual scope descends into the submodules).
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+pub mod baseline;
 pub mod budgets;
 mod cache_right;
 mod errno;

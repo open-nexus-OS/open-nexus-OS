@@ -383,7 +383,7 @@ pub(super) fn fill_user_fault(frame: &mut TrapFrame, exc: usize, stval: usize) -
         _ => return false,
     };
     // U-mode fault → this hart holds no BKL; safe to acquire.
-    let Ok(mut kernel) = KernelGuard::acquire() else { return false };
+    let Ok(mut kernel) = KernelGuard::acquire_as(crate::lock_share::FAULT) else { return false };
     let (scheduler, tasks, router, spaces, _timer, hart_timers, waitsets, fences) = kernel.parts();
     let pid = tasks.current_pid();
     let Some(handle) = tasks.current_task().address_space() else { return false };
@@ -443,7 +443,7 @@ pub(super) fn kill_faulting_user_task(frame: &mut TrapFrame) {
         crate::smp::tlb::ACT_FAULT_KILL,
         0,
     );
-    if let Ok(mut kernel) = KernelGuard::acquire() {
+    if let Ok(mut kernel) = KernelGuard::acquire_as(crate::lock_share::FAULT) {
         crate::smp::tlb::note_activity(
             crate::smp::cpu_current_id(),
             crate::smp::tlb::ACT_FAULT_KILL,

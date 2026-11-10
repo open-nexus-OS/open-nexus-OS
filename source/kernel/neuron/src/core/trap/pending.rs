@@ -63,7 +63,7 @@ pub(crate) fn stage_wake(ctx: &mut crate::syscall::api::Context<'_>, old_pid: cr
 /// BKL could not be taken: the source stays stashed for the idle loop.
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 pub(crate) fn deliver_external(frame: &mut TrapFrame) -> bool {
-    let Ok(mut kernel) = KernelGuard::acquire() else {
+    let Ok(mut kernel) = KernelGuard::acquire_as(crate::lock_share::EXTERNAL) else {
         return false;
     };
     let (scheduler, tasks, router, spaces, _timer, _ht, _ws, _fences) = kernel.parts();

@@ -33,7 +33,8 @@ because apps had hard-coded sizes).
    `nx ledger phase TASK-N P1 --story "…" --gate "<marker or command> <value>"`
 7. **Three lenses** (`architecture-review`) for anything structural; its three lines go into the
    ledger body.
-8. **Place it.** `nx ledger step <milestone> <KEY> --tasks TASK-N`, and this week's sprint:
+8. **Place it.** `nx ledger step <milestone> <KEY> --tasks TASK-N` (a new step: `--after <KEY>`,
+   the steps are the order), and this week's sprint:
    `nx ledger plan TASK-N P1,P2 --p50 … --p85 … --sample-size …`.
 
 ## While building

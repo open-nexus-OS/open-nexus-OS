@@ -348,7 +348,7 @@ fn activate_steps(repo: &mut Repo, task_id: &str, today: &str) -> Result<Vec<Str
             })
             .unwrap_or_default();
         for key in keys {
-            step(repo, &mid, &key, &[("state", "active")], today)?;
+            step(repo, &mid, &key, &[("state", "active")], None, today)?;
             activated.push(format!("{mid}/{key}"));
         }
     }
@@ -360,11 +360,15 @@ pub(crate) fn step(
     mid: &str,
     key: &str,
     updates: &[(&str, &str)],
+    after: Option<&str>,
     today: &str,
 ) -> Result<String, String> {
     let mut doc = take(repo, mid)?;
     if doc.kind != Kind::Milestone {
         return Err(format!("{mid}: not a milestone"));
+    }
+    if after == Some(key) {
+        return Err(format!("{mid}: step {key} cannot follow itself"));
     }
     let order = order(fields(Kind::Milestone));
     let mut updates = updates.to_vec();
@@ -381,9 +385,30 @@ pub(crate) fn step(
         }
     }
     let created = upsert(&mut doc.entries, "steps", "key", key, STEP, &updates, &order)?;
+    if let Some(after) = after {
+        place_after(&mut doc.entries, key, after, &order).map_err(|e| format!("{mid}: {e}"))?;
+    }
     commit(repo, &mut doc, today)?;
     repo.docs.push(doc);
     Ok(format!("{mid}: step {key} {}", if created { "added" } else { "updated" }))
+}
+
+/// A milestone's steps are its order: step `key` moves directly behind step `after`.
+fn place_after(
+    entries: &mut Entries,
+    key: &str,
+    after: &str,
+    order_top: &[&str],
+) -> Result<(), String> {
+    let mut steps: Vec<Entries> =
+        yaml::get(entries, "steps").map(|v| v.records().to_vec()).unwrap_or_default();
+    let at = |steps: &[Entries], k: &str| steps.iter().position(|r| get_text(r, "key") == Some(k));
+    let from = at(&steps, key).ok_or_else(|| format!("no step {key}"))?;
+    let moved = steps.remove(from);
+    let behind = at(&steps, after).ok_or_else(|| format!("no step {after} to follow"))?;
+    steps.insert(behind + 1, moved);
+    yaml::set(entries, "steps", Some(Value::Records(steps)), order_top);
+    Ok(())
 }
 
 /// Add or change one planned story set of a sprint (a task and the phases chosen this week).

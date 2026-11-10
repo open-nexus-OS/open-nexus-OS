@@ -70,10 +70,28 @@ static KERNEL_LOCK: crate::sync::spin_irq::SpinIrqLock<()> =
 pub(crate) struct KernelGuard {
     _bkl: crate::sync::spin_irq::SpinIrqGuard<'static, ()>,
     pub(super) handles: KernelHandles,
+    /// Who took the lock (`lock_share`: a syscall number or a trap kind) and at which tick —
+    /// the release adds the time between to that holder's sum (TASK-0330 P0).
+    holder: usize,
+    taken_at: u64,
+}
+
+impl Drop for KernelGuard {
+    fn drop(&mut self) {
+        // Recorded while the lock is still held (the fields drop after this body).
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+        crate::lock_share::record(
+            self.holder,
+            self.taken_at,
+            (riscv::register::time::read() as u64).saturating_sub(self.taken_at),
+        );
+    }
 }
 
 impl KernelGuard {
-    pub(crate) fn acquire() -> Result<Self, RuntimeKernelAccessFailure> {
+    /// Takes the lock for `holder` (`lock_share`: a syscall number or a trap kind). Every take
+    /// names its holder; there is no unnamed take.
+    pub(crate) fn acquire_as(holder: usize) -> Result<Self, RuntimeKernelAccessFailure> {
         // A3: every hart serves the runtime; exclusion comes from the BKL,
         // not from a boot-hart gate.
         // Bounded contention probe: long acquisition spins are the smoking
@@ -127,9 +145,11 @@ impl KernelGuard {
         };
         #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
         let bkl = KERNEL_LOCK.lock();
+        // One clock read serves both: the end of the wait is the start of the hold.
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-        {
-            let waited = (riscv::register::time::read() as u64).saturating_sub(t0);
+        let taken_at = {
+            let taken_at = riscv::register::time::read() as u64;
+            let waited = taken_at.saturating_sub(t0);
             super::budgets::record_bkl_wait(t0, waited);
             // More than 1 ms of the platform's timebase spent spinning for the lock
             // (was the literal `10_000` ticks — 1 ms only at QEMU's 10 MHz).
@@ -145,13 +165,16 @@ impl KernelGuard {
                     );
                 }
             }
-        }
+            taken_at
+        };
+        #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+        let taken_at = 0;
         let handles = TRAP_RUNTIME
             .lock()
             .as_ref()
             .map(|runtime| runtime.kernel)
             .ok_or(RuntimeKernelAccessFailure::NotInstalled)?;
-        Ok(Self { _bkl: bkl, handles })
+        Ok(Self { _bkl: bkl, handles, holder, taken_at })
     }
 
     /// Materializes the full `&mut` set. The borrows are tied to `&mut self`,

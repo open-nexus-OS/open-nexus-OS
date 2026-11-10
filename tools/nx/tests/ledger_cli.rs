@@ -7,7 +7,7 @@
 //! OWNERS: @tools-team
 //! STATUS: Functional
 //! API_STABILITY: Stable
-//! TEST_COVERAGE: 25 integration tests.
+//! TEST_COVERAGE: 27 integration tests.
 //!
 //! TEST_SCOPE:
 //!   - lint: canonical files pass, every rule rejects its violation (rules 1–12)
@@ -388,6 +388,37 @@ fn step_done_stamps_its_date_and_table_counts_it() {
     assert!(m.contains("    state: done\n    done: 2026-11-03\n"));
     let o = nx(dir.path(), &["table"]);
     assert!(text(&o).contains("| **Total** | **1** | **0** | **0** | |"), "{}", text(&o));
+}
+
+#[test]
+fn step_after_places_a_step_in_the_order() {
+    let dir = repo();
+    let add = |key: &str, extra: &[&str]| {
+        let mut args =
+            vec!["step", "fast-lane", key, "--section", "B0", "--story", "s", "--state", "planned"];
+        args.extend_from_slice(extra);
+        let o = nx(dir.path(), &args);
+        assert!(o.status.success(), "{}", text(&o));
+    };
+    add("T2", &[]);
+    add("T1", &["--after", "T0"]);
+    let m = fs::read_to_string(dir.path().join("tasks/milestones/fast-lane.md")).expect("read");
+    let at = |k: &str| m.find(&format!("  - key: {k}\n")).expect("step");
+    assert!(at("T0") < at("T1") && at("T1") < at("T2"), "{m}");
+    assert!(nx(dir.path(), &["lint"]).status.success());
+}
+
+#[test]
+fn test_reject_step_after_an_unknown_step_or_itself() {
+    let dir = repo();
+    let before =
+        fs::read_to_string(dir.path().join("tasks/milestones/fast-lane.md")).expect("read");
+    for after in ["T9", "T0"] {
+        let o = nx(dir.path(), &["step", "fast-lane", "T0", "--after", after]);
+        assert_eq!(o.status.code(), Some(3), "{}", text(&o));
+    }
+    let m = fs::read_to_string(dir.path().join("tasks/milestones/fast-lane.md")).expect("read");
+    assert_eq!(m, before);
 }
 
 #[test]

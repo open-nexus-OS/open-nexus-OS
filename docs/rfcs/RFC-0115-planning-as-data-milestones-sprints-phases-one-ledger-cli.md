@@ -259,7 +259,7 @@ nx ledger set <ID> <key> <value>      # status changes stamp started/done with t
 nx ledger goal <ID> <metric> <baseline> <target> <instrument>
 nx ledger result <ID> <value>         # goal.result: the measured value at close
 nx ledger phase <ID> <P> [--state] [--story] [--gate] [--metric] [--evidence] [--note]
-nx ledger step <milestone> <KEY> [--state] [--story] [--section] [--tasks] [--gate]
+nx ledger step <milestone> <KEY> [--state] [--story] [--section] [--tasks] [--gate] [--after <KEY>]
 nx ledger plan <ID> <P,P> [--week] [--p50] [--p85] [--sample-size]
 nx ledger review [<week>]             # completed/slipped counted from the phases, written, printed
 nx ledger new task --title … --subsystem … --owner …   # next free number, template body

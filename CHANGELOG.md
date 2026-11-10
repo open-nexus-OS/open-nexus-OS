@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-11-10 (the SMP lane opens — TASK-0330 P0)
+
+- **The kernel lock says where its time goes**: every take names its holder (a syscall number,
+  the timer, an IPI, an external interrupt, a fault, the scheduling loop) and the boot-end
+  fence prints the steady window's time per subsystem (`KINIT: bkl held us`, `bkl takes`,
+  `bkl top sum`); a runnable task's wait for a hart is counted per QoS class
+  (`KINIT: ready latency class=`); each hart states its speed as the time of one fixed loop
+  (`KINIT: cpuN speed`) and the boot states what the tree says the harts offer
+  (`KINIT: isa from hart=`). First finding: a blocking receive and a capability close walk
+  every capability table under the lock — TASK-0330 P5.
+- **The lane is planned as data**: TASK-0330 P0–P5 and TASK-0362–0369 (hard float and vectors,
+  the scheduler with time rights, threads and a futex, placement by load, the runtime, app-host
+  on several harts, the compute broker's second version, pictures and the Images app), the
+  milestone's steps L7, L8.3, L9.1 and L9.2; RFC-0102 (lock classes, ranks, budgets) and
+  RFC-0118 (n harts from the device tree) seeded. `nx ledger step … --after <KEY>` places a new
+  step in the order.
+
 ### Fixed - 2026-11-09/10 (the design on the board — TASK-0353)
 
 - **The design package closes on what today's vocabulary can express**: of the design artifacts'

@@ -2,24 +2,26 @@
 schema: 1
 id: TASK-0330
 title: "SMP v3: n harts from the FDT (boot-sized per-hart state, 64-bit CpuSet ABI, MAX_CPUS deleted) + cluster topology, per-hart PLIC/IRQ affinity, the IPC router and the address spaces out of the BKL, per-ASID shootdown"
-status: draft
+status: in_progress
 status_note: "recut 2026-10-06 to the end state; P0 seeded 2026-11-09 (W46), the phases after P0 are planned in the repo"
 owner: ["@kernel-team"]
 created: 2026-09-21
-updated: 2026-11-09
+updated: 2026-11-10
 subsystem: kernel
 kind: service
 novelty: variant
-estimate: 3
+estimate: 5
+started: 2026-11-10
+dates_source: recorded
 goal:
   metric: "harts online on the board; BKL max hold and max wait on the board"
   baseline: "4 of 8 harts (MAX_CPUS = 4, the second cluster stays HSM STOPPED); bkl budget max_hold=10 ms, max_wait=10615 us (S0, 2026-10-10, before layers 6 and 8)"
   target: "KSELFTEST: smp online ok harts=8 clusters=2 on the board, IRQs served off hart 0, 0 lost harts in 10 QEMU -smp 8 boots"
   instrument: "KSELFTEST: smp online line · KGATE: smp bringup line · bkl budget line (core/trap/lock_stats.rs)"
-consumer: L8.3
+consumer: hardware-network/L8.3
 depends_on: []
 follow_ups: []
-implements: [RFC-0102]
+implements: [RFC-0102, RFC-0118]
 links:
   - label: "Execution order (the lane this belongs to)"
     target: tasks/milestones/hardware-network.md
@@ -40,8 +42,31 @@ links:
 phases:
   - id: P0
     story: "today's SMP baseline is measured after layers 6 and 8: harts online, the BKL's holds and waits with their top holders, the lost-hart rate, and the MAX_CPUS inventory re-checked against the code TASK-0352 changed"
+    state: proving
+    gate: "board: KGATE: smp bringup and bkl budget lines logged (harts online N of 8, max_hold, max_wait, top 3 holders in ms), the kernel lock's hold split by subsystem (scheduler, IPC router, address spaces, fault path), the wake-to-run histogram per class, the cost of a resched IPI, the harts' clock against the stock system's and the tree's riscv,isa line; QEMU: 10 boots at -smp 8 with the lost-hart count; the S0 inventory table updated with the count of MAX_CPUS-sized statics and literal masks left; the split order written as an ADR from these numbers"
+    started: 2026-11-10
+    note: "2026-11-10: built and proven on QEMU — one-hart lane green with every take named (build/logs/smp1--2026-11-10T18-30-11), ten of ten boots with eight harts in the tree start four and lose none, inventory counted, hypotheses H1-H8 written (docs/board/measurements/2026-11-10-smp-baseline); just check and just diag green; first finding -> P5; waits for the board cycle and the stock-side speed run"
+  - id: P1
+    story: "every hart the device tree names runs: per-hart state comes from a boot slab sized by the tree, a CPU set is 64 bits wide in the ABI, MAX_CPUS is deleted, the cluster topology is exported, every hart has its PLIC context and serves interrupts, and a hart that failed to start is started again at its physical address"
     state: planned
-    gate: "board: KGATE: smp bringup and bkl budget lines logged (harts online N of 8, max_hold, max_wait, top 3 holders in ms); QEMU: 10 boots at -smp 8 with the lost-hart count; the S0 inventory table updated with the count of MAX_CPUS-sized statics and literal masks left"
+    gate: "host: the topology equals the goldens of bpi-f3.dtb and virt.dtb, CpuSet and pin rejects; QEMU: ci-os-smp green and 0 lost harts in 10 boots at -smp 8; board: KSELFTEST: smp online ok harts=8 clusters=2 and an interrupt served off hart 0; retired-name gate for MAX_CPUS"
+  - id: P2
+    story: "an IPC between two services on two harts waits for no third: an endpoint, a waitset and a fence each carry their own lock, a process's capability table its own, and a call lends the caller's time right to the thread that serves it"
+    state: planned
+    gate: "host: lock-rank tests for the IPC objects; QEMU: the -smp 8 stress lane green; board: KSELFTEST: ipc call budget ok (rt <= 64 us) measured on every hart and no IPC syscall among the kernel lock's holders"
+  - id: P3
+    story: "a page fault and a mapping on one hart wait for no other process: a lock per address space and per memory object, frames from a per-hart magazine, and a shootdown reaches only the harts that ran the address space"
+    state: planned
+    gate: "KSELFTEST: tlb shootdown targeted ok (harts reached <= harts that ran the ASID, counted); board: the fault path's longest hold below 100 us and 8 threads touching fresh pages reach >= 6x the rate of one"
+  - id: P4
+    story: "no kernel path takes a global lock: the kernel lock and its guard are deleted, a wrong lock order is refused by a rank check in debug builds, and every lock class has a budget the boot gate judges"
+    state: planned
+    gate: "retired-name gate for KERNEL_LOCK and KernelGuard; board: KSELFTEST: lock budgets ok for every class at 8 harts; the smp8 lane part of test-all and test-all green"
+  - id: P5
+    story: "a blocking receive and a capability close cost what they touch, not what the system holds: an endpoint and a memory object count the capabilities that name them (for an endpoint: send, receive, any) where one is installed, moved into a message, received or dropped, and no path walks another process's capability table — built right after P0, before the split order is decided, so the order is not read from a scan"
+    state: planned
+    gate: "host: the counts equal a census after 10 000 random capability operations (model test) and the census walk is deleted (retired-name gate endpoint_census); one-hart lane (instruction-counted): KINIT: bkl held us / bkl takes per take ipc <= 15 us and caps <= 25 us (were 57 and 106, build/logs/smp1--2026-11-10T17-43-51); board: both per-take values at most a quarter of P0's board baseline"
+    note: "found by P0's instrument 2026-11-10: every blocking receive on an empty queue (eof_scan::foreign_sender_remains), every close of an endpoint capability (eof_scan::census) and every close or destroy of a memory object (mm/reclaim.rs names, sys_vmo_destroy) walks all capability slots of all tasks under the kernel lock — receive 152 us and close 238 us per take on the one-hart lane, the two largest holders (id=18, id=20)"
 ---
 
 > Status (migrated 2026-11-02): Draft (recut 2026-10-06 to the end state — n harts from the FDT, not `MAX_CPUS` 4 → 8; no distributed kernel; seeded 2026-09-21 by the hardware fast track — `tasks/IMPLEMENTATION-ORDER.md`; starts after Block 3)

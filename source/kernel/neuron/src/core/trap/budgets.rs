@@ -79,6 +79,8 @@ pub fn hold_report() -> ([usize; 4], [(usize, u64); 3]) {
 /// tick the new window begins at.
 pub fn reset(now: u64) {
     crate::lock_stats::reset(now);
+    crate::lock_share::reset(now);
+    crate::ready_stats::reset(now);
     SWEEP_MAX_TICKS.store(0, Ordering::Relaxed);
     SWEEP_MAX_TASKS.store(0, Ordering::Relaxed);
     SWEEP_CALLS.store(0, Ordering::Relaxed);

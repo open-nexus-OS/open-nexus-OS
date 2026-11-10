@@ -73,7 +73,7 @@ pub(crate) fn handle_ledger(args: LedgerArgs) -> ExecResult {
             };
             edit::phase(&mut repo, &id, &phase, &e, &today).map_err(fail).and_then(ok)
         }
-        LedgerAction::Step { milestone, key, state, story, section, tasks, gate } => {
+        LedgerAction::Step { milestone, key, state, story, section, tasks, gate, after } => {
             let mut updates = Vec::new();
             for (k, v) in [
                 ("section", &section),
@@ -86,7 +86,9 @@ pub(crate) fn handle_ledger(args: LedgerArgs) -> ExecResult {
                     updates.push((k, v.as_str()));
                 }
             }
-            edit::step(&mut repo, &milestone, &key, &updates, &today).map_err(fail).and_then(ok)
+            edit::step(&mut repo, &milestone, &key, &updates, after.as_deref(), &today)
+                .map_err(fail)
+                .and_then(ok)
         }
         LedgerAction::Plan { week, task, phases, p50, p85, sample_size } => {
             let mut updates = vec![("phases", phases.as_str())];

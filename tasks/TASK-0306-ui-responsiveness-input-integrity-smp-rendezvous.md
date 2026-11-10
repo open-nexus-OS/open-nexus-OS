@@ -3,9 +3,10 @@ schema: 1
 id: TASK-0306
 title: "UI responsiveness — input integrity, SMP rendezvous, BKL hold reduction"
 status: in_progress
-status_note: "(2026-07-26) — Phase 1 done, Phase 2 partial, Phase 3 open"
+status_note: "(2026-11-10) Phase 1 done, Phase 2 partial; Phase 3 (the scheduler off the kernel lock) moved to TASK-0363, the rest of the lock to TASK-0330 P2-P4"
 owner: ["@ui", "@kernel"]
 created: 2026-07-26
+updated: 2026-11-10
 subsystem: kernel
 started: 2026-07-26
 dates_source: git-reconstructed

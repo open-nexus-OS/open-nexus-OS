@@ -89,6 +89,10 @@ pub(crate) fn stage_idle_reentry_frame(frame: &mut crate::trap::TrapFrame) {
 static SCHED_LOOP_ENTERED: [core::sync::atomic::AtomicUsize; crate::smp::MAX_CPUS] =
     [const { core::sync::atomic::AtomicUsize::new(0) }; crate::smp::MAX_CPUS];
 
+/// Iterations of the hart-speed loop: two instructions each, a few milliseconds once per hart.
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+const SPEED_LOOP_ITERS: u64 = 1_000_000;
+
 /// True once `cpu` has entered its scheduler loop (see `SCHED_LOOP_ENTERED`).
 #[inline]
 pub(crate) fn sched_loop_entered(cpu: CpuId) -> bool {
@@ -103,6 +107,22 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
     // the hart reached its scheduler loop with the identity it claims.
     if SCHED_LOOP_ENTERED[cpu.as_index()].swap(1, core::sync::atomic::Ordering::AcqRel) == 0 {
         log_info!(target: "smp", "KINIT: cpu{} sched loop", cpu.as_index());
+        // TASK-0330 P0: the hart's speed as the time of one fixed loop of two instructions
+        // (the same machine code runs on the stock system for the comparison).
+        let (t0, mut left) = (riscv::register::time::read() as u64, SPEED_LOOP_ITERS);
+        // SAFETY: a register-only countdown; `left` is the one register written.
+        unsafe {
+            core::arch::asm!("2: addi {n}, {n}, -1", "bnez {n}, 2b", n = inout(reg) left, options(nomem, nostack));
+        }
+        let ticks = (riscv::register::time::read() as u64).saturating_sub(t0);
+        log_info!(
+            target: "smp",
+            "KINIT: cpu{} speed (loop_us={} iters={} left={})",
+            cpu.as_index(),
+            ticks / crate::hal::platform::ticks_per_us().max(1),
+            SPEED_LOOP_ITERS,
+            left
+        );
     }
     log_debug!(target: "kmain", "KMAIN: cpu{} entering scheduler loop", cpu.as_index());
     // EVERY hart must accept S-soft IPIs from here on — only secondaries used
@@ -156,7 +176,8 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
         }
 
         let attempt = {
-            let Ok(mut kernel) = crate::trap::KernelGuard::acquire() else {
+            let Ok(mut kernel) = crate::trap::KernelGuard::acquire_as(crate::lock_share::IDLE)
+            else {
                 // Runtime not installed yet — nothing to schedule.
                 core::hint::spin_loop();
                 continue;

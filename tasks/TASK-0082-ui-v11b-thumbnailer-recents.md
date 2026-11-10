@@ -3,8 +3,10 @@ schema: 1
 id: TASK-0082
 title: "UI v11b: thumbnailer (thumbd) + recents (recentsd) + caching/budgets"
 status: draft
+status_note: "recut 2026-11-10: thumbnails and their cache are TASK-0369 P6; recents stay here"
 owner: ["@ui"]
 created: 2025-12-23
+updated: 2026-11-10
 subsystem: ui
 links:
   - label: Vision

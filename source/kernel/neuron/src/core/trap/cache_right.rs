@@ -24,7 +24,7 @@ use crate::cbo_rule::{decide, Verdict};
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 pub(super) fn try_grant(frame: &TrapFrame, stval: usize) -> bool {
     // U-mode trap → this hart holds no BKL; safe to acquire (as `fill_user_fault`).
-    let Ok(mut kernel) = KernelGuard::acquire() else { return false };
+    let Ok(mut kernel) = KernelGuard::acquire_as(crate::lock_share::FAULT) else { return false };
     let (_, tasks, _, spaces, ..) = kernel.parts();
     let pid = tasks.current_pid();
     let Some(handle) = tasks.current_task().address_space() else { return false };

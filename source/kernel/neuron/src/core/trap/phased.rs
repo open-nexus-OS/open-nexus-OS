@@ -24,10 +24,11 @@ pub(super) fn is_phased(nr: usize) -> bool {
     matches!(nr, SYSCALL_VMO_CREATE | SYSCALL_EXEC_VMO | SYSCALL_VM_UNMAP | SYSCALL_VMO_CLEAN)
 }
 
-/// Spin-reacquire the BKL after a phased syscall dropped it (phase B).
-fn reacquire_kernel() -> super::runtime::KernelGuard {
+/// Spin-reacquire the BKL after a phased syscall dropped it (phase B); the later phase's hold
+/// counts for the syscall `nr` like its first (`lock_share`).
+fn reacquire_kernel(nr: usize) -> super::runtime::KernelGuard {
     loop {
-        if let Ok(k) = super::runtime::KernelGuard::acquire() {
+        if let Ok(k) = super::runtime::KernelGuard::acquire_as(nr) {
             break k;
         }
         core::hint::spin_loop();
@@ -80,7 +81,7 @@ pub(super) fn phased_syscall(
                 // Phase B: move the bytes with the BKL dropped.
                 drop(kernel);
                 api::run_copy_plan(&plan);
-                kernel = reacquire_kernel();
+                kernel = reacquire_kernel(nr);
                 ret
             }
             Err(err) => encode_error(err),
@@ -124,7 +125,7 @@ pub(super) fn phased_syscall(
             Ok(()) => {
                 drop(kernel);
                 crate::smp::tlb::shootdown_all();
-                kernel = reacquire_kernel();
+                kernel = reacquire_kernel(nr);
                 let (scheduler, tasks, router, spaces, timer, hart_timers, waitsets, fences) =
                     kernel.parts();
                 let mut ctx = api::Context::new(
@@ -182,7 +183,7 @@ pub(super) fn phased_syscall(
             Ok(Some(job)) => {
                 drop(kernel);
                 crate::mm::vmo::clean::run(&job);
-                kernel = reacquire_kernel();
+                kernel = reacquire_kernel(nr);
                 0
             }
             Ok(None) => 0,
@@ -238,7 +239,7 @@ pub(super) fn phased_syscall(
             drop(kernel);
             crate::mm::vmo::zero(id);
             // Phase C: re-acquire, install the cap, write the result.
-            let mut kernel = reacquire_kernel();
+            let mut kernel = reacquire_kernel(nr);
             let ret = {
                 let (scheduler, tasks, router, spaces, timer, hart_timers, waitsets, fences) =
                     kernel.parts();

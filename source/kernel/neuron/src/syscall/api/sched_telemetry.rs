@@ -225,6 +225,8 @@ pub(super) fn sched_telemetry_op(
                 top[2].0,
                 top[2].1
             );
+            // TASK-0330 P0: where the lock's time went and how long runnable tasks waited.
+            crate::trap::baseline::log_smp_baseline();
             // TASK-0330 S2a, S2b: the console syscalls (16 putc, 44 write) hold the lock for a
             // copy into the ring, never for the UART — the board's 10.5 ms were that, and so
             // were the bring-up's 20 ms while a full queue made a write wait for the line.

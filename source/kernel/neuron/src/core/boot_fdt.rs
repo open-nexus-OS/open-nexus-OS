@@ -117,6 +117,40 @@ pub fn bytes() -> Option<&'static [u8]> {
     Some(unsafe { core::slice::from_raw_parts(crate::phys::phys_to_virt(base) as *const u8, len) })
 }
 
+/// The ISA each hart states in the tree (TASK-0330 P0, TASK-0362 P0): its base letters and
+/// the extensions the userspace baseline and the kernel's state switch depend on — one line
+/// per run of harts stating the same (the board's two clusters differ). `1` = stated.
+fn report_isa(cpus: &nexus_fdt::Cpus<'_>) {
+    const NAMES: [&str; 12] = [
+        "f", "d", "v", "zfh", "zvfh", "zba", "zbb", "zbs", "zicbom", "zicboz", "svpbmt", "sscofpmf",
+    ];
+    let mut last: Option<(&str, u16)> = None;
+    for cpu in cpus.harts() {
+        let node = cpu.node();
+        let base = node
+            .prop_str("riscv,isa-base")
+            .or_else(|| node.prop_str("riscv,isa").and_then(|isa| isa.split('_').next()))
+            .unwrap_or("-");
+        // A single letter is an entry of the modern list or a letter of the legacy base.
+        let stated = |name: &str| {
+            cpu.has_extension(name)
+                || (name.len() == 1 && base.get(4..).is_some_and(|letters| letters.contains(name)))
+        };
+        let mut bits = 0u16;
+        for (i, name) in NAMES.iter().enumerate() {
+            bits |= u16::from(stated(name)) << i;
+        }
+        if last == Some((base, bits)) {
+            continue;
+        }
+        last = Some((base, bits));
+        let b = |i: usize| (bits >> i) & 1;
+        log_info!(target: "smp",
+            "KINIT: isa from hart={} base={} f={} d={} v={} zfh={} zvfh={} zba={} zbb={} zbs={} zicbom={} zicboz={} svpbmt={} sscofpmf={}",
+            cpu.hart, base, b(0), b(1), b(2), b(3), b(4), b(5), b(6), b(7), b(8), b(9), b(10), b(11));
+    }
+}
+
 /// Parse the tree and print the platform values it carries, or why it could not
 /// be parsed. Called once from `kmain` after the kernel address space is active.
 pub fn report() {
@@ -157,6 +191,7 @@ pub fn report() {
                 if crate::hal::platform::timer_uses_sstc() { "sstc" } else { "sbi" },
                 crate::hal::platform::ticks_per_us(),
                 nexus("boot-slot"), nexus("boot-profile"), nexus("display-mode"));
+            report_isa(&cpus);
         }
         _ => {
             log_info!(target: "selftest",

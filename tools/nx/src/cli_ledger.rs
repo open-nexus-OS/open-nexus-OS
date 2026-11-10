@@ -75,6 +75,10 @@ pub(crate) enum LedgerAction {
         tasks: Option<String>,
         #[arg(long)]
         gate: Option<String>,
+        /// The step this one follows — a milestone's steps are its order (a new step is
+        /// appended otherwise).
+        #[arg(long)]
+        after: Option<String>,
     },
     /// Put a task's phases into a sprint (default: this week's).
     Plan {

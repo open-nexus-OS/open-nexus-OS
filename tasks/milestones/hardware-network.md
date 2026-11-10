@@ -299,16 +299,28 @@ steps:
     gate: "board: gpud: gpu gate scene ok, frame p99 <= 16.7 ms with glass, <= 4 ns per textured pixel on the median"
   - key: L7
     section: L
-    story: "SMP, the dynamic kernel: n harts from the device tree, scheduler and IPC off the lock"
-    state: planned
-    tasks: [TASK-0330, TASK-0306]
-    gate: "KSELFTEST: smp online ok harts=8 clusters=2"
+    story: "SMP, the dynamic kernel: n harts from the device tree, hard float and vectors, the scheduler with time rights, IPC and address spaces off the lock, the kernel lock deleted, threads of a process"
+    state: active
+    tasks: [TASK-0330, TASK-0306, TASK-0362, TASK-0363, TASK-0364]
+    gate: "KSELFTEST: smp online ok harts=8 clusters=2; retired-name gate for KERNEL_LOCK; KSELFTEST: lock budgets ok at 8 harts"
   - key: L8.3
     section: L
-    story: "placement by load, cluster-aware, and the compute-distribution seam"
+    story: "placement by load, cluster-aware: the display chain holds a time right and runs on several harts, no program names a hart"
     state: planned
-    tasks: []
-    gate: "per-hart utilisation gate on QEMU and the board"
+    tasks: [TASK-0365]
+    gate: "per-hart utilisation gate on QEMU and the board; the chain on >= 3 harts within a frame"
+  - key: L9.1
+    section: L
+    story: "the runtime and app-host use every hart, unseen by the DSL: threads, a scaling allocator, the workpool, row bands in parallel"
+    state: planned
+    tasks: [TASK-0366, TASK-0367]
+    gate: "board: <= 10 ns per painted pixel at 8 harts; apphost: ux launch ok (<= 300 ms) for every system app"
+  - key: L9.2
+    section: L
+    story: "pictures: decoded beside the UI thread on every hart, isolated per client, and the Images app"
+    state: planned
+    tasks: [TASK-0368, TASK-0369]
+    gate: "board-visual: images; a 24 MP JPEG fitted <= 300 ms"
   - key: N1
     section: NET
     story: "WiFi: the SDIO function and a FullMAC driver associate with the desk's network"

@@ -60,6 +60,8 @@ impl QosClass {
 struct Task {
     id: TaskId,
     qos: QosClass,
+    /// The tick it entered a run queue at (`ready_stats`: how long a runnable task waits).
+    ready_at: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -305,7 +307,7 @@ impl Scheduler {
             }
         }
 
-        let task = Task { id, qos };
+        let task = Task::ready(id, qos);
         let cur = Self::current_cpu_index();
         Self::bounded_push(
             self.cpus[cur].queue_mut(qos),
@@ -358,6 +360,7 @@ impl Scheduler {
                         task.qos
                     );
                 }
+                task.dispatched();
                 self.cpus[cur].current = Some(task.clone());
                 return Some(task.id);
             }
@@ -477,7 +480,7 @@ impl Scheduler {
                 log_info!(target: "smp", "KINIT: enqueue cpu{} pid={}", cpu_idx, id.as_raw());
             }
         }
-        let task = Task { id, qos };
+        let task = Task::ready(id, qos);
         Self::bounded_push(
             self.cpus[cpu_idx].queue_mut(qos),
             task,
@@ -508,6 +511,7 @@ impl Scheduler {
             return None;
         }
         let id = task.id;
+        task.dispatched();
         self.cpus[cur].current = Some(task);
         Some(id)
     }
@@ -531,7 +535,7 @@ impl Scheduler {
         if cpu_idx >= crate::smp::MAX_CPUS {
             return EnqueueOutcome::Rejected(EnqueueRejectReason::InvalidCpu { cpu });
         }
-        let task = Task { id, qos };
+        let task = Task::ready(id, qos);
         Self::bounded_push(
             self.selftest_queue_for(cpu_idx, qos),
             task,
@@ -603,6 +607,7 @@ impl Default for Scheduler {
 }
 
 mod class;
+mod ready;
 
 #[cfg(test)]
 mod tests;
