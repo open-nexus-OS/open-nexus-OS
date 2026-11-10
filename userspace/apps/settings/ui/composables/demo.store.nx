@@ -30,6 +30,10 @@ Store DemoStore {
     // Verbundene Geräte
     tgPairing: Bool = true,
     tgPrinterShare: Bool = false,
+    // Slider rows (the design's `rng{}`): the demo positions of the stacked range rows, percent.
+    rngVolume: Int = 64,
+    rngInput: Int = 72,
+    rngBrightness: Int = 78,
     // Sound & Töne
     tgKeyClick: Bool = true,
     tgSysSounds: Bool = true,

@@ -1,0 +1,24 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The full-screen launcher's greeting block (design artifacts: launcher): title1 "Guten
+// <Morgen|Tag|Abend>, <first name>" over the date in subheadline labelSecondary, centred, 2 px
+// apart, both with the wallpaper halo. The phrase follows the clock the host ticks ("HH:MM", so
+// the strings order like the times do): morning 05:00–11:00, day 11:00–18:00, evening from 18:00
+// to 05:00; before the wall time anchors ("--:--") it is the neutral day phrase. The date has no
+// year here (the lock screen's does not either).
+
+Component LauncherGreeting {
+    Stack {
+        if $state.clock >= "05:00" && $state.clock < "11:00" {
+            Text(@t("launcher.greetingMorning")).textStyle(title1).fg(label).shadow(halo)
+        } else { if $state.clock >= "18:00" || ($state.clock < "05:00" && $state.clock != "--:--") {
+            Text(@t("launcher.greetingEvening")).textStyle(title1).fg(label).shadow(halo)
+        } else {
+            Text(@t("launcher.greetingDay")).textStyle(title1).fg(label).shadow(halo)
+        } }
+        Text($state.date).textStyle(subheadline).fg(labelSecondary).shadow(halo)
+    }
+    .gap(2)
+    .align(center)
+}

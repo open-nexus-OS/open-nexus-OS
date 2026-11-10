@@ -12,15 +12,15 @@ Component SecPower {
                 SetRow { title: @t("pwr.battery"), subtitle: @t("pwr.batterySub"), icon: "battery.75", showChevron: false } {
                     trailing { SetValue { value: @t("pwr.batteryV") } }
                 }
-                SetHairline { }
-                SetRow { title: @t("pwr.saver"), subtitle: @t("pwr.saverSub"), icon: "battery.75", showChevron: false } {
+                SetHairline { plain: true }
+                SetRow { title: @t("pwr.saver"), subtitle: @t("pwr.saverSub"), icon: "", showChevron: false } {
                     trailing { Toggle { checked: $state.tgBatterySaver, label: @t("pwr.saver") } }
                 }
             }
         }
         SetGroup { label: @t("pwr.gSave"), note: "" } {
             rows {
-                SetRow { title: @t("pwr.dim"), subtitle: "", icon: "sun.max", showChevron: false } {
+                SetRow { title: @t("pwr.dim"), subtitle: "", icon: "", showChevron: false } {
                     trailing { Toggle { checked: $state.tgDimScreen, label: @t("pwr.dim") } }
                 }
                 SetHairline { }

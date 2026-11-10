@@ -1,8 +1,9 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The search's result panel (TASK-0067B), one panel-glass surface under the
-// field. Clipboard mode shows the history from clipboardd as CARDS, newest
+// The search's result panel (TASK-0067B; design artifacts: launcher-lock §M),
+// one overlay surface under the field (radius 24, padding 12; overline section
+// titles in `labelSecondary`, clip cards radius 12 — concentric). Clipboard mode shows the history from clipboardd as CARDS, newest
 // first (a press = copy-back: the item becomes the newest again); every other
 // state shows the apps the registry matched as tiles (a press launches the
 // app and closes the search). Both lists were filtered AT the service.
@@ -11,7 +12,7 @@ Component SearchResults {
     Panel {
         if $state.searchMode == "clipboard" {
             Stack {
-                Text(@t("search.clipboard")).textStyle(footnote).fontWeight(semibold).fg(label)
+                Text(@t("search.clipboard")).textStyle(overline).fg(labelSecondary)
                 Spacer
                 if $state.clipCopied {
                     Stack {
@@ -58,7 +59,7 @@ Component SearchResults {
                 }
             }
         } else {
-            Text(@t("search.apps")).textStyle(footnote).fontWeight(semibold).fg(label)
+            Text(@t("search.apps")).textStyle(overline).fg(labelSecondary)
             if len($state.searchApps) == 0 {
                 Text(@t("search.noApps")).textStyle(footnote).fg(labelSecondary)
             } else {
@@ -76,8 +77,8 @@ Component SearchResults {
             }
         }
     }
-    .material(panel)
-    .rounded(lg)
+    .material(overlay)
+    .rounded(xl)
     .gap(8)
     .padding(12)
 }

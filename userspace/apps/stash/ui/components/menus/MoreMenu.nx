@@ -28,7 +28,7 @@ Component MoreMenu {
                 on Tap -> dispatch(WinMenu("more.ansicht"))
                 WinMenuDivider { }
                 Stack {
-                    WinMenuRow { label: @t("stash.settings"), icon: "gearshape", kind: "", shortcut: "", selected: false }
+                    WinMenuRow { label: @t("stash.settings"), icon: "gearshape", kind: "", shortcut: @t("win.keySettings"), selected: false }
                 }
                 on Tap -> dispatch(SettingsOpen)
                 WinMenuRow { label: @t("win.help"), icon: "info.circle", kind: "disabled", shortcut: "", selected: false }

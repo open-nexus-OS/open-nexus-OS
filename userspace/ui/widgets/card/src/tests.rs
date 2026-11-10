@@ -37,15 +37,18 @@ fn surfaces_are_xl_and_layers_lg() {
 }
 
 #[test]
-fn only_panel_and_dock_blur_and_the_dock_is_thick() {
+fn panel_dock_and_overlay_blur_and_the_dock_is_thick() {
     let t = DarkTokens;
     let panel = GlassCard::new().level(CardLevel::Panel).style(&t);
     let dock = GlassCard::new().level(CardLevel::Dock).style(&t);
+    // The floating overlay is frosted as a root (RFC-0116, 2026-11-10): the regular blur.
+    let overlay = GlassCard::new().level(CardLevel::Overlay).style(&t);
     let regular = t.backdrop(BackdropToken::Regular);
     let thick = t.backdrop(BackdropToken::Thick);
     assert_eq!(panel.backdrop_blur().map(|b| b.radius), Some(u32::from(regular.blur)));
     assert_eq!(dock.backdrop_blur().map(|b| b.radius), Some(u32::from(thick.blur)));
-    for level in [CardLevel::Card, CardLevel::Inner, CardLevel::Subtle, CardLevel::Overlay] {
+    assert_eq!(overlay.backdrop_blur().map(|b| b.radius), Some(u32::from(regular.blur)));
+    for level in [CardLevel::Card, CardLevel::Inner, CardLevel::Subtle] {
         assert!(GlassCard::new().level(level).style(&t).backdrop_blur().is_none(), "{level:?}");
     }
 }
@@ -73,7 +76,7 @@ fn each_level_carries_its_edge_and_shadow() {
     assert_eq!((subtle.shadow, subtle.border.top), (None, None));
     assert_eq!(subtle.background, Some(t.color(ColorToken::GlassCard)));
     let overlay = v(CardLevel::Overlay);
-    assert_eq!(overlay.background, Some(t.color(ColorToken::SurfaceOverlay)));
+    assert_eq!(overlay.background, Some(t.color(ColorToken::GlassOverlay)));
     assert_eq!((overlay.shadow, overlay.inset_highlight), (shadow(ShadowToken::Shadow3), lit));
 }
 

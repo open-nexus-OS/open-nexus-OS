@@ -9,7 +9,7 @@
 //! compositor's blur and motion are not drawn and scroll layers draw at rest.
 
 use nexus_layout::LayoutBox;
-use nexus_layout_types::{FxPx, LayoutNode, Position, TextStyle};
+use nexus_layout_types::{FxPx, LayoutNode, Position, Rgba8, TextStyle};
 use nexus_text_baked::measure_text::BakedTextMeasure;
 use nexus_theme_tokens::{BaseTokens, ColorToken, DarkTokens, SolidTokens, Tokens};
 
@@ -98,6 +98,14 @@ pub(crate) fn cmd_render(args: &[String]) -> ExitCode {
         Err(code) => return code,
     };
     prepared.device.theme = if dark { "dark" } else { "light" };
+    // `device.sizeClass` follows the real surface width, as app-host derives it on the device
+    // (compact < 640 ≤ regular < 1024 ≤ wide) — a window narrower than the display shows its
+    // regular tier (overlay panes) here too.
+    prepared.device.size_class = match w {
+        0..=639 => "compact",
+        640..=1023 => "regular",
+        _ => "wide",
+    };
     // `--solid`: the reduce-transparency theme (no blur, the glass roles solid).
     let solid = args.iter().any(|a| a == "--solid");
     let solid_tokens = SolidTokens { base: if dark { &DARK } else { &LIGHT } };
@@ -191,8 +199,9 @@ fn collect(node: &LayoutNode, index: &mut usize, out: &mut Vec<Run>) {
             let c = input.style.color;
             let (content, color) = match (&input.placeholder, input.content.as_str().is_empty()) {
                 (Some(p), true) => {
-                    let dim = |v: u8| ((u16::from(v) * 140) / 255) as u8;
-                    (String::from(p.as_str()), [dim(c.b), dim(c.g), dim(c.r), c.a])
+                    // As app-host paints it: the builder's theme colour, else a third of the alpha.
+                    let q = input.placeholder_color.unwrap_or(Rgba8 { a: c.a / 3, ..c });
+                    (String::from(p.as_str()), [q.b, q.g, q.r, q.a])
                 }
                 _ => (String::from(input.content.as_str()), [c.b, c.g, c.r, c.a]),
             };
@@ -420,8 +429,13 @@ fn clip_to_viewports(boxes: &[LayoutBox]) -> Vec<LayoutBox> {
         .collect()
 }
 
+/// Paints one row of a run: `(row, y, pen, clip_end)` — the row's pixels from the box's left
+/// edge, the image row, the pen's x in them and how far the row may be painted.
+type RowDraw<'a> = dyn Fn(&mut [u8], u32, i32, u32) + 'a;
+
 /// One run drawn as app-host draws it: one line from the box's left edge, cut with an ellipsis at
-/// its right edge, the face centred in the style's line box, inside the box's clip.
+/// its right edge, the face centred in the style's line box, inside the box's clip — behind it
+/// its text shadows (the label halo), blurred, reaching past the box by their blur.
 fn draw_run(buf: &mut [u8], (w, h): (u32, u32), b: &LayoutBox, run: &Run) {
     let (bx, by, bw, bh) = (b.rect.x.0, b.rect.y.0, b.rect.width.0, b.rect.height.0);
     if bw <= 0 || bh <= 0 || run.content.is_empty() {
@@ -437,18 +451,6 @@ fn draw_run(buf: &mut [u8], (w, h): (u32, u32), b: &LayoutBox, run: &Run) {
     };
     let tracking = BakedTextMeasure::tracking(&run.style);
     let top = by + (line - nexus_text_baked::line_height(font) as i32) / 2;
-    let (mut x0, mut x1, mut y0, mut y1) = (bx, bx + bw, by, by + bh);
-    if let Some(c) = b.clip_rect {
-        x0 = x0.max(c.x.0);
-        x1 = x1.min(c.x.0 + c.width.0);
-        y0 = y0.max(c.y.0);
-        y1 = y1.min(c.y.0 + c.height.0);
-    }
-    let (x0, x1) = (x0.max(0), x1.min(w as i32));
-    let (y0, y1) = (y0.max(0), y1.min(h as i32));
-    if x1 <= x0 || y1 <= y0 {
-        return;
-    }
     let (cut, ell) = nexus_text_baked::ellipsis_cut(&run.content, font, tracking, bw.max(0) as u32);
     let shown = || {
         run.content
@@ -464,19 +466,45 @@ fn draw_run(buf: &mut [u8], (w, h): (u32, u32), b: &LayoutBox, run: &Run) {
             nexus_layout_types::TextAlign::Center => slack / 2,
             nexus_layout_types::TextAlign::Right => slack,
         };
-    for y in y0..y1 {
-        let row = &mut buf[(y as u32 * w * 4) as usize..((y as u32 + 1) * w * 4) as usize];
-        let row = &mut row[x0 as usize * 4..];
-        nexus_text_baked::draw_text_row(
-            row,
-            y as u32,
-            top,
-            start - x0,
-            (x1 - x0) as u32,
-            shown(),
-            font,
-            tracking,
-            run.color,
-        );
+    let clip = b.clip_rect.map(|c| (c.x.0, c.y.0, c.x.0 + c.width.0, c.y.0 + c.height.0));
+    // Every row of `(x0, y0, x1, y1)` inside the box's clip and the image, from its left edge:
+    // `draw(row, y, pen, clip_end)`.
+    let mut rows = |(x0, y0, x1, y1): (i32, i32, i32, i32), draw: &RowDraw<'_>| {
+        let (x0, y0, x1, y1) = match clip {
+            Some(c) => (x0.max(c.0), y0.max(c.1), x1.min(c.2), y1.min(c.3)),
+            None => (x0, y0, x1, y1),
+        };
+        let (x0, x1, y0, y1) = (x0.max(0), x1.min(w as i32), y0.max(0), y1.min(h as i32));
+        if x1 <= x0 {
+            return;
+        }
+        for y in y0..y1 {
+            let row = &mut buf[(y as u32 * w * 4) as usize..((y as u32 + 1) * w * 4) as usize];
+            draw(&mut row[x0 as usize * 4..], y as u32, start - x0, (x1 - x0) as u32);
+        }
+    };
+    for sh in b.visual.text_shadows.iter().rev().flatten().filter(|s| s.color.a > 0) {
+        let blur = u32::from(sh.blur_radius);
+        let reach = nexus_text_baked::blur_reach(blur) as i32;
+        let (ox, oy, c) = (i32::from(sh.offset_x), i32::from(sh.offset_y), sh.color);
+        let color = [c.b, c.g, c.r, (u32::from(c.a) * u32::from(run.color[3]) / 255) as u8];
+        let area = (bx - reach + ox, by - reach + oy, bx + bw + reach + ox, by + bh + reach + oy);
+        rows(area, &|row, y, pen, end| {
+            nexus_text_baked::draw_text_blur_row(
+                row,
+                y,
+                top + oy,
+                pen + ox,
+                end,
+                shown(),
+                font,
+                tracking,
+                color,
+                blur,
+            );
+        });
     }
+    rows((bx, by, bx + bw, by + bh), &|row, y, pen, end| {
+        nexus_text_baked::draw_text_row(row, y, top, pen, end, shown(), font, tracking, run.color);
+    });
 }

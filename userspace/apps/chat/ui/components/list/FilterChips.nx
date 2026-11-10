@@ -1,0 +1,33 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The four filter chips (xs, 24 high, caption medium): the picked one is the accent fill with its
+// glow, the others rest on `fill`. One tap picks one (`SetChip`); Alle shows every conversation.
+
+Component FilterChips {
+    Stack {
+        Stack {
+            Chip { label: @t("chat.filter.all"), size: "xs", selected: $state.chip == "all" }
+        }
+        .shrink(0)
+        on Tap -> dispatch(SetChip("all"))
+        Stack {
+            Chip { label: @t("chat.filter.unread"), size: "xs", selected: $state.chip == "unread" }
+        }
+        .shrink(0)
+        on Tap -> dispatch(SetChip("unread"))
+        Stack {
+            Chip { label: @t("chat.filter.verified"), size: "xs", selected: $state.chip == "verified" }
+        }
+        .shrink(0)
+        on Tap -> dispatch(SetChip("verified"))
+        Stack {
+            Chip { label: @t("chat.filter.bridges"), size: "xs", selected: $state.chip == "bridges" }
+        }
+        .shrink(0)
+        on Tap -> dispatch(SetChip("bridges"))
+    }
+    .direction(row)
+    .wrap(true)
+    .gap(4)
+}

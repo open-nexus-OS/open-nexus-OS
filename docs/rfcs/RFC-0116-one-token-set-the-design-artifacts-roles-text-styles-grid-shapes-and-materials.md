@@ -30,7 +30,7 @@ links:
 - **Phase 0 (the contract)**: ✅ — this document; the DSL surface and the compositor's buckets
   written down with Phase 2.
 - **Phase 1 (the themes and the typed tokens carry the set)**: ✅ 2026-11-09, TASK-0353 P2
-  (35 roles, 13 text styles, the scales and the four backdrops in light, dark and high
+  (36 roles since the 2026-11-10 amendment, 13 text styles, the scales and the four backdrops in light, dark and high
   contrast; the old keys gone; `every_role_resolves_in_every_theme`, the typed tokens' tests).
 - **Phase 2 (the DSL names only the set)**: ✅ 2026-11-09, TASK-0353 P2 (all `.nx` sources
   migrated, goldens re-blessed; `userspace/dsl/core/tests/token_set.rs`,
@@ -73,9 +73,10 @@ Exactly these, with a value per theme (light, dark; high contrast maps onto the 
 | `fillHover`, `fillActive` | the hover and press layer — shown by opacity, never set as a background |
 | `glassPanel`, `glassWindow` | the two blur surfaces: panels, dock and launcher sheets · app windows |
 | `glassCard` | a translucent layer on a blur surface (cards, grouped rows, tiles); never blurs |
+| `glassOverlay` | a floating surface's frosted glass (modal, alert, menu, popover, toast, select list, action bar), four fifths opaque over the regular blur (amendment 2026-11-10) |
 | `glassEdge` | the 1 px light edge of every glass layer |
 | `surfacePane` | the opaque pane inside a window (occludes the window's blur) |
-| `surfaceOverlay` | the opaque floating surface (modal, alert, menu, popover, tooltip, toast, select list, action bar, on-screen keyboard) |
+| `surfaceOverlay` | the opaque floating surface: the on-screen keyboard's tray, and what a floating surface must not show through |
 | `scrim` | the dimming layer behind a modal overlay |
 | `primary`, `onPrimary` | the brand's solid button and its label |
 | `accent`, `accentGlow`, `onAccent` | the one tint (on-states, selection, links, focus) · its glow · text on it and on danger |
@@ -134,10 +135,19 @@ never kerned; the measure and the painter place them through the same pen.
 - **Shadows**: `shadow1` (knobs), `shadow2` (app icons, chips), `shadow3` (menus, popovers,
   toasts, dock), `shadow4` (panels, modals, windows), `shadowInset` (wells and tracks),
   `edgeHighlight` (the 1 px top inset of a raised surface).
-- **Materials**: only the surface that sits on the wallpaper blurs — `panel` and `window`
-  (regular: 40 px, saturation 180 %), `dock` (thick: 64 px, 180 %), `thin` and `ultraThin`
-  (20 px, 8 px) for small standalone pieces; `card` is a translucent layer without blur; `pane`
-  and `overlay` are opaque. A blur inside a blur does not compile.
+- **Materials**: only a root surface blurs — on the wallpaper `panel` and `window` (regular:
+  40 px, saturation 180 %), `dock` (thick: 64 px, 180 %), `thin` and `ultraThin` (20 px, 8 px)
+  for small standalone pieces; `overlay`, everything that floats, is `glassOverlay` over the
+  regular blur of what it floats on, and opaque where it is nested in another surface (it
+  cannot blur there); `card` is a translucent layer without blur; `pane` is opaque. A blur
+  inside a blur does not compile.
+
+  **Amendment 2026-11-10 (frosted overlays).** The artifacts' v3 `Menu` draws an opaque
+  `surface-overlay`; the operator asked for the blur back on the board ("der Blur vom
+  Dropdown-Menü ist zu wenig"). The design system's own glass overlay (`--glass-overlay-bg`,
+  `rgba(252,252,254,.82)` light, `rgba(34,39,52,.80)` dark, the large blur) is the recipe:
+  the new role `glassOverlay`, the `overlay` material on the regular backdrop as a root, opaque
+  nested. Reduce transparency maps `glassOverlay` to the lighter solid grey, unblurred.
 - **Control heights**: `xs` 24, `sm` 30, `md` 36 (default), `lg` 44, `xl` 52, each with its
   label style (`caption`, `footnote`, `body` medium, `headline`, `title3`).
 
@@ -191,9 +201,11 @@ its backdrop (`source/libs/nexus-display-proto/src/client_surface.rs`):
 | `ultraThin` | `GLASS_ULTRA_THIN` (2, the former subtle bucket) | ultraThin, 8 px |
 | `window` | `GLASS_WINDOW` (3) | regular |
 | `dock` | `GLASS_DOCK` (5) | thick, 64 px |
+| `overlay` (a root) | `GLASS_PANEL` (0) | regular |
 
-Id 4 (`GLASS_OVERLAY`) is retired and never reused. `pane` and `overlay` drawn at full opacity
-are opaque occluder regions; a `card` is painted and declares no region. windowd reads each
+Id 4 (`GLASS_OVERLAY`) is retired and never reused: a floating overlay takes the regular bucket.
+`pane` — and a nested `overlay` — drawn at full opacity are opaque occluder regions; a `card` is
+painted and declares no region. windowd reads each
 bucket's blur radius from the theme's backdrops, and its own colours from the typed tokens. A
 floating app window's page base is `glassWindow`, a fullscreen or overlay surface's
 `background`; app-host's hover patch is `fillHover`.

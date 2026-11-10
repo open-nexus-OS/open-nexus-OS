@@ -76,6 +76,22 @@ fn chat_bundle_packs_with_launch_ability() {
 }
 
 #[test]
+fn calculator_bundle_packs_with_window_and_clipboard_only() {
+    // CLIPBOARD (the operator's grant, TASK-0353): the ⋮ menu's "copy result" writes over the
+    // calculator's own route. Holding the route is the WRITE capability only — a read stays
+    // focus-gated and the history stays the shell's and the keyboard's (clipboardd:
+    // `test_reject_read_from_an_unfocused_app`, `test_reject_history_for_a_focused_app`). The
+    // pin is exact: any further grant fails here first.
+    let (name, abilities, caps) = pack_and_read("calculator");
+    assert_eq!(name, "calculator");
+    assert_eq!(abilities, vec!["calculator.MainAbility".to_string()]);
+    assert_eq!(
+        caps,
+        vec!["nexus.permission.WINDOW".to_string(), "nexus.permission.CLIPBOARD".to_string()]
+    );
+}
+
+#[test]
 fn stash_bundle_packs_as_filemanager_with_files_cap() {
     // The filemanager role (RFC-0073/TASK-0291): stash packs with FILES
     // because its bundle_type ceiling allows it.

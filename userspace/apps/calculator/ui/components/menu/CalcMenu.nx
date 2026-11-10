@@ -1,0 +1,22 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The ⋮ app menu (design artifacts: calculator C3), hung under the button by `WinAppWindow`'s
+// `appMenu` slot: "Alles löschen" (trash → `ClearAll`) and "Ergebnis kopieren" (`doc.on.doc` →
+// `CopyResult`, the clipboard write the manifest's CLIPBOARD grant allows). Rows are
+// `WinMenuRow`s under this app's own taps; the menu store's effects close the menu.
+
+Component CalcMenu {
+    WinMenu { width: 240 } {
+        items {
+            Stack {
+                WinMenuRow { label: @t("calc.menu.clearAll"), icon: "trash", kind: "", shortcut: "", selected: false }
+            }
+            on Tap -> dispatch(ClearAll)
+            Stack {
+                WinMenuRow { label: @t("calc.menu.copy"), icon: "doc.on.doc", kind: "", shortcut: "", selected: false }
+            }
+            on Tap -> dispatch(CopyResult)
+        }
+    }
+}

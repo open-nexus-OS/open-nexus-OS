@@ -1,0 +1,68 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The full-screen launcher's search row (design artifacts: launcher): the search bar, a round
+// shrink button back to the compact launcher (desktop only) and a round close button, 8 px
+// apart and centred — the bar 520 wide on the desktop and wide touch, 420 on a tablet in
+// portrait, the available width on a phone. The search takes the keyboard when the launcher
+// opens.
+
+Component LauncherSearchRow {
+    if device.profile == desktop {
+        Stack {
+            LauncherSearchField { width: 520 }
+            Stack {
+                ActButton { icon: "minimize" }
+            }
+            on Tap -> dispatch(SetPanel("launcher"))
+            Stack {
+                ActButton { icon: "xmark" }
+            }
+            on Tap -> dispatch(SetPanel(""))
+        }
+        .direction(row)
+        .justify(center)
+        .align(center)
+        .gap(8)
+    } else { if device.sizeClass == "wide" {
+        Stack {
+            LauncherSearchField { width: 520 }
+            Stack {
+                ActButton { icon: "xmark" }
+            }
+            on Tap -> dispatch(SetPanel(""))
+        }
+        .direction(row)
+        .justify(center)
+        .align(center)
+        .gap(8)
+    } else { if device.sizeClass == "regular" {
+        Stack {
+            LauncherSearchField { width: 420 }
+            Stack {
+                ActButton { icon: "xmark" }
+            }
+            on Tap -> dispatch(SetPanel(""))
+        }
+        .direction(row)
+        .justify(center)
+        .align(center)
+        .gap(8)
+    } else {
+        Stack {
+            Stack {
+                SearchBar { value: $state.query, placeholder: @t("launcher.search") }
+                    .autofocus(true)
+                on Change -> dispatch(QueryChanged)
+            }
+            .grow(1)
+            Stack {
+                ActButton { icon: "xmark" }
+            }
+            on Tap -> dispatch(SetPanel(""))
+        }
+        .direction(row)
+        .align(center)
+        .gap(8)
+    } } }
+}

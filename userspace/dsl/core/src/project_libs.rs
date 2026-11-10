@@ -1,11 +1,14 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: library-component resolution for a project compile (TASK-0081 C3 / TASK-0074): the
-//! app manifest's `dependencies` name sibling library folders; only the `Component`
+//! CONTEXT: library resolution for a project compile (TASK-0081 C3 / TASK-0074, TASK-0357 P4):
+//! the app manifest's `dependencies` name sibling library folders; only the `Component`
 //! declarations the app REFERENCES — transitively, through the library's own components — are
 //! appended to the app's source set, so a kit can grow without every consumer declaring every
-//! kit event. Governance (components only) is enforced here. Split out of `project.rs`.
+//! kit event. A library may also ship the stores its components show (`ui/composables/*.nx`):
+//! one joins the app when the app or a component it pulled in reads a field of its store (the
+//! window kit's chrome store comes with the chrome). Governance (components and composables,
+//! nothing else) is enforced here. Split out of `project.rs`.
 //! OWNERS: @ui @runtime
 //! STATUS: Functional
 //! API_STABILITY: Internal
@@ -127,8 +130,77 @@ pub(crate) fn resolve_library_components(
                 "dependency `{dep}`: the app references none of its components (drop the dependency)"
             ));
         }
+        resolve_library_composables(&dep, &lib_root, files)?;
     }
     Ok(())
+}
+
+/// Appends the library's composables (`ui/composables/*.nx`) whose store the app reads — a field
+/// of it named in `$state.<field>` by the app or a component it pulled in — to `files`
+/// (TASK-0357 P4, RFC-0084 amendment). A composable declares stores, events, reducers and
+/// effects only; an app that declares the same names again fails the check as a duplicate.
+fn resolve_library_composables(
+    dep: &str,
+    lib_root: &std::path::Path,
+    files: &mut alloc::vec::Vec<SourceFile>,
+) -> Result<(), String> {
+    let dir = lib_root.join("ui/composables");
+    let Ok(entries) = std::fs::read_dir(&dir) else { return Ok(()) };
+    let mut paths: alloc::vec::Vec<std::path::PathBuf> =
+        entries.flatten().map(|e| e.path()).collect();
+    paths.sort();
+    let reads = state_reads(files);
+    for path in paths {
+        if path.extension().and_then(|e| e.to_str()) != Some("nx") {
+            continue;
+        }
+        let source = std::fs::read_to_string(&path)
+            .map_err(|e| alloc::format!("read {}: {e}", path.display()))?;
+        let parsed = crate::parse_file(&source)
+            .map_err(|d| alloc::format!("dependency `{dep}`: parse: {d:?}"))?;
+        use crate::ast::Decl;
+        if !parsed.decls.iter().all(|d| {
+            matches!(d, Decl::Store(_) | Decl::Event(_) | Decl::Reduce(_) | Decl::Effect(_))
+        }) {
+            return Err(alloc::format!(
+                "dependency `{dep}`: {} declares more than stores, events, reducers and effects \
+                 — a library's composables are its components' state, nothing else",
+                path.display()
+            ));
+        }
+        let read = parsed.decls.iter().any(|d| match d {
+            Decl::Store(store) => store.fields.iter().any(|f| reads.contains(&f.name.text)),
+            _ => false,
+        });
+        if read {
+            files.push(SourceFile {
+                path: alloc::format!(
+                    "dep:{dep}/composables/{}",
+                    path.file_name().and_then(|n| n.to_str()).unwrap_or("store.nx")
+                ),
+                source,
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Every store field the files read (`$state.<field>`), from their tokens — a comment that
+/// names one does not count.
+fn state_reads(files: &[SourceFile]) -> alloc::collections::BTreeSet<String> {
+    use crate::lexer::TokenKind;
+    let mut reads = alloc::collections::BTreeSet::new();
+    for file in files {
+        let Ok(tokens) = crate::lexer::lex(&file.source) else { continue };
+        for w in tokens.windows(3) {
+            if let (TokenKind::DollarState, TokenKind::Dot, TokenKind::Ident(field)) =
+                (&w[0].kind, &w[1].kind, &w[2].kind)
+            {
+                reads.insert(field.clone());
+            }
+        }
+    }
+    reads
 }
 
 /// Every widget/component NAME a file's pages and components reference

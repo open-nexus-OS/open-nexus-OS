@@ -1,0 +1,18 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The full-screen launcher's search bar at a fixed `width` (design artifacts: SearchBar md): the
+// query writes to the launcher store and re-asks the registry on every edit; the bar takes the
+// keyboard while the launcher is open.
+
+Component LauncherSearchField {
+    props: {
+        width: Int,
+    }
+    Stack {
+        SearchBar { value: $state.query, placeholder: @t("launcher.search") }
+            .autofocus(true)
+        on Change -> dispatch(QueryChanged)
+    }
+    .width($props.width)
+}

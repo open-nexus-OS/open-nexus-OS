@@ -229,7 +229,9 @@ struct Frame {
     texts: usize,
 }
 
-fn measure(app: &str, w: i32, h: i32, host: &mut dyn EffectHost) -> Frame {
+/// One frame of `app` at `w × h`, after its initial effects and then `events` — window-store
+/// cases dispatched in order (`WinRight` opens a side pane) — as the user can drive it.
+fn measure(app: &str, w: i32, h: i32, host: &mut dyn EffectHost, events: &[&str]) -> Frame {
     let nxir: &'static [u8] = Box::leak(common::compile(app).into_boxed_slice());
     let symbols = common::program_symbols(nxir);
     let keys = common::program_i18n_keys(nxir);
@@ -245,6 +247,18 @@ fn measure(app: &str, w: i32, h: i32, host: &mut dyn EffectHost) -> Frame {
         let locale = IdentityLocale { symbols: &symbols, keys: &keys };
         let _ = view.run_initial_effects(&tokens, &device, &locale, host);
     }
+    for case in events {
+        common::dispatch_with_keys(
+            &mut view,
+            &device,
+            host,
+            &symbols,
+            &keys,
+            "WindowEvent",
+            case,
+            Vec::new(),
+        );
+    }
     let emit = PEAK[EMIT].load(Ordering::Relaxed);
     let layout = layout_frame(&view, w, h);
     let boxes = common::layout_boxes(&view).len();
@@ -256,9 +270,10 @@ fn measure(app: &str, w: i32, h: i32, host: &mut dyn EffectHost) -> Frame {
 /// `settings` emits nothing at mount without its services (the stub host), so only its layout
 /// is held.
 const BUDGET: [(&str, usize, usize); 4] = [
-    // chat re-measured 2026-11-09 (TASK-0357: the layout measures a node once per constraint
-    // per pass — the per-pass measure cache): 295 712 / 459 456 B.
-    ("chat", 326_000, 506_000),
+    // chat re-measured 2026-11-10 (TASK-0353 P3: the design's main screen — rail, sidebar, list of
+    // nine rows, thread with up to 64 resident messages, Chat-Info — 690 boxes instead of ~300):
+    // 517 000 / 921 696 B.
+    ("chat", 569_000, 1_014_000),
     // settings re-measured 2026-11-09 (TASK-0353 + TASK-0357: the sidebar on the kit's WinPane
     // with header and footer around a scrolling body, 263 boxes, laid out with the per-pass
     // measure cache; the kit's strip pair is the largest share, a window-kit gap): layout
@@ -289,13 +304,16 @@ const _: () = {
 fn a_frame_stays_within_its_recorded_cost_on_every_display() {
     // (app, the window windowd gives it: 1920×1080 board, 1280×800 lanes, and maximized on the
     // board — the display less the desktop taskbar, the largest frame an app window draws)
-    let windows = [
-        ("chat", (1440, 814), (960, 620), Some((1920, 1024))),
-        ("settings", (1440, 814), (960, 620), Some((1920, 1024))),
-        ("stash", (1440, 814), (960, 620), Some((1920, 1024))),
-        ("desktop-shell", (1920, 1080), (1280, 800), None),
+    // (app, the states measured: none = as mounted; Chat with its Chat-Info pane open, the
+    // largest frame it draws)
+    let windows: [(&str, (i32, i32), (i32, i32), Option<(i32, i32)>, &[&str]); 5] = [
+        ("chat", (1440, 814), (960, 620), Some((1920, 1024)), &[]),
+        ("chat", (1440, 814), (960, 620), Some((1920, 1024)), &["WinRight"]),
+        ("settings", (1440, 814), (960, 620), Some((1920, 1024)), &[]),
+        ("stash", (1440, 814), (960, 620), Some((1920, 1024)), &[]),
+        ("desktop-shell", (1920, 1080), (1280, 800), None, &[]),
     ];
-    for (app, board, lane, maximized) in windows {
+    for (app, board, lane, maximized, events) in windows {
         let (_, max_emit, max_layout) =
             BUDGET.iter().copied().find(|(name, _, _)| *name == app).expect("a budget");
         let sizes =
@@ -308,9 +326,9 @@ fn a_frame_stays_within_its_recorded_cost_on_every_display() {
             } else {
                 Box::new(NoIo)
             };
-            let Frame { emit, layout, boxes, texts } = measure(app, w, h, host.as_mut());
+            let Frame { emit, layout, boxes, texts } = measure(app, w, h, host.as_mut(), events);
             println!(
-                "[arena] {app:<14} {label:<9} window {w}x{h}: emit {emit:>7} B  layout {layout:>7} B  boxes {boxes:>4}  texts {texts:>4}"
+                "[arena] {app:<14} {label:<9} window {w}x{h} {events:?}: emit {emit:>7} B  layout {layout:>7} B  boxes {boxes:>4}  texts {texts:>4}"
             );
             assert!(emit <= max_emit, "{app} at {label}: a frame's scene grew to {emit} B");
             assert!(layout <= max_layout, "{app} at {label}: a frame's layout grew to {layout} B");

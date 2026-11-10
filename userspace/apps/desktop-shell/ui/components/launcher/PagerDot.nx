@@ -1,9 +1,9 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// One dot of the page indicator (design artifacts: launcher §11): the ACTIVE page an 18×7
-// pill, every other page a 7×7 dot, radius 4, that glides to its page on a tap
-// (`SetPage(k)` → the store's scrollToPage effect).
+// One dot of the page indicator (design artifacts: PageControl md): the ACTIVE page a 20×8
+// capsule at 92 % of `label`, every other page an 8×8 dot at 30 %, its hit area 20 high; a tap
+// glides to its page (`SetPage(k)` → the store's scrollToPage effect).
 
 Component PagerDot {
     props: {
@@ -11,19 +11,20 @@ Component PagerDot {
     }
     if $state.page == $props.page {
         Stack { }
-            .width(18)
-            .height(7)
-            .rounded(4)
+            .width(20)
+            .height(8)
+            .rounded(full)
             .bg(label)
-            .opacity(230)
+            .opacity(235)
     } else {
         Stack { }
-            .width(7)
-            .height(7)
-            .rounded(4)
+            .width(8)
+            .height(8)
+            .rounded(full)
             .bg(label)
-            .opacity(71)
-            .hitSlop(8)
+            .opacity(77)
+            .hitSlop(6)
+            .label(@t("launcher.pageDot"))
         on Tap -> dispatch(SetPage($props.page))
     }
 }

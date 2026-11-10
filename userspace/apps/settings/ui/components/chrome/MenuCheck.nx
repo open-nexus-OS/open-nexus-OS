@@ -1,0 +1,17 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One check entry of the ⋮ menu's "Ansicht" group: the kit's menu row with a trailing check mark
+// while its option is on. The caller wraps it in the tap that toggles the option.
+
+Component MenuCheck {
+    props: {
+        label: Str,
+        checked: Bool,
+    }
+    if $props.checked {
+        WinMenuRow { label: $props.label, icon: "", kind: "check", shortcut: "", selected: false }
+    } else {
+        WinMenuRow { label: $props.label, icon: "", kind: "", shortcut: "", selected: false }
+    }
+}

@@ -216,14 +216,11 @@ impl Mods {
         }
         for shadow in self.shadows.into_iter().flatten() {
             let token = match shadow {
-                // The halo: one extra glyph pass of the text, 1 px down, in `labelShadow`.
+                // The halo: the design's soft glow behind the glyphs, in `labelShadow`.
                 ShadowName::Halo => {
-                    visual.text_shadow = Some(nexus_layout_types::TextShadow {
-                        offset_x: FxPx::ZERO,
-                        offset_y: FxPx::new(1),
-                        blur_radius: FxPx::ZERO,
-                        color: tokens.color(ColorToken::LabelShadow),
-                    });
+                    visual.text_shadows =
+                        nexus_layout_types::TextShadow::halo(tokens.color(ColorToken::LabelShadow))
+                            .map(Some);
                     continue;
                 }
                 ShadowName::Token(token) => token,

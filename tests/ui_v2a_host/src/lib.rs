@@ -21,8 +21,11 @@ mod input_capnp {
 }
 
 #[cfg(test)]
+mod launcher;
+
+#[cfg(test)]
 mod tests {
-    use crate::{input_capnp, surface_capnp, vsync_capnp};
+    use crate::{input_capnp, launcher, surface_capnp, vsync_capnp};
     use windowd::{
         focus_marker, v2a_marker_postflight_ready, CallerCtx, CommitSeq, FrameIndex,
         InputEventKind, Layer, Rect, SurfaceBuffer, SurfaceId, WindowServer, WindowdConfig,

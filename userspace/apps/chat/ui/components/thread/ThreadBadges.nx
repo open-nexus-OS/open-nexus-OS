@@ -1,0 +1,24 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The badges of the open conversation: "Verifiziert" (a `success` wash, verified contacts only)
+// and one tinted badge per transport, 6 px apart.
+
+Component ThreadBadges {
+    Stack {
+        if $state.verified {
+            Badge { label: @t("chat.verified"), variant: "tinted", tint: "success", size: "sm" }
+        } else {
+            Stack { }
+        }
+        Badge { label: $state.tr1, variant: "tinted", tint: $state.tr1Tint, size: "sm" }
+        if $state.tr2 != "" {
+            Badge { label: $state.tr2, variant: "tinted", tint: $state.tr2Tint, size: "sm" }
+        } else {
+            Stack { }
+        }
+    }
+    .direction(row)
+    .align(center)
+    .gap(6)
+}

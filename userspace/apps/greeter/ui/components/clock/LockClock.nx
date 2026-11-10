@@ -15,7 +15,5 @@ Component LockClock {
         }
     }
     .align(center)
-    .gap(4)
-    .paddingY(16)
     .transition(fade)
 }

@@ -47,7 +47,7 @@ Component DockCompact {
             Stack { }
                 .grow(2)
             Circle { size: 30
-                Icon { symbol: "square.grid", size: 20 }
+                Icon { symbol: "launcher", size: 20 }
                     .fg(label)
             }
             .label(@t("bar.launcher"))

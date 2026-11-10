@@ -1,0 +1,53 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The thread header's round actions (30, gap 4): voice call, video call and the mini app are
+// shown dimmed and inert (no call or payment service yet) except on the compact tier, which has
+// no room for dead controls; Info toggles the Chat-Info pane — the one state the chrome's toggle
+// and the menu share (`WinRight`) — tinted while the pane is shown.
+
+Component ThreadActions {
+    Stack {
+        if device.sizeClass == "compact" {
+            Stack { }
+        } else {
+            Stack {
+                Stack {
+                    WinButtonFace { symbol: "phone", size: 14, active: false, danger: false, disabled: true, large: false }
+                }
+                .label(@t("chat.call"))
+                Stack {
+                    WinButtonFace { symbol: "video", size: 14, active: false, danger: false, disabled: true, large: false }
+                }
+                .label(@t("chat.video"))
+                Stack {
+                    WinButtonFace { symbol: "wallet", size: 14, active: false, danger: false, disabled: true, large: false }
+                }
+                .label(@t("chat.miniApp"))
+            }
+            .direction(row)
+            .gap(4)
+        }
+        if ($state.rightOpen == 1 && device.sizeClass != "compact") || ($state.paneR == 1 && device.sizeClass == "compact") {
+            Stack {
+                Circle { size: 30
+                    Icon { symbol: "info.circle", size: 14 }
+                        .fg(accent)
+                }
+                .tint(accent)
+            }
+            .label(@t("chat.info"))
+            on Tap -> dispatch(WinRight)
+        } else {
+            Stack {
+                WinButtonFace { symbol: "info.circle", size: 14, active: false, danger: false, disabled: false, large: false }
+            }
+            .label(@t("chat.info"))
+            on Tap -> dispatch(WinRight)
+        }
+    }
+    .direction(row)
+    .align(center)
+    .gap(4)
+    .shrink(0)
+}

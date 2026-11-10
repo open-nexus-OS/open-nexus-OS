@@ -1,7 +1,8 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! The control widgets of the DSL catalog (`Button`, `Toggle`, `Checkbox`) and the props every
+//! The control widgets of the DSL catalog (`Button`, `Toggle`, `Checkbox`; the display, feedback
+//! and input arms live in `display` and `fields`) and the props every
 //! control shares: `size` (`xs`…`xl`, the control size) and `tint` (a colour role by name).
 //!
 //! CONTEXT: TASK-0353 P7 — the kit widgets gained the design's options (look, size, tint, role,
@@ -17,6 +18,13 @@ use nexus_style::control::Role;
 use nexus_style::InteractionState;
 use nexus_theme_tokens::{ColorToken, ControlSize, Tokens};
 use nexus_widget_button::{ButtonShape, ButtonVariant, GlassButton};
+
+mod display;
+mod fields;
+mod rows;
+pub(super) use display::{badge, banner, card, progress_bar, skeleton, slider, spinner, toast};
+pub(super) use fields::{search_bar, select, text_field};
+pub(super) use rows::{avatar, chip, list_item, toolbar};
 
 /// A prop lookup over the widget's `(name, value)` pairs.
 pub(super) type Props<'a> = &'a [(String, Value)];
@@ -47,7 +55,12 @@ pub(super) fn control_size(props: Props<'_>) -> Option<ControlSize> {
 
 /// `tint: "<role>"` — a colour role by its token name (`accent`, `danger`, `success`, …).
 pub(super) fn tint(props: Props<'_>) -> Option<ColorToken> {
-    color_token(&text(props, "tint")?)
+    tint_named(props, "tint")
+}
+
+/// A colour role by its token name from the prop `name` (`badgeTint: "success"`).
+pub(super) fn tint_named(props: Props<'_>, name: &str) -> Option<ColorToken> {
+    color_token(&text(props, name)?)
 }
 
 fn state(mods: &Mods) -> InteractionState {

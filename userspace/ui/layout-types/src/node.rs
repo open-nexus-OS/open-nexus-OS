@@ -192,6 +192,13 @@ pub struct TextInputNode {
     /// Password field (RFC-0075): content arrives pre-masked; the IME layer
     /// disables preedit preview, candidates and learning for this field.
     pub secure: bool,
+    /// The placeholder's colour, resolved from the theme by the field's builder (the design's
+    /// `labelTertiary`; `labelSecondary` on the lock screen's field). `None`: the painter fades
+    /// the content colour's alpha instead.
+    pub placeholder_color: Option<crate::Rgba8>,
+    /// The caret's colour: the field's tint (the design's caret, `accent` unless tinted). `None`:
+    /// the text colour.
+    pub caret_color: Option<crate::Rgba8>,
 }
 
 impl Default for TextInputNode {
@@ -207,6 +214,8 @@ impl Default for TextInputNode {
             min_width: None,
             max_width: None,
             secure: false,
+            placeholder_color: None,
+            caret_color: None,
         }
     }
 }

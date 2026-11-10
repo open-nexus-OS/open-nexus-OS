@@ -51,24 +51,29 @@ impl MeasureText for NoText {
 
 /// Paint a flattened `LayoutResult` into a fresh canvas and return its BGRA bytes.
 pub fn render_to_bgra(node: &LayoutNode) -> SnapResult<Vec<u8>> {
+    render_to_bgra_sized(node, CANVAS_W, CANVAS_H)
+}
+
+/// The same on a `w`×`h` canvas (a primitive wider or taller than the fixture canvas: the
+/// window kit's title bar, panes and menus).
+pub fn render_to_bgra_sized(node: &LayoutNode, w: i32, h: i32) -> SnapResult<Vec<u8>> {
     let engine = LayoutEngine::new();
-    let result: LayoutResult = engine
-        .layout(node, FxPx::new(CANVAS_W), &NoText)
-        .map_err(|_| golden::SnapshotError::Codec)?;
+    let result: LayoutResult =
+        engine.layout(node, FxPx::new(w), &NoText).map_err(|_| golden::SnapshotError::Codec)?;
 
     // The painter SSOT (`nexus-scene-raster`, promoted FROM this harness):
     // the goldens verify the shared implementation byte-for-byte — the
     // app-host streams the same rows on-device.
-    let mut buf = vec![0u8; (CANVAS_W * CANVAS_H * 4) as usize];
+    let mut buf = vec![0u8; (w * h * 4) as usize];
     for px in buf.chunks_exact_mut(4) {
         px[0] = CANVAS_FILL.b;
         px[1] = CANVAS_FILL.g;
         px[2] = CANVAS_FILL.r;
         px[3] = CANVAS_FILL.a;
     }
-    for y in 0..CANVAS_H {
-        let row = &mut buf[(y * CANVAS_W * 4) as usize..((y + 1) * CANVAS_W * 4) as usize];
-        let mut canvas = nexus_scene_raster::RowCanvas::new(row, y, CANVAS_W);
+    for y in 0..h {
+        let row = &mut buf[(y * w * 4) as usize..((y + 1) * w * 4) as usize];
+        let mut canvas = nexus_scene_raster::RowCanvas::new(row, y, w);
         nexus_scene_raster::paint_row(&mut canvas, &result.boxes);
     }
     Ok(buf)
@@ -110,7 +115,12 @@ pub fn golden_root() -> PathBuf {
 /// Render `node` and compare its BGRA against `goldens/<name>.bgra.hex`
 /// (created/updated when `UPDATE_GOLDENS=1`).
 pub fn check_golden(name: &str, node: &LayoutNode) -> SnapResult<()> {
-    let bgra = render_to_bgra(node)?;
+    check_golden_sized(name, node, CANVAS_W, CANVAS_H)
+}
+
+/// [`check_golden`] on a `w`×`h` canvas.
+pub fn check_golden_sized(name: &str, node: &LayoutNode, w: i32, h: i32) -> SnapResult<()> {
+    let bgra = render_to_bgra_sized(node, w, h)?;
     let actual = hex_bytes(&bgra)?;
     let relative = PathBuf::from(format!("{name}.bgra.hex"));
     compare_hex_golden(&golden_root(), &relative, &actual, GoldenMode::from_env())

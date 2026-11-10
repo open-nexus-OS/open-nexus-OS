@@ -100,27 +100,38 @@ impl Default for BoxShadow {
     }
 }
 
-/// Text shadow descriptor. Simpler than box shadow — no spread, just offset + blur + color.
+/// Text shadow descriptor. Simpler than box shadow — no spread, just offset + blur + color. A
+/// text shadow reaches a few pixels past its glyphs, so its geometry is whole pixels in a byte
+/// each: every node of every frame carries two of these ([`VisualStyle::text_shadows`]), and the
+/// pair costs less than one wide descriptor did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TextShadow {
     /// Horizontal offset in layout pixels.
-    pub offset_x: FxPx,
+    pub offset_x: i8,
     /// Vertical offset in layout pixels.
-    pub offset_y: FxPx,
-    /// Blur radius in layout pixels. 0 = sharp, 1+ = softening.
-    pub blur_radius: FxPx,
+    pub offset_y: i8,
+    /// Blur radius in layout pixels, as CSS reads it (a Gaussian of σ = radius / 2): 0 = sharp.
+    pub blur_radius: u8,
     /// Shadow color.
     pub color: Rgba8,
 }
 
+impl TextShadow {
+    /// The label halo in `color` (RFC-0116 `labelShadow`), as the design artifacts draw it behind
+    /// a label on the wallpaper: a 3 px glow around the glyphs, and under it the same glow one
+    /// pixel lower at four fifths of the alpha (`0 0 3px c, 0 1px 3px c·0.8`) — front first, the
+    /// order of [`VisualStyle::text_shadows`].
+    #[must_use]
+    pub const fn halo(color: Rgba8) -> [Self; 2] {
+        let glow = Self { offset_x: 0, offset_y: 0, blur_radius: 3, color };
+        let lower = Rgba8 { a: (color.a as u16 * 4 / 5) as u8, ..color };
+        [glow, Self { offset_y: 1, color: lower, ..glow }]
+    }
+}
+
 impl Default for TextShadow {
     fn default() -> Self {
-        Self {
-            offset_x: FxPx::ZERO,
-            offset_y: FxPx::new(2),
-            blur_radius: FxPx::new(4),
-            color: Rgba8 { r: 0, g: 0, b: 0, a: 80 },
-        }
+        Self { offset_x: 0, offset_y: 2, blur_radius: 4, color: Rgba8 { r: 0, g: 0, b: 0, a: 80 } }
     }
 }
 
@@ -181,16 +192,13 @@ pub enum ShapeKind {
     },
 }
 
-/// Visual style attached to container and text nodes.
-/// Separated from layout properties — paint-only changes don't invalidate measurement.
-///
-/// Phase 6a: added `shadow`, `text_shadow`. `opacity` is a 0-255 fraction
 /// The material of a surface (RFC-0116): which colour role it is filled with and whether it
-/// blurs what lies behind it. Only the one surface of a stack that sits on the wallpaper blurs
-/// (`Panel`, `Window`, `Dock`, `Thin`, `UltraThin`); `Card` is a translucent layer on such a
-/// surface and never blurs; `Pane` (inside a window) and `Overlay` (everything that floats)
-/// are opaque. The compositor turns a blurring node into a backdrop-blurred layer, a `Pane`
-/// into an occluder; the app never blurs anything itself.
+/// blurs what lies behind it. Only the root surface of a stack blurs (`Panel`, `Window`, `Dock`,
+/// `Thin`, `UltraThin` on the wallpaper; `Overlay`, everything that floats, over what it floats
+/// on); `Card` is a translucent layer on such a surface and never blurs; `Pane` (inside a
+/// window) is opaque, and so is an `Overlay` nested in another surface (a floating action bar
+/// on a pane), which cannot blur there. The compositor turns a blurring root into a
+/// backdrop-blurred layer, an opaque surface into an occluder; the app never blurs anything.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Material {
     /// A panel on the wallpaper (Control Center, notifications, launcher): glassPanel, regular blur.
@@ -207,7 +215,8 @@ pub enum Material {
     Card,
     /// The opaque pane inside a window: surfacePane.
     Pane,
-    /// A floating surface (modal, alert, menu, popover, toast, keyboard): surfaceOverlay, opaque.
+    /// A floating surface (modal, alert, menu, popover, toast): glassOverlay, regular blur — a
+    /// dense frosted reading surface as a root; nested in another surface, opaque.
     Overlay,
 }
 
@@ -215,16 +224,24 @@ impl Material {
     /// Whether the compositor blurs the backdrop under this surface.
     #[must_use]
     pub const fn blurs(self) -> bool {
-        matches!(self, Self::Panel | Self::Window | Self::Dock | Self::Thin | Self::UltraThin)
+        matches!(
+            self,
+            Self::Panel | Self::Window | Self::Dock | Self::Thin | Self::UltraThin | Self::Overlay
+        )
     }
 
-    /// Whether the surface is opaque (an occluder for what lies under it).
+    /// Whether the surface reads as opaque: a pane, and an overlay — frosted as a root, an
+    /// occluder where it is nested (it cannot blur there). A card on it takes the pane's fill.
     #[must_use]
     pub const fn opaque(self) -> bool {
         matches!(self, Self::Pane | Self::Overlay)
     }
 }
 
+/// Visual style attached to container and text nodes.
+/// Separated from layout properties — paint-only changes don't invalidate measurement.
+///
+/// Phase 6a: added `shadow`, `text_shadows`. `opacity` is a 0-255 fraction
 /// (0 = fully transparent, 255 = fully opaque).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct VisualStyle {
@@ -244,8 +261,9 @@ pub struct VisualStyle {
     pub shape: ShapeKind,
     /// Box shadow (outer shadow cast by the element bounds).
     pub shadow: Option<BoxShadow>,
-    /// Text shadow (shadow cast by text glyphs on this node).
-    pub text_shadow: Option<TextShadow>,
+    /// Up to two text shadows cast by the glyphs of this node, front first (CSS order): the
+    /// painter draws the second, then the first, then the text.
+    pub text_shadows: [Option<TextShadow>; 2],
     /// The design system's `inset 0 1px 0 <color>` top-shine: a one-pixel
     /// highlight drawn just INSIDE the top edge (RFC-0082). This is what makes
     /// a glass surface read as a lit pane rather than a flat tint, and it is

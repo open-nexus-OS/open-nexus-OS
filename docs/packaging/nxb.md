@@ -5,7 +5,7 @@ role: reference
 subsystem: app-platform
 sources: [tools/nexus-idl/schemas/manifest.capnp, tools/nxb-pack, userspace/bundlemgr, source/services/bundlemgrd, tools/nx/src/commands/app.rs, userspace/storage/src/pkgimg_bundles.rs]
 contracts: [ADR-0020, ADR-0021, ADR-0060, RFC-0089, RFC-0111, ADR-0084]
-verified: 2026-11-02
+verified: 2026-11-10
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->

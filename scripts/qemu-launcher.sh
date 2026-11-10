@@ -582,7 +582,8 @@ monitor_uart_stream() {
           pkill -f qemu-system-riscv64 >/dev/null 2>&1 || true
           break
         fi ;;
-      *"LOCKDEP:"*|*"PT-VERIFY:"*|*"HEAP: "*)
+      # The heap's canary markers only: `KHEAP: grew (…)` is the growing kernel heap at work.
+      *"LOCKDEP:"*|*"PT-VERIFY:"*|*"HEAP: header canary"*|*"HEAP: tail canary"*)
         if [[ "$RUN_UNTIL_MARKER" != "1" ]]; then
           echo "[warn] Kernel debug-hardening marker detected – stopping QEMU for triage" >&2
           pkill -f qemu-system-riscv64 >/dev/null 2>&1 || true

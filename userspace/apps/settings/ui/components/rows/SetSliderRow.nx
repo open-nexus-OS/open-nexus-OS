@@ -1,0 +1,78 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The stacked `r` (range) row of the design: the title line with the value text trailing, and
+// below it, at the text column, the slider between a start and an end glyph (15 px
+// `labelSecondary`, 12 px from the track). 80 px high at the row padding 12 16. As in `SetRow`
+// the 12 px are padding on the part that is there, so an absent glyph leaves no gap.
+//
+// The slider itself arrives through the `slider` slot: a slot body is lexically the CALLER's,
+// which is what lets `Slider { value: $state.rngVolume }` keep its automatic two-way binding —
+// that fires only on a `$state` ref at the widget, never through a prop. The values are static
+// demo state (`DemoStore.rng*`): no service backs volume, input level or brightness yet.
+
+Component SetSliderRow {
+    props: {
+        title: Str,
+        icon: Str,
+        value: Str,
+        iconStart: Str,
+        iconEnd: Str,
+    }
+    slot slider
+    Stack {
+        Stack {
+            if $props.icon != "" {
+                Stack {
+                    Icon { symbol: $props.icon, size: 18 }
+                        .fg(labelSecondary)
+                }
+                .paddingTrailing(12)
+            } else {
+                Stack { }
+            }
+            Stack {
+                Text($props.title).textStyle(body).fontWeight(medium).fg(label)
+            }
+            .grow(1)
+            .paddingTrailing(12)
+            Text($props.value).textStyle(body).fontWeight(normal).fg(labelSecondary).figures(tabular)
+        }
+        .direction(row)
+        .align(center)
+        .gap(0)
+        Stack {
+            if $props.icon != "" {
+                Stack { }
+                    .width(30)
+            } else {
+                Stack { }
+            }
+            if $props.iconStart != "" {
+                Stack {
+                    Icon { symbol: $props.iconStart, size: 15 }
+                        .fg(labelSecondary)
+                }
+                .paddingTrailing(12)
+            } else {
+                Stack { }
+            }
+            Slot slider
+            if $props.iconEnd != "" {
+                Stack {
+                    Icon { symbol: $props.iconEnd, size: 15 }
+                        .fg(labelSecondary)
+                }
+                .paddingLeading(12)
+            } else {
+                Stack { }
+            }
+        }
+        .direction(row)
+        .align(center)
+        .gap(0)
+    }
+    .gap(12)
+    .paddingX(16)
+    .paddingY(12)
+}

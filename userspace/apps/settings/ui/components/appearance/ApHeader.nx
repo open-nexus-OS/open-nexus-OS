@@ -1,0 +1,56 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// A section header of the appearance page (design §2.9): the overline title inset 16 and, at the
+// trailing edge, the current choice in footnote 12/500 `labelSecondary` (`headerTrailing` —
+// the accent's or the icon style's name; empty for a section that has none). The caller passes
+// the trailing text, resolved from the store by `ApAccentName` / `ApStyleName`.
+
+Component ApHeader {
+    props: {
+        title: Str,
+    }
+    slot trailing
+    Stack {
+        Text($props.title).textStyle(overline).fg(labelSecondary)
+        Spacer
+        Slot trailing
+    }
+    .direction(row)
+    .align(center)
+    .paddingX(16)
+}
+
+Component ApAccentName {
+    if $state.apAccent == "teal" {
+        Text(@t("ap.accTeal")).textStyle(footnote).fontWeight(medium).fg(labelSecondary)
+    } else if $state.apAccent == "green" {
+        Text(@t("ap.accGreen")).textStyle(footnote).fontWeight(medium).fg(labelSecondary)
+    } else if $state.apAccent == "amber" {
+        Text(@t("ap.accAmber")).textStyle(footnote).fontWeight(medium).fg(labelSecondary)
+    } else if $state.apAccent == "orange" {
+        Text(@t("ap.accOrange")).textStyle(footnote).fontWeight(medium).fg(labelSecondary)
+    } else if $state.apAccent == "red" {
+        Text(@t("ap.accRed")).textStyle(footnote).fontWeight(medium).fg(labelSecondary)
+    } else if $state.apAccent == "pink" {
+        Text(@t("ap.accPink")).textStyle(footnote).fontWeight(medium).fg(labelSecondary)
+    } else if $state.apAccent == "violet" {
+        Text(@t("ap.accViolet")).textStyle(footnote).fontWeight(medium).fg(labelSecondary)
+    } else if $state.apAccent == "graphite" {
+        Text(@t("ap.accGraphite")).textStyle(footnote).fontWeight(medium).fg(labelSecondary)
+    } else {
+        Text(@t("ap.accDefault")).textStyle(footnote).fontWeight(medium).fg(labelSecondary)
+    }
+}
+
+Component ApStyleName {
+    if $state.apIconStyle == "dark" {
+        Text(@t("ap.iconDark")).textStyle(footnote).fontWeight(medium).fg(labelSecondary)
+    } else if $state.apIconStyle == "clear" {
+        Text(@t("ap.iconClear")).textStyle(footnote).fontWeight(medium).fg(labelSecondary)
+    } else if $state.apIconStyle == "tinted" {
+        Text(@t("ap.iconTinted")).textStyle(footnote).fontWeight(medium).fg(labelSecondary)
+    } else {
+        Text(@t("ap.iconDefault")).textStyle(footnote).fontWeight(medium).fg(labelSecondary)
+    }
+}

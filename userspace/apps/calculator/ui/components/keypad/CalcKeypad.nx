@@ -97,9 +97,17 @@ Component CalcKeypad {
             Stack { CalcKey { label: "0", kind: "digit" } }
                 .direction(row).basis(12).grow(2)
             on Tap -> dispatch(Digit(0.0, "0"))
-            Stack { CalcKey { label: ",", kind: "digit" } }
-                .direction(row).basis(0).grow(1)
-            on Tap -> dispatch(Sep(","))
+            // The decimal mark of the region (design artifacts: C19): "," in German, "." in the
+            // others — a structural choice on `device.locale`, so typing never waits on a catalog.
+            if device.locale == "de-DE" {
+                Stack { CalcKey { label: ",", kind: "digit" } }
+                    .direction(row).basis(0).grow(1)
+                on Tap -> dispatch(Sep(","))
+            } else {
+                Stack { CalcKey { label: ".", kind: "digit" } }
+                    .direction(row).basis(0).grow(1)
+                on Tap -> dispatch(Sep("."))
+            }
             Stack { CalcKey { label: "=", kind: "equals" } }
                 .direction(row).basis(0).grow(1)
             on Tap -> dispatch(Eq)

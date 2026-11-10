@@ -21,13 +21,13 @@ Component UserSwitcher {
                         Text(user.label).textStyle(caption).fontWeight(semibold).fg(labelSecondary).shadow(halo)
                     }
                     .align(center)
-                    .gap(4)
+                    .gap(6)
                 }
             }
             .key(user.id)
             on Tap -> dispatch(Pick(user.id))
         }
         .direction(row)
-        .gap(16)
+        .gap(12)
     }
 }

@@ -1,12 +1,12 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The shell search (TASK-0067B), shaped like the desktop reference's search
-// bar: one rounded field in the upper third of the screen — the greeter's
-// field recipe (panel glass, fully round, bare text field, deep shadow) with
-// a magnifier where the greeter has its avatar — and three round glass
-// buttons beside it: Apps, Files, Clipboard. Results open below the field
-// only once there is something to show (a query or a chosen category).
+// The shell search (TASK-0067B; design artifacts: launcher-lock §M): one capsule
+// field in the upper third of the screen — the floating overlay surface (frosted
+// as a root, its glassEdge, shadow3 and lit top edge), an 18 px magnifier, a
+// bare lg field (headline 15 medium) — and three round buttons of the same
+// surface beside it: Apps, Files, Clipboard. Results open below the field only
+// once there is something to show (a query or a chosen category).
 //
 // A MODAL layer (ADR-0068): ESC and a press outside every panel close it
 // (`on Dismiss`), and windowd hands the shell every press while it is open
@@ -14,9 +14,10 @@
 // presses (`SearchNoop`). The field holds the keyboard while the layer is
 // open (`.autofocus(true)`): no click is needed to type.
 //
-// Every visible piece is PANEL-level glass on purpose: the compositor draws
-// the desktop surface's panel glass ABOVE the app windows (the Control
-// Center does the same), so the search floats over whatever window is open.
+// Every visible piece is the OVERLAY surface (`.material(overlay)`, the
+// floating-layer rule): the compositor draws the desktop surface's glass ABOVE
+// the app windows (the Control Center does the same), so the search floats
+// over whatever window is open.
 //
 // Files is inert until the file search exists — drawn dimmed; its press is
 // absorbed so it neither closes the search nor pretends to do something.
@@ -28,13 +29,14 @@ Component SearchOverlay {
         Stack {
             Stack {
                 Stack {
-                    Icon { symbol: "magnifyingglass", size: 17 }
+                    Icon { symbol: "magnifyingglass", size: 18 }
                         .fg(labelSecondary)
                     Stack {
                         TextField {
                             placeholder: @t("search.placeholder"),
                             value: $state.searchQuery,
                             variant: "bare",
+                            size: "lg",
                         }
                         .grow(1)
                         .autofocus(true)
@@ -50,9 +52,8 @@ Component SearchOverlay {
                 .height(44)
                 .paddingLeading(16)
                 .paddingTrailing(16)
-                .material(panel)
+                .material(overlay)
                 .rounded(full)
-                .shadow(shadow3)
                 .grow(1)
                 on Tap -> dispatch(SearchNoop)
                 Stack {

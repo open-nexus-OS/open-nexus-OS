@@ -2,21 +2,25 @@
 schema: 1
 id: TASK-0357
 title: "Every DSL app is built like an enterprise app: modular pages, components and stores, a README and tests per app, and a gate that keeps it so"
-status: in_progress
+status: done
 owner: ["@ui"]
 created: 2026-11-09
-updated: 2026-11-09
+updated: 2026-11-10
 subsystem: app-platform
 kind: refactor
 novelty: variant
 estimate: 2
 started: 2026-11-09
+done: 2026-11-10
+active_days: 2
 dates_source: recorded
+variance_note: "on estimate (2 of 2 days): the two language changes it needed — slot forwarding and library composables — were seams RFC-0084 had already named, so they cost hours, not days"
 goal:
   metric: "DSL apps that pass the app-structure gate (thin pages, components by feature, stores by domain, i18n, README, tests)"
   baseline: "0 of 8 apps pass; 23 baseline entries (6 apps without a README, 15 files over their size, 1 flat component folder, 1 duplicated store); 8 of 8 apps have a conformance test"
   target: "8 of 8 apps pass; 0 entries left in the gate's baseline"
   instrument: tests/dsl_apps_conformance/tests/app_structure.rs
+  result: "8 of 8 apps pass the app-structure gate; 0 baseline entries (window store in window-kit, slot forwarding split WinPane and WinAppWindow); every route mounts, every event case reduces (app_smoke), every tap target named (NX0415)"
 consumer: TASK-0353/P3
 phases:
   - id: P0
@@ -35,18 +39,25 @@ phases:
     evidence: tests/dsl_apps_conformance/tests/stash.rs
   - id: P2
     story: "Settings, Chat, the greeter, the on-screen keyboard, the shell and window-kit are modular: every page within 100 logical lines, every component within 150, every store within 200, components grouped by feature folder"
-    state: building
+    state: done
     gate: "host: 0 size or flat-components entries in the baseline; dsl_apps_conformance and nexus-dsl-runtime green"
     started: 2026-11-09
+    done: 2026-11-10
+    evidence: tests/dsl_apps_conformance/tests/app_structure.rs
   - id: P3
     story: "every app explains and proves itself: a README with purpose, routes, stores and events, services and structure, and tests that mount every route, drive every store's events and check every interactive node's accessible name"
-    state: building
+    state: done
     gate: "host: app_structure.rs checks the README sections and an app test file: 8 of 8 apps"
     started: 2026-11-09
+    done: 2026-11-10
+    evidence: tests/dsl_apps_conformance/tests/app_smoke.rs
   - id: P4
     story: "the window store lives once: a library may ship composables (an RFC amendment to the library governance, today components only), window-kit owns the window chrome store and the apps' copies are gone"
-    state: planned
+    state: done
     gate: "RFC amendment accepted; host: 0 identical store files across apps, every app compiles, dsl_apps_conformance green"
+    started: 2026-11-10
+    done: 2026-11-10
+    evidence: userspace/apps/window-kit/ui/composables/window.store.nx
 ---
 
 <!-- `nx ledger new task` copies everything below this line; the frontmatter above shows the

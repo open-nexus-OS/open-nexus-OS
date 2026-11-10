@@ -108,8 +108,8 @@ then C collapses surface-by-surface (boot-gated). The library SSOT home is the p
 |---|---|---|---|
 | `Window` (dense surface + 3-zone chrome) | A `nexus-widget-window` (`Frame`/`ResizeEdge`/`TitleButton`/`WindowPress`, 577 LOC — **hardened by track 0070-72**) · C windowd renders it | **A `Frame` (already the SSOT for hit/resize) + C render quality** | window material tokens, animate |
 | `WindowControls` (– □ ×) | A `nexus-widget-window::TitleButton` · C render | **A** (already SSOT) | — mostly done |
-| `WindowButton` (ghost/active/danger) | C windowd chrome buttons | **promote into A window crate** | active/danger treatments |
-| `WindowPane` (inner card + header) | A `nexus-widget-panel` partial · C windowd window bodies | **A panel + C header** | header actions, scrolling body |
+| `WindowButton` (ghost/active/danger) | window-kit `WinButtonFace` (DSL; the Rust builder was deleted, TASK-0353 P6) | **done in window-kit** | — |
+| `WindowPane` (inner card + header) | window-kit `WinPane` (DSL: header, body, footer zones) | **done in window-kit** | — |
 | `AppWindow` (sidebar·content·properties, responsive) | A `shells/desktop` partial · C windowd shell | **compose from Window+Sidebar+Pane** | responsive collapse (≥820/≥560/<560) |
 | `WindowActionBar` (floating pill) | — | **new** | full |
 | `Icon` (Lucide SVG renderer) | A `nexus-svg` (production AA+arc rasterizer) | **nexus-svg** (already SSOT) | thin Icon wrapper over nexus-svg |

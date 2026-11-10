@@ -1,0 +1,69 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The face of one conversation row (design artifacts: a ListItem): avatar 38, the name (body 14
+// medium) over the last line (footnote, labelSecondary) and a line of tinted transport badges
+// under it; at the end the time (caption2) with a `success` check when the contact is verified,
+// and the unread count as a filled `danger` badge. Names and lines are cut with an ellipsis by
+// the painter. No presence dot: there is no presence data. Handler-free: `ConversationRow`
+// owns the tap and the selected layer.
+
+Component RowFace {
+    props: {
+        name: Str,
+        ini: Str,
+        last: Str,
+        time: Str,
+        unread: Int,
+        verified: Bool,
+        t1: Str,
+        t1Tint: Str,
+        t2: Str,
+        t2Tint: Str,
+    }
+    Stack {
+        Avatar { initials: $props.ini, size: 38 }
+        Stack {
+            Text($props.name).textStyle(body).fontWeight(medium).fg(label)
+            Text($props.last).textStyle(footnote).fg(labelSecondary)
+            Stack {
+                Badge { label: $props.t1, variant: "tinted", tint: $props.t1Tint, size: "sm" }
+                if $props.t2 != "" {
+                    Badge { label: $props.t2, variant: "tinted", tint: $props.t2Tint, size: "sm" }
+                } else {
+                    Stack { }
+                }
+            }
+            .direction(row)
+            .wrap(true)
+            .gap(4)
+            .paddingTop(4)
+        }
+        .gap(0)
+        .grow(1)
+        Stack {
+            Stack {
+                if $props.verified {
+                    Icon { symbol: "checkmark", size: 11 }
+                        .fg(success)
+                } else {
+                    Stack { }
+                }
+                Text($props.time).textStyle(caption2).fg(labelSecondary).figures(tabular)
+            }
+            .direction(row)
+            .align(center)
+            .gap(4)
+            if $props.unread > 0 {
+                Badge { label: $props.unread, variant: "filled", tint: "danger", size: "sm" }
+            } else {
+                Stack { }
+            }
+        }
+        .gap(4)
+        .align(end)
+        .shrink(0)
+    }
+    .direction(row)
+    .gap(12)
+}

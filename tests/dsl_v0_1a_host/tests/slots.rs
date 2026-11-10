@@ -270,9 +270,11 @@ Page P {
 }
 
 #[test]
-fn reject_slot_forwarding() {
-    // Rule 11 — v1 has a slot FRAME, not a stack of them.
-    let src = r#"
+fn forwarding_a_declared_slot_checks_clean() {
+    // Rule 11 as amended (RFC-0084, slot forwarding): a slot body may place a slot the
+    // enclosing component declares — the frames chain, the caller's content lands in `Inner`.
+    assert_clean(
+        r#"
 Component Inner {
     slot body
     Stack {
@@ -294,8 +296,51 @@ Component Outer {
 Page P {
     Outer { } { body { Text("x") } }
 }
+"#,
+    );
+}
+
+#[test]
+fn reject_forwarding_an_undeclared_slot() {
+    // Rule 11: the forwarded name must be a slot of the enclosing component — `Outer` has no
+    // `other`, and a page has no slots at all.
+    let src = r#"
+Component Inner {
+    slot body
+    Stack {
+        Slot body
+    }
+}
+
+Component Outer {
+    slot body
+    Stack {
+        Inner { } {
+            body {
+                Slot other
+            }
+        }
+    }
+}
+
+Page P {
+    Outer { } { body { Text("x") } }
+}
 "#;
     assert!(check_codes(src).contains(&DiagCode::SlotShape));
+    let page = r#"
+Component Inner {
+    slot body
+    Stack {
+        Slot body
+    }
+}
+
+Page P {
+    Inner { } { body { Slot body } }
+}
+"#;
+    assert!(check_codes(page).contains(&DiagCode::SlotShape));
 }
 
 #[test]

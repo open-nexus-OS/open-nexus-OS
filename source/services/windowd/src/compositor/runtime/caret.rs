@@ -30,8 +30,11 @@ const PATCH: u32 = 16;
 
 /// The caret state: the declaration, its blink, its patch, what was drawn.
 pub(crate) struct CaretLayer {
-    /// The surface it belongs to and what its app declared (`None`: no caret anywhere).
-    held: Option<(u32, Caret)>,
+    /// Every surface's declared caret; the focused surface's shows (`caret_rule::CaretTable`).
+    carets: caret_rule::CaretTable,
+    /// The surface whose caret the last pass considered: a focus change restarts the blink, so
+    /// the field just focused shows its caret solid at once.
+    focus: Option<u32>,
     /// When the blink last restarted.
     reset_ns: u64,
     /// The atlas patch of its colour, and that colour.
@@ -48,9 +51,15 @@ pub(crate) struct CaretLayer {
 }
 
 impl CaretLayer {
+    /// A destroyed surface's caret goes with it (a reused id never shows a stale caret).
+    pub(crate) fn forget(&mut self, surface: u32) {
+        self.carets.hide(surface);
+    }
+
     pub(crate) const fn new() -> Self {
         Self {
-            held: None,
+            carets: caret_rule::CaretTable::new(),
+            focus: None,
             reset_ns: 0,
             patch: None,
             drawn: None,
@@ -128,20 +137,15 @@ impl DisplayServerRuntime {
             return; // a stale claim after a destroy: nothing to draw on
         }
         let now = nexus_abi::nsec().unwrap_or(0);
-        match self.caret.held {
-            _ if caret.visible() => {
-                let rect = |c: &Caret| (c.x, c.y, c.w, c.h);
-                let moved = self
-                    .caret
-                    .held
-                    .is_none_or(|(s, c)| s != surface_id || rect(&c) != rect(&caret));
-                if moved || caret.flags & CARET_RESET != 0 {
-                    self.caret.reset_ns = now;
-                }
-                self.caret.held = Some((surface_id, caret));
+        if caret.visible() {
+            let moved = self.caret.carets.declare(surface_id, caret);
+            if (moved || caret.flags & CARET_RESET != 0)
+                && self.window_focus_surface() == Some(surface_id)
+            {
+                self.caret.reset_ns = now;
             }
-            Some((s, _)) if s == surface_id => self.caret.held = None,
-            _ => return, // another surface hides a caret it does not hold
+        } else {
+            self.caret.carets.hide(surface_id);
         }
         self.refresh_caret(now);
     }
@@ -195,10 +199,14 @@ impl DisplayServerRuntime {
     /// Where the caret shows at `now` (its screen rectangle and window slot) and when that
     /// changes next — nothing while its surface lacks window focus or is hidden.
     fn caret_now(&mut self, now: u64) -> (Option<(DamageRect, Option<u16>)>, Option<u64>) {
-        let Some((surface_id, caret)) = self.caret.held else { return (None, None) };
-        if self.window_focus_surface() != Some(surface_id) {
-            return (None, None);
+        let focus = self.window_focus_surface();
+        if focus != self.caret.focus {
+            // Focus moved to another window: its own caret (kept in the table) shows solid first.
+            self.caret.focus = focus;
+            self.caret.reset_ns = now;
         }
+        let Some(surface_id) = focus else { return (None, None) };
+        let Some(caret) = self.caret.carets.get(surface_id) else { return (None, None) };
         let (origin, size, owner) = if self.desktop_surface_id == Some(surface_id) {
             let visible = self.windows.is_visible(crate::window_scene::WindowId::Desktop);
             if !visible {

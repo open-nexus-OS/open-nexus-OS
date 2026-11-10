@@ -240,6 +240,8 @@ impl Badge {
                     content: TextContent::new(text),
                     style: TextStyle {
                         white_space: WhiteSpace::NoWrap,
+                        // A count's digits are tabular figures (RFC-0116 M-3).
+                        tabular: numeric,
                         ..text_style.text_style(self.foreground(tokens), Some(weight))
                     },
                     max_lines: Some(1),

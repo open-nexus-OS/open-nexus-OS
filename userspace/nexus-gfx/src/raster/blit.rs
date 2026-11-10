@@ -169,7 +169,8 @@ pub fn blit_from(
     let _ = width;
 }
 
-/// A source a layer blends from: `bytes` of rows `stride` bytes apart, BGRA premultiplied.
+/// A source a layer blends from: `bytes` of rows `stride` bytes apart, BGRA in straight alpha —
+/// what an app hands the compositor (RFC-0109); [`blit_from_blend`] blends it source-over.
 #[derive(Clone, Copy, Debug)]
 pub struct BlendSource<'a> {
     pub bytes: &'a [u8],

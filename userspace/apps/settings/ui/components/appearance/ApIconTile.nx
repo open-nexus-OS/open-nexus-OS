@@ -1,8 +1,13 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// One "App-Icons & Widgets" tile: three sample icon chips in the variant's
-// treatment, its name and a one-line description (design block 3).
+// One "App-Icons & Widgets" tile (design §2.9): three sample icon chips (32 px, radius 8, gap 8)
+// in the variant's treatment, its name (footnote 12/600 `label`) and its description (caption
+// 11/400 `labelSecondary`), centred. A `glassCard` with its `glassEdge`, radius 16, padding 8;
+// the selected tile swaps the edge for a `label` ring (the DSL's `ring` is 2 px, the design's
+// 1.5; a border is painted inside the box and takes no layout).
+// OPEN: the design draws three REAL app icons per style; no component draws an installed app's
+// icon inside a view, so the chips carry three glyphs (gearshape, photo, message) instead.
 //
 // KNOWN NON-PARITY, recorded in docs/dev/ui/design-token-audit.md: the
 // design derives Dunkel/Klar/Getönt from ONE source SVG through
@@ -22,52 +27,84 @@ Component ApIconTile {
         bottom: Str,
         selected: Bool,
     }
+    if $props.selected {
+        Stack {
+            ApIconChips { top: $props.top, bottom: $props.bottom }
+            ApIconNames { name: $props.name, desc: $props.desc }
+        }
+        .gap(8)
+        .align(center)
+        .paddingX(8)
+        .paddingY(12)
+        .rounded(lg)
+        .material(card)
+        .border(ring)
+        .borderColor(label)
+    } else {
+        Stack {
+            ApIconChips { top: $props.top, bottom: $props.bottom }
+            ApIconNames { name: $props.name, desc: $props.desc }
+        }
+        .gap(8)
+        .align(center)
+        .paddingX(8)
+        .paddingY(12)
+        .rounded(lg)
+        .material(card)
+    }
+}
+
+Component ApIconChips {
+    props: {
+        top: Str,
+        bottom: Str,
+    }
     Stack {
         Stack {
-            Stack {
-                Icon { symbol: "gearshape", size: 17 }
-                    .fg(label)
-            }
-            .width(32)
-            .height(32)
-            .rounded(md)
-            .align(center)
-            .justify(center)
-            .bgGradient($props.top, $props.bottom)
-            Stack {
-                Icon { symbol: "photo", size: 17 }
-                    .fg(label)
-            }
-            .width(32)
-            .height(32)
-            .rounded(md)
-            .align(center)
-            .justify(center)
-            .bgGradient($props.top, $props.bottom)
-            Stack {
-                Icon { symbol: "message", size: 17 }
-                    .fg(label)
-            }
-            .width(32)
-            .height(32)
-            .rounded(md)
-            .align(center)
-            .justify(center)
-            .bgGradient($props.top, $props.bottom)
+            Icon { symbol: "gearshape", size: 17 }
+                .fg(label)
         }
-        .direction(row)
-        .gap(4)
-        .justify(center)
-        Stack {
-            Text($props.name).textStyle(caption).fontWeight(semibold).fg(label)
-            Text($props.desc).textStyle(caption).fg(labelSecondary)
-        }
-        .gap(0)
+        .width(32)
+        .height(32)
+        .rounded(sm)
         .align(center)
+        .justify(center)
+        .bgGradient($props.top, $props.bottom)
+        Stack {
+            Icon { symbol: "photo", size: 17 }
+                .fg(label)
+        }
+        .width(32)
+        .height(32)
+        .rounded(sm)
+        .align(center)
+        .justify(center)
+        .bgGradient($props.top, $props.bottom)
+        Stack {
+            Icon { symbol: "message", size: 17 }
+                .fg(label)
+        }
+        .width(32)
+        .height(32)
+        .rounded(sm)
+        .align(center)
+        .justify(center)
+        .bgGradient($props.top, $props.bottom)
     }
+    .direction(row)
     .gap(8)
+    .justify(center)
+}
+
+Component ApIconNames {
+    props: {
+        name: Str,
+        desc: Str,
+    }
+    Stack {
+        Text($props.name).textStyle(footnote).fontWeight(semibold).fg(label)
+        Text($props.desc).textStyle(caption).fontWeight(normal).fg(labelSecondary).textAlign(center)
+    }
+    .gap(0)
     .align(center)
-    .padding(8)
-    .rounded(lg)
-    .material(card)
 }

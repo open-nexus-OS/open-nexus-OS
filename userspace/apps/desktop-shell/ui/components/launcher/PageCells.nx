@@ -1,0 +1,63 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The cells of page `page`: the apps `per × page` … `per × (page + 1)` of the ONE store list in
+// `columns` columns (design artifacts: launcher, Grid): padding 0 × 2, row gap `rowGap`, column
+// gap 12. The xl grid is exactly `width` wide and each cell holds an xl icon with 8 × 4 around
+// it; with `md` (the phone) the grid is as wide as its page (`width` unused) and each cell is
+// 112 high with the md tile in its middle — 84 wide or more, as the page divides. A tap launches
+// the app (`svc.ability.launch` through the store). A page past the end of the list is an empty
+// cell.
+
+Component PageCells {
+    props: {
+        page: Int,
+        per: Int,
+        columns: Int,
+        width: Int,
+        md: Bool,
+        rowGap: Int,
+    }
+    if len($state.apps) > $props.per * $props.page {
+        if $props.md {
+            Stack {
+                List(take(skip($state.apps, $props.per * $props.page), $props.per)) { app in
+                    Stack {
+                        AppTile { label: app.label, icon: app.icon, iconTop: app.iconTop, iconBottom: app.iconBottom, iconArt: app.iconArt }
+                    }
+                    .key(app.id)
+                    .align(center)
+                    .justify(center)
+                    .grow(1)
+                    .height(112)
+                    on Tap -> dispatch(Launch(app.id))
+                }
+                .columns($props.columns)
+                .rowGap($props.rowGap)
+                .gap(12)
+            }
+            .paddingX(2)
+        } else {
+            Stack {
+                List(take(skip($state.apps, $props.per * $props.page), $props.per)) { app in
+                    Stack {
+                        LauncherTile { label: app.label, icon: app.icon, iconTop: app.iconTop, iconBottom: app.iconBottom, iconArt: app.iconArt }
+                    }
+                    .key(app.id)
+                    .align(center)
+                    .grow(1)
+                    .paddingY(8)
+                    .paddingX(4)
+                    on Tap -> dispatch(Launch(app.id))
+                }
+                .columns($props.columns)
+                .rowGap($props.rowGap)
+                .gap(12)
+            }
+            .width($props.width)
+            .paddingX(2)
+        }
+    } else {
+        Stack { }
+    }
+}

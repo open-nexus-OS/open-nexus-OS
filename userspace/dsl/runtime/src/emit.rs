@@ -186,7 +186,12 @@ pub(crate) fn emit_view<'p>(
             let frame = if args.is_empty() {
                 None
             } else {
-                Some(SlotFrame { args, params: ctx.params, locals: ctx.locals.to_vec() })
+                // A reference whose bodies only forward slots (`{ Slot body }`) reads no caller
+                // local — its placeholders resolve in the caller's own frame, which holds its
+                // snapshot — so it copies none (a window kit splits its panes this way).
+                let locals =
+                    if slots::forwards_only(args) { Vec::new() } else { ctx.locals.to_vec() };
+                Some(SlotFrame { args, params: ctx.params, locals, parent: ctx.slots })
             };
             // Emit the component body with its own params (locals shared —
             // slots are per-body and component bodies allocate fresh ones).

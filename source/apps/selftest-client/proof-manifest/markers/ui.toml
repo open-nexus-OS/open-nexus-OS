@@ -656,6 +656,10 @@ proves = "the frame chain's hops in windowd over a 1 s window: a frame owed (the
 phase = "end"
 proves = "the input chain's hop in an app over 16 inputs: an input that asked for work (a repaint, a motion) received → its answer sent, the wait for the previous present's credit included"
 
+[marker."apphost: hops hover ("]
+phase = "end"
+proves = "TASK-0353 P7: of 16 hovers that changed the hovered control, how many asked for a raster — a hover is a layer the compositor fades (RFC-0116), so `rastered=0`; a measurement, judged by the phase gate on the board"
+
 [marker."windowd: frame pace ("]
 phase = "end"
 proves = "RFC-0110 (TASK-0343): the presents of a 1 s window shown when windowd predicted — the time the clients' frame pulses named and its transitions stepped to — or more than half a period late or early, with the cadence and the period gpud named (a measurement)"

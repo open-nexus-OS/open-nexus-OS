@@ -253,3 +253,33 @@ fn an_empty_field_shows_no_clear_disc() {
     let (_, col) = column(GlassTextField::new().clearable(true).build(&BaseTokens));
     assert_eq!(field_box(&col, 0).2.len(), 1);
 }
+
+/// TF-15: the placeholder is the theme's `labelTertiary` in both themes (a fade of the text
+/// colour's RGB kept light mode's near-black placeholder near-black); the lock screen's capsule
+/// field reads on the wallpaper and takes `labelSecondary`.
+#[test]
+fn the_placeholder_takes_the_theme_role() {
+    for t in [&BaseTokens as &dyn Tokens, &DarkTokens] {
+        let (_, col) = column(GlassTextField::new().placeholder("Suchen").build(t));
+        let (_, _, kids) = field_box(&col, 0);
+        assert_eq!(input(kids).placeholder_color, Some(t.color(ColorToken::LabelTertiary)));
+        let (_, col) = column(GlassTextField::new().placeholder("Passwort").capsule(true).build(t));
+        let (_, _, kids) = field_box(&col, 0);
+        assert_eq!(input(kids).placeholder_color, Some(t.color(ColorToken::LabelSecondary)));
+    }
+    let (_, col) = column(GlassTextField::new().build(&BaseTokens));
+    let (_, _, kids) = field_box(&col, 0);
+    assert_eq!(input(kids).placeholder_color, None, "no placeholder, no colour");
+}
+
+/// TF-16: the caret is the field's tint — `accent` by default, the tint when one is given.
+#[test]
+fn the_caret_takes_the_tint() {
+    let t = BaseTokens;
+    let (_, col) = column(GlassTextField::new().build(&t));
+    let (_, _, kids) = field_box(&col, 0);
+    assert_eq!(input(kids).caret_color, Some(t.color(ColorToken::Accent)));
+    let (_, col) = column(GlassTextField::new().tint(ColorToken::Success).build(&t));
+    let (_, _, kids) = field_box(&col, 0);
+    assert_eq!(input(kids).caret_color, Some(t.color(ColorToken::Success)));
+}

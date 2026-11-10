@@ -22,6 +22,10 @@
 //! keyboard overlay, where a press is a keystroke. It counts the gesture's pointer history
 //! (RFC-0113 §2: a DRAG carries every sample since the last one): frames, samples, the most in
 //! one frame, the folded ones — at a 1000 Hz device several per frame.
+//!
+//! A hover is motion, never a raster (RFC-0116): its layer fades on the compositor. The line
+//! `apphost: hops hover (n= rastered=)` counts, per `INPUT_WINDOW` hovers that changed the
+//! hovered control, how many asked for a raster — 0 is TASK-0353 P7's gate.
 //! OWNERS: @ui @runtime
 //! STATUS: Functional
 //! API_STABILITY: Internal
@@ -145,12 +149,28 @@ impl super::DslApp {
                     super::boot::send_cursor_hint(client, surface_id, over);
                 }
                 // Frame-aligned hover: the layer fades (motion, RFC-0109) — never a raster.
-                self.hover(x, y)
+                let damage_before = (*dirty, *dirty_rows);
+                let changed = self.hover(x, y);
+                if changed {
+                    self.note_hover((*dirty, *dirty_rows) != damage_before);
+                }
+                changed
             }
         };
         // Started springs, animations and layer fades tick on the frame pulse.
         if repaint && (self.anim_active() || self.layers_live()) {
             let _ = client.send(&wire::encode_surface_frame_req(surface_id), Wait::Blocking);
+        }
+    }
+
+    /// A hover that changed the hovered control: counted, and whether it asked for a raster; the
+    /// window's line every `INPUT_WINDOW` such hovers.
+    fn note_hover(&mut self, rastered: bool) {
+        self.hover_window.0 += 1;
+        self.hover_window.1 += u32::from(rastered);
+        if self.hover_window.0 >= nexus_ux_budgets::INPUT_WINDOW {
+            let (n, rastered) = core::mem::take(&mut self.hover_window);
+            super::raw_marker(&alloc::format!("apphost: hops hover (n={n} rastered={rastered})"));
         }
     }
 

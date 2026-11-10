@@ -1,121 +1,60 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The app's window-chrome menus: the ⋯ menu and its jump-to-section submenu
-// (design §"Structure & interactions"). The app-chip window menu (tiling,
-// fullscreen, minimize, close) is the kit's — `WinAppWindow` mounts it.
+// The ⋮ app menu (design §2.10), hung under the chrome's ⋮ by `WinAppWindow`'s `appMenu` place
+// (which also drops it in on `slideDown` and closes it on a tap beside it). The app-chip window
+// menu is the kit's.
 //
-// Every entry uses this app's `MenuRow`, because `WinMenuItem` would bake
-// `WinMenuPick(id)` and these entries need to dispatch navigation events or
-// open a submenu instead.
+//   Ansicht (header)   Beschreibungen anzeigen · Sidebar kompakt · Erweiterte Optionen — each a
+//                      check bound to `ViewStore` (`MenuCheck`)
+//   Alle Einstellungen durchsuchen   DRAWN DISABLED: there is no search mode yet
+//   Übersicht                        the overview grid
+//   Zu Bereich springen ◂            the submenu (`JumpMenu`) flies out to the LEFT, level with it
+//   Hilfe · Einstellungen zurücksetzen   DRAWN DISABLED: no help pages and no reset exist yet
 //
-// The design's view options (`Beschreibungen anzeigen`, `Sidebar kompakt`,
-// `Erweiterte Optionen`) are NOT here: they belong to Phase 2 together with
-// the sub-pages and the `advanced` groups they reveal, and a menu entry that
-// toggles nothing would be a control that lies about what it does.
+// A control whose function does not exist stays drawn and disabled instead of vanishing (house
+// rule); the rows with a function dispatch this app's own events, because `WinMenuItem` would
+// bake `WinMenuPick(id)`. The shortcut hints are the design's; no key binding backs them yet.
 
 Component MoreMenu {
     Stack {
-        Stack {
-            Spacer
-            if $state.menu == "more.jump" {
+        if $state.menu == "more.jump" {
+            JumpMenu { }
+        } else {
+            Stack { }
+        }
+        WinMenu { width: 240 } {
+            items {
+                WinMenuRow { label: @t("win.view"), icon: "", kind: "header", shortcut: "", selected: false }
                 Stack {
-                    Panel {
-                        WinMenuRow { label: @t("win.jump"), icon: "", kind: "header", shortcut: "", selected: false }
-                        Stack {
-                            WinMenuRow { label: @t("sec.connections"), icon: "wifi", kind: "", shortcut: "", selected: false }
-                        }
-                        on Tap -> dispatch(Goto("connections"))
-                        Stack {
-                            WinMenuRow { label: @t("sec.devices"), icon: "computermouse", kind: "", shortcut: "", selected: false }
-                        }
-                        on Tap -> dispatch(Goto("devices"))
-                        Stack {
-                            WinMenuRow { label: @t("sec.sound"), icon: "speaker.wave", kind: "", shortcut: "", selected: false }
-                        }
-                        on Tap -> dispatch(Goto("sound"))
-                        Stack {
-                            WinMenuRow { label: @t("sec.display"), icon: "desktopcomputer", kind: "", shortcut: "", selected: false }
-                        }
-                        on Tap -> dispatch(Goto("display"))
-                        Stack {
-                            WinMenuRow { label: @t("sec.notif"), icon: "bell", kind: "", shortcut: "", selected: false }
-                        }
-                        on Tap -> dispatch(Goto("notif"))
-                        Stack {
-                            WinMenuRow { label: @t("sec.personal"), icon: "paintpalette", kind: "", shortcut: "", selected: false }
-                        }
-                        on Tap -> dispatch(Goto("personal"))
-                        Stack {
-                            WinMenuRow { label: @t("sec.apps"), icon: "square.grid", kind: "", shortcut: "", selected: false }
-                        }
-                        on Tap -> dispatch(Goto("apps"))
-                        Stack {
-                            WinMenuRow { label: @t("sec.general"), icon: "globe", kind: "", shortcut: "", selected: false }
-                        }
-                        on Tap -> dispatch(Goto("general"))
-                        Stack {
-                            WinMenuRow { label: @t("sec.accounts"), icon: "person", kind: "", shortcut: "", selected: false }
-                        }
-                        on Tap -> dispatch(Goto("accounts"))
-                        Stack {
-                            WinMenuRow { label: @t("sec.privacy"), icon: "shield", kind: "", shortcut: "", selected: false }
-                        }
-                        on Tap -> dispatch(Goto("privacy"))
-                        Stack {
-                            WinMenuRow { label: @t("sec.power"), icon: "battery.75", kind: "", shortcut: "", selected: false }
-                        }
-                        on Tap -> dispatch(Goto("power"))
-                        Stack {
-                            WinMenuRow { label: @t("sec.info"), icon: "info.circle", kind: "", shortcut: "", selected: false }
-                        }
-                        on Tap -> dispatch(Goto("info"))
-                    }
-                    .material(overlay)
-                    .rounded(lg)
-                    .width(250)
-                    .gap(0)
-                    .padding(4)
+                    MenuCheck { label: @t("win.showSubtitles"), checked: $state.showSubtitles }
                 }
-                on Tap -> dispatch(WinNoop)
-            } else {
-                Stack { }
-            }
-            if $state.menu == "more" {
+                on Tap -> dispatch(ToggleSubtitles)
                 Stack {
-                    Panel {
-                        Stack {
-                            WinMenuRow { label: @t("win.overview"), icon: "square.grid.2x2", kind: "", shortcut: "", selected: false }
-                        }
-                        on Tap -> dispatch(GoOverview)
-                        Stack {
-                            WinMenuRow { label: @t("win.jump"), icon: "list.bullet", kind: "sub", shortcut: "", selected: false }
-                        }
-                        on Tap -> dispatch(WinMenu("more.jump"))
-                        Stack { }
-                            .height(1)
-                            .bg(separator)
-                        Stack {
-                            WinMenuRow { label: @t("win.help"), icon: "info.circle", kind: "", shortcut: "", selected: false }
-                        }
-                        on Tap -> dispatch(WinMenu(""))
-                    }
-                    .material(overlay)
-                    .rounded(lg)
-                    .width(230)
-                    .gap(0)
-                    .padding(4)
+                    MenuCheck { label: @t("win.compactSidebar"), checked: !$state.sidebarDesc }
                 }
-                on Tap -> dispatch(WinNoop)
-            } else {
-                Stack { }
+                on Tap -> dispatch(ToggleSidebarDesc)
+                Stack {
+                    MenuCheck { label: @t("win.advanced"), checked: $state.advanced }
+                }
+                on Tap -> dispatch(ToggleAdvanced)
+                WinMenuDivider { }
+                WinMenuRow { label: @t("win.search"), icon: "magnifyingglass", kind: "disabled", shortcut: @t("win.keySearch"), selected: false }
+                Stack {
+                    WinMenuRow { label: @t("win.overview"), icon: "square.grid.2x2", kind: "", shortcut: @t("win.keyOverview"), selected: false }
+                }
+                on Tap -> dispatch(GoOverview)
+                Stack {
+                    WinMenuRow { label: @t("win.jumpTo"), icon: "plus", kind: "subLeft", shortcut: "", selected: $state.menu == "more.jump" }
+                }
+                on Tap -> dispatch(WinMenu("more.jump"))
+                WinMenuDivider { }
+                WinMenuRow { label: @t("win.help"), icon: "info.circle", kind: "disabled", shortcut: "", selected: false }
+                WinMenuRow { label: @t("win.reset"), icon: "trash", kind: "disabled", shortcut: "", selected: false }
             }
         }
-        .direction(row)
-        .align(start)
-        .paddingX(8)
-        .grow(1)
     }
-    .overlay()
-    on Tap -> dispatch(WinMenu(""))
+    .direction(row)
+    .align(start)
+    .gap(0)
 }

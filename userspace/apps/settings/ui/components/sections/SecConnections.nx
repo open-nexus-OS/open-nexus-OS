@@ -20,8 +20,15 @@ Component SecConnections {
                     trailing { Toggle { checked: $state.tgWifi, label: @t("con.wifi") } }
                 }
                 SetHairline { }
-                SetRow { title: @t("con.bt"), subtitle: @t("con.btSub"), icon: "bluetooth", showChevron: false } {
-                    trailing { Toggle { checked: $state.tgBt, label: @t("con.bt") } }
+                // The subtitle names the connected device, so it exists only while Bluetooth is on.
+                if $state.tgBt {
+                    SetRow { title: @t("con.bt"), subtitle: @t("con.btSub"), icon: "bluetooth", showChevron: false } {
+                        trailing { Toggle { checked: $state.tgBt, label: @t("con.bt") } }
+                    }
+                } else {
+                    SetRow { title: @t("con.bt"), subtitle: "", icon: "bluetooth", showChevron: false } {
+                        trailing { Toggle { checked: $state.tgBt, label: @t("con.bt") } }
+                    }
                 }
             }
         }

@@ -1,0 +1,43 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The key-value group: routes, encryption (`success` for end-to-end, `warning` for transport
+// only), identity, merging and the space — a card of radius 16 (`glassCard`, half `fill` inside
+// the pane, with its edge). All values come from the open conversation (`ThreadStore`).
+
+Component InfoFacts {
+    Stack {
+        if $state.tr2 != "" {
+            InfoRow { title: @t("chat.info.routes"), value: $state.tr1 + " · " + $state.tr2, tone: "labelSecondary", last: false }
+        } else {
+            InfoRow { title: @t("chat.info.routes"), value: $state.tr1, tone: "labelSecondary", last: false }
+        }
+        if $state.bridge {
+            InfoRow { title: @t("chat.info.enc"), value: @t("chat.info.encTransport"), tone: "warning", last: false }
+        } else {
+            InfoRow { title: @t("chat.info.enc"), value: @t("chat.info.encOk"), tone: "success", last: false }
+        }
+        if $state.verified {
+            InfoRow { title: @t("chat.info.identity"), value: @t("chat.info.business"), tone: "labelSecondary", last: false }
+        } else {
+            InfoRow { title: @t("chat.info.identity"), value: @t("chat.info.personal"), tone: "labelSecondary", last: false }
+        }
+        if $state.merged {
+            InfoRow { title: @t("chat.info.merge"), value: @t("chat.info.on"), tone: "labelSecondary", last: false }
+        } else {
+            InfoRow { title: @t("chat.info.merge"), value: @t("chat.info.off"), tone: "labelSecondary", last: false }
+        }
+        if $state.spaceId == "family" {
+            InfoRow { title: @t("chat.info.space"), value: @t("chat.space.family"), tone: "labelSecondary", last: true }
+        } else if $state.spaceId == "work" {
+            InfoRow { title: @t("chat.info.space"), value: @t("chat.space.work"), tone: "labelSecondary", last: true }
+        } else if $state.spaceId == "community" {
+            InfoRow { title: @t("chat.info.space"), value: @t("chat.space.community"), tone: "labelSecondary", last: true }
+        } else {
+            InfoRow { title: @t("chat.info.space"), value: @t("chat.space.business"), tone: "labelSecondary", last: true }
+        }
+    }
+    .gap(0)
+    .material(card)
+    .rounded(lg)
+}

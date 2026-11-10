@@ -1,84 +1,34 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The paged app grid (design artifacts: launcher §11): a horizontal
-// `.scroll(paged)` strip of viewport-width page cells — the HOST snaps the
-// offset to whole pages (glide ease), the wheel turns ±1 page (360ms lock)
-// and fires `PageNext`/`PagePrev` so `$state.page` tracks the snap; a dot
-// tap glides via `svc.shell.scrollToPage`. Each page is a `LauncherPage`, sliced out of the
-// ONE store list; a page without apps keeps an empty cell.
-//
-// Cell width/columns/per-page are PER-ARM CONSTANTS (the DSL has no
-// container measurement; the design's measured `cols = floor(w/144)`
-// degrades honestly to the fixed-mode numbers):
-//   desktop (overlay parent unpadded, 1280 wide) → cells 1280, 8 cols, 24/page
-//   touch wide (parent padded 28×2 → 1224)       → cells 1224, 8 cols, 24/page
-//   narrower touch (600×800 boot: 600−56 → 544)  → cells 544, 3 cols, 6/page
-// The cell width MUST equal the strip's clip width — the snap math is
-// page k = k × viewport width.
+// The paged app grid (design artifacts: launcher, PagedView + PageControl): a horizontal
+// `.scroll(paged)` strip of page cells — the HOST snaps the offset to whole pages (glide ease),
+// the wheel turns ±1 page and fires `PageNext`/`PagePrev` so `$state.page` tracks the snap; a
+// dot tap glides via `svc.shell.scrollToPage`. The strip's children are SIX `LauncherPage`
+// nodes — one node per page, because several `if`s in one branch arm would stack in a column
+// and put page 2 under page 1 instead of beside it; a page without apps is an empty, zero-wide
+// cell. The strip hugs its tallest page and two spacers centre it vertically between the search
+// row and the page indicator (the design centres the rows of a page); the indicator sits at the
+// bottom and hides itself with a single page.
 
 Component LauncherPager {
     Stack {
+        Spacer
         Stack {
-            if device.profile == desktop {
-                LauncherPage { from: 0, count: 24, columns: 8, width: 1280 }
-                if len($state.apps) > 24 {
-                    LauncherPage { from: 24, count: 24, columns: 8, width: 1280 }
-                } else {
-                    Stack { }
-                }
-                if len($state.apps) > 48 {
-                    LauncherPage { from: 48, count: 24, columns: 8, width: 1280 }
-                } else {
-                    Stack { }
-                }
-                if len($state.apps) > 72 {
-                    LauncherPage { from: 72, count: 24, columns: 8, width: 1280 }
-                } else {
-                    Stack { }
-                }
-            } else { if device.sizeClass == "wide" {
-                LauncherPage { from: 0, count: 24, columns: 8, width: 1224 }
-                if len($state.apps) > 24 {
-                    LauncherPage { from: 24, count: 24, columns: 8, width: 1224 }
-                } else {
-                    Stack { }
-                }
-                if len($state.apps) > 48 {
-                    LauncherPage { from: 48, count: 24, columns: 8, width: 1224 }
-                } else {
-                    Stack { }
-                }
-                if len($state.apps) > 72 {
-                    LauncherPage { from: 72, count: 24, columns: 8, width: 1224 }
-                } else {
-                    Stack { }
-                }
-            } else {
-                LauncherPage { from: 0, count: 6, columns: 3, width: 544 }
-                if len($state.apps) > 6 {
-                    LauncherPage { from: 6, count: 6, columns: 3, width: 544 }
-                } else {
-                    Stack { }
-                }
-                if len($state.apps) > 12 {
-                    LauncherPage { from: 12, count: 6, columns: 3, width: 544 }
-                } else {
-                    Stack { }
-                }
-                if len($state.apps) > 18 {
-                    LauncherPage { from: 18, count: 6, columns: 3, width: 544 }
-                } else {
-                    Stack { }
-                }
-            } }
+            LauncherPage { page: 0 }
+            LauncherPage { page: 1 }
+            LauncherPage { page: 2 }
+            LauncherPage { page: 3 }
+            LauncherPage { page: 4 }
+            LauncherPage { page: 5 }
         }
         .direction(row)
         .scroll(paged)
-        .grow(1)
         on PageNext -> dispatch(PageNext)
         on PagePrev -> dispatch(PagePrev)
+        Spacer
         PagerDots { }
     }
     .grow(1)
+    .gap(0)
 }

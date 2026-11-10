@@ -327,9 +327,14 @@ impl GlassTextField {
             .value(self.value.clone())
             .fill_row()
             .secure(self.secure)
-            .revealed(self.revealed);
+            .revealed(self.revealed)
+            .caret_color(tokens.color(self.tint));
         if let Some(p) = &self.placeholder {
-            tf = tf.placeholder(p.clone());
+            // The design's placeholder role; the lock screen's capsule field reads on the
+            // wallpaper and takes the stronger `labelSecondary`.
+            let role =
+                if self.capsule { ColorToken::LabelSecondary } else { ColorToken::LabelTertiary };
+            tf = tf.placeholder(p.clone()).placeholder_color(tokens.color(role));
         }
         if let Some(id) = self.id {
             tf = tf.id(id);

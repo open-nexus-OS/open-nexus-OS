@@ -5,7 +5,7 @@ role: reference
 subsystem: devx
 sources: [source/apps/selftest-client/proof-manifest/markers, source/apps/selftest-client/proof-manifest/phases.toml, tools/nx/chains/markers.txt, scripts/qemu-test.sh, scripts/check-chain-markers.sh, config/fail-marker-allow.txt]
 contracts: [RFC-0013, RFC-0014, RFC-0038, RFC-0108]
-verified: 2026-11-04
+verified: 2026-11-10
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -46,9 +46,9 @@ verified: 2026-11-04
 | 9 | `vfs` | 29 | vfs.toml |
 | 10 | `net` | 80 | net.toml |
 | 11 | `remote` | 21 | remote.toml |
-| 12 | `end` | 189 | board.toml, end.toml, ui.toml, usb.toml |
+| 12 | `end` | 190 | board.toml, end.toml, ui.toml, usb.toml |
 
-1250 markers in 15 files.
+1251 markers in 15 files.
 <!-- /gen:markers -->
 
 ## Declaring a marker
@@ -104,8 +104,9 @@ Check a chain group against any log: `just check-markers build/logs/<run>/uart.l
   (`input-route` I5–I6, `input-live` I1–I2, `input-chord` K1–K4: a keyboard chord from hidrawd
   through inputd to windowd on the key channel). A `hops` line times a hop with numbers only, e.g.
   `inputd: hops chord (code= report>push=`, `windowd: hops input (staged>applied=`,
-  `apphost: hops motion (pulse>sent= ticks= paint_us= rows= px= tokens=`; RFC-0108 §hops lists
-  them all. On the board the
+  `apphost: hops motion (pulse>sent= ticks= paint_us= rows= px= tokens=`,
+  `apphost: hops hover (n= rastered=` (hovers that changed the control, how many asked for a
+  raster — a hover is motion, so 0); RFC-0108 §hops lists them all. On the board the
   last hop present names where a human's input stopped.
 - **Judged measurement** (RFC-0108) — `<service>: ux <name> <ok|warn|FAIL> (… budget_<unit>=<n>)`.
   Budgets live only in `source/libs/nexus-ux-budgets/src/lib.rs`; the rung is the prefix

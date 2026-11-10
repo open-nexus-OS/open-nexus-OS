@@ -62,6 +62,68 @@ pub fn screen_rect(
         .then(|| (sx0 as u32, sy0 as u32, (sx1 - sx0) as u32, (sy1 - sy0) as u32))
 }
 
+/// How many surfaces keep their declared caret at once — one per window that holds a focused
+/// field; past that the oldest declaration yields (its app re-declares on its next change).
+pub const CARET_SURFACES: usize = 8;
+
+/// Every surface's last declared caret (RFC-0113 §5). An app declares its caret only when it
+/// changes, so ONE held caret lost a window's caret to the next window's: focus back on the first
+/// field, the same caret as before — nothing re-declared, nothing shown (board cycle 2026-11-09:
+/// no caret in a chat field after the shell's clipboard search). The table keeps each surface's,
+/// and the compositor shows the focused one's.
+#[derive(Clone, Copy, Debug)]
+pub struct CaretTable {
+    entries: [Option<(u32, Caret)>; CARET_SURFACES],
+    /// When each entry was last declared (a running count), so the oldest yields.
+    stamps: [u64; CARET_SURFACES],
+    next: u64,
+}
+
+impl Default for CaretTable {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl CaretTable {
+    pub const fn new() -> Self {
+        Self { entries: [None; CARET_SURFACES], stamps: [0; CARET_SURFACES], next: 0 }
+    }
+
+    /// `surface` declares `caret`. `true` when it is new or its rectangle moved — the blink
+    /// restarts solid.
+    pub fn declare(&mut self, surface: u32, caret: Caret) -> bool {
+        let rect = |c: &Caret| (c.x, c.y, c.w, c.h);
+        self.next += 1;
+        let at = self.entries.iter().position(|e| e.is_some_and(|(s, _)| s == surface));
+        let (slot, moved) = match at {
+            Some(i) => (i, self.entries[i].is_some_and(|(_, c)| rect(&c) != rect(&caret))),
+            None => {
+                let free = self.entries.iter().position(Option::is_none);
+                let oldest = (0..CARET_SURFACES).min_by_key(|&i| self.stamps[i]).unwrap_or(0);
+                (free.unwrap_or(oldest), true)
+            }
+        };
+        self.entries[slot] = Some((surface, caret));
+        self.stamps[slot] = self.next;
+        moved
+    }
+
+    /// `surface` hides its caret (no field focused, a selection showing) or is gone.
+    pub fn hide(&mut self, surface: u32) {
+        for entry in &mut self.entries {
+            if entry.is_some_and(|(s, _)| s == surface) {
+                *entry = None;
+            }
+        }
+    }
+
+    /// `surface`'s caret, if it declared one.
+    pub fn get(&self, surface: u32) -> Option<Caret> {
+        self.entries.iter().flatten().find(|(s, _)| *s == surface).map(|(_, c)| *c)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -106,5 +168,31 @@ mod tests {
             "cut at the surface's edge, never into a neighbour"
         );
         assert_eq!(screen_rect((2000, 0), (400, 300), &c, (1280, 800)), None, "off screen");
+    }
+
+    #[test]
+    fn a_surfaces_caret_survives_another_surfaces_caret() {
+        let mut t = CaretTable::new();
+        let chat = caret(CARET_BLINK);
+        let search = Caret { x: 300, ..chat };
+        assert!(t.declare(7, chat), "new: the blink starts solid");
+        assert!(t.declare(3, search), "another window's field");
+        assert_eq!(t.get(7), Some(chat), "the first window's caret is still there for its focus");
+        assert!(!t.declare(7, chat), "the same caret again is no move");
+        t.hide(3);
+        assert_eq!((t.get(3), t.get(7)), (None, Some(chat)), "a hide takes only its own caret");
+    }
+
+    #[test]
+    fn test_reject_a_table_that_grows_past_its_bound() {
+        let mut t = CaretTable::new();
+        for surface in 0..CARET_SURFACES as u32 {
+            t.declare(surface, caret(0));
+        }
+        t.declare(0, Caret { x: 11, ..caret(0) }); // surface 0 is now the freshest
+        t.declare(100, caret(0)); // full: the oldest declaration (surface 1) yields
+        assert_eq!(t.get(1), None, "the oldest yielded");
+        assert!(t.get(0).is_some() && t.get(100).is_some(), "the fresh ones stay");
+        assert_eq!(t.entries.iter().flatten().count(), CARET_SURFACES, "never more than the bound");
     }
 }

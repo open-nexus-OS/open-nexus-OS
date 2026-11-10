@@ -3,8 +3,8 @@
 //
 // One navigation-sidebar row (design artifacts `Sidebar`, variant plain): icon
 // + label, padding 8 12, gap 12, radius 12, at least 36 tall; the label body
-// 14 at weight 500 in `label`, the icon in the label's colour (the design's
-// .85). ACTIVE = an `accent` fill with `onAccent` icon and label at weight 600.
+// 14 at weight 500 in `label`, the icon in the label's colour at 85 %.
+// ACTIVE = an `accent` fill with `onAccent` icon and label at weight 600.
 // Tap dispatches `WinMenuPick(id)` — the app's reducer routes nav ids (by
 // convention prefixed "nav.") to its section state. Rows sit 2 px apart in a
 // list padded 4 8 (the app's `WinPane` body).
@@ -100,6 +100,7 @@ Component WinSideItem {
             .shrink(0)
             .align(center)
             .justify(center)
+            .opacity(217)
             if $props.sub != "" {
                 Stack {
                     Text($props.label).textStyle(body).fontWeight(medium).fg(label)

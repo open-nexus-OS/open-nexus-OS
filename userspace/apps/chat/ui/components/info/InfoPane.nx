@@ -1,0 +1,57 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The Chat-Info pane: a `WinPane` titled "Chat-Info" (an overlay's own surface in the compact
+// tier). Identity (avatar 64, name subheadline semibold, address caption), the two glass actions
+// (dimmed and inert: no call or payment service yet), the key-value group and, for a merged
+// contact, the "Hinweis" section. The pane's one visible state is `WindowStore.rightOpen` — the
+// chrome's toggle, the header's Info button and the menu all flip it.
+
+Component InfoPane {
+    WinPane { title: @t("chat.info.title"), showHeader: true, showFooter: false, bare: device.sizeClass == "compact", flush: false, scrolls: true, noDividers: false } {
+        body {
+            Stack {
+                Stack {
+                    Avatar { initials: $state.ini, size: 64 }
+                    Text($state.threadName).textStyle(subheadline).fontWeight(semibold).fg(label).textAlign(center)
+                    Text($state.addr).textStyle(caption).fg(labelSecondary).textAlign(center)
+                }
+                .align(center)
+                .gap(8)
+                .paddingTop(8)
+                .paddingBottom(4)
+                Stack {
+                    Button { label: @t("chat.info.call"), variant: "glass", size: "sm" }
+                        .disabled(true)
+                    Button { label: @t("chat.info.pay"), variant: "glass", size: "sm" }
+                        .disabled(true)
+                }
+                .direction(row)
+                .justify(center)
+                .gap(8)
+                InfoFacts { }
+                if $state.merged {
+                    Stack {
+                        Stack {
+                            Text(@t("chat.info.note")).textStyle(overline).fg(labelSecondary)
+                        }
+                        .paddingX(16)
+                        .paddingBottom(8)
+                        Stack {
+                            Text(@t("chat.info.noteA")).textStyle(caption).fg(label)
+                            Text(@t("chat.info.noteB")).textStyle(caption).fg(label)
+                        }
+                        .gap(0)
+                        .paddingX(12)
+                    }
+                    .gap(0)
+                } else {
+                    Stack { }
+                }
+            }
+            .gap(12)
+            .paddingTop(8)
+            .paddingBottom(12)
+        }
+    }
+}

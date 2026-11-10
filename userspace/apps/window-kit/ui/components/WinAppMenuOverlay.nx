@@ -1,0 +1,35 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The ⋮ app menu in the kit's place (design artifacts: AppWindow): while `appMenuOpen` the
+// `appMenu` slot (the app's `WinMenu` and its submenus) hangs under the chrome's ⋮ — its right
+// edge on the button's, 145 px from the window's right edge — over a backdrop that closes it
+// (`WinMenu("")`).
+Component WinAppMenuOverlay {
+    props: {
+        appMenuOpen: Bool,
+    }
+    slot appMenu
+    if $props.appMenuOpen {
+        Stack {
+            Stack {
+                Spacer
+                Stack {
+                    Slot appMenu
+                }
+                .direction(row)
+                .align(start)
+                .gap(0)
+                Stack { }
+                    .width(145)
+            }
+            .direction(row)
+            .align(start)
+        }
+        .overlay()
+        .transition(slideDown)
+        on Tap -> dispatch(WinMenu(""))
+    } else {
+        Stack { }
+    }
+}

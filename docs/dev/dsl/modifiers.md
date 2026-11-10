@@ -76,7 +76,7 @@ expression is a layout dependency, clamped to 0..=1024 px.
 
 | Modifier | Args | Meaning |
 |---|---|---|
-| `.width(v)` / `.height(v)` | `Int` px \| `Int` expression \| `full` | fixed size (`full` is a no-op: a cross axis stretches by default); an expression (`.width($state.selW)`, RFC-0095) is a LAYOUT dependency — the node re-lays out when it changes; a negative value clamps to 0. A stretched cross axis (the default `align`) overrides any width or height on that axis: size on the container's MAIN axis, or `.align(start)` the parent |
+| `.width(v)` / `.height(v)` | `Int` px \| `Int` expression \| `full` | fixed size (`full` is a no-op: a cross axis stretches by default); an expression (`.width($state.selW)`, RFC-0095) is a LAYOUT dependency — the node re-lays out when it changes; a negative value clamps to 0. A stretched cross axis (the default `align`) stretches a child only within its own bounds: a `.width`/`.height` (or a `.maxWidth`/`.maxHeight`) on that axis holds, and the child sits at the cross start — `.align(center)` the parent to centre it |
 | `.minWidth(v)` / `.maxWidth(v)` / `.minHeight(v)` / `.maxHeight(v)` | `Int` px \| `Int` expression | constraints |
 | `.grow(n)` / `.shrink(n)` | `Int` weight \| `Int` expression | flex participation (`.grow(2 * (len($state.keys) - 1))` weighs a row by its data); on a GRID cell (a `List` item of a `.columns(n)` grid), `.grow(1)` makes the cell fill its track instead of hugging its content (TASK-0067B — cards) |
 | `.basis(n)` | `Int` px \| `Int` expression | flex BASE SIZE on the parent's main axis, replacing the child's measured content size in the parent's distribution |
@@ -109,7 +109,7 @@ Two properties are worth stating because they are contracts, not accidents:
 | `.direction(d)` | `row\|column` | stack direction (containers) |
 | `.wrap(b)` | `Bool` | flex wrap |
 | `.overflow(o)` | `visible\|hidden` | overflow behavior (`hidden` clips — wherever the container is painted, inside a scrolling list too) |
-| `.scroll(a)` | `vertical\|horizontal\|paged` | makes THIS container a scroll layer (RFC-0109): its content is laid out and painted once into the layer's band, the app's physics turns a wheel notch into an offset, and the compositor moves the band — no re-layout, no re-raster per step. Several per page (four layers; more flatten into the page unscrolled, clipped to their viewport); a `.scroll` inside another's content clips like `overflow(hidden)` and does not scroll on its own. Pair with `on EndReached -> dispatch(...)` on the same container for lazy loading (fires once when its offset nears its content end; re-arms after each layout). See `docs/dev/ui/foundations/layout/scroll.md`. |
+| `.scroll(a)` | `vertical\|horizontal\|paged` | makes THIS container a scroll layer (RFC-0109): its content is laid out and painted once into the layer's band, the app's physics turns a wheel notch into an offset, and the compositor moves the band — no re-layout, no re-raster per step. Several per page (four layers; more flatten into the page unscrolled, clipped to their viewport); a `.scroll` inside another's content clips like `overflow(hidden)` and does not scroll on its own. `paged` snaps by whole viewport widths, so each child without a `.width` of its own is one page — one viewport wide, its content laid out against it (`.align(center)` centres a narrower grid in it). Pair with `on EndReached -> dispatch(...)` on the same container for lazy loading (fires once when its offset nears its content end; re-arms after each layout). See `docs/dev/ui/foundations/layout/scroll.md`. |
 | `.overlay(kind?)` | `modal\|transient` (optional) | lifts THIS container OUT OF FLOW as a full-bleed layer over its parent's content (drop-down panels, dialogs). Anchor inside the layer with ordinary flex (rows/`Spacer`/`justify`); paint and hit-testing prefer the layer naturally (later node ids win every overlap — a handler on the layer itself is the outside-tap closer). **`modal`** (ADR-0068): the layer joins the bounded modal stack (max 4); while it is the topmost modal, hit-testing, hover and text focus are confined to its subtree, ESC and a tap on it that no handler claims fire its `on Dismiss` (a layer that must not close on a backdrop tap absorbs with `on Tap -> dispatch(Noop)`); app-host mirrors the depth to windowd, which refuses input on the app's other windows. **`transient`**: a toast-class layer that confines nothing and leaves through `on Dismiss` when `.dismissAfter` elapses. Both REQUIRE `on Dismiss` (NX0413). |
 | `.dismissAfter(ms)` | `Int` (0..=60000) | on a `.overlay(transient)` layer: its declared lifetime — the HOST's one-shot timer fires the layer's `on Dismiss` after `ms` (the DSL holds no clock). Off a transient layer = NX0413. |
 | `.zIndex(t)` | z-index token | **not implemented** — later siblings paint over earlier ones; `.overlay()` lifts a layer |
@@ -125,7 +125,7 @@ Two properties are worth stating because they are contracts, not accidents:
 | `.borderTint(c)` | colour role | a border in the role at 30 % (the edge of a tinted bubble) |
 | `.border(w)` | `hairline` (1 px) \| `ring` (2 px) | border width; without a colour modifier it draws in `separator`. Any border modifier replaces the material's edge |
 | `.opacity(n)` | `0..255` | node opacity (`Fraction`, `OPAQUE = 255` — **not** a percentage; `.opacity(102)` is the design's 0.4). It multiplies down the subtree: the node and everything in it — fills, borders, shadows, text — paint at the product of their own and their ancestors' opacities |
-| `.material(m)` | material (below) | the surface recipe: fill, edge, shadow and — on the wallpaper — the backdrop blur |
+| `.material(m)` | material (below) | the surface recipe: fill, edge, shadow and — on a root surface (on the wallpaper, or a floating `overlay`) — the backdrop blur |
 | `.bgGradient(top, bottom)` | two exprs → `"#rrggbb[aa]"` | vertical linear background gradient (top to bottom); wins over `.bg`. Args are EXPRESSIONS so both literals and props work — app-icon artwork colors ride the manifest → enumerate → props. Row-based painter: one lerped flat color per row, exact and alloc-free. |
 | `.bgFade(top, bottom)` | two colour roles | the same vertical fill from roles, so it re-themes (`.bgGradient` keeps taking raw hex because artwork colors are data). Use `transparent` as a stop for a legibility fade. |
 
@@ -138,7 +138,7 @@ one value per theme in `resources/themes/*.nxtheme.toml` `[tokens]`:
 | `label` · `labelSecondary` · `labelTertiary` | text and icons: content · metadata and section labels · placeholders and disabled only |
 | `separator` | every hairline (dividers, list separators, pane and chip borders) |
 | `fill` · `fillHover` · `fillActive` | a control's resting fill · the hover and press layers, which the host shows by opacity (never a background) |
-| `glassPanel` · `glassWindow` · `glassCard` · `glassEdge` | the material fills (below) · the 1 px edge of every glass layer |
+| `glassPanel` · `glassWindow` · `glassCard` · `glassOverlay` · `glassEdge` | the material fills (below) · the 1 px edge of every glass layer |
 | `surfacePane` · `surfaceOverlay` · `scrim` | the opaque pane in a window · every floating surface · the dimming behind a modal |
 | `primary` · `onPrimary` | the brand's solid button and its label |
 | `accent` · `accentGlow` · `onAccent` | the one tint (on-states, selection, links, focus) · its glow · text on it and on `danger` |
@@ -156,7 +156,7 @@ one value per theme in `resources/themes/*.nxtheme.toml` `[tokens]`:
 | `thin` / `ultraThin` | `glassPanel` | 20 px / 8 px | `glassEdge` |
 | `card` | `glassCard` | none — a translucent layer on a blur | `glassEdge` |
 | `pane` | `surfacePane` | none — opaque | — |
-| `overlay` | `surfaceOverlay` | none — opaque | `glassEdge` · `shadow3`, lit top edge |
+| `overlay` | `glassOverlay` | regular as a root (a menu, a popover, a toast frosted over what it floats on); none nested — opaque | `glassEdge` · `shadow3`, lit top edge |
 
 The recipe is `nexus_style::Style::material` (`userspace/ui/style/src/lib.rs`), the one
 definition every kit widget calls too; an explicit `.bg`, border or `.shadow` on the node wins.
@@ -170,7 +170,7 @@ A blur material inside another one (or inside a `Panel`) is **NX0414**: a layer 
 |---|---|---|
 | `.rounded(r)` | `sm` 8 \| `md` 12 \| `lg` 16 \| `xl` 24 \| `full` **or** `Int` px | corner radius on all four corners; `full` is a capsule or a circle. The outermost surface is `xl`; a container inside is concentric (parent radius − padding, never below `sm`) — a computed radius has no token, which is why raw px stays expressible |
 | `.corners(tl, tr, br, bl)` | four radii (tokens or `Int` px) | per-corner radius, clockwise from top-left (a bubble's tail); wins over `.rounded` |
-| `.shadow(a, b?)` | `shadow1`…`shadow4` \| `shadowInset` \| `edgeHighlight` \| `halo` | up to two in one call, e.g. `.shadow(shadow3, edgeHighlight)` (a modifier appears once per node). `shadow1` knobs · `shadow2` icons, chips · `shadow3` menus, popovers, toasts, the dock · `shadow4` panels, modals, windows — painted as an analytic soft shadow behind the box, values from the theme's `[shadow.*]`. `edgeHighlight` (the lit top edge of a raised surface) and `shadowInset` (a well) draw inside the box as its one-pixel top line. `halo` puts `labelShadow` behind a text on the wallpaper: one extra glyph pass 1 px down, no blur |
+| `.shadow(a, b?)` | `shadow1`…`shadow4` \| `shadowInset` \| `edgeHighlight` \| `halo` | up to two in one call, e.g. `.shadow(shadow3, edgeHighlight)` (a modifier appears once per node). `shadow1` knobs · `shadow2` icons, chips · `shadow3` menus, popovers, toasts, the dock · `shadow4` panels, modals, windows — painted as an analytic soft shadow behind the box, values from the theme's `[shadow.*]`. `edgeHighlight` (the lit top edge of a raised surface) and `shadowInset` (a well) draw inside the box as its one-pixel top line. `halo` puts a soft `labelShadow` glow behind a text on the wallpaper: its glyphs blurred 3 px, at the text and 1 px lower at four fifths of the alpha (`TextShadow::halo`) |
 
 ## Typography (class: layout — text metrics affect measurement)
 
@@ -266,7 +266,7 @@ above 16 px fails the build (the hangul block alone would be hundreds of MB).
 
 | Modifier | Args | Meaning |
 |---|---|---|
-| `.label(s)` | `Str` \| `@t(key)` | accessible name (required on unlabeled interactive nodes) |
+| `.label(s)` | `Str` \| `@t(key)` | accessible name — required on an interactive widget without its label prop (NX0402) and on a tappable container without a text inside it (NX0415) |
 | `.role(r)` | role enum | **not implemented** — semantic role override |
 | `.hint(s)` | `Str` \| `@t(key)` | **not implemented** — accessible hint |
 

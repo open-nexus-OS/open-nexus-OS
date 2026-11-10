@@ -1,0 +1,29 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The design artifacts' FAB (floating action button), the FACE: a 56 px `accent` circle with the
+// action's glyph — 22 px, stroke 2.4, `onAccent` — and `shadow2` under it. Hover and press are
+// the host's layers over the circle (white 14 % / black 12 % on a filled control).
+//
+// Handler-free, like `WinButtonFace`: the app owns the tap and the place — a FAB sits 24 px from
+// the content's corner (an out-of-flow layer with spacers), and the tap needs a name:
+//
+//     Stack { WinFabFace { icon: "plus" } }
+//     .label(@t("new"))
+//     on Tap -> dispatch(NewItem)
+//
+// The design's speed-dial (the plus turning 45°, minis rising 12 px in 40 ms steps) needs a
+// rotation and a staggered transform the DSL does not bind; a FAB with actions opens a
+// `WinMenu` above it instead.
+
+Component WinFabFace {
+    props: {
+        icon: Str,
+    }
+    Circle { size: 56
+        Icon { symbol: $props.icon, size: 22, stroke: 2.4 }
+            .fg(onAccent)
+    }
+    .bg(accent)
+    .shadow(shadow2)
+}

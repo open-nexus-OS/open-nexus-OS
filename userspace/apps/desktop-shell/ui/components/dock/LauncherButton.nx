@@ -4,13 +4,13 @@
 // The tablet dock's round launcher button (design artifacts: TaskbarDock,
 // TabletDock): a 72×72 circle — the dock pill's height — in the dock's own
 // glass (thick backdrop, glass edge, lit top line, shadow4), with the
-// launcher glyph. The design's glyph (four dots and a search ring) is not in
-// the symbol table; `square.grid` stands in. Tap handler attaches at the use
-// site (→ `SetPanel("launcher")`).
+// launcher glyph — the design's four dots and a search ring (`launcher`, one of
+// the project's own glyphs, resources/icons/nexus). Tap handler attaches at the
+// use site (→ `SetPanel("launcher")`).
 
 Component LauncherButton {
     Circle { size: 72
-        Icon { symbol: "square.grid", size: 22 }
+        Icon { symbol: "launcher", size: 22 }
             .fg(label)
     }
     .material(dock)

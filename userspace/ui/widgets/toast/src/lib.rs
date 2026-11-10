@@ -202,12 +202,13 @@ mod tests {
     }
 
     #[test]
-    fn the_capsule_is_the_opaque_overlay_with_shadow3() {
+    fn the_capsule_is_the_frosted_overlay_with_shadow3() {
         let t = DarkTokens;
         let node = Toast::new("Gespeichert").build(&t);
         let (s, v, kids) = parts(&node);
         assert_eq!(v.material, Some(Material::Overlay));
-        assert_eq!(v.background, Some(t.color(ColorToken::SurfaceOverlay)));
+        // Frosted as a root (RFC-0116, 2026-11-10): `glassOverlay` over the regular blur.
+        assert_eq!(v.background, Some(t.color(ColorToken::GlassOverlay)));
         assert_eq!(v.border.top.map(|b| b.color), Some(t.color(ColorToken::GlassEdge)));
         let s3 = Style::new().shadow_token(&t, nexus_theme_tokens::ShadowToken::Shadow3);
         assert_eq!(v.shadow, s3.visual().shadow);

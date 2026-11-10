@@ -10,9 +10,12 @@
 //!   Lowering already does that (the body lowers in the caller's `Env`), but
 //!   without a rule a body naming a prop of the *callee* would silently bind
 //!   to the caller's — correct, and baffling. Rule 13 makes it an error.
-//! - **No forwarding in v1.** `Slot x` inside a slot body would need a frame
-//!   stack rather than a frame; the runtime makes it structurally impossible
-//!   by clearing the frame, and rule 11 turns that silence into a diagnostic.
+//! - **Forwarding names the enclosing component's slot** (RFC-0084 amendment,
+//!   2026-11-10). `Slot x` inside a slot body places a slot of the component
+//!   the body is written in — it forwards what that component received into
+//!   the one it calls (the runtime's frames chain). Rule 11 refuses a `Slot`
+//!   in a body that names no slot of the enclosing component, and any in a
+//!   page's body (a page has no slots).
 //!
 //! Two pre-existing silent drops are closed on the way past: component
 //! references discarded plain children (rule 9) and modifiers (rule 10)
@@ -254,9 +257,9 @@ fn check_callsite(
     }
 }
 
-/// Rules 11 + 13 over one slot body: it may not forward the host's own slots,
-/// and every `$props.<n>` it names must be a prop of the HOST — the body runs
-/// in the caller's frame, never the callee's.
+/// Rules 11 + 13 over one slot body: a `Slot` in it forwards one of the HOST's
+/// own slots (and nothing else), and every `$props.<n>` it names must be a prop
+/// of the HOST — the body runs in the caller's frame, never the callee's.
 fn check_body_scope(
     binding: &SlotBinding,
     host: Option<&ComponentDecl>,
@@ -318,16 +321,23 @@ fn check_body_scope(
                     }
                 }
             }
-            // Rule 11.
-            ViewNode::Slot { name, span } => diags.push(Diagnostic::new(
-                DiagCode::SlotShape,
-                *span,
-                format!(
-                    "`Slot {}` cannot be forwarded from inside a slot body \
-                     (a body belongs to its caller, not to the component it is passed to)",
-                    name.text
-                ),
-            )),
+            // Rule 11: forwarding names a slot of the component the body is written in.
+            ViewNode::Slot { name, span } => {
+                let declared = host.is_some_and(|h| h.slots.iter().any(|s| s.text == name.text));
+                if !declared {
+                    let owner = host.map_or("a page", |h| h.name.text.as_str());
+                    diags.push(Diagnostic::new(
+                        DiagCode::SlotShape,
+                        *span,
+                        format!(
+                            "`Slot {}` in a slot body forwards a slot of the enclosing component, \
+                             and {owner} declares none by that name (a body belongs to its caller, \
+                             not to the component it is passed to)",
+                            name.text
+                        ),
+                    ));
+                }
+            }
         }
     }
 

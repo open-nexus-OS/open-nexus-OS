@@ -136,14 +136,18 @@ fn launcher_phone_override_diverges_structurally() {
     let p = texts(phone.view.scene());
     assert_ne!(d, p, "profiles must not collapse to one layout");
     let idx = |t: &[String], key: &str| t.iter().position(|s| s == key);
-    // Texts are the baked default catalog's (`i18n/en.json`), not key names.
-    let (d_header, d_footer) = (idx(&d, "All apps"), idx(&d, "Jenning Schaefer"));
+    // Texts are the baked default catalog's (`i18n/en.json`), not key names; the section header
+    // is an overline, which the runtime sets in capitals.
+    let (d_header, d_footer) = (idx(&d, "ALL APPS"), idx(&d, "Jenning Schaefer"));
     assert!(d_header.is_some(), "desktop panel leads with the section header: {d:?}");
     assert!(d_footer.is_some(), "desktop panel ends with the user identity: {d:?}");
     assert!(d_header < d_footer, "header leads, identity footer ends: {d:?}");
-    assert!(!d.contains(&"Good morning, Jenning".to_string()), "desktop has no greeting: {d:?}");
-    assert!(p.contains(&"Good morning, Jenning".to_string()), "phone list has its greeting: {p:?}");
-    assert!(!p.contains(&"All apps".to_string()), "phone list has no header: {p:?}");
+    // The greeting follows the clock (morning, day, evening); before the first tick ("--:--")
+    // it is the day's.
+    let greeting = "Good day, Jenning".to_string();
+    assert!(!d.contains(&greeting), "desktop has no greeting: {d:?}");
+    assert!(p.contains(&greeting), "phone list has its greeting: {p:?}");
+    assert!(!p.contains(&"ALL APPS".to_string()), "phone list has no header: {p:?}");
     assert!(!p.contains(&"launcher.userName".to_string()), "phone list has no footer: {p:?}");
 }
 

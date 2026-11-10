@@ -7,8 +7,15 @@ Component SecNotifications {
     Stack {
         SetGroup { label: "", note: "" } {
             rows {
-                SetRow { title: @t("ntf.dnd"), subtitle: @t("set.off"), icon: "bell.slash", showChevron: false } {
-                    trailing { Toggle { checked: $state.tgDnd, label: @t("ntf.dnd") } }
+                // "An bis 18:00" while on, "Aus" while off — the subtitle reads the switch it sits under.
+                if $state.tgDnd {
+                    SetRow { title: @t("ntf.dnd"), subtitle: @t("ntf.dndOn"), icon: "bell.slash", showChevron: false } {
+                        trailing { Toggle { checked: $state.tgDnd, label: @t("ntf.dnd") } }
+                    }
+                } else {
+                    SetRow { title: @t("ntf.dnd"), subtitle: @t("set.off"), icon: "bell.slash", showChevron: false } {
+                        trailing { Toggle { checked: $state.tgDnd, label: @t("ntf.dnd") } }
+                    }
                 }
                 SetHairline { }
                 SetRow { title: @t("ntf.schedule"), subtitle: "", icon: "clock", showChevron: false } {
@@ -18,11 +25,11 @@ Component SecNotifications {
         }
         SetGroup { label: @t("ntf.gShow"), note: "" } {
             rows {
-                SetRow { title: @t("ntf.lockPreview"), subtitle: "", icon: "lock", showChevron: false } {
+                SetRow { title: @t("ntf.lockPreview"), subtitle: "", icon: "", showChevron: false } {
                     trailing { Toggle { checked: $state.tgLockPreview, label: @t("ntf.lockPreview") } }
                 }
-                SetHairline { }
-                SetRow { title: @t("ntf.badges"), subtitle: "", icon: "square.grid", showChevron: false } {
+                SetHairline { plain: true }
+                SetRow { title: @t("ntf.badges"), subtitle: "", icon: "", showChevron: false } {
                     trailing { Toggle { checked: $state.tgBadges, label: @t("ntf.badges") } }
                 }
             }

@@ -5,7 +5,7 @@ role: reference
 subsystem: updates
 sources: [tools/sbom, tools/repro, tools/nxb-pack, source/services/keystored/src/full_impl.rs, source/services/bundlemgrd/src/std_server.rs, policies]
 contracts: [RFC-0039, ADR-0021, RFC-0089]
-verified: 2026-11-02
+verified: 2026-11-10
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->

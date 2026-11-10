@@ -3,7 +3,9 @@
 //
 // Monitore. Demo data from the design's `_tree()` — the real display mode
 // travels fw_cfg → windowd (RFC-0074) and is not settable from here yet, so
-// resolution and refresh rate are value rows, not controls.
+// resolution and refresh rate are value rows, not controls. Helligkeit is the design's stacked
+// range row (`SetSliderRow`) with a static demo position (`DemoStore.rngBrightness`); HDR draws
+// no leading icon, as in the design, so its hairline starts at 16.
 
 Component SecDisplay {
     Stack {
@@ -17,8 +19,8 @@ Component SecDisplay {
                     trailing { SetValue { value: @t("dis.refreshV") } }
                 }
                 SetHairline { }
-                SetRow { title: @t("dis.brightness"), subtitle: "", icon: "sun.max", showChevron: false } {
-                    trailing { SetValue { value: @t("dis.brightnessV") } }
+                SetSliderRow { title: @t("dis.brightness"), icon: "sun.max", value: @t("set.percent", $state.rngBrightness), iconStart: "sun.min", iconEnd: "sun.max" } {
+                    slider { Slider { value: $state.rngBrightness, variant: "thumb" }.label(@t("dis.brightness")) }
                 }
             }
         }
@@ -27,8 +29,8 @@ Component SecDisplay {
                 SetRow { title: @t("dis.night"), subtitle: @t("dis.nightSub"), icon: "moon", showChevron: false } {
                     trailing { Toggle { checked: $state.tgNight, label: @t("dis.night") } }
                 }
-                SetHairline { }
-                SetRow { title: @t("dis.hdr"), subtitle: "", icon: "sun.max", showChevron: false } {
+                SetHairline { plain: true }
+                SetRow { title: @t("dis.hdr"), subtitle: "", icon: "", showChevron: false } {
                     trailing { Toggle { checked: $state.tgHdr, label: @t("dis.hdr") } }
                 }
                 SetHairline { }

@@ -5,7 +5,7 @@ role: guide
 subsystem: app-platform
 sources: [source/services/execd, source/kernel/neuron/src/syscall/api/exec.rs, source/libs/nexus-wire/src/execd.rs]
 contracts: [ADR-0080, ADR-0081, ADR-0091, ADR-0073, RFC-0081, RFC-0111]
-verified: 2026-11-03
+verified: 2026-11-10
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -50,7 +50,7 @@ Image ids map to sealed objects in `src/os_lite/images.rs`:
 | Id | Image | Source |
 |---|---|---|
 | 1 | hello | embedded probe (`userspace/exec-payloads`) |
-| 2 / 3 | demo.exit0 / demo.exit42 | embedded probes (`userspace/apps/demo-exit0`) |
+| 2 / 3 | demo.exit0 / demo.exit42 | embedded probes (`source/apps/demo-exit0`) |
 | 4 | app-host | bootfs file (empty slot ⇒ `UNSUPPORTED`) |
 | 5 | fault probe (kernel kills it with `Fault`) | embedded |
 | 6 | VMO holder (exits holding a VMO) | embedded |

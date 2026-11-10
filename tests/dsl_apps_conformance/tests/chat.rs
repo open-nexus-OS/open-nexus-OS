@@ -103,6 +103,18 @@ impl EffectHost for TranscriptHost {
     }
 }
 
+/// The transcript's scroll container: the window has several scroll layers (the navigation
+/// sidebar, the conversation list, the transcript and, when shown, Chat-Info); the transcript is
+/// the rightmost of the first three, because Chat-Info starts hidden.
+fn transcript_root(boxes: &[nexus_layout::LayoutBox]) -> &nexus_layout::LayoutBox {
+    boxes
+        .iter()
+        .filter(|b| matches!(b.overflow, nexus_layout_types::Overflow::Scroll(_)))
+        .filter(|b| b.content_clip.is_some())
+        .max_by_key(|b| b.rect.x.0)
+        .expect("the transcript's .scroll(vertical) container")
+}
+
 #[test]
 fn chat_transcript_pages_lazily() {
     let nxir = common::compile("chat");
@@ -180,10 +192,7 @@ fn chat_transcript_is_clipped_scroll_viewport() {
     view.run_initial_effects(&tokens, &device, &locale, &mut host).expect("initial effects");
 
     let boxes = common::layout_boxes(&view);
-    let root = boxes
-        .iter()
-        .find(|b| matches!(b.overflow, nexus_layout_types::Overflow::Scroll(_)))
-        .expect("the transcript's .scroll(vertical) container");
+    let root = transcript_root(&boxes);
     assert!(root.content_clip.is_some(), "the scroll container names no viewport");
     let content = boxes.iter().filter(|b| b.scroll_root == Some(root.node_id)).count();
     assert!(content > 0, "no box is the transcript's content");
@@ -209,16 +218,15 @@ fn diag_clip_stamping() {
         .filter(|b| matches!(b.overflow, nexus_layout_types::Overflow::Scroll(_)))
         .filter_map(|b| b.content_clip.map(|c| (c.x.0, c.y.0, c.width.0, c.height.0)))
         .collect();
-    assert_eq!(viewports.len(), 1, "one scroll viewport expected: {viewports:?}");
-    let (_, cy, _, ch) = *viewports.iter().next().unwrap();
-    let root = boxes
-        .iter()
-        .find(|b| matches!(b.overflow, nexus_layout_types::Overflow::Scroll(_)))
-        .map(|b| b.node_id);
+    // The sidebar, the conversation list and the transcript: three layers (Chat-Info is hidden).
+    assert_eq!(viewports.len(), 3, "three scroll viewports expected: {viewports:?}");
+    let root = transcript_root(&boxes);
+    let clip = root.content_clip.expect("the transcript's viewport");
+    let (cy, ch) = (clip.y.0, clip.height.0);
+    let root = Some(root.node_id);
     let clipped: Vec<_> =
         boxes.iter().filter(|b| b.scroll_root.is_some() && b.scroll_root == root).collect();
-    // Chrome outside the viewport is unclipped and full-size (the toolbar
-    // collapsed to 12px/-4px rows before the Scroll measurement fix).
+    // Chrome outside the viewport is unclipped and full-size (the top bar keeps its 52 px).
     let toolbar = boxes.iter().find(|b| b.node_id == 2).expect("toolbar box");
     assert!(toolbar.clip_rect.is_none() && toolbar.rect.height.0 > 30, "toolbar squeezed");
     // Rows keep content height; the content extent exceeds the viewport.

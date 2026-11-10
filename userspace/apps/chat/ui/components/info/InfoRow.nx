@@ -1,0 +1,41 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One row of the Chat-Info key-value group (design artifacts: an insetGrouped compact row):
+// padding 8 16, at least 40 high, gap 12; the key body 14 medium in `label`, the value body 14 at
+// the end in the `tone` role (labelSecondary, or success / warning for the encryption state),
+// tabular, one line; a hairline inset 16 under every row but the last.
+
+Component InfoRow {
+    props: {
+        title: Str,
+        value: Str,
+        tone: Str,
+        last: Bool,
+    }
+    Stack {
+        Stack {
+            Text($props.title).textStyle(body).fontWeight(medium).fg(label).shrink(0)
+            Stack { }
+                .grow(1)
+            Text($props.value).textStyle(body).fg($props.tone).figures(tabular).textAlign(right)
+        }
+        .direction(row)
+        .align(center)
+        .gap(12)
+        .paddingX(16)
+        .paddingY(8)
+        .minHeight(40)
+        if $props.last {
+            Stack { }
+        } else {
+            Stack {
+                Stack { }
+                    .height(1)
+                    .bg(separator)
+            }
+            .paddingLeading(16)
+        }
+    }
+    .gap(0)
+}

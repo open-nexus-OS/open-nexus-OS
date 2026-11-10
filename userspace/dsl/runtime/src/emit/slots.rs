@@ -20,9 +20,13 @@
 //! receiving region — the same hazard the transparent-branch and ForEach-splice
 //! paths already encode.
 //!
-//! Forwarding is out in v1: entering a body clears the frame, so a `Slot`
-//! nested in one finds nothing. The checker reports it (`NX0411`) so the
-//! author sees an error rather than silence.
+//! **Forwarding** (RFC-0084 amendment, 2026-11-10). A body may place a slot
+//! of the component it is WRITTEN in (`Inner { body: { Slot body } }` inside
+//! a component that declares `slot body`): entering a body restores the
+//! caller's own frame — each frame keeps the one that was active at its
+//! callsite — so the nested `Slot` reads the binding the CALLER received, in
+//! the caller's caller's scope, as deep as the chain goes. The checker allows
+//! only a slot the enclosing component declares (`NX0411` otherwise).
 
 use super::EmitCtx;
 use crate::store::Value;
@@ -39,6 +43,19 @@ pub(crate) struct SlotFrame<'a, 'p> {
     pub params: &'a [Value],
     /// Snapshot of the CALLER's locals at the callsite.
     pub locals: Vec<Option<Value>>,
+    /// The frame the CALLER itself was emitted in (its own slot bodies): what a
+    /// `Slot` forwarded from inside one of these bodies reads.
+    pub parent: Option<&'a SlotFrame<'a, 'p>>,
+}
+
+/// Whether every body of a reference's slot arguments is forwarded slots alone (`Slot x` nodes):
+/// such bodies read nothing of the caller's scope but its frame.
+pub(crate) fn forwards_only(args: capnp::struct_list::Reader<'_, ir::slot_arg::Owned>) -> bool {
+    args.iter().all(|arg| {
+        arg.get_body().is_ok_and(|body| {
+            body.iter().all(|n| matches!(n.which(), Ok(ir::view_node::Which::Slot(_))))
+        })
+    })
 }
 
 impl<'p> SlotFrame<'_, 'p> {
@@ -65,15 +82,26 @@ pub(crate) fn emit_slot_items(
     let Some(frame) = ctx.slots else { return Ok(()) };
     let Some(body) = frame.body(slot) else { return Ok(()) };
 
-    // Enter the caller's scope.
-    let saved_locals: Vec<Option<Value>> = ctx.locals.to_vec();
-    let restore_len = saved_locals.len().min(frame.locals.len());
+    // Enter the caller's scope: the locals the snapshot overwrites are saved (none for a frame
+    // that only forwards — it took no snapshot).
+    let restore_len = ctx.locals.len().min(frame.locals.len());
+    let saved_locals: Vec<Option<Value>> = ctx.locals[..restore_len].to_vec();
     ctx.locals[..restore_len].clone_from_slice(&frame.locals[..restore_len]);
     let saved_params = core::mem::replace(&mut ctx.params, frame.params);
-    let saved_slots = ctx.slots.take();
+    // The caller's own frame: a `Slot` forwarded from inside this body reads it.
+    let saved_slots = core::mem::replace(&mut ctx.slots, frame.parent);
 
     let mut result = Ok(());
     for node in body.iter() {
+        // A forwarded slot (`Slot x` written in this body) splices ITS nodes here as well: wrapped,
+        // the receiving region's flex context would break — the splice law, through the chain.
+        if let Ok(ir::view_node::Which::Slot(Ok(forwarded))) = node.which() {
+            result = emit_slot_items(ctx, forwarded.get_slot(), prefix, base, out);
+            if result.is_err() {
+                break;
+            }
+            continue;
+        }
         for &seg in prefix {
             ctx.path.push(seg);
         }

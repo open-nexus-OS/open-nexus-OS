@@ -1,0 +1,38 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// A `WinAppWindow`'s properties pane as an overlay (design artifacts: AppWindow, compact tier):
+// 320 wide, flush with the body's right edge, radius 24 0 0 24, over an invisible backdrop that
+// closes it (`WinPaneClose`), the pane eating its own taps (`WinNoop`). Nothing on the wider tiers.
+Component WinPropsOverlay {
+    props: {
+        propsOverlay: Bool,
+    }
+    slot sidebarRight
+    if device.sizeClass == "compact" {
+        if $props.propsOverlay {
+            Stack {
+                Stack { }
+                    .grow(1)
+                    .shrink(0)
+                Stack {
+                    Slot sidebarRight
+                }
+                .basis(320)
+                .shrink(1)
+                .material(overlay)
+                .corners(xl, 0, 0, xl)
+                on Tap -> dispatch(WinNoop)
+            }
+            .direction(row)
+            .justify(end)
+            .overlay()
+            .transition(fade)
+            on Tap -> dispatch(WinPaneClose)
+        } else {
+            Stack { }
+        }
+    } else {
+        Stack { }
+    }
+}

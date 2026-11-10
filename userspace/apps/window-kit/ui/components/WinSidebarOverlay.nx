@@ -1,0 +1,61 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// A `WinAppWindow`'s sidebar as an overlay (design artifacts: AppWindow, regular and compact
+// tiers): on regular a 256-wide frosted overlay pane inset 8, on compact 300 wide flush with the
+// body's edge with radius 0 24 24 0 — over an invisible backdrop that closes it (`WinPaneClose`),
+// the pane eating its own taps (`WinNoop`). Nothing on the wide tier (the sidebar is inline).
+Component WinSidebarOverlay {
+    props: {
+        sidebarOverlay: Bool,
+    }
+    slot sidebarLeft
+    if device.sizeClass == "regular" {
+        if $props.sidebarOverlay {
+            Stack {
+                Stack {
+                    Slot sidebarLeft
+                }
+                .width(256)
+                .padding(4)
+                .material(overlay)
+                .rounded(lg)
+                on Tap -> dispatch(WinNoop)
+                Spacer
+            }
+            .direction(row)
+            .paddingLeading(8)
+            .paddingBottom(8)
+            .overlay()
+            .transition(fade)
+            on Tap -> dispatch(WinPaneClose)
+        } else {
+            Stack { }
+        }
+    } else if device.sizeClass == "compact" {
+        if $props.sidebarOverlay {
+            Stack {
+                Stack {
+                    Slot sidebarLeft
+                }
+                .basis(300)
+                .shrink(1)
+                .material(overlay)
+                .corners(0, xl, xl, 0)
+                on Tap -> dispatch(WinNoop)
+                Stack { }
+                    .grow(1)
+                    .shrink(0)
+            }
+            .direction(row)
+            .justify(start)
+            .overlay()
+            .transition(fade)
+            on Tap -> dispatch(WinPaneClose)
+        } else {
+            Stack { }
+        }
+    } else {
+        Stack { }
+    }
+}

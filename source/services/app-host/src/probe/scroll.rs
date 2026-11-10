@@ -231,25 +231,29 @@ impl super::DslApp {
         changed
     }
 
-    /// Marks each layer covered when an overlay box drawn after it — not its own content —
-    /// lies over its viewport (a menu, a sheet, a modal's backdrop): its content then paints in
-    /// the base, under the overlay, and the band waits.
+    /// Marks each layer covered when an overlay drawn after it — not its own content — PAINTS
+    /// over its viewport (a menu, a sheet, an overlay pane, a modal's backdrop; kinded or bare):
+    /// its content then paints in the base, under the overlay, and the band waits. What counts
+    /// is what the overlay's subtree paints, never its box: a full-bleed layer that only places
+    /// its content (a closed menu's host) covers nothing (`band_math::covered`).
     fn cover_layers(&mut self) {
+        let size = (self.w as i32, self.h as i32);
         let overlays = self.view.overlays();
+        let painted: alloc::vec::Vec<(usize, crate::motion_math::Span)> = overlays
+            .entries()
+            .iter()
+            .chain(overlays.plain())
+            .filter_map(|e| {
+                let span = crate::motion_math::subtree_span(self.view.scene(), e.box_id)?;
+                let rect =
+                    crate::motion_math::paint_extent(&self.layout.boxes, span, size, |id| {
+                        self.has_text(id)
+                    })?;
+                Some((e.box_id, rect))
+            })
+            .collect();
         for layer in self.scroll_layers.iter_mut().flatten() {
-            let (vx0, vy0, vx1, vy1) = layer.viewport;
-            layer.covered = overlays.entries().iter().any(|e| {
-                e.box_id > layer.root
-                    && self.layout.boxes.iter().find(|b| b.node_id == e.box_id).is_some_and(|b| {
-                        let (bx0, by0) = (b.rect.x.0, b.rect.y.0);
-                        let (bx1, by1) = (bx0 + b.rect.width.0, by0 + b.rect.height.0);
-                        b.scroll_root != Some(layer.root)
-                            && bx0 < vx1
-                            && vx0 < bx1
-                            && by0 < vy1
-                            && vy0 < by1
-                    })
-            });
+            layer.covered = crate::band_math::covered(layer.root, layer.viewport, &painted);
         }
     }
 

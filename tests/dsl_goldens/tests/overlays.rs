@@ -56,7 +56,7 @@ Page P {
             Stack { }
         }
         if $state.which == "modal" {
-            WinModal { id: "m", title: "Rename item" } {
+            WinModal { id: "m", title: "Rename item", closeLabel: "Close" } {
                 body {
                     Text("A body of text the app owns.").textStyle(footnote)
                 }

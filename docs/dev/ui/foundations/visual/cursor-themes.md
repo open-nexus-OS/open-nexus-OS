@@ -46,7 +46,11 @@ Rationale:
 Implemented (TASK-0353 P8): `windowd` renders every shape it uses — the arrow, the text beam,
 the four resize arrows and the wait ring — once per variant at build time
 (`source/services/windowd/build_support/cursors.rs`), with the fill, stroke and shadow colours
-read from the theme's own `src/themes.txt` (`Mocu-White-Right`, `Mocu-Black-Right`). The active
+read from the theme's own `src/themes.txt` (`Mocu-White-Right`, `Mocu-Black-Right`). Every shape —
+the arrow included — is drawn from its upstream path the way the theme's SVGs draw it: the
+shadow (the outline moved one unit down-right at a tenth of its opacity), the outline (stroke 2,
+round joins) and the body, the 24-unit canvas at the 32 px `normal` size; the arrow's hotspot is
+upstream's `hot` point, the tip. The active
 set follows the theme (`src/cursor_assets.rs`: light → black, dark → white); a theme switch pushes
 the set into gpud's shape cache again and selects the current shape anew
 (`windowd: cursor theme (mode= set=)`). Screenshots carry the same sprite.

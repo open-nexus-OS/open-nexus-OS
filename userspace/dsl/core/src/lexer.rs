@@ -128,6 +128,15 @@ fn keyword(ident: &str) -> Option<TokenKind> {
 /// # Errors
 /// The first lexical violation, with its span.
 pub fn lex(source: &str) -> Result<Vec<Token>, Diagnostic> {
+    lex_counting_comments(source).map(|(tokens, _)| tokens)
+}
+
+/// [`lex`], also counting the `//` comments it skips. The formatter's output carries no
+/// comments, so `nx-dsl fmt` leaves a file that has any as it is.
+///
+/// # Errors
+/// The first lexical violation, with its span.
+pub fn lex_counting_comments(source: &str) -> Result<(Vec<Token>, usize), Diagnostic> {
     if source.len() > MAX_FILE_BYTES {
         return Err(Diagnostic::new(
             DiagCode::FileTooLarge,
@@ -137,6 +146,7 @@ pub fn lex(source: &str) -> Result<Vec<Token>, Diagnostic> {
     }
     let bytes = source.as_bytes();
     let mut tokens = Vec::new();
+    let mut comments = 0usize;
     let mut i = 0usize;
 
     macro_rules! push {
@@ -150,6 +160,7 @@ pub fn lex(source: &str) -> Result<Vec<Token>, Diagnostic> {
         match b {
             b' ' | b'\t' | b'\r' | b'\n' => i += 1,
             b'/' if bytes.get(i + 1) == Some(&b'/') => {
+                comments += 1;
                 while i < bytes.len() && bytes[i] != b'\n' {
                     i += 1;
                 }
@@ -337,7 +348,7 @@ pub fn lex(source: &str) -> Result<Vec<Token>, Diagnostic> {
         }
     }
     push!(TokenKind::Eof, i, i);
-    Ok(tokens)
+    Ok((tokens, comments))
 }
 
 fn parse_int(text: &str, start: usize, end: usize) -> Result<i64, Diagnostic> {
@@ -404,6 +415,14 @@ Store UserListStore {
     fn rejects_unknown_sigils_and_unterminated_strings() {
         assert_eq!(lex("$foo").unwrap_err().code, DiagCode::UnexpectedChar);
         assert_eq!(lex("\"abc").unwrap_err().code, DiagCode::UnterminatedString);
+    }
+
+    #[test]
+    fn counts_comments_but_not_slashes_inside_strings() {
+        let (_, comments) =
+            lex_counting_comments("// a\nText(\"https://x\") // b\nStack { }").expect("lexes");
+        assert_eq!(comments, 2);
+        assert_eq!(lex_counting_comments("Text(\"a // b\")").expect("lexes").1, 0);
     }
 
     #[test]

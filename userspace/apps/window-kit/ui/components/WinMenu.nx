@@ -1,8 +1,8 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The design artifacts' Menu PANEL: an opaque OVERLAY surface (it floats above
-// the window's own blur, so it never blurs) — surfaceOverlay, a 1 px glassEdge,
+// The design artifacts' Menu PANEL: the OVERLAY surface, frosted over what it
+// floats on (glassOverlay over the regular blur) — a 1 px glassEdge,
 // shadow3 and the lit top line, radius 16, padding 4 — holding `WinMenuItem`
 // rows (radius 12 = 16 − 4, concentric), `WinMenuRow` headers and
 // `WinMenuDivider`s. `width` in px: 220 when omitted, 240 for the ⋮ app menu.

@@ -1,77 +1,137 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// One "Modus" tile: a miniature desktop preview, the mode's name and a radio
-// dot (design LAYOUT.md §"Content — appearance page", block 1).
+// One "Modus" tile (design §2.9): a miniature desktop preview, the mode's name and a radio dot.
+// The tile is a `glassCard` with its 1 px `glassEdge`, radius 16, padding 8; the selected one
+// swaps the edge for a `label` ring (the DSL's `ring` is 2 px, the design's 1.5). A border is
+// painted inside the box and takes no layout, so selecting never moves the content.
 //
-// The preview gradient arrives as two hex props and paints through
-// `.bgGradient`, which takes EXPRESSIONS rather than tokens. That is the one
-// sanctioned place for literal colour in this app: a mode preview is content
-// (it shows what light and dark look like), not chrome — chrome must re-theme,
-// and a preview that re-themed would show the same picture three times.
+// The preview: a 86 px mock, radius 8, whose window is inset 13 / 18 / 13 / 20 % (left / top /
+// right / bottom) — flex weights with a zero basis, so the split is exact at any width — with
+// radius 8, padding 8, gap 4 and three bars 4 px high at 52 / 78 / 64 % of the window width.
 //
-// The design insets the mock window by percentages and sizes its three bars
-// at 52/78/64 % of it. Percentages are not expressible in the DSL's box model,
-// so the mock is a padded block with fixed bar widths — the proportions hold
-// at the tile widths this grid produces.
+// The preview colours arrive as hex props and paint through `.bgGradient`, which takes
+// EXPRESSIONS rather than tokens. That is the one sanctioned place for literal colour in this
+// app: a mode preview is content (it shows what light and dark look like), not chrome — chrome
+// must re-theme, and a preview that re-themed would show the same picture three times.
+// OPEN: the design's backdrop is a 135° diagonal (auto: a hard split at 105°); the painter
+// has vertical gradients only, so the preview keeps `top` to `bottom`.
 
 Component ApModeTile {
     props: {
         label: Str,
         top: Str,
         bottom: Str,
+        win: Str,
+        bar: Str,
+        selected: Bool,
+    }
+    if $props.selected {
+        Stack {
+            ApModePreview { top: $props.top, bottom: $props.bottom, win: $props.win, bar: $props.bar }
+            ApModeFooter { label: $props.label, selected: true }
+        }
+        .gap(8)
+        .padding(8)
+        .rounded(lg)
+        .material(card)
+        .border(ring)
+        .borderColor(label)
+    } else {
+        Stack {
+            ApModePreview { top: $props.top, bottom: $props.bottom, win: $props.win, bar: $props.bar }
+            ApModeFooter { label: $props.label, selected: false }
+        }
+        .gap(8)
+        .padding(8)
+        .rounded(lg)
+        .material(card)
+    }
+}
+
+Component ApModePreview {
+    props: {
+        top: Str,
+        bottom: Str,
+        win: Str,
+        bar: Str,
+    }
+    Stack {
+        Stack { }
+            .basis(0)
+            .grow(18)
+        Stack {
+            Stack { }
+                .basis(0)
+                .grow(13)
+            Stack {
+                ApModeBar { share: 52, bar: $props.bar }
+                ApModeBar { share: 78, bar: $props.bar }
+                ApModeBar { share: 64, bar: $props.bar }
+            }
+            .gap(4)
+            .padding(8)
+            .rounded(sm)
+            .basis(0)
+            .grow(74)
+            .bgGradient($props.win, $props.win)
+            Stack { }
+                .basis(0)
+                .grow(13)
+        }
+        .direction(row)
+        .basis(0)
+        .grow(62)
+        Stack { }
+            .basis(0)
+            .grow(20)
+    }
+    .height(86)
+    .rounded(sm)
+    .bgGradient($props.top, $props.bottom)
+}
+
+Component ApModeBar {
+    props: {
+        share: Int,
+        bar: Str,
+    }
+    Stack {
+        Stack { }
+            .height(4)
+            .rounded(full)
+            .basis(0)
+            .grow($props.share)
+            .bgGradient($props.bar, $props.bar)
+        Stack { }
+            .basis(0)
+            .grow(100 - $props.share)
+    }
+    .direction(row)
+}
+
+Component ApModeFooter {
+    props: {
+        label: Str,
         selected: Bool,
     }
     Stack {
-        Stack {
-            Stack {
-                Stack { }
-                    .height(4)
-                    .width(46)
-                    .rounded(sm)
-                    .bg(labelSecondary)
-                Stack { }
-                    .height(4)
-                    .width(68)
-                    .rounded(sm)
-                    .bg(labelSecondary)
-                Stack { }
-                    .height(4)
-                    .width(56)
-                    .rounded(sm)
-                    .bg(labelSecondary)
+        Text($props.label).textStyle(footnote).fontWeight(semibold).fg(label)
+        Spacer
+        if $props.selected {
+            Circle { size: 18
+                Icon { symbol: "checkmark", size: 11, stroke: 3.5 }
+                    .fg(onAccent)
             }
-            .gap(8)
-            .padding(12)
-            .grow(1)
-            .rounded(sm)
-            .material(card)
+            .bg(accent)
+        } else {
+            Circle { size: 18 }
+                .border(hairline)
+                .borderColor(separator)
         }
-        .height(82)
-        .padding(12)
-        .rounded(md)
-        .bgGradient($props.top, $props.bottom)
-        Stack {
-            Text($props.label).textStyle(caption).fontWeight(semibold).fg(label)
-            Spacer
-            if $props.selected {
-                Circle { size: 17
-                    Icon { symbol: "checkmark", size: 11 }
-                        .fg(onAccent)
-                }
-                .bg(accent)
-            } else {
-                Circle { size: 17 }
-                    .border(hairline)
-                    .borderColor(separator)
-            }
-        }
-        .direction(row)
-        .align(center)
-        .gap(8)
     }
-    .gap(8)
-    .padding(8)
-    .rounded(lg)
-    .material(card)
+    .direction(row)
+    .align(center)
+    .paddingX(2)
+    .paddingBottom(2)
 }

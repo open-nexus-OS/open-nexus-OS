@@ -279,12 +279,10 @@ impl AppIcon {
                 .label_style()
                 .text_style(tokens.color(ColorToken::Label), Some(FontWeight::Semibold))
         };
-        let halo = self.halo.then(|| TextShadow {
-            offset_x: FxPx::ZERO,
-            offset_y: FxPx::new(1),
-            blur_radius: FxPx::ZERO,
-            color: tokens.color(ColorToken::LabelShadow),
-        });
+        let halo = match self.halo {
+            true => TextShadow::halo(tokens.color(ColorToken::LabelShadow)).map(Some),
+            false => [None; 2],
+        };
         LayoutNode::Text(
             TextNode {
                 content: TextContent::new(label),
@@ -293,7 +291,7 @@ impl AppIcon {
                 max_width: max,
                 ..TextNode::default()
             },
-            VisualStyle { text_shadow: halo, ..VisualStyle::default() },
+            VisualStyle { text_shadows: halo, ..VisualStyle::default() },
         )
     }
 

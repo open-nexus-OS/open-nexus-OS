@@ -41,7 +41,7 @@ const CHILD_PAYLOAD_SLOT: u32 = nexus_service_topology::slots::app_child::PAYLOA
 /// The child slot receiving the event-channel RECV (app-host's constant).
 const CHILD_EVENTS_SLOT: u32 = nexus_service_topology::slots::app_child::EVENTS_RECV;
 /// TASK-0049 reanimation: statefs route slots for the `demo.minidump`
-/// payload (SSOT: `userspace/apps/demo-exit0/build.rs` STATEFS_SEND_SLOT /
+/// payload (SSOT: `source/apps/demo-exit0/build.rs` STATEFS_SEND_SLOT /
 /// STATEFS_RECV_SLOT). Numerically these overlap CHILD_PAYLOAD_SLOT /
 /// CHILD_EVENTS_SLOT, which is safe: those are only ever granted to
 /// IMG_APPHOST children, this pair only to IMG_EXIT42 children.
@@ -150,7 +150,7 @@ pub(crate) fn grant_windowd_route(child_pid: u32) {
     }
 }
 /// TASK-0049 reanimation: grants the statefsd route into a `demo.minidump`
-/// child (payload SSOT `userspace/apps/demo-exit0/build.rs`) so the payload
+/// child (payload SSOT `source/apps/demo-exit0/build.rs`) so the payload
 /// can PUT its own dump before `exit(42)`.
 ///
 /// TASK-0054C P2-f: the child used to get a RECV clone of statefsd's OWN response queue and

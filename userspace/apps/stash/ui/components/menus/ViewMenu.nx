@@ -3,26 +3,27 @@
 //
 // View ▸: the layout, the properties pane and hidden files — each check mark
 // is bound to the state it toggles (`viewMode`, `rightOpen`, `showHidden`).
-// The layout rows dispatch the toolbar's own tool event.
+// Folders-first has no listing option behind it yet and is drawn disabled. The layout rows dispatch the toolbar's own tool event.
 
 Component ViewMenu {
-    WinMenu { width: 260 } {
+    WinMenu { width: 300 } {
         items {
             Stack {
-                CheckRow { label: @t("win.viewGrid"), icon: "square.grid.2x2", checked: $state.viewMode == "grid" }
+                CheckRow { label: @t("win.viewGrid"), icon: "square.grid.2x2", checked: $state.viewMode == "grid", shortcut: "" }
             }
             on Tap -> dispatch(WinTool("square.grid.2x2"))
             Stack {
-                CheckRow { label: @t("win.viewList"), icon: "list.bullet", checked: $state.viewMode == "list" }
+                CheckRow { label: @t("win.viewList"), icon: "list.bullet", checked: $state.viewMode == "list", shortcut: "" }
             }
             on Tap -> dispatch(WinTool("list.bullet"))
             WinMenuDivider { }
+            WinMenuRow { label: @t("stash.foldersFirst"), icon: "folder", kind: "disabled", shortcut: "", selected: false }
             Stack {
-                CheckRow { label: @t("win.viewProps"), icon: "sidebar.right", checked: $state.rightOpen == 1 }
+                CheckRow { label: @t("win.viewProps"), icon: "sidebar.right", checked: $state.rightOpen == 1, shortcut: "" }
             }
             on Tap -> dispatch(WinRight)
             Stack {
-                CheckRow { label: @t("stash.setHidden"), icon: "eye", checked: $state.showHidden }
+                CheckRow { label: @t("stash.setHidden"), icon: "eye", checked: $state.showHidden, shortcut: @t("win.keyHidden") }
             }
             on Tap -> dispatch(ToggleHidden)
         }

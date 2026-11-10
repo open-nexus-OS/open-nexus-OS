@@ -7,7 +7,6 @@ publish = false
 
 [dependencies]
 capnp = "0.24.1"
-launcher = { path = "../../userspace/apps/launcher" }
 windowd = { path = "../../source/services/windowd" }
 
 [build-dependencies]

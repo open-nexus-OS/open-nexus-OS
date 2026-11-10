@@ -1,0 +1,27 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The compact launcher's app grid (design artifacts: launcher, compact): four columns, row gap
+// 12, column gap 8, padding 4 above and 12 below, each cell 8 × 4 around an md icon whose label
+// has no halo (the panel is glass, not the bare wallpaper). A tap launches the app.
+
+Component LauncherGrid {
+    Stack {
+        List($state.apps) { app in
+            Stack {
+                AppTile { label: app.label, icon: app.icon, iconTop: app.iconTop, iconBottom: app.iconBottom, iconArt: app.iconArt }
+            }
+            .key(app.id)
+            .align(center)
+            .grow(1)
+            .paddingY(8)
+            .paddingX(4)
+            on Tap -> dispatch(Launch(app.id))
+        }
+        .columns(4)
+        .rowGap(12)
+        .gap(8)
+    }
+    .paddingTop(4)
+    .paddingBottom(12)
+}

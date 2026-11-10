@@ -5,7 +5,7 @@ role: reference
 subsystem: devx
 sources: [justfile, Makefile, scripts/build.sh, config/os-services.txt, config/deny.toml, rust-toolchain.toml]
 contracts: [RFC-0009]
-verified: 2026-11-03
+verified: 2026-11-10
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->

@@ -2,15 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // One page's place in the page indicator: the page's `PagerDot` with 4 px on each side while
-// the page has content (24 apps a page on desktop/wide, 6 narrower — LauncherPager's arms), an
-// empty, zero-wide slot otherwise. The spacing lives in the slot, not in the row's gap, so an
-// absent page takes no room and the dots stay centred.
+// the page has content (`per` apps a page), an empty, zero-wide slot otherwise. The spacing
+// lives in the slot, not in the row's gap, so an absent page takes no room and the dots stay
+// centred.
 
 Component PagerDotSlot {
     props: {
         page: Int,
+        per: Int,
     }
-    if (device.profile == desktop || device.sizeClass == "wide") && len($state.apps) > 24 * $props.page || !(device.profile == desktop || device.sizeClass == "wide") && len($state.apps) > 6 * $props.page {
+    if len($state.apps) > $props.per * $props.page {
         Stack {
             PagerDot { page: $props.page }
         }

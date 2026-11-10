@@ -303,9 +303,15 @@ pub const fn recipe(material: Material) -> MaterialRecipe {
         }
         Material::Card => (ColorToken::GlassCard, None, true, None, false),
         Material::Pane => (ColorToken::SurfacePane, None, false, None, false),
-        Material::Overlay => {
-            (ColorToken::SurfaceOverlay, None, true, Some(ShadowToken::Shadow3), true)
-        }
+        // Frosted, not opaque (the operator, 2026-11-10: a menu shows the blur behind it — the
+        // design system's glass overlay, dense enough to read on).
+        Material::Overlay => (
+            ColorToken::GlassOverlay,
+            Some(BackdropToken::Regular),
+            true,
+            Some(ShadowToken::Shadow3),
+            true,
+        ),
     };
     MaterialRecipe {
         fill,

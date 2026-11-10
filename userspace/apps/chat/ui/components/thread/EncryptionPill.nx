@@ -1,0 +1,38 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The transcript's first row: a centred capsule on `fill` (padding 6 12, gap 8) with a `success`
+// lock 12 and the encryption note in caption — all-Matrix chats are end-to-end verified, mixed
+// routes say only Matrix messages are (the lock stays green in both, as in the design). Text
+// never wraps in the DSL yet, so the longer mixed-route note is set as two lines.
+
+Component EncryptionPill {
+    Stack {
+        Stack { }
+            .grow(1)
+        Stack {
+            Icon { symbol: "lock", size: 12 }
+                .fg(success)
+            if $state.bridge {
+                Stack {
+                    Text(@t("chat.encMixedA")).textStyle(caption).fg(labelSecondary)
+                    Text(@t("chat.encMixedB")).textStyle(caption).fg(labelSecondary)
+                }
+                .gap(0)
+            } else {
+                Text(@t("chat.encE2ee")).textStyle(caption).fg(labelSecondary).shrink(1)
+            }
+        }
+        .direction(row)
+        .align(center)
+        .gap(8)
+        .paddingX(12)
+        .paddingY(6)
+        .rounded(16)
+        .bg(fill)
+        Stack { }
+            .grow(1)
+    }
+    .direction(row)
+    .align(center)
+}

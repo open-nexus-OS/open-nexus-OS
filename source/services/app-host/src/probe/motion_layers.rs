@@ -277,7 +277,7 @@ impl super::DslApp {
     }
 
     /// Whether node `node_id` carries a text run (it paints glyphs).
-    fn has_text(&self, node_id: usize) -> bool {
+    pub(super) fn has_text(&self, node_id: usize) -> bool {
         self.texts.binary_search_by_key(&node_id, |t| t.node).is_ok()
     }
 

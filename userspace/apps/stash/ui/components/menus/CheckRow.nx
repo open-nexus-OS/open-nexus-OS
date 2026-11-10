@@ -2,18 +2,19 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // A menu row with a check mark bound to the state it toggles. A modifier or
-// prop cannot be an `if` expression, so the two looks are two arms. The tap
-// is the use site's.
+// prop cannot be an `if` expression, so the two looks are two arms. A `shortcut` is the row's
+// chord hint (or ""). The tap is the use site's.
 
 Component CheckRow {
     props: {
         label: Str,
         icon: Str,
         checked: Bool,
+        shortcut: Str,
     }
     if $props.checked {
-        WinMenuRow { label: $props.label, icon: $props.icon, kind: "check", shortcut: "", selected: false }
+        WinMenuRow { label: $props.label, icon: $props.icon, kind: "check", shortcut: $props.shortcut, selected: false }
     } else {
-        WinMenuRow { label: $props.label, icon: $props.icon, kind: "", shortcut: "", selected: false }
+        WinMenuRow { label: $props.label, icon: $props.icon, kind: "", shortcut: $props.shortcut, selected: false }
     }
 }

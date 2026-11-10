@@ -1,0 +1,56 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One navigation row (design artifacts: a ListItem in a sidebar list): padding 8 12, gap 12,
+// at least 36 high, radius 12; the icon 16 and the title body 14 medium in `label`, an optional
+// count badge at the end. The open view is the persistent `fill` layer with an unchanged label
+// colour (no accent fill). The row has no handler: only Chats is built, the others are dimmed
+// by their caller until their views exist.
+
+Component NavRow {
+    props: {
+        icon: Str,
+        title: Str,
+        count: Int,
+        tint: Str,
+        active: Bool,
+    }
+    if $props.active {
+        Stack {
+            Icon { symbol: $props.icon, size: 16 }
+                .fg(label)
+            Text($props.title).textStyle(body).fontWeight(medium).fg(label).grow(1)
+            if $props.count > 0 {
+                Badge { label: $props.count, variant: "filled", tint: $props.tint, size: "sm" }
+            } else {
+                Stack { }
+            }
+        }
+        .direction(row)
+        .align(center)
+        .gap(12)
+        .paddingX(12)
+        .paddingY(8)
+        .minHeight(36)
+        .rounded(md)
+        .bg(fill)
+    } else {
+        Stack {
+            Icon { symbol: $props.icon, size: 16 }
+                .fg(label)
+            Text($props.title).textStyle(body).fontWeight(medium).fg(label).grow(1)
+            if $props.count > 0 {
+                Badge { label: $props.count, variant: "filled", tint: $props.tint, size: "sm" }
+            } else {
+                Stack { }
+            }
+        }
+        .direction(row)
+        .align(center)
+        .gap(12)
+        .paddingX(12)
+        .paddingY(8)
+        .minHeight(36)
+        .rounded(md)
+    }
+}

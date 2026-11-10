@@ -1,0 +1,26 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// LIST domain: what narrows the conversation list — the search text (the list's own field and the
+// toolbar's search tool), the filter chip and the space picked on the rail. The rows filter
+// themselves against these three fields (`ConversationRow`); nothing here is a service call.
+
+Store ListStore {
+    query: Str = "",
+    chip: Str = "all",
+    space: Str = "all",
+}
+
+Event ListEvent {
+    QueryChanged,
+    ClearQuery,
+    SetChip(Str),
+    SetSpace(Str),
+}
+
+reduce ListEvent {
+    QueryChanged => state.query = state.query,
+    ClearQuery => state.query = "",
+    SetChip(c) => state.chip = c,
+    SetSpace(s) => state.space = s,
+}

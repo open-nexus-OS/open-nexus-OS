@@ -1,9 +1,16 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// One folder-colour swatch: the design's 44×34 folder glyph — a back flap in
-// the light tint with the body in the base colour — plus its caption
-// (block 4).
+// One folder-colour tile (design §2.9): the 44×34 folder glyph — a back flap in the light tint
+// with the body in the base colour — and its caption (caption 11/400 `labelSecondary`), column
+// centred, gap 6. The selected tile shows a `label` ring, radius 12, 4 px outside the glyph (the
+// DSL's `ring` is 2 px, the design's 1.5): every glyph sits in a ring box whose ring is
+// transparent while unselected, so selecting moves nothing.
+//
+// "Akzent" follows the LIVE accent: its body is the `accent` role and its flap the same role at
+// half opacity, so it re-themes with the accent the user picked; the other colours are content
+// (hex as data). The glyph is two rounded rectangles — the design's path (the `files` icon's
+// outline) has no vector widget to draw it in a view.
 //
 // PURELY VISUAL. Nothing below the UI consumes a folder colour yet, so the
 // choice lives in `AppearanceStore` and stops there. It is in the app because
@@ -14,29 +21,69 @@ Component ApFolderTile {
         light: Str,
         base: Str,
         label: Str,
+        live: Bool,
         selected: Bool,
     }
     Stack {
+        if $props.selected {
+            Stack {
+                ApFolderGlyph { light: $props.light, base: $props.base, live: $props.live }
+            }
+            .padding(4)
+            .rounded(md)
+            .border(ring)
+            .borderColor(label)
+        } else {
+            Stack {
+                ApFolderGlyph { light: $props.light, base: $props.base, live: $props.live }
+            }
+            .padding(4)
+            .rounded(md)
+            .border(ring)
+            .borderColor(transparent)
+        }
+        Text($props.label).textStyle(caption).fontWeight(normal).fg(labelSecondary)
+    }
+    .gap(6)
+    .align(center)
+}
+
+Component ApFolderGlyph {
+    props: {
+        light: Str,
+        base: Str,
+        live: Bool,
+    }
+    if $props.live {
         Stack {
             Stack { }
-                .height(6)
+                .height(8)
+                .width(20)
+                .rounded(sm)
+                .bg(accent)
+                .opacity(128)
+            Stack { }
+                .height(26)
+                .width(44)
+                .rounded(sm)
+                .bg(accent)
+        }
+        .gap(0)
+        .align(start)
+    } else {
+        Stack {
+            Stack { }
+                .height(8)
                 .width(20)
                 .rounded(sm)
                 .bgGradient($props.light, $props.light)
             Stack { }
-                .height(24)
+                .height(26)
                 .width(44)
                 .rounded(sm)
                 .bgGradient($props.base, $props.base)
         }
         .gap(0)
         .align(start)
-        Text($props.label).textStyle(caption).fg(labelSecondary)
     }
-    .gap(4)
-    .align(center)
-    .padding(4)
-    .rounded(md)
-    .border(hairline)
-    .borderColor(transparent)
 }

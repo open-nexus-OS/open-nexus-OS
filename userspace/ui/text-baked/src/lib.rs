@@ -22,7 +22,8 @@
 //! STATUS: Functional
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: `src/tests.rs` (drawing, fallback, atlas budget, frozen metrics, weights,
-//! tracking, the display face), `src/ladder.rs`, `src/metrics.rs`, `src/measure_text.rs`
+//! tracking, the display face), `src/glow.rs` (the blurred shadow), `src/ladder.rs`,
+//! `src/metrics.rs`, `src/measure_text.rs`
 //!
 //! The API is ROW-BASED to match the surface renderers: every shell surface
 //! is painted one pixel row at a time, so [`draw_text_row`] blends exactly
@@ -39,11 +40,13 @@ extern crate alloc;
 #[cfg(feature = "layout")]
 pub mod measure_text;
 
+mod glow;
 mod ladder;
 mod metrics;
 mod pen;
 #[cfg(test)]
 mod tests;
+pub use glow::{blur_reach, draw_text_blur_row};
 use ladder::{face, Face};
 pub use ladder::{FontSize, Weight};
 pub use metrics::{advance, ellipsis_cut, measure, ELLIPSIS};
@@ -255,7 +258,7 @@ pub fn draw_text_row(
 
 /// Blend `color` scaled by `coverage` over one straight-alpha BGRA pixel.
 #[inline]
-fn blend_px(dst: &mut [u8], color: [u8; 4], coverage: u8) {
+pub(crate) fn blend_px(dst: &mut [u8], color: [u8; 4], coverage: u8) {
     let sa = (coverage as u32 * color[3] as u32 + 127) / 255; // 0..255
     if sa == 0 {
         return;

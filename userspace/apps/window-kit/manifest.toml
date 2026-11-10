@@ -35,6 +35,8 @@
 #   WinModal   props id/title · slots body · footer
 #              events ModalClose(Str) · WinNoop
 #   WinToast   props id/icon/title/subtitle · events ToastDismiss(Str)
+#   WinActionSheet  props id/title/message/cancelLabel · slot actions
+#              events SheetCancel(Str) · WinNoop
 
 name = "window-kit"
 version = "0.1.0"

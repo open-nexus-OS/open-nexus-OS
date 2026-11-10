@@ -19,6 +19,7 @@ Component MuteButton {
         .bg(danger)
         .shadow(shadow1)
         .hitSlop(8)
+        .label(@t("control.mute"))
         on Tap -> dispatch(ToggleMute)
     } else {
         Circle { size: 36
@@ -28,6 +29,7 @@ Component MuteButton {
         .material(card)
         .shadow(shadow1, edgeHighlight)
         .hitSlop(8)
+        .label(@t("control.mute"))
         on Tap -> dispatch(ToggleMute)
     }
 }

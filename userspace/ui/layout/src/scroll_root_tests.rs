@@ -286,4 +286,148 @@ mod tests {
         assert_eq!(p2.rect.x, px(600), "the third page beside the viewport");
         assert_eq!(by_id(&boxes, "p0").scroll_root, Some(by_id(&boxes, "pager").node_id));
     }
+
+    /// A paged scroller's page without a width of its own is the viewport's width — the host
+    /// snaps by whole viewports — and lays its content out against it: a 300-wide grid centred in
+    /// a 500-wide page (the launcher's pages on a screen wider than their grid). A pinned page
+    /// keeps its width (the test above).
+    #[test]
+    fn a_page_without_a_width_is_the_viewport_and_centres_its_content() {
+        let page = |id, grid| {
+            let cells = (Some(300), Some(50));
+            let grid = stack(
+                grid,
+                Direction::Column,
+                Overflow::Visible,
+                FlexItem::default(),
+                cells,
+                vec![],
+            );
+            let mut page = stack(
+                id,
+                Direction::Column,
+                Overflow::Visible,
+                FlexItem::default(),
+                (None, None),
+                vec![grid],
+            );
+            if let LayoutNode::Stack(s, ..) = &mut page {
+                s.align = Align::Center;
+            }
+            page
+        };
+        let pager = stack(
+            "pager",
+            Direction::Row,
+            Overflow::Scroll(ScrollAxis::Paged),
+            grow(),
+            (None, None),
+            vec![page("p0", "g0"), page("p1", "g1")],
+        );
+        let root = stack(
+            "root",
+            Direction::Column,
+            Overflow::Visible,
+            FlexItem::default(),
+            (None, None),
+            vec![pager],
+        );
+        let boxes = LayoutEngine::new()
+            .layout_with_viewport(&root, px(500), Some(px(200)), &Measure)
+            .expect("lays out")
+            .boxes;
+        assert_eq!(by_id(&boxes, "p0").rect.width, px(500), "a page is the viewport");
+        assert_eq!(by_id(&boxes, "p1").rect.x, px(500), "the next page one viewport on");
+        assert_eq!(by_id(&boxes, "g0").rect.x, px(100), "the grid centred in its page");
+        assert_eq!(by_id(&boxes, "g1").rect.x, px(600));
+    }
+
+    /// A column stretches its children to its width — within each child's own bounds: a pinned
+    /// `.width(340)` keeps 340 at the cross start, a `.maxWidth` caps the stretch (a stretched
+    /// login column and the launcher's search bar took the whole column before).
+    #[test]
+    fn a_stretched_child_keeps_its_own_width_bounds() {
+        let pinned = stack(
+            "pinned",
+            Direction::Column,
+            Overflow::Visible,
+            FlexItem::default(),
+            (Some(340), Some(20)),
+            vec![],
+        );
+        let mut capped = stack(
+            "capped",
+            Direction::Column,
+            Overflow::Visible,
+            FlexItem::default(),
+            (None, Some(20)),
+            vec![],
+        );
+        if let LayoutNode::Stack(s, ..) = &mut capped {
+            s.max_width = Some(px(520));
+        }
+        let free = stack(
+            "free",
+            Direction::Column,
+            Overflow::Visible,
+            FlexItem::default(),
+            (None, Some(20)),
+            vec![],
+        );
+        let mut root = stack(
+            "root",
+            Direction::Column,
+            Overflow::Visible,
+            FlexItem::default(),
+            (None, None),
+            vec![pinned, capped, free],
+        );
+        if let LayoutNode::Stack(s, ..) = &mut root {
+            s.align = Align::Stretch;
+        }
+        let boxes = LayoutEngine::new()
+            .layout_with_viewport(&root, px(1184), Some(px(200)), &Measure)
+            .expect("lays out")
+            .boxes;
+        assert_eq!(by_id(&boxes, "pinned").rect.width, px(340));
+        assert_eq!(by_id(&boxes, "pinned").rect.x, px(0), "at the cross start");
+        assert_eq!(by_id(&boxes, "capped").rect.width, px(520));
+        assert_eq!(by_id(&boxes, "free").rect.width, px(1184), "an unbounded child stretches");
+
+        // The same in a row's cross axis: a stretched `.height(28)` keeps 28, at the top.
+        let pill = stack(
+            "pill",
+            Direction::Row,
+            Overflow::Visible,
+            FlexItem::default(),
+            (Some(80), Some(28)),
+            vec![],
+        );
+        let tall = stack(
+            "tall",
+            Direction::Row,
+            Overflow::Visible,
+            FlexItem::default(),
+            (Some(80), None),
+            vec![],
+        );
+        let mut bar = stack(
+            "bar",
+            Direction::Row,
+            Overflow::Visible,
+            FlexItem::default(),
+            (None, Some(36)),
+            vec![pill, tall],
+        );
+        if let LayoutNode::Stack(s, ..) = &mut bar {
+            s.align = Align::Stretch;
+        }
+        let boxes = LayoutEngine::new()
+            .layout_with_viewport(&bar, px(400), Some(px(36)), &Measure)
+            .expect("lays out")
+            .boxes;
+        assert_eq!(by_id(&boxes, "pill").rect.height, px(28));
+        assert_eq!(by_id(&boxes, "pill").rect.y, px(0));
+        assert_eq!(by_id(&boxes, "tall").rect.height, px(36), "an unbounded child stretches");
+    }
 }

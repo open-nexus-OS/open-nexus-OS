@@ -1,45 +1,48 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Ordnerfarbe: six local folder-colour tiles.
+// Ordnerfarbe (design §2.9): six folder-colour tiles in a `glassCard` panel (padding 12 16,
+// gap 12, radius 16) and the footnote below it. Each tile's ring sits 4 px outside its glyph
+// (see `ApFolderTile`), so the panel pays that out of its padding and gap: padding 8 12,
+// gap 4 — the glyphs keep their 12/16 inset and 12 spacing.
 
 Component ApFolderBlock {
     Stack {
-        Stack {
-            Text(@t("ap.folder")).textStyle(overline).fg(labelSecondary)
+        ApHeader { title: @t("ap.folder") } {
+            trailing { }
         }
-        .paddingX(16)
         Stack {
             Stack {
-                ApFolderTile { light: "#7af8d8", base: "#14b8a6", label: @t("ap.folderTeal"), selected: $state.apFolder == "teal" }
+                ApFolderTile { light: "#7af8d8", base: "#14b8a6", label: @t("ap.folderTeal"), live: false, selected: $state.apFolder == "teal" }
             }
             on Tap -> dispatch(SetFolder("teal"))
             Stack {
-                ApFolderTile { light: "#93c5fd", base: "#3b82f6", label: @t("ap.folderAccent"), selected: $state.apFolder == "accent" }
+                ApFolderTile { light: "", base: "", label: @t("ap.folderAccent"), live: true, selected: $state.apFolder == "accent" }
             }
             on Tap -> dispatch(SetFolder("accent"))
             Stack {
-                ApFolderTile { light: "#c4b0fd", base: "#8b5cf6", label: @t("ap.folderViolet"), selected: $state.apFolder == "violet" }
+                ApFolderTile { light: "#c4b0fd", base: "#8b5cf6", label: @t("ap.folderViolet"), live: false, selected: $state.apFolder == "violet" }
             }
             on Tap -> dispatch(SetFolder("violet"))
             Stack {
-                ApFolderTile { light: "#fcd68a", base: "#f59e0b", label: @t("ap.folderAmber"), selected: $state.apFolder == "amber" }
+                ApFolderTile { light: "#fcd68a", base: "#f59e0b", label: @t("ap.folderAmber"), live: false, selected: $state.apFolder == "amber" }
             }
             on Tap -> dispatch(SetFolder("amber"))
             Stack {
-                ApFolderTile { light: "#f9a8d0", base: "#ec4899", label: @t("ap.folderRose"), selected: $state.apFolder == "rose" }
+                ApFolderTile { light: "#f9a8d0", base: "#ec4899", label: @t("ap.folderRose"), live: false, selected: $state.apFolder == "rose" }
             }
             on Tap -> dispatch(SetFolder("rose"))
             Stack {
-                ApFolderTile { light: "#a8b3c4", base: "#64748b", label: @t("ap.folderGraphite"), selected: $state.apFolder == "graphite" }
+                ApFolderTile { light: "#a8b3c4", base: "#64748b", label: @t("ap.folderGraphite"), live: false, selected: $state.apFolder == "graphite" }
             }
             on Tap -> dispatch(SetFolder("graphite"))
         }
         .direction(row)
         .wrap(true)
         .align(center)
-        .gap(12)
-        .padding(12)
+        .gap(4)
+        .paddingX(12)
+        .paddingY(8)
         .rounded(lg)
         .material(card)
         Text(@t("ap.folderNote")).textStyle(footnote).fg(labelSecondary)

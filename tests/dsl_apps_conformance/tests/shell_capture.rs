@@ -345,6 +345,26 @@ fn test_reject_a_refused_begin_opens_nothing() {
     assert_eq!(rig.view.overlays().modal_depth(), 0, "no overlay over a live screen");
 }
 
+/// A second Print while the overlay is open (a key repeat, a second press) asks screencapd for a
+/// second freeze, which it refuses as busy — the open session must stay: closing its overlay
+/// left the screen frozen with nothing on it to thaw it (board cycle 2026-11-10: the screen
+/// looked crashed). The X still thaws it.
+#[test]
+fn test_reject_a_second_print_keeps_the_open_session_and_its_way_out() {
+    let mut rig = Rig::new();
+    rig.trigger("CaptureOpen");
+    assert_eq!(rig.field("capOpen"), Value::Bool(true));
+    rig.host.begin_fails = true; // screencapd: busy, a freeze is already up
+    rig.trigger("CaptureOpen");
+    assert_eq!(rig.host.calls, vec!["screencap.begin()", "screencap.begin()"]);
+    assert_eq!(rig.field("capOpen"), Value::Bool(true), "the open session stays");
+    assert_eq!(rig.view.overlays().modal_depth(), 1, "its overlay stays over the frozen frame");
+    let close = rig.handler_center("CapCancel", None).expect("the X is on screen");
+    rig.tap(close);
+    assert_eq!(rig.host.calls.last().map(String::as_str), Some("screencap.cancel()"));
+    assert_eq!(rig.field("capOpen"), Value::Bool(false), "the X thaws and closes");
+}
+
 #[test]
 fn shift_print_saves_the_screen_without_the_overlay() {
     let mut rig = Rig::new();

@@ -9,7 +9,9 @@ is the executable source of truth for errors and formatting.
 ## Conventions
 
 - explicit `import "..."` — no auto-import, resolution is reproducible;
-- one canonical layout, produced by `nx dsl fmt` (`parse → fmt → parse` is idempotent);
+- one canonical layout, produced by `nx dsl fmt` (`parse → fmt → parse` is idempotent). The
+  formatter's output carries no comments yet, so it leaves a file with comments unchanged and
+  says so (exit 1);
 - files: pages/components under `ui/pages|components/**.nx`, stores under
   `ui/composables/**.store.nx` (see `project-layout.md`).
 

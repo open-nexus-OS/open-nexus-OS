@@ -44,7 +44,7 @@ nexus-sdk-routes = { path = "../../libs/nexus-sdk-routes" }
 # TASK-0333 6f-1 (ADR-0087): the squeeze order's frames (`OP_SQUEEZE`), one codec with abilitymgr.
 nexus-wire = { path = "../../libs/nexus-wire" }
 exec-payloads = { path = "../../../userspace/exec-payloads", optional = true }
-demo-exit0 = { path = "../../../userspace/apps/demo-exit0", optional = true }
+demo-exit0 = { path = "../../apps/demo-exit0", optional = true }
 nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
 nexus-log = { path = "../../libs/nexus-log", optional = true, default-features = false, features = ["sink-logd"] }

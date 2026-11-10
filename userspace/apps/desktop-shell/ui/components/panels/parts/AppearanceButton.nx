@@ -16,6 +16,7 @@ Component AppearanceButton {
         .bg(modeTablet)
         .shadow(shadow1)
         .hitSlop(8)
+        .label(@t("control.appearance"))
         on Tap -> dispatch(SetTheme("light"))
     } else {
         Circle { size: 36
@@ -25,6 +26,7 @@ Component AppearanceButton {
         .bg(warning)
         .shadow(shadow1)
         .hitSlop(8)
+        .label(@t("control.appearance"))
         on Tap -> dispatch(SetTheme("dark"))
     }
 }

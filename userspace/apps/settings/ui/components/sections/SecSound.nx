@@ -3,11 +3,12 @@
 //
 // Sound & Töne. Demo data from the design's `_tree()`.
 //
-// The design's fourth group (Barrierefreiheit → Mono-Audio) is flagged
-// `advanced` and is HIDDEN unless "Erweiterte Optionen" is on — which is a
-// Phase 2 view option. Rendering it now would show a group the design hides
-// by default, so it waits for the switch that reveals it. Its `DemoStore`
-// field (`tgMonoAudio`) already exists.
+// Lautstärke and Eingangspegel are the design's stacked range rows (`SetSliderRow`), their
+// positions static demo state (`DemoStore.rng*`) — no audio service backs them yet. The fourth
+// group (Barrierefreiheit > Mono-Audio) is the design's `advanced` group: it renders only while
+// "Erweiterte Optionen" is on (`ViewStore.advanced`, the ⋮ menu's "Ansicht" group).
+// The two system-sound switches draw no leading icon, as in the design; their hairline starts at
+// the text column of the row below (16 without an icon, 46 with one).
 
 Component SecSound {
     Stack {
@@ -17,8 +18,8 @@ Component SecSound {
                     trailing { SetValue { value: @t("snd.outputV") } }
                 }
                 SetHairline { }
-                SetRow { title: @t("snd.volume"), subtitle: "", icon: "music.note", showChevron: false } {
-                    trailing { SetValue { value: @t("snd.volumeV") } }
+                SetSliderRow { title: @t("snd.volume"), icon: "music.note", value: @t("set.percent", $state.rngVolume), iconStart: "speaker.wave.1", iconEnd: "speaker.wave" } {
+                    slider { Slider { value: $state.rngVolume, variant: "thumb" }.label(@t("snd.volume")) }
                 }
             }
         }
@@ -27,15 +28,19 @@ Component SecSound {
                 SetRow { title: @t("snd.mic"), subtitle: "", icon: "mic", showChevron: false } {
                     trailing { SetValue { value: @t("snd.micV") } }
                 }
+                SetHairline { }
+                SetSliderRow { title: @t("snd.inputLevel"), icon: "mic", value: @t("set.percent", $state.rngInput), iconStart: "", iconEnd: "" } {
+                    slider { Slider { value: $state.rngInput, variant: "thumb" }.label(@t("snd.inputLevel")) }
+                }
             }
         }
         SetGroup { label: @t("snd.gSystem"), note: "" } {
             rows {
-                SetRow { title: @t("snd.keyClick"), subtitle: "", icon: "keyboard", showChevron: false } {
+                SetRow { title: @t("snd.keyClick"), subtitle: "", icon: "", showChevron: false } {
                     trailing { Toggle { checked: $state.tgKeyClick, label: @t("snd.keyClick") } }
                 }
-                SetHairline { }
-                SetRow { title: @t("snd.sysSounds"), subtitle: "", icon: "speaker.wave", showChevron: false } {
+                SetHairline { plain: true }
+                SetRow { title: @t("snd.sysSounds"), subtitle: "", icon: "", showChevron: false } {
                     trailing { Toggle { checked: $state.tgSysSounds, label: @t("snd.sysSounds") } }
                 }
                 SetHairline { }
@@ -43,6 +48,17 @@ Component SecSound {
                     trailing { SetValue { value: @t("snd.scheduleV") } }
                 }
             }
+        }
+        if $state.advanced {
+            SetGroup { label: @t("snd.gAccess"), note: "" } {
+                rows {
+                    SetRow { title: @t("snd.mono"), subtitle: "", icon: "", showChevron: false } {
+                        trailing { Toggle { checked: $state.tgMonoAudio, label: @t("snd.mono") } }
+                    }
+                }
+            }
+        } else {
+            Stack { }
         }
     }
     .gap(24)

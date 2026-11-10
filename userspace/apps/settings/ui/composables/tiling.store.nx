@@ -72,7 +72,10 @@ reduce TilingEvent {
     }
 }
 
+// The margin is chosen on a `PickerSheet` (`MarginPicker`); the sheet's state is the region
+// store's, so closing it is a dispatch, not a write.
 @effect on SetTileMargin(v) {
+    dispatch(ClosePicker);
     match svc.settings.set("ui.tile.margin", v) {
         Ok(ok) => dispatch(TileApplied(ok)),
         Err(e) => dispatch(TileFailed(e)),

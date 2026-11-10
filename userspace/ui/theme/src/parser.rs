@@ -72,11 +72,13 @@ pub fn parse_theme_file(content: &str, path: &Path) -> Result<Theme, ThemeError>
         }
     }
 
-    // `[icons]`: path + `[icons.symbols]` (both optional; strings only).
+    // `[icons]`: path, own + `[icons.symbols]` (all optional; strings only).
     let mut icons_path = None;
+    let mut own_icons_path = None;
     let mut icon_symbols = Vec::new();
     if let Some(icons) = root.get("icons").and_then(|v| v.as_table()) {
         icons_path = icons.get("path").and_then(|v| v.as_str()).map(String::from);
+        own_icons_path = icons.get("own").and_then(|v| v.as_str()).map(String::from);
         if let Some(symbols) = icons.get("symbols").and_then(|v| v.as_table()) {
             for (name, file) in symbols {
                 if let Some(file) = file.as_str() {
@@ -96,6 +98,7 @@ pub fn parse_theme_file(content: &str, path: &Path) -> Result<Theme, ThemeError>
         shadows,
         scales: scale_map,
         icons_path,
+        own_icons_path,
         icon_symbols,
     })
 }

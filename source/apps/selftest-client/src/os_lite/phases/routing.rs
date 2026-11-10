@@ -82,7 +82,8 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     }
     // RFC-0111 §6 (ADR-0084): the one permission authority. bundlemgrd published every
     // installed app's manifest grants before it answered the volume status above, so the
-    // calculator's set is readable now — its one grant, and no background (deny-by-default).
+    // calculator's set is readable now — its grants (window, clipboard), and no background
+    // (deny-by-default).
     // Then the negative half, live: this harness may read grants but never publish them.
     match services::policyd::policyd_app_grants(&policyd, "calculator") {
         Ok((0, n, background)) if n >= 1 && !background => {

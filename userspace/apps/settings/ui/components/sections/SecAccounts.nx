@@ -3,24 +3,23 @@
 //
 // Accounts. Demo data from the design's `_tree()` — there is no account
 // service behind this yet, so every row is a value row and the two switches
-// are `DemoStore` fields.
+// are `DemoStore` fields. The first row is the avatar row (`AccountRow`); the two sync switches
+// draw no leading icon, as in the design.
 
 Component SecAccounts {
     Stack {
         SetGroup { label: "", note: "" } {
             rows {
-                SetRow { title: @t("acc.account"), subtitle: @t("set.userName"), icon: "person", showChevron: false } {
-                    trailing { SetValue { value: @t("acc.accountV") } }
-                }
+                AccountRow { name: @t("set.userName"), email: @t("acc.accountV"), label: @t("acc.account") }
             }
         }
         SetGroup { label: @t("acc.gSync"), note: "" } {
             rows {
-                SetRow { title: @t("acc.files"), subtitle: "", icon: "folder", showChevron: false } {
+                SetRow { title: @t("acc.files"), subtitle: "", icon: "", showChevron: false } {
                     trailing { Toggle { checked: $state.tgSyncFiles, label: @t("acc.files") } }
                 }
-                SetHairline { }
-                SetRow { title: @t("acc.photos"), subtitle: "", icon: "photo", showChevron: false } {
+                SetHairline { plain: true }
+                SetRow { title: @t("acc.photos"), subtitle: "", icon: "", showChevron: false } {
                     trailing { Toggle { checked: $state.tgSyncPhotos, label: @t("acc.photos") } }
                 }
                 SetHairline { }

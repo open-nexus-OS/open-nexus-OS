@@ -7,8 +7,9 @@
 // (`.basis(0).grow(1)`), the circles become pills as the window widens and every label sizes
 // itself from its own key (`.textFit`) — no breakpoints anywhere.
 //
-// The page is a thin composition; state lives in `composables/calc.store.nx`
-// and the surfaces in `components/keypad/`.
+// The page is a thin composition; state lives in `composables/calc.store.nx` (the arithmetic)
+// and `composables/menu.store.nx` (the ⋮ menu), the surfaces in `components/keypad/` and
+// `components/menu/`.
 // ONE window path (TASK-0337): the chrome is window-kit's, inside this surface —
 // `style: plain` leaves windowd no title bar to draw; the keypad's pane is the OPAQUE content
 // layer (the materials rules), the top bar the window's functional layer.
@@ -32,12 +33,18 @@ Page CalculatorPage {
             tool1Active: false,
             tool2Active: false,
             tool3Active: false,
+            tool4: "",
+            tool4Active: false,
+            tool1Disabled: false,
+            tool2Disabled: false,
+            tool3Disabled: false,
+            tool4Disabled: false,
             navBack: "",
             navFwd: "",
             navRefresh: "",
             sideLeft: "",
             sideRight: "",
-            more: "",
+            more: "ellipsis.vertical",
             appId: "calculator",
         }
         WinAppWindow {
@@ -45,10 +52,14 @@ Page CalculatorPage {
             showProps: false,
             sidebarOverlay: false,
             propsOverlay: false,
+            appMenuOpen: $state.menu == "more",
             menuFullscreen: @t("win.fullscreen"),
             menuMoveDevice: @t("win.moveDevice"),
             menuMinimize: @t("win.minimize"),
             menuClose: @t("win.close"),
+            menuMoveLabel: @t("win.moveLabel"),
+            menuArrangeLabel: @t("win.arrangeLabel"),
+            menuSoon: @t("win.soon"),
         } {
             sidebarLeft {
                 Stack { }
@@ -69,6 +80,9 @@ Page CalculatorPage {
             }
             sidebarRight {
                 Stack { }
+            }
+            appMenu {
+                CalcMenu { }
             }
         }
     }

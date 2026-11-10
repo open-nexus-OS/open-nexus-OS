@@ -5,7 +5,7 @@ role: guide
 subsystem: ui
 sources: [source/services/windowd, source/drivers/gpud, source/services/app-host, userspace/apps/window-kit, source/services/imed, source/services/memd]
 contracts: [RFC-0067, RFC-0108, RFC-0109, RFC-0110, RFC-0113, RFC-0114, ADR-0068, ADR-0069, ADR-0071, ADR-0072, ADR-0075, ADR-0076, ADR-0078, ADR-0083, ADR-0086, ADR-0090, ADR-0092]
-verified: 2026-11-05
+verified: 2026-11-10
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -37,7 +37,7 @@ hidrawd ──HID batch──► inputd ──pointer / keys──► windowd �
 
 | component | owns | contract |
 |---|---|---|
-| windowd (`source/services/windowd/`) | client surfaces, layer tree, damage, z-order and focus, input routing, the present to gpud, the caret layer, window transitions, motion layers | RFC-0067, RFC-0109, RFC-0114, ADR-0075, ADR-0076 |
+| windowd (`source/services/windowd/`) | client surfaces, layer tree, damage, z-order and focus, input routing, the present to gpud, the caret layer, window transitions, motion layers, window sizes | RFC-0067, RFC-0109, RFC-0114, RFC-0117, ADR-0075, ADR-0076 |
 | gpud (`source/drivers/gpud/`) | the display device and mode, scanout memory, GPU contexts, the command ring, app surface buffers, readback | RFC-0101, ADR-0032, ADR-0072, ADR-0078, ADR-0092 |
 | app-host (`source/services/app-host/`) | one process per app: mounts an `.nxir` program, runs layout, scroll physics, hover and DSL animation, draws into its surface buffer | RFC-0109, RFC-0114 |
 | window-kit (`userspace/apps/window-kit/`) | the shared DSL component library for window chrome (`WinAppWindow`, `WinAppMenu`, `WinModal`, `WinAlert`, `WinToast`) | ADR-0068, ADR-0069 |
@@ -78,7 +78,7 @@ screencapd asks windowd (`OP_SURFACE_CAPTURE`), which freezes the screen; gpud r
 
 - Budgets live in `source/libs/nexus-ux-budgets/` (RFC-0108): 16.7 ms per frame, input to present 50 ms warn / 100 ms fail, app launch 300 ms warn / 1 s fail; the board's timing is the contract, not QEMU's.
 - gpud's present ack carries glass time, refresh period and cadence; windowd predicts the next shown time (`source/services/windowd/src/frame_clock.rs`); animating clients ask for a pulse (`OP_SURFACE_FRAME_REQ`) and step to it (RFC-0110).
-- windowd restarts: init respawns it; the new one adopts the apps' surfaces from gpud as ghosts (last pixels in place), apps rejoin and take them over; execd names the apps alive, so a dead app's ghost closes (RFC-0112).
+- windowd restarts: init respawns it; the new one adopts the apps' surfaces from gpud as ghosts, apps rejoin and take them over; execd names the apps alive, so a dead app's ghost closes (RFC-0112).
 
 ## Contracts that define the stack
 

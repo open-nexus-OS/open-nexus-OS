@@ -53,7 +53,8 @@ Component WinMenuFace {
     }
 }
 
-// The icon slot: 16 px in a 25 px slot (8 px to the label), or an empty slot without an icon.
+// The icon slot: 16 px in a 25 px slot (8 px to the label) at 85 % of its tone, or an empty slot
+// without an icon.
 Component WinMenuIcon {
     props: {
         icon: Str,
@@ -67,21 +68,22 @@ Component WinMenuIcon {
         .width(25)
         .shrink(0)
         .align(start)
+        .opacity(217)
     } else {
         Stack { }
             .shrink(0)
     }
 }
 
-// The trailing mark: a checkmark (`check`, `accent`), a chevron to a submenu (`sub` right,
-// `subLeft` left, `labelTertiary`), or an empty slot on every other row.
+// The trailing mark: a checkmark (`check`: 14, stroke 2.6, `accent`), a chevron to a submenu
+// (`sub` right, `subLeft` left, `labelTertiary`), or an empty slot on every other row.
 Component WinMenuMark {
     props: {
         kind: Str,
     }
     if $props.kind == "check" {
         Stack {
-            Icon { symbol: "checkmark", size: 14 }
+            Icon { symbol: "checkmark", size: 14, stroke: 2.6 }
                 .fg(accent)
         }
         .paddingLeading(8)

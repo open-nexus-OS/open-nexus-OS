@@ -47,6 +47,7 @@ Component SearchStrip {
                 .rounded(full)
                 .align(center)
                 .justify(center)
+                .label(@t("stash.clearSearch"))
                 on Tap -> dispatch(SearchClear)
             }
             .direction(row)

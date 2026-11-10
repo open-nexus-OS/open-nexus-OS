@@ -81,13 +81,15 @@ fn box_pixels_eq(a: &LayoutBox, b: &LayoutBox) -> bool {
         && a.text_px == b.text_px
 }
 
-/// The painted row extent of a box (clipped to its viewport), or `None` when
-/// it paints nothing.
+/// The painted row extent of a box — the box and the rows its own shadow reaches
+/// (`nexus_scene_raster::shadow_reach`) — clipped to its viewport, or `None` when it paints
+/// nothing.
 fn box_rows(b: &LayoutBox) -> Option<(i32, i32)> {
     if b.rect.width.0 <= 0 || b.rect.height.0 <= 0 {
         return None;
     }
-    let (mut y0, mut y1) = (b.rect.y.0, b.rect.y.0 + b.rect.height.0);
+    let (_, above, _, below) = nexus_scene_raster::shadow_reach(b);
+    let (mut y0, mut y1) = (b.rect.y.0 - above, b.rect.y.0 + b.rect.height.0 + below);
     if let Some(c) = b.clip_rect {
         y0 = y0.max(c.y.0);
         y1 = y1.min(c.y.0 + c.height.0);
@@ -95,11 +97,16 @@ fn box_rows(b: &LayoutBox) -> Option<(i32, i32)> {
     (y1 > y0).then_some((y0, y1))
 }
 
-/// A box's painted rectangle as `(x0, y0, x1, y1)` (clipped to its viewport);
-/// `None` when it paints nothing there.
+/// A box's painted rectangle as `(x0, y0, x1, y1)` — its shadow's reach included — clipped to
+/// its viewport; `None` when it paints nothing there.
 fn painted(b: &LayoutBox) -> Option<(i32, i32, i32, i32)> {
     let r = &b.rect;
-    let (mut x0, mut y0, mut x1, mut y1) = (r.x.0, r.y.0, r.x.0 + r.width.0, r.y.0 + r.height.0);
+    if r.width.0 <= 0 || r.height.0 <= 0 {
+        return None; // an empty box paints nothing, its shadow neither
+    }
+    let (l, t, rr, bo) = nexus_scene_raster::shadow_reach(b);
+    let (mut x0, mut y0, mut x1, mut y1) =
+        (r.x.0 - l, r.y.0 - t, r.x.0 + r.width.0 + rr, r.y.0 + r.height.0 + bo);
     if let Some(c) = b.clip_rect {
         (x0, y0) = (x0.max(c.x.0), y0.max(c.y.0));
         (x1, y1) = (x1.min(c.x.0 + c.width.0), y1.min(c.y.0 + c.height.0));
@@ -406,6 +413,26 @@ mod tests {
         // Closing it damages the same rows.
         let span = changed_row_span(&new, &old, &[], &[], 800);
         assert_eq!(span, Some((58, 237)));
+    }
+
+    /// A box's shadow paints past its rect (`nexus_scene_raster::shadow_reach`): a button that
+    /// gains one damages the rows the shadow reaches too, or the rows above and below keep the
+    /// old pixels (the board's buttons showed a shadow cut flat at their edges).
+    #[test]
+    fn a_shadow_damages_the_rows_it_reaches() {
+        let old = vec![boxed(1, 0, 40), boxed(2, 100, 30)];
+        let mut lifted = boxed(2, 100, 30);
+        lifted.visual.shadow = Some(nexus_layout_types::BoxShadow {
+            color: Rgba8 { r: 0, g: 0, b: 0, a: 60 },
+            offset_x: FxPx::new(0),
+            offset_y: FxPx::new(2),
+            blur_radius: FxPx::new(6),
+            spread: FxPx::new(0),
+        });
+        let new = vec![boxed(1, 0, 40), lifted];
+        let span = changed_row_span(&old, &new, &[], &[], 800).expect("rows changed");
+        assert!(span.0 <= 100 - 4, "from the shadow's top (6 blur - 2 offset above): {span:?}");
+        assert!(span.1 >= 130 + 8, "to the shadow's bottom (6 blur + 2 offset below): {span:?}");
     }
 
     /// TASK-0354 P5: a modal opening over its scrim — a full-surface root and its sheet, held by

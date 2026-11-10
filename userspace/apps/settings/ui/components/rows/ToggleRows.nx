@@ -1,0 +1,64 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The three repo-only on/off settings as v3 `t` (toggle) rows: tile by dragging to the screen
+// edges, keyboard shortcuts for tiling, and suggestion personalisation. Their keys are the
+// strings "on" / "off" in settingsd (`ui.tile.edges`, `ui.tile.chords`, …), not `Bool` store
+// fields, so the `Toggle` cannot two-way bind: it only SHOWS the state, and the row's tap writes
+// the opposite value (the same shape as the Transparenz row in `SecPersonalization`). One
+// component per setting, each an `if` chain from the stored value to the switch position and the
+// event that flips it — `@effect`s cannot branch, so the flip is two arms here, not one event.
+
+Component RowTileEdges {
+    if $state.tileEdges == "on" {
+        Stack {
+            SetRow { title: @t("per.tileEdges"), subtitle: "", icon: "square.grid", showChevron: false } {
+                trailing { Toggle { checked: true, label: @t("per.tileEdges") } }
+            }
+        }
+        on Tap -> dispatch(SetTileEdges("off"))
+    } else {
+        Stack {
+            SetRow { title: @t("per.tileEdges"), subtitle: "", icon: "square.grid", showChevron: false } {
+                trailing { Toggle { checked: false, label: @t("per.tileEdges") } }
+            }
+        }
+        on Tap -> dispatch(SetTileEdges("on"))
+    }
+}
+
+Component RowTileChords {
+    if $state.tileChords == "on" {
+        Stack {
+            SetRow { title: @t("per.tileChords"), subtitle: "", icon: "keyboard", showChevron: false } {
+                trailing { Toggle { checked: true, label: @t("per.tileChords") } }
+            }
+        }
+        on Tap -> dispatch(SetTileChords("off"))
+    } else {
+        Stack {
+            SetRow { title: @t("per.tileChords"), subtitle: "", icon: "keyboard", showChevron: false } {
+                trailing { Toggle { checked: false, label: @t("per.tileChords") } }
+            }
+        }
+        on Tap -> dispatch(SetTileChords("on"))
+    }
+}
+
+Component RowPersonalization {
+    if $state.personalization == "on" {
+        Stack {
+            SetRow { title: @t("gen.personalization"), subtitle: "", icon: "textformat", showChevron: false } {
+                trailing { Toggle { checked: true, label: @t("gen.personalization") } }
+            }
+        }
+        on Tap -> dispatch(SetPersonalization("off"))
+    } else {
+        Stack {
+            SetRow { title: @t("gen.personalization"), subtitle: "", icon: "textformat", showChevron: false } {
+                trailing { Toggle { checked: false, label: @t("gen.personalization") } }
+            }
+        }
+        on Tap -> dispatch(SetPersonalization("on"))
+    }
+}

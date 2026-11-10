@@ -1,11 +1,10 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// One fullscreen-launcher app tile (design artifacts: launcher `AppIcon xl`,
-// LAUNCHER-SPEC §2/§10): tile 88, radius 24, label below (the paged grid's
-// cell content). Same three artwork branches as the md tile. No running
-// marker — the launcher grid is a start board, running state lives on the
-// dock/taskbar. Tap handlers attach at the use site.
+// One full-screen launcher tile (design artifacts: `AppIcon` xl): the 88 px icon, 12 px, the
+// label — headline (15/20/600) with the halo (the tint sits over the wallpaper), one line,
+// 104 px at most, cut with an ellipsis. No running marker — the launcher is a start board,
+// running state lives on the dock and the taskbar. Tap handlers attach at the use site.
 
 Component LauncherTile {
     props: {
@@ -16,32 +15,11 @@ Component LauncherTile {
         iconArt: Str,
     }
     Stack {
-        if $props.iconArt != "" {
-            Image { source: $props.iconArt, size: 88 }
-        } else { if $props.iconTop != "" {
-            Stack {
-                Icon { symbol: $props.icon, size: 44 }
-                    .fg(onAccent)
-            }
-            .width(88)
-            .height(88)
-            .bgGradient($props.iconTop, $props.iconBottom)
-            .rounded(24)
-            .align(center)
-            .justify(center)
-        } else {
-            Stack {
-                Icon { symbol: $props.icon, size: 44 }
-                    .fg(label)
-            }
-            .width(88)
-            .height(88)
-            .material(card)
-            .rounded(24)
-            .align(center)
-            .justify(center)
-        } }
-        Text($props.label).textStyle(body).fg(label)
+        AppIconXl { icon: $props.icon, iconTop: $props.iconTop, iconBottom: $props.iconBottom, iconArt: $props.iconArt }
+        Stack {
+            Text($props.label).textStyle(headline).fg(label).shadow(halo)
+        }
+        .maxWidth(104)
     }
     .align(center)
     .gap(12)

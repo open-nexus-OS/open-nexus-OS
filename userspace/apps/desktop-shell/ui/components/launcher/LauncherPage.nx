@@ -1,31 +1,34 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// One page of the paged app grid (design artifacts: launcher §11): the apps `from` … `from +
-// count` of the ONE store list, in `columns` columns, in a cell exactly `width` wide — the
-// strip's clip width, as the snap math is page k = k × viewport width. A tile's tap launches
-// its app (`svc.ability.launch` through the store).
+// One page of the paged grid (design artifacts: launcher, Grid). The page itself is one viewport
+// wide — a paged scroller's child without a width of its own is (the snap math is page k = k ×
+// viewport width): the xl grids keep their width and sit in its middle, the phone's md grid
+// fills it (four equal columns at any phone width). The design MEASURES `cols = ⌊width / 144⌋`
+// and `rows = ⌊(height − 32 + 20) / 154⌋`; the DSL has no container measurement, so each size
+// class carries the numbers that formula gives for the surface it ships on:
+//   desktop, landscape touch (1280 × 800 → column 1232 wide, 562 high)  → 8 × 3 = 24 per page
+//   tablet portrait (834 × 1194 → 786 wide)                              → 5 × 5 = 25 per page
+//   phone (md cells 84 × 112, row gap 16 — the artifact's 4 columns)      → 4 × 5 = 20 per page
+// `PagerDots` and `PagerDotSlot` count the same pages (24 · 25 · 20).
 
 Component LauncherPage {
     props: {
-        from: Int,
-        count: Int,
-        columns: Int,
-        width: Int,
+        page: Int,
     }
     Stack {
-        List(take(skip($state.apps, $props.from), $props.count)) { app in
+        if device.profile == desktop || device.sizeClass == "wide" {
             Stack {
-                LauncherTile { label: app.label, icon: app.icon, iconTop: app.iconTop, iconBottom: app.iconBottom, iconArt: app.iconArt }
+                PageCells { page: $props.page, per: 24, columns: 8, width: 1232, md: false, rowGap: 20 }
             }
-            .key(app.id)
             .align(center)
-            on Tap -> dispatch(Launch(app.id))
-        }
-        .columns($props.columns)
-        .rowGap(20)
-        .gap(12)
-        .padding(24)
+        } else { if device.sizeClass == "regular" {
+            Stack {
+                PageCells { page: $props.page, per: 25, columns: 5, width: 786, md: false, rowGap: 20 }
+            }
+            .align(center)
+        } else {
+            PageCells { page: $props.page, per: 20, columns: 4, width: 0, md: true, rowGap: 16 }
+        } }
     }
-    .width($props.width)
 }

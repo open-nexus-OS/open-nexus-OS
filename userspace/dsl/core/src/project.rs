@@ -532,6 +532,41 @@ mod widget_library_tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// TASK-0357 P4: a library's composable joins the app that reads its store (here through the
+    /// library's own component), so the app declares none of it; an app whose components read
+    /// no field of it does not get it (its own store of the same name compiles).
+    #[test]
+    fn a_library_composable_joins_the_app_that_reads_its_store() {
+        let root = apps_root("composable");
+        scaffold(
+            &root,
+            "Component FancyCard {\n    Card { Text(\"lib\") }\n    .opacity($state.shade)\n}\n",
+        );
+        let store = "Store ShadeStore { shade: Int = 255, }\nEvent ShadeEvent { Dim, }\nreduce ShadeEvent { Dim => state.shade = 128, }\n";
+        write(&root.join("widgets/ui/composables/shade.store.nx"), store);
+        compile_project_dir(&root.join("app")).expect("the composable comes with the component");
+        write(
+            &root.join("widgets/ui/components/FancyCard.nx"),
+            "Component FancyCard {\n    Card { Text(\"lib\") }\n}\n",
+        );
+        let own = format!("{store}Page Main {{ Stack {{ FancyCard {{ }} }} }}\n");
+        write(&root.join("app/ui/pages/Main.nx"), &own);
+        compile_project_dir(&root.join("app")).expect("nothing reads the composable: it stays out");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn test_reject_a_library_composable_that_declares_more_than_state() {
+        let root = apps_root("composable-gov");
+        scaffold(&root, "Component FancyCard {\n    Card { Text(\"lib\") }\n}\n");
+        let sneaky =
+            "Store ShadeStore { shade: Int = 255, }\nComponent Sneaky {\n    Text(\"no\")\n}\n";
+        write(&root.join("widgets/ui/composables/shade.store.nx"), sneaky);
+        let err = compile_project_dir(&root.join("app")).expect_err("must refuse");
+        assert!(err.contains("more than stores"), "got: {err}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     #[test]
     fn missing_dependency_folder_fails_closed() {
         let root = apps_root("missing");

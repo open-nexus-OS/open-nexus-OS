@@ -1,0 +1,84 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The "Erscheinungsbild" row of Personalisierung, whose subtitle is the live selection:
+// "<Modus> · <Akzentname> · Icons <Stil>" (design §2.6). The DSL joins strings through
+// `@t("per.look", a, b, c)` (the template's `{0}`..`{2}`), but it has no expression-level
+// conditional — a localized NAME must come from an `if` chain, and a chain per combination would
+// be 3 x 9 x 4 branches. So the chain runs in three links that pass what they resolved on as a
+// prop: `PerLookRow` resolves the mode, `PerLookAccent` the accent, `PerLookIcons` the icon style
+// and draws the row — 3 + 9 + 4 branches, and each name is looked up in the view, where `@t` is
+// resolved on every emit (a baked label would not re-translate when `ui.locale` changes).
+//
+// A tap pushes the appearance sub-page, as before.
+
+Component PerLookRow {
+    if $state.apMode == "light" {
+        PerLookAccent { mode: @t("ap.light") }
+    } else if $state.apMode == "auto" {
+        PerLookAccent { mode: @t("ap.auto") }
+    } else {
+        PerLookAccent { mode: @t("ap.dark") }
+    }
+}
+
+Component PerLookAccent {
+    props: {
+        mode: Str,
+    }
+    if $state.apAccent == "teal" {
+        PerLookIcons { mode: $props.mode, accent: @t("ap.accTeal") }
+    } else if $state.apAccent == "green" {
+        PerLookIcons { mode: $props.mode, accent: @t("ap.accGreen") }
+    } else if $state.apAccent == "amber" {
+        PerLookIcons { mode: $props.mode, accent: @t("ap.accAmber") }
+    } else if $state.apAccent == "orange" {
+        PerLookIcons { mode: $props.mode, accent: @t("ap.accOrange") }
+    } else if $state.apAccent == "red" {
+        PerLookIcons { mode: $props.mode, accent: @t("ap.accRed") }
+    } else if $state.apAccent == "pink" {
+        PerLookIcons { mode: $props.mode, accent: @t("ap.accPink") }
+    } else if $state.apAccent == "violet" {
+        PerLookIcons { mode: $props.mode, accent: @t("ap.accViolet") }
+    } else if $state.apAccent == "graphite" {
+        PerLookIcons { mode: $props.mode, accent: @t("ap.accGraphite") }
+    } else {
+        PerLookIcons { mode: $props.mode, accent: @t("ap.accDefault") }
+    }
+}
+
+Component PerLookIcons {
+    props: {
+        mode: Str,
+        accent: Str,
+    }
+    if $state.apIconStyle == "dark" {
+        Stack {
+            SetRow { title: @t("per.appearance"), subtitle: @t("per.look", $props.mode, $props.accent, @t("ap.iconDark")), icon: "paintpalette", showChevron: true } {
+                trailing { }
+            }
+        }
+        on Tap -> dispatch(OpenSub("appearance"))
+    } else if $state.apIconStyle == "clear" {
+        Stack {
+            SetRow { title: @t("per.appearance"), subtitle: @t("per.look", $props.mode, $props.accent, @t("ap.iconClear")), icon: "paintpalette", showChevron: true } {
+                trailing { }
+            }
+        }
+        on Tap -> dispatch(OpenSub("appearance"))
+    } else if $state.apIconStyle == "tinted" {
+        Stack {
+            SetRow { title: @t("per.appearance"), subtitle: @t("per.look", $props.mode, $props.accent, @t("ap.iconTinted")), icon: "paintpalette", showChevron: true } {
+                trailing { }
+            }
+        }
+        on Tap -> dispatch(OpenSub("appearance"))
+    } else {
+        Stack {
+            SetRow { title: @t("per.appearance"), subtitle: @t("per.look", $props.mode, $props.accent, @t("ap.iconDefault")), icon: "paintpalette", showChevron: true } {
+                trailing { }
+            }
+        }
+        on Tap -> dispatch(OpenSub("appearance"))
+    }
+}

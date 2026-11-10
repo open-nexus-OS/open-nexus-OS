@@ -1,0 +1,44 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The launcher's "no hits" state (design artifacts: EmptyState, search variant): a magnifier in
+// labelSecondary, the title with the query, the hint. `large` is the full-screen launcher (icon
+// 64, title1, headline text, 420 px of text, gap 12, padding 48 × 24), otherwise the compact one
+// (icon 48, title2, body, gap 8, padding 24 × 20 — the hint stays on one line: text never wraps, so no 320 px cap). Shown only once the search has
+// answered — while a reply is pending the last grid stays.
+
+Component LauncherEmpty {
+    props: {
+        large: Bool,
+    }
+    if $props.large {
+        Stack {
+            Icon { symbol: "magnifyingglass", size: 64 }
+                .fg(labelSecondary)
+            Text(@t("launcher.emptyTitle", $state.query)).textStyle(title1).fg(label).shadow(halo)
+            Stack {
+                Text(@t("launcher.emptyText")).textStyle(headline).fontWeight(normal).fg(labelSecondary).shadow(halo)
+            }
+            .maxWidth(420)
+        }
+        .align(center)
+        .justify(center)
+        .gap(12)
+        .paddingY(48)
+        .paddingX(24)
+        .grow(1)
+    } else {
+        Stack {
+            Icon { symbol: "magnifyingglass", size: 48 }
+                .fg(labelSecondary)
+            Text(@t("launcher.emptyTitle", $state.query)).textStyle(title2).fg(label)
+            Text(@t("launcher.emptyText")).textStyle(body).fg(labelSecondary)
+        }
+        .align(center)
+        .justify(center)
+        .gap(8)
+        .paddingY(24)
+        .paddingX(20)
+        .grow(1)
+    }
+}

@@ -100,6 +100,11 @@ mod layout_diff;
 mod modal_edge;
 #[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
 mod press_kind;
+// The pixel format the compositor reads (RFC-0109: straight alpha) — every row the painter
+// blends premultiplied is divided out once before it leaves. Same one-cfg shape: the rows are
+// written in `probe/paint.rs`.
+#[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
+mod straight_alpha;
 // The surface's buffer, the pure part (RFC-0114): a slot's rows, the copy-forward, the clean
 // spans. Same one-cfg shape as `band_math`: the mapping is in `probe/surface_mem.rs`.
 #[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]

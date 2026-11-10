@@ -36,10 +36,11 @@ surface, full screen on the desktop band ([`docs/dev/dsl/window.md`](../../../do
 ## Structure
 
 ```
-ui/pages/GreeterPage.nx              the composition: clock · login column · switcher and power row
+ui/pages/GreeterPage.nx              the page: the lock layer at the size class's insets
+ui/components/layer/LockLayer        the column: clock · login (avatar, name, form) · switcher and power row
 ui/components/clock/LockClock        date and time (128 px `clock` style; 64 px on compact)
 ui/components/login/SelectedUser     the selected user's avatar and name
-ui/components/login/PasswordField    the secure field and the submit arrow; shakes on a failure
+ui/components/login/PasswordField    the capsule: secure field + submit arrow; shakes, `danger` outline on a failure
 ui/components/login/LoginStatus      hint · authenticating · failed
 ui/components/switcher/UserSwitcher  the other users; a tap picks one
 ui/components/power/PowerButtons     sleep · restart · shut down (one PowerButton each)

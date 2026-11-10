@@ -1,14 +1,20 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Akzentfarbe: the nine palette swatches, the live accent dot and the apply-failed note.
+// Akzentfarbe (design §2.9): the nine palette swatches in a `glassCard` panel, radius 16, and the
+// accent's NAME at the header's trailing edge (so there is no separate "live" row — the swatch
+// ring and the name say what is applied), then the apply-failed note.
+//
+// The panel is padding 12 16 with 16 between swatches in the design, where the selection ring
+// sits 4 px OUTSIDE a 28 px swatch. Every swatch cell is therefore its 36 px ring box (the ring
+// transparent while unselected) and the panel pays the ring's 4 px out of its padding and the
+// gap: padding 8 12, gap 8 — the swatches keep their 12/16 inset and 16 spacing.
 
 Component ApAccentBlock {
     Stack {
-        Stack {
-            Text(@t("ap.accent")).textStyle(overline).fg(labelSecondary)
+        ApHeader { title: @t("ap.accent") } {
+            trailing { ApAccentName { } }
         }
-        .paddingX(16)
         Stack {
             Stack {
                 ApSwatch { hex: "#3b82f6", selected: $state.apAccent == "default" }
@@ -50,18 +56,11 @@ Component ApAccentBlock {
         .direction(row)
         .wrap(true)
         .align(center)
-        .gap(12)
-        .padding(12)
+        .gap(8)
+        .paddingX(12)
+        .paddingY(8)
         .rounded(lg)
         .material(card)
-        Stack {
-            Circle { size: 18 }
-                .bg(accent)
-            Text(@t("ap.accentLive")).textStyle(caption).fg(labelSecondary)
-        }
-        .direction(row)
-        .align(center)
-        .gap(8)
         if $state.apError != 0 {
             Text(@t("set.applyFailed")).textStyle(caption).fg(danger)
                 .paddingX(16)

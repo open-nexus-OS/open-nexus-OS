@@ -1,7 +1,9 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The five `Select` triggers of "Allgemeine Verwaltung", one component each.
+// The `Select` triggers of "Allgemeine Verwaltung" (and the tiling margin of Personalisierung),
+// one component each, at the design's `sm` size (30 px high). The 210 px minimum width of the
+// design is the caller's wrapper: a modifier on a `Select` does not reach its builder.
 //
 // Each is an `if` chain from the stored KEY to its localized LABEL. The
 // mapping cannot live in the store: a reducer would have to bake the label at
@@ -14,72 +16,82 @@
 
 Component SelLanguage {
     if $state.locale == "en-US" {
-        Select { value: @t("lang.en"), placeholder: @t("gen.language") }
+        Select { value: @t("lang.en"), placeholder: @t("gen.language"), size: "sm" }
     } else if $state.locale == "ja-JP" {
-        Select { value: @t("lang.ja"), placeholder: @t("gen.language") }
+        Select { value: @t("lang.ja"), placeholder: @t("gen.language"), size: "sm" }
     } else if $state.locale == "ko-KR" {
-        Select { value: @t("lang.ko"), placeholder: @t("gen.language") }
+        Select { value: @t("lang.ko"), placeholder: @t("gen.language"), size: "sm" }
     } else if $state.locale == "zh-CN" {
-        Select { value: @t("lang.zh"), placeholder: @t("gen.language") }
+        Select { value: @t("lang.zh"), placeholder: @t("gen.language"), size: "sm" }
     } else {
-        Select { value: @t("lang.de"), placeholder: @t("gen.language") }
+        Select { value: @t("lang.de"), placeholder: @t("gen.language"), size: "sm" }
     }
 }
 
 Component SelRegion {
     if $state.country == "US" {
-        Select { value: @t("region.us"), placeholder: @t("gen.region") }
+        Select { value: @t("region.us"), placeholder: @t("gen.region"), size: "sm" }
     } else if $state.country == "KR" {
-        Select { value: @t("region.kr"), placeholder: @t("gen.region") }
+        Select { value: @t("region.kr"), placeholder: @t("gen.region"), size: "sm" }
     } else if $state.country == "JP" {
-        Select { value: @t("region.jp"), placeholder: @t("gen.region") }
+        Select { value: @t("region.jp"), placeholder: @t("gen.region"), size: "sm" }
     } else if $state.country == "CN" {
-        Select { value: @t("region.cn"), placeholder: @t("gen.region") }
+        Select { value: @t("region.cn"), placeholder: @t("gen.region"), size: "sm" }
     } else {
-        Select { value: @t("region.de"), placeholder: @t("gen.region") }
+        Select { value: @t("region.de"), placeholder: @t("gen.region"), size: "sm" }
     }
 }
 
 Component SelLayout {
     if $state.keymap == "us" {
-        Select { value: @t("keymap.us"), placeholder: @t("gen.layout") }
+        Select { value: @t("keymap.us"), placeholder: @t("gen.layout"), size: "sm" }
     } else if $state.keymap == "jp" {
-        Select { value: @t("keymap.jp"), placeholder: @t("gen.layout") }
+        Select { value: @t("keymap.jp"), placeholder: @t("gen.layout"), size: "sm" }
     } else if $state.keymap == "kr" {
-        Select { value: @t("keymap.kr"), placeholder: @t("gen.layout") }
+        Select { value: @t("keymap.kr"), placeholder: @t("gen.layout"), size: "sm" }
     } else if $state.keymap == "zh" {
-        Select { value: @t("keymap.zh"), placeholder: @t("gen.layout") }
+        Select { value: @t("keymap.zh"), placeholder: @t("gen.layout"), size: "sm" }
     } else {
-        Select { value: @t("keymap.de"), placeholder: @t("gen.layout") }
+        Select { value: @t("keymap.de"), placeholder: @t("gen.layout"), size: "sm" }
     }
 }
 
 Component SelZone {
     if $state.zone == "Europe/London" {
-        Select { value: @t("zone.london"), placeholder: @t("gen.zone") }
+        Select { value: @t("zone.london"), placeholder: @t("gen.zone"), size: "sm" }
     } else if $state.zone == "America/New_York" {
-        Select { value: @t("zone.newyork"), placeholder: @t("gen.zone") }
+        Select { value: @t("zone.newyork"), placeholder: @t("gen.zone"), size: "sm" }
     } else if $state.zone == "America/Los_Angeles" {
-        Select { value: @t("zone.losangeles"), placeholder: @t("gen.zone") }
+        Select { value: @t("zone.losangeles"), placeholder: @t("gen.zone"), size: "sm" }
     } else if $state.zone == "Asia/Tokyo" {
-        Select { value: @t("zone.tokyo"), placeholder: @t("gen.zone") }
+        Select { value: @t("zone.tokyo"), placeholder: @t("gen.zone"), size: "sm" }
     } else if $state.zone == "Asia/Shanghai" {
-        Select { value: @t("zone.shanghai"), placeholder: @t("gen.zone") }
+        Select { value: @t("zone.shanghai"), placeholder: @t("gen.zone"), size: "sm" }
     } else if $state.zone == "Asia/Seoul" {
-        Select { value: @t("zone.seoul"), placeholder: @t("gen.zone") }
+        Select { value: @t("zone.seoul"), placeholder: @t("gen.zone"), size: "sm" }
     } else if $state.zone == "Australia/Sydney" {
-        Select { value: @t("zone.sydney"), placeholder: @t("gen.zone") }
+        Select { value: @t("zone.sydney"), placeholder: @t("gen.zone"), size: "sm" }
     } else if $state.zone == "UTC" {
-        Select { value: @t("zone.utc"), placeholder: @t("gen.zone") }
+        Select { value: @t("zone.utc"), placeholder: @t("gen.zone"), size: "sm" }
     } else {
-        Select { value: @t("zone.berlin"), placeholder: @t("gen.zone") }
+        Select { value: @t("zone.berlin"), placeholder: @t("gen.zone"), size: "sm" }
     }
 }
 
 Component SelHourFmt {
     if $state.hourFmt == "12h" {
-        Select { value: @t("gen.hour12"), placeholder: @t("gen.hourFormat") }
+        Select { value: @t("gen.hour12"), placeholder: @t("gen.hourFormat"), size: "sm" }
     } else {
-        Select { value: @t("gen.hour24"), placeholder: @t("gen.hourFormat") }
+        Select { value: @t("gen.hour24"), placeholder: @t("gen.hourFormat"), size: "sm" }
+    }
+}
+
+Component SelMargin {
+    if $state.tileMargin == "8" {
+        Select { value: @t("per.tileMarginV8"), placeholder: @t("per.tileMargin"), size: "sm" }
+    } else if $state.tileMargin == "16" {
+        Select { value: @t("per.tileMarginV16"), placeholder: @t("per.tileMargin"), size: "sm" }
+    } else {
+        Select { value: @t("per.tileMarginV0"), placeholder: @t("per.tileMargin"), size: "sm" }
     }
 }

@@ -1,51 +1,42 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The WINDOWED start menu (design artifacts: launcher §9, desktop default):
-// 720×520 fixed, radius 24, padding 24, panel glass, real drop shadow — the
-// desktop behind it stays sharp (no scrim; LauncherHost owns the backdrop).
-// Head = search + expand button (→ fullscreen state), "Alle Apps" section
-// label, a 4-column md grid that SCROLLS vertically, and the identity
-// footer. Grows out of the taskbar (slideUp, origin bottom).
+// The COMPACT launcher (design artifacts: launcher, compact, desktop default): 720×520 fixed,
+// radius 24, padding 24, panel glass (the operator's decision: glass in the compact and in the
+// full launcher), shadow3 — the desktop behind it stays sharp (no scrim; LauncherHost owns the
+// backdrop). Head = search + the round expand and close buttons, the section row ("ALLE APPS" ·
+// count), a 4-column md grid that SCROLLS vertically (or the empty state), and the identity
+// footer. The rows sit 16 · 12 · 0 apart (the grid's own padding and the footer's top padding
+// add the rest). Grows out of the taskbar (slideUp).
 
 Component LauncherWindow {
     Stack {
         Stack {
             Stack {
                 SearchBar { value: $state.query, placeholder: @t("launcher.search") }
+                    .autofocus(true)
                 on Change -> dispatch(QueryChanged)
             }
             .grow(1)
             Stack {
-                Icon { symbol: "maximize", size: 15 }
-                    .fg(label)
+                ActButton { icon: "maximize" }
             }
-            .width(32)
-            .height(32)
-            .align(center)
-            .justify(center)
-            .rounded(sm)
             on Tap -> dispatch(SetPanel("launcher-big"))
+            Stack {
+                ActButton { icon: "xmark" }
+            }
+            on Tap -> dispatch(SetPanel(""))
         }
         .direction(row)
         .align(center)
         .gap(8)
-        Text(@t("launcher.allApps")).textStyle(footnote).fontWeight(semibold).fg(labelSecondary)
+        .paddingBottom(16)
+        LauncherSection { }
         Stack {
-            if $state.loading {
-                Text(@t("common.loading")).fg(labelSecondary)
+            if len($state.apps) == 0 && !$state.loading {
+                LauncherEmpty { large: false }
             } else {
-                List($state.apps) { app in
-                    Stack {
-                        AppTile { label: app.label, icon: app.icon, iconTop: app.iconTop, iconBottom: app.iconBottom, iconArt: app.iconArt }
-                    }
-                    .key(app.id)
-                    .align(center)
-                    on Tap -> dispatch(Launch(app.id))
-                }
-                .columns(4)
-                .rowGap(12)
-                .gap(8)
+                LauncherGrid { }
             }
         }
         .grow(1)
@@ -55,9 +46,9 @@ Component LauncherWindow {
     .width(720)
     .height(520)
     .padding(24)
-    .gap(8)
+    .gap(0)
     .material(panel)
-    .rounded(24)
-    .shadow(shadow4)
+    .rounded(xl)
+    .shadow(shadow3)
     .transition(slideUp)
 }

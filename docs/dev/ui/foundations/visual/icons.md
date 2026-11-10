@@ -114,6 +114,7 @@ The registry as authored in `[icons.symbols]` (SSOT:
 | `bluetooth` | `bluetooth` | BT toggle |
 | `calculator` | `calculator` | calculator app |
 | `calendar` | `calendar` | dates (created / modified) |
+| `capslock` | `arrow-big-up-dash` | the keyboard's caps lock |
 | `cast` | `cast` | screen casting |
 | `checkmark` | `check` | confirmation, checkbox |
 | `chevron.down` | `chevron-down` | expanders, dropdowns |
@@ -122,6 +123,7 @@ The registry as authored in `[icons.symbols]` (SSOT:
 | `chevron.right` | `chevron-right` | disclosure, next |
 | `chevron.up` | `chevron-up` | collapse |
 | `columns.2` | `columns-2` | split window mode |
+| `delete.left` | `delete` | the keyboard's backspace |
 | `desktopcomputer` | `monitor` | desktop shell mode |
 | `doc` | `file` | generic file |
 | `doc.on.doc` | `copy` | copy |
@@ -141,10 +143,12 @@ The registry as authored in `[icons.symbols]` (SSOT:
 | `internaldrive` | `hard-drive` | storage device |
 | `ipad` | `tablet` | tablet shell mode |
 | `laptopcomputer` | `laptop` | the desktop view mode |
+| `lifepreserver` | `life-buoy` | help and support |
 | `list.bullet` | `list` | list view mode |
 | `lock` | `lock` | lock / privacy / id |
 | `magnifyingglass` | `search` | search |
 | `maximize` | `maximize` | fullscreen window mode |
+| `megaphone` | `megaphone` | channels, announcements |
 | `menu` | `menu` | overflow / hamburger |
 | `message` | `message-circle` | chat |
 | `minimize` | `minimize` | minimise window |
@@ -153,6 +157,7 @@ The registry as authored in `[icons.symbols]` (SSOT:
 | `move` | `move` | move file |
 | `music.note` | `music` | audio folder |
 | `paintpalette` | `palette` | theme / accent |
+| `paperclip` | `paperclip` | attach a file |
 | `paperplane` | `send` | send message |
 | `pause` | `pause` | pause media |
 | `pencil` | `pencil` | edit |
@@ -160,9 +165,12 @@ The registry as authored in `[icons.symbols]` (SSOT:
 | `phone` | `phone` | call activity |
 | `phone.down` | `phone-off` | end / decline a call |
 | `photo` | `image` | pictures folder |
+| `pin` | `pin` | pin a clip, keep on top |
 | `play` | `play` | play media |
 | `plus` | `plus` | increment / add / new |
 | `power` | `power` | power / shutdown |
+| `return` | `corner-down-left` | the keyboard's return (compact) |
+| `shift` | `arrow-big-up` | the keyboard's shift |
 | `shippingbox` | `box` | size (bytes) |
 | `sidebar.left` | `panel-left` | toggle left sidebar |
 | `sidebar.right` | `panel-right` | toggle right sidebar |
@@ -176,7 +184,9 @@ The registry as authored in `[icons.symbols]` (SSOT:
 | `square.pencil` | `square-pen` | modified / rename |
 | `star` | `star` | favourite / recent |
 | `sun.max` | `sun` | light mode / brightness |
+| `sun.min` | `sun-dim` | the dim end of a brightness slider |
 | `trash` | `trash` | delete (destructive) |
+| `wallet` | `wallet` | payments, the wallet |
 | `wifi` | `wifi` | Wi-Fi toggle |
 | `xmark` | `x` | close / clear |
 

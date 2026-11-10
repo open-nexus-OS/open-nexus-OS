@@ -29,11 +29,13 @@ Component CrumbBar {
             Stack {
                 Breadcrumbs { items: [@t("set.title"), $props.section] }
             }
+            .label(@t("set.back"))
             on Tap -> dispatch(Back)
         } else {
             Stack {
                 Breadcrumbs { items: [@t("set.title"), $props.section, $props.sub] }
             }
+            .label(@t("set.back"))
             on Tap -> dispatch(Back)
         }
         Spacer

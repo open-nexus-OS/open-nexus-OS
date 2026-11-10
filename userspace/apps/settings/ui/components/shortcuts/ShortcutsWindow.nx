@@ -24,6 +24,7 @@ Component ShortcutsWindow {
                                 .fg(labelSecondary)
                         }
                         .hitSlop(8)
+                        .label(@t("win.close"))
                         on Tap -> dispatch(ScClose)
                     }
                     .direction(row)

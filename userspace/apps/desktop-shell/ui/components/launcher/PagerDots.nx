@@ -1,23 +1,20 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The page indicator (design artifacts: launcher §11): a centred row of dots under the paged
-// grid, 8 px apart, one `PagerDotSlot` per page — each its own node of the row (several `if`s
-// inside one branch arm would stack in a column), each carrying its own spacing (an absent page
-// is a zero-wide slot, so no gap is left behind). The row never gives up its height to an
-// overfull launcher (`.shrink(0)`); the grid above gives way.
+// The page indicator (design artifacts: PageControl md): a centred row of dots under the paged
+// grid — 8 px dots, the active page a 20×8 capsule, 8 px apart, 8 px under the grid, each dot's
+// hit area 20 high. It is HIDDEN while there is a single page. One `PagerDotSlot` per page —
+// each its own node of the row (several `if`s inside one branch arm would stack in a column),
+// each carrying its own spacing (an absent page is a zero-wide slot, so no gap is left
+// behind). The row never gives up its height to an overfull launcher (`.shrink(0)`); the grid
+// above gives way. `per` is the page size of the surface — LauncherPage's numbers.
 
 Component PagerDots {
-    Stack {
-        PagerDotSlot { page: 0 }
-        PagerDotSlot { page: 1 }
-        PagerDotSlot { page: 2 }
-        PagerDotSlot { page: 3 }
-    }
-    .direction(row)
-    .justify(center)
-    .align(center)
-    .gap(0)
-    .paddingY(12)
-    .shrink(0)
+    if device.profile == desktop || device.sizeClass == "wide" {
+        PagerRow { per: 24 }
+    } else { if device.sizeClass == "regular" {
+        PagerRow { per: 25 }
+    } else {
+        PagerRow { per: 20 }
+    } }
 }

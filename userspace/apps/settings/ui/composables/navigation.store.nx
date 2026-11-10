@@ -36,7 +36,7 @@ Store NavStore {
 }
 
 Event NavEvent {
-    WinMenuPick(Str),
+    NavPick(Str),
     Goto(Str),
     OpenSub(Str),
     Back,
@@ -44,7 +44,7 @@ Event NavEvent {
 }
 
 reduce NavEvent {
-    WinMenuPick(id) => {
+    NavPick(id) => {
         state.section = id;
         state.mode = "browse";
         state.subPage = "";
@@ -68,8 +68,9 @@ reduce NavEvent {
     },
 }
 
+// The window kit's nav pick (`WinSideItem`, its store closes the menu): the section it names.
 @effect on WinMenuPick(id) {
-    dispatch(WinMenu(""));
+    dispatch(NavPick(id));
 }
 
 @effect on Goto(value) {

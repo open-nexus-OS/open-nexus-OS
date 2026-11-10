@@ -10,7 +10,7 @@
 Component ShiftRow {
     Stack {
         Stack {
-            OskFnIcon { symbol: "arrow.up", size: 20, fg: "labelTertiary" }
+            OskFnIcon { symbol: "shift", size: 20, fg: "labelTertiary" }
         }
         .direction(row)
         .basis(0)

@@ -19,7 +19,9 @@
 extern crate alloc;
 
 use alloc::string::String;
-use nexus_layout_types::{FlexItem, FxPx, LayoutNode, TextContent, TextInputNode, TextStyle};
+use nexus_layout_types::{
+    FlexItem, FxPx, LayoutNode, Rgba8, TextContent, TextInputNode, TextStyle,
+};
 use nexus_style::Style;
 
 pub mod field;
@@ -38,6 +40,8 @@ pub struct TextField {
     text_style: TextStyle,
     value: String,
     placeholder: Option<String>,
+    placeholder_color: Option<Rgba8>,
+    caret_color: Option<Rgba8>,
     max_length: Option<u32>,
     secure: bool,
     revealed: bool,
@@ -100,6 +104,18 @@ impl TextField {
         self
     }
 
+    /// The placeholder's colour — the caller resolves it from the theme (`labelTertiary`).
+    pub fn placeholder_color(mut self, color: Rgba8) -> Self {
+        self.placeholder_color = Some(color);
+        self
+    }
+
+    /// The caret's colour — the caller's tint, resolved from the theme (`accent`).
+    pub fn caret_color(mut self, color: Rgba8) -> Self {
+        self.caret_color = Some(color);
+        self
+    }
+
     /// The narrowest the input gets while it shares a row (the search field keeps 48 px).
     pub fn min_width(mut self, px: i32) -> Self {
         self.min_width = Some(FxPx::new(px.max(0)));
@@ -148,6 +164,8 @@ impl TextField {
                 min_width: self.min_width,
                 max_width: None,
                 secure: self.secure,
+                placeholder_color: self.placeholder_color,
+                caret_color: self.caret_color,
             },
             self.style.visual(),
         )

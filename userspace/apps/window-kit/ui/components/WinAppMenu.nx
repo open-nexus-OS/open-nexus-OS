@@ -9,8 +9,8 @@
 //                          quarters · free (= return to the free frame)
 //   then  Vollbild · "Auf anderes Gerät" (future — dsoftbus: inert, drawn in
 //         `labelTertiary` with the `soon` hint) · Minimieren · Schließen.
-// The panel floats above the window's blur → the opaque overlay surface
-// (surfaceOverlay, glassEdge, shadow3, the lit top line), 340 wide, radius 16,
+// The panel floats above the window → the frosted overlay surface
+// (glassOverlay, glassEdge, shadow3, the lit top line), 340 wide, radius 16,
 // padding 8. Section labels are overline `labelSecondary` (padding 2 8 4);
 // tiles fill equal grid cells (8 / 5 columns, gap 2), 36 tall (padding 8 4
 // around the 28×20 glyph), radius 8 (16 − 8); text rows are 34 tall (padding

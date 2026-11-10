@@ -35,7 +35,9 @@ So the retained graph is a parallel model (RFC-0067 P4's "collapse").
 `userspace/ui/widgets/window` = `Window` (title bar + close + body → a
 `LayoutNode`, composed from `Panel` + `Button`) + `frame::Frame` (the host-tested
 hit-test / drag / resize / damage SSOT) + `chrome` (`WindowControls`,
-`WindowButton`, `WindowPane`). Built for RFC-0067 P3, never wired into windowd.
+`WindowButton`, `WindowPane`). Built for RFC-0067 P3, never wired into windowd. (`chrome` was
+deleted 2026-11-10, TASK-0353 P6: since TASK-0337 the window UI is the app's, drawn by the
+`window-kit` DSL components; `Window` and `frame` remain.)
 
 ## Target pipeline (one model)
 

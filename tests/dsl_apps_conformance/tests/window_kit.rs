@@ -69,6 +69,7 @@ Event E {
     AlertConfirm(Str),
     AlertCancel(Str),
     ToastDismiss(Str),
+    SheetCancel(Str),
 }
 
 reduce E {
@@ -85,6 +86,7 @@ reduce E {
     AlertConfirm(id) => state.x = 5,
     AlertCancel(id) => state.shown = false,
     ToastDismiss(id) => state.shown = false,
+    SheetCancel(id) => state.shown = false,
 }"#;
 
 fn compile(page: &str) -> Vec<u8> {
@@ -437,7 +439,7 @@ fn overlay_panes_take_the_design_geometry_per_tier() {
 
 const CHROME: &str = r#"Page P {
     Stack {
-        WinTopBar { icon: "folder", tool1: "magnifyingglass", tool2: "square.grid.2x2", tool3: "list.bullet", tool1Active: false, tool2Active: false, tool3Active: true, navBack: "arrow.left", navFwd: "arrow.right", navRefresh: "", navBackDisabled: false, navFwdDisabled: true, sideLeft: "sidebar.left", sideRight: "sidebar.right", more: "ellipsis.vertical", moreActive: false, appId: "" }
+        WinTopBar { icon: "folder", tool1: "magnifyingglass", tool2: "square.grid.2x2", tool3: "list.bullet", tool4: "", tool1Active: false, tool2Active: false, tool3Active: true, tool4Active: false, tool1Disabled: false, tool2Disabled: false, tool3Disabled: false, tool4Disabled: false, navBack: "arrow.left", navFwd: "arrow.right", navRefresh: "", navBackDisabled: false, navFwdDisabled: true, sideLeft: "sidebar.left", sideRight: "sidebar.right", more: "ellipsis.vertical", moreActive: false, appId: "" }
         Spacer
     }
 }"#;
@@ -579,7 +581,7 @@ fn the_modal_is_440_wide_with_a_titled_header_a_body_and_a_footer() {
             r#"Page P {{
     Stack {{
         if $state.shown {{
-            WinModal {{ id: "m", title: "Umbenennen", noFooter: {} }} {{
+            WinModal {{ id: "m", title: "Umbenennen", noFooter: {}, closeLabel: "Schließen" }} {{
                 body {{
                     Text("Neuer Name")
                 }}
@@ -609,6 +611,62 @@ fn the_modal_is_440_wide_with_a_titled_header_a_body_and_a_footer() {
     let kit = Kit::mount(&nxir, FixtureEnv::default());
     let boxes = kit.boxes(1280, 800);
     assert_eq!(r(&material_boxes(&boxes, Material::Overlay)[0]).3, 60 + 1 + 60, "no footer");
+}
+
+#[test]
+fn the_action_sheet_is_two_overlay_cards_that_cancel_on_the_scrim_and_the_cancel_row() {
+    let page = r#"Page P {
+    Stack {
+        if $state.shown {
+            WinActionSheet { id: "s", title: "Löschen?", message: "Nicht rückgängig.", cancelLabel: "Abbrechen" } {
+                actions {
+                    Stack { WinSheetRow { label: "Papierkorb", destructive: false, rule: false } }
+                    on Tap -> dispatch(WinNoop)
+                    Stack { WinSheetRow { label: "Löschen", destructive: true, rule: true } }
+                    on Tap -> dispatch(WinNoop)
+                }
+            }
+        } else {
+            Stack { }
+        }
+    }
+}"#;
+    let nxir = compile(page);
+    let mut kit = Kit::mount(&nxir, FixtureEnv::default());
+    let boxes = kit.boxes(1280, 800);
+    let cards = material_boxes(&boxes, Material::Overlay);
+    let (actions, cancel) = (r(&cards[0]), r(&cards[1]));
+    // The head (12 + 18 + 4 + 16 + 12 · hairline), two 54 px rows with a hairline between them;
+    // the cancel card is one 54 px row, 8 px under — both 420 wide, centred, 8 from the bottom.
+    assert_eq!((actions.2, actions.3), (420, (12 + 18 + 4 + 16 + 12 + 1) + 54 + (1 + 54)));
+    assert_eq!((cancel.2, cancel.3, cancel.1 - (actions.1 + actions.3)), (420, 54, 8));
+    assert_eq!((actions.0, cancel.1 + cancel.3), (430, 800 - 8));
+    // A press on a card's text closes nothing; the cancel row and the scrim cancel.
+    let row = r(&text_box(kit.scene(), &boxes, "Papierkorb"));
+    kit.tap(&boxes, (row.0 + 2, row.1 + 2));
+    assert_eq!((kit.view.take_dismissed(), kit.field("shown")), (None, Value::Bool(true)));
+    kit.tap(&boxes, (20, 20));
+    assert_eq!(kit.view.take_dismissed(), Some(DismissReason::Backdrop));
+    assert_eq!(kit.field("shown"), Value::Bool(false));
+}
+
+#[test]
+fn the_fab_face_is_a_56_px_accent_circle() {
+    let page = r#"Page P {
+    Stack {
+        Spacer
+        Stack { WinFabFace { icon: "plus" } }
+        .label("Neu")
+        on Tap -> dispatch(WinNoop)
+    }
+    .direction(row)
+    .align(start)
+}"#;
+    let nxir = compile(page);
+    let kit = Kit::mount(&nxir, FixtureEnv::default());
+    let boxes = kit.boxes(1280, 800);
+    let fab = r(&kit.handler_boxes(&boxes, "WinNoop", None)[0]);
+    assert_eq!((fab.2, fab.3), (56, 56));
 }
 
 // ── the pane, the rows, the action bar ──────────────────────────────────────────────────────

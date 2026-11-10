@@ -1,0 +1,34 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The transcript: the window's scroll layer (RFC-0109; padding 16 16 12, gap 12) — the encryption
+// pill, then one `MessageBlock` per resident message (yours / theirs by the sequence parity, even
+// = you), then the local echoes — and its end loads the next page (`EndReached` → `LoadMore`).
+// The transcript is top-anchored: there is no scroll-to-end anchor in the DSL yet.
+
+Component Transcript {
+    Stack {
+        EncryptionPill { }
+        List($state.messages) { msg in
+            Stack {
+                MessageBlock { mine: msg.seq % 2 == 0, text: msg.text }
+            }
+            .key(msg.seq)
+        }
+        .gap(12)
+        List($state.sent) { text in
+            Stack {
+                MessageBlock { mine: true, text: text }
+            }
+            .key(text)
+        }
+        .gap(12)
+    }
+    .gap(12)
+    .grow(1)
+    .paddingTop(16)
+    .paddingX(16)
+    .paddingBottom(12)
+    .scroll(vertical)
+    on EndReached -> dispatch(LoadMore)
+}

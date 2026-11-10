@@ -37,11 +37,15 @@ pub enum ColorToken {
     GlassWindow,
     /// A translucent layer on a blur surface: cards, grouped rows, tiles.
     GlassCard,
+    /// A floating surface's frosted glass — modal, alert, menu, popover, toast: dense enough to
+    /// read on, over the regular blur (the design system's glass overlay).
+    GlassOverlay,
     /// The 1 px light edge of every glass layer.
     GlassEdge,
     /// The opaque pane inside a window.
     SurfacePane,
-    /// The opaque floating surface: modal, alert, menu, popover, toast, keyboard.
+    /// The opaque floating surface (the keyboard's tray; a floating surface where nothing may
+    /// show through).
     SurfaceOverlay,
     /// The dimming layer behind a modal overlay.
     Scrim,
@@ -85,7 +89,7 @@ pub enum ColorToken {
 
 impl ColorToken {
     /// Every role, in declaration order.
-    pub const ALL: [ColorToken; 35] = [
+    pub const ALL: [ColorToken; 36] = [
         ColorToken::Background,
         ColorToken::Label,
         ColorToken::LabelSecondary,
@@ -97,6 +101,7 @@ impl ColorToken {
         ColorToken::GlassPanel,
         ColorToken::GlassWindow,
         ColorToken::GlassCard,
+        ColorToken::GlassOverlay,
         ColorToken::GlassEdge,
         ColorToken::SurfacePane,
         ColorToken::SurfaceOverlay,
@@ -138,6 +143,7 @@ impl ColorToken {
             ColorToken::GlassPanel => "glassPanel",
             ColorToken::GlassWindow => "glassWindow",
             ColorToken::GlassCard => "glassCard",
+            ColorToken::GlassOverlay => "glassOverlay",
             ColorToken::GlassEdge => "glassEdge",
             ColorToken::SurfacePane => "surfacePane",
             ColorToken::SurfaceOverlay => "surfaceOverlay",

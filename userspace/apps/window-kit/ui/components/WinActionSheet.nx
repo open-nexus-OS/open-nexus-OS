@@ -1,0 +1,126 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The design artifacts' ACTION SHEET: a stack of choices rising from the bottom edge, over a
+// `scrim` with 8 px around it. Two cards 8 px apart, each on the frosted overlay surface
+// (glassOverlay, a 1 px glassEdge, shadow4, radius 24), at most 420 wide and centred:
+//   the ACTIONS card  an optional head — the `title` (subheadline 13, 600, `label`) over the
+//                     `message` (footnote 12, `labelSecondary`), centred, padding 12 20, a
+//                     hairline under it — then the `actions` slot: `WinSheetRow`s, each
+//                     wrapped by the app in the tap that does its action;
+//   the CANCEL card   one row, `cancelLabel` in title3 at weight 700, `label`.
+// An app-modal layer like `WinAlert`: hit-testing and text focus are confined to it while it is
+// open. A tap on the scrim, ESC and the cancel row all dispatch `SheetCancel(id)` — the ONE way
+// out besides an action; the cards eat their own taps (`WinNoop`). It enters from below
+// (`slideUp`, the design's translateY 24 + fade).
+//
+//     WinActionSheet { id: "s", title: "", message: "", cancelLabel: @t("cancel") } {
+//         actions {
+//             Stack { WinSheetRow { label: @t("share"), destructive: false, rule: false } }
+//             on Tap -> dispatch(Share)
+//             Stack { WinSheetRow { label: @t("delete"), destructive: true, rule: true } }
+//             on Tap -> dispatch(Delete)
+//         }
+//     }
+//
+// STORE CONTRACT (the consuming app declares these — the kit dispatches):
+//   events  SheetCancel(Str) · WinNoop
+//   slots   actions
+
+Component WinActionSheet {
+    props: {
+        id: Str,
+        title: Str,
+        message: Str,
+        cancelLabel: Str,
+    }
+    slot actions
+    Stack {
+        Stack {
+            Stack { }
+                .grow(1)
+                .shrink(0)
+            Stack {
+                Stack {
+                    if $props.title != "" {
+                        Stack {
+                            Text($props.title).textStyle(subheadline).fontWeight(semibold).fg(label).textAlign(center)
+                            Text($props.message).textStyle(footnote).fg(labelSecondary).textAlign(center)
+                        }
+                        .gap(4)
+                        .paddingY(12)
+                        .paddingX(20)
+                        Stack { }
+                            .height(1)
+                            .bg(separator)
+                    } else {
+                        Stack { }
+                    }
+                    Slot actions
+                }
+                .material(overlay)
+                .shadow(shadow4)
+                .rounded(xl)
+                .overflow(hidden)
+                on Tap -> dispatch(WinNoop)
+                Stack {
+                    Text($props.cancelLabel).textStyle(title3).fontWeight(bold).fg(label).textAlign(center)
+                }
+                .paddingY(16)
+                .paddingX(20)
+                .material(overlay)
+                .shadow(shadow4)
+                .rounded(xl)
+                on Tap -> dispatch(SheetCancel($props.id))
+            }
+            .gap(8)
+            .basis(420)
+            .shrink(1)
+            Stack { }
+                .grow(1)
+                .shrink(0)
+        }
+        .direction(row)
+    }
+    .justify(end)
+    .padding(8)
+    .gap(8)
+    .overlay(modal)
+    .bg(scrim)
+    .transition(slideUp)
+    on Dismiss -> dispatch(SheetCancel($props.id))
+}
+
+// One choice of the actions card (the face; the app wraps it in its tap): padding 16 20 (54 px),
+// title3 17/22 centred — weight 500 in `accent`, or weight 600 in `danger` when `destructive`; a
+// `rule` draws the hairline above it (every row but the first, and none under a head's own).
+Component WinSheetRow {
+    props: {
+        label: Str,
+        destructive: Bool,
+        rule: Bool,
+    }
+    Stack {
+        if $props.rule {
+            Stack { }
+                .height(1)
+                .bg(separator)
+        } else {
+            Stack { }
+        }
+        if $props.destructive {
+            Stack {
+                Text($props.label).textStyle(title3).fg(danger).textAlign(center)
+            }
+            .paddingY(16)
+            .paddingX(20)
+        } else {
+            Stack {
+                Text($props.label).textStyle(title3).fontWeight(medium).fg(accent).textAlign(center)
+            }
+            .paddingY(16)
+            .paddingX(20)
+        }
+    }
+    .gap(0)
+}

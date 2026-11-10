@@ -6,11 +6,13 @@
 //! base: every box but the content of an uncovered scroll layer, a covered layer's content at
 //! its view; a band: one layer's content at identity — and paints row by row: the shared
 //! painter (`nexus-scene-raster`), then the glyph pass with its caret and selection. Hover is no
-//! paint any more: it is a wash layer the compositor draws (`probe/band.rs`). Plus the
-//! handler-box diagnostic dump and the tap trace.
+//! paint any more: it is a wash layer the compositor draws (`probe/band.rs`). Every row leaves
+//! in straight alpha — the base's, a band's, a motion layer's (RFC-0109; `straight_alpha.rs`).
+//! Plus the handler-box diagnostic dump and the tap trace.
 
 use super::surface_mem::SurfaceMem;
 use super::*;
+use crate::straight_alpha::{premultiplied, unpremultiply};
 
 mod collect;
 pub(in crate::probe) use collect::caret_input;
@@ -124,15 +126,18 @@ impl super::DslApp {
         }
     }
 
-    /// The page base, BGRA (RFC-0116): a floating window's is its material's fill
-    /// (`glassWindow` at the window's frost), a fullscreen or overlay surface's the opaque
-    /// `background`; the desktop's alpha is 0 (the wallpaper is its base).
+    /// The page base, BGRA premultiplied (RFC-0116): a floating window's is its material's
+    /// fill (`glassWindow` at the window's frost), a fullscreen or overlay surface's the opaque
+    /// `background`; the desktop's alpha is 0 (the wallpaper is its base). The row painter blends
+    /// premultiplied and every row leaves straight (`straight_alpha`), so the base is the role's
+    /// colour times its alpha — a transparent base is transparent black. Its colour bytes left
+    /// standing bled into every translucent pixel drawn over it: the light desktop's 56 % black
+    /// icons came out near-white and every glyph edge white-fringed (board cycle 2026-11-10).
     pub(super) fn page_base(&self) -> [u8; 4] {
         use nexus_dsl_runtime::theme_tokens::ColorToken;
         let role =
             if self.base_alpha == 255 { ColorToken::Background } else { ColorToken::GlassWindow };
-        let c = tokens_for(self.theme_mode).color(role);
-        [c.b, c.g, c.r, self.page_base_alpha()]
+        premultiplied(tokens_for(self.theme_mode).color(role), self.page_base_alpha())
     }
 
     /// The whole base layer.
@@ -166,6 +171,8 @@ impl super::DslApp {
                 px.copy_from_slice(&base);
             }
             self.paint_row(row, y, 0, &views);
+            // The compositor reads the base as straight alpha (RFC-0109), like every row.
+            unpremultiply(row);
         }
         self.view_scratch = views;
         // A motion episode's raster cost (`apphost: hops motion paint_us= rows=`).
@@ -200,6 +207,7 @@ impl super::DslApp {
                 px.copy_from_slice(&base);
             }
             self.paint_row(&mut row[..row_bytes], y, rect.0, &views);
+            unpremultiply(&mut row[..span]);
             let at = u32::from(sy) + (y - rect.1) as u32;
             if !mem.write(at, u32::from(sx), &row[..span]) {
                 ok = false;
@@ -235,8 +243,9 @@ impl super::DslApp {
         // the slice composes without a blend; else from transparent.
         match ground {
             Some(c) => {
+                let ground = premultiplied(c, c.a);
                 for px in row[..row_bytes].chunks_exact_mut(4) {
-                    px.copy_from_slice(&[c.b, c.g, c.r, c.a]);
+                    px.copy_from_slice(&ground);
                 }
             }
             None => row[..row_bytes].fill(0),
@@ -279,10 +288,12 @@ impl super::DslApp {
         vis_anim.clear();
         vis_text.clear();
         for (bi, b) in self.layout.boxes.iter().enumerate() {
-            let (by, bh) = (b.rect.y.0, b.rect.height.0);
-            if bh <= 0 || b.rect.width.0 <= 0 {
+            if b.rect.height.0 <= 0 || b.rect.width.0 <= 0 {
                 continue;
             }
+            // Its painted extent: the box and the rows its own shadow reaches.
+            let (sl, st, sr, sb) = nexus_scene_raster::shadow_reach(b);
+            let (by, bh) = (b.rect.y.0 - st, b.rect.height.0 + st + sb);
             let (row0, row1) = match pass {
                 Pass::Band(root) => {
                     if b.scroll_root != Some(root) {
@@ -314,7 +325,7 @@ impl super::DslApp {
                 continue;
             }
             if let Some((c0, c1)) = cols {
-                if b.rect.x.0 >= c1 || b.rect.x.0 + b.rect.width.0 <= c0 {
+                if b.rect.x.0 - sl >= c1 || b.rect.x.0 + b.rect.width.0 + sr <= c0 {
                     continue;
                 }
             }
@@ -400,7 +411,13 @@ impl super::DslApp {
                 }
                 None => (y, shift, 0, row_px),
             };
-            if y_eff < by || y_eff >= by + bh {
+            // The rows its text shadows reach (the halo's blur) are its rows too.
+            let (above, below) = b.visual.text_shadows.iter().flatten().fold((0, 0), |r, s| {
+                let reach = nexus_text_baked::blur_reach(u32::from(s.blur_radius)) as i32;
+                let oy = i32::from(s.offset_y);
+                (r.0.max(reach - oy), r.1.max(reach + oy))
+            });
+            if y_eff < by - above || y_eff >= by + bh + below {
                 continue;
             }
             // The box's own clip (its content's clips), in its space.
@@ -496,20 +513,21 @@ impl super::DslApp {
             if let Some(c) = focused {
                 paint_selection_row(row, y_eff, by, bh, bx_glyph, c.selection, right, c.highlight);
             }
-            // The label halo (`.shadow(halo)`, RFC-0116 `labelShadow`): one extra glyph pass at the
-            // offset — the row painter has no offscreen buffer to blur in.
-            if let Some(sh) = b.visual.text_shadow.filter(|s| s.color.a > 0) {
+            // The text shadows (the label halo, `.shadow(halo)` in `labelShadow`), back to front,
+            // blurred as the design draws them and faded with the text.
+            for sh in b.visual.text_shadows.iter().rev().flatten().filter(|s| s.color.a > 0) {
                 let sc = sh.color;
-                nexus_text_baked::draw_text_row(
+                nexus_text_baked::draw_text_blur_row(
                     row,
                     y_eff as u32,
-                    by + sh.offset_y.0,
-                    bx_glyph + sh.offset_x.0,
+                    by + i32::from(sh.offset_y),
+                    bx_glyph + i32::from(sh.offset_x),
                     right,
                     run(),
                     *font,
                     tracking,
                     [sc.b, sc.g, sc.r, (u32::from(sc.a) * u32::from(color[3]) / 255) as u8],
+                    u32::from(sh.blur_radius),
                 );
             }
             nexus_text_baked::draw_text_row(
@@ -573,19 +591,5 @@ impl super::DslApp {
         let prev = if self.field_scroll.0 == f.session { self.field_scroll.1 } else { 0 };
         let off = nexus_textedit::view::follow(prev, caret_x, box_w, text_w, 8);
         self.field_scroll = (f.session, off);
-    }
-}
-
-/// The painter blends onto a transparent row in premultiplied form; the compositor samples a
-/// band as straight alpha — divided out once per row, where the alpha is partial.
-fn unpremultiply(span: &mut [u8]) {
-    for px in span.chunks_exact_mut(4) {
-        let a = u32::from(px[3]);
-        if a == 0 || a == 255 {
-            continue;
-        }
-        for c in &mut px[..3] {
-            *c = ((u32::from(*c) * 255 + a / 2) / a).min(255) as u8;
-        }
     }
 }

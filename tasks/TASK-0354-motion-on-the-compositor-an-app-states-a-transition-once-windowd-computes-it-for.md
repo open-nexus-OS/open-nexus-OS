@@ -5,7 +5,7 @@ title: "Compositor motion: a transition stated once, moved by windowd for every 
 status: in_progress
 owner: ["@ui"]
 created: 2026-11-03
-updated: 2026-11-05
+updated: 2026-11-10
 subsystem: ui
 components: [windowd, app-host, animation]
 kind: ui
@@ -87,6 +87,26 @@ phases:
     story: "closing a panel, the launcher or a toast costs no app raster: the layer goes and nothing under it is painted again - the cause of today's close frames named first (an exit motion, a store replan or a scrim), then cut"
     state: planned
     gate: "board: the launcher's close without an apphost hops motion episode (was 4 frames of 1920x1080 at 96 ms each with tokens= empty, board--2026-11-05T13-12-18); QEMU: the toast's timeout close without one (was 413k px)"
+  - id: P9
+    story: "a transition leaves the way it came: panels, sheets and their scrim, the island, toasts, the launcher, overlay panes and the action bar animate out on the compositor (today a .transition is enter-only)"
+    state: planned
+    gate: "host: each exit sampled at named times (motion_samples); board: 0 of 32 frames dropped on each close"
+    note: "moved from TASK-0353 (2026-11-10, the operator's \"move them, then close\"; ids of the design spec and the P5 transition inventory): primitives-window AW-7; shell-bars TS-12; launcher-lock C3 E14; launcher-lock L11 L34 L51; settings-stash A11; settings-stash F22; P5 transitions M05 M23 M26 M30 M36 M57 M58 M60 M61"
+  - id: P10
+    story: "the transforms the tokens lack: a rotation (chevrons, disclosure triangles, the floating button's 45 degrees), a translate in percent of the own width (slider and progress fills, the gauge), one part of a widget animating alone with a pop token (the toggle's layer, segment and slider thumbs, check and radio marks, PIN dots)"
+    state: planned
+    gate: "host: samples per new property at named times, goldens; board-visual"
+    note: "moved from TASK-0353 (2026-11-10, the operator's \"move them, then close\"; ids of the design spec and the P5 transition inventory): primitives-core CHK-8 RAD-6 SEG-4 SLD-3 SLD-10 PIN-3 PRG-4; P5 transitions M39 M40 M41 M42 M43 M12 M13 M14 M51 M52 M62 M63 M64 M69"
+  - id: P11
+    story: "a menu opens from its anchor's corner (a menu-in token: 92 %, a quick spring), children enter staggered (the island's bars 80 ms, the floating button's minis 40 ms), a press scales by category (95 % buttons, 96 % tiles, 94 % keys held, 92 % icons, 88 % window buttons) and the loops keep the design's timing (progress pip 1.1 s smooth, shimmer 1.4 s ease-in-out)"
+    state: planned
+    gate: "host: samples; the TASK-0353 P5 inventory's nearest rows become exact; board: 0 of 32 frames dropped"
+    note: "moved from TASK-0353 (2026-11-10, the operator's \"move them, then close\"; ids of the design spec and the P5 transition inventory): primitives-core PRG-5 SKL-5; primitives-window WM-19; shell-bars IS-06; shell-panels PN-ENTER; launcher-lock L29; P5 transitions M24 M44 M66 M68 M49"
+  - id: P12
+    story: "state-bound transforms: sliding indicators, the rail, the page control's capsule, sheet detents with a rubber band, a list row's swipe, the paged track and the launcher's page turn, the calendar's month slide, the island's morph"
+    state: planned
+    gate: "host tests per transform; board: 0 of 32 frames dropped per transition"
+    note: "moved from TASK-0353 (2026-11-10, the operator's \"move them, then close\"; ids of the design spec and the P5 transition inventory): primitives-window TB-8 AB-7 SHT-1; shell-bars IS-07; shell-panels PN-MONTH; launcher-lock G6; launcher-lock F7; P5 transitions M10 M22 M31 M32 M53 M54 M55 M74 M75 M76"
 ---
 
 ## The ask

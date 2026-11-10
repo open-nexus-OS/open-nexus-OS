@@ -180,6 +180,42 @@ Page NoticesPage {
 }
 ```
 
+**Forwarding.** A component that renders its slots in several places splits into parts by
+forwarding: inside a slot body, `Slot x` places a slot of the component the body is written in,
+so what that component received goes on into the part (RFC-0084 amendment). The forwarded
+nodes keep their caller's scope and splice into the part's region like any bound slot:
+
+```nx
+Component GroupBody {
+    slot rows
+    Stack {
+        Slot rows
+    }
+    .rounded(lg)
+    .material(card)
+}
+
+Component Group {
+    props: {
+        title: Str,
+    }
+    slot rows
+    Stack {
+        Text($props.title).textStyle(caption).fg(labelSecondary)
+        GroupBody { } {
+            rows {
+                Slot rows
+            }
+        }
+    }
+    .gap(8)
+}
+```
+
+A `Slot` in a body may only name a slot of the enclosing component (a page has none) —
+`NX0411` otherwise. A body that only forwards copies none of its caller's locals, so the parts
+cost nothing extra per frame.
+
 ### Avoid when
 
 - the slot becomes a “mini program” with lots of branching and stateful logic

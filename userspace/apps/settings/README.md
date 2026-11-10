@@ -48,20 +48,22 @@ inert, and both are recorded in `docs/dev/ui/design-token-audit.md`:
 ## Stores and events
 
 A `reduce` is declared once per event, covers every case and touches ONE store, so an `Event`
-type binds to one `Store` and a field lives where its writers live (`menu` in `WindowStore`,
-`picker` in `RegionStore`). A change across domains goes through an `@effect` that dispatches the
-other domain's event (`NavStore` closes the chrome menu that way).
+type binds to one `Store` and a field lives where its writers live (`menu` in the kit's
+`WindowStore`, `picker` in `RegionStore`). A change across domains goes through an `@effect` that
+dispatches the other domain's event (`Goto` closes the chrome menu that way, and the kit's
+sidebar pick reaches `NavStore` as `NavPick`).
 
 | Store (file) | State | Events |
 |---|---|---|
-| `NavStore` (`navigation.store.nx`) | `mode`, `section`, `subPage` | `WinMenuPick`, `Goto`, `OpenSub`, `Back`, `GoOverview` |
+| `NavStore` (`navigation.store.nx`) | `mode`, `section`, `subPage` | `NavPick`, `Goto`, `OpenSub`, `Back`, `GoOverview` |
 | `AppearanceStore` (`appearance.store.nx`) | mode, accent, icon style, folder colour, `ui.material`, apply error | `SetTheme`, `SetModeAuto`, `SetAccent`, `SetIconStyle`, `SetFolder`, `SetMaterial`, `ApLoad`, `Ap*` results |
 | `RegionStore` (`region.store.nx`) | locale, country, keymap, zone, hour format, IME personalisation, open `picker` | `OpenPicker`, `ClosePicker`, `SetLocale`, `SetCountry`, `SetKeymap`, `SetZone`, `SetHourFmt`, `SetPersonalization`, `Forget`, results |
 | `TilingStore` (`tiling.store.nx`) | the three tiling keys | `SetTileEdges`, `SetTileMargin`, `SetTileChords` |
 | `ShortcutsStore` (`shortcuts.store.nx`) | the shortcuts window and its registry list | `ScOpen`, `ScClose`, `ScPick`, `ScListed`, `ScFailed` |
 | `UpdatesStore` (`updates.store.nx`) | slot, trial, feed, staged build | `UpdRefresh`, `UpdStage`, `UpdSwitch`, `UpdRollback` and their `Upd*` results |
-| `DemoStore` (`demo.store.nx`) | the ~34 demo switches | toggles (no service) |
-| `WindowStore` (`window.store.nx`) | the kit's chrome state: menus, panes | the kit's `Win*` events (RFC-0084) |
+| `ViewStore` (`view.store.nx`) | `showSubtitles`, `sidebarDesc`, `advanced` — the ⋮ menu's "Ansicht" options (`@persist`) | `ToggleSubtitles`, `ToggleSidebarDesc`, `ToggleAdvanced` (each closes the open menu through an effect) |
+| `DemoStore` (`demo.store.nx`) | the ~34 demo switches and the three demo slider positions (`rngVolume`, `rngInput`, `rngBrightness`) | toggles and slider taps (no service) |
+| `WindowStore` (window-kit's composable, compiled in with the chrome) | the kit's chrome state: menus, panes | the kit's `Win*` events (RFC-0084); a sidebar pick reaches `NavStore` as `NavPick` through an effect |
 
 ## Services
 
@@ -79,19 +81,24 @@ a preference (see the trap below); the page owns its chrome through `WinTopBar`.
 
 ```
 manifest.toml              bundle_type = "settings"; dependencies = ["window-kit"]
-i18n/{de,en}.json          complete; en is baked as the default. ja/ko/zh: chrome + shortcuts
+i18n/{de,en}.json          complete; en is baked as the default. ja/ko/zh: chrome, shortcuts, the
+                           view menu, accents and the new rows (the rest falls back to en)
 ui/pages/
   Routes.nx                "/" -> SettingsPage
   SettingsPage.nx          the composition: Window intent, WinTopBar, WinAppWindow slots, layers
 ui/components/
-  chrome/                  NavSidebar · CrumbTrail · CrumbBar · PropsPane · MoreMenu
+  chrome/                  NavSidebar (+ SideItem) · CrumbTrail · CrumbBar · PropsPane ·
+                           MoreMenu (+ MenuCheck, JumpMenu: the ⋮ menu and its left-hand submenu)
   pickers/                 PickerLayers (one open sheet) · PickerSheet · PickerOption ·
-                           Language/Region/Layout/Zone/HourFormat pickers
-  rows/                    SetGroup · SetRow · SetValue · SetHairline · RegionSelect
+                           Language/Region/Layout/Zone/HourFormat/Margin pickers
+  rows/                    SetGroup · SetRow · SetSliderRow · AccountRow · SetValue · SetHairline ·
+                           ToggleRows (the on/off settings as toggle rows) · RegionSelect
   overview/                OverviewGrid · OverviewCard
   appearance/              AppearanceView = ApModeBlock · ApAccentBlock · ApIconsBlock ·
-                           ApFolderBlock, with ApModeTile · ApSwatch · ApIconTile · ApFolderTile
-  sections/                SectionView + Sec* (one per section) · UpdatesView
+                           ApFolderBlock (each under an ApHeader with the current choice), with
+                           ApModeTile · ApSwatch · ApIconTile · ApFolderTile
+  sections/                SectionView + Sec* (one per section) · PerLook (the Erscheinungsbild
+                           row's live subtitle) · UpdatesView
   shortcuts/               ShortcutsWindow · ScCategory · ScRow · ScKeys · ScName
 ui/composables/            the stores above
 ```
@@ -99,19 +106,28 @@ ui/composables/            the stores above
 ## Tests
 
 `tests/dsl_apps_conformance/tests/`: `settings.rs` (navigation, appearance writes, all nine
-accents, region and updates truth), `settings_tiling_menu.rs`, plus the shared `app_structure`,
+accents, region and updates truth, the view options, the state-dependent subtitles, the tiling
+toggle and select rows), `settings_tiling_menu.rs`, plus the shared `app_structure`,
 `shell_panels`, `window_menu_global`, `long_session`, `budget_probe`, `arena_invariant` and
 `frame_arena_budget` (settings layout budget). `nexus-dsl-runtime`'s `layout_viewport.rs` mounts
 the app. Run `cargo test -p dsl_apps_conformance --test settings`.
 
 ## Known limits
 
-- The chevron sub-pages, the search mode, sliders (Lautstärke, Helligkeit, Eingangspegel) and the
-  "In <Sektion> suchen" action of the design are not built: no service backs them yet.
+- The chevron sub-pages (S24, S30), the search mode and toolbar Suche (S9, S37) and the
+  "In <Sektion> suchen" action of the design are not built: no service or screen backs them. The
+  ⋮ menu draws search, help and reset DISABLED, with the design's shortcut hints (no key binding
+  behind them yet); the toolbar's Suche is not drawn at all because the kit's `WinToolCell` has no
+  disabled form.
 - Option lists (`PickerSheet`) are a centred sheet, not an anchored dropdown: the kit's `Select`
-  is the trigger only and an overlay has no anchor to the trigger.
-- Groups mix rows with and without leading icons less than the design; the design drops 16
-  decorative icons (S25), this app keeps them.
+  is the trigger only and an overlay has no anchor to the trigger. A `Select` takes no size
+  modifier (its builder owns them), so the design's 210 px minimum width is the width of the
+  wrapper the row puts around it.
+- The sliders (Lautstärke, Eingangspegel, Helligkeit) are demo state: they move on taps and reach
+  no service. Nobody drags them (the `Slider` has no drag yet).
+- Appearance: the mode tiles' backdrop is a vertical gradient (the design's is a 135° diagonal),
+  the selection rings are 2 px (the design's 1.5), and the icon-style tiles draw glyph chips
+  instead of three real app icons.
 - The sidebar pane costs ~160 kB of layout when a `WinPane` has both header and footer
   around a scrolling body (window-kit); the recorded settings budget carries it.
 

@@ -4,7 +4,8 @@
 // The selection context menu (the action bar's "More"): the file operations
 // as menu rows, trash-aware like the bar, under the selected name. A centred
 // overlay (the proven hit-testable pattern); the backdrop closes it, the
-// panel eats its own taps.
+// panel eats its own taps. It drops in on `slideDown` (the nearest token to the design's
+// menu-in; enter-only, the exit is not animated).
 
 Component SelectionMenu {
     Stack {
@@ -49,5 +50,6 @@ Component SelectionMenu {
         .justify(center)
     }
     .overlay()
+    .transition(slideDown)
     on Tap -> dispatch(WinMenu(""))
 }

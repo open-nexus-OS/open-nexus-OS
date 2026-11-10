@@ -22,15 +22,24 @@ Page SettingsPage {
     Stack {
         WinTopBar {
             icon: "gearshape",
-            tool1: "",
+            // Suche (design artifacts S1): drawn, disabled until the search mode exists.
+            tool1: "magnifyingglass",
             tool2: "",
             tool3: "",
             tool1Active: false,
             tool2Active: false,
             tool3Active: false,
+            tool4: "",
+            tool4Active: false,
+            tool1Disabled: true,
+            tool2Disabled: false,
+            tool3Disabled: false,
+            tool4Disabled: false,
             navBack: "arrow.left",
-            navFwd: "",
+            navFwd: "arrow.right",
             navRefresh: "",
+            navBackDisabled: $state.mode == "overview",
+            navFwdDisabled: true,
             sideLeft: "sidebar.left",
             sideRight: "sidebar.right",
             more: "ellipsis.vertical",
@@ -41,10 +50,14 @@ Page SettingsPage {
             showProps: $state.rightOpen == 1,
             sidebarOverlay: $state.paneL == 1,
             propsOverlay: $state.paneR == 1,
+            appMenuOpen: $state.menu == "more" || $state.menu == "more.jump",
             menuFullscreen: @t("win.fullscreen"),
             menuMoveDevice: @t("win.moveDevice"),
             menuMinimize: @t("win.minimize"),
             menuClose: @t("win.close"),
+            menuMoveLabel: @t("win.moveLabel"),
+            menuArrangeLabel: @t("win.arrangeLabel"),
+            menuSoon: @t("win.soon"),
         } {
             sidebarLeft {
                 NavSidebar { }
@@ -71,24 +84,18 @@ Page SettingsPage {
             sidebarRight {
                 PropsPane { }
             }
+            appMenu {
+                MoreMenu { }
+            }
         }
         // ── overlay layers ───────────────────────────────────────────────
         // Siblings of the window, on the PAGE ROOT — full-window layers
         // belong to the page that owns the z-order. Each is gated so a
         // closed layer never swallows a tap. An open one COVERS the scroll
         // layers beneath it (RFC-0109): their content paints under it, at
-        // their offsets, until it closes.
-        // The app-chip menu is the kit's (`WinAppWindow`); only the ⋯ menus
-        // are this app's — and they mount no backdrop over the kit's layer.
-        if $state.menu == "app" {
-            Stack { }
-        } else {
-            if $state.menu != "" {
-                MoreMenu { }
-            } else {
-                Stack { }
-            }
-        }
+        // their offsets, until it closes. The ⋯ menu is not one of them: it hangs from the
+        // kit's `appMenu` place under the chrome's ⋮ (like Stash's), the app-chip menu is the
+        // kit's too.
         // TASK-0346 P3: the keyboard-shortcuts window (`ShortcutsWindow`), app-modal.
         if $state.scOpen {
             ShortcutsWindow { }

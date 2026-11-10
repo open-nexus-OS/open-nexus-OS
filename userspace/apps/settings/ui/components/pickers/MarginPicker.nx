@@ -1,0 +1,25 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The `margin` picker's option list on a `PickerSheet` (the gap between tiled windows): None,
+// Small, Large. The page layer mounts it while `$state.picker == "margin"`. Picking writes
+// `ui.tile.margin` (`SetTileMargin`) and the tiling store's effect closes the sheet.
+
+Component MarginPicker {
+    PickerSheet { title: @t("per.tileMargin") } {
+        options {
+            Stack {
+                PickerOption { label: @t("per.tileMarginV0"), selected: $state.tileMargin == "0" }
+            }
+            on Tap -> dispatch(SetTileMargin("0"))
+            Stack {
+                PickerOption { label: @t("per.tileMarginV8"), selected: $state.tileMargin == "8" }
+            }
+            on Tap -> dispatch(SetTileMargin("8"))
+            Stack {
+                PickerOption { label: @t("per.tileMarginV16"), selected: $state.tileMargin == "16" }
+            }
+            on Tap -> dispatch(SetTileMargin("16"))
+        }
+    }
+}

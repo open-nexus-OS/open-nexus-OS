@@ -1,0 +1,61 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The composer (padding 12, gap 8): the route row, then the input row — attachment and mini-app
+// (ghost round md buttons, dimmed: nothing backs them yet; absent on the compact tier), the message capsule (36 high, `fill`,
+// padding 0 12, bound to the draft; Enter sends) and "Senden", the prominent accent button. An
+// empty draft sends nothing (the store ignores it). The wrapper row carries `on Submit` and the
+// field `.grow(1)`, so a press right of the text still focuses it.
+
+Component Composer {
+    Stack {
+        RouteRow { }
+        Stack {
+            if device.sizeClass == "compact" {
+                Stack { }
+            } else {
+                Stack {
+                    Button { variant: "ghost", size: "md", shape: "circle"
+                        Icon { symbol: "paperclip", size: 16 }
+                            .fg(label)
+                    }
+                    .label(@t("chat.attach"))
+                    .disabled(true)
+                    Button { variant: "ghost", size: "md", shape: "circle"
+                        Icon { symbol: "square.grid", size: 16 }
+                            .fg(label)
+                    }
+                    .label(@t("chat.miniApp"))
+                    .disabled(true)
+                }
+                .direction(row)
+                .align(center)
+            }
+            Stack {
+                TextField {
+                    value: $state.draft,
+                    placeholder: @t("chat.placeholder"),
+                    variant: "bare",
+                }
+                .grow(1)
+                .label(@t("chat.message"))
+            }
+            .direction(row)
+            .align(center)
+            .paddingX(12)
+            .height(36)
+            .rounded(full)
+            .bg(fill)
+            .grow(1)
+            on Submit -> dispatch(Send)
+            Button { label: @t("chat.send"), variant: "prominent", size: "md" }
+                .shrink(0)
+            on Tap -> dispatch(Send)
+        }
+        .direction(row)
+        .align(center)
+        .gap(8)
+    }
+    .gap(8)
+    .padding(12)
+}

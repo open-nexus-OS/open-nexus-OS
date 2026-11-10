@@ -1,0 +1,92 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// A `WinAppWindow`'s regions in a row (design artifacts: AppWindow): the left sidebar inline on
+// the wide tier, the content region with the floating action bar over it, the properties pane
+// inline on the wide and regular tiers — each optional region carrying its own 8 px to the
+// content, the row inset 0 8 8 from the window edge. The slots are the window's, forwarded.
+Component WinBodyRegions {
+    props: {
+        showSidebar: Bool,
+        showProps: Bool,
+        sidebarWidth: Int,
+        propsWidth: Int,
+        liftActionBar: Bool,
+    }
+    slot sidebarLeft
+    slot contentArea
+    slot sidebarRight
+    slot actionBar
+    Stack {
+        // ── left region (inline on wide only) ────────────────────────
+        // Each optional region carries its own 8 px to the content (the
+        // row has no gap), so a hidden region leaves no gap behind.
+        if device.sizeClass == "wide" {
+            if $props.showSidebar {
+                Stack {
+                    Stack {
+                        Slot sidebarLeft
+                    }
+                    .width(240)
+                    .minWidth($props.sidebarWidth)
+                    .maxWidth($props.sidebarWidth)
+                    .gap(8)
+                }
+                .direction(row)
+                .paddingTrailing(8)
+            } else {
+                Stack { }
+            }
+        } else {
+            Stack { }
+        }
+        // ── content region (fills the remaining width) ───────────────
+        Stack {
+            Slot contentArea
+            Stack {
+                Spacer
+                Stack {
+                    Spacer
+                    Slot actionBar
+                    Spacer
+                }
+                .direction(row)
+                .align(center)
+                if $props.liftActionBar {
+                    Stack { }
+                        .height(56)
+                } else {
+                    Stack { }
+                        .height(12)
+                }
+            }
+            .overlay()
+        }
+        .grow(1)
+        .gap(8)
+        // ── right region (inline on wide + regular) ──────────────────
+        if device.sizeClass == "compact" {
+            Stack { }
+        } else {
+            if $props.showProps {
+                Stack {
+                    Stack {
+                        Slot sidebarRight
+                    }
+                    .width(240)
+                    .minWidth($props.propsWidth)
+                    .maxWidth($props.propsWidth)
+                    .gap(8)
+                }
+                .direction(row)
+                .paddingLeading(8)
+            } else {
+                Stack { }
+            }
+        }
+    }
+    .direction(row)
+    .grow(1)
+    .paddingX(8)
+    .paddingBottom(8)
+}

@@ -1,0 +1,13 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The content region: ONE `WinPane` (the opaque `pane` surface, radius 16, no header of its own —
+// the list and the thread draw theirs) around the split of list and thread.
+
+Component ContentPane {
+    WinPane { title: "", showHeader: false, showFooter: false, bare: false, flush: true, scrolls: false, noDividers: false } {
+        body {
+            ChatSplit { }
+        }
+    }
+}

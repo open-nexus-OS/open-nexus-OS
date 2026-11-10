@@ -1,0 +1,32 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The content pane's body: on the wide tier the list column (264, a hairline on its right) and
+// the thread side by side; on the narrower tiers they take turns — the thread is pushed by
+// opening a conversation and left by its back button (`ThreadStore.pushed`).
+
+Component ChatSplit {
+    if device.sizeClass == "wide" {
+        Stack {
+            Stack {
+                ListColumn { }
+            }
+            .width(264)
+            Stack { }
+                .width(1)
+                .bg(separator)
+            Stack {
+                ThreadPane { }
+            }
+            .direction(row)
+            .grow(1)
+        }
+        .direction(row)
+        .gap(0)
+        .grow(1)
+    } else if $state.pushed {
+        ThreadPane { }
+    } else {
+        ListColumn { }
+    }
+}

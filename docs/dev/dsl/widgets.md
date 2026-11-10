@@ -29,7 +29,10 @@ catalog must have its `###` entry here, and every example must compile.
   container (`Stack`, `List`, `Panel`, `Circle`, `Grid`) honours every [modifier](modifiers.md);
   a kit widget honours only the ones its entry lists and draws the rest of its look itself.
 - **Accessibility** — an interactive widget needs an accessible name: its label prop, or
-  `.label("…")`. Without one the compiler reports NX0402.
+  `.label("…")`. Without one the compiler reports NX0402. A container that takes a tap (`Stack`,
+  `Circle`, … with `on Tap`) needs one too: `.label(@t(…))`, or something a reader can speak
+  inside it — a `Text`, a widget's label prop, a component — else NX0415 (an icon-only close
+  circle is `.label(@t("win.close"))`; a backdrop that closes a sheet is named for what it does).
 - **Disabled** — `.disabled(true)` dims a widget by its family (the design system's
   `nexus_style::Dim`): actions and text entry — `Button`, `TextField`, `SearchBar`,
   `ProgressBar` — to 50 % opacity; value and selection controls — `Toggle`, `Checkbox`,
@@ -218,6 +221,11 @@ Card {
 .padding(16)
 ```
 
+| Prop | Type | Default | Values |
+|---|---|---|---|
+| `variant` | `Str` | `panel` | `panel` (regular blur, `xl` radius) · `dock` (thick blur) · `card` (a painted layer, `shadow2`, `lg` radius) · `inner` (no shadow) · `subtle` (no edge, no shadow) · `overlay` (the opaque floating surface) |
+| `material` | `Bool` | `true` | `false` drops the blur of a `panel` or `dock` that sits on another blur surface (never blur over blur) |
+
 | | |
 |---|---|
 | Children | any number |
@@ -229,9 +237,10 @@ from the top edge; the default is `gapGroup`, 12 px, and a padding of zero also 
 default) and `.direction(row)` (children side by side). The surface — material, edge, shadow,
 radius — is the card's own and cannot be restyled; the card clips its content.
 
-**Discussion** — the kit's `GlassCard` builds at the `panel` level: a blurred surface with the
-`xl` radius. For a card with a different surface, use a [`Stack`](#stack) with `.material`,
-`.rounded` and `.padding`.
+**Discussion** — without a `variant` the kit's `GlassCard` builds at the `panel` level: a blurred
+surface with the `xl` radius. A card on a blur surface says `variant: "card"` (or `inner` /
+`subtle`): those are painted layers and never blur. For a surface the variants do not cover, use
+a [`Stack`](#stack) with `.material`, `.rounded` and `.padding`.
 
 **See also** — [`Panel`](#panel), [`Stack`](#stack).
 
@@ -309,6 +318,7 @@ Icon { symbol: "wifi", size: 24 }.fg(accent)
 |---|---|---|---|
 | `symbol` | `Str` | `""` | a symbol name of the theme's icon set (see [icons](../ui/foundations/visual/icons.md)); the built-in `plus`, `minus`, `close`, `star`, `chevronRight`, `chevronLeft`, `chevronDown`, `chevronUp` also resolve |
 | `size` | `Int` | `16` | the glyph's side in px, clamped to 8–96 |
+| `stroke` | `Fx` or `Int` | the set's own (`2`) | the line weight of a line symbol in the units of its 24-unit grid — `2.6` is a menu's check; clamped to 1–4. A built-in filled shape ignores it |
 
 | | |
 |---|---|
@@ -321,7 +331,13 @@ read: size comes from `size`, not from `.width`.
 
 **Discussion** — a symbol name that neither the theme nor the built-in set knows renders as a
 tinted placeholder box, so a missing glyph is visible rather than blank. Names with dots
-(`chevron.right`) come from the theme's `[icons.symbols]` table.
+(`chevron.right`) come from the theme's `[icons.symbols]` table. Every line symbol of the set
+shares one weight; `stroke` changes it for one icon — where a design gives a mark more weight
+than its neighbours:
+
+```nx-view
+Icon { symbol: "checkmark", size: 14, stroke: 2.6 }.fg(accent)
+```
 
 **Accessibility** — an icon is decorative. An icon that is tappable sits inside a
 [`Button`](#button), which takes `.label("…")`.
@@ -348,7 +364,9 @@ Image { source: "mime:inode-directory", size: 32 }
 | Positional prop | `source` |
 | Interactive | no; an `on Tap` handler makes it a hit target |
 
-**Modifiers** — flex only; the box is a fixed `size` square.
+**Modifiers** — flex only; the box is a fixed `size` square. A radius, a shadow or an opacity
+on the picture goes on a wrapping `Stack` (`Stack { Image { … } }.rounded(16).shadow(shadow2)`, as
+the shell's app icons do): `Image` itself draws the raster and nothing else.
 
 **Discussion** — an unknown source renders a transparent box of the same size, so layout stays
 stable while the owning view shows its own fallback.
@@ -357,10 +375,11 @@ stable while the owning view shows its own fallback.
 
 ### `Avatar`
 
-A person's tile: initials on a glass backing, as a circle.
+A person's tile: initials on a glass backing, as a circle or a rounded square, with an optional
+presence dot.
 
 ```nx-view
-Avatar { name: "Ada Lovelace", size: 48 }
+Avatar { name: "Ada Lovelace", size: 48, status: "online" }
 ```
 
 | Prop | Type | Default | Values |
@@ -368,6 +387,8 @@ Avatar { name: "Ada Lovelace", size: 48 }
 | `name` | `Str` | — | a display name; the initials are the first letters of up to two words, upper-cased |
 | `initials` | `Str` | — | explicit initials; used when `name` is absent or empty |
 | `size` | `Int` | `40` | the tile's side in px; the initials' text style follows the size |
+| `square` | `Bool` | `false` | a rounded square instead of a circle (radius 8 up to 32 px, 12 up to 56, 16 above) |
+| `status` | `Str` | — | `online` · `busy` · `away` · `offline`: a presence dot in the bottom-right corner (`success` · `danger` · `warning` · `labelSecondary`) inside a 2 px window-glass ring |
 
 | | |
 |---|---|
@@ -390,14 +411,18 @@ A small status chip or count, set in a capsule.
 ```nx-view
 Badge { label: "3", tint: "danger" }
 Badge { label: "Beta", variant: "outline" }
+Badge { label: "120", max: 99, tint: "danger" }
+Badge { dot: true, variant: "success" }
 ```
 
 | Prop | Type | Default | Values |
 |---|---|---|---|
-| `label` | `Str` | `""` | the text, set in `caption2` with tabular digits |
+| `label` | `Str` | `""` | the text, in the size's text style (`caption2` at `xs`/`sm`, `caption` at `md`, `footnote` at `lg`, `subheadline` at `xl`); a label made of digits is a count: semibold, tabular figures, tighter padding |
 | `variant` | `Str` | `default` | `default` (the primary fill) · `secondary` · `glass` · `destructive` · `success` · `warning` · `outline` · `active` (the accent fill) · `filled` (filled in the `tint`) · `tinted` (a wash of the `tint`, the tint as text) |
 | `tint` | role | — | the fill colour when no `variant` is given, so `tint: "danger"` is a red count |
 | `size` | `Str` | `md` | `xs` 16 px · `sm` 18 · `md` 22 · `lg` 26 · `xl` 30 (the badge's height) |
+| `dot` | `Bool` | `false` | a bare status dot (6 / 8 / 10 / 12 / 14 px by size) in the look's colour instead of a chip |
+| `max` | `Int` | — | caps a count: above `max` it reads `max+` (`max: 99` turns 120 into `99+`) |
 
 | | |
 |---|---|
@@ -405,7 +430,7 @@ Badge { label: "Beta", variant: "outline" }
 | Positional prop | `label` |
 | Interactive | no |
 
-**Modifiers** — flex only; the look is set by `variant`, `tint` and `size`.
+**Modifiers** — flex only; the look is set by `variant`, `tint`, `size` and `dot`.
 
 **Discussion** — `success` and `warning` are washes of the status colour with the status as
 text, not solid fills. `tint` without a `variant` paints a solid fill in that role.
@@ -430,7 +455,8 @@ Stack {
 |---|---|---|---|
 | `width` | `Int` | the container's width | px, at least 4 |
 | `height` | `Int` | `14` | px, at least 4 (the diameter of a circle) |
-| `circle` | `Bool` | `false` | a disc instead of the `md`-radius block |
+| `radius` | `Int` | `12` | the corner radius in px of the block (the `md` radius by default) |
+| `circle` | `Bool` | `false` | a disc instead of the rounded block |
 
 | | |
 |---|---|
@@ -594,7 +620,10 @@ Page DisplayPage {
 | Prop | Type | Default | Values |
 |---|---|---|---|
 | `value` | `Int` | `0` | the position in percent, clamped to 0–100 |
-| `icon` | `Str` | — | a symbol name of the theme's icon set, drawn inside the fill; an unknown name draws nothing |
+| `variant` | `Str` | `control` | `control` (the Control Center bar) · `thumb` (the thin slider: a 6 px track, a tint fill with its glow, a 20 px white thumb) |
+| `icon` | `Str` | — | `control` only: a symbol name of the theme's icon set, drawn inside the fill; an unknown name draws nothing |
+| `tint` | role | white fill (`control`), `accent` (`thumb`) | the fill colour; on the control bar an explicit tint replaces the white fill |
+| `ticks` | `Int` | `0` | `thumb` only: that many tick marks below the track, ends included |
 
 | | |
 |---|---|
@@ -609,9 +638,11 @@ track, 0–100, to the bound field. The slider has no drag yet: it moves on taps
 **Modifiers** — `.disabled(true)`, and flex. The slider takes the row's free width; it has no
 fixed width of its own.
 
-**Discussion** — the arm builds the control-bar look: a 28 px capsule with a white fill that
-grows from the leading edge, never narrower than its 28 px cap. The fill and the remainder are
-flex weights of `value` and `100 - value`, so the layout needs no pixel width.
+**Discussion** — the default `control` look is a 28 px capsule with a white fill that grows from
+the leading edge, never narrower than its 28 px cap; `thumb` is the design's default slider. Both
+split the track into flex weights of `value` and `100 - value`, so the layout needs no pixel
+width. Both take the value from taps only: there is no drag, no `min`/`max`/`step`, and no
+labels beside the track yet.
 
 **Accessibility** — the slider has no label prop: `.label("…")` is required (NX0402).
 
@@ -640,6 +671,7 @@ Page FilterPage {
 | `selected` | `Bool` | `false` | the solid tint fill with its glow |
 | `size` | `Str` | `md` | `xs` 24 px · `sm` 24 · `md` 30 · `lg` 36 · `xl` 44 (the chip's height) |
 | `tint` | role | — | the selected fill and the label colour of the resting chip |
+| `appearance` | `Str` | `neutral` | `neutral` (the `fill` capsule) · `tinted` (the tint at 16 %) · `filled` (the solid tint) · `outline` (a hairline: `separator`, or the tint at 55 % with a `tint`) |
 
 | | |
 |---|---|
@@ -648,7 +680,8 @@ Page FilterPage {
 | Interactive | yes; no two-way bind (the label is not a value) |
 
 **Interaction** — a tap runs the chip's own `on Tap` handler; the page owns `selected` and
-flips it there.
+flips it there. The kit widget's leading icon or avatar and its built-in remove button are not
+props: the remove button's tap target is a static id, which a view cannot name.
 
 **Modifiers** — `.disabled(true)`.
 
@@ -678,6 +711,7 @@ Page LangPage {
 | `value` | `Str` | — | the current value, in the control label style |
 | `placeholder` | `Str` | — | shown in `labelTertiary` while there is no value; also the accessible name |
 | `size` | `Str` | `md` | `xs` · `sm` · `md` · `lg` · `xl` (the control height; the pill is at least 3.3 times its height wide) |
+| `open` | `Bool` | `false` | the page's option panel is open: the trigger carries the persistent fill layer and the chevron turns up |
 
 | | |
 |---|---|
@@ -718,11 +752,19 @@ Page AccountPage {
 |---|---|---|---|
 | `value` | `Str` | `""` | the text |
 | `label` | `Str` | — | the caption above the field; also the accessible name |
-| `placeholder` | `Str` | — | shown while the field is empty |
+| `placeholder` | `Str` | — | shown while the field is empty, in `labelTertiary` (`labelSecondary` with `shape: "capsule"`, the lock screen's field on the wallpaper) |
 | `helper` | `Str` | — | a line below the field |
 | `error` | `Str` | — | a line below the field in `danger`, with a `danger` border; replaces `helper` when non-empty |
+| `validation` | `Str` | — | `error` (the `danger` border alone) · `success` (the green border, a check and a green helper); an `error` message wins |
 | `variant` | `Str` | `boxed` | `boxed` · `glass` (alias `pill`) · `bare` |
+| `appearance` | `Str` | `filled` | `filled` · `glass` (the design's name for the field on a wallpaper; `variant` wins when both are given) |
+| `shape` | `Str` | by size | `capsule` (the lock-screen password exception); otherwise the size's radius (8 / 8 / 12 / 12 / 16) |
 | `size` | `Str` | `md` | `xs` · `sm` · `md` · `lg` · `xl` (the control height) |
+| `tint` | role | `accent` | the focus outline and the caret |
+| `prefix` | `Str` | — | text before the input, in `labelSecondary` |
+| `suffix` | `Str` | — | text after the input (a unit, a currency sign) |
+| `icon` | `Str` | — | a symbol name of the theme's icon set, drawn before the input in `labelSecondary` |
+| `readOnly` | `Bool` | `false` | no fill, a `separator` hairline |
 | `secure` | `Bool` | `false` | masks the characters |
 
 | | |
@@ -737,6 +779,9 @@ handler on `Change` runs beside that write.
 
 **Modifiers** — `.disabled(true)`, `.autofocus(true)` (the host focuses the field when none
 holds focus), and flex: a `.grow(1)` field fills the rest of its row.
+
+**Discussion** — the clear control, the reveal eye of a password field and number formats are
+not props yet: each needs its own tap target or an input filter the host does not have.
 
 **Accessibility** — `label` or `.label("…")` is required (NX0402).
 
@@ -762,6 +807,8 @@ Page FindPage {
 | `placeholder` | `Str` | — | shown while the query is empty; also the accessible name |
 | `size` | `Str` | `md` | `xs` · `sm` · `md` · `lg` · `xl` (the control height) |
 | `tint` | role | `accent` | the focus outline |
+| `appearance` | `Str` | `filled` | `filled` · `glass` (the field on a wallpaper: the glass card layer, never a blur) |
+| `loading` | `Bool` | `false` | the field spinner replaces the magnifier |
 
 | | |
 |---|---|
@@ -787,11 +834,12 @@ An indeterminate activity indicator: twelve spokes the host rotates.
 ```nx-view
 Spinner { size: 28 }
 Spinner { size: 20, tint: "accent" }
+Spinner { size: "lg" }
 ```
 
 | Prop | Type | Default | Values |
 |---|---|---|---|
-| `size` | `Int` | `28` | the diameter in px, at least 8 |
+| `size` | `Int` or `Str` | `28` | the diameter in px (at least 8), or a control size: `xs` 14 · `sm` 20 · `md` 28 · `lg` 36 · `xl` 44 |
 | `tint` | role | `labelSecondary` | the spoke colour |
 
 | | |
@@ -824,6 +872,7 @@ ProgressBar { }
 | `tint` | role | `accent` | the fill colour |
 | `label` | `Str` | — | a caption in a header above the bar |
 | `showValue` | `Bool` | `false` | the percentage beside the label |
+| `appearance` | `Str` | `linear` | `circular` draws a ring (give it a `value`; the indeterminate ring is not animated yet) |
 
 | | |
 |---|---|
@@ -831,8 +880,8 @@ ProgressBar { }
 | Positional prop | `value` |
 | Interactive | no |
 
-**Modifiers** — `.fg(role)` is the fill colour when `tint` is absent; flex. The bar is as wide
-as its container.
+**Modifiers** — `.fg(role)` is the fill colour when `tint` is absent; `.disabled(true)` (50 %
+opacity); flex. The bar is as wide as its container.
 
 **See also** — [`Slider`](#slider), [`Spinner`](#spinner).
 
@@ -865,6 +914,7 @@ Page NotesPage {
 | `message` | `Str` | `""` | the text; also the accessible name |
 | `variant` | `Str` | `default` | `default` · `success` · `warning` · `destructive` |
 | `action` | `Str` | — | the label of the action at the trailing edge |
+| `icon` | `Str` | — | a symbol name of the theme's icon set, before the message in the accent (the status colour for a status variant); an unknown name draws nothing |
 
 | | |
 |---|---|
@@ -898,6 +948,7 @@ Banner { title: "Update available", message: "Restart to install.", action: "Res
 | `message` | `Str` | — | the second line |
 | `variant` | `Str` | `info` | `info` · `success` · `warning` · `destructive` |
 | `action` | `Str` | — | the label of the action under the message |
+| `icon` | `Str` | — | a symbol name of the theme's icon set in place of the status icon, 18 px in the status colour; an unknown name keeps the status icon |
 
 | | |
 |---|---|
@@ -918,11 +969,13 @@ Banner { title: "Update available", message: "Restart to install.", action: "Res
 
 ### `ListItem`
 
-One row of a list: a title, an optional subtitle and an optional chevron.
+One row of a list: a title, an optional subtitle, a leading glyph, a trailing value or badge and
+an optional chevron.
 
 ```nx-view
 List {
-    ListItem { title: "Wi-Fi", subtitle: "Connected", showChevron: true }
+    ListItem { title: "Wi-Fi", subtitle: "Connected", icon: "wifi", trailing: "Home", showChevron: true }
+    ListItem { title: "Mail", icon: "envelope", badge: "3" }
     ListItem { title: "Reset", destructive: true }
 }
 ```
@@ -931,8 +984,17 @@ List {
 |---|---|---|---|
 | `title` | `Str` | `""` | the row's text, in medium weight; also the accessible name |
 | `subtitle` | `Str` | — | a second line in `labelSecondary` |
+| `icon` | `Str` | — | a leading symbol (18 px, `labelSecondary`; `danger` on a destructive row) |
+| `trailing` | `Str` | — | a value after the text, body `labelSecondary`, truncating before the title does |
+| `badge` | `Str` | — | a count in a 20 px capsule at the end |
+| `badgeTint` | role | `danger` | the badge's colour role |
 | `showChevron` | `Bool` | `false` | a trailing chevron |
-| `destructive` | `Bool` | `false` | the title in `danger` |
+| `destructive` | `Bool` | `false` | the title and the leading symbol in `danger` |
+| `selected` | `Bool` | `false` | the persistent `fill` layer (the sidebar look) — or, on a `selectable` row, the checked state |
+| `selectable` | `Bool` | `false` | a selection mark: a 22 px circle (an accent disc with a check when selected) |
+| `selectionStyle` | `Str` | `circle` | `circle` · `checkmark` (a trailing accent check on the selected row) |
+| `reorderable` | `Bool` | `false` | draws the reorder handle (the drag itself is a runtime gesture) |
+| `separator` | `Str` | none | `inset` (the hairline from the text column to the trailing edge) · `full` |
 
 | | |
 |---|---|
@@ -942,7 +1004,9 @@ List {
 
 **Interaction** — a tap runs the row's own `on Tap` handler.
 
-**Modifiers** — flex only. The row is at least 48 px high, 60 with a subtitle.
+**Modifiers** — `.disabled(true)` (the row dims to 45 %) and flex. The row is at least 48 px
+high, 60 with a subtitle. Content below the line, swipe actions and the grouped appearances of
+the kit's `List` builder are not reachable from a view.
 
 **Accessibility** — `title` is the accessible name.
 
@@ -961,6 +1025,7 @@ Toolbar { title: "Settings", subtitle: "Display", centerTitle: true }
 | `title` | `Str` | — | the headline |
 | `subtitle` | `Str` | — | a caption under the title |
 | `centerTitle` | `Bool` | `false` | centres the title instead of leading it |
+| `variant` | `Str` | `panel` | `panel` (a glass card with a hairline underneath) · `transparent` (over the content) |
 
 | | |
 |---|---|
@@ -968,8 +1033,8 @@ Toolbar { title: "Settings", subtitle: "Display", centerTitle: true }
 | Positional prop | `title` |
 | Interactive | no |
 
-**Modifiers** — flex only. The bar is the kit's `panel` variant: a glass card surface with a
-hairline underneath.
+**Modifiers** — flex only. The default bar is the kit's `panel` variant: a glass card surface
+with a hairline underneath.
 
 **Discussion** — the arm builds a title-only bar: leading and trailing clusters of the kit
 widget are not reachable from a view. Put actions beside the bar in a row.

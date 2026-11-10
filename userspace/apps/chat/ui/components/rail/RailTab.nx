@@ -1,0 +1,41 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One tab of the space rail (design artifacts: the vertical TabBar without labels): 56 x 44,
+// radius 20 (the window's 24 less the rail's 4), the space's letter in footnote bold. Inactive =
+// `label` at .62 opacity; active = a `success` letter on the persistent `fill` layer. A tap
+// picks the space (`SetSpace`); the rail's `Alle` shows every conversation again.
+
+Component RailTab {
+    props: {
+        id: Str,
+        glyph: Str,
+        name: Str,
+        active: Bool,
+    }
+    if $props.active {
+        Stack {
+            Text($props.glyph).textStyle(footnote).fontWeight(bold).fg(success)
+        }
+        .minWidth(56)
+        .height(44)
+        .align(center)
+        .justify(center)
+        .rounded(20)
+        .bg(fill)
+        .label($props.name)
+        on Tap -> dispatch(SetSpace($props.id))
+    } else {
+        Stack {
+            Text($props.glyph).textStyle(footnote).fontWeight(bold).fg(label)
+        }
+        .minWidth(56)
+        .height(44)
+        .align(center)
+        .justify(center)
+        .rounded(20)
+        .opacity(158)
+        .label($props.name)
+        on Tap -> dispatch(SetSpace($props.id))
+    }
+}

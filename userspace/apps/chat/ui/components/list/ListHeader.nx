@@ -1,0 +1,65 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The list column's header (padding 12, gap 8, a hairline below): the title with the number of
+// conversations, the search capsule (30 high, `fill`, magnifier 14, the live field and a clear
+// circle while there is a query) and the filter chips at the xs size, so they stay on one line.
+//
+// `TextField { variant: "bare" }` inside the capsule, as in stash: the wrapper row carries
+// `on Change`, the field `.grow(1)`. The query matches a conversation's name exactly (the DSL has
+// no substring test yet); the chips narrow by unread, verified and bridged conversations.
+
+Component ListHeader {
+    Stack {
+        Stack {
+            Text(@t("chat.title")).textStyle(headline).fg(label).grow(1)
+            Text(@t("chat.total")).textStyle(caption).fg(labelSecondary)
+        }
+        .direction(row)
+        .align(center)
+        .gap(8)
+        .paddingX(4)
+        Stack {
+            Stack {
+                Icon { symbol: "magnifyingglass", size: 14 }
+                    .fg(labelSecondary)
+                Stack {
+                    TextField {
+                        value: $state.query,
+                        placeholder: @t("chat.search"),
+                        variant: "bare",
+                    }
+                    .grow(1)
+                    .label(@t("chat.search"))
+                }
+                .direction(row)
+                .align(center)
+                .grow(1)
+                on Change -> dispatch(QueryChanged)
+                if $state.query != "" {
+                    Circle { size: 16
+                        Icon { symbol: "xmark", size: 8 }
+                            .fg(background)
+                    }
+                    .bg(labelSecondary)
+                    .label(@t("chat.clear"))
+                    on Tap -> dispatch(ClearQuery)
+                } else {
+                    Stack { }
+                }
+            }
+            .direction(row)
+            .align(center)
+            .gap(6)
+            .paddingX(12)
+            .height(30)
+            .rounded(full)
+            .bg(fill)
+        }
+        .paddingX(4)
+        FilterChips { }
+    }
+    .gap(8)
+    .paddingY(12)
+    .paddingX(8)
+}

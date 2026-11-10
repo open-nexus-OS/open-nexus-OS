@@ -117,9 +117,10 @@ impl super::DslApp {
 /// The region a material box declares (RFC-0116), if any: `(MATERIAL_*, GLASS_*)`.
 ///
 /// A blur surface is a glass region of its backdrop's bucket — only as a ROOT: one blur per
-/// stack, and a nested one blends into its parent's pixels. An opaque surface drawn at full
-/// opacity is an occluder wherever it sits (a pane occludes the window's blur, a menu a
-/// panel's); faded, it shows what lies below and must not claim to hide it. A card is painted,
+/// stack, and a nested one blends into its parent's pixels. A floating overlay is frosted over
+/// the regular blur (`GLASS_PANEL`'s bucket) as a root; nested (a floating action bar on a pane)
+/// it cannot blur and is opaque. An opaque surface drawn at full opacity is an occluder wherever
+/// it sits; faded, it shows what lies below and must not claim to hide it. A card is painted,
 /// never a region.
 pub(super) fn region_kind(
     material: nexus_layout_types::Material,
@@ -129,12 +130,13 @@ pub(super) fn region_kind(
     use nexus_layout_types::Material;
     let glass = |level| (!nested).then_some((wire::MATERIAL_GLASS, level));
     match material {
-        Material::Panel => glass(wire::GLASS_PANEL),
+        Material::Overlay if nested => full.then_some((wire::MATERIAL_OPAQUE, 0)),
+        Material::Panel | Material::Overlay => glass(wire::GLASS_PANEL),
         Material::Window => glass(wire::GLASS_WINDOW),
         Material::Dock => glass(wire::GLASS_DOCK),
         Material::Thin => glass(wire::GLASS_THIN),
         Material::UltraThin => glass(wire::GLASS_ULTRA_THIN),
-        Material::Pane | Material::Overlay => full.then_some((wire::MATERIAL_OPAQUE, 0)),
+        Material::Pane => full.then_some((wire::MATERIAL_OPAQUE, 0)),
         Material::Card => None,
     }
 }

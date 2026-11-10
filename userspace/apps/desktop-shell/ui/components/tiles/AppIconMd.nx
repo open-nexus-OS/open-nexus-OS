@@ -1,0 +1,53 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The md app icon (design artifacts: `AppIcon` md, native): a 56 px tile, radius 16, shadow2,
+// no border and no backing. Three artwork branches — the baked squircle sprite when the bundle
+// ships one (an `Image` ignores modifiers, so a wrapper carries the radius and the shadow), else
+// a vertical gradient from the manifest's `icon = "symbol|#top|#bottom"`, else a neutral tile
+// (glassCard fill, glassEdge hairline). Presentational: the label and the handlers belong to
+// the tile that uses it.
+
+Component AppIconMd {
+    props: {
+        icon: Str,
+        iconTop: Str,
+        iconBottom: Str,
+        iconArt: Str,
+    }
+    if $props.iconArt != "" {
+        Stack {
+            Image { source: $props.iconArt, size: 56 }
+        }
+        .width(56)
+        .height(56)
+        .rounded(lg)
+        .shadow(shadow2)
+    } else { if $props.iconTop != "" {
+        Stack {
+            Icon { symbol: $props.icon, size: 28 }
+                .fg(onAccent)
+        }
+        .width(56)
+        .height(56)
+        .bgGradient($props.iconTop, $props.iconBottom)
+        .rounded(lg)
+        .shadow(shadow2)
+        .align(center)
+        .justify(center)
+    } else {
+        Stack {
+            Icon { symbol: $props.icon, size: 28 }
+                .fg(label)
+        }
+        .width(56)
+        .height(56)
+        .bg(glassCard)
+        .border(hairline)
+        .borderColor(glassEdge)
+        .rounded(lg)
+        .shadow(shadow2)
+        .align(center)
+        .justify(center)
+    } }
+}

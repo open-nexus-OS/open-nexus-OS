@@ -23,11 +23,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         .and_then(Value::as_array)
         .ok_or("metadata missing workspace members")?;
 
-    // Allowlist:
-    // - `launcher` is a thin UI contract client used in TASK-0055 host/OS proofs and
-    //   intentionally depends on `windowd` for now.
-    // - `nexus-abi` is a shared ABI crate used by both userland and kernel.
-    let userspace_root_allowlist: HashSet<&str> = ["launcher"].into_iter().collect();
+    // Allowlist: none — `nexus-abi` is a shared ABI crate under `source/libs`, used by userland
+    // and kernel alike, so it is not a userspace root (the Rust TASK-0055 launcher client that
+    // once depended on `windowd` is gone, TASK-0353 P6).
+    let userspace_root_allowlist: HashSet<&str> = HashSet::new();
     let banned_names: HashSet<&str> = ["samgrd", "kernel"].into_iter().collect();
     let mut banned: HashSet<String> = packages
         .iter()

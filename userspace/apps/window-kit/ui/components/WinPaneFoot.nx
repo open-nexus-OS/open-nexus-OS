@@ -1,0 +1,28 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// A `WinPane`'s footer zone (design artifacts: WindowPane): a hairline (none with `noDividers`),
+// then the `footer` slot in a row — min 44, padding 4 × `padX` (8 on the bare zone, 12 on the
+// panel), gap 8. Absent when `shown` is false: the empty placeholder `WinPane` expects.
+Component WinPaneFoot {
+    props: {
+        shown: Bool,
+        padX: Int,
+        noDividers: Bool,
+    }
+    slot footer
+    if $props.shown {
+        WinPaneRule { hidden: $props.noDividers }
+        Stack {
+            Slot footer
+        }
+        .direction(row)
+        .align(center)
+        .gap(8)
+        .minHeight(44)
+        .paddingY(4)
+        .paddingX($props.padX)
+    } else {
+        Stack { }
+    }
+}

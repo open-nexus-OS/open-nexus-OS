@@ -431,7 +431,7 @@ impl<'p> View<'p> {
             // The overlay layers' own box ids (the backdrop test needs the
             // layer's rect; `0` = the node did not resolve, which never
             // happens for an emitted container).
-            for entry in overlays.entries_mut() {
+            for entry in overlays.every_mut() {
                 entry.box_id = interact::path_to_box_id(&scene, &entry.path).unwrap_or(0);
             }
             // The frame is built: its generation is kept. Every `?` above drops

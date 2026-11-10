@@ -5,7 +5,7 @@ role: guide
 subsystem: ui
 sources: [source/drivers/gpud/src/backend, source/drivers/gpud/src/service.rs, source/drivers/gpud/src/present_chain.rs, source/services/windowd/src/compositor, source/libs/nexus-display-proto/src]
 contracts: [RFC-0093, RFC-0098, RFC-0101, RFC-0110, RFC-0114, ADR-0038, ADR-0078, ADR-0092]
-verified: 2026-11-05
+verified: 2026-11-10
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -61,7 +61,7 @@ On the board the ring is one contiguous object made for the controller (it canno
 3. The ack echoes the seq and status and carries `frame_time::Shown`: when the frame reached the glass, the refresh period, the cadence. windowd's `frame_clock.rs` predicts the next shown time from it; clients waiting on `OP_SURFACE_FRAME_REQ` get that time.
 4. A present the virtio device lost (`present_lost`) is NACKed; windowd re-sends the damage.
 
-App surfaces are composed by reference: windowd asks for a buffer per surface (`OP_SURFACE_ALLOC` 18, `OP_SURFACE_FREE` 19). gpud makes it for the sampling device and charges the owner (`surface_serve.rs`, `surfaces.rs`). On the board each surface is bound whole in windowd's GPU context; its binding table grows from the heap (`VmSpace`, ADR-0093) up to the layout's GiB (`surface_va.rs`); `gpud: bindings (in_use= of=)` counts them. A freed buffer closes after the last present that could read it retired. Across a compositor restart (RFC-0112 Phase 3) gpud keeps every object as an orphan with its last drawn place (`surfaces.rs: note_places`); the new windowd adopts the shown ones before its first frame (`OP_SURFACE_ADOPT` 20, `surface_adopt.rs`) as ghost windows until each app presents again; the rest are released.
+App surfaces are composed by reference: windowd asks for a buffer per surface (`OP_SURFACE_ALLOC` 18, `OP_SURFACE_FREE` 19). Their pixels are straight-alpha BGRA (RFC-0109; app-host converts, `straight_alpha.rs`). gpud makes it for the sampling device and charges the owner (`surface_serve.rs`, `surfaces.rs`). On the board each surface is bound whole in windowd's GPU context; its binding table grows from the heap (`VmSpace`, ADR-0093) up to the layout's GiB (`surface_va.rs`); `gpud: bindings (in_use= of=)` counts them. A freed buffer closes after the last present that could read it retired. Across a compositor restart (RFC-0112 Phase 3) gpud keeps every object as an orphan with its last drawn place (`surfaces.rs: note_places`); the new windowd adopts the shown ones before its first frame (`OP_SURFACE_ADOPT` 20, `surface_adopt.rs`) as ghost windows until each app presents again; the rest are released.
 
 ## The three displays
 
@@ -85,7 +85,7 @@ The gate lines are a series (ADR-0094): `last=` is the last recorded cycle's val
 
 ## Debugging a broken hop
 
-Find the first broken hop and prove it in the smallest place first:
+Prove the first broken hop in the smallest place:
 
 1. capability route and rights,
 2. request/reply on the wire (`nexus_display_proto` host tests),
@@ -93,4 +93,4 @@ Find the first broken hop and prove it in the smallest place first:
 4. the downstream output (the `gpud: chain G…` hops),
 5. the observer marker.
 
-A marker QEMU misses while host tests are green is a hop the host tests do not cover.
+A marker QEMU misses while host tests pass is a hop they do not cover.

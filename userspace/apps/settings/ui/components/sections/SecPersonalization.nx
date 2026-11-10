@@ -10,9 +10,8 @@
 // chain, the third breadcrumb) is wired now rather than deferred — the
 // functional page needed it.
 //
-// Its subtitle is the live selection, so the row reads back what the page
-// below it set. The DSL has no string concatenation, so where the design
-// writes "Dunkel · Nexus Blau · Icons Standard" this shows the mode alone.
+// Its subtitle is the live selection ("Dunkel · Nexus Blau · Icons Standard"), so the row reads
+// back what the page below it set — `PerLookRow`.
 
 Component SecPersonalization {
     Stack {
@@ -22,22 +21,7 @@ Component SecPersonalization {
                     trailing { SetValue { value: @t("per.wallpaperV") } }
                 }
                 SetHairline { }
-                Stack {
-                    if $state.apMode == "light" {
-                        SetRow { title: @t("per.appearance"), subtitle: @t("ap.light"), icon: "paintpalette", showChevron: true } {
-                            trailing { }
-                        }
-                    } else if $state.apMode == "auto" {
-                        SetRow { title: @t("per.appearance"), subtitle: @t("ap.auto"), icon: "paintpalette", showChevron: true } {
-                            trailing { }
-                        }
-                    } else {
-                        SetRow { title: @t("per.appearance"), subtitle: @t("ap.dark"), icon: "paintpalette", showChevron: true } {
-                            trailing { }
-                        }
-                    }
-                }
-                on Tap -> dispatch(OpenSub("appearance"))
+                PerLookRow { }
             }
         }
         SetGroup { label: @t("per.gType"), note: "" } {
@@ -47,64 +31,27 @@ Component SecPersonalization {
                 }
             }
         }
-        // Fenster (TASK-0066): the tiling keys windowd applies live — the desktop
-        // default model's three switches, same tap-cycle rows as the IME toggle.
+        // Fenster (TASK-0066): the tiling keys windowd applies live — the desktop default
+        // model's two switches as toggle rows and the margin as a select row (`ToggleRows`,
+        // `SelMargin` + `MarginPicker`).
         SetGroup { label: @t("per.gWindows"), note: @t("per.chordsNote") } {
             rows {
-                if $state.tileEdges == "on" {
-                    Stack {
-                        SetRow { title: @t("per.tileEdges"), subtitle: "", icon: "square.grid", showChevron: false } {
-                            trailing { SetValue { value: @t("set.on") } }
-                        }
-                    }
-                    on Tap -> dispatch(SetTileEdges("off"))
-                } else {
-                    Stack {
-                        SetRow { title: @t("per.tileEdges"), subtitle: "", icon: "square.grid", showChevron: false } {
-                            trailing { SetValue { value: @t("set.off") } }
-                        }
-                    }
-                    on Tap -> dispatch(SetTileEdges("on"))
-                }
+                RowTileEdges { }
                 SetHairline { }
-                if $state.tileMargin == "8" {
-                    Stack {
-                        SetRow { title: @t("per.tileMargin"), subtitle: "", icon: "columns.2", showChevron: false } {
-                            trailing { SetValue { value: @t("per.tileMarginV8") } }
+                Stack {
+                    SetRow { title: @t("per.tileMargin"), subtitle: "", icon: "columns.2", showChevron: false } {
+                        trailing {
+                            Stack {
+                                SelMargin { }
+                            }
+                            .width(210)
+                            on Tap -> dispatch(OpenPicker("margin"))
                         }
                     }
-                    on Tap -> dispatch(SetTileMargin("16"))
-                } else if $state.tileMargin == "16" {
-                    Stack {
-                        SetRow { title: @t("per.tileMargin"), subtitle: "", icon: "columns.2", showChevron: false } {
-                            trailing { SetValue { value: @t("per.tileMarginV16") } }
-                        }
-                    }
-                    on Tap -> dispatch(SetTileMargin("0"))
-                } else {
-                    Stack {
-                        SetRow { title: @t("per.tileMargin"), subtitle: "", icon: "columns.2", showChevron: false } {
-                            trailing { SetValue { value: @t("per.tileMarginV0") } }
-                        }
-                    }
-                    on Tap -> dispatch(SetTileMargin("8"))
                 }
+                on Tap -> dispatch(OpenPicker("margin"))
                 SetHairline { }
-                if $state.tileChords == "on" {
-                    Stack {
-                        SetRow { title: @t("per.tileChords"), subtitle: "", icon: "keyboard", showChevron: false } {
-                            trailing { SetValue { value: @t("set.on") } }
-                        }
-                    }
-                    on Tap -> dispatch(SetTileChords("off"))
-                } else {
-                    Stack {
-                        SetRow { title: @t("per.tileChords"), subtitle: "", icon: "keyboard", showChevron: false } {
-                            trailing { SetValue { value: @t("set.off") } }
-                        }
-                    }
-                    on Tap -> dispatch(SetTileChords("on"))
-                }
+                RowTileChords { }
             }
         }
         SetGroup { label: @t("per.gEffects"), note: "" } {
@@ -114,21 +61,21 @@ Component SecPersonalization {
                 // lighter cards, nothing blurred. The row dispatches; the toggle shows the state.
                 if $state.apMaterial == "solid" {
                     Stack {
-                        SetRow { title: @t("per.reduceTransparency"), subtitle: "", icon: "eye", showChevron: false } {
+                        SetRow { title: @t("per.reduceTransparency"), subtitle: "", icon: "", showChevron: false } {
                             trailing { Toggle { checked: true, label: @t("per.reduceTransparency") } }
                         }
                     }
                     on Tap -> dispatch(SetMaterial("glass"))
                 } else {
                     Stack {
-                        SetRow { title: @t("per.reduceTransparency"), subtitle: "", icon: "eye", showChevron: false } {
+                        SetRow { title: @t("per.reduceTransparency"), subtitle: "", icon: "", showChevron: false } {
                             trailing { Toggle { checked: false, label: @t("per.reduceTransparency") } }
                         }
                     }
                     on Tap -> dispatch(SetMaterial("solid"))
                 }
-                SetHairline { }
-                SetRow { title: @t("per.reduceMotion"), subtitle: "", icon: "eye", showChevron: false } {
+                SetHairline { plain: true }
+                SetRow { title: @t("per.reduceMotion"), subtitle: "", icon: "", showChevron: false } {
                     trailing { Toggle { checked: $state.tgReduceMotion, label: @t("per.reduceMotion") } }
                 }
             }

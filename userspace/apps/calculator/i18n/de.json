@@ -8,5 +8,10 @@
   "win.close": "Schließen",
   "win.fullscreen": "Vollbild",
   "win.minimize": "Minimieren",
-  "win.moveDevice": "Auf anderes Gerät bewegen"
+  "win.moveDevice": "Auf anderes Gerät bewegen",
+  "win.moveLabel": "Verschieben & Größe",
+  "win.arrangeLabel": "Füllen & Anordnen",
+  "win.soon": "Bald",
+  "calc.menu.clearAll": "Alles löschen",
+  "calc.menu.copy": "Ergebnis kopieren"
 }

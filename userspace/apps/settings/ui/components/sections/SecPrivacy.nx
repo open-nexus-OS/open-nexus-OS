@@ -23,7 +23,7 @@ Component SecPrivacy {
         }
         SetGroup { label: @t("prv.gLock"), note: "" } {
             rows {
-                SetRow { title: @t("prv.lockNow"), subtitle: "", icon: "lock", showChevron: false } {
+                SetRow { title: @t("prv.lockNow"), subtitle: "", icon: "", showChevron: false } {
                     trailing { Toggle { checked: $state.tgLockNow, label: @t("prv.lockNow") } }
                 }
                 SetHairline { }
@@ -34,7 +34,7 @@ Component SecPrivacy {
         }
         SetGroup { label: @t("prv.gData"), note: "" } {
             rows {
-                SetRow { title: @t("prv.diagnostics"), subtitle: "", icon: "cylinder", showChevron: false } {
+                SetRow { title: @t("prv.diagnostics"), subtitle: "", icon: "", showChevron: false } {
                     trailing { Toggle { checked: $state.tgDiagnostics, label: @t("prv.diagnostics") } }
                 }
                 SetHairline { }

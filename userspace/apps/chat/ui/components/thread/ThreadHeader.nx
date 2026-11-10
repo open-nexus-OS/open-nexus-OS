@@ -1,0 +1,49 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The thread header (64 high, padding 12, gap 12): on the narrower tiers a back button (the list
+// and the thread take turns there), the avatar 40, the name (subheadline semibold) beside its
+// badges over the address (caption), and the round actions. Without presence data the second line
+// is the address, not an "online" status. Text never wraps, so on the narrower tiers the badges
+// take the second line and the address stays in Chat-Info.
+
+Component ThreadHeader {
+    Stack {
+        if device.sizeClass != "wide" {
+            Stack {
+                WinButtonFace { symbol: "chevron.left", size: 14, active: false, danger: false, disabled: false, large: false }
+            }
+            .label(@t("chat.back"))
+            on Tap -> dispatch(BackToList)
+        } else {
+            Stack { }
+        }
+        Avatar { initials: $state.ini, size: 40 }
+        if device.sizeClass == "wide" {
+            Stack {
+                Stack {
+                    Text($state.threadName).textStyle(subheadline).fontWeight(semibold).fg(label)
+                    ThreadBadges { }
+                }
+                .direction(row)
+                .align(center)
+                .gap(6)
+                Text($state.addr).textStyle(caption).fg(labelSecondary)
+            }
+            .gap(4)
+            .grow(1)
+        } else {
+            Stack {
+                Text($state.threadName).textStyle(subheadline).fontWeight(semibold).fg(label)
+                ThreadBadges { }
+            }
+            .gap(4)
+            .grow(1)
+        }
+        ThreadActions { }
+    }
+    .direction(row)
+    .align(center)
+    .gap(12)
+    .padding(12)
+}

@@ -14,7 +14,9 @@
 use crate::boxes::PlaceCtx;
 use crate::LayoutBox;
 use alloc::vec::Vec;
-use nexus_layout_types::{Align, FlexItem, FxPx, Justify, LayoutNode, Overflow, Rect, ScrollAxis};
+use nexus_layout_types::{
+    Align, FlexItem, FxPx, Justify, LayoutNode, Overflow, Rect, ScrollAxis, Stack,
+};
 
 /// RFC-0109: whether a container with `overflow` is the scroll ROOT of its content — a scroll
 /// container not itself inside another's content. A root's content is placed at identity and
@@ -136,6 +138,75 @@ pub(crate) fn effective_item(child: &LayoutNode) -> FlexItem {
         item.flex_grow = item.flex_grow.max(spacer.flex_grow);
     }
     item
+}
+
+/// Whether `child` of the row `stack` is a page of a paged scroller (`.scroll(paged)`): the host
+/// snaps the offset by whole viewport widths, so a child without a width of its own is one
+/// viewport wide — a launcher page on a wider screen than its grid, its grid centred in it. A
+/// child that pins its width (`.width(n)`) keeps it.
+pub(crate) fn is_page(stack: &Stack, child: &LayoutNode) -> bool {
+    let pinned = match child {
+        LayoutNode::Stack(s, ..) => s.min_width.is_some() && s.min_width == s.max_width,
+        LayoutNode::Grid(g, ..) => g.min_width.is_some() && g.min_width == g.max_width,
+        _ => false,
+    };
+    matches!(stack.overflow, Overflow::Scroll(ScrollAxis::Paged)) && !pinned
+}
+
+/// The main-axis basis a row child is distributed with, margins included: a page's viewport
+/// ([`is_page`]), its `.basis(n)`, or its measured width.
+pub(crate) fn main_basis(
+    stack: &Stack,
+    child: &LayoutNode,
+    item: &FlexItem,
+    measured: FxPx,
+    viewport: FxPx,
+) -> FxPx {
+    match is_page(stack, child) {
+        true => viewport.max(item.margin.horizontal()),
+        false => item.flex_basis.unwrap_or(measured) + item.margin.horizontal(),
+    }
+}
+
+/// The item a row child is placed with: a page lays its subtree out against its whole width, as a
+/// flex-grown child does (`row_child_constraints`), so its own alignment centres what it holds.
+pub(crate) fn placed_item(stack: &Stack, child: &LayoutNode, item: FlexItem) -> FlexItem {
+    match is_page(stack, child) {
+        true => FlexItem { flex_grow: item.flex_grow.max(1), ..item },
+        false => item,
+    }
+}
+
+/// The width a column stretches `child` to: the parent's content width less its margins, within
+/// the child's own bounds — a stretched `.width(340)` login column or `.maxWidth(520)` search bar
+/// keeps its width (and sits at the cross start) instead of taking the column's.
+pub(crate) fn stretch_width(child: &LayoutNode, item: &FlexItem, content: FxPx) -> FxPx {
+    let (min, max) = match child {
+        LayoutNode::Stack(s, ..) => (s.min_width, s.max_width),
+        LayoutNode::Grid(g, ..) => (g.min_width, g.max_width),
+        _ => (None, None),
+    };
+    clamp_width(content.saturating_sub(item.margin.horizontal()), min, max)
+}
+
+/// The cross extent a row hands `child`, margins included: a stretched child's is the row's height
+/// within its own height bounds — a stretched `.height(28)` pill keeps 28 (at the cross start)
+/// instead of taking the row's; a child that aligns otherwise is laid out against the whole row.
+pub(crate) fn stretch_cross(
+    child: &LayoutNode,
+    item: &FlexItem,
+    align: Align,
+    cross: FxPx,
+) -> FxPx {
+    if !matches!(align, Align::Stretch) {
+        return cross;
+    }
+    let (min, max) = match child {
+        LayoutNode::Stack(s, ..) => (s.min_height, s.max_height),
+        LayoutNode::Grid(g, ..) => (g.min_height, g.max_height),
+        _ => (None, None),
+    };
+    clamp_height(cross.saturating_sub(item.margin.vertical()), min, max) + item.margin.vertical()
 }
 
 /// Whether this child is a `.scroll(...)` viewport. Such a node measures

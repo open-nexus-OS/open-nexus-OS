@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // The design artifacts' WindowActionBar container: the floating capsule at the
-// bottom of a content pane — a TabBar on the opaque OVERLAY surface (it floats
-// above the content, so it never blurs): surfaceOverlay, a 1 px glassEdge,
+// bottom of a content pane — a TabBar on the OVERLAY surface, frosted over the
+// content scrolling under it (glassOverlay over the regular blur), a 1 px glassEdge,
 // shadow3 and the lit top line, padding 4, items 2 px apart. The items are
 // `WinActionFace` (wrapped in the app's tap) or `WinActionItem`; the one the
 // app marks `active` carries the `fill` indicator. `WinActionDivider` is the

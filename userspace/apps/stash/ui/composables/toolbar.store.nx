@@ -24,13 +24,13 @@ Store ToolbarStore {
 }
 
 Event ToolbarEvent {
-    WinTool(Str),
+    ToolPick(Str),
     SearchChanged,
     SearchClear,
 }
 
 reduce ToolbarEvent {
-    WinTool(t) => {
+    ToolPick(t) => {
         if t == "square.grid.2x2" {
             state.viewMode = "grid";
         } else if t == "list.bullet" {
@@ -56,8 +56,12 @@ reduce ToolbarEvent {
 // back unfiltered — the effect belongs on `WinTool`, the event that is really
 // dispatched (an effect on an event nothing dispatches is a ROOT effect that
 // runs at mount, reducer arm included).
+// The window kit's tool press (its store closes the menu): the tool it names.
 @effect on WinTool(t) {
-    dispatch(WinMenu(""));
+    dispatch(ToolPick(t));
+}
+
+@effect on ToolPick(t) {
     dispatch(Relist);
 }
 

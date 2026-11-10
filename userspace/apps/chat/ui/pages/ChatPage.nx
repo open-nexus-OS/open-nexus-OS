@@ -1,67 +1,101 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Chat: the OVERVIEW of open conversations → picking one shows its transcript (sender-aligned
-// bubbles, derived from the sequence parity, never parsed from text). The page composes; the
-// pieces are `components/chat/`: ChatHeader, ChatOverview, ChatTranscript (the compositor's
-// scroll layer, RFC-0109) with ChatBubble, ChatComposer.
+// Chat, rebuilt to the design artifacts (Nexus Chat, the main screen: Chats with a conversation
+// open and Chat-Info shown): the window kit's chrome and body — space rail and navigation sidebar
+// on the left, the content pane (conversation list | thread) in the middle, Chat-Info on the right.
+// The page only composes; the zones are in `components/` (rail, sidebar, list, thread, composer,
+// info, menu), the state in `composables/`.
 
-// ONE window path (TASK-0337): window-kit's chrome inside this surface, the
-// transcript in an OPAQUE content pane (the materials rules — no glass on the
-// content layer), the window freeform and resizable like every other app.
+// ONE window path (TASK-0337): window-kit's chrome inside this surface. The window opens at the
+// artifact's size and is never smaller than a phone (RFC-0117: the window manager enforces both).
 Window {
     style: plain,
     mode: freeform,
     resizable: true,
+    width: 1240,
+    height: 780,
+    minWidth: 360,
+    minHeight: 600,
 }
 
 Page ChatPage {
     Stack {
-        WinTopBar {
-            icon: "message",
-            tool1: "",
-            tool2: "",
-            tool3: "",
-            tool1Active: false,
-            tool2Active: false,
-            tool3Active: false,
-            navBack: "",
-            navFwd: "",
-            navRefresh: "",
-            sideLeft: "",
-            sideRight: "",
-            more: "",
-            appId: "chat",
+        // The four centred tools (new chat, search, call, mini-apps; only search works yet) would sit on the toggles of a phone-sized bar: they are left out there.
+        if device.sizeClass == "compact" {
+            WinTopBar {
+                icon: "message",
+                tool1: "",
+                tool2: "",
+                tool3: "",
+                tool1Active: false,
+                tool2Active: false,
+                tool3Active: false,
+                tool4: "",
+                tool4Active: false,
+                tool1Disabled: false,
+                tool2Disabled: false,
+                tool3Disabled: false,
+                tool4Disabled: false,
+                navBack: "",
+                navFwd: "",
+                navRefresh: "",
+                sideLeft: "sidebar.left",
+                sideRight: "sidebar.right",
+                more: "ellipsis.vertical",
+                appId: "chat",
+            }
+        } else {
+            WinTopBar {
+                icon: "message",
+                tool1: "plus",
+                tool2: "magnifyingglass",
+                tool3: "phone",
+                tool1Active: false,
+                tool2Active: $state.query != "",
+                tool3Active: false,
+                tool4: "square.grid.2x2",
+                tool4Active: false,
+                tool1Disabled: true,
+                tool2Disabled: false,
+                tool3Disabled: true,
+                tool4Disabled: true,
+                navBack: "",
+                navFwd: "",
+                navRefresh: "",
+                sideLeft: "sidebar.left",
+                sideRight: "sidebar.right",
+                more: "ellipsis.vertical",
+                appId: "chat",
+            }
         }
         WinAppWindow {
-            showSidebar: false,
-            showProps: false,
-            sidebarOverlay: false,
-            propsOverlay: false,
+            showSidebar: $state.leftOpen == 1,
+            showProps: $state.rightOpen == 1,
+            sidebarOverlay: $state.paneL == 1,
+            propsOverlay: $state.paneR == 1,
+            sidebarWidth: 298,
+            propsWidth: 250,
+            appMenuOpen: $state.menu == "more" || $state.menu == "more.datei" || $state.menu == "more.ansicht",
             menuFullscreen: @t("win.fullscreen"),
             menuMoveDevice: @t("win.moveDevice"),
             menuMinimize: @t("win.minimize"),
             menuClose: @t("win.close"),
+            menuMoveLabel: @t("win.moveLabel"),
+            menuArrangeLabel: @t("win.arrangeLabel"),
+            menuSoon: @t("win.soon"),
         } {
             sidebarLeft {
-                Stack { }
+                SidebarZone { }
             }
             contentArea {
-                Stack {
-                    ChatHeader { }
-                    Stack {
-                        ChatOverview { }
-                        ChatTranscript { }
-                    }
-                    .grow(1)
-                    ChatComposer { }
-                }
-                .gap(0)
-                .material(pane)
-                .grow(1)
+                ContentPane { }
             }
             sidebarRight {
-                Stack { }
+                InfoPane { }
+            }
+            appMenu {
+                ChatMenu { }
             }
         }
     }

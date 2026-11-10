@@ -71,16 +71,38 @@ pub struct OverlayEntry {
     pub box_id: usize,
 }
 
-/// The scene's kinded overlays in emit order (the last modal is the topmost).
+/// The scene's kinded overlays in emit order (the last modal is the topmost), and apart from
+/// them its bare `.overlay()` layers.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct OverlayStack {
     entries: Vec<OverlayEntry>,
+    /// The bare `.overlay()` layers (a menu, an overlay pane): no modal semantics, so the
+    /// stack's rules never see them — but a host that composes in layers needs them: a scroll
+    /// layer under one paints in the base, under it (app-host's `cover_layers`; a window's
+    /// sidebar overlay printed the content's text over itself while it did not know them).
+    plain: Vec<OverlayEntry>,
 }
 
 impl OverlayStack {
     #[must_use]
     pub const fn new() -> Self {
-        Self { entries: Vec::new() }
+        Self { entries: Vec::new(), plain: Vec::new() }
+    }
+
+    /// Records a bare `.overlay()` layer (no bound: it confines nothing).
+    pub fn push_plain(&mut self, entry: OverlayEntry) {
+        self.plain.push(entry);
+    }
+
+    /// The bare `.overlay()` layers, in emit order.
+    #[must_use]
+    pub fn plain(&self) -> &[OverlayEntry] {
+        &self.plain
+    }
+
+    /// Every layer, kinded and bare (their box ids are resolved together after emit).
+    pub(crate) fn every_mut(&mut self) -> impl Iterator<Item = &mut OverlayEntry> {
+        self.entries.iter_mut().chain(self.plain.iter_mut())
     }
 
     /// Records a kinded overlay; the modal beyond `MODAL_DEPTH_MAX` is refused.
@@ -98,10 +120,6 @@ impl OverlayStack {
     #[must_use]
     pub fn entries(&self) -> &[OverlayEntry] {
         &self.entries
-    }
-
-    pub(crate) fn entries_mut(&mut self) -> &mut [OverlayEntry] {
-        &mut self.entries
     }
 
     #[must_use]
@@ -133,23 +151,29 @@ impl OverlayStack {
     }
 }
 
-/// Records the node being emitted when its modifiers declare a kind (emit order = stacking
-/// order; the bound refuses the fifth modal). A disabled layer is still a layer — confinement
-/// is about where input may land, not whether the layer takes it.
+/// Records the node being emitted when its modifiers make it an overlay layer (emit order =
+/// stacking order; the bound refuses the fifth modal; a bare `.overlay()` is kept apart). A
+/// disabled layer is still a layer — confinement is about where input may land, not whether the
+/// layer takes it.
 pub(crate) fn note_kinded(
     ctx: &mut crate::emit::EmitCtx<'_, '_>,
     mods: &crate::registry::Mods,
 ) -> Result<(), RtError> {
-    let Some(kind) = mods.overlay.filter(|k| *k != OverlayKind::Plain) else {
+    let Some(kind) = mods.overlay else {
         return Ok(());
     };
-    ctx.overlays.push(OverlayEntry {
+    let entry = OverlayEntry {
         path: ctx.path.clone(),
         instance: ctx.instance,
         kind,
         dismiss_after_ms: mods.dismiss_after,
         box_id: 0,
-    })
+    };
+    if kind == OverlayKind::Plain {
+        ctx.overlays.push_plain(entry);
+        return Ok(());
+    }
+    ctx.overlays.push(entry)
 }
 
 /// Whether a handler at `path` is reachable while `confine` (the topmost modal's path) is in
@@ -198,5 +222,17 @@ mod tests {
         assert!(!reachable(&[0], Some(&[0, 1])), "an ancestor is outside the modal");
         assert!(reachable(&[7], None));
         let _ = vec![0u32];
+    }
+
+    #[test]
+    fn a_bare_overlay_is_kept_apart_from_the_modal_stack() {
+        let mut stack = OverlayStack::new();
+        stack.push(entry(&[0, 1], OverlayKind::Modal)).unwrap();
+        stack.push_plain(entry(&[0, 2], OverlayKind::Plain));
+        assert_eq!(stack.modal_depth(), 1, "a bare layer is no modal");
+        assert_eq!(stack.entries().len(), 1, "the kinded stack holds only the modal");
+        assert_eq!(stack.plain().len(), 1, "the bare layer is kept for the host's layers");
+        assert_eq!(stack.every_mut().count(), 2, "box ids resolve for both");
+        assert!(!stack.is_empty() && stack.top_modal().is_some_and(|e| e.path == [0, 1]));
     }
 }

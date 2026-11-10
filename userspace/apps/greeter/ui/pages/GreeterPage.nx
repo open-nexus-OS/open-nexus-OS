@@ -1,9 +1,10 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The lock screen (design artifacts: lock screen) — the greeter's one page: the clock at the top,
-// the selected user with the password capsule in the middle, the other users and the power
-// buttons at the bottom, on the wallpaper with its tint. Authority stays in sessiond: the page
+// The lock screen (design artifacts: lock screen) — the greeter's one page: the lock layer
+// (`LockLayer`: the clock at the top, the selected user with the password capsule in the middle,
+// the other users and the power buttons at the bottom, on the wallpaper with its tint) at the
+// artifact's insets for the size class. Authority stays in sessiond: the page
 // asks through `SessionStore` (`ui/composables/session.store.nx`) and shows the answer.
 //
 // The desktop band, full screen, never resized: the greeter is the session's first surface.
@@ -16,31 +17,11 @@ Window {
 
 Page GreeterPage {
     Stack {
-        Stack {
-            LockClock { }
-            Spacer
-            Stack {
-                SelectedUser { }
-                PasswordField { }
-                LoginStatus { }
-            }
-            .align(center)
-            .gap(16)
-            .width(340)
-            .transition(slideUp)
-            Spacer
-            Stack {
-                UserSwitcher { }
-                Spacer
-                PowerButtons { }
-            }
-            .direction(row)
-            .align(end)
-            .paddingX(24)
-            .paddingY(16)
+        if device.sizeClass == "compact" {
+            LockLayer { insetY: 32, insetX: 16 }
+        } else {
+            LockLayer { insetY: 48, insetX: 48 }
         }
-        .grow(1)
-        .bg(wallpaperTint)
     }
     .bgFade(transparent, scrim)
 }

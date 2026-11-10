@@ -1,37 +1,33 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Modus: light / dark / automatic tiles (automatic is local-only, see AppearanceView).
+// Modus: light / dark / automatic tiles in a Grid of three columns (gap 12), single selection
+// (design §2.9). Automatic is local-only, see AppearanceView. The tiles' preview colours are
+// content, passed as hex per mode: the preview gradient, the mock window's fill and its bars.
 
 Component ApModeBlock {
     Stack {
-        Stack {
-            Text(@t("ap.mode")).textStyle(overline).fg(labelSecondary)
+        ApHeader { title: @t("ap.mode") } {
+            trailing { }
         }
-        .paddingX(16)
-        Stack {
+        Grid(3) {
             Stack {
-                ApModeTile { label: @t("ap.light"), top: "#eef3fb", bottom: "#cdd9ee", selected: $state.apMode == "light" }
+                ApModeTile { label: @t("ap.light"), top: "#eef3fb", bottom: "#cdd9ee", win: "#ffffffd1", bar: "#0f172a2e", selected: $state.apMode == "light" }
             }
-            .minWidth(150)
             .grow(1)
             on Tap -> dispatch(SetTheme("light"))
             Stack {
-                ApModeTile { label: @t("ap.dark"), top: "#0d1117", bottom: "#1a2744", selected: $state.apMode == "dark" }
+                ApModeTile { label: @t("ap.dark"), top: "#0d1117", bottom: "#1a2744", win: "#ffffff1a", bar: "#ffffff42", selected: $state.apMode == "dark" }
             }
-            .minWidth(150)
             .grow(1)
             on Tap -> dispatch(SetTheme("dark"))
             Stack {
-                ApModeTile { label: @t("ap.auto"), top: "#eef3fb", bottom: "#101a2e", selected: $state.apMode == "auto" }
+                ApModeTile { label: @t("ap.auto"), top: "#eef3fb", bottom: "#101a2e", win: "#ffffff6b", bar: "#5a698266", selected: $state.apMode == "auto" }
             }
-            .minWidth(150)
             .grow(1)
             on Tap -> dispatch(SetModeAuto)
         }
-        .direction(row)
-        .wrap(true)
-        .gap(8)
+        .gap(12)
         if $state.apMode == "auto" {
             Text(@t("ap.autoNote")).textStyle(footnote).fg(labelSecondary)
                 .paddingX(16)

@@ -1822,13 +1822,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "launcher"
-version = "0.1.0"
-dependencies = [
- "windowd",
-]
-
-[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2440,6 +2433,7 @@ version = "0.1.0"
 dependencies = [
  "nexus-layout",
  "nexus-layout-types",
+ "nexus-text-baked",
 ]
 
 [[package]]
@@ -2964,11 +2958,8 @@ version = "0.1.0"
 dependencies = [
  "nexus-layout-types",
  "nexus-style",
- "nexus-theme-tokens",
  "nexus-widget-button",
- "nexus-widget-icon",
  "nexus-widget-panel",
- "nexus-widget-text",
 ]
 
 [[package]]
@@ -4951,7 +4942,6 @@ version = "0.1.0"
 dependencies = [
  "capnp",
  "capnpc",
- "launcher",
  "windowd",
 ]
 

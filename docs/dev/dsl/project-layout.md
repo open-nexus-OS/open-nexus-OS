@@ -122,9 +122,10 @@ signatures land) has no neutral value; that app's own test drives it.
 **Splitting a page keeps the scene.** Components are inlined at compile time, so moving a
 subtree into a component with the same nesting emits the same scene: same boxes, same handler
 payloads. Two things do change it — a component reference inside a `List` template needs a
-keyed wrapper `Stack` (a collection's key is read from a widget root), and a slot cannot be
-forwarded into another component (`Slot x` inside a slot body is refused), so the zones that
-render a slot stay in the component that declares it.
+keyed wrapper `Stack` (a collection's key is read from a widget root). A component that renders
+its slots splits like any other: a slot body may place the enclosing component's own slot
+(`Card { } { body { Slot body } }`), forwarding what it received into the part (RFC-0084
+amendment) — `WinPane` composes `WinPaneHead`, `WinPaneBody` and `WinPaneFoot` this way.
 
 ## The manifest
 
@@ -153,9 +154,14 @@ time (`nx-dsl build`, `compile_project_dir`) the library's `ui/components/*.nx` 
 INTO the app's one canonical `.nxir`: there is no runtime component loading, one program has
 one hash. Rules, all fail-closed at build:
 
-- a library file may declare **components only** — no pages, stores, events or routes;
+- a file in `ui/components/` declares **components only**; a file in `ui/composables/` declares
+  **stores, events, reducers and effects only** (the state its components show) — no pages or
+  routes anywhere;
 - only the components the app references, transitively through the library's own
-  components, are pulled in;
+  components, are pulled in — and a composable when the app or a component it pulled in reads
+  a field of its store (`$state.<field>`): the window kit's chrome store comes with the chrome,
+  and an app reacts to a kit event with an effect of its own
+  (`@effect on WinMenuPick(id) { dispatch(NavPick(id)); }`), never by declaring it again;
 - a missing dependency folder, an empty `ui/components`, or a dependency the app never
   references fails the build with the reason.
 

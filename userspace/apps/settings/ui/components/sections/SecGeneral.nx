@@ -27,13 +27,14 @@ Component SecGeneral {
                 SetRow { title: @t("gen.autoTime"), subtitle: "", icon: "clock", showChevron: false } {
                     trailing { Toggle { checked: $state.tgAutoTime, label: @t("gen.autoTime") } }
                 }
-                SetHairline { }
+                SetHairline { plain: true }
                 Stack {
-                    SetRow { title: @t("gen.zone"), subtitle: "", icon: "globe", showChevron: false } {
+                    SetRow { title: @t("gen.zone"), subtitle: "", icon: "", showChevron: false } {
                         trailing {
                             Stack {
                                 SelZone { }
                             }
+                            .width(210)
                             on Tap -> dispatch(OpenPicker("zone"))
                         }
                     }
@@ -46,6 +47,7 @@ Component SecGeneral {
                             Stack {
                                 SelHourFmt { }
                             }
+                            .width(210)
                             on Tap -> dispatch(OpenPicker("hourfmt"))
                         }
                     }
@@ -61,6 +63,7 @@ Component SecGeneral {
                             Stack {
                                 SelRegion { }
                             }
+                            .width(210)
                             on Tap -> dispatch(OpenPicker("region"))
                         }
                     }
@@ -73,6 +76,7 @@ Component SecGeneral {
                             Stack {
                                 SelLanguage { }
                             }
+                            .width(210)
                             on Tap -> dispatch(OpenPicker("language"))
                         }
                     }
@@ -88,6 +92,7 @@ Component SecGeneral {
                             Stack {
                                 SelLayout { }
                             }
+                            .width(210)
                             on Tap -> dispatch(OpenPicker("layout"))
                         }
                     }
@@ -114,21 +119,7 @@ Component SecGeneral {
         }
         SetGroup { label: @t("gen.gSuggestions"), note: @t("gen.suggestionsNote") } {
             rows {
-                if $state.personalization == "on" {
-                    Stack {
-                        SetRow { title: @t("gen.personalization"), subtitle: "", icon: "textformat", showChevron: false } {
-                            trailing { SetValue { value: @t("set.on") } }
-                        }
-                    }
-                    on Tap -> dispatch(SetPersonalization("off"))
-                } else {
-                    Stack {
-                        SetRow { title: @t("gen.personalization"), subtitle: "", icon: "textformat", showChevron: false } {
-                            trailing { SetValue { value: @t("set.off") } }
-                        }
-                    }
-                    on Tap -> dispatch(SetPersonalization("on"))
-                }
+                RowPersonalization { }
                 SetHairline { }
                 Stack {
                     SetRow { title: @t("gen.forget"), subtitle: @t("gen.forgetSub"), icon: "trash", showChevron: false } {

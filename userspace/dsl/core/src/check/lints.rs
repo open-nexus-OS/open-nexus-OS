@@ -283,6 +283,7 @@ fn view_lints(node: &ViewNode, diags: &mut Vec<Diagnostic>) {
         ViewNode::Widget(widget) => {
             duplicate_modifiers(&widget.modifiers, diags);
             a11y_label(widget, diags);
+            a11y_tap_target(widget, diags);
             overlay_dismiss(widget, diags);
             for child in &widget.children {
                 view_lints(child, diags);
@@ -394,6 +395,50 @@ fn a11y_label(widget: &WidgetNode, diags: &mut Vec<Diagnostic>) {
             ),
         ));
     }
+}
+
+/// TASK-0357 P3 (NX0415): a tap target that is not an interactive widget — a `Stack` with
+/// `on Tap` — needs an accessible name as much as a `Button` does: its `.label(…)`, or something a
+/// reader can speak inside it (a `Text`, a widget's label prop, a component, which names itself).
+fn a11y_tap_target(widget: &WidgetNode, diags: &mut Vec<Diagnostic>) {
+    let tappable = widget.handlers.iter().any(|h| h.trigger.text == "Tap");
+    let Some(spec) = registry::widget_spec(&widget.name.text) else { return };
+    if !tappable || spec.interactive || widget.modifiers.iter().any(|m| m.name.text == "label") {
+        return;
+    }
+    if !names_itself(&widget.children) {
+        diags.push(Diagnostic::new(
+            DiagCode::UnnamedTapTarget,
+            widget.span,
+            format!(
+                "`{}` with `on Tap` needs an accessible name: `.label(…)` or a text inside it",
+                widget.name.text
+            ),
+        ));
+    }
+}
+
+/// Whether these nodes give a tap target a name to speak: a `Text`, a widget's label prop or
+/// `.label(…)`, a component reference (it names itself) or a slot (the caller's content).
+fn names_itself(nodes: &[ViewNode]) -> bool {
+    nodes.iter().any(|node| match node {
+        ViewNode::Widget(w) => {
+            let named_widget = registry::widget_spec(&w.name.text).is_none_or(|s| {
+                s.name == "Text"
+                    || s.label_prop.is_some_and(|p| w.props.iter().any(|(n, _)| n.text == p))
+            });
+            named_widget
+                || w.modifiers.iter().any(|m| m.name.text == "label")
+                || names_itself(&w.children)
+        }
+        ViewNode::If { arms, els, .. } => {
+            arms.iter().any(|(_, body)| names_itself(body)) || names_itself(els)
+        }
+        ViewNode::For { body, .. } => names_itself(body),
+        ViewNode::Collection(collection) => names_itself(&collection.body),
+        ViewNode::Match { arms, .. } => arms.iter().any(|arm| names_itself(&arm.body)),
+        ViewNode::Slot { .. } => true,
+    })
 }
 
 /// TASK-0074 D2 (NX0413): a kinded overlay is dismissed ONLY through its own

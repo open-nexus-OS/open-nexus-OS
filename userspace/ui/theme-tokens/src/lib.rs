@@ -283,7 +283,8 @@ impl Tokens for SolidTokens {
     fn color(&self, token: ColorToken) -> Rgba8 {
         match token {
             ColorToken::GlassPanel | ColorToken::GlassWindow => self.surfaces().0,
-            ColorToken::GlassCard => self.surfaces().1,
+            // A floating surface reads against the window under it: the lighter grey.
+            ColorToken::GlassCard | ColorToken::GlassOverlay => self.surfaces().1,
             other => self.base.color(other),
         }
     }

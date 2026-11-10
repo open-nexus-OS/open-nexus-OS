@@ -368,3 +368,176 @@ Page P {
         .expect("pointer routes");
     assert!(damage.is_some(), "the tap must land on the handler inside the slot body");
 }
+
+// ---------------------------------------------------------------- forwarding
+
+/// RFC-0084 amendment (2026-11-10): a body may place a slot of the component it is written in.
+/// `Pane` forwards the body its caller gave it into `Card`'s slot, next to its own title — the
+/// forwarded nodes come from the page, in the page's scope, at the place `Card` gives them.
+#[test]
+fn a_forwarded_slot_renders_the_outer_callers_body_where_the_inner_places_it() {
+    let texts = scene_texts(
+        r#"
+Component Card {
+    slot body
+    Stack {
+        Text("card-top")
+        Slot body
+        Text("card-bottom")
+    }
+}
+
+Component Pane {
+    props: {
+        title: Str,
+    }
+    slot body
+    Stack {
+        Card { } {
+            body {
+                Text($props.title)
+                Slot body
+            }
+        }
+    }
+}
+
+Page P {
+    Pane { title: "pane-title" } {
+        body {
+            Text("page-body")
+        }
+    }
+}
+"#,
+    );
+    assert_eq!(texts, ["card-top", "pane-title", "page-body", "card-bottom"]);
+}
+
+/// Forwarding chains: a slot handed on through two components still reads the page's body.
+#[test]
+fn a_slot_forwarded_twice_still_reads_the_first_callers_body() {
+    let texts = scene_texts(
+        r#"
+Component Inner {
+    slot c
+    Stack {
+        Text("inner")
+        Slot c
+    }
+}
+
+Component Middle {
+    slot b
+    Stack {
+        Inner { } {
+            c {
+                Text("middle")
+                Slot b
+            }
+        }
+    }
+}
+
+Component Outer {
+    slot a
+    Stack {
+        Middle { } {
+            b {
+                Text("outer")
+                Slot a
+            }
+        }
+    }
+}
+
+Page P {
+    Outer { } {
+        a {
+            Text("page")
+        }
+    }
+}
+"#,
+    );
+    assert_eq!(texts, ["inner", "middle", "outer", "page"]);
+}
+
+/// A forwarded slot the outer caller left unbound contributes nothing, as an unbound slot does.
+#[test]
+fn a_forwarded_unbound_slot_contributes_no_nodes() {
+    let texts = scene_texts(
+        r#"
+Component Card {
+    slot body
+    Stack {
+        Text("card-top")
+        Slot body
+        Text("card-bottom")
+    }
+}
+
+Component Pane {
+    slot body
+    Stack {
+        Card { } {
+            body {
+                Text("pane")
+                Slot body
+            }
+        }
+    }
+}
+
+Page P {
+    Pane { } {}
+}
+"#,
+    );
+    assert_eq!(texts, ["card-top", "pane", "card-bottom"]);
+}
+
+/// The splice law through forwarding: the outer caller's nodes become direct children of the
+/// inner region (a forwarded search field keeps growing across its strip), never a wrapper.
+#[test]
+fn a_forwarded_slot_splices_its_nodes_into_the_inner_region() {
+    let nxir = compile(
+        r#"
+Component Strip {
+    slot items
+    Stack {
+        Slot items
+    }
+    .direction(row)
+}
+
+Component Bar {
+    slot items
+    Strip { } {
+        items {
+            Slot items
+        }
+    }
+}
+
+Page P {
+    Bar { } {
+        items {
+            Text("a")
+            Text("b")
+            Text("c")
+        }
+    }
+}
+"#,
+    );
+    let tokens = nexus_theme_tokens::BaseTokens;
+    let device = FixtureEnv::default();
+    let symbols: Vec<String> = Vec::new();
+    let keys: Vec<u32> = Vec::new();
+    let locale = IdentityLocale { symbols: &symbols, keys: &keys };
+    let view = View::mount(&nxir, &tokens, &device, &locale).expect("mounts");
+    let kids = children(view.scene());
+    assert_eq!(kids.len(), 3, "three direct children, no wrapper: {kids:#?}");
+    assert_eq!(texts(view.scene()), ["a", "b", "c"]);
+}

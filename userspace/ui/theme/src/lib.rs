@@ -72,6 +72,11 @@ pub struct Theme {
     /// `[icons.symbols]` map of OUR SwiftUI-style symbol names → file stems.
     /// The icon build imports exactly these (curated, licence-clean).
     pub icons_path: Option<String>,
+    /// `[icons] own` — repo-relative directory of the project's OWN glyphs, drawn on the vendor
+    /// set's grid and stroke (a symbol whose file is `nexus:<stem>` resolves here, every other
+    /// in `path`): a glyph the design artifacts draw that no vendor file has never goes into the
+    /// vendored repo.
+    pub own_icons_path: Option<String>,
     pub icon_symbols: Vec<(String, String)>,
 }
 
@@ -197,6 +202,11 @@ impl ThemeRuntime {
     /// icons are theme-invariant).
     pub fn icons_path(&self) -> Option<&str> {
         self.themes.get(&Qualifier::Base).and_then(|t| t.icons_path.as_deref())
+    }
+
+    /// `[icons] own` — the project's own glyph directory (`nexus:<stem>` symbol files).
+    pub fn own_icons_path(&self) -> Option<&str> {
+        self.themes.get(&Qualifier::Base).and_then(|t| t.own_icons_path.as_deref())
     }
 
     /// `[icons.symbols]` — OUR symbol names → file stems (sorted, base theme).

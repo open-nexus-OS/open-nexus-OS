@@ -14,8 +14,8 @@ use crate::constraints::{child_constraints, row_child_constraints};
 use crate::error::LayoutError;
 use crate::geometry::{
     align_offset, clamp_height, clamp_to_max_height, clamp_width, effective_item, grow_shares,
-    intersect_clip, is_scroll_viewport, justify_offsets, scroll_content_size, scroll_root,
-    update_box_geometry,
+    intersect_clip, is_scroll_viewport, justify_offsets, main_basis, placed_item,
+    scroll_content_size, scroll_root, stretch_cross, stretch_width, update_box_geometry,
 };
 use alloc::vec::Vec;
 use nexus_layout_types::{
@@ -507,7 +507,7 @@ impl LayoutEngine {
             // `.basis(n)` replaces the MEASURED base size in the distribution
             // below, so `.grow` splits the row exactly instead of only sharing
             // out the leftover on top of unequal label widths.
-            let base_main = item.flex_basis.unwrap_or(measured.width) + item.margin.horizontal();
+            let base_main = main_basis(stack, child, &item, measured.width, content_width);
             fixed_main += base_main;
             total_grow += item.flex_grow;
             in_flow.push((index, child, item, measured, base_main));
@@ -584,12 +584,12 @@ impl LayoutEngine {
             let child_node_id = *node_count + 1;
             let child_c = row_child_constraints(
                 constraints,
-                *item,
+                placed_item(stack, child, *item),
                 align,
                 child_width,
                 measured.width,
                 measured.height,
-                available_cross,
+                stretch_cross(child, item, align, available_cross),
             );
             self.place_node(
                 child,
@@ -606,7 +606,7 @@ impl LayoutEngine {
             )?;
             let final_height =
                 if matches!(align, Align::Stretch) && constraints.max_height.is_some() {
-                    available_cross.saturating_sub(item.margin.vertical())
+                    stretch_cross(child, item, align, available_cross) - item.margin.vertical()
                 } else {
                     measured.height
                 };
@@ -750,7 +750,7 @@ impl LayoutEngine {
             // block `fill-available` rule.
             let fills = matches!(align, Align::Stretch) || is_scroll_viewport(child);
             let child_width = if fills {
-                content_width.saturating_sub(item.margin.horizontal())
+                stretch_width(child, item, content_width)
             } else {
                 measured.width.min(content_width.saturating_sub(item.margin.horizontal()))
             };

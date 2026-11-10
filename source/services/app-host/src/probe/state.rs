@@ -147,6 +147,9 @@ pub(super) struct DslApp {
     /// `probe/band.rs`), and the input chain's hop in the app: received → answered.
     pub(super) input_rx_ns: Option<u64>,
     pub(super) hop_input: nexus_ux_budgets::Hop,
+    /// The hovers that changed the hovered control in this window, and how many of them asked
+    /// for a raster (`probe/drag.rs`, `apphost: hops hover`): a hover is motion, so 0.
+    pub(super) hover_window: (u32, u32),
     /// The motion chain's hop in the app (RFC-0108 §hops, TASK-0354 P1): a pulse that found
     /// motion live → its present, and the wake-ups of the episode.
     pub(super) motion_hops: nexus_ux_budgets::chains::MotionHops,

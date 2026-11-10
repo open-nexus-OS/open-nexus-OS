@@ -1,0 +1,24 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The sidebar's profile strip: the signed-in identity (avatar 32, name body medium, address
+// footnote) and a `success` lock — the account is end-to-end verified. Authored: there is no
+// accounts service yet. No presence dot (no presence data), and the strip is not a control.
+
+Component ProfileFooter {
+    Stack {
+        Avatar { initials: "JS", size: 32 }
+        Stack {
+            Text(@t("chat.me.name")).textStyle(body).fontWeight(medium).fg(label)
+            Text("@jenning:nexus.chat").textStyle(footnote).fg(labelSecondary)
+        }
+        .gap(0)
+        .grow(1)
+        Icon { symbol: "lock", size: 14 }
+            .fg(success)
+    }
+    .direction(row)
+    .align(center)
+    .gap(12)
+    .paddingX(4)
+}

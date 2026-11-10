@@ -9,18 +9,20 @@ Component SelectedUser {
         Stack {
             if user.id == $state.selected {
                 Stack {
+                    // 96 px, initials `largeTitle` (the avatar's own style for its size, the
+                    // design artifacts' lock screen) — `display` has only digits baked, and a
+                    // letter in it fell back to the 14 px face.
                     Avatar {
                         name: user.label,
-                        size: 88,
+                        size: 96,
                     }
                     .material(card)
-                    .textStyle(display)
                     .fg(label)
                     .shadow(shadow3)
                     Text(user.label).textStyle(title2).fg(label).shadow(halo)
                 }
                 .align(center)
-                .gap(12)
+                .gap(16)
             } else {
                 Stack
             }

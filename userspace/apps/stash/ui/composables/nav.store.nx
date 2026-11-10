@@ -26,13 +26,13 @@ Store NavStore {
 }
 
 Event NavEvent {
-    WinMenuPick(Str),
-    WinNav(Str),
+    NavPick(Str),
+    NavStep(Str),
     OpenDir(Str),
 }
 
 reduce NavEvent {
-    WinMenuPick(id) => {
+    NavPick(id) => {
         state.backPath = state.path;
         state.backLabel = state.folderLabel;
         if id == "nav.recent" {
@@ -69,7 +69,7 @@ reduce NavEvent {
             state.folderLabel = "";
         }
     },
-    WinNav(dir) => {
+    NavStep(dir) => {
         if dir == "back" {
             state.path = state.backPath;
             state.folderLabel = state.backLabel;
@@ -86,14 +86,22 @@ reduce NavEvent {
     },
 }
 
+// The window kit's events (its store closes the menu): a sidebar pick and the toolbar's back.
 @effect on WinMenuPick(id) {
-    dispatch(WinMenu(""));
+    dispatch(NavPick(id));
+}
+
+@effect on WinNav(dir) {
+    dispatch(NavStep(dir));
+}
+
+@effect on NavPick(id) {
     dispatch(ClearSelection);
     dispatch(Reload);
 }
 
 // Back, forward and refresh all re-read the (possibly changed) location.
-@effect on WinNav(dir) {
+@effect on NavStep(dir) {
     dispatch(ClearSelection);
     dispatch(Reload);
 }

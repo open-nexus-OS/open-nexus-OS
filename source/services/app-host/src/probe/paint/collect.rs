@@ -42,14 +42,13 @@ pub(in crate::probe) fn collect_texts(
                     [c.b, c.g, c.r, c.a],
                 ));
             } else if let Some(placeholder) = &input.placeholder {
-                // Placeholder at ~55% of the content color (dimmed).
-                let dim = |v: u8| ((u16::from(v) * 140) / 255) as u8;
-                out.push(run_of(
-                    *index,
-                    placeholder.as_str(),
-                    &input.style,
-                    [dim(c.b), dim(c.g), dim(c.r), c.a],
-                ));
+                // The builder's theme colour (`labelTertiary`); without one the content colour at
+                // a third of its alpha — a fade, never a darkening (dark text stays dark at full
+                // alpha, which made a light-mode placeholder read as typed text).
+                let p = input
+                    .placeholder_color
+                    .unwrap_or(nexus_layout_types::Rgba8 { a: c.a / 3, ..c });
+                out.push(run_of(*index, placeholder.as_str(), &input.style, [p.b, p.g, p.r, p.a]));
             } else {
                 // Empty field without placeholder: keep an (empty) run —
                 // the caret bar anchors to a paint entry.
@@ -122,7 +121,8 @@ pub(in crate::probe) fn caret_input<'a>(
             use nexus_text_baked::measure_text::BakedTextMeasure;
             let (font, tracking) =
                 (BakedTextMeasure::font(&input.style), BakedTextMeasure::tracking(&input.style));
-            let c = input.style.color;
+            // The caret's colour: the field's tint (the builder resolved it), else the text's.
+            let c = input.caret_color.unwrap_or(input.style.color);
             Some((here, input.content.as_str(), font, tracking, [c.b, c.g, c.r, c.a]))
         }
         N::Stack(_, _, children) => {

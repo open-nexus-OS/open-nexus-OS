@@ -120,28 +120,28 @@ fn stash_compiles_and_mounts() {
 fn the_content_and_properties_regions_carry_a_window_pane() {
     with_stash(|view, tokens, device, locale| {
         fire(view, tokens, device, locale, "WinRight");
+        // Every material surface and whether it sits on another one (nested).
         let mut levels = Vec::new();
-        fn walk(node: &LayoutNode, out: &mut Vec<Material>) {
+        fn walk(node: &LayoutNode, nested: bool, out: &mut Vec<(Material, bool)>) {
+            let mut under = nested;
             if let LayoutNode::Stack(_, visual, _) = node {
                 if let Some(material) = visual.material {
-                    out.push(material);
+                    out.push((material, nested));
+                    under = true;
                 }
             }
             for child in children(node) {
-                walk(child, out);
+                walk(child, under, out);
             }
         }
-        walk(view.scene(), &mut levels);
-        let panes = levels.iter().filter(|l| **l == Material::Pane).count();
+        walk(view.scene(), false, &mut levels);
+        let panes = levels.iter().filter(|(l, _)| *l == Material::Pane).count();
         assert_eq!(panes, 2, "content and properties each carry one pane: {levels:?}");
-        assert!(
-            levels.contains(&Material::Overlay),
-            "the floating action bar is the opaque `overlay` surface: {levels:?}"
-        );
-        assert!(
-            !levels.iter().any(|m| m.blurs()),
-            "no region inside the window may blur (one blur per stack): {levels:?}"
-        );
+        // The floating action bar floats over the content (the kit's bottom slot, not inside the
+        // pane): a frosted `overlay` root — the one surface in the window that blurs, the list
+        // scrolling under it.
+        let roots: Vec<_> = levels.iter().filter(|(m, nested)| m.blurs() && !nested).collect();
+        assert_eq!(roots, [&(Material::Overlay, false)], "one blur root, the bar: {levels:?}");
     });
 }
 
@@ -243,7 +243,7 @@ fn the_search_field_opens_and_clears() {
         let magnifier = |view: &mut nexus_dsl_runtime::View<'_>| {
             let (event, case) = view
                 .runtime()
-                .event_case("ToolbarEvent", "WinTool")
+                .event_case("WindowEvent", "WinTool")
                 .expect("stash declares WinTool");
             let mut host = NoIo;
             view.dispatch(
@@ -304,7 +304,7 @@ fn the_view_mode_switches_between_list_and_grid() {
         let list = texts(view.scene());
         assert!(list.iter().any(|t| t == "Date"), "list mode shows column headers: {list:?}");
 
-        let (event, case) = view.runtime().event_case("ToolbarEvent", "WinTool").expect("WinTool");
+        let (event, case) = view.runtime().event_case("WindowEvent", "WinTool").expect("WinTool");
         let mut host = NoIo;
         view.dispatch(
             tokens,
@@ -338,7 +338,7 @@ fn the_view_mode_switches_between_list_and_grid() {
 fn tapping_the_open_search_field_claims_text_focus() {
     with_stash(|view, tokens, device, locale| {
         let (event, case) =
-            view.runtime().event_case("ToolbarEvent", "WinTool").expect("stash declares WinTool");
+            view.runtime().event_case("WindowEvent", "WinTool").expect("stash declares WinTool");
         let mut host = NoIo;
         view.dispatch(
             tokens,

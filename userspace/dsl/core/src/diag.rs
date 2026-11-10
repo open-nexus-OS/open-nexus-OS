@@ -83,11 +83,12 @@ pub enum DiagCode {
     // NX0409 (`MissingTimeout`) is RETIRED, not repurposed: it used to mean
     // "you forgot `timeoutMs:`" and the rule is now the opposite one. A code
     // whose meaning inverts is worse than a code that ends (TASK-0077B P0).
-    QueryShape,     // NX0410 (query outside the v1 shape contract)
-    SlotShape,      // NX0411 (slot declaration/placeholder/binding misuse)
-    RetiredTimeout, // NX0412 (`timeoutMs:` on a service call — the exchange has no clock)
+    QueryShape,       // NX0410 (query outside the v1 shape contract)
+    SlotShape,        // NX0411 (slot declaration/placeholder/binding misuse)
+    RetiredTimeout,   // NX0412 (`timeoutMs:` on a service call — the exchange has no clock)
     OverlayDismiss, // NX0413 (`.overlay(modal|transient)` without `on Dismiss`, or `.dismissAfter` off a transient)
     NestedBlur, // NX0414 (a blur material inside a blur material — RFC-0116: one blur per stack)
+    UnnamedTapTarget, // NX0415 (a tappable container without an accessible name — TASK-0357 P3)
     // --- lowering (NX05xx)
     LoweringUnsupported, // NX0501 (a construct outside the v0.1 lowering subset)
 }
@@ -137,6 +138,7 @@ impl DiagCode {
             DiagCode::RetiredTimeout => "NX0412",
             DiagCode::OverlayDismiss => "NX0413",
             DiagCode::NestedBlur => "NX0414",
+            DiagCode::UnnamedTapTarget => "NX0415",
             DiagCode::LoweringUnsupported => "NX0501",
         }
     }

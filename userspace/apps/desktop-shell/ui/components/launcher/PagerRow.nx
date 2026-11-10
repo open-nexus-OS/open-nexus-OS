@@ -1,0 +1,31 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The row of page dots for pages of `per` apps (design artifacts: PageControl md): 8 px of
+// padding on top, a 20 px tall band the dots centre in — gone (zero height, no gap) while the
+// whole list fits one page.
+
+Component PagerRow {
+    props: {
+        per: Int,
+    }
+    if len($state.apps) > $props.per {
+        Stack {
+            PagerDotSlot { page: 0, per: $props.per }
+            PagerDotSlot { page: 1, per: $props.per }
+            PagerDotSlot { page: 2, per: $props.per }
+            PagerDotSlot { page: 3, per: $props.per }
+            PagerDotSlot { page: 4, per: $props.per }
+            PagerDotSlot { page: 5, per: $props.per }
+        }
+        .direction(row)
+        .justify(center)
+        .align(center)
+        .gap(0)
+        .paddingTop(8)
+        .height(28)
+        .shrink(0)
+    } else {
+        Stack { }
+    }
+}

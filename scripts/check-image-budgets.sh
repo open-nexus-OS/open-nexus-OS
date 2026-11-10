@@ -79,17 +79,34 @@ fail=0
 printf '%-14s %10s %10s %6s\n' "image" "size" "budget" "used"
 printf '%-14s %10s %10s %6s\n' "--------------" "----------" "----------" "------"
 
+# The one service heap (TASK-0352 P8, ADR-0093): every service that links `nexus-service-entry`
+# carries the same 64 MiB `.bss` heap, committed page by page on first touch and bounded by the
+# owner's limit (memd), never by this gate. It is read from the source, as the arena is, and
+# subtracted from each image's `.bss`; everything else in `.bss` (app-host's frame arena, a
+# service's own tables) still counts, so a raise of THOSE still trips the gate.
+SERVICE_ENTRY="source/libs/nexus-service-entry/src/lib.rs"
+SERVICE_HEAP=$(($(grep -oP 'const HEAP_SIZE: usize = \K[0-9 *]+(?=;)' "$SERVICE_ENTRY" | head -1)))
+if ((SERVICE_HEAP <= 0)); then
+    echo "check-image-budgets: FAIL — could not read HEAP_SIZE from $SERVICE_ENTRY" >&2
+    exit 2
+fi
+
 check_one() {
     local name=$1 elf=$2 budget=$3
     # dec = text + data + bss — the image's span: text and data are copied at spawn, .bss is
-    # reserved and committed page by page on first touch (ADR-0077).
-    local dec
-    dec=$(size "$elf" | awk 'NR==2 {print $4}')
-    if [[ -z "$dec" ]]; then
+    # reserved and committed page by page on first touch (ADR-0077) — less the one service heap
+    # where the image carries it (ADR-0093, `SERVICE_HEAP` above).
+    local text data bss dec
+    read -r text data bss < <(size "$elf" | awk 'NR==2 {print $1, $2, $3}')
+    if [[ -z "$text" || -z "$data" || -z "$bss" ]]; then
         echo "check-image-budgets: FAIL — could not read size of $elf" >&2
         fail=1
         return
     fi
+    if ((bss >= SERVICE_HEAP)); then
+        bss=$((bss - SERVICE_HEAP))
+    fi
+    dec=$((text + data + bss))
     local pct=$((dec * 100 / budget))
     printf '%-14s %10d %10d %5d%%%s\n' "$name" "$dec" "$budget" "$pct" \
         "$( ((dec > budget)) && echo '  OVER' || true)"

@@ -22,6 +22,7 @@ pub const COLOR_TOKENS: &[&str] = &[
     "glassPanel",
     "glassWindow",
     "glassCard",
+    "glassOverlay",
     "glassEdge",
     "surfacePane",
     "surfaceOverlay",

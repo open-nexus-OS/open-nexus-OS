@@ -1,0 +1,45 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One desktop icon on the bare wallpaper (design artifacts: `AppIcon` md + the icon field): the
+// 56 px icon, a stable 8 px slot that holds the running dot (4×4, label at 70 %, 4 px under the
+// tile — the slot stays when the app is not running, so a state flip never shifts the label),
+// then the label with the wallpaper halo: subheadline semibold, one line, 72 px at most. The tile is 72 wide, so a long name never pushes
+// the icon off its column. Tap handlers attach at the use site.
+
+Component FieldTile {
+    props: {
+        label: Str,
+        icon: Str,
+        iconTop: Str,
+        iconBottom: Str,
+        iconArt: Str,
+        running: Bool,
+    }
+    Stack {
+        AppIconMd { icon: $props.icon, iconTop: $props.iconTop, iconBottom: $props.iconBottom, iconArt: $props.iconArt }
+        Stack {
+            if $props.running {
+                Stack { }
+                    .width(4)
+                    .height(4)
+                    .bg(label)
+                    .rounded(2)
+                    .opacity(179)
+            } else {
+                Stack { }
+                    .width(4)
+                    .height(4)
+            }
+        }
+        .height(8)
+        .align(center)
+        Stack {
+            Text($props.label).textStyle(subheadline).fontWeight(semibold).fg(label).shadow(halo)
+        }
+        .maxWidth(72)
+    }
+    .width(72)
+    .align(center)
+    .gap(4)
+}

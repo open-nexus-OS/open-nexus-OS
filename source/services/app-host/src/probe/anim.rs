@@ -65,11 +65,9 @@ const BREATHE_MID: f32 = 0.55;
 /// alloc a waypoint Vec every cycle, for as long as the widget lives.
 const SWEEP_SPRING: SpringConfig =
     SpringConfig { stiffness: 16.0, damping: 9.0, mass: 1.0, initial_velocity: 0.0 };
-/// Carousel step interval (`LOOP_CAROUSEL`): ~80ms per spoke — one revolution
-/// ≈ 1s over the 12 spokes, the classic activity-ring cadence.
-const SPINNER_STEP_NS: u64 = 80_000_000;
-/// Trailing-spoke minimum alpha (mirrors the Spinner builder's `TAIL_ALPHA`).
-const SPINNER_TAIL_ALPHA: u16 = 64;
+/// Carousel step interval (`LOOP_CAROUSEL`): one revolution in exactly 1 s over the 12 spokes
+/// (the design artifacts' activity ring, 83.3 ms a spoke).
+const SPINNER_STEP_NS: u64 = 1_000_000_000 / LOOP_CAROUSEL_SPOKES as u64;
 
 /// The property target for a driving value under a token — `MotionToken`'s own
 /// present/absent contract, which is the SSOT both this seed path and the app
@@ -381,14 +379,13 @@ impl AnimState {
         );
     }
 
-    /// Write the carousel's stepped spoke opacities: the leading spoke is
-    /// opaque, trailing spokes fade linearly to the tail alpha (mirrors the
-    /// Spinner builder's resting fade — stepping the lead rotates it).
+    /// Write the carousel's stepped spoke opacities: the leading spoke is opaque, the one `d`
+    /// behind it `(n − d)/n` — the Spinner builder's resting `(i+1)/12` fade, rotated.
     fn write_carousel(&mut self, node_id: usize, step: u8) {
         let n = LOOP_CAROUSEL_SPOKES;
         for i in 0..n {
             let d = (i + n - step as usize) % n;
-            let a = (255u16 - (255 - SPINNER_TAIL_ALPHA) * d as u16 / (n as u16 - 1)) as u8;
+            let a = (255 * (n - d) / n) as u8;
             self.node_mut(node_id + 1 + i).opacity = a;
         }
     }

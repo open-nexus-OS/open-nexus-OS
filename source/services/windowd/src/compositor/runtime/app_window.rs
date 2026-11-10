@@ -369,6 +369,7 @@ impl DisplayServerRuntime {
             self.text_focus = None;
             self.update_osk_visibility();
         }
+        self.caret.forget(surface_id);
         match owner {
             Owner::Desktop => self.desktop_surface_id = None,
             Owner::App(idx) => self.apps[idx].surface_id = None,

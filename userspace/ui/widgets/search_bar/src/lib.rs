@@ -279,10 +279,13 @@ impl SearchBar {
             .text_style(field::input_style(m, tokens))
             .value(self.value.clone())
             .fill_row()
-            .min_width(INPUT_MIN_WIDTH);
+            .min_width(INPUT_MIN_WIDTH)
+            .caret_color(tokens.color(self.tint));
         if self.tokens.is_empty() {
             if let Some(p) = &self.placeholder {
-                tf = tf.placeholder(p.clone());
+                tf = tf
+                    .placeholder(p.clone())
+                    .placeholder_color(tokens.color(ColorToken::LabelTertiary));
             }
         }
         if let Some(id) = self.id {

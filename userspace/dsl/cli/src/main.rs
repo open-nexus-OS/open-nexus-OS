@@ -11,6 +11,7 @@
 //!
 //! Exit codes: 0 ok, 1 diagnostics/violations, 2 usage/IO errors.
 
+use nexus_dsl_core::lexer::lex_counting_comments;
 use nexus_dsl_core::{check_file, format_file, has_errors, lower_file, parse_file, Severity};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -114,11 +115,23 @@ fn cmd_fmt(args: &[String]) -> ExitCode {
         return ExitCode::from(2);
     }
     let mut dirty = false;
+    let mut kept = false;
     for path in &files {
         let source = match read(path) {
             Ok(s) => s,
             Err(code) => return code,
         };
+        // The formatted output carries no comments: rewriting a commented file would delete
+        // them, licence header included. Such a file is reported and left as it is.
+        if let Ok((_, comments)) = lex_counting_comments(&source) {
+            if comments > 0 {
+                eprintln!(
+                    "{path}: {comments} comment(s) the formatter cannot keep — left unchanged"
+                );
+                kept = true;
+                continue;
+            }
+        }
         let file = match parse_file(&source) {
             Ok(f) => f,
             Err(diag) => {
@@ -137,7 +150,7 @@ fn cmd_fmt(args: &[String]) -> ExitCode {
             }
         }
     }
-    if check_only && dirty {
+    if kept || (check_only && dirty) {
         ExitCode::from(1)
     } else {
         ExitCode::SUCCESS

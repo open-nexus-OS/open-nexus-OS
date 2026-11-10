@@ -50,8 +50,8 @@ fn probe_settings_budgets() {
     probe(&mut view, "landing browse/connections");
     for (ev, case, val) in [
         ("NavEvent", "GoOverview", None),
-        ("NavEvent", "WinMenuPick", Some("general")),
-        ("NavEvent", "WinMenuPick", Some("personal")),
+        ("WindowEvent", "WinMenuPick", Some("general")),
+        ("WindowEvent", "WinMenuPick", Some("personal")),
     ] {
         let payload = val.map(|v| vec![Value::Str(v.into())]).unwrap_or_default();
         common::dispatch_with_keys(
@@ -243,10 +243,18 @@ fn probe_sidebar_width_mode_invariant() {
             .boxes
     };
     // The twelve sidebar rows (the window kit's two-line row: title + subtitle, 46 px), keyed by mode.
+    // Left of 100 is the sidebar alone (a content row that is 46 px high, a one-line settings row
+    // without its subtitle, starts right of the sidebar's 240), and the account footer — also 46
+    // px high now that its avatar carries the 2 px padding — is the pane's full 240 wide, the
+    // rows 224.
     let rows = |boxes: &[nexus_layout::LayoutBox]| -> Vec<(i32, i32)> {
         boxes
             .iter()
-            .filter(|b| b.rect.height.as_i32() == 46 && b.rect.x.as_i32() < 300)
+            .filter(|b| {
+                b.rect.height.as_i32() == 46
+                    && b.rect.x.as_i32() < 100
+                    && b.rect.width.as_i32() < 240
+            })
             .map(|b| (b.rect.x.as_i32(), b.rect.width.as_i32()))
             .collect()
     };

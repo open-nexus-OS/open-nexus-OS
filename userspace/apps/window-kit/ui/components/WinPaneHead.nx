@@ -1,0 +1,43 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// A `WinPane`'s header zone (design artifacts: WindowPane): min 44, padding 4 × `padX` (12 on
+// the bare zone, 16 on the panel) — the `title` (body 14/600 label) and/or the custom `header`
+// slot (a breadcrumb), then the `actions` slot right-aligned (WinButtonFace circles, gap 2) 8 px
+// apart, a hairline under it (none with `noDividers`). Absent when `shown` is false: the empty
+// placeholder `WinPane` expects in its column.
+Component WinPaneHead {
+    props: {
+        shown: Bool,
+        title: Str,
+        padX: Int,
+        noDividers: Bool,
+    }
+    slot header
+    slot actions
+    if $props.shown {
+        Stack {
+            WinPaneTitle { title: $props.title }
+            Slot header
+            Stack { }
+                .grow(1)
+                .shrink(0)
+            Stack {
+                Slot actions
+            }
+            .direction(row)
+            .align(center)
+            .gap(2)
+            .paddingLeading(8)
+            .shrink(0)
+        }
+        .direction(row)
+        .align(center)
+        .minHeight(44)
+        .paddingY(4)
+        .paddingX($props.padX)
+        WinPaneRule { hidden: $props.noDividers }
+    } else {
+        Stack { }
+    }
+}

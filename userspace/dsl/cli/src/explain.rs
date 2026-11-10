@@ -58,6 +58,7 @@ pub(crate) fn cmd_explain(args: &[String]) -> ExitCode {
         "NX0412" => "`timeoutMs:` on a service call. The exchange ends with the reply or the service's death, so a client timeout is a number that looks like a bound but is not one (RFC-0096).",
         "NX0413" => "A kinded overlay dismisses ONLY through its own handler: `.overlay(modal|transient)` needs `on Dismiss -> dispatch(..)` (ESC, backdrop tap and the transient's `.dismissAfter(ms)` all fire it), and `.dismissAfter` belongs on a transient layer.",
         "NX0414" => "A blur inside a blur: only the surface that sits on the wallpaper blurs (`panel`, `window`, `dock`, `thin`, `ultraThin`, and the `Panel` widget). A layer on it is `.material(card)` (translucent, no blur) or opaque (`pane`, `overlay`) — RFC-0116.",
+        "NX0415" => "A tap target without an accessible name: a container with `on Tap` (not a `Button` or another interactive widget) needs `.label(@t(…))`, or a text a reader can speak inside it — a backdrop that closes a sheet is named for what it does (\"Close\").",
         "NX0410" => "Query outside the v1 shape: eq/>=/<= only, ranges on the orderBy column, literal-or-param values, limit 1..=1000.",
         "NX0411" => "Slot misuse: slot blocks belong on a component that declares them, `Slot x` only inside that component, and a slot body cannot forward its host's slots (RFC-0084).",
         "NX0501" => "Valid syntax, but outside the v0.1 lowering subset (see the task notes).",

@@ -1,0 +1,55 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One conversation of the list: it hides itself unless it passes the three filters (the rail's
+// space, the filter chip, the search text — `ListStore`), shows the persistent `fill` layer while
+// it is the open conversation and opens itself on a tap (`OpenThread` with the row's data; on the
+// compact tier that also pushes the thread). Rows are 2 px apart: the gap lives in each visible
+// row's bottom padding, so a hidden row leaves none behind.
+
+Component ConversationRow {
+    props: {
+        id: Str,
+        name: Str,
+        ini: Str,
+        last: Str,
+        time: Str,
+        unread: Int,
+        verified: Bool,
+        bridge: Bool,
+        merged: Bool,
+        space: Str,
+        addr: Str,
+        t1: Str,
+        t1Tint: Str,
+        t2: Str,
+        t2Tint: Str,
+    }
+    if ($state.space == "all" || $state.space == $props.space) && ($state.chip == "all" || ($state.chip == "unread" && $props.unread > 0) || ($state.chip == "verified" && $props.verified) || ($state.chip == "bridges" && $props.bridge)) && ($state.query == "" || $state.query == $props.name) {
+        Stack {
+            if $state.thread == $props.id {
+                Stack {
+                    RowFace { name: $props.name, ini: $props.ini, last: $props.last, time: $props.time, unread: $props.unread, verified: $props.verified, t1: $props.t1, t1Tint: $props.t1Tint, t2: $props.t2, t2Tint: $props.t2Tint }
+                }
+                .paddingX(12)
+                .paddingY(8)
+                .rounded(md)
+                .bg(fill)
+                .label($props.name)
+                on Tap -> dispatch(OpenThread($props.id, $props.name, $props.ini, $props.addr, $props.t1, $props.t1Tint, $props.t2, $props.t2Tint, $props.verified, $props.bridge, $props.merged, $props.space, true))
+            } else {
+                Stack {
+                    RowFace { name: $props.name, ini: $props.ini, last: $props.last, time: $props.time, unread: $props.unread, verified: $props.verified, t1: $props.t1, t1Tint: $props.t1Tint, t2: $props.t2, t2Tint: $props.t2Tint }
+                }
+                .paddingX(12)
+                .paddingY(8)
+                .rounded(md)
+                .label($props.name)
+                on Tap -> dispatch(OpenThread($props.id, $props.name, $props.ini, $props.addr, $props.t1, $props.t1Tint, $props.t2, $props.t2Tint, $props.verified, $props.bridge, $props.merged, $props.space, true))
+            }
+        }
+        .paddingBottom(2)
+    } else {
+        Stack { }
+    }
+}

@@ -1,0 +1,57 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The ⋮ app menu, hung under the button by `WinAppWindow`'s `appMenu` slot: Datei ▸, Ansicht ▸, a
+// divider and Einstellungen, the open submenu flying out to the LEFT. The file entries and the
+// settings page have no destination yet and are shown dimmed; the view submenu's one entry shows
+// or hides Chat-Info (`WinRight`, the pane's single state). Rows are `WinMenuRow`s under this
+// app's own taps — `WinMenuItem` would bake `WinMenuPick`.
+
+Component ChatMenu {
+    Stack {
+        if $state.menu == "more.datei" {
+            WinMenu { width: 240 } {
+                items {
+                    WinMenuRow { label: @t("chat.menu.newChat"), icon: "message.square", kind: "disabled", shortcut: "", selected: false }
+                    WinMenuRow { label: @t("chat.menu.startCall"), icon: "phone", kind: "disabled", shortcut: "", selected: false }
+                    WinMenuRow { label: @t("chat.menu.addAccount"), icon: "plus", kind: "disabled", shortcut: "", selected: false }
+                }
+            }
+        } else if $state.menu == "more.ansicht" {
+            WinMenu { width: 240 } {
+                items {
+                    if ($state.rightOpen == 1 && device.sizeClass != "compact") || ($state.paneR == 1 && device.sizeClass == "compact") {
+                        Stack {
+                            WinMenuRow { label: @t("chat.menu.hideInfo"), icon: "sidebar.right", kind: "", shortcut: "", selected: false }
+                        }
+                        on Tap -> dispatch(WinRight)
+                    } else {
+                        Stack {
+                            WinMenuRow { label: @t("chat.menu.showInfo"), icon: "sidebar.right", kind: "", shortcut: "", selected: false }
+                        }
+                        on Tap -> dispatch(WinRight)
+                    }
+                }
+            }
+        } else {
+            Stack { }
+        }
+        WinMenu { width: 240 } {
+            items {
+                Stack {
+                    WinMenuRow { label: @t("chat.menu.file"), icon: "doc", kind: "subLeft", shortcut: "", selected: $state.menu == "more.datei" }
+                }
+                on Tap -> dispatch(WinMenu("more.datei"))
+                Stack {
+                    WinMenuRow { label: @t("chat.menu.view"), icon: "eye", kind: "subLeft", shortcut: "", selected: $state.menu == "more.ansicht" }
+                }
+                on Tap -> dispatch(WinMenu("more.ansicht"))
+                WinMenuDivider { }
+                WinMenuRow { label: @t("chat.menu.settings"), icon: "gearshape", kind: "disabled", shortcut: "", selected: false }
+            }
+        }
+    }
+    .direction(row)
+    .align(start)
+    .gap(0)
+}

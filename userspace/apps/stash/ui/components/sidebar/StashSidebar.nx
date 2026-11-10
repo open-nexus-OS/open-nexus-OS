@@ -26,7 +26,7 @@ Component StashSidebar {
             .gap(0)
         }
         footer {
-            Avatar { initials: "J", size: 34 }
+            Avatar { initials: "J", size: 34, status: "online" }
             Stack {
                 Text(@t("stash.userName")).textStyle(subheadline).fontWeight(medium).fg(label)
                 Text(@t("stash.userSub")).textStyle(caption).fg(labelSecondary)

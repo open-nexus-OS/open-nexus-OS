@@ -199,9 +199,38 @@ impl Cols {
     }
 }
 
+/// Whether a scroll layer is covered (RFC-0109): an overlay drawn after the layer's root — never
+/// its own content — PAINTS over its viewport (edges `x0, y0, x1, y1`). `painted`: each overlay's
+/// node id and the extent its subtree paints (`motion_math::paint_extent`), so a full-bleed layer
+/// that only places its content — a closed menu's host, a tap-catcher — covers nothing and the
+/// band under it keeps scrolling; the sheet it holds, once open, does cover.
+pub(crate) fn covered(
+    root: usize,
+    (vx0, vy0, vx1, vy1): (i32, i32, i32, i32),
+    painted: &[(usize, (i32, i32, i32, i32))],
+) -> bool {
+    painted
+        .iter()
+        .any(|&(id, (x0, y0, x1, y1))| id > root && x0 < vx1 && vx0 < x1 && y0 < vy1 && vy0 < y1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A layer is covered by what an overlay paints over its viewport: a sheet over the content
+    /// covers it; a full-bleed host painting nothing (absent from `painted`), an overlay beside
+    /// the viewport or one drawn before the layer's root does not — board cycle 2026-11-10: every
+    /// bare overlay counted by its box, and a closed menu's full-window host froze the scrolling.
+    #[test]
+    fn a_layer_is_covered_by_what_an_overlay_paints_and_not_by_its_box() {
+        let viewport = (300, 60, 1200, 800);
+        let sheet = (40, (0, 52, 320, 800));
+        assert!(covered(10, viewport, &[sheet]), "the open sheet lies over the content");
+        assert!(!covered(10, viewport, &[]), "a host painting nothing covers nothing");
+        assert!(!covered(10, viewport, &[(40, (0, 52, 280, 800))]), "beside the viewport");
+        assert!(!covered(50, viewport, &[sheet]), "drawn before the layer's root");
+    }
 
     /// A 1400-position ring for a 700-row viewport.
     fn band() -> Band {

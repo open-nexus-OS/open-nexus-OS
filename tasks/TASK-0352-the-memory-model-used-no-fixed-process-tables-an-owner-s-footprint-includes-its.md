@@ -6,7 +6,7 @@ status: in_progress
 status_note: "package 2 started 2026-11-03: P0 measure, kernel stories P5-P7 first, then the service tables P1-P3, app heap P8, board P4, address space P9"
 owner: ["@kernel-team", "@runtime"]
 created: 2026-11-03
-updated: 2026-11-03
+updated: 2026-11-10
 subsystem: kernel
 components: [execd, abilitymgr, memd, gpud]
 kind: service
@@ -93,6 +93,7 @@ phases:
     started: 2026-11-03
     done: 2026-11-03
     evidence: build/logs/headless--2026-11-03T16-58-06
+    note: "2026-11-10: the image budget gate (scripts/check-image-budgets.sh) counted this heap's 64 MiB .bss in every service image — all ~30x over budget since eb3b45de, unnoticed because test-all had not run since; it now subtracts the one service heap (HEAP_SIZE read from nexus-service-entry, ADR-0093: committed on touch, bounded by memd's limits) and still counts every other .bss — the operator's decision 2026-11-10"
   - id: P9
     story: "a process's address space is the whole user half, sparse: a reservation past 768 MiB maps"
     state: done

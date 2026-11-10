@@ -1,21 +1,36 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The 1px `divider` between two rows of a group, inset 16px on both sides so
-// it starts under the title and not under the icon (design LAYOUT.md).
+// The 1px `separator` between two rows of a group, from the TEXT column to the right edge
+// (design LAYOUT.md): 46 px in with a leading icon (16 + 18 + 12), 16 px without — a group whose
+// rows draw no icon passes `plain: true`.
 //
 // The inset is a padded ROW around the line rather than a margin: `.margin`
 // parses and type-checks but has no runtime arm (docs/dev/dsl/modifiers.md).
 
 Component SetHairline {
-    Stack {
-        Stack { }
-            .width(6)
-        Stack { }
-            .height(1)
-            .grow(1)
-            .bg(separator)
+    props: {
+        plain: Bool,
     }
-    .direction(row)
-    .paddingLeading(40)
+    if $props.plain {
+        Stack {
+            Stack { }
+                .height(1)
+                .grow(1)
+                .bg(separator)
+        }
+        .direction(row)
+        .paddingLeading(16)
+    } else {
+        Stack {
+            Stack { }
+                .width(6)
+            Stack { }
+                .height(1)
+                .grow(1)
+                .bg(separator)
+        }
+        .direction(row)
+        .paddingLeading(40)
+    }
 }

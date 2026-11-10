@@ -1,0 +1,65 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// THREAD domain: the open conversation — who it is, over which routes, and the compact tier's
+// push state. There is no contacts or threads service yet, so a conversation is the authored row
+// the user tapped: `OpenThread` carries that row's data into these fields (the header, the
+// transcript's tags and the Chat-Info pane read them), and `Init` — a root effect nothing
+// dispatches — opens the first row at mount. The route is the transport slot (1 or 2) a message
+// would leave by; opening another conversation resets it to the first and clears the draft.
+
+Store ThreadStore {
+    thread: Str = "",
+    threadName: Str = "",
+    ini: Str = "",
+    addr: Str = "",
+    tr1: Str = "",
+    tr1Tint: Str = "accent",
+    tr2: Str = "",
+    tr2Tint: Str = "accent",
+    verified: Bool = false,
+    bridge: Bool = false,
+    merged: Bool = false,
+    spaceId: Str = "",
+    route: Int = 1,
+    pushed: Bool = false,
+}
+
+Event ThreadEvent {
+    Init,
+    OpenThread(Str, Str, Str, Str, Str, Str, Str, Str, Bool, Bool, Bool, Str, Bool),
+    SetRoute(Int),
+    BackToList,
+}
+
+reduce ThreadEvent {
+    Init => state.thread = state.thread,
+    OpenThread(id, name, ini, addr, t1, t1Tint, t2, t2Tint, verified, bridge, merged, space, push) => {
+        state.thread = id;
+        state.threadName = name;
+        state.ini = ini;
+        state.addr = addr;
+        state.tr1 = t1;
+        state.tr1Tint = t1Tint;
+        state.tr2 = t2;
+        state.tr2Tint = t2Tint;
+        state.verified = verified;
+        state.bridge = bridge;
+        state.merged = merged;
+        state.spaceId = space;
+        state.route = 1;
+        state.pushed = push;
+    },
+    SetRoute(slot) => state.route = slot,
+    BackToList => state.pushed = false,
+}
+
+// The first authored conversation is open at launch (the design's main screen).
+@effect on Init {
+    dispatch(OpenThread("lena", @t("chat.c.lena"), "LV", "@lena:nexus.chat", @t("chat.tr.matrix"), "success", @t("chat.tr.sms"), "label", false, true, true, "family", false));
+}
+
+// A new conversation starts with an empty draft.
+@effect on OpenThread(id, name, ini, addr, t1, t1Tint, t2, t2Tint, verified, bridge, merged, space, push) {
+    dispatch(ClearDraft);
+}

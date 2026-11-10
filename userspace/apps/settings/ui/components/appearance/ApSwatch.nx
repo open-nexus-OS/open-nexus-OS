@@ -1,8 +1,10 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// One accent swatch: a 28px circle in the palette colour, with a white check
-// when it is the active accent (design block 2).
+// One accent swatch (design §2.9): a 28 px circle in the palette colour inside a 36 px ring box.
+// Selected: a `label` ring (the DSL's `ring` is 2 px, the design's 1.5) 4 px outside the swatch
+// and a white check 13 (stroke 3); unselected: the same box with a transparent ring, so
+// selecting never moves a neighbour.
 //
 // The hex is the value `nexus-theme-tokens::ACCENT_PALETTE` actually applies
 // in light mode, NOT the design's swatch hex — the two disagree on red
@@ -19,15 +21,31 @@ Component ApSwatch {
         selected: Bool,
     }
     if $props.selected {
-        Circle { size: 28
-            Icon { symbol: "checkmark", size: 13 }
-                .fg(onAccent)
+        Stack {
+            Circle { size: 28
+                Icon { symbol: "checkmark", size: 13, stroke: 3 }
+                    .fg(onAccent)
+            }
+            .bgGradient($props.hex, $props.hex)
         }
-        .bgGradient($props.hex, $props.hex)
+        .width(36)
+        .height(36)
+        .align(center)
+        .justify(center)
+        .rounded(full)
         .border(ring)
         .borderColor(label)
     } else {
-        Circle { size: 28 }
-            .bgGradient($props.hex, $props.hex)
+        Stack {
+            Circle { size: 28 }
+                .bgGradient($props.hex, $props.hex)
+        }
+        .width(36)
+        .height(36)
+        .align(center)
+        .justify(center)
+        .rounded(full)
+        .border(ring)
+        .borderColor(transparent)
     }
 }

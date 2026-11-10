@@ -217,11 +217,8 @@ mod tests {
         let scene = build_target_panel(&t);
         let LayoutNode::Stack(root, visual, children) = scene else { panic!("root is a Stack") };
         assert_eq!(root.id, Some("target_panel"));
-        assert_eq!(
-            visual.background,
-            Some(t.color(ColorToken::SurfaceOverlay)),
-            "themed surface bg"
-        );
+        // The overlay material's fill as a root: the frosted `glassOverlay` (RFC-0116, 2026-11-10).
+        assert_eq!(visual.background, Some(t.color(ColorToken::GlassOverlay)), "themed surface bg");
         assert!(visual.border.top.is_some(), "themed border");
         assert_ne!(visual.corner_radius, Default::default(), "rounded corners");
         // title + subtitle + the card row.

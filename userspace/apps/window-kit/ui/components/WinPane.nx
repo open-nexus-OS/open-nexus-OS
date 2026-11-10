@@ -24,9 +24,9 @@
 // it (the DSL cannot ask whether a slot was bound). `title: ""` with
 // `showHeader: true` gives the custom `header` slot the strip on its own.
 //
-// The two arms (bare, panel) repeat the zones: a slot cannot be forwarded into another
-// component, and the panel's surface sits on the root, so only the slot-free leaves
-// (`WinPaneTitle`, `WinPaneRule`) are shared.
+// The zones are their own components (`WinPaneHead`, `WinPaneBody`, `WinPaneFoot`), each slot
+// forwarded into them (RFC-0084 amendment); the two arms differ only in the panel's surface on
+// the root and the strips' side padding.
 
 Component WinPane {
     props: {
@@ -44,153 +44,45 @@ Component WinPane {
     slot footer
     if $props.bare {
         Stack {
-            if $props.showHeader {
-                Stack {
-                    WinPaneTitle { title: $props.title }
+            WinPaneHead { shown: $props.showHeader, title: $props.title, padX: 12, noDividers: $props.noDividers } {
+                header {
                     Slot header
-                    Stack { }
-                        .grow(1)
-                        .shrink(0)
-                    Stack {
-                        Slot actions
-                    }
-                    .direction(row)
-                    .align(center)
-                    .gap(2)
-                    .paddingLeading(8)
-                    .shrink(0)
                 }
-                .direction(row)
-                .align(center)
-                .minHeight(44)
-                .paddingY(4)
-                .paddingX(12)
-                WinPaneRule { hidden: $props.noDividers }
-            } else {
-                Stack { }
-            }
-            if $props.scrolls {
-                if $props.flush {
-                    Stack {
-                        Slot body
-                    }
-                    .grow(1)
-                    .scroll(vertical)
-                } else {
-                    Stack {
-                        Slot body
-                    }
-                    .grow(1)
-                    .paddingY(4)
-                    .paddingX(8)
-                    .scroll(vertical)
-                }
-            } else {
-                if $props.flush {
-                    Stack {
-                        Slot body
-                    }
-                    .grow(1)
-                    .overflow(hidden)
-                } else {
-                    Stack {
-                        Slot body
-                    }
-                    .grow(1)
-                    .paddingY(4)
-                    .paddingX(8)
-                    .overflow(hidden)
+                actions {
+                    Slot actions
                 }
             }
-            if $props.showFooter {
-                WinPaneRule { hidden: $props.noDividers }
-                Stack {
+            WinPaneBody { flush: $props.flush, scrolls: $props.scrolls } {
+                body {
+                    Slot body
+                }
+            }
+            WinPaneFoot { shown: $props.showFooter, padX: 8, noDividers: $props.noDividers } {
+                footer {
                     Slot footer
                 }
-                .direction(row)
-                .align(center)
-                .gap(8)
-                .minHeight(44)
-                .paddingY(4)
-                .paddingX(8)
-            } else {
-                Stack { }
             }
         }
         .grow(1)
     } else {
         Stack {
-            if $props.showHeader {
-                Stack {
-                    WinPaneTitle { title: $props.title }
+            WinPaneHead { shown: $props.showHeader, title: $props.title, padX: 16, noDividers: $props.noDividers } {
+                header {
                     Slot header
-                    Stack { }
-                        .grow(1)
-                        .shrink(0)
-                    Stack {
-                        Slot actions
-                    }
-                    .direction(row)
-                    .align(center)
-                    .gap(2)
-                    .paddingLeading(8)
-                    .shrink(0)
                 }
-                .direction(row)
-                .align(center)
-                .minHeight(44)
-                .paddingY(4)
-                .paddingX(16)
-                WinPaneRule { hidden: $props.noDividers }
-            } else {
-                Stack { }
-            }
-            if $props.scrolls {
-                if $props.flush {
-                    Stack {
-                        Slot body
-                    }
-                    .grow(1)
-                    .scroll(vertical)
-                } else {
-                    Stack {
-                        Slot body
-                    }
-                    .grow(1)
-                    .paddingY(4)
-                    .paddingX(8)
-                    .scroll(vertical)
-                }
-            } else {
-                if $props.flush {
-                    Stack {
-                        Slot body
-                    }
-                    .grow(1)
-                    .overflow(hidden)
-                } else {
-                    Stack {
-                        Slot body
-                    }
-                    .grow(1)
-                    .paddingY(4)
-                    .paddingX(8)
-                    .overflow(hidden)
+                actions {
+                    Slot actions
                 }
             }
-            if $props.showFooter {
-                WinPaneRule { hidden: $props.noDividers }
-                Stack {
+            WinPaneBody { flush: $props.flush, scrolls: $props.scrolls } {
+                body {
+                    Slot body
+                }
+            }
+            WinPaneFoot { shown: $props.showFooter, padX: 12, noDividers: $props.noDividers } {
+                footer {
                     Slot footer
                 }
-                .direction(row)
-                .align(center)
-                .gap(8)
-                .minHeight(44)
-                .paddingY(4)
-                .paddingX(12)
-            } else {
-                Stack { }
             }
         }
         .material(pane)

@@ -6,7 +6,11 @@
 //! colour of its own — and every shape plus the wait ring is rendered once per variant into
 //! `windowd_generated_cursor.rs`: `WHITE_*` (light pointer, dark outline) and `BLACK_*` (dark
 //! pointer, light outline). Light mode shows the black set, dark mode the white one
-//! (`src/cursor_assets.rs`). 4×-supersampled through nexus-svg, premultiplied BGRA, 32×32.
+//! (`src/cursor_assets.rs`). Every shape — the arrow included — is drawn from its upstream path
+//! the way the theme draws it: the shadow (the outline moved one unit down-right at a tenth of
+//! its opacity), the outline (stroke 2, round joins), the body. The theme's 24-unit canvas maps
+//! onto the 32 px "normal" size (docs/dev/ui/foundations/visual/cursor-themes.md);
+//! 4×-supersampled through nexus-svg, premultiplied BGRA, 32×32.
 
 use std::fs;
 use std::io::Write;
@@ -54,33 +58,23 @@ fn colours(themes: &str, theme: &str) -> Result<Colours, String> {
     }
 }
 
-/// The arrow (upstream `default.svg`), on a 36×36 canvas that encloses its tail: rim in the
-/// shadow colour, outline in the stroke colour, body in the fill colour.
-fn arrow_svg(c: &Colours) -> String {
-    format!(
-        "<svg width=\"36\" height=\"36\" xmlns=\"http://www.w3.org/2000/svg\">\
-<path d=\"M 1 1 L 1 30 L 9.3 26.6 L 12.9 35.3 L 18 33 L 14.4 24.3 L 22.7 20.9 Z\" fill=\"{}\"/>\
-<path d=\"M 2 2 L 2 29.5 L 9.9 26.2 L 13.3 34.6 L 17 33 L 13.6 24.7 L 21.5 21.4 Z\" fill=\"{}\"/>\
-<path d=\"M 4 4 L 4 25 L 10.4 22.4 L 13.8 30.6 L 15.2 30 L 11.9 21.9 L 18.4 19.2 Z\" fill=\"{}\"/>\
-</svg>",
-        c.shadow, c.stroke, c.fill
-    )
-}
-
-/// An upstream shape: its shared `<path id="c">` inlined as outline + body (nexus-svg has no
-/// `<use>`); the faint offset shadow and the hotspot marker are left out.
-fn shape_svg(raw: &str, c: &Colours) -> Option<String> {
-    let d = raw.split("<path id=\"c\" d=\"").nth(1)?.split('"').next()?;
+/// One upstream shape (its `<path id="c" … d="…">`, attributes in any order) in a variant's
+/// colours, as the theme's own SVGs draw it: the shadow, the outline, the body.
+fn mocu_svg(raw: &str, c: &Colours) -> Option<String> {
+    let element = raw.split("<path id=\"c\"").nth(1)?.split("/>").next()?;
+    let d = element.split(" d=\"").nth(1)?.split('"').next()?;
     Some(format!(
         "<svg width=\"24\" height=\"24\" xmlns=\"http://www.w3.org/2000/svg\">\
+         <path d=\"{d}\" transform=\"translate(1,1)\" fill=\"{sh}\" stroke=\"{sh}\" \
+         stroke-width=\"2\" stroke-linejoin=\"round\" opacity=\"0.1\"/>\
          <path d=\"{d}\" fill=\"{s}\" stroke=\"{s}\" stroke-width=\"2\" stroke-linejoin=\"round\"/>\
          <path d=\"{d}\" fill=\"{f}\"/></svg>",
+        sh = c.shadow,
         s = c.stroke,
         f = c.fill
     ))
 }
 
-/// `#rrggbb` as straight (b, g, r).
 fn bgr(hex: &str) -> (f32, f32, f32) {
     let ch = |i: usize| u8::from_str_radix(&hex[i..i + 2], 16).unwrap_or(0) as f32;
     (ch(5), ch(3), ch(1))
@@ -123,10 +117,11 @@ pub(crate) fn emit(out_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
     writeln!(out, "pub const DIM: u32 = {DIM};")?;
     for (set, theme) in SETS {
         let c = colours(&themes, theme)?;
-        emit_sprite(&mut out, out_dir, &format!("{set}_ARROW"), &render(&arrow_svg(&c), "arrow")?)?;
+        let arrow = mocu_svg(&default, &c).ok_or("normalize cursor default.svg")?;
+        emit_sprite(&mut out, out_dir, &format!("{set}_ARROW"), &render(&arrow, "default.svg")?)?;
         for (name, file) in SHAPES {
             let raw = fs::read_to_string(format!("{MOCU_SRC}/svg/{file}"))?;
-            let svg = shape_svg(&raw, &c).ok_or_else(|| format!("normalize cursor {file}"))?;
+            let svg = mocu_svg(&raw, &c).ok_or_else(|| format!("normalize cursor {file}"))?;
             emit_sprite(&mut out, out_dir, &format!("{set}_{name}"), &render(&svg, file)?)?;
         }
         // The ring is the set's own: its body colour over a halo in its outline colour.

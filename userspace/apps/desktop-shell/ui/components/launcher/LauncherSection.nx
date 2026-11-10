@@ -1,0 +1,22 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The compact launcher's section row (design artifacts: launcher, compact): the overline "ALLE
+// APPS" in labelSecondary on the left, the count on the right — "47 Apps", or "N Treffer" while
+// a query filters — in caption labelTertiary; inset 4, 12 above the grid.
+
+Component LauncherSection {
+    Stack {
+        Text(@t("launcher.allApps")).textStyle(overline).fg(labelSecondary)
+        Spacer
+        if $state.query != "" {
+            Text(@t("launcher.hits", len($state.apps))).textStyle(caption).fg(labelTertiary)
+        } else {
+            Text(@t("launcher.count", len($state.apps))).textStyle(caption).fg(labelTertiary)
+        }
+    }
+    .direction(row)
+    .align(center)
+    .paddingX(4)
+    .paddingBottom(12)
+}

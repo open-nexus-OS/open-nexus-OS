@@ -1,8 +1,8 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The design artifacts' ALERT: a compact confirmation card on the opaque
-// overlay surface (surfaceOverlay, a 1 px glassEdge, shadow4, radius 24), 300
+// The design artifacts' ALERT: a compact confirmation card on the frosted
+// overlay surface (glassOverlay, a 1 px glassEdge, shadow4, radius 24), 300
 // wide, over a `scrim` with 24 px around it. Text block, centred, padding 20 16
 // 16: the title (title3 17/22, `label`) and one sentence 4 below it
 // (subheadline 13/18, `label`). Then two text buttons side by side, edge to

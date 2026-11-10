@@ -13,17 +13,17 @@ One page, one route: `/` → `StashPage` (`ui/pages/StashPage.nx`, `ui/pages/Rou
 ## Stores and events
 
 One `Event` binds to one `Store`, so the state is split by domain; a change that crosses domains is an
-`@effect` that dispatches the other domain's event. Effects cannot branch, so where a reducer must
-branch on a kit event (`WinMenuPick`, `WinTool`) that event sits in the store owning every field it
-writes.
+`@effect` that dispatches the other domain's event. The kit's events belong to the kit's store, so a
+kit event this app must branch on (`WinMenuPick`, `WinNav`, `WinTool`) is handed to the store that
+owns every field the branches write as its own event (`NavPick`, `NavStep`, `ToolPick`).
 
 | Store (`ui/composables/`) | State | Events | Crosses via effect |
 |---|---|---|---|
-| `WindowStore` (`window.store.nx`) | open menu, pane flags, window-control error | `WinMenu`, `WinNoop`, `WinPaneClose`, `WinLeft`, `WinRight`, `WinAct`, `Applied`, `ApplyFailed` | `WinAct` → `svc.settings.set("window.control", …)` |
-| `NavStore` (`nav.store.nx`) | lit place, path, folder label, one-level back history | `WinMenuPick`, `WinNav`, `OpenDir` | → `WinMenu("")`, `ClearSelection`, `Reload` |
+| `WindowStore` (window-kit's composable, compiled in with the chrome) | open menu, pane flags, window-control error | the kit's `Win*` events | `WinAct` → `svc.settings.set("window.control", …)`; `WinMenuPick` → `NavPick`, `WinNav` → `NavStep`, `WinTool` → `ToolPick` (effects into this app's stores) |
+| `NavStore` (`nav.store.nx`) | lit place, path, folder label, one-level back history | `NavPick`, `NavStep`, `OpenDir` | → `ClearSelection`, `Reload` |
 | `ListingStore` (`listing.store.nx`) | entries, loading, error, entry count | `LoadFiles` (root), `Reload`, `Relist`, `FilesLoaded`, `FilesFailed`, `CountLoaded` | `FilesLoaded` → `svc.files.count` |
 | `SelectionStore` (`selection.store.nx`) | the selected entry (id, name, kind, size, date) | `Pick`, `ClearSelection` | — |
-| `ToolbarStore` (`toolbar.store.nx`) | pressed tool, view mode, search field + query | `WinTool`, `SearchChanged`, `SearchClear` | → `WinMenu("")`, `Relist`/`Reload` |
+| `ToolbarStore` (`toolbar.store.nx`) | pressed tool, view mode, search field + query | `ToolPick`, `SearchChanged`, `SearchClear` | → `Relist`/`Reload` |
 | `ViewStore` (`view.store.nx`) | sort key and direction, hidden files, settings mode | `CycleSort`, `SortDir`, `SortBy`, `ToggleHidden`, `SettingsOpen`, `SettingsClose` | → `WinMenu("")`, `Reload` |
 | `OpsStore` (`fileops.store.nx`) | the move dialog | `NewFolder`, `TrashSel`, `RestoreSel`, `DeleteSel`, `CopySel`, `MoveStart`, `MoveTo`, `ModalClose` and their completions | → `WinMenu("")`, `ClearSelection`, `Reload` |
 
@@ -69,9 +69,10 @@ menu, arena and frame-budget tests cover it too. Run with `cargo test -p dsl_app
 
 ## Known limits
 
-Sorting is by column; the direction button flips a view-only flag. Forward navigation is a no-op (one
-level of history). The special-folder artwork, the properties of the open folder, multi-selection and
+Sorting is by column; the direction button flips a view-only flag. The forward button is drawn disabled (one
+level of history, no forward stack). The special-folder artwork, the properties of the open folder, multi-selection and
 the settings rows for file extensions, folders-first and the default view need state the file service
-does not provide yet. New window, Open, Compress and Help are shown disabled. The breadcrumb is three
-levels deep (This PC › previous › current), not the full path. The window kit has no disabled
-toolbar button, no segmented view switch and no adaptive grid.
+does not provide yet. New window, Open, Compress, Folders first and Help are shown disabled; the chord hints in the menus
+(Ctrl+N, Ctrl+O, Del, Ctrl+H, Ctrl+,) are labels only until the window routes the chords. The breadcrumb is three
+levels deep (This PC › previous › current), not the full path. The window kit has no segmented view
+switch and no adaptive grid.

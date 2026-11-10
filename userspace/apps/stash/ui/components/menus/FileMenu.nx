@@ -8,19 +8,19 @@
 Component FileMenu {
     WinMenu { width: 220 } {
         items {
-            WinMenuRow { label: @t("stash.newWindow"), icon: "app.window", kind: "disabled", shortcut: "", selected: false }
+            WinMenuRow { label: @t("stash.newWindow"), icon: "app.window", kind: "disabled", shortcut: @t("win.keyNewWindow"), selected: false }
             Stack {
-                WinMenuRow { label: @t("stash.newFolder"), icon: "folder.badge.plus", kind: "", shortcut: "", selected: false }
+                WinMenuRow { label: @t("stash.newFolder"), icon: "folder.badge.plus", kind: "", shortcut: @t("win.keyNewFolder"), selected: false }
             }
             on Tap -> dispatch(NewFolder)
-            WinMenuRow { label: @t("win.open"), icon: "folder", kind: "disabled", shortcut: "", selected: false }
+            WinMenuRow { label: @t("win.open"), icon: "folder", kind: "disabled", shortcut: @t("win.keyOpen"), selected: false }
             WinMenuDivider { }
             WinMenuRow { label: @t("stash.compress"), icon: "archivebox", kind: "disabled", shortcut: "", selected: false }
             if $state.selection == "" {
-                WinMenuRow { label: @t("stash.toTrash"), icon: "trash", kind: "disabled", shortcut: "", selected: false }
+                WinMenuRow { label: @t("stash.toTrash"), icon: "trash", kind: "disabled", shortcut: @t("win.keyTrash"), selected: false }
             } else {
                 Stack {
-                    WinMenuRow { label: @t("stash.toTrash"), icon: "trash", kind: "danger", shortcut: "", selected: false }
+                    WinMenuRow { label: @t("stash.toTrash"), icon: "trash", kind: "danger", shortcut: @t("win.keyTrash"), selected: false }
                 }
                 on Tap -> dispatch(TrashSel)
             }

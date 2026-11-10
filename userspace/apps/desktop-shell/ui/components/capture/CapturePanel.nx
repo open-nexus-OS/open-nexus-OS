@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // The capture panel (TASK-0068): the desktop reference's screenshot bar. It
-// floats over the frozen frame, so it is the opaque floating surface
-// (`overlay`: surfaceOverlay, the glass edge, shadow3 and the lit top line —
-// the recipe), radius xl as the outermost surface, padding 12, with the
+// floats over the frozen frame as glass, the frame blurred through it (`panel`:
+// the glass panel fill over the regular backdrop, the glass edge, shadow4 and
+// the lit top line — the recipe; the operator, 2026-11-09: the screenshot
+// panel blurs), radius xl as the outermost surface, padding 12, with the
 // round X (a 30 px circle, the sm control) at its top right. Above: the three
 // modes (Selection, Screen, Window). Below: the photo/film switch on the
 // left — film is greyed out and disabled (`.disabled(true)`: no press, no
@@ -114,7 +115,7 @@ Component CapturePanel {
                 .direction(row)
                 .align(center)
             }
-            .material(overlay)
+            .material(panel)
             .rounded(xl)
             .gap(12)
             .padding(12)

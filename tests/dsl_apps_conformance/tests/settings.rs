@@ -224,8 +224,12 @@ fn settings_opens_on_the_connections_section() {
         "landing must show the Connections rows: {:?}",
         h.texts()
     );
-    assert!(
-        !h.shows("Wi-Fi, internet, Bluetooth, VPN"),
+    // The sidebar shows each section's description once; the overview card grid would show it a
+    // second time — it must NOT be the landing mode.
+    let desc = "Wi-Fi, internet, Bluetooth, VPN";
+    assert_eq!(
+        h.texts().iter().filter(|t| *t == desc).count(),
+        1,
         "the overview card grid must NOT be the landing mode"
     );
 }
@@ -233,7 +237,8 @@ fn settings_opens_on_the_connections_section() {
 /// The overview is a MODE the user enters (app chip / sidebar header / ⋯
 /// menu → GoOverview): all twelve cards with their descriptions — the one
 /// place the full section list is proven complete. The card DESCRIPTIONS are
-/// asserted (not the titles, which the sidebar also shows).
+/// asserted twice each (not the titles): the sidebar carries the same full description under
+/// each section (single line, ellipsised by the painter), the card is the second place.
 #[test]
 fn go_overview_shows_all_twelve_cards() {
     let mut h = Harness::new();
@@ -253,7 +258,8 @@ fn go_overview_shows_all_twelve_cards() {
         "Battery protection, usage",
         "Status, hardware",
     ] {
-        assert!(texts.iter().any(|t| t == desc), "overview misses {desc}: {texts:?}");
+        let n = texts.iter().filter(|t| *t == desc).count();
+        assert_eq!(n, 2, "overview misses the card for {desc} (sidebar + card): {texts:?}");
     }
 }
 
@@ -279,7 +285,7 @@ fn every_section_id_renders_its_own_section() {
     ];
     for (id, marker) in cases {
         let mut h = Harness::new();
-        h.send("NavEvent", "WinMenuPick", vec![Value::Str(id.into())]);
+        h.send("WindowEvent", "WinMenuPick", vec![Value::Str(id.into())]);
         assert!(h.shows(marker), "section {id} does not show {marker}: {:?}", h.texts());
     }
 }
@@ -290,7 +296,7 @@ fn every_section_id_renders_its_own_section() {
 #[test]
 fn back_walks_subpage_then_section_then_overview() {
     let mut h = Harness::new();
-    h.send("NavEvent", "WinMenuPick", vec![Value::Str("personal".into())]);
+    h.send("WindowEvent", "WinMenuPick", vec![Value::Str("personal".into())]);
     h.send("NavEvent", "OpenSub", vec![Value::Str("appearance".into())]);
     // Group headers are the overline style: the runtime upper-cases them.
     assert!(h.shows("ACCENT COLOUR"), "appearance sub-page did not open: {:?}", h.texts());
@@ -308,7 +314,7 @@ fn back_walks_subpage_then_section_then_overview() {
 #[test]
 fn appearance_mode_tiles_reach_settings_set() {
     let mut h = Harness::new();
-    h.send("NavEvent", "WinMenuPick", vec![Value::Str("personal".into())]);
+    h.send("WindowEvent", "WinMenuPick", vec![Value::Str("personal".into())]);
     h.send("NavEvent", "OpenSub", vec![Value::Str("appearance".into())]);
     assert!(h.tap_content_until("ui.theme.mode"), "no theme set reached the host");
 }
@@ -340,8 +346,12 @@ fn auto_mode_selects_locally_and_writes_nothing() {
     let mut h = Harness::new();
     h.send("AppearanceEvent", "SetModeAuto", vec![]);
     assert!(h.host.sets.is_empty(), "the auto tile must not write a theme mode: {:?}", h.host.sets);
-    h.send("NavEvent", "WinMenuPick", vec![Value::Str("personal".into())]);
-    assert!(h.shows("Automatic"), "the section row does not reflect the auto pick");
+    h.send("WindowEvent", "WinMenuPick", vec![Value::Str("personal".into())]);
+    assert!(
+        h.texts().iter().any(|t| t.starts_with("Automatic · ")),
+        "the section row does not reflect the auto pick: {:?}",
+        h.texts()
+    );
 }
 
 /// The region pickers are the second real area: language, time zone and
@@ -366,13 +376,91 @@ fn region_picks_reach_their_settings_keys() {
     }
 }
 
+/// The ⋮ menu's "Ansicht" options shape how the tree is DRAWN and reach no service: descriptions
+/// off hides every row subtitle, "Sidebar kompakt" drops the sidebar's description line, and
+/// "Erweiterte Optionen" reveals the `advanced` group (Sound > Barrierefreiheit > Mono-Audio).
+#[test]
+fn view_options_shape_the_tree_and_write_nothing() {
+    let mut h = Harness::new();
+    assert!(h.shows("MyHomeIsWhereMyWifiIs"), "the row subtitle is on by default");
+    h.send("ViewEvent", "ToggleSubtitles", vec![]);
+    assert!(!h.shows("MyHomeIsWhereMyWifiIs"), "descriptions off must hide the row subtitle");
+    h.send("ViewEvent", "ToggleSubtitles", vec![]);
+    assert!(h.shows("MyHomeIsWhereMyWifiIs"), "the option toggles back");
+
+    assert!(h.shows("Output, input, tone mode"), "the sidebar shows the full description");
+    h.send("ViewEvent", "ToggleSidebarDesc", vec![]);
+    assert!(!h.shows("Output, input, tone mode"), "compact sidebar is one line per item");
+
+    h.send("WindowEvent", "WinMenuPick", vec![Value::Str("sound".into())]);
+    assert!(!h.shows("Mono audio"), "the advanced group is hidden by default");
+    h.send("ViewEvent", "ToggleAdvanced", vec![]);
+    assert!(h.shows("Mono audio"), "advanced options reveal Barrierefreiheit > Mono-Audio");
+    assert!(h.host.sets.is_empty(), "a view option wrote a setting: {:?}", h.host.sets);
+}
+
+/// S27: the Bluetooth row names the connected device only while Bluetooth is on (its switch is a
+/// demo field the sweep flips by tapping), and "Nicht stören" reads "On until 18:00" / "Off".
+#[test]
+fn state_dependent_subtitles_follow_their_switches() {
+    let mut h = Harness::new();
+    assert!(!h.shows("Nexus Buds Pro connected"), "Bluetooth is off: no device subtitle");
+    assert!(
+        h.tap_content_until_shows("Nexus Buds Pro connected"),
+        "switching Bluetooth on names the device"
+    );
+
+    let mut h = Harness::new();
+    h.send("WindowEvent", "WinMenuPick", vec![Value::Str("notif".into())]);
+    assert!(!h.shows("On until 18:00"), "do-not-disturb starts off");
+    assert!(
+        h.tap_content_until_shows("On until 18:00"),
+        "switching do-not-disturb on says until when"
+    );
+}
+
+/// S32: the tiling rows are v3 row kinds — the two on/off settings are toggle rows whose tap
+/// writes the opposite value, the margin is a select row whose picker writes `ui.tile.margin`
+/// and closes.
+#[test]
+fn tiling_rows_are_toggles_and_a_select() {
+    let mut h = Harness::new();
+    h.send("WindowEvent", "WinMenuPick", vec![Value::Str("personal".into())]);
+    // Handler 0 is the Erscheinungsbild row (it navigates); handler 1 is the edges toggle row.
+    h.tap_content_nth(1);
+    assert!(
+        h.host.sets.iter().any(|(k, v)| k == "ui.tile.edges" && v == "off"),
+        "edges default to on, the tap writes off: {:?}",
+        h.host.sets
+    );
+
+    let mut h = Harness::new();
+    h.send("WindowEvent", "WinMenuPick", vec![Value::Str("personal".into())]);
+    h.send("RegionEvent", "OpenPicker", vec![Value::Str("margin".into())]);
+    // The sheet's title is an overline: the runtime upper-cases it.
+    assert!(
+        h.shows("TILED WINDOWS HAVE MARGINS"),
+        "the margin sheet did not open: {:?}",
+        h.texts()
+    );
+    h.send("TilingEvent", "SetTileMargin", vec![Value::Str("16".into())]);
+    assert!(
+        h.host.sets.iter().any(|(k, v)| k == "ui.tile.margin" && v == "16"),
+        "the pick did not write ui.tile.margin: {:?}",
+        h.host.sets
+    );
+    assert!(!h.shows("TILED WINDOWS HAVE MARGINS"), "the margin sheet is still open after a pick");
+    assert!(!h.shows("Small"), "the sheet's options are gone with it");
+    assert!(h.shows("Large"), "the select shows the picked value");
+}
+
 /// Opening a picker sheet closes on pick: the sheet is an `.overlay()` that
 /// swallows every tap while it is up, so a pick that left it open would trap
 /// the window.
 #[test]
 fn picking_a_value_closes_the_picker_sheet() {
     let mut h = Harness::new();
-    h.send("NavEvent", "WinMenuPick", vec![Value::Str("general".into())]);
+    h.send("WindowEvent", "WinMenuPick", vec![Value::Str("general".into())]);
     h.send("RegionEvent", "OpenPicker", vec![Value::Str("zone".into())]);
     assert!(h.shows("Los Angeles"), "the zone sheet did not open: {:?}", h.texts());
 
@@ -386,9 +474,48 @@ fn picking_a_value_closes_the_picker_sheet() {
 #[test]
 fn demo_switches_reach_no_service() {
     let mut h = Harness::new();
-    h.send("NavEvent", "WinMenuPick", vec![Value::Str("privacy".into())]);
+    h.send("WindowEvent", "WinMenuPick", vec![Value::Str("privacy".into())]);
     let _ = h.tap_content_until("nothing.will.match");
     assert!(h.host.sets.is_empty(), "a demo section wrote a setting: {:?}", h.host.sets);
+}
+
+/// Taps exactly the `n`th handler-bearing box of the content pane's body (same bounds as
+/// `tap_content_until`) — for a section whose first row navigates, where a sweep would walk off
+/// the page after one tap.
+impl Harness {
+    fn tap_content_nth(&mut self, n: usize) {
+        let boxes = common::layout_boxes(&self.view);
+        let hit: Vec<_> = self
+            .view
+            .handlers()
+            .iter()
+            .filter_map(|(id, _)| boxes.iter().find(|b| b.node_id == *id))
+            .filter(|b| {
+                b.rect.width.as_i32() > 0
+                    && b.rect.height.as_i32() > 0
+                    && b.rect.y.as_i32() >= 110
+                    && b.rect.x.as_i32() >= 260
+            })
+            .map(|b| {
+                (
+                    b.rect.x + nexus_layout_types::FxPx::new(b.rect.width.as_i32() / 2),
+                    b.rect.y + nexus_layout_types::FxPx::new(b.rect.height.as_i32() / 2),
+                )
+            })
+            .collect();
+        let (cx, cy) = hit[n];
+        let locale = IdentityLocale { symbols: &self.symbols, keys: &self.keys };
+        let _ = self.view.pointer(
+            &nexus_theme_tokens::BaseTokens,
+            &self.device,
+            &locale,
+            &mut self.host,
+            &boxes,
+            "Tap",
+            cx,
+            cy,
+        );
+    }
 }
 
 /// Like `tap_content_until`, but the goal is a rendered text instead of a
@@ -432,7 +559,7 @@ impl Harness {
 #[test]
 fn info_update_row_opens_updates_and_shows_service_truth() {
     let mut h = Harness::new();
-    h.send("NavEvent", "WinMenuPick", vec![Value::Str("info".into())]);
+    h.send("WindowEvent", "WinMenuPick", vec![Value::Str("info".into())]);
     assert!(
         h.tap_content_until_shows("UPDATE STATUS"),
         "the System update row did not open the updates sub-page: {:?}",
@@ -453,7 +580,7 @@ fn info_update_row_opens_updates_and_shows_service_truth() {
 #[test]
 fn updates_action_denied_renders_the_denied_state() {
     let mut h = Harness::new();
-    h.send("NavEvent", "WinMenuPick", vec![Value::Str("info".into())]);
+    h.send("WindowEvent", "WinMenuPick", vec![Value::Str("info".into())]);
     h.send("NavEvent", "OpenSub", vec![Value::Str("updates".into())]);
     h.host.updates_action = Err(4);
     h.send("UpdatesEvent", "UpdSwitch", vec![]);
@@ -470,7 +597,7 @@ fn updates_action_denied_renders_the_denied_state() {
 #[test]
 fn updates_stage_tap_reaches_the_engine() {
     let mut h = Harness::new();
-    h.send("NavEvent", "WinMenuPick", vec![Value::Str("info".into())]);
+    h.send("WindowEvent", "WinMenuPick", vec![Value::Str("info".into())]);
     h.send("NavEvent", "OpenSub", vec![Value::Str("updates".into())]);
     let before = h.host.updates_calls.iter().filter(|(m, _)| m == "status").count();
     let _ = h.tap_content_until("nothing.will.match");
@@ -490,7 +617,7 @@ fn updates_stage_tap_reaches_the_engine() {
 #[test]
 fn general_shortcuts_row_opens_the_registry_window() {
     let mut h = Harness::new();
-    h.send("NavEvent", "WinMenuPick", vec![Value::Str("general".into())]);
+    h.send("WindowEvent", "WinMenuPick", vec![Value::Str("general".into())]);
     assert!(h.shows("Keyboard shortcuts"), "the General section's row: {:?}", h.texts());
     assert!(!h.shows("Left half"), "the window is closed until the row is tapped");
     assert!(

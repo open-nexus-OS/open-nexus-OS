@@ -18,8 +18,9 @@ mod generated {
 
 /// The sprite square (px).
 pub(crate) const DIM: u32 = generated::DIM;
-/// The arrow's hotspot: its tip.
-pub(crate) const ARROW_HOT: (i32, i32) = (2, 2);
+/// The arrow's hotspot: its tip — upstream `default.svg`'s `hot` point (1, 1) on the 24-unit
+/// canvas, at the 32 px size.
+pub(crate) const ARROW_HOT: (i32, i32) = (1, 1);
 /// The symmetric shapes' and the ring's hotspot: the centre.
 pub(crate) const CENTER_HOT: i32 = 16;
 /// Wait-ring frames per turn.

@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // One settings row (design `ListItem`): leading icon · title · subtitle ·
-// trailing control · optional chevron.
+// trailing control · optional chevron. The 12 px between the parts is padding on the part that
+// is there (the row's own gap is 0): a row with no icon has NO leading slot — its text starts
+// at 16, where the hairline of a plain group starts — and an absent part leaves no gap behind.
 //
 // NOT the `ListItem` widget: that kit builder takes title/subtitle/chevron but
 // its leading and trailing regions are not wired to the DSL, and every
@@ -10,8 +12,8 @@
 // here and the control arrives through the `trailing` slot.
 //
 // `minHeight` rather than a fixed height: a row with a subtitle is two lines
-// and one without is one, exactly as the design's `Beschreibungen anzeigen`
-// switch implies. 52 keeps even the one-line form above the 44px touch floor.
+// and one without is one. The subtitle is the design's "Beschreibungen anzeigen" option:
+// `ViewStore.showSubtitles` off hides it on every row at once (the row keeps its 48 px floor).
 //
 // The row paints no hit surface of its own — the caller wraps the instance in
 // a `Stack` to carry `on Tap`, because handlers bind to nodes and not to
@@ -27,14 +29,17 @@ Component SetRow {
     slot trailing
     Stack {
         if $props.icon != "" {
-            Icon { symbol: $props.icon, size: 18 }
-                .fg(labelSecondary)
+            Stack {
+                Icon { symbol: $props.icon, size: 18 }
+                    .fg(labelSecondary)
+            }
+            .paddingTrailing(12)
         } else {
             Stack { }
         }
         Stack {
             Text($props.title).textStyle(body).fontWeight(medium).fg(label)
-            if $props.subtitle != "" {
+            if $props.subtitle != "" && $state.showSubtitles {
                 Text($props.subtitle).textStyle(footnote).fg(labelSecondary)
             } else {
                 Stack { }
@@ -42,17 +47,21 @@ Component SetRow {
         }
         .gap(0)
         .grow(1)
+        .paddingTrailing(12)
         Slot trailing
         if $props.showChevron {
-            Icon { symbol: "chevron.right", size: 16 }
-                .fg(labelTertiary)
+            Stack {
+                Icon { symbol: "chevron.right", size: 16 }
+                    .fg(labelTertiary)
+            }
+            .paddingLeading(12)
         } else {
             Stack { }
         }
     }
     .direction(row)
     .align(center)
-    .gap(12)
+    .gap(0)
     .paddingX(16)
     .paddingY(12)
     .minHeight(48)

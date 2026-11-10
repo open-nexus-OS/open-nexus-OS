@@ -8,5 +8,10 @@
   "win.close": "Close",
   "win.fullscreen": "Full screen",
   "win.minimize": "Minimise",
-  "win.moveDevice": "Move to another device"
+  "win.moveDevice": "Move to another device",
+  "win.moveLabel": "Move & Resize",
+  "win.arrangeLabel": "Fill & Arrange",
+  "win.soon": "Soon",
+  "calc.menu.clearAll": "Clear all",
+  "calc.menu.copy": "Copy result"
 }

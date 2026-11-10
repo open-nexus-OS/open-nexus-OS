@@ -1,0 +1,24 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The left region: on the wide tier the rail (56) and the sidebar side by side, 8 px apart; in
+// the overlay of the narrower tiers the rail's tabs lie in a row above the sidebar.
+
+Component SidebarZone {
+    if device.sizeClass == "wide" {
+        Stack {
+            SpaceRail { }
+            ChatSidebar { }
+        }
+        .direction(row)
+        .gap(8)
+        .grow(1)
+    } else {
+        Stack {
+            SpaceRail { }
+            ChatSidebar { }
+        }
+        .gap(0)
+        .grow(1)
+    }
+}

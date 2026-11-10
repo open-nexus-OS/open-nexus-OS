@@ -23,6 +23,7 @@ fillActive = "#0000001f"
 glassPanel = "#ffffff80"
 glassWindow = "#f6f7fae6"
 glassCard = "#ffffff99"
+glassOverlay = "#fcfcfed1"
 glassEdge = "#ffffffcc"
 # Opaque surfaces: the pane in a window, everything that floats.
 surfacePane = "#fcfdff"
@@ -281,6 +282,8 @@ downsampleFactor = 4
 # symbol vocabulary → file stems. The icon build imports exactly these.
 [icons]
 path = "resources/icons/lucide/icons"
+# The project's own glyphs (a symbol file `nexus:<stem>`), drawn on the vendor set's grid and stroke.
+own = "resources/icons/nexus"
 
 [icons.symbols]
 "chevron.left" = "chevron-left"
@@ -318,10 +321,12 @@ path = "resources/icons/lucide/icons"
 "message" = "message-circle"
 "house" = "house"
 "square.grid" = "layout-grid"
+"launcher" = "nexus:launcher"
 "wifi" = "wifi"
 "speaker.wave" = "volume-2"
 "battery.75" = "battery-full"
 "sun.max" = "sun"
+"sun.min" = "sun-dim"
 "moon" = "moon"
 "desktopcomputer" = "monitor"
 "ipad" = "tablet"
@@ -425,3 +430,13 @@ path = "resources/icons/lucide/icons"
 "mail" = "mail"
 "message.square" = "message-square"
 "slider.horizontal.3" = "sliders-horizontal"
+# The keyboard's keys and the chat's glyphs (design artifacts: OnScreenKeyboard, NexusChat).
+"shift" = "arrow-big-up"
+"capslock" = "arrow-big-up-dash"
+"delete.left" = "delete"
+"return" = "corner-down-left"
+"pin" = "pin"
+"paperclip" = "paperclip"
+"megaphone" = "megaphone"
+"lifepreserver" = "life-buoy"
+"wallet" = "wallet"

@@ -1,0 +1,22 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One sidebar section row: the kit's `WinSideItem` with the description line under the title
+// while "Sidebar kompakt" is off (`ViewStore.sidebarDesc`) and a one-line item while it is on.
+// An `if`, not a prop expression, because a prop cannot be conditional — and a wrapper, so the
+// twelve rows in `NavSidebar` stay one line each.
+
+Component SideItem {
+    props: {
+        id: Str,
+        label: Str,
+        sub: Str,
+        icon: Str,
+        active: Bool,
+    }
+    if $state.sidebarDesc {
+        WinSideItem { id: $props.id, label: $props.label, sub: $props.sub, icon: $props.icon, active: $props.active }
+    } else {
+        WinSideItem { id: $props.id, label: $props.label, sub: "", icon: $props.icon, active: $props.active }
+    }
+}

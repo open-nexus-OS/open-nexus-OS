@@ -121,3 +121,27 @@ ux_frames = 4832
 ux_max_us = 102307
 q16_us = 753
 area16_us = 773
+
+[[cycle]]
+id = "2026-11-10T09-45-10"
+cold_us = 45226
+pipelined_us = 36060
+hover_us = 3228
+ns_per_px = 4
+ux_dropped = 374
+ux_frames = 3296
+ux_max_us = 96849
+q16_us = 900
+area16_us = 681
+
+[[cycle]]
+id = "2026-11-10T14-55-42"
+cold_us = 47933
+pipelined_us = 36065
+hover_us = 3671
+ns_per_px = 4
+ux_dropped = 253
+ux_frames = 1056
+ux_max_us = 99978
+q16_us = 782
+area16_us = 725

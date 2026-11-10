@@ -45,6 +45,36 @@ pub(crate) fn hover_washable(boxes: &[LayoutBox], node_id: usize) -> bool {
     })
 }
 
+/// Whether tap handler `id` holds another tap handler: a container catch-all behind controls —
+/// a window's grab strip around its buttons, an overlay's backdrop, a panel body. It takes taps,
+/// never a hover or press layer (the operator, 2026-11-10: the chrome bar washed whole when the
+/// pointer crossed an empty stretch of it; its buttons keep their own). `handlers`: every tap
+/// handler's node id; `boxes` in the layout's pre-order (a descendant has a larger id).
+#[must_use]
+pub(crate) fn holds_a_control(
+    boxes: &[LayoutBox],
+    handlers: impl IntoIterator<Item = usize>,
+    id: usize,
+) -> bool {
+    let find = |n: usize| match boxes.binary_search_by_key(&n, |b| b.node_id) {
+        Ok(i) => boxes.get(i),
+        Err(_) => boxes.iter().find(|b| b.node_id == n),
+    };
+    let Some(outer) = find(id) else { return false };
+    let (x0, y0) = (outer.rect.x.0, outer.rect.y.0);
+    let (x1, y1) = (x0 + outer.rect.width.0, y0 + outer.rect.height.0);
+    handlers.into_iter().filter(|&h| h > id).any(|h| {
+        find(h).is_some_and(|b| {
+            b.rect.width.0 > 0
+                && b.rect.height.0 > 0
+                && b.rect.x.0 >= x0
+                && b.rect.y.0 >= y0
+                && b.rect.x.0 + b.rect.width.0 <= x1
+                && b.rect.y.0 + b.rect.height.0 <= y1
+        })
+    })
+}
+
 /// Which box the hover wash should paint over, given the hovered HANDLER box.
 ///
 /// Normally that is the handler box itself. When the handler has NO radius and
@@ -61,7 +91,7 @@ pub(crate) fn hover_wash_anchor(boxes: &[LayoutBox], hovered: usize) -> Option<u
     }
     let (ox, oy) = (outer.rect.x.0, outer.rect.y.0);
     let (ow, oh) = (outer.rect.width.0, outer.rect.height.0);
-    let mut best: Option<usize> = None;
+    let mut best: Option<&LayoutBox> = None;
     for b in boxes {
         if b.node_id == hovered || b.visual.corner_radius.top_left.0 <= 0 {
             continue;
@@ -75,20 +105,39 @@ pub(crate) fn hover_wash_anchor(boxes: &[LayoutBox], hovered: usize) -> Option<u
         if !covers {
             continue;
         }
-        // More than one rounded box fills the wrapper (a row of pills under one
-        // handler): the wrapper is not a single control, so keep the wash on it
-        // rather than picking an arbitrary child.
-        if best.is_some() {
+        if let Some(prev) = best {
+            // A box strictly inside another is the same control (a selected circle's inner
+            // disc): the outer one is what the user sees. Otherwise more than one rounded box
+            // fills the wrapper (a row of pills under one handler): the wrapper is not a
+            // single control, so keep the wash on it rather than picking an arbitrary child.
+            if strictly_inside(b, prev) {
+                continue;
+            }
+            if strictly_inside(prev, b) {
+                best = Some(b);
+                continue;
+            }
             return Some(hovered);
         }
-        best = Some(b.node_id);
+        best = Some(b);
     }
-    Some(best.unwrap_or(hovered))
+    Some(best.map_or(hovered, |b| b.node_id))
+}
+
+/// Whether `inner` lies inside `outer` and is smaller on both axes.
+fn strictly_inside(inner: &LayoutBox, outer: &LayoutBox) -> bool {
+    let (i, o) = (&inner.rect, &outer.rect);
+    i.width.0 < o.width.0
+        && i.height.0 < o.height.0
+        && i.x.0 >= o.x.0
+        && i.y.0 >= o.y.0
+        && i.x.0 + i.width.0 <= o.x.0 + o.width.0
+        && i.y.0 + i.height.0 <= o.y.0 + o.height.0
 }
 
 #[cfg(test)]
 mod tests {
-    use super::hover_wash_anchor;
+    use super::{holds_a_control, hover_wash_anchor};
     use nexus_layout::LayoutBox;
     use nexus_layout_types::{CornerRadius, FxPx, Rect};
 
@@ -107,6 +156,21 @@ mod tests {
         };
         b.visual.corner_radius = CornerRadius::uniform(FxPx::new(radius));
         b
+    }
+
+    /// The chrome row is a grab strip under its buttons: it takes the press that moves the
+    /// window, never a layer; a button wrapper around its face, and a row with nothing tappable
+    /// inside, are controls and keep theirs.
+    #[test]
+    fn a_container_behind_controls_takes_no_layer_and_a_control_keeps_its_own() {
+        let bar = boxed(1, (0, 0, 1000, 52), 0);
+        let wrapper = boxed(3, (12, 11, 30, 30), 0);
+        let face = boxed(4, (12, 11, 30, 30), 15);
+        let boxes = [bar, wrapper, face];
+        assert!(holds_a_control(&boxes, [1, 3], 1), "the grab strip holds the button");
+        assert!(!holds_a_control(&boxes, [1, 3], 3), "the button holds only its face");
+        let row = [boxed(1, (0, 0, 680, 41), 10), boxed(2, (8, 5, 30, 30), 8)];
+        assert!(!holds_a_control(&row, [1], 1), "a row with nothing tappable inside washes");
     }
 
     #[test]
@@ -142,6 +206,20 @@ mod tests {
             boxed(3, (0, 0, 66, 52), 26),
         ];
         assert_eq!(hover_wash_anchor(&boxes, 1), Some(1));
+    }
+
+    /// A selected round button is a circle holding an accent disc 8 px smaller — both fill the
+    /// wrapper within the slack, and they are ONE control: the wash takes the outer circle, not
+    /// the square wrapper (board cycle 2026-11-10: the screenshot tool's active mode button wore
+    /// a square hover).
+    #[test]
+    fn a_disc_inside_a_circle_is_one_control_and_the_circle_takes_the_wash() {
+        let boxes = [
+            boxed(1, (0, 0, 44, 44), 0),
+            boxed(2, (0, 0, 44, 44), 22),
+            boxed(3, (4, 4, 36, 36), 18),
+        ];
+        assert_eq!(hover_wash_anchor(&boxes, 1), Some(2));
     }
 
     #[test]

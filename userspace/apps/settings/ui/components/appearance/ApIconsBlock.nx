@@ -1,43 +1,37 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// App-Icons and Widgets: four local icon-style tiles.
+// App-Icons & Widgets (design §2.9): four style tiles in a Grid of four columns (gap 12), single
+// selection, the chosen style's name at the header's trailing edge (`ApStyleName`).
 
 Component ApIconsBlock {
     Stack {
-        Stack {
-            Text(@t("ap.icons")).textStyle(overline).fg(labelSecondary)
+        ApHeader { title: @t("ap.icons") } {
+            trailing { ApStyleName { } }
         }
-        .paddingX(16)
-        Stack {
+        Grid(4) {
             Stack {
                 ApIconTile { name: @t("ap.iconDefault"), desc: @t("ap.iconDefaultD"), top: "#5b6472", bottom: "#39404c", selected: $state.apIconStyle == "default" }
             }
-            .minWidth(120)
             .grow(1)
             on Tap -> dispatch(SetIconStyle("default"))
             Stack {
                 ApIconTile { name: @t("ap.iconDark"), desc: @t("ap.iconDarkD"), top: "#33373f", bottom: "#07080a", selected: $state.apIconStyle == "dark" }
             }
-            .minWidth(120)
             .grow(1)
             on Tap -> dispatch(SetIconStyle("dark"))
             Stack {
                 ApIconTile { name: @t("ap.iconClear"), desc: @t("ap.iconClearD"), top: "#ffffff21", bottom: "#ffffff14", selected: $state.apIconStyle == "clear" }
             }
-            .minWidth(120)
             .grow(1)
             on Tap -> dispatch(SetIconStyle("clear"))
             Stack {
                 ApIconTile { name: @t("ap.iconTinted"), desc: @t("ap.iconTintedD"), top: "#3b82f6", bottom: "#2563eb", selected: $state.apIconStyle == "tinted" }
             }
-            .minWidth(120)
             .grow(1)
             on Tap -> dispatch(SetIconStyle("tinted"))
         }
-        .direction(row)
-        .wrap(true)
-        .gap(8)
+        .gap(12)
     }
     .gap(8)
 }

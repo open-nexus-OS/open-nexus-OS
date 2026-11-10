@@ -16,6 +16,8 @@ Component PickerLayers {
         ZonePicker { }
     } else if $state.picker == "hourfmt" {
         HourFormatPicker { }
+    } else if $state.picker == "margin" {
+        MarginPicker { }
     } else {
         Stack { }
     }

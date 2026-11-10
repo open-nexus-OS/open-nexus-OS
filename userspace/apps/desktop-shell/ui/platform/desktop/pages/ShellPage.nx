@@ -25,6 +25,7 @@ Page ShellPage {
                     LauncherHost { }
                 }
                 .grow(1)
+                .basis(0)
                 Taskbar { }
             }
             .grow(1)

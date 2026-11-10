@@ -47,7 +47,9 @@ impl crate::probe::DslApp {
     pub(in crate::probe) fn interaction_press(&mut self, handler: usize) {
         self.interaction_release(); // a press still held (its release never came) goes first
         let plan = self.press_plan(handler);
-        let layer = plan.anchor.map(|a| (a, self.palette.shade(Kind::Press, self.on_fill(a))));
+        // A container behind controls (the chrome's grab strip) takes the press, no layer.
+        let anchor = plan.anchor.filter(|_| !self.holds_a_control(handler));
+        let layer = anchor.map(|a| (a, self.palette.shade(Kind::Press, self.on_fill(a))));
         if layer.is_some() {
             self.show_layer(Kind::Press, layer);
         }
@@ -173,6 +175,13 @@ impl crate::probe::DslApp {
     fn press_plan(&self, h: usize) -> PressPlan {
         let part = self.view.handlers().iter().any(|(id, e)| *id == h && e.press_offset != 0);
         press_kind::plan(&self.layout.boxes, h, part, self.base_alpha != 0)
+    }
+
+    /// Whether tap handler `id` holds another one — a container catch-all behind controls
+    /// (`hover_wash::holds_a_control`): it takes taps, never a hover or press layer.
+    pub(in crate::probe) fn holds_a_control(&self, id: usize) -> bool {
+        let handlers = self.view.handlers().iter().map(|(h, _)| *h);
+        crate::hover_wash::holds_a_control(&self.layout.boxes, handlers, id)
     }
 
     /// Whether control `anchor` is filled: its layers take the on-fill colours.

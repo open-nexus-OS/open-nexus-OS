@@ -51,7 +51,7 @@ fn color_vocabulary_is_a_bijection() {
 /// The count is pinned so ADDING a role cannot quietly stop at the enum.
 #[test]
 fn every_color_role_is_sayable() {
-    const ROLES: usize = 35;
+    const ROLES: usize = 36;
     assert_eq!(
         COLOR_TOKENS.len(),
         ROLES,

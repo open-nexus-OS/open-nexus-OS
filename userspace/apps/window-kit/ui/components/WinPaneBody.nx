@@ -1,0 +1,46 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// A `WinPane`'s body zone (design artifacts: WindowPane): the `body` slot, padding 4 × 8 (`flush`:
+// none), growing to the pane's height and clipped — or a scroll layer of its own with `scrolls`
+// (then nothing inside may scroll).
+Component WinPaneBody {
+    props: {
+        flush: Bool,
+        scrolls: Bool,
+    }
+    slot body
+    if $props.scrolls {
+        if $props.flush {
+            Stack {
+                Slot body
+            }
+            .grow(1)
+            .scroll(vertical)
+        } else {
+            Stack {
+                Slot body
+            }
+            .grow(1)
+            .paddingY(4)
+            .paddingX(8)
+            .scroll(vertical)
+        }
+    } else {
+        if $props.flush {
+            Stack {
+                Slot body
+            }
+            .grow(1)
+            .overflow(hidden)
+        } else {
+            Stack {
+                Slot body
+            }
+            .grow(1)
+            .paddingY(4)
+            .paddingX(8)
+            .overflow(hidden)
+        }
+    }
+}

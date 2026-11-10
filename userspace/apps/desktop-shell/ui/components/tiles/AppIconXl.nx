@@ -1,0 +1,51 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The xl app icon (design artifacts: `AppIcon` xl, native): an 88 px tile, radius 24, shadow2,
+// no border and no backing — the full-screen launcher's icon. The same three artwork branches
+// as `AppIconMd`: the baked sprite in a wrapper that carries the radius and the shadow, the
+// manifest gradient, the neutral glassCard tile. Presentational.
+
+Component AppIconXl {
+    props: {
+        icon: Str,
+        iconTop: Str,
+        iconBottom: Str,
+        iconArt: Str,
+    }
+    if $props.iconArt != "" {
+        Stack {
+            Image { source: $props.iconArt, size: 88 }
+        }
+        .width(88)
+        .height(88)
+        .rounded(xl)
+        .shadow(shadow2)
+    } else { if $props.iconTop != "" {
+        Stack {
+            Icon { symbol: $props.icon, size: 44 }
+                .fg(onAccent)
+        }
+        .width(88)
+        .height(88)
+        .bgGradient($props.iconTop, $props.iconBottom)
+        .rounded(xl)
+        .shadow(shadow2)
+        .align(center)
+        .justify(center)
+    } else {
+        Stack {
+            Icon { symbol: $props.icon, size: 44 }
+                .fg(label)
+        }
+        .width(88)
+        .height(88)
+        .bg(glassCard)
+        .border(hairline)
+        .borderColor(glassEdge)
+        .rounded(xl)
+        .shadow(shadow2)
+        .align(center)
+        .justify(center)
+    } }
+}

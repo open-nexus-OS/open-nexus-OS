@@ -275,20 +275,34 @@ fn greeter_layout_matches_the_design_geometry() {
         clock.rect.width.as_i32()
     );
 
-    // The password pill: 44px tall (design height AND minimum hit target),
-    // with the input growing to fill what the submit button leaves.
+    // The password pill: 44px tall (design height AND minimum hit target), spanning the 340 px
+    // login column (the artifact's form), with the input growing to fill what the submit
+    // button leaves.
     let pill = find(&|w, h| h == 44 && w > 200, "the 44px password pill");
-    assert_eq!(
-        pill.rect.width.as_i32(),
-        340 - 94,
-        "pill spans the 340px login block minus padding"
-    );
-    // The input: the md control height (RFC-0116: 36 — body text on its 20 px line, 8 px insets).
-    let input = find(&|w, h| w == 180 && h == 36, "the grown TextField input");
+    assert_eq!(pill.rect.width.as_i32(), 340, "the field spans the 340 px login column");
+    // The input: the lg control height (RFC-0116: 44 — headline 15 on its 20 px line, L19),
+    // 340 less the capsule's 16 + 16 insets, the 8 gap and the 30 px submit circle.
+    let input = find(&|w, h| w == 340 - 70 && h == 44, "the grown TextField input");
     assert!(input.rect.x > pill.rect.x, "the input sits inside the pill");
 
-    // Avatar 88 + the three 44px session actions.
-    find(&|w, h| w == 88 && h == 88, "the 88px active-user avatar");
+    // Avatar 96 (the design artifacts' lock screen) + the three 44px session actions. Its
+    // initial is the avatar's own style for the size, `largeTitle` — 30 px on a Latin face. With
+    // `display` (64 px, only digits baked) the letter fell back to the 14 px face (board cycle
+    // 2026-11-10: "der Buchstabe ist zu klein").
+    find(&|w, h| w == 96 && h == 96, "the 96px active-user avatar");
+    fn text_px(node: &nexus_layout_types::LayoutNode, text: &str) -> Option<i32> {
+        use nexus_layout_types::LayoutNode;
+        match node {
+            LayoutNode::Text(t, _) if t.content.as_str() == text => {
+                Some(t.style.font_size.as_i32())
+            }
+            LayoutNode::Stack(_, _, children) | LayoutNode::Grid(_, _, children) => {
+                children.iter().find_map(|c| text_px(c, text))
+            }
+            _ => None,
+        }
+    }
+    assert_eq!(text_px(view.scene(), "J"), Some(30), "the initial is largeTitle, 30 px");
     let actions = boxes
         .iter()
         .filter(|b| b.rect.width.as_i32() == 44 && b.rect.height.as_i32() == 44)

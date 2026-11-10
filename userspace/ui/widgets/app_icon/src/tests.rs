@@ -116,12 +116,14 @@ fn active_dot_and_label_follow_the_tile() {
             assert_eq!(l.style.font_weight, FontWeight::Semibold);
             assert_eq!(l.style.text_align, TextAlign::Center);
             assert_eq!(l.max_width, Some(FxPx::new(72)));
-            assert_eq!(v.text_shadow.map(|s| s.color), Some(t.color(ColorToken::LabelShadow)));
+            let halo = TextShadow::halo(t.color(ColorToken::LabelShadow));
+            assert_eq!(v.text_shadows, halo.map(Some), "the design's two-layer glow");
+            assert_eq!(halo[0].blur_radius, 3, "a 3 px glow, not a sharp copy");
         }
         _ => panic!("label"),
     }
     match &stack(&AppIcon::new().label("x").halo(false).build(&t)).2[1] {
-        LayoutNode::Text(_, v) => assert_eq!(v.text_shadow, None),
+        LayoutNode::Text(_, v) => assert_eq!(v.text_shadows, [None; 2]),
         _ => panic!("label"),
     }
 }

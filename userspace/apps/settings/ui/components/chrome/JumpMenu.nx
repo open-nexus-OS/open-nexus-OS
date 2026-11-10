@@ -1,0 +1,28 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The "Zu Bereich springen" submenu of the ⋮ menu: the first six sections with their icons, in the
+// same panel as the main menu (`WinMenu`, 240 wide). `MoreMenu` flies it out to the LEFT of the
+// main panel; the spacer above puts its first row level with the "Zu Bereich springen" row
+// it belongs to — 4 (panel padding) + 26 (the "Ansicht" header row) + 3 x 36 (the check rows) + 9
+// (the divider) + 2 x 36 (search, overview) = 219, less the submenu panel's own 4 px of padding.
+// A pick is the kit's `WinMenuPick(id)`: the kit's store closes the menu and `NavStore` routes
+// the section.
+
+Component JumpMenu {
+    Stack {
+        Stack { }
+            .height(215)
+        WinMenu { width: 240 } {
+            items {
+                WinMenuItem { id: "connections", label: @t("sec.connections"), icon: "wifi", kind: "", act: false, shortcut: "", selected: false }
+                WinMenuItem { id: "devices", label: @t("sec.devices"), icon: "computermouse", kind: "", act: false, shortcut: "", selected: false }
+                WinMenuItem { id: "sound", label: @t("sec.sound"), icon: "speaker.wave", kind: "", act: false, shortcut: "", selected: false }
+                WinMenuItem { id: "display", label: @t("sec.display"), icon: "desktopcomputer", kind: "", act: false, shortcut: "", selected: false }
+                WinMenuItem { id: "notif", label: @t("sec.notif"), icon: "bell", kind: "", act: false, shortcut: "", selected: false }
+                WinMenuItem { id: "personal", label: @t("sec.personal"), icon: "paintpalette", kind: "", act: false, shortcut: "", selected: false }
+            }
+        }
+    }
+    .gap(0)
+}

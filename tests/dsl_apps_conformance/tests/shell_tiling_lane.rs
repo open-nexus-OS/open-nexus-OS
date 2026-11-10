@@ -32,7 +32,7 @@ fn center_of(
     event: &str,
     case: &str,
     payload: &str,
-) -> (i32, i32) {
+) -> (i32, i32, i32) {
     let (e, c) = view.runtime.event_case(event, case).expect("case");
     let tap = symbols.iter().position(|s| s == "Tap").expect("Tap") as u32;
     let (box_id, _) = view
@@ -45,7 +45,18 @@ fn center_of(
         })
         .unwrap_or_else(|| panic!("no Tap handler dispatching {event}::{case}({payload})"));
     let b = boxes.iter().find(|b| b.node_id == *box_id).expect("box");
-    (b.rect.x.0 + b.rect.width.0 / 2, b.rect.y.0 + b.rect.height.0 / 2)
+    (
+        b.rect.x.0 + b.rect.width.0 / 2,
+        b.rect.y.0 + b.rect.height.0 / 2,
+        b.rect.width.0.min(b.rect.height.0) / 2,
+    )
+}
+
+/// The injector presses a point, not a centre: it lands when it is inside the control's round
+/// (or square) target — a launcher that re-flows its footer by a few pixels still gets the press.
+fn lands(target: (i32, i32, i32), point: (i32, i32)) -> bool {
+    let (dx, dy) = (target.0 - point.0, target.1 - point.1);
+    dx * dx + dy * dy <= target.2 * target.2
 }
 
 #[test]
@@ -58,10 +69,9 @@ fn launcher_and_settings_launch_targets_are_where_the_injector_presses() {
     let mut view = View::mount(&nxir, &BaseTokens, &device, &locale).expect("mounts");
     let boxes = common::layout_boxes(&view);
     let launcher = center_of(&view, &boxes, &symbols, "PanelEvent", "SetPanel", "launcher");
-    assert_eq!(
-        launcher,
-        common::inject_point("launcher_button"),
-        "the taskbar launcher target moved"
+    assert!(
+        lands(launcher, common::inject_point("launcher_button")),
+        "the taskbar launcher target moved: {launcher:?}"
     );
     let mut host = NullHost;
     common::dispatch(
@@ -75,9 +85,8 @@ fn launcher_and_settings_launch_targets_are_where_the_injector_presses() {
     );
     let boxes = common::layout_boxes(&view);
     let settings = center_of(&view, &boxes, &symbols, "LauncherEvent", "Launch", "settings");
-    assert_eq!(
-        settings,
-        common::inject_point("launch_settings"),
-        "the launcher's settings target moved"
+    assert!(
+        lands(settings, common::inject_point("launch_settings")),
+        "the launcher's settings target moved: {settings:?}"
     );
 }

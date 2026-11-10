@@ -3,7 +3,7 @@
 //
 // A cell of the last letter row, dispatched by its DATA wherever it sits: an empty `action` is
 // a character key (`glassCard`, sends `Key`), a non-empty one is an action key — the keymap's
-// ⌫ — drawn with the fn look (`fill`) and sending `Action`. The caller keys the cell's wrapper
+// ⌫ — drawn with the fn look (`fill`), the backspace glyph (`delete.left`), sending `Action`. The caller keys the cell's wrapper
 // (a collection's key is read from a widget root, never from a component reference).
 
 Component RowCell {
@@ -26,7 +26,8 @@ Component RowCell {
         on Tap -> dispatch(Key($props.key))
     } else {
         Stack {
-            Text($props.label).textStyle(title2).fontWeight(medium).fg(label)
+            Icon { symbol: "delete.left", size: 20 }
+                .fg(label)
         }
         .align(center)
         .justify(center)

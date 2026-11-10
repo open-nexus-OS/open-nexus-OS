@@ -6,9 +6,10 @@
 // controls) in three zones —
 //   LEADING  (gap 4)  the app chip (the app's icon + a chevron, never the app
 //                     name) that opens the window menu, then the sidebar toggle;
-//   TOOLBAR  (gap 2)  back · forward · refresh | tool1 | tool2 · tool3, centred
-//                     on the WINDOW (an out-of-flow layer over the row, so
-//                     unequal leading/trailing zones cannot push it off-centre);
+//   TOOLBAR  (gap 2)  back · forward · refresh | tool1 | tool2 · tool3 · tool4,
+//                     centred on the WINDOW (an out-of-flow layer over the row, so
+//                     unequal leading/trailing zones cannot push it off-centre); a
+//                     `toolNDisabled` tool is drawn dimmed without a tap;
 //   TRAILING (gap 2)  the properties toggle, the ⋮ app menu, a 1×16 divider
 //                     (margin 0 8, only when one of those two exists) and the
 //                     window controls (three 36 px circles).
@@ -36,9 +37,17 @@ Component WinTopBar {
         tool1: Str,
         tool2: Str,
         tool3: Str,
+        tool4: Str,
         tool1Active: Bool,
         tool2Active: Bool,
         tool3Active: Bool,
+        tool4Active: Bool,
+        // A tool drawn dimmed without a tap (its function does not exist yet — the house rule:
+        // an unfinished control stays visible and disabled). Omitted = enabled.
+        tool1Disabled: Bool,
+        tool2Disabled: Bool,
+        tool3Disabled: Bool,
+        tool4Disabled: Bool,
         navBack: Str,
         navFwd: Str,
         navRefresh: Str,
@@ -136,7 +145,7 @@ Component WinTopBar {
         // sides, so its centre IS the window's). It has no handler of its own:
         // a press beside a tool falls through to the row's drag handler, and
         // the zones under it keep their buttons.
-        if $props.navBack != "" || $props.navFwd != "" || $props.navRefresh != "" || $props.tool1 != "" || $props.tool2 != "" || $props.tool3 != "" {
+        if $props.navBack != "" || $props.navFwd != "" || $props.navRefresh != "" || $props.tool1 != "" || $props.tool2 != "" || $props.tool3 != "" || $props.tool4 != "" {
             Stack {
                 Spacer
                 Stack {
@@ -145,11 +154,12 @@ Component WinTopBar {
                     WinNavCell { symbol: $props.navRefresh, action: "refresh", disabled: false }
                     // Between the navigation group and the tools; between the search tool and
                     // the view-mode pair.
-                    WinBarRule { show: ($props.navBack != "" || $props.navFwd != "" || $props.navRefresh != "") && ($props.tool1 != "" || $props.tool2 != "" || $props.tool3 != ""), pad: 4 }
-                    WinToolCell { symbol: $props.tool1, active: $props.tool1Active }
+                    WinBarRule { show: ($props.navBack != "" || $props.navFwd != "" || $props.navRefresh != "") && ($props.tool1 != "" || $props.tool2 != "" || $props.tool3 != "" || $props.tool4 != ""), pad: 4 }
+                    WinToolCell { symbol: $props.tool1, active: $props.tool1Active, disabled: $props.tool1Disabled }
                     WinBarRule { show: $props.tool1 != "" && $props.tool2 != "", pad: 4 }
-                    WinToolCell { symbol: $props.tool2, active: $props.tool2Active }
-                    WinToolCell { symbol: $props.tool3, active: $props.tool3Active }
+                    WinToolCell { symbol: $props.tool2, active: $props.tool2Active, disabled: $props.tool2Disabled }
+                    WinToolCell { symbol: $props.tool3, active: $props.tool3Active, disabled: $props.tool3Disabled }
+                    WinToolCell { symbol: $props.tool4, active: $props.tool4Active, disabled: $props.tool4Disabled }
                 }
                 .direction(row)
                 .align(center)

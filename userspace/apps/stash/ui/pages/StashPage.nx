@@ -30,8 +30,16 @@ Page StashPage {
             tool1Active: $state.searchOpen == 1,
             tool2Active: $state.viewMode == "grid",
             tool3Active: $state.viewMode == "list",
+            tool4: "",
+            tool4Active: false,
+            tool1Disabled: false,
+            tool2Disabled: false,
+            tool3Disabled: false,
+            tool4Disabled: false,
             navBack: "arrow.left",
             navFwd: "arrow.right",
+            navBackDisabled: false,
+            navFwdDisabled: true,
             navRefresh: "arrow.clockwise",
             sideLeft: "sidebar.left",
             sideRight: "sidebar.right",
@@ -50,6 +58,9 @@ Page StashPage {
             menuMoveDevice: @t("win.moveDevice"),
             menuMinimize: @t("win.minimize"),
             menuClose: @t("win.close"),
+            menuMoveLabel: @t("win.moveLabel"),
+            menuArrangeLabel: @t("win.arrangeLabel"),
+            menuSoon: @t("win.soon"),
         } {
             sidebarLeft {
                 StashSidebar { }

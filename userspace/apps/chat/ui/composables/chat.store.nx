@@ -1,40 +1,33 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Chat store: a QuerySpec-fed transcript (Scroll-Track S4). The history is a
-// LARGE table behind `EffectHost::query()` (keyset paging) — only the loaded
-// WINDOW is ever resident in `messages` (the lazy-loading contract). The
-// first page loads at mount (root effect); scrolling to the end fires the
-// container's `EndReached` → `LoadMore` → next page appends. Local sends
-// still append (echo transport until chat.Send/Receive exports, TASK-0081 C2).
+// TRANSCRIPT domain: a QuerySpec-fed transcript (Scroll-Track S4). The history is a LARGE table
+// behind `EffectHost::query()` (keyset paging) — only the loaded WINDOW is ever resident in
+// `messages` (the lazy-loading contract). The first page loads at mount (root effect); scrolling
+// to the end fires the container's `EndReached` → `LoadMore` → next page appends. A message sent
+// here is a local echo in `sent` (the draft's text) until chat.Send/Receive exports exist
+// (TASK-0081 C2); an empty draft sends nothing.
 
 Store ChatStore {
     messages: List<Msg> = [],
+    sent: List<Str> = [],
     draft: Str = "",
     nextToken: Str = "",
     loading: Bool = false,
     lastError: Int = 0,
-    thread: Str = "",
-    threadName: Str = "",
 }
 
 Event ChatEvent {
-    OpenThread(Str, Str),
-    CloseThread,
     LoadFirst,
     LoadMore,
     Loaded(List<Msg>, Str),
     LoadFailed(Int),
     Send,
+    ClearDraft,
     Received(Str),
 }
 
 reduce ChatEvent {
-    OpenThread(id, name) => {
-        state.thread = id;
-        state.threadName = name;
-    },
-    CloseThread => state.thread = "",
     LoadFirst => state.loading = true,
     LoadMore => state.loading = true,
     Loaded(rows, next) => {
@@ -57,8 +50,12 @@ reduce ChatEvent {
         state.loading = false;
     },
     Send => {
-        state.draft = "";
+        if state.draft != "" {
+            state.sent = tail(state.sent + [state.draft], 64);
+            state.draft = "";
+        }
     },
+    ClearDraft => state.draft = "",
     Received(text) => {
         state.messages = state.messages;
     },

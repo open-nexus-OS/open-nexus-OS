@@ -18,11 +18,11 @@ Component SecApps {
         }
         SetGroup { label: @t("app.gManage"), note: "" } {
             rows {
-                SetRow { title: @t("app.autoUpdate"), subtitle: "", icon: "arrow.down.circle", showChevron: false } {
+                SetRow { title: @t("app.autoUpdate"), subtitle: "", icon: "", showChevron: false } {
                     trailing { Toggle { checked: $state.tgAutoUpdate, label: @t("app.autoUpdate") } }
                 }
-                SetHairline { }
-                SetRow { title: @t("app.prompt"), subtitle: "", icon: "shippingbox", showChevron: false } {
+                SetHairline { plain: true }
+                SetRow { title: @t("app.prompt"), subtitle: "", icon: "", showChevron: false } {
                     trailing { Toggle { checked: $state.tgAppPrompt, label: @t("app.prompt") } }
                 }
                 SetHairline { }

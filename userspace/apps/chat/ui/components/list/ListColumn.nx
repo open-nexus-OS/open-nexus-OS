@@ -1,0 +1,16 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The list column: the header (title, search, chips), a hairline and the scrolling conversations.
+
+Component ListColumn {
+    Stack {
+        ListHeader { }
+        Stack { }
+            .height(1)
+            .bg(separator)
+        ConversationList { }
+    }
+    .gap(0)
+    .grow(1)
+}

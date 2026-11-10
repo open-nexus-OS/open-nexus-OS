@@ -24,7 +24,9 @@ icon = "calculator|#3d4757|#1a202c"
 icon_svg = "assets/icon.svg"
 payload_kind = "ui-program"
 abilities = ["calculator.MainAbility"]
-caps = ["nexus.permission.WINDOW"]
+# CLIPBOARD (the operator's grant, 2026-11-10): the ⋮ menu's "copy result" writes over the
+# calculator's own clipboardd route; a read stays focus-gated and the history stays the shell's.
+caps = ["nexus.permission.WINDOW", "nexus.permission.CLIPBOARD"]
 # Shared window-frame components (window-kit, TASK-0337: one window path):
 # compiled INTO this app's .nxir at build time.
 dependencies = ["window-kit"]

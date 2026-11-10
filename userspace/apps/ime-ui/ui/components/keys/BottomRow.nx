@@ -10,8 +10,8 @@
 // resets the engine on a switch); return is the `accent` key and reads "確定" while something
 // composes (imed's Enter commits the composition as typed). The space and return names
 // follow the UI language — following the keyboard's layout needs layout metadata as data
-// (G6). Compact keeps the return NAME: the corner-arrow glyph is not in the theme's symbol
-// table.
+// (G6). Compact shows the corner-arrow glyph (`return`) instead of the name, the confirm word
+// while composing.
 
 Component BottomRow {
     if device.sizeClass == compact {
@@ -59,7 +59,8 @@ Component BottomRow {
                 if $state.preedit != "" {
                     Text(@t("osk.confirm")).textStyle(footnote).fontWeight(medium).fg(onAccent)
                 } else {
-                    Text(@t("osk.enter")).textStyle(footnote).fontWeight(medium).fg(onAccent)
+                    Icon { symbol: "return", size: 18 }
+                        .fg(onAccent)
                 }
             }
             .align(center)

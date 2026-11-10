@@ -37,9 +37,10 @@ not author.
 | `fillHover`, `fillActive` | the hover and press layer — shown by opacity, never set as a background |
 | `glassPanel`, `glassWindow` | the two blur surfaces: panels, the dock, launcher sheets · app windows |
 | `glassCard` | a translucent layer on a blur surface (cards, grouped rows, tiles); never blurs |
+| `glassOverlay` | a floating surface's frosted glass (modal, alert, menu, popover, toast, select list, action bar): four fifths opaque over the regular blur — `.material(overlay)` as a root |
 | `glassEdge` | the 1 px light edge of every glass layer |
 | `surfacePane` | the opaque pane inside a window |
-| `surfaceOverlay` | the opaque floating surface (modal, alert, menu, popover, tooltip, toast, select list, action bar, on-screen keyboard) |
+| `surfaceOverlay` | the opaque floating surface: the on-screen keyboard's tray, and what a floating surface must not show through |
 | `scrim` | the dimming layer behind a modal overlay |
 | `primary`, `onPrimary` | the brand's solid button and its label |
 | `accent`, `accentGlow`, `onAccent` | the one tint (on-states, selection, links, focus) · its glow · text on it and on `danger` |
@@ -64,8 +65,9 @@ Notes:
 
 A surface on a photograph reads through the same label roles: the material's fill
 (`glassPanel`, `glassWindow`, `glassCard`) keeps the label legible. A label sitting directly on
-the wallpaper (the top bar, an icon label) takes `.shadow(halo)` — `labelShadow` drawn as one
-extra glyph pass 1 px down, no blur — and `wallpaperTint` is the full-bleed wash that keeps
+the wallpaper (the top bar, an icon label) takes `.shadow(halo)` — a soft `labelShadow` glow:
+the glyphs blurred 3 px, once at the text and once 1 px lower at four fifths of the alpha, as
+the artifacts draw it — and `wallpaperTint` is the full-bleed wash that keeps
 content legible without killing the image. `labelShadow` flips between themes in a way the
 surface roles do not: in light mode it is **white** (dark ink needs a bright bloom to
 separate), in dark mode black.

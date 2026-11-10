@@ -5,7 +5,7 @@ role: guide
 subsystem: kernel
 sources: [source/boot/nxboot, source/kernel/neuron-boot, source/kernel/neuron, source/init/nexus-init, scripts/qemu-test.sh]
 contracts: [ADR-0059, ADR-0081, ADR-0080, RFC-0098, RFC-0106, RFC-0107]
-verified: 2026-11-04
+verified: 2026-11-10
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->

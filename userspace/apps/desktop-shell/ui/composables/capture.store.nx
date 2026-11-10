@@ -61,7 +61,10 @@ reduce CaptureEvent {
         state.capHoleW = frame.w / 2;
         state.capHoleH = frame.h / 2;
     },
-    CapBeginFailed(e) => state.capOpen = false,
+    // A refused begin opens nothing, and leaves a session already open alone: a second Print
+    // (a key repeat) is refused as busy while the freeze is up, and closing the open overlay
+    // would leave the screen frozen with no way out.
+    CapBeginFailed(e) => state.capOpen = state.capOpen,
     CapMode(m) => {
         state.capMode = m;
         if m == "screen" {

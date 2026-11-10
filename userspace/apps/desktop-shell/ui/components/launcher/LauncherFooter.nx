@@ -1,49 +1,38 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The windowed start menu's identity footer (design artifacts: launcher §9):
-// hairline on top, avatar + user name left, settings/power actions right.
-// Window mode only — the fullscreen launcher has no footer (§10). Power
-// closes the launcher (session actions land with the session product).
+// The compact launcher's identity footer (design artifacts: launcher, compact): a 1 px
+// separator across the top, then 16 px of padding and the row — avatar (34, initials from the
+// name) and name (subheadline medium) on the left, the round settings and power buttons on the
+// right, 6 px apart. Compact mode only; the full-screen launcher has no footer. Power closes
+// the launcher (session actions land with the session product). The avatar wears the `online` presence dot: the
+// signed-in user is, by definition, online.
 
 Component LauncherFooter {
     Stack {
+        Stack { }
+            .height(1)
+            .bg(separator)
         Stack {
-            Text(@t("launcher.userInitial")).textStyle(footnote).fg(onAccent)
+            Avatar { name: @t("launcher.userName"), size: 34, status: "online" }
+            Text(@t("launcher.userName")).textStyle(subheadline).fontWeight(medium).fg(label)
+            Spacer
+            Stack {
+                Stack {
+                    ActButton { icon: "gearshape" }
+                }
+                on Tap -> dispatch(Launch("settings"))
+                Stack {
+                    ActButton { icon: "power" }
+                }
+                on Tap -> dispatch(SetPanel(""))
+            }
+            .direction(row)
+            .gap(6)
         }
-        .width(34)
-        .height(34)
-        .bg(accent)
-        .rounded(full)
+        .direction(row)
         .align(center)
-        .justify(center)
-        Text(@t("launcher.userName")).textStyle(footnote).fg(label)
-        Spacer
-        Stack {
-            Icon { symbol: "gearshape", size: 15 }
-                .fg(label)
-        }
-        .width(36)
-        .height(36)
-        .align(center)
-        .justify(center)
-        .material(card)
-        .rounded(md)
-        on Tap -> dispatch(Launch("settings"))
-        Stack {
-            Icon { symbol: "power", size: 15 }
-                .fg(label)
-        }
-        .width(36)
-        .height(36)
-        .align(center)
-        .justify(center)
-        .material(card)
-        .rounded(md)
-        on Tap -> dispatch(SetPanel(""))
+        .gap(8)
+        .paddingTop(16)
     }
-    .direction(row)
-    .align(center)
-    .gap(8)
-    .paddingY(8)
 }

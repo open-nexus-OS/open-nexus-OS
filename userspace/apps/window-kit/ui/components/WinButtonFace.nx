@@ -8,7 +8,8 @@
 // lifts the glyph to `label` (a shown pane, an open menu, a tool mode);
 // `danger` is the close treatment — the glyph only, no background swap;
 // `disabled` dims the glyph to `labelTertiary` (the wrapper then binds no tap).
-// Glyph sizes: chrome 14, the app menu's ⋮ 16, pane-header actions 13–14.
+// Glyph sizes and line weights: chrome 14 at the set's 2, the app menu's ⋮ 16 at 2.4, the
+// window controls 14 (13 for the maximize square) at 2.5, pane-header actions 13–14 at 2.
 //
 // Deliberately handler-free, like `WinActionFace`: a dispatch target is a
 // static case name and cannot travel as a prop, so the caller owns the tap —
@@ -31,14 +32,25 @@ Component WinButtonFace {
     if $props.large {
         if $props.danger {
             Circle { size: 36
-                Icon { symbol: $props.symbol, size: $props.size }
+                Icon { symbol: $props.symbol, size: $props.size, stroke: 2.5 }
                     .fg(danger)
             }
         } else {
             Circle { size: 36
-                Icon { symbol: $props.symbol, size: $props.size }
+                Icon { symbol: $props.symbol, size: $props.size, stroke: 2.5 }
                     .fg(labelSecondary)
             }
+        }
+    } else if $props.size == 16 && $props.active {
+        Circle { size: 30
+            Icon { symbol: $props.symbol, size: $props.size, stroke: 2.4 }
+                .fg(label)
+        }
+        .bg(fill)
+    } else if $props.size == 16 && !$props.disabled && !$props.danger {
+        Circle { size: 30
+            Icon { symbol: $props.symbol, size: $props.size, stroke: 2.4 }
+                .fg(labelSecondary)
         }
     } else if $props.disabled {
         Circle { size: 30

@@ -3,8 +3,8 @@
 //
 // The design artifacts' SYSTEM TOAST (5-surface routing, "System ack"): a
 // transient confirmation at the LEFT edge — glyph, title, one line — that
-// needs no action and leaves by itself after 3–5 s. The card is the opaque
-// overlay surface (surfaceOverlay, a 1 px glassEdge, shadow3, the lit top
+// needs no action and leaves by itself after 3–5 s. The card is the frosted
+// overlay surface (glassOverlay, a 1 px glassEdge, shadow3, the lit top
 // line), 300 wide, radius 24, padding 12, gap 12: an icon tile 36 × 36 (radius
 // 12 = 24 − 12, concentric) filled with the toast's tone — `accent`, or
 // `tone: "success" | "danger" | "warning"` — carrying a 19 px `onAccent`

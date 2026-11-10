@@ -92,7 +92,7 @@ nexus-wire = { path = "../../libs/nexus-wire" }
 # ADR-0081: the bootfs table's codec — init reads which core services the boot image carries.
 nexus-bootfs = { path = "../../libs/nexus-bootfs" }
 # TASK-0049B: one-shot supervision probe payload (exit0) for the sweep proof.
-demo-exit0 = { path = "../../../userspace/apps/demo-exit0" }
+demo-exit0 = { path = "../../apps/demo-exit0" }
 # TASK-0049B PR-B3c: statefs wire SSOT for the supervision restart-counter
 # record (protocol module only; no engine/storage use in init).
 statefs = { path = "../../../userspace/statefs", default-features = false }

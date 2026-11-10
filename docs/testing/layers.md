@@ -5,7 +5,7 @@ role: reference
 subsystem: devx
 sources: [userspace, source/services, source/kernel/neuron/src/lib.rs, tests, scripts/qemu-test.sh, tools/os2vm.sh]
 contracts: [RFC-0014, ADR-0025]
-verified: 2026-11-05
+verified: 2026-11-10
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -81,7 +81,11 @@ Deterministic renderer and app suites with checked-in goldens: `tests/ui_v10_gol
 `tests/dsl_goldens`, `tests/dsl_apps_conformance`, … Example:
 `tests/dsl_apps_conformance/tests/calculator_pixels.rs`. The shell conformance tests read the same
 `scenarios/targets.toml` points the QEMU injector clicks, so a moved widget fails here first
-([proof-manifest.md](proof-manifest.md)).
+([proof-manifest.md](proof-manifest.md)). Every DSL app is also measured against the project
+layout (`tests/dsl_apps_conformance/tests/app_structure.rs`, with a baseline that may only shrink)
+and smoke-run (`app_smoke.rs`: every route mounts, every event case reduces and runs its effects
+with neutral payloads while every service refuses); `tests/dsl_conformance/tests/docs_examples.rs`
+compiles every example in `docs/dev/dsl/`.
 
 ## Static chain contract (`tools/nx/`)
 

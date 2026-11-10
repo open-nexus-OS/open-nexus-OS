@@ -5,12 +5,12 @@
 // (phase 1), the failure in `danger` (phase 2).
 Component LoginStatus {
     if $state.phase == 1 {
-        Text(@t("greeter.authenticating")).textStyle(footnote).fg(labelSecondary).shadow(halo)
+        Text(@t("greeter.authenticating")).textStyle(footnote).textAlign(center).fg(labelSecondary).shadow(halo)
     } else {
         if $state.phase == 2 {
-            Text(@t("greeter.failed")).textStyle(footnote).fg(danger).shadow(halo)
+            Text(@t("greeter.failed")).textStyle(footnote).textAlign(center).fg(danger).shadow(halo)
         } else {
-            Text(@t("greeter.hint")).textStyle(footnote).fg(labelSecondary).shadow(halo)
+            Text(@t("greeter.hint")).textStyle(footnote).textAlign(center).fg(labelSecondary).shadow(halo)
         }
     }
 }

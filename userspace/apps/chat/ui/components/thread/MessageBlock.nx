@@ -1,0 +1,52 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One message: the author above the bubble (caption semibold, padding 0 4; "Du" for your own),
+// then the bubble (padding 8 12, subheadline, shadow2, at most 310 wide). Yours sits at the end
+// with the transport's 16 % wash and a 30 % edge and its tail bottom-right (radii 16 16 8 16);
+// theirs at the start on `glassCard` (half `fill` inside the pane) with its tail bottom-left.
+// The messages carry no transport of their own yet (the host table is `(seq, text)`), so the
+// per-message transport badge of the design is not drawn — the header and the Chat-Info pane
+// name the routes. Who wrote a message is the sequence parity (even = you), set by the caller,
+// never parsed from the text. Every node of a message counts against the frame arena: the
+// transcript keeps up to 64 of them resident.
+
+Component MessageBlock {
+    props: {
+        mine: Bool,
+        text: Str,
+    }
+    if $props.mine {
+        Stack {
+            Text(@t("chat.you")).textStyle(caption).fontWeight(semibold).fg(label).paddingX(4)
+            Stack {
+                Text($props.text).textStyle(subheadline).fg(label)
+            }
+            .paddingX(12)
+            .paddingY(8)
+            .maxWidth(310)
+            .corners(lg, lg, sm, lg)
+            .tint($state.tr1Tint)
+            .border(hairline)
+            .borderTint($state.tr1Tint)
+            .shadow(shadow2)
+        }
+        .gap(4)
+        .align(end)
+    } else {
+        Stack {
+            Text($state.threadName).textStyle(caption).fontWeight(semibold).fg(label).paddingX(4)
+            Stack {
+                Text($props.text).textStyle(subheadline).fg(label)
+            }
+            .paddingX(12)
+            .paddingY(8)
+            .maxWidth(310)
+            .corners(lg, lg, lg, sm)
+            .material(card)
+            .shadow(shadow2)
+        }
+        .gap(4)
+        .align(start)
+    }
+}

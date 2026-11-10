@@ -27,7 +27,7 @@ Component Taskbar {
             Stack {
                 if $state.panel == "launcher" || $state.panel == "launcher-big" {
                     Stack {
-                        Icon { symbol: "square.grid", size: 20 }
+                        Icon { symbol: "launcher", size: 20 }
                             .fg(accent)
                     }
                     .width(36)
@@ -38,7 +38,7 @@ Component Taskbar {
                     .bg(fill)
                 } else {
                     Stack {
-                        Icon { symbol: "square.grid", size: 20 }
+                        Icon { symbol: "launcher", size: 20 }
                             .fg(label)
                     }
                     .width(36)

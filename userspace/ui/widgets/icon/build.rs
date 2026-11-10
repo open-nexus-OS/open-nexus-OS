@@ -54,8 +54,20 @@ fn main() {
     // The set's ONE stroke width (every file declares it on its root `<svg>`; a file that
     // differs fails the build rather than painting at the wrong weight).
     let mut stroke_milli: Option<u16> = None;
+    // A `nexus:<stem>` file is one of the project's own glyphs (`[icons] own`), drawn on the
+    // vendor set's grid with its stroke width; every other stem is the vendor's.
+    let own_dir = runtime.own_icons_path().map(|p| repo_root.join(p));
+    if let Some(dir) = &own_dir {
+        println!("cargo:rerun-if-changed={}", dir.display());
+    }
     for (variant, _, file) in &variants {
-        let path = icons_dir.join(format!("{file}.svg"));
+        let path = match file.strip_prefix("nexus:") {
+            Some(stem) => own_dir
+                .as_ref()
+                .expect("nexus-widget-icon: a nexus: symbol needs [icons] own in the base theme")
+                .join(format!("{stem}.svg")),
+            None => icons_dir.join(format!("{file}.svg")),
+        };
         let svg = fs::read_to_string(&path)
             .unwrap_or_else(|e| panic!("nexus-widget-icon: read {}: {e}", path.display()));
         let width = svg_stroke_width_milli(&svg);

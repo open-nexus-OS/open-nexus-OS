@@ -72,9 +72,9 @@ fn reach(b: &LayoutBox) -> (i32, i32, i32, i32) {
         let (ox, oy) = (s.offset_x.0, s.offset_y.0);
         grow(blur + spread - ox, blur + spread - oy, blur + spread + ox, blur + spread + oy);
     }
-    if let Some(t) = b.visual.text_shadow {
-        let blur = t.blur_radius.0.max(0);
-        let (ox, oy) = (t.offset_x.0, t.offset_y.0);
+    for t in b.visual.text_shadows.iter().flatten() {
+        let blur = nexus_text_baked::blur_reach(u32::from(t.blur_radius)) as i32;
+        let (ox, oy) = (i32::from(t.offset_x), i32::from(t.offset_y));
         grow(blur - ox, blur - oy, blur + ox, blur + oy);
     }
     r
@@ -152,7 +152,7 @@ pub(crate) fn backdrop_of(b: &LayoutBox, (w, h): (i32, i32), has_text: bool) -> 
     let flat = covers
         && !has_text
         && v.opacity.is_none()
-        && v.text_shadow.is_none()
+        && v.text_shadows == [None; 2]
         && b.clip_rect.is_none()
         && !matches!(b.overflow, Overflow::Scroll(_))
         && crate::layout_diff::flat_fill(v);
@@ -241,12 +241,15 @@ mod tests {
             color: nexus_layout_types::Rgba8::new(0, 0, 0, 90),
         });
         let mut label = boxed(11, (1510, 60, 100, 20));
-        label.visual.text_shadow = Some(TextShadow {
-            offset_x: FxPx::new(0),
-            offset_y: FxPx::new(1),
-            blur_radius: FxPx::new(2),
-            color: nexus_layout_types::Rgba8::new(0, 0, 0, 90),
-        });
+        label.visual.text_shadows = [
+            Some(TextShadow {
+                offset_x: 0,
+                offset_y: 1,
+                blur_radius: 2,
+                color: nexus_layout_types::Rgba8::new(0, 0, 0, 90),
+            }),
+            None,
+        ];
         let mut row = boxed(12, (1510, 5000, 300, 40));
         row.scroll_root = Some(11);
         row.visual.background = Some(nexus_layout_types::Rgba8::new(9, 9, 9, 255));

@@ -169,6 +169,7 @@ impl DslApp {
             damage_cols: crate::band_math::Cols::Unclaimed,
             input_rx_ns: None,
             hop_input: nexus_ux_budgets::Hop::new(),
+            hover_window: (0, 0),
             motion_hops: nexus_ux_budgets::chains::MotionHops::new(),
             input_session: nexus_ux_budgets::session::InputSession::new(),
             taps_are_keystrokes: false,

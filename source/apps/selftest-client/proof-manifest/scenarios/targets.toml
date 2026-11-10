@@ -22,7 +22,7 @@ launch_settings = [914, 662]
 # TASK-0067B: the top bar's search, its Clipboard category, the first card (shell_search_clipboard.rs).
 search_pill = [1222, 18]
 search_clipboard = [958, 142]
-clip_card = [419, 240]
+clip_card = [419, 238]
 # TASK-0068: the screenshot tool's selection drag and its shutter (shell_capture.rs).
 capture_from = [120, 140]
 capture_to = [520, 420]

@@ -14,10 +14,10 @@
 // paints nothing, and a region that can become an overlay pane must bring a
 // panel or it floats unframed (RFC-0084 P7).
 //
-// TWO-LINE items (title + short description — the design's default sidebar
-// form; the full descriptions live on the overview cards, the short forms
-// here because `.truncate` has no runtime and an overflowing line cannot
-// ellipsise). The section list scrolls on its own (`.scroll(vertical)`): a
+// TWO-LINE items (title + the full description `sec.*.d`, single line: a run wider than its box
+// gets an ellipsis by itself) while "Sidebar kompakt" is off, one-line items when it is on
+// (`ViewStore.sidebarDesc`, via `SideItem`). The account footer carries the online dot on its
+// avatar. The section list scrolls on its own (`.scroll(vertical)`): a
 // scroll layer beside the content pane's (RFC-0109 — every `.scroll` of a
 // page is a layer the compositor moves), so a short window keeps every
 // section reachable while the header and the account footer stay put.
@@ -32,34 +32,35 @@ Component NavSidebar {
         }
         body {
             Stack {
-                WinSideItem { id: "connections", label: @t("sec.connections"), sub: @t("sec.connections.n"), icon: "wifi", active: $state.mode == "browse" && $state.section == "connections" }
-                WinSideItem { id: "devices", label: @t("sec.devices"), sub: @t("sec.devices.n"), icon: "computermouse", active: $state.mode == "browse" && $state.section == "devices" }
-                WinSideItem { id: "sound", label: @t("sec.sound"), sub: @t("sec.sound.n"), icon: "speaker.wave", active: $state.mode == "browse" && $state.section == "sound" }
-                WinSideItem { id: "display", label: @t("sec.display"), sub: @t("sec.display.n"), icon: "desktopcomputer", active: $state.mode == "browse" && $state.section == "display" }
-                WinSideItem { id: "notif", label: @t("sec.notif"), sub: @t("sec.notif.n"), icon: "bell", active: $state.mode == "browse" && $state.section == "notif" }
-                WinSideItem { id: "personal", label: @t("sec.personal"), sub: @t("sec.personal.n"), icon: "paintpalette", active: $state.mode == "browse" && $state.section == "personal" }
-                WinSideItem { id: "apps", label: @t("sec.apps"), sub: @t("sec.apps.n"), icon: "square.grid", active: $state.mode == "browse" && $state.section == "apps" }
-                WinSideItem { id: "general", label: @t("sec.general"), sub: @t("sec.general.n"), icon: "globe", active: $state.mode == "browse" && $state.section == "general" }
-                WinSideItem { id: "accounts", label: @t("sec.accounts"), sub: @t("sec.accounts.n"), icon: "person", active: $state.mode == "browse" && $state.section == "accounts" }
-                WinSideItem { id: "privacy", label: @t("sec.privacy"), sub: @t("sec.privacy.n"), icon: "shield", active: $state.mode == "browse" && $state.section == "privacy" }
-                WinSideItem { id: "power", label: @t("sec.power"), sub: @t("sec.power.n"), icon: "battery.75", active: $state.mode == "browse" && $state.section == "power" }
-                WinSideItem { id: "info", label: @t("sec.info"), sub: @t("sec.info.n"), icon: "info.circle", active: $state.mode == "browse" && $state.section == "info" }
+                SideItem { id: "connections", label: @t("sec.connections"), sub: @t("sec.connections.d"), icon: "wifi", active: $state.mode == "browse" && $state.section == "connections" }
+                SideItem { id: "devices", label: @t("sec.devices"), sub: @t("sec.devices.d"), icon: "computermouse", active: $state.mode == "browse" && $state.section == "devices" }
+                SideItem { id: "sound", label: @t("sec.sound"), sub: @t("sec.sound.d"), icon: "speaker.wave", active: $state.mode == "browse" && $state.section == "sound" }
+                SideItem { id: "display", label: @t("sec.display"), sub: @t("sec.display.d"), icon: "desktopcomputer", active: $state.mode == "browse" && $state.section == "display" }
+                SideItem { id: "notif", label: @t("sec.notif"), sub: @t("sec.notif.d"), icon: "bell", active: $state.mode == "browse" && $state.section == "notif" }
+                SideItem { id: "personal", label: @t("sec.personal"), sub: @t("sec.personal.d"), icon: "paintpalette", active: $state.mode == "browse" && $state.section == "personal" }
+                SideItem { id: "apps", label: @t("sec.apps"), sub: @t("sec.apps.d"), icon: "square.grid", active: $state.mode == "browse" && $state.section == "apps" }
+                SideItem { id: "general", label: @t("sec.general"), sub: @t("sec.general.d"), icon: "globe", active: $state.mode == "browse" && $state.section == "general" }
+                SideItem { id: "accounts", label: @t("sec.accounts"), sub: @t("sec.accounts.d"), icon: "person", active: $state.mode == "browse" && $state.section == "accounts" }
+                SideItem { id: "privacy", label: @t("sec.privacy"), sub: @t("sec.privacy.d"), icon: "shield", active: $state.mode == "browse" && $state.section == "privacy" }
+                SideItem { id: "power", label: @t("sec.power"), sub: @t("sec.power.d"), icon: "battery.75", active: $state.mode == "browse" && $state.section == "power" }
+                SideItem { id: "info", label: @t("sec.info"), sub: @t("sec.info.d"), icon: "info.circle", active: $state.mode == "browse" && $state.section == "info" }
             }
             .gap(0)
         }
         footer {
             Stack {
-                Avatar { initials: "J", size: 34 }
+                Avatar { name: @t("set.userName"), size: 34, status: "online" }
                 Stack {
-                    Text(@t("set.userName")).textStyle(footnote).fontWeight(medium).fg(label)
-                    Text(@t("set.userSub")).textStyle(caption).fg(labelSecondary)
+                    Text(@t("set.userName")).textStyle(subheadline).fontWeight(medium).fg(label)
+                    Text(@t("set.userSub")).textStyle(caption).fontWeight(normal).fg(labelSecondary)
                 }
                 .gap(0)
                 .grow(1)
             }
             .direction(row)
             .align(center)
-            .gap(8)
+            .gap(12)
+            .padding(2)
             on Tap -> dispatch(Goto("accounts"))
         }
     }

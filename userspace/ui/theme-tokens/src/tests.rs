@@ -119,17 +119,28 @@ fn the_text_styles_and_the_control_labels() {
     assert_eq!(style_weight(TextStyleToken::Title1), FontWeight::Bold);
 }
 
+/// The root surfaces blur — on the wallpaper, and a floating overlay over what it floats on
+/// (frosted, the operator 2026-11-10); a card and a pane never do.
 #[test]
-fn only_the_surfaces_on_the_wallpaper_blur() {
-    for m in
-        [Material::Panel, Material::Window, Material::Dock, Material::Thin, Material::UltraThin]
-    {
+fn only_the_root_surfaces_blur_and_an_overlay_is_frosted() {
+    for m in [
+        Material::Panel,
+        Material::Window,
+        Material::Dock,
+        Material::Thin,
+        Material::UltraThin,
+        Material::Overlay,
+    ] {
         assert!(recipe(m).backdrop.is_some() && m.blurs(), "{m:?}");
     }
-    for m in [Material::Card, Material::Pane, Material::Overlay] {
+    for m in [Material::Card, Material::Pane] {
         assert!(recipe(m).backdrop.is_none() && !m.blurs(), "{m:?}");
     }
-    assert_eq!(recipe(Material::Overlay).fill, ColorToken::SurfaceOverlay);
+    assert_eq!(recipe(Material::Overlay).fill, ColorToken::GlassOverlay);
+    assert_eq!(recipe(Material::Overlay).backdrop, Some(BackdropToken::Regular));
+    // Dense enough to read on: four fifths, the design system's glass overlay.
+    assert_eq!(BaseTokens.color(ColorToken::GlassOverlay).a, 0xd1);
+    assert_eq!(DarkTokens.color(ColorToken::GlassOverlay).a, 0xcc);
     assert_eq!(recipe(Material::Pane).edge, None);
     assert_eq!(recipe(Material::Card).edge, Some(ColorToken::GlassEdge));
     assert_eq!(recipe(Material::Dock).backdrop, Some(BackdropToken::Thick));
@@ -163,6 +174,8 @@ fn a_solid_theme_is_its_glass_opaque_and_unblurred() {
         for c in [panel, window, card] {
             assert_eq!(c.a, 255, "solid glass is opaque");
         }
+        // A floating overlay is the lighter surface too: opaque, and readable on its window.
+        assert_eq!(solid.color(ColorToken::GlassOverlay), card, "a solid overlay is opaque");
         assert_eq!(panel, window, "panels and windows share the solid surface");
         // A card is the lighter surface: it stays visible on its panel.
         assert!(luma(card) > luma(panel), "card {card:?} must be lighter than panel {panel:?}");

@@ -1,0 +1,46 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The lock layer (design artifacts: lock screen): a column — the clock at the top, the login in
+// the middle, the other users and the power buttons at the foot — spaced apart over the
+// wallpaper's tint, inset from the screen's edges by the artifact's fluid padding
+// (clamp(32, 6vh, 48) × clamp(16, 4vw, 48)): the page passes 48 × 48 on a regular or wide
+// screen and 32 × 16 on a compact one. The login column is 340 wide; its avatar, name and form
+// sit 16 apart, the field and its message 8 (the form's own gap), and the form spans the column.
+Component LockLayer {
+    props: {
+        insetY: Int,
+        insetX: Int,
+    }
+    Stack {
+        LockClock { }
+        Spacer
+        Stack {
+            Stack {
+                SelectedUser { }
+                Stack {
+                    PasswordField { }
+                    LoginStatus { }
+                }
+                .gap(8)
+            }
+            .gap(16)
+            .width(340)
+        }
+        .align(center)
+        .transition(slideUp)
+        Spacer
+        Stack {
+            UserSwitcher { }
+            Spacer
+            PowerButtons { }
+        }
+        .direction(row)
+        .align(end)
+        .gap(16)
+    }
+    .grow(1)
+    .paddingY($props.insetY)
+    .paddingX($props.insetX)
+    .bg(wallpaperTint)
+}

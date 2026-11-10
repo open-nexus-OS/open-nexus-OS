@@ -60,8 +60,9 @@ ui/pages/ShellPage.nx, ControlCenterPage.nx   the home and the Control Center pa
 ui/platform/desktop/pages/ShellPage.nx        the desktop mode's home: the taskbar
 ui/components/topbar/      the 36 px bar: pills (clock, status, battery, notifications), the island
 ui/components/workspace/   the icon field (WorkspaceGrid, WorkspaceColumn)
-ui/components/tiles/       an app's tile in the field and in the launcher
-ui/components/launcher/    the launcher: windowed or fullscreen, its pages and page dots
+ui/components/tiles/       the app icons (md, xl) and the tiles around them: field, compact grid, full-screen
+ui/components/launcher/    the launcher: compact (window, section, grid, footer) or full screen (greeting,
+                           search row, paged grid, page dots, empty state), the round action button
 ui/components/panels/      the drop-downs (PanelHost) and their bodies: calendar/, controlcenter/,
                            notifications/, parts/ (rows, toggles, meters shared by the panels)
 ui/components/dock/        the dock per width class, the desktop taskbar, the mini player
@@ -79,7 +80,7 @@ draw, pick a window, save, refuse), `shell_search_clipboard.rs` (the search and 
 mode), `shell_panels.rs`, `shell_control_center.rs` and `shell_power_alert.rs` (the panels,
 taps they absorb, the shutdown alert), `shell_hit_targets.rs` (the top bar's controls are
 hittable), `shell_presentation.rs` (a theme change re-emits, never remounts),
-`shell_tiling_lane.rs` (the QEMU lane's tap targets), `hover_sweep.rs`, and the budgets
+`shell_launcher_fit.rs` (the launcher fits 1280×800: grid, pages, dots, compact panel), `shell_tiling_lane.rs` (the QEMU lane's tap targets), `hover_sweep.rs`, and the budgets
 `frame_arena_budget.rs`, `arena_invariant.rs`. In `userspace/dsl/runtime/tests/`:
 `shell_window_feed.rs` (the window list the host pushes) and `shell_workspace_grid.rs` (the
 icon field). Run them with `cargo test -p dsl_apps_conformance --test 'shell_*'` and

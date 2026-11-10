@@ -1,0 +1,45 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The ⋮ menu (design artifacts: calculator C3/C39): "clear all" is the keypad's two-stage C
+// pressed twice — the first press clears the entry, the second the operation and its line —
+// so the arithmetic store keeps one reset path; "copy result" writes what the display shows
+// (`svc.clipboard.write`, the calculator's own route). Both close the menu first.
+Store CalcMenuStore {
+    // 1 once a copy landed, 0 after a refused one (no toast yet: the state is there for one).
+    copied: Int = 0,
+}
+
+Event CalcMenuEvent {
+    ClearAll,
+    CopyResult,
+    Copied(Bool),
+    CopyFailed(Int),
+}
+
+reduce CalcMenuEvent {
+    ClearAll => state.copied = state.copied,
+    CopyResult => state.copied = state.copied,
+    Copied(ok) => {
+        if ok {
+            state.copied = 1;
+        } else {
+            state.copied = 0;
+        }
+    },
+    CopyFailed(e) => state.copied = 0,
+}
+
+@effect on ClearAll {
+    dispatch(WinMenu(""));
+    dispatch(Clear);
+    dispatch(Clear);
+}
+
+@effect on CopyResult {
+    dispatch(WinMenu(""));
+    match svc.clipboard.write(state.disp) {
+        Ok(ok) => dispatch(Copied(ok)),
+        Err(e) => dispatch(CopyFailed(e)),
+    }
+}

@@ -7,7 +7,108 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed - 2026-11-09/10 (the design on the board — TASK-0353)
+
+- **The design package closes on what today's vocabulary can express**: of the design artifacts'
+  1107 deltas 942 are built; the 165 that need a capability the system lacks moved, each with its
+  id, to TASK-0354 (motion), TASK-0359 (drawing and layout), TASK-0360 (DSL controls, anchored
+  surfaces and triggers, RFC first) and TASK-0361 (live data); of the 81 transitions 41 run on a
+  token, every token's curve pinned at named times (`motion_samples.golden`). A hover is
+  measured on the board (`apphost: hops hover (n= rastered=0)`).
+
+- **Translucent pixels reach the screen at their own colour**: app-host handed the compositor its
+  base and motion-layer rows premultiplied while the compositor reads a client surface as straight
+  alpha (RFC-0109) — every translucent pixel was multiplied by its alpha twice, so the light glass
+  tint (`#ffffff80`) showed as a quarter-white and the light taskbar went grey. Every row is now
+  converted once before it leaves (`straight_alpha.rs`), as the scroll bands already were.
+- **A shadow reaches past its box**: the painter cut a control's shadow flat at the box's top and
+  bottom rows; it now paints the rows the shadow reaches, and app-host's damage covers them.
+- **The caret stays** after another surface declared one (one declaration per surface); **an
+  overlay sidebar covers what is under it** in a small window, without dimming.
+- **The pointer is the design's** (outline, body and shadow for the arrow too, hot spot at the
+  tip); **the launcher glyph** is the project's own icon; **the screenshot panel is glass**; a
+  menu's check carries the design's weight (`Icon { stroke: 2.6 }`, a new `stroke` prop).
+- **Floating surfaces are frosted again**: menus, popovers, alerts, modals, toasts and the
+  floating action bar take the new `glassOverlay` role over the regular blur as a stack's root
+  (the design system's glass overlay), opaque where nested and under reduce transparency.
+- **Scrolling and the launcher's icons come back**: a scroll layer counted as covered by any bare
+  overlay's box — an invisible full-window host covered every list and the launcher's grid, which
+  then scrolled and drew nowhere; now only what an overlay paints covers a layer.
+- **A second Print keeps the screenshot session**: a refused second freeze closed the open
+  overlay and left the screen frozen with no way out.
+- **Hover where the design has it**: the window's buttons keep theirs, a container behind
+  controls (the chrome's grab strip) takes none, and a selected round button washes round.
+- **The lock screen avatar shows its initial at 30 px**: the 64 px style has only digits baked,
+  and a letter in it fell back to the 14 px face.
+- **Light mode draws translucent text and icons dark**: app-host cleared each row to its base
+  colour's bytes at alpha 0 (the desktop's `glassWindow`), and every translucent pixel the
+  painter blended over them took that white in — the light top bar's secondary icons came out
+  near-white and glyph edges white-fringed. The base is premultiplied now (transparent black),
+  with a `test_reject_` for a base whose colour outshines its alpha.
+- **`just start-vnc` boots past the growing kernel heap**: the interactive launcher took the
+  heap's `KHEAP: grew` line for a canary marker and stopped QEMU; it matches the canary lines
+  only.
+- **A label on the wallpaper has the design's soft halo**: `.shadow(halo)` drew one sharp copy
+  of the text 1 px lower, which doubled the desktop's labels; the glyph painter now blurs a text
+  shadow as CSS reads its radius (`nexus_text_baked::draw_text_blur_row`), and the halo is the
+  artifacts' two glows (`TextShadow::halo`), painted and damaged as far as they reach.
+- **A placeholder reads as a placeholder in light mode**: the painter dimmed it by darkening the
+  text colour's RGB, which leaves near-black text near-black — every empty field's hint looked
+  typed. The field builders now hand the theme's `labelTertiary` (`labelSecondary` on the lock
+  screen's capsule) to the painter on the input node (`TextInputNode::placeholder_color`, no
+  bigger node); without one the painter fades the alpha.
+- **The image budget gate measures what a spawn allocates**: since the one service heap
+  (ADR-0093) every service image carried 64 MiB of lazily committed `.bss` and read about 30×
+  over its budget; the gate subtracts that heap (its size read from `nexus-service-entry`) and
+  keeps counting every other `.bss`, so a growing frame arena or table still trips it.
+- **The lock screen's field is the design's capsule** (headline 15, the placeholder in
+  `labelSecondary`, two shadows, a `danger` outline after a failed login); Stash's menus show their
+  shortcuts, its forward arrow is disabled and its account carries the presence dot; Chat's toolbar
+  draws its four tools (the unbacked three disabled); the launcher's account shows the dot too.
+- **A tool whose function does not exist yet stays visible, dimmed**: the window kit's toolbar takes
+  `tool1Disabled`…`tool4Disabled` and a fourth tool slot; Settings draws its search that way, the
+  apps their unbacked tools. Settings' remaining design rows are built (full sidebar
+  descriptions, the account block with its presence dot, stacked slider rows, the view options,
+  the ⋮ menu with its jump flyout, the appearance tiles with their selection rings).
+- **The caret takes the field's tint** (the design's caret, `accent` unless tinted) instead of the
+  text colour — the builder hands it to the compositor's caret on the input node
+  (`TextInputNode::caret_color`).
+- **The activity ring turns once a second** with the design's `(i+1)/12` spoke fade (it ran at
+  80 ms a spoke and faded to a quarter only).
+- **The calculator's ⋮ menu**: "clear all" and "copy result" (the operator granted the calculator
+  `nexus.permission.CLIPBOARD`; writing only — a read stays focus-gated in clipboardd; the caps
+  are pinned in nxb-pack's bundle tests), and the decimal key follows the region (`,` under
+  `de-DE`, `.` elsewhere).
+- **The shell search is the design's floating surface**: the field, its three buttons and the
+  results panel are the frosted overlay material (radius 24 for the panel), the magnifier is
+  18 px, the field lg, the chosen category a fill layer with an accent glyph, the section titles
+  overline in `labelSecondary`.
+- **`nx dsl fmt` no longer deletes comments**: its output carries none, so rewriting a file
+  dropped every comment, licence header included. A file with comments is now reported and left
+  as it is (exit 1); the lexer counts what it skips (`lex_counting_comments`).
+
 ### Changed - 2026-11-09 (every DSL app built like a template — TASK-0357)
+
+- **`userspace/apps` holds only what ships**: the Rust TASK-0055 launcher client is gone (its
+  click and first-frame fixture lives with the `ui_v2a_host` proofs that use it), `demo-exit0` —
+  the probe ELFs init's supervision check, execd's image table and the exec selftest run — moved
+  to `source/apps/`, and the window widget's unused `chrome` builders were deleted (the window
+  UI is window-kit's since TASK-0337).
+- **Every tap target has an accessible name**: a container with `on Tap` needs `.label(…)` or a
+  text inside it (NX0415, an error); the ten unnamed targets in the apps carry one now, and the
+  kit's modal takes its close glyph's name as `closeLabel`.
+- **The window store lives once, in the window kit** (RFC-0084 amendment): a library may ship the
+  state its components show (`ui/composables/`), and the compiler adds it to an app that reads
+  its store; Calculator, Chat, Settings and Stash lost their copies and react to the kit's events
+  with effects of their own (`NavPick`, `NavStep`, `ToolPick`).
+- **A slot forwards into another component** (RFC-0084 amendment): `Slot x` inside a slot body
+  places the enclosing component's own slot, the runtime's slot frames chain, and a body that
+  only forwards copies no locals. `WinPane` and `WinAppWindow` compose zone components this
+  way and drop off the structure gate's baseline.
+- **Layout: a stretched child keeps its own size, a paged scroller's child is one page**: a
+  `.width`/`.maxWidth` (or height) holds under a stretching parent, and a `.scroll(paged)`
+  child without a width is one viewport wide — the launcher's grid centres on wide screens and
+  the window menu's tiling glyphs draw where they belong.
 
 - **Every app is modular and explains itself**: thin route pages that compose feature
   components (`ui/components/<feature>/`), stores split by domain, a README per app with the

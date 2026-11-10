@@ -1,0 +1,38 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The Accounts section's first row (design: the avatar row of §2.5): a 36 px `Avatar` with the
+// online dot leading, the name as title, the e-mail as subtitle and the account's label
+// trailing in subheadline 13/500 `labelSecondary`. 60 px high at the row padding 12 16.
+//
+// Composed here, not the `ListItem` widget: that widget's leading slot is a symbol (`icon`),
+// not an avatar, so the one row of the tree that leads with a person is its own component.
+// The subtitle follows "Beschreibungen anzeigen" (`ViewStore.showSubtitles`) like every row.
+
+Component AccountRow {
+    props: {
+        name: Str,
+        email: Str,
+        label: Str,
+    }
+    Stack {
+        Avatar { name: $props.name, size: 36, status: "online" }
+        Stack {
+            Text($props.name).textStyle(body).fontWeight(medium).fg(label)
+            if $state.showSubtitles {
+                Text($props.email).textStyle(footnote).fg(labelSecondary)
+            } else {
+                Stack { }
+            }
+        }
+        .gap(0)
+        .grow(1)
+        Text($props.label).textStyle(subheadline).fontWeight(medium).fg(labelSecondary)
+    }
+    .direction(row)
+    .align(center)
+    .gap(12)
+    .paddingX(16)
+    .paddingY(12)
+    .minHeight(48)
+}

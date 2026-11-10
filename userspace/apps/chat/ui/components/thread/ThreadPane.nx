@@ -1,0 +1,20 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The thread column: header, a hairline, the scrolling transcript, a hairline and the composer.
+
+Component ThreadPane {
+    Stack {
+        ThreadHeader { }
+        Stack { }
+            .height(1)
+            .bg(separator)
+        Transcript { }
+        Stack { }
+            .height(1)
+            .bg(separator)
+        Composer { }
+    }
+    .gap(0)
+    .grow(1)
+}

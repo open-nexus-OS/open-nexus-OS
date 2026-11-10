@@ -1,0 +1,21 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The launcher's round action button (design artifacts: GlassButton, glass look, circle, md):
+// 36 px, glassCard fill with a glassEdge hairline, shadow1 and the lit top edge, no blur, a 14 px
+// glyph in `label`. Hover and press are the compositor's layer over the button — it never
+// repaints for them. Presentational: the handler goes on a wrapping `Stack` at the use site.
+
+Component ActButton {
+    props: {
+        icon: Str,
+    }
+    Circle { size: 36
+        Icon { symbol: $props.icon, size: 14 }
+            .fg(label)
+    }
+    .bg(glassCard)
+    .border(hairline)
+    .borderColor(glassEdge)
+    .shadow(shadow1, edgeHighlight)
+}

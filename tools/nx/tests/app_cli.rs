@@ -41,8 +41,12 @@ fn compiles_a_real_app_and_writes_the_sidecar() {
     assert!(props.contains("label=Calculator\n"), "{props}");
     assert!(props.contains("bundle_type=app\n"), "{props}");
     assert!(props.contains("payload_kind=ui-program\n"), "{props}");
-    // RFC-0111 §6: the manifest's caps ride the sidecar; the calculator declares no background.
-    assert!(props.contains("permissions=nexus.permission.WINDOW\n"), "{props}");
+    // RFC-0111 §6: the manifest's caps ride the sidecar (the calculator's clipboard grant for
+    // "copy result", TASK-0353); the calculator declares no background.
+    assert!(
+        props.contains("permissions=nexus.permission.WINDOW,nexus.permission.CLIPBOARD\n"),
+        "{props}"
+    );
     assert!(props.contains("background=\n"), "{props}");
     // Determinism: the same project compiles to the same bytes.
     let again = Command::new(env!("CARGO_BIN_EXE_nx"))

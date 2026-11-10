@@ -1,8 +1,8 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The design artifacts' MODAL: a centred dialog on the opaque overlay surface
-// (surfaceOverlay, a 1 px glassEdge, shadow4, radius 24), 440 wide, over a
+// The design artifacts' MODAL: a centred dialog on the frosted overlay surface
+// (glassOverlay, a 1 px glassEdge, shadow4, radius 24), 440 wide, over a
 // `scrim` with 20 px around it. Header: padding 16 20 — the title (title3
 // 17/22, `label`) and the close circle (28, `fill`, X 13 `labelSecondary`) —
 // with a hairline under it when titled; body: the `body` slot, padding 20;
@@ -23,12 +23,15 @@
 // STORE CONTRACT (the consuming app declares these — the kit dispatches):
 //   events  ModalClose(Str) · WinNoop
 //   slots   body · footer
+//   props   `closeLabel`: the close glyph's accessible name (a library owns no i18n — the app
+//           passes `@t("win.close")`).
 
 Component WinModal {
     props: {
         id: Str,
         title: Str,
         noFooter: Bool,
+        closeLabel: Str,
     }
     slot body
     slot footer
@@ -47,6 +50,7 @@ Component WinModal {
                     }
                     .bg(fill)
                     .hitSlop(8)
+                    .label($props.closeLabel)
                     on Tap -> dispatch(ModalClose($props.id))
                 }
                 .direction(row)

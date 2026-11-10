@@ -1,0 +1,49 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// VIEW OPTIONS domain: the three entries of the ⋮ menu's "Ansicht" group. They shape how the
+// settings tree is DRAWN, not what it does, so they belong to this app and not to the window
+// kit's chrome store (that one is the kit's contract and stays as it is).
+//
+//   showSubtitles   every row's second line (the design's "Beschreibungen anzeigen")
+//   sidebarDesc     the sidebar's description line under each section ("Sidebar kompakt" is its
+//                   negation: one-line items when this is off)
+//   advanced        the `advanced` groups of the tree ("Erweiterte Optionen"), e.g.
+//                   Sound & Töne > Barrierefreiheit > Mono-Audio
+//
+// `@persist`: a view preference is exactly the durable small state RFC-0100 §6 describes — it
+// survives the window being hidden or killed (the manifest says `restorable = true`).
+//
+// CROSS-DOMAIN BRIDGE: toggling an entry closes the open chrome menu, and `menu` belongs to the
+// kit's `WindowStore` — a reducer may write only one store, so the closing travels as an
+// `@effect` that dispatches `WinMenu("")` (the same bridge `NavStore` uses).
+
+Store ViewStore {
+    showSubtitles: Bool = true @persist,
+    sidebarDesc: Bool = true @persist,
+    advanced: Bool = false @persist,
+}
+
+Event ViewEvent {
+    ToggleSubtitles,
+    ToggleSidebarDesc,
+    ToggleAdvanced,
+}
+
+reduce ViewEvent {
+    ToggleSubtitles => state.showSubtitles = !state.showSubtitles,
+    ToggleSidebarDesc => state.sidebarDesc = !state.sidebarDesc,
+    ToggleAdvanced => state.advanced = !state.advanced,
+}
+
+@effect on ToggleSubtitles {
+    dispatch(WinMenu(""));
+}
+
+@effect on ToggleSidebarDesc {
+    dispatch(WinMenu(""));
+}
+
+@effect on ToggleAdvanced {
+    dispatch(WinMenu(""));
+}

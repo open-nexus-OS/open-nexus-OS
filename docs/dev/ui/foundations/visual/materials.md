@@ -32,11 +32,15 @@ passes whenever its backdrop changes (TASK-0335, cycle 51: nine glass layers in 
 three to four of them one window's own; 3.4× overdraw). Where glass goes decides whether a frame
 fits 16.7 ms, so these are design rules and cost rules in one:
 
-1. **Glass only on the surface that sits on the wallpaper.** Panels (Control Center,
-   notifications, launcher sheets), the dock and the taskbar, app windows, and small standalone
-   pieces may blur. **The content layer is opaque** — a window's pane is `.material(pane)` —
-   and so is **everything that floats**: modals, alerts, menus, popovers, tooltips, toasts,
-   select lists, the action bar and the on-screen keyboard are `.material(overlay)`.
+1. **Glass only on a root surface.** Panels (Control Center, notifications, launcher sheets),
+   the dock and the taskbar, app windows, and small standalone pieces blur the wallpaper.
+   **Everything that floats** — modals, alerts, menus, popovers, tooltips, toasts, select
+   lists, the action bar — is `.material(overlay)`: dense frosted glass (`glassOverlay`, four
+   fifths opaque) over a regular blur of what it floats on, the operator's call (2026-11-10:
+   a menu shows the blur behind it). **The content layer is opaque** — a window's pane is
+   `.material(pane)` — and so is an overlay nested in another surface: it cannot blur there
+   and is drawn at full strength. A floating surface is small and short-lived; its blur costs
+   a scene pass and two blur passes only while it is open and its backdrop changes.
 2. **One blur per stack, never glass on glass.** A window is ONE material layer over the
    desktop. Panels, cards and controls inside a blur surface are `card` (translucent, no blur
    of its own) or opaque — what lies under them is already the blurred base, and a blur of a
@@ -73,7 +77,7 @@ edge and a shadow:
 | `ultraThin` | `glassPanel` | ultraThin | `glassEdge` | a small standalone piece on the wallpaper |
 | `card` | `glassCard` | — | `glassEdge` | a card, a grouped row or a tile on a blur surface |
 | `pane` | `surfacePane` | — (opaque) | — | the pane inside a window |
-| `overlay` | `surfaceOverlay` | — (opaque) | `glassEdge` · `shadow3`, lit top edge | every floating surface |
+| `overlay` | `glassOverlay` | regular (a root); — nested, opaque | `glassEdge` · `shadow3`, lit top edge | every floating surface |
 
 The backdrops are theme sections, authored once in `resources/themes/base.nxtheme.toml`
 (`[material.ultraThin|thin|regular|thick]`, `type = "backdrop"`): `blurRadiusDp`
@@ -104,17 +108,18 @@ material box (`region_kind` in `source/services/app-host/src/probe/layers.rs`):
 | `window` | glass | `GLASS_WINDOW` (3) | regular, 40 px |
 | `dock` | glass | `GLASS_DOCK` (5) | thick, 64 px |
 | `thin` / `ultraThin` | glass | `GLASS_THIN` (1) / `GLASS_ULTRA_THIN` (2) | 20 px / 8 px |
-| `pane` / `overlay` | opaque (`MATERIAL_OPAQUE`), only at full opacity | — | — |
+| `overlay` | glass as a root; nested, opaque (`MATERIAL_OPAQUE`) at full opacity | `GLASS_PANEL` (0) | regular, 40 px |
+| `pane` | opaque (`MATERIAL_OPAQUE`), only at full opacity | — | — |
 | `card` | none: painted into the surface | — | — |
 
 The level on the wire (`source/libs/nexus-display-proto/src/client_surface.rs`) is a **blur
 bucket**, not the material; windowd reads the bucket's radius from the theme's backdrops
 (`region_blur` in `source/services/windowd/src/compositor/runtime/surface_layers_encode.rs`), so
 the compositor and the token set cannot disagree on a radius. Id 4 (`GLASS_OVERLAY`) is retired
-and never reused: a floating surface is opaque. A nested blur declares no region and blends into
-its parent's pixels; an opaque `pane` or `overlay` drawn at full opacity is an occluder wherever
-it sits (a pane occludes the window's blur, a menu the panel's) — faded, it shows what lies
-below and claims nothing.
+and never reused: a floating overlay takes the regular bucket. A nested blur declares no region
+and blends into its parent's pixels; an opaque `pane` — or a nested `overlay` — drawn at full
+opacity is an occluder wherever it sits (a pane occludes the window's blur, a menu inside a
+panel the panel's) — faded, it shows what lies below and claims nothing.
 
 The planner cuts what lies under an opaque layer (`nexus_gfx::frame::occlude`) and runs the
 opaque program on its straight parts. Rule 4 is the planner's: a glass of a window in motion

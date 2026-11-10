@@ -1,0 +1,40 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The navigation sidebar on the window glass (a bare `WinPane`: no surface of its own, in an
+// overlay the overlay IS the surface): the views as 36 px rows, two labelled sections, the
+// profile strip as the footer. Only Chats is built — the other views are shown dimmed and inert
+// until they exist (unfinished controls are disabled, not deleted). The counts are authored.
+
+Component ChatSidebar {
+    WinPane { title: "", showHeader: false, showFooter: true, bare: true, flush: false, scrolls: true, noDividers: false } {
+        body {
+            Stack {
+                NavRow { icon: "message.square", title: @t("chat.nav.chats"), count: 10, tint: "accent", active: true }
+                Stack {
+                    NavRow { icon: "megaphone", title: @t("chat.nav.channels"), count: 3, tint: "danger", active: false }
+                    NavRow { icon: "person.2", title: @t("chat.nav.contacts"), count: 0, tint: "accent", active: false }
+                    NavRow { icon: "phone", title: @t("chat.nav.calls"), count: 0, tint: "accent", active: false }
+                }
+                .gap(2)
+                .disabled(true)
+                WinSideHeader { label: @t("chat.nav.business") }
+                Stack {
+                    NavRow { icon: "lifepreserver", title: @t("chat.nav.support"), count: 5, tint: "danger", active: false }
+                    NavRow { icon: "square.grid", title: @t("chat.nav.apps"), count: 0, tint: "accent", active: false }
+                }
+                .gap(2)
+                .disabled(true)
+                WinSideHeader { label: @t("chat.nav.system") }
+                Stack {
+                    NavRow { icon: "gearshape", title: @t("chat.nav.accounts"), count: 0, tint: "accent", active: false }
+                }
+                .disabled(true)
+            }
+            .gap(2)
+        }
+        footer {
+            ProfileFooter { }
+        }
+    }
+}

@@ -5,7 +5,7 @@ role: reference
 subsystem: devx
 sources: [tools/nx/src/commands/ledger, justfile, ".github/CODEOWNERS"]
 contracts: [RFC-0115]
-verified: 2026-11-04
+verified: 2026-11-10
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->

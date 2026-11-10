@@ -1,0 +1,36 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The route row above the field: "Senden über", one xs chip per transport of the conversation
+// (the picked route is the solid tint with its glow) and the fallback note at the end. Choosing a
+// route only records it (`SetRoute`): no transport exists yet, so the chips are shown dimmed
+// (unfinished controls are disabled, not deleted) and the note is the authored demo text.
+
+Component RouteRow {
+    Stack {
+        Text(@t("chat.routeVia")).textStyle(caption2).fg(labelSecondary)
+        Stack {
+            Chip { label: $state.tr1, size: "xs", tint: $state.tr1Tint, selected: $state.route == 1 }
+        }
+        .disabled(true)
+        if $state.tr2 != "" {
+            Stack {
+                Chip { label: $state.tr2, size: "xs", tint: $state.tr2Tint, selected: $state.route == 2 }
+            }
+            .disabled(true)
+        } else {
+            Stack { }
+        }
+        Stack { }
+            .grow(1)
+        if $state.bridge {
+            Text(@t("chat.fallbackOn")).textStyle(caption2).fg(labelSecondary)
+        } else {
+            Text(@t("chat.fallbackOff")).textStyle(caption2).fg(labelSecondary)
+        }
+    }
+    .direction(row)
+    .align(center)
+    .wrap(true)
+    .gap(8)
+}

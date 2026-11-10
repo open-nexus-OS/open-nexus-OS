@@ -1,0 +1,48 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The space rail: 56 px wide on the wide tier, the spaces in a column (gap 2, padding 2 0); in
+// the sidebar overlay of the narrower tiers the same tabs lie in a row above the navigation. A
+// space filters the conversation list (`Alle` = no filter). The last item, joining a space, is an
+// action no service backs yet: shown, dimmed, inert (it never becomes selected).
+
+Component SpaceRail {
+    if device.sizeClass == "wide" {
+        Stack {
+            RailTab { id: "all", glyph: "*", name: @t("chat.space.all"), active: $state.space == "all" }
+            RailTab { id: "family", glyph: "F", name: @t("chat.space.family"), active: $state.space == "family" }
+            RailTab { id: "work", glyph: "A", name: @t("chat.space.work"), active: $state.space == "work" }
+            RailTab { id: "community", glyph: "C", name: @t("chat.space.community"), active: $state.space == "community" }
+            RailTab { id: "business", glyph: "B", name: @t("chat.space.business"), active: $state.space == "business" }
+            Stack { }
+                .height(1)
+                .bg(separator)
+            Stack {
+                Icon { symbol: "plus", size: 16 }
+                    .fg(label)
+            }
+            .minWidth(56)
+            .height(44)
+            .align(center)
+            .justify(center)
+            .disabled(true)
+            .label(@t("chat.space.join"))
+        }
+        .width(56)
+        .paddingY(2)
+        .gap(2)
+    } else {
+        Stack {
+            RailTab { id: "all", glyph: "*", name: @t("chat.space.all"), active: $state.space == "all" }
+            RailTab { id: "family", glyph: "F", name: @t("chat.space.family"), active: $state.space == "family" }
+            RailTab { id: "work", glyph: "A", name: @t("chat.space.work"), active: $state.space == "work" }
+            RailTab { id: "community", glyph: "C", name: @t("chat.space.community"), active: $state.space == "community" }
+            RailTab { id: "business", glyph: "B", name: @t("chat.space.business"), active: $state.space == "business" }
+        }
+        .direction(row)
+        .align(center)
+        .gap(2)
+        .paddingX(4)
+        .paddingY(4)
+    }
+}

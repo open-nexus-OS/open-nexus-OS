@@ -5,7 +5,7 @@ role: guide
 subsystem: devx
 sources: [scripts/qemu-test.sh, source/apps/selftest-client/proof-manifest, tests, ".github/workflows/ci.yml"]
 contracts: [RFC-0013, RFC-0014, RFC-0038, ADR-0025, ADR-0063]
-verified: 2026-11-09
+verified: 2026-11-10
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->

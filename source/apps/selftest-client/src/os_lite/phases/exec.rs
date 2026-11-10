@@ -349,7 +349,7 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
 const IMG_VMO_HOLDER: u8 = 6;
 /// Holders spawned in a row.
 const VMO_HOLDER_CYCLES: u64 = 10;
-/// The bytes one holder keeps at exit (`userspace/apps/demo-exit0/build.rs`).
+/// The bytes one holder keeps at exit (`source/apps/demo-exit0/build.rs`).
 const VMO_HOLDER_BYTES: u64 = 0x10_0000;
 
 /// `SELFTEST: mm loop (cycle= free= vmos= vmo_bytes=)`: the kernel's record at this point of

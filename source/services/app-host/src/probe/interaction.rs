@@ -243,8 +243,10 @@ impl super::DslApp {
         let target = self
             .tap_target_at(x, y)
             // Container catch-alls (overlay backdrop, panel body) are TAP consumers, never hover
-            // targets: the gate is the WASH's (short = a control) — a full-width list row washes.
-            .filter(|&id| crate::hover_wash::hover_washable(&self.layout.boxes, id));
+            // targets: the gate is the WASH's (short = a control) — a full-width list row washes —
+            // and a container behind controls (the chrome's grab strip) takes none.
+            .filter(|&id| crate::hover_wash::hover_washable(&self.layout.boxes, id))
+            .filter(|&id| !self.holds_a_control(id));
         if target == self.hovered {
             return false;
         }

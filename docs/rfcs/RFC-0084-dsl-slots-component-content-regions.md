@@ -106,7 +106,7 @@ rather than left behind new syntax:
 ## Non-Goals
 
 - **Slot forwarding** (`Slot x` inside a callsite slot body). Rejected in v1;
-  the seam is named in §Alternatives.
+  the seam is named in §Alternatives — added by the 2026-11-10 amendment.
 - Default/unnamed slots, typed slots (`slot rows: List<T>`), per-slot
   `required`.
 - Per-instance component state. The "a stateful component is instantiated
@@ -313,7 +313,7 @@ code + span + message, and individually tested.
 | 8 | slot name collides with a prop or state field name |
 | 9 | plain children on a component reference — *closes the silent drop* |
 | 10 | modifiers on a component reference — *closes the silent drop* |
-| 11 | `Slot` inside a callsite slot body (forwarding) — v1 restriction |
+| 11 | `Slot` inside a callsite slot body that names no slot of the enclosing component, or any in a page's body (forwarding a declared slot is allowed: 2026-11-10 amendment) |
 | 12 | two `Slot x` as **siblings under the same parent** |
 | 13 | `$props.<n>` in a slot body where `<n>` is not a prop of the enclosing component |
 
@@ -372,6 +372,58 @@ assume: `tests/systemui_bootstrap_shell_host` and
 `tests/dsl_apps_conformance/tests/shell_*.rs` gate the change, which lands as
 its own commit.
 
+### Amendment (2026-11-10): slot forwarding
+
+The window kit's `WinPane` and `WinAppWindow` render their slots in several places (a bare
+and a panel arm, an inline and an overlay region), and without forwarding every zone that
+places a slot had to stay inside the component that declares it — both components outgrew
+the app structure gate (TASK-0357 P2). Forwarding is the v2 seam named in §Alternatives:
+
+- **Syntax.** `Slot x` written inside a callsite slot body places a slot of the component the
+  body is written in — `Card { } { body { Text($props.title) Slot body } }` inside a component
+  that declares `slot body` hands what it received on to `Card`.
+- **Checker.** Rule 11 now refuses only a `Slot` in a body that names no slot of the enclosing
+  component, and any `Slot` in a page's body (a page has no slots) — `NX0411`.
+- **Lowering.** Unchanged: a body lowers in the caller's `Env`, so its `Slot` already addresses
+  the enclosing component's slot list.
+- **Runtime.** Each `SlotFrame` keeps the frame that was active at its callsite
+  (`parent`); entering a body restores that frame instead of clearing it, so a forwarded
+  placeholder reads the binding the caller received, in the caller's caller's scope, as deep
+  as the chain goes. A forwarded slot splices its nodes into the receiving region like any
+  bound slot (the splice law holds through the chain). A reference whose bodies only forward
+  (`{ Slot body }`) reads no caller local, so it takes no locals snapshot — the chain costs no
+  allocation per level.
+- **Proof.** `userspace/dsl/core/tests/slot_forwarding.rs` (clean forward, two `test_reject_`),
+  `userspace/dsl/runtime/tests/slots.rs` (a forward in the caller's scope, a forward through
+  two components, an unbound forward, the splice through the chain), and the kit itself:
+  `WinPane` and `WinAppWindow` compose zone components with forwarded slots, and the window
+  kit's conformance tests, goldens and the chat's frame-arena budget hold.
+
+### Amendment (2026-11-10): a library ships the state its components show
+
+The window kit's components read and dispatch the chrome's state (`$state.menu`, the panes'
+flags, `WinMenu`, `WinLeft`, …), but a library could declare components only, so every app
+carried its own copy of the window store — four copies, two of them byte-identical (TASK-0357
+P4). The library governance (`docs/dev/dsl/project-layout.md`, "Widget libraries") changes:
+
+- **What a library ships.** `ui/components/*.nx` declare components only, as before;
+  `ui/composables/*.nx` declare stores, events, reducers and effects only — the state the
+  library's components show. Pages, routes and the window intent stay app-only.
+- **When a composable joins.** The compiler adds a library's composable to the app's program
+  when the app or a component it pulled in reads a field of its store (`$state.<field>`,
+  from the tokens — a comment does not count). The window kit's `WindowStore` comes with the
+  chrome; an app that uses only the kit's alert or toast does not get it.
+- **Who owns the events.** The composable's events are the library's: an app that declares one
+  again fails the check as a duplicate. An app reacts to a library event with an effect of its
+  own that dispatches its own event (`@effect on WinMenuPick(id) { dispatch(NavPick(id)); }`).
+- **Authority.** None new: a composable is source compiled into the app's one program, and its
+  effects' service calls (`svc.settings.set("window.control", …)`) run as the app, under the
+  app's manifest capabilities and identity, exactly as the app's copy did.
+- **Proof.** `project::widget_library_tests` (a composable joins the app that reads its store
+  and stays out of one that does not; `test_reject_a_library_composable_that_declares_more_than_state`);
+  the four window apps compile without a window store of their own and their conformance tests
+  hold; the app structure gate's `duplicate` rule finds no copied store.
+
 ## Security considerations
 
 - **Threat model**: a malformed or hostile `.nxir` reaching the runtime — the
@@ -394,7 +446,7 @@ its own commit.
 | Any out-of-bounds slot/component index in `.nxir` | `IrError::Malformed` at validation — the program never mounts. |
 | Non-ascending `ComponentRef.slots` | `IrError::Malformed` (canonical-form violation ⇒ not a program this toolchain produced). |
 | Slot bodies exceeding `maxViewNodes`/`maxChildren` | `IrError::Malformed`. |
-| Slot forwarding | Compile error (rule 11). The runtime *also* makes it structurally impossible by clearing the frame, but the error is what the author sees. |
+| Slot forwarding | Allowed for a slot the enclosing component declares (2026-11-10 amendment); any other `Slot` in a body is a compile error (rule 11). |
 
 No silent fallback anywhere: every failure above is either an explicit compile
 diagnostic or a fail-closed mount rejection.
@@ -459,7 +511,8 @@ None new. Slots are a compile/emit concern; they change no boot marker.
   turns "which caller's scope" into a chain rather than a pair, and roughly
   doubles the emit test matrix. Nothing in `window-kit` or the design artifacts
   needs it. The seam is `SlotFrame { parent: Option<&SlotFrame> }` — named
-  here so v2 does not have to rediscover it.
+  here so v2 does not have to rediscover it. (Taken by the 2026-11-10
+  amendment, once the window kit's panes did need it.)
 - **Required slots.** Rejected for v1: "zero nodes for an unbound slot" is
   exactly what hidden regions want, and requiredness is better expressed by
   the app. `slot content required` is the named extension point.
