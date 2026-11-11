@@ -38,7 +38,9 @@ pub(super) fn inject(parent_caps: &CapTable, child_caps: &mut CapTable) {
         if factory_cap.kind == CapabilityKind::EndpointFactory
             && factory_cap.rights.contains(Rights::MANAGE)
         {
-            let _ = child_caps.set(FACTORY_CHILD_SLOT, factory_cap);
+            if let Ok(factory) = parent_caps.dup(FACTORY_PARENT_SLOT, factory_cap.rights) {
+                let _ = child_caps.set(FACTORY_CHILD_SLOT, factory);
+            }
         }
     }
     if let Some(alias) = crate::boot_fdt::init_alias() {

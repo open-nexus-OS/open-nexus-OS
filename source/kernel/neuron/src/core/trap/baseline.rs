@@ -78,7 +78,7 @@ pub fn log_smp_baseline() {
         }
         log_info!(
             target: "smp",
-            "KINIT: ready latency class={} n={} mean_us={} max_us={} le100us={} le1ms={} le10ms={} gt10ms={}",
+            "KINIT: ready latency class={} n={} mean_us={} max_us={} le100us={} le1ms={} le10ms={} gt10ms={} late_idle={} late_lower={} late_peer={}",
             name,
             r.count,
             r.mean_us,
@@ -86,9 +86,28 @@ pub fn log_smp_baseline() {
             r.buckets[0],
             r.buckets[1],
             r.buckets[2],
-            r.buckets[3]
+            r.buckets[3],
+            r.late[0],
+            r.late[1],
+            r.late[2]
         );
     }
+    // TASK-0363 P0: the three tasks that yield most (pid, the kernel's service id, yields).
+    let (y, yields) = crate::yield_stats::top();
+    log_info!(
+        target: "smp",
+        "KINIT: yield top total={} pid={}:{:#x}:{} pid={}:{:#x}:{} pid={}:{:#x}:{}",
+        yields,
+        y[0].pid,
+        y[0].service_id,
+        y[0].yields,
+        y[1].pid,
+        y[1].service_id,
+        y[1].yields,
+        y[2].pid,
+        y[2].service_id,
+        y[2].yields
+    );
     let (ipi_max_us, ipi_mean_us, ipi_n) = super::budgets::wake_ipi_report();
     log_info!(
         target: "smp",

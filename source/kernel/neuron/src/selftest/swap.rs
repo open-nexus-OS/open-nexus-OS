@@ -24,7 +24,7 @@
 use alloc::vec::Vec;
 
 use super::squeeze::{page_bytes, record};
-use crate::cap::{CapError, Capability, CapabilityKind, Rights};
+use crate::cap::{CapError, Rights};
 use crate::lazy::seal::KEY_LEN;
 use crate::lazy::swap as wire;
 use crate::lazy::Access;
@@ -189,10 +189,7 @@ pub(in crate::selftest) fn run_swap_selftest(ctx: &mut Context<'_>) {
     }
     // The pager's sink.
     let sink = ctx.router.create_endpoint(4, Some(pager.as_raw())).ok();
-    let cap = sink.map(|ep| Capability {
-        kind: CapabilityKind::Endpoint(ep),
-        rights: Rights::RECV | Rights::SEND,
-    });
+    let cap = sink.and_then(|ep| ctx.router.mint(ep, Rights::RECV | Rights::SEND).ok());
     ready &= cap.is_some_and(|cap| {
         ctx.tasks.caps_of_mut(pager).is_some_and(|caps| caps.set(SINK_SLOT, cap).is_ok())
     });

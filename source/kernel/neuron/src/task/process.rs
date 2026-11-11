@@ -88,14 +88,18 @@ impl TaskTable {
         })
     }
 
-    /// Whether a live task outside the process of `space` holds a capability naming the VMO
-    /// `id` — its memory is then not that process's alone (ADR-0087).
+    /// Whether a capability to the VMO `id` is held outside the process of `space` — by
+    /// another task, or travelling in a message: its memory is then not that process's alone
+    /// (ADR-0087). The object counts every capability held to it (RFC-0102); what the
+    /// process's own tables hold is its own.
     pub fn vmo_named_outside(&self, space: crate::mm::AsHandle, id: u32) -> bool {
-        self.tasks.iter().any(|t| {
-            t.state != TaskState::Zombie
-                && t.address_space != Some(space)
-                && t.caps.vmo_ref_count(id) > 0
-        })
+        let own: usize = self
+            .tasks
+            .iter()
+            .filter(|t| t.address_space == Some(space))
+            .map(|t| t.caps.vmo_ref_count(id))
+            .sum();
+        crate::mm::vmo::held(id) > own
     }
 
     /// Every live task sharing `leader`'s address space other than `leader` itself — the

@@ -170,7 +170,7 @@ pub(super) fn sys_device_cap_create(ctx: &mut Context<'_>, args: &Args) -> SysRe
             Error::Capability(CapError::NoSpace)
         }
     })?;
-    let cap = Capability {
+    let held = Held::plain(Capability {
         kind: CapabilityKind::DeviceMmio {
             base: desc.base as usize,
             len: desc.len as usize,
@@ -179,11 +179,11 @@ pub(super) fn sys_device_cap_create(ctx: &mut Context<'_>, args: &Args) -> SysRe
             dev,
         },
         rights: Rights::MAP,
-    };
+    })?;
     let slot = if typed.slot_raw == usize::MAX {
-        ctx.tasks.current_caps_mut().allocate(cap)?
+        ctx.tasks.current_caps_mut().allocate(held)?
     } else {
-        ctx.tasks.current_caps_mut().set(typed.slot_raw, cap)?;
+        ctx.tasks.current_caps_mut().set(typed.slot_raw, held)?;
         typed.slot_raw
     };
     Ok(slot)
@@ -191,11 +191,8 @@ pub(super) fn sys_device_cap_create(ctx: &mut Context<'_>, args: &Args) -> SysRe
 
 /// Phase A (under the BKL): decode + take the frames for `SYSCALL_VMO_CREATE`
 /// — inside the named device's DMA reach when there is one.
-/// Returns `(id, aligned_len, slot_raw)`; the frames are NOT zeroed yet.
-pub(crate) fn vmo_create_reserve(
-    ctx: &Context<'_>,
-    args: &Args,
-) -> Result<(u32, usize, usize), Error> {
+/// Returns `(id, slot_raw)`; the frames are NOT zeroed yet.
+pub(crate) fn vmo_create_reserve(ctx: &Context<'_>, args: &Args) -> Result<(u32, usize), Error> {
     let typed = VmoCreateArgsTyped::decode(args)?;
     typed.check()?;
     let (reach, noncoherent) = if typed.device_slot == VMO_CREATE_NO_DEVICE {
@@ -218,7 +215,7 @@ pub(crate) fn vmo_create_reserve(
     }
     // Named by no capability until phase C: out of the lifetime rule's reach meanwhile.
     crate::mm::vmo::set_creating(id, true);
-    Ok((id, aligned, typed.slot_raw))
+    Ok((id, typed.slot_raw))
 }
 
 /// A refused create keeps its cause across the ABI (ADR-0091, as ADR-0054 for maps): a length
@@ -233,25 +230,25 @@ fn create_error(err: crate::mm::vmo::VmoError) -> Error {
     }
 }
 
-/// Phase C (BKL re-acquired): install the capability. On failure the (now
-/// zeroed) object goes back to the pool.
+/// Phase C (BKL re-acquired): the object's first capability, minted at its header (its length
+/// is the object's own, RFC-0102), installed. On failure the (now zeroed) object goes back to
+/// the pool.
 pub(crate) fn vmo_create_finish(
     ctx: &mut Context<'_>,
     id: u32,
-    aligned: usize,
     slot_raw: usize,
 ) -> SysResult<usize> {
     crate::mm::vmo::set_creating(id, false);
-    if crate::mm::vmo::with(id, |_| ()).is_none() {
+    let Some(held) = crate::mm::vmo::mint(id, Rights::MAP) else {
         // The object vanished between the phases: named, so the lane sees it, never silent.
         log_error!(target: "mm", "VMO-CREATE lost id={} between phases", id);
         return Err(Error::Capability(CapError::PermissionDenied));
-    }
-    let cap = Capability { kind: CapabilityKind::Vmo { id, len: aligned }, rights: Rights::MAP };
+    };
+    // A refused install drops the capability — counted off before the object goes back.
     let result = if slot_raw == usize::MAX {
-        ctx.tasks.current_caps_mut().allocate(cap)
+        ctx.tasks.current_caps_mut().allocate(held)
     } else {
-        ctx.tasks.current_caps_mut().set(slot_raw, cap).map(|_| slot_raw)
+        ctx.tasks.current_caps_mut().set(slot_raw, held).map(|_| slot_raw)
     };
     if result.is_err() {
         let _ = crate::mm::vmo::destroy(id);
@@ -262,16 +259,17 @@ pub(crate) fn vmo_create_finish(
 /// Unphased `SYSCALL_VMO_CREATE` (selftest-owned dispatch tables): the three
 /// phases back to back, the zeroing under the BKL.
 pub(super) fn sys_vmo_create(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
-    let (id, aligned, slot_raw) = vmo_create_reserve(ctx, args)?;
+    let (id, slot_raw) = vmo_create_reserve(ctx, args)?;
     crate::mm::vmo::zero(id);
-    vmo_create_finish(ctx, id, aligned, slot_raw)
+    vmo_create_finish(ctx, id, slot_raw)
 }
 
 /// `SYSCALL_VMO_DESTROY` (44): return a task-owned VMO's frames to the pool
 /// (task #124: dead one-shot VMOs like the 4MB boot-splash backing must not
 /// leak). Contract: for self-created, never-shared VMOs. The kernel refuses
-/// while any OTHER capability anywhere in the system names the object
-/// (clone/transfer alias) — the sole-owner safety net — and while any address
+/// while any OTHER capability is held to the object — a clone, a transferred
+/// alias, one travelling in a message; read from the object's header (RFC-0102),
+/// the sole-owner safety net — and while any address
 /// space still maps it (RFC-0085, EBUSY): freeing under a live mapping would
 /// hand recycled frames to the old mapper. A new object is zeroed on create,
 /// so no stale data ever leaks to the next owner.
@@ -281,13 +279,7 @@ pub(super) fn sys_vmo_destroy(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
     let CapabilityKind::Vmo { id, .. } = cap.kind else {
         return Err(Error::Capability(CapError::PermissionDenied));
     };
-    let mut refs = 0usize;
-    for raw in 0..ctx.tasks.len() as u32 {
-        if let Some(caps) = ctx.tasks.caps_of(task::Pid::from_raw(raw)) {
-            refs += caps.vmo_ref_count(id);
-        }
-    }
-    if refs != 1 {
+    if crate::mm::vmo::held(id) != 1 {
         return Err(Error::Capability(CapError::PermissionDenied));
     }
     if crate::mm::vm_ops::any_space_maps_vmo(ctx.address_spaces, id) {

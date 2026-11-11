@@ -2,14 +2,16 @@
 schema: 1
 id: TASK-0363
 title: "The scheduler's end form: run queues off the kernel lock, a fair class, and time as a right — a budget per period, delegated as a subset, revoked in bounded time"
-status: draft
+status: in_progress
 owner: ["@kernel-team"]
 created: 2026-11-10
-updated: 2026-11-10
+updated: 2026-11-11
 subsystem: kernel
 kind: service
 novelty: first
 estimate: 5
+started: 2026-11-11
+dates_source: recorded
 goal:
   metric: "wake-to-run latency p99 of a thread holding a time right on the board; run-queue operations under the kernel lock; conservation of delegated budgets"
   baseline: "every run queue lives inside the kernel lock; strict classes with a 10 ms tick; a class is a label any service may claim; wakes ran 0.3-5.1 ms late before ADR-0096 (board cycle 83); today's histogram is TASK-0330/P0's"
@@ -37,6 +39,12 @@ phases:
     story: "a woken thread runs where it runs soonest: placement by load, by its last hart and by cluster, and an idle hart pulls work"
     state: planned
     gate: "QEMU -smp 8: 8 runnable compute threads occupy 8 harts within 2 ms (KSELFTEST: sched spread ok); board: the per-hart utilisation line; test_reject_steal_against_affinity kept"
+  - id: P0
+    story: "what the scheduler is rebuilt from is known: an interactive wake's wait for a hart is attributed (behind a peer of its class on the hart it is pinned to, behind a lower class it did not preempt, or a hart asleep), and the task that yields 70 000 times a second is named"
+    state: proving
+    gate: "board: KINIT: ready latency class=interactive carries the three causes as counts (their sum = the dispatches above 1 ms; were 2 967 of 5 380, mean 1 513 us, build/logs/board--2026-11-11T09-05-45) and KINIT: yield top names the three tasks with the most yields; a missed preemption counted above 0 is fixed before P2; the yield loop is replaced by a wait or stated as the lane's own"
+    started: 2026-11-11
+    note: "2026-11-11 board (build/logs/board--2026-11-11T10-01-24): yield top names the yielders — selftest-client 689 888 and netstackd 400 465 of 1 090 420 yields in 3.5 s (netstackd: a 20 s retry of mmio_map_auto with yield for a device the board lacks, then a halt that is a yield loop, source/services/netstackd/src/os/bootstrap.rs). The interactive attribution is NOT read: no interactive dispatch in the window (it ended before the operator's input). Next: netstackd's probe asks once and its halt blocks; the baseline lines print a second time when the input window closes"
 ---
 
 <!-- `nx ledger new task` copies everything below this line; the frontmatter above shows the

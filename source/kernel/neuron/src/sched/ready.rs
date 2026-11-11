@@ -1,10 +1,12 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: a run-queue entry knows when it became runnable: stamped where it enters a
-//! queue, read where it is dispatched, the difference recorded per class in `ready_stats`
-//! (TASK-0330 P0 — the number TASK-0363's scheduler is judged by, measured before it is
-//! built). A stolen task keeps its stamp: the wait it had on its victim's queue counts.
+//! CONTEXT: a run-queue entry knows when it became runnable and what its hart ran then:
+//! stamped where it enters a queue, read where it is dispatched, the difference recorded per
+//! class in `ready_stats` (TASK-0330 P0 — the number TASK-0363's scheduler is judged by,
+//! measured before it is built; TASK-0363 P0 — a late dispatch is attributed to what it
+//! waited behind). A stolen task keeps its stamp: the wait it had on its victim's queue
+//! counts, behind what the victim ran.
 //! OWNERS: @kernel-sched-team
 //! STATUS: Functional
 //! API_STABILITY: Internal
@@ -26,10 +28,12 @@ fn now_ticks() -> u64 {
 }
 
 impl Task {
-    /// A task entering a run queue now.
+    /// A task entering a run queue now, on a hart running `current`.
     #[inline]
-    pub(super) fn ready(id: TaskId, qos: QosClass) -> Self {
-        Self { id, qos, ready_at: now_ticks() }
+    pub(super) fn ready(id: TaskId, qos: QosClass, current: Option<&Task>) -> Self {
+        let behind =
+            crate::ready_stats::behind(current.map(|task| task.qos as usize), qos as usize);
+        Self { id, qos, ready_at: now_ticks(), behind }
     }
 
     /// The task leaves its queue for a hart: its wait is recorded for its class.
@@ -40,6 +44,7 @@ impl Task {
             self.ready_at,
             now_ticks(),
             crate::hal::platform::ticks_per_us(),
+            self.behind,
         );
     }
 }

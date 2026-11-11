@@ -75,6 +75,65 @@ class states, or never together.
   holders of TASK-0330 P0's first measurement — is deleted before the IPC objects leave the
   lock (TASK-0330 P5): under the rank order it could not be written at all.
 
+### A held capability is counted at its object
+
+The counts are not kept by the paths that install or drop a capability — there are sixty of
+them — but by the type that is held (TASK-0330 P5, `cap/held.rs`):
+
+- An endpoint and a memory object each own a **header** (`HeldCounts`): the object's identity,
+  an endpoint's owner, and four atomic counts — the capabilities held to it (`any`), those with
+  the send right, those with the receive right, and the send ones that sit in the owner's own
+  table.
+- A **held capability** (`Held`) is one capability someone holds: its descriptor (kind,
+  rights) and a reference to the header. It is neither copied nor cloned. Its drop counts it
+  off.
+- A table slot holds a `Held`, and so does a message that moves one. A move changes no count:
+  it is the same held capability in the sender's slot, in the queue and in the receiver's
+  slot, so no observer ever sees a count lower than the truth.
+- A table knows its holder. Installing a send capability of an endpoint into its owner's
+  table, or taking it out, is the one place the fourth count changes: the owner keeps the send
+  base of its own reply channel and is never its own peer.
+- A descriptor (kind and rights without the reference) stays a plain value: what a rights
+  check, a query or a log line reads. It holds nothing and installs nowhere — every door into
+  a table and into a message takes a `Held`.
+
+**What a held capability is never.** Its kind and its rights are fixed when it comes into
+being; the fields are private to one file and nothing writes them. So the object a capability
+names and what it may do with it cannot be changed by whoever holds it, by a message that
+carries it, or by a kernel path that handles it — the receive path used to rewrite the
+endpoint a moved capability named from a second field of the message; that field and the
+rewrite are deleted. A held capability comes into being through five doors, none of them
+widening:
+
+| Door | Makes | Refuses |
+|---|---|---|
+| `mint` at the header (the router for a live endpoint, the object table for a live memory object) | the object's capability with the rights the kernel path states | a dead endpoint, an object that is gone — there is no header to mint at |
+| `mint_read_only` at a memory object's header | a read-only capability to an object nobody holds writably (the device tree, the console ring, the boot image's files) | an endpoint |
+| `dup` of a held capability | the same kind at the same object, a subset of its rights | any right the source lacks |
+| `read_only_alias` of a held writable memory-object capability | the read-only kind at the same object, a subset of its rights | every other kind — a read-only alias has no alias, and no door leads back to the writable kind |
+| `plain` from a descriptor | a kind that carries no counts (a timer, a waitset, a fence, a device window, an interrupt, a factory, a scheduling right) | an endpoint or a memory object: a counted kind is never made from a number |
+
+Each refusal has its `test_reject_*` on the host (`cap/tests_prop.rs`), beside the model test
+that holds the counts against a census over 10 000 random operations.
+
+A memory object is not destroyed while a capability is held to it (`VmoError::Held`): the
+object's id goes back to the table only at `any` zero, so a held capability never names the
+next object that gets the id. A dead endpoint's id is handed out again only at `any` zero for
+the same reason.
+
+What the paths read: a foreign sender remains while `send` exceeds the owner's own; a receiver
+remains while `recv` is above zero; an endpoint dies at `any` zero; a memory object is
+reclaimed at `any` zero once nothing maps it, and destroyed by its sole owner at `any` one. A
+path that dropped a capability judges after the drop. The counts are atomics (rank 8, no
+lock): a capability is dropped under its process's lock, the judgement that follows takes the
+object's lock — ascending.
+
+The walks over the address spaces that ask who maps a memory object (the reclaim's, the
+seal's, the squeeze's) are the same sin on the other table; a memory object counts its
+mappings when the address spaces leave the lock (TASK-0330 P3). Until then the reclaim's runs
+only when the last capability to an object has gone; the seal's and the squeeze's stay at
+their own syscalls.
+
 ### What a lock may be held across
 
 - Every lock is a `SpinIrqLock`: interrupts are off on the hart while it is held. No lock is

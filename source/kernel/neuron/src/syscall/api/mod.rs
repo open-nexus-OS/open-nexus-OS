@@ -17,7 +17,7 @@ use core::ptr;
 
 use crate::types::{SlotIndex, VirtAddr};
 use crate::{
-    cap::{CapError, Capability, CapabilityKind, Rights},
+    cap::{CapError, Capability, CapabilityKind, Held, Rights},
     hal::Timer,
     ipc::{self, header::MessageHeader},
     mm::{AddressSpaceError, AddressSpaceManager, AsHandle, MapError, PageFlags, PAGE_SIZE},

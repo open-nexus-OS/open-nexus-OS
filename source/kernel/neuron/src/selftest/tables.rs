@@ -16,7 +16,7 @@
 //!   `KSELFTEST: tables grow ok (…)`, `KSELFTEST: vm window ok (…)`, every QEMU lane and the
 //!   board ladder
 
-use crate::cap::{CapTable, Capability, CapabilityKind, Rights};
+use crate::cap::{CapTable, Capability, CapabilityKind, Held, Rights};
 use crate::ipc::Router;
 use crate::lazy::LazyPages;
 use crate::mm::{frame_pool, PageFlags};
@@ -179,7 +179,7 @@ fn tables_grow(_ctx: &mut Context<'_>) {
     let mut caps = CapTable::new();
     let cap = Capability { kind: CapabilityKind::EndpointFactory, rights: Rights::MANAGE };
     for i in 0..257 {
-        if caps.allocate(cap) != Ok(i) {
+        if Held::plain(cap).and_then(|held| caps.allocate(held)) != Ok(i) {
             return fail("caps", i);
         }
     }

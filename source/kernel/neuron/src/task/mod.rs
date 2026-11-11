@@ -265,8 +265,8 @@ impl From<CapError> for TransferError {
     }
 }
 
-/// Minimal task control block.
-#[derive(Clone)]
+/// Minimal task control block. Not `Clone`: its table holds capabilities, and a held
+/// capability is never copied (RFC-0102).
 pub struct Task {
     #[cfg_attr(not(test), allow(dead_code))]
     pid: Pid,
@@ -343,7 +343,7 @@ pub struct UserGuardInfo {
 
 impl Task {
     fn bootstrap() -> Self {
-        let caps = CapTable::new();
+        let caps = CapTable::new_for(Pid::KERNEL.as_raw());
         // Avoid Default impl to minimize any unexpected code paths during bring-up.
         //
         // CRITICAL: PID 0 is not a real user task. Ensure it is marked as S-mode (SPP=1) so the
@@ -639,7 +639,7 @@ impl TaskTable {
             state: TaskState::Running,
             exit_code: None,
             frame: TrapFrame::default(),
-            caps: CapTable::new(),
+            caps: CapTable::new_for(pid.as_raw()),
             trap_domain: parent_domain,
             qos: QosClass::PerfBurst,
             // Selftest dummy tasks are used as bookkeeping endpoints for block/wake semantics.
@@ -814,8 +814,9 @@ impl TaskTable {
             _ => return Err(SpawnError::BootstrapNotEndpoint),
         }
 
-        let mut child_caps = CapTable::new();
-        child_caps.set(slot, bootstrap_cap)?;
+        let pid = Pid::from_raw(self.tasks.len() as u32);
+        let mut child_caps = CapTable::new_for(pid.as_raw());
+        child_caps.set(slot, parent_task.caps.dup(slot, bootstrap_cap.rights)?)?;
 
         // The kernel's direct userspace child (init) gets its fixed slots — the endpoint
         // factory, the device tree, the console ring — from `init_caps` (the ABI's numbers).
@@ -869,7 +870,6 @@ impl TaskTable {
             frame.sstatus |= SSTATUS_SPP | SSTATUS_SPIE | SSTATUS_SUM; // S-mode task
         }
 
-        let pid = Pid::from_raw(self.tasks.len() as u32);
         // B: inherit scheduling attributes from the parent (reset-on-exec
         // happens naturally: execd spawns fresh children).
         let (parent_affinity, parent_shares) = self
@@ -977,7 +977,7 @@ impl TaskTable {
         mode: TransferMode,
     ) -> Result<usize, TransferError> {
         let parent_task = self.tasks.get(parent.as_index()).ok_or(TransferError::InvalidParent)?;
-        let derived = parent_task.caps.derive(parent_slot, rights)?;
+        let derived = parent_task.caps.dup(parent_slot, rights)?;
         let child_task = self.tasks.get_mut(child.as_index()).ok_or(TransferError::InvalidChild)?;
         match mode {
             TransferMode::CopyAllocate => {

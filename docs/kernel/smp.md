@@ -5,7 +5,7 @@ role: guide
 subsystem: kernel
 sources: [source/kernel/neuron/src/core/smp, source/kernel/neuron/src/sync, source/kernel/neuron/src/core/cpu_main.rs, source/kernel/neuron/src/core/trap/runtime.rs]
 contracts: [RFC-0021, ADR-0049, ADR-0052]
-verified: 2026-11-10
+verified: 2026-11-11
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -79,7 +79,11 @@ the lock's time went in the steady window (`source/kernel/neuron/src/core/trap/l
 `baseline.rs`): `KINIT: bkl held us (sched= ipc= mm= task= caps= misc= timer= ipi= ext= fault=
 idle=)`, `KINIT: bkl takes (…)` and `KINIT: bkl top sum` for the three largest holders;
 `KINIT: ready latency class=…` states how long a runnable task waited for a hart, per QoS class
-(`source/kernel/neuron/src/sched/ready_stats.rs`). The lines are read in
+(`source/kernel/neuron/src/sched/ready_stats.rs`); a wait above one millisecond is attributed to
+what the task's hart ran when the task became runnable — `late_idle` (no task: the wake did not
+reach the hart in time), `late_lower` (a lower class it did not preempt), `late_peer` (its own
+class or a higher one: placement). `KINIT: yield top total= pid=<pid>:<service id>:<yields> …`
+names the three tasks that called `yield` most (`sched/yield_stats.rs`). The lines are read in
 `docs/board/measurements/2026-11-10-smp-baseline/`. The lock's end is RFC-0102: classes with one
 rank order, a budget per class, no global lock.
 

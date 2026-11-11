@@ -162,7 +162,140 @@ Outside the kernel a hart is named by literal in `source/init/nexus-init/src/aff
 `source/services/execd/src/sched_recipe.rs` (`0xF`, twice), `PINCHED_WORKERS`, and the
 workpool's `MAX_WORKERS = 4`. TASK-0330 P1 (RFC-0118) replaces all of it by the tree's count.
 
-## Board
+## Board (`build/logs/board--2026-11-11T09-05-45`, build `dev-95cbb354` of `9992d453`, the visible profile with the desktop used)
 
-Open: one board cycle, the lines above copied here, a verdict per hypothesis, and the split
-order written as an ADR from H1–H3.
+```text
+KSELFTEST: platform from fdt ok (… tb=24000000Hz harts=8 banks=2 boot_hart=0 timer=sstc …)
+KINIT: isa from hart=0 base=rv64i f=1 d=1 v=1 zfh=0 zvfh=0 zba=1 zbb=1 zbs=1 zicbom=1 zicboz=1 svpbmt=1 sscofpmf=1
+KGATE: smp bringup ok mask=0xf
+KINIT: cpu0 speed (loop_us=803 iters=1000000 left=0)        # cpu1, cpu2, cpu3: 803 as well
+KSELFTEST: ipc call budget ok (rt=25us mean=29us budget=64)
+KINIT: bkl histogram le100us=1050895 le1ms=49543 le10ms=1366 gt10ms=0
+KINIT: bkl hold histogram le100us=984108 le1ms=26346 le10ms=371 gt10ms=0 top nr=11:2097us nr=20:1734us nr=60:1733us
+KINIT: bkl held us (window_ms=8941 sched=1051799 ipc=5489970 mm=906479 task=13125 caps=433253 misc=79194 timer=163368 ipi=0 ext=51803 fault=70844 idle=288397)
+KINIT: bkl takes (sched=628294 ipc=83500 mm=287336 task=58 caps=4537 misc=7196 timer=5863 ipi=0 ext=5131 fault=22314 idle=57576)
+KINIT: bkl top sum id=18:4953095us/34221 id=0:974467us/621998 id=60:550652us/376
+KINIT: ready latency class=normal n=633555 mean_us=20 max_us=534002 le100us=628002 le1ms=3342 le10ms=2100 gt10ms=111
+KINIT: ready latency class=interactive n=5380 mean_us=1513 max_us=10010 le100us=1055 le1ms=1358 le10ms=2966 gt10ms=1
+KINIT: wake ipi total max=27us mean=5us n=7077
+KSELFTEST: bkl budget ok (max_wait=6930us max_hold=2ms nr=11)
+```
+
+The stock system, the same loop (`hartspeed`, every CPU at its highest clock, 1.6 GHz):
+
+```text
+cpu0 loop_us=805 min_us=803 iters=1000000 left=0            # cpu1 … cpu7: min_us=803 as well
+```
+
+### What the lock's time says
+
+The lock is held 8.55 s of the 8.94 s window (96 %) by four harts.
+
+| Group | Held | Share | Takes | Per take | The largest in it |
+|---|---|---|---|---|---|
+| `ipc` | 5.49 s | 64.2 % | 83 500 | 65.7 µs | receive `id=18`: 4.95 s, 144.7 µs per take; the others 10.9 µs |
+| `sched` | 1.05 s | 12.3 % | 628 294 | 1.7 µs | yield `id=0`: 0.97 s in 621 998 takes (70 000 a second) |
+| `mm` | 0.91 s | 10.6 % | 287 336 | 3.2 µs | `id=60` (a memory object's runs for a device): 0.55 s in 376 takes, 1.46 ms per take; the others 1.2 µs |
+| `caps` | 0.43 s | 5.1 % | 4 537 | 95.5 µs | close `id=20` (longest single hold 1.73 ms) |
+| `idle` | 0.29 s | 3.4 % | 57 576 | 5.0 µs | |
+| `timer` | 0.16 s | 1.9 % | 5 863 | 27.9 µs | |
+| `misc` | 0.08 s | 0.9 % | 7 196 | 11.0 µs | |
+| `fault` | 0.07 s | 0.8 % | 22 314 | 3.2 µs | |
+| `ext` | 0.05 s | 0.6 % | 5 131 | 10.1 µs | |
+| `task` | 0.01 s | 0.2 % | 58 | 226 µs | exit `id=11` (longest single hold 2.10 ms) |
+
+- **The receive's walk is 58 % of the lock's time.** A receive on an empty queue holds the lock
+  144.7 µs on the board (152 µs on the one-hart lane), thirteen times the group's other
+  syscalls. Were it as short as they are, the lock would be held 3.97 s of the window (44 %).
+- **A device asking for a lazy object's runs commits its pages under the lock**
+  (`syscall/api/vmo_runs.rs`, `mm::vmo::named_runs`): 1.46 ms per call, 42 calls a second while
+  windows open — the third largest holder. RFC-0102's rule for work whose length the caller
+  decides (staged under the lock, done outside it) applies; it is built with the memory objects
+  leaving the lock (TASK-0330 P3).
+- **Something yields 70 000 times a second.** On the one-hart lane the count per second is the
+  same (81 000) and the lane's quiet window is the cause named there; on the board the
+  instrument does not say which task it is. The loop occupies a hart and takes the lock for
+  11 % of its held time. The yielder is named before the run queues are judged (a count per
+  task at the fence, with the next build of the instrument).
+- **An interactive task waits a millisecond and a half for a hart.** 55 % of the interactive
+  class's dispatches waited between 1 ms and 10 ms, the mean is 1.5 ms, the longest 10 ms (one
+  tick); a frame that crosses five services of the display chain pays this five times. A
+  normal task waited up to 534 ms. Whether an interactive wake waits behind a peer of its class
+  on the one hart the chain is pinned to, or behind a lower class it should have preempted, the
+  instrument does not yet say.
+
+### Verdicts
+
+| # | Verdict | Read from | Consequence |
+|---|---|---|---|
+| H1 | holds, but not as IPC | `ipc` is the largest group (64 %); nine tenths of it is the walk of one syscall | the order is read from the boot after TASK-0330 P5, as H7 demands |
+| H2 | refuted | `idle + timer` = 5.3 % of the held time | the run queues do not leave first on this criterion; the `sched` group's 12 % is the yield loop, judged once its task is named |
+| H3 | holds | `fault` = 0.8 % | address spaces leave last (TASK-0330 P3) |
+| H4 | refuted for the interactive class | `le1ms` holds 44.9 % of `n`, not 99 %; the normal class shows its tail (`le10ms`=2100, `gt10ms`=111) | the wake path is examined before the scheduler is rebuilt: the wait is attributed (peer of the class on the pinned hart, or a missed preemption) in TASK-0363 P0 |
+| H5 | holds | 803 µs on our four harts, 803 µs on all eight CPUs of the stock system at 1.6 GHz | the clock setup is not part of TASK-0330 P1; the CPU numbers of this lane stand |
+| H6 | holds | one `isa` line for all eight harts: `f=1 d=1 v=1` (`zfh=0 zvfh=0`: no half precision) | one userspace baseline with F, D and V (TASK-0362) |
+| H7 | holds for the receive, not for the close | `id=18` is the largest holder, 13 times its group's others; `id=20` is not among the three (the `caps` group holds 0.43 s, behind `id=60`) | TASK-0330 P5 runs before the split order is written |
+| H8 | holds; the band was too narrow | `rt=25us mean=29us`. The board's earlier boots span rt 24–50 µs (2026-11-05: 24/60 and 49/62 as rt/mean; 2026-11-09: 40/456; 2026-11-10: 50/61) — two modes of `rt`, 24–25 and 49–50, not one band | the instrument stays always on; which hart serves the call decides the mode, which is why TASK-0330 P2's gate measures the call on every hart |
+
+The gates this boot sets: TASK-0330 P5 on the board — `ipc` at most 16.4 µs and `caps` at most
+23.9 µs per take (a quarter of 65.7 and 95.5). The split order is written as an ADR from the
+boot after P5.
+
+## Board after TASK-0330 P5 (`build/logs/board--2026-11-11T10-01-24`, build `dev-ef48c745`, the visible profile)
+
+The tree: a held capability counted at its object (TASK-0330 P5) and the instrument of
+TASK-0363 P0 (`late_idle`/`late_lower`/`late_peer` on the ready-latency line, `KINIT: yield
+top`). The ladder is complete (106 rungs); the sight acks are the operator's.
+
+```
+KGATE: smp bringup ok mask=0xf
+KSELFTEST: ipc call budget ok (rt=51us mean=65us budget=64)
+KINIT: bkl held us (window_ms=3500 sched=2042360 ipc=150200 mm=565376 task=4361 caps=12675 misc=22973 timer=10708 ipi=0 ext=17626 fault=20804 idle=228639)
+KINIT: bkl takes (sched=1095978 ipc=39571 mm=402410 task=47 caps=5207 misc=4521 timer=1129 ipi=0 ext=2498 fault=8298 idle=51449)
+KINIT: bkl top sum id=0:2028553us/1090420 id=55:556199us/400466 id=84:228639us/51449
+KINIT: bkl histogram le100us=1610296 le1ms=811 le10ms=0 gt10ms=0
+KINIT: bkl hold histogram le100us=1547645 le1ms=45 le10ms=0 gt10ms=0 top nr=11:234us nr=16:204us nr=44:170us
+KINIT: ready latency class=normal n=1098576 mean_us=0 max_us=1640 le100us=1098333 le1ms=241 le10ms=2 gt10ms=0 late_idle=0 late_lower=0 late_peer=2
+KINIT: yield top total=1090420 pid=63:0x52c6c4a34ffb3f69:689888 pid=71:0xb64b904a0313921c:400465 pid=102:0x0:64
+KINIT: wake ipi total max=15us mean=1us n=8141
+KSELFTEST: bkl budget ok (max_wait=556us max_hold=0ms nr=11)
+```
+
+| | before P5 (`09-05-45`) | after P5 (`10-01-24`) | gate |
+|---|---|---|---|
+| `ipc` per take | 65.7 µs | 3.8 µs (150 200 µs / 39 571) | at most 16.4 µs — met |
+| `caps` per take | 95.5 µs | 2.4 µs (12 675 µs / 5 207) | at most 23.9 µs — met |
+| `ipc` share of the held time | 64.2 % | 4.9 % | |
+| longest wait for the lock | 6 930 µs | 556 µs | |
+| waits above 1 ms | 1 366 | 0 | |
+| longest hold | 2 097 µs | 234 µs | |
+| holds above 1 ms | 371 | 0 | |
+
+### What this window is, and what it is not
+
+- **The window is not the one of the boot before.** It is 3.5 s long and ends before the
+  operator's input: `SELFTEST: ui v2 input ok` follows the fence here and preceded it there. No
+  task of the interactive class was dispatched in it (the line is absent), so the attribution
+  TASK-0363 P0 asks for — why an interactive wake waits above one millisecond — is **not read
+  from this boot**. The per-take costs compare (a take costs what it touches now, whatever the
+  system holds); the shares and the ready latency do not.
+- **Two polling loops hold the lock now**: 66 % of the held time is `yield` (`id=0`) and 18 %
+  is `mmio_map_auto` (`id=55`). `yield top` names them: the ladder's own client
+  (`0x52c6…3f69`, 689 888 yields) and the network stack (`0xb64b…921c`, 400 465 yields — one per
+  `mmio_map_auto`, 400 466 takes). The board has no network device behind capability slot 48;
+  the network stack asks for it 114 000 times a second for twenty seconds
+  (`source/services/netstackd/src/os/bootstrap.rs`: a retry with a `yield` until a deadline),
+  then states `netstackd: mmio cap48 missing` — and its halt is a `yield` loop again, for as
+  long as the board runs. On the emulator, where the device exists, it yields 166 times.
+- **The yield loop of the baseline is named**: 70 000 yields a second there were these two
+  tasks under a lock held 96 % of the time; freed of the walks they reach 311 000 a second.
+
+### What follows
+
+- TASK-0330 P5's numbers hold on the board. The split order (the ADR) is not written from this
+  boot: its largest holders are two loops that are not the system's work. It is written from
+  a window that contains the desktop in use, after the network stack's probe is one question
+  and not a loop.
+- TASK-0363 P0: the yielders are named; the interactive attribution needs a window that
+  contains interactive work — the baseline lines printed a second time when the operator's
+  input window closes.

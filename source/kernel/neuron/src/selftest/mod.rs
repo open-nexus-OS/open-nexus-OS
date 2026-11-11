@@ -204,7 +204,7 @@ fn ensure_data_cap(tasks: &mut TaskTable) {
     // its high alias, the object carries the frame, the pool never sees it.
     let base = crate::phys::virt_to_phys(ptr);
     let id = crate::mm::vmo::adopt_fixed(base, PAGE_SIZE).expect("data page object");
-    let cap = Capability { kind: CapabilityKind::Vmo { id, len: PAGE_SIZE }, rights: Rights::MAP };
+    let Some(cap) = crate::mm::vmo::mint(id, Rights::MAP) else { return };
     let caps = tasks.bootstrap_mut().caps_mut();
     // Reserve bootstrap cap slots:
     // - slot 0: bootstrap endpoint
@@ -578,9 +578,9 @@ fn run_ipc_queue_full_selftest(ctx: &mut Context<'_>) {
     // It complements syscall-level unit tests in `syscall/api.rs`.
     let ep = ctx.router.create_endpoint(1, None).unwrap();
     let hdr = MessageHeader::new(0, ep, 0, 0, 0);
-    let msg = crate::ipc::Message::new(hdr, crate::ipc::Payload::empty(), None);
-    let _ = ctx.router.send(ep, msg.clone());
-    match ctx.router.send(ep, msg) {
+    let msg = || crate::ipc::Message::new(hdr, crate::ipc::Payload::empty(), None);
+    let _ = ctx.router.send(ep, msg());
+    match ctx.router.send(ep, msg()) {
         Err(crate::ipc::IpcError::QueueFull) => {
             log_info!(target: "selftest", "KSELFTEST: ipc queue full ok");
         }
@@ -890,11 +890,8 @@ fn run_timer_cap_selftest(ctx: &mut Context<'_>) {
                 return;
             }
         };
-    let notify_cap = Capability {
-        kind: CapabilityKind::Endpoint(notify_ep),
-        rights: Rights::RECV | Rights::SEND | Rights::MANAGE,
-    };
-    if let Err(e) = sys_ctx.tasks.current_caps_mut().set(NOTIFY_CAP_SLOT, notify_cap) {
+    let all = Rights::RECV | Rights::SEND | Rights::MANAGE;
+    if let Err(e) = cap_rules::install_endpoint(&mut sys_ctx, NOTIFY_CAP_SLOT, notify_ep, all) {
         log_error!(target: "selftest", "KSELFTEST: timer cap FAIL install_notify={:?}", e);
         return;
     }
@@ -1046,11 +1043,8 @@ fn run_waitset_selftest(ctx: &mut Context<'_>) {
         }
     };
     for (slot, ep) in [(EP_IDLE_SLOT, ep_idle), (EP_TIMER_SLOT, ep_timer)] {
-        let cap = Capability {
-            kind: CapabilityKind::Endpoint(ep),
-            rights: Rights::RECV | Rights::SEND | Rights::MANAGE,
-        };
-        if let Err(e) = sys_ctx.tasks.current_caps_mut().set(slot, cap) {
+        let all = Rights::RECV | Rights::SEND | Rights::MANAGE;
+        if let Err(e) = cap_rules::install_endpoint(&mut sys_ctx, slot, ep, all) {
             log_error!(target: "selftest", "KSELFTEST: waitset FAIL install_ep={:?}", e);
             return;
         }
@@ -1123,10 +1117,8 @@ fn run_waitset_selftest(ctx: &mut Context<'_>) {
             return;
         }
     };
-    if let Err(e) = sys_ctx.tasks.current_caps_mut().set(
-        EP_TMO_SLOT,
-        Capability { kind: CapabilityKind::Endpoint(ep_tmo), rights: Rights::RECV | Rights::SEND },
-    ) {
+    let both = Rights::RECV | Rights::SEND;
+    if let Err(e) = cap_rules::install_endpoint(&mut sys_ctx, EP_TMO_SLOT, ep_tmo, both) {
         log_error!(target: "selftest", "KSELFTEST: waitset FAIL install_tmo={:?}", e);
         return;
     }
@@ -1202,15 +1194,16 @@ fn run_spawn_reason_selftest() {
 }
 
 fn run_resource_sentinel_selftest(_ctx: &mut Context<'_>) {
-    use crate::cap::{CapTable, Capability, CapabilityKind, Rights};
+    use crate::cap::{CapTable, Capability, CapabilityKind, Held, Rights};
     use crate::ipc::Router;
 
     // 1) Cap table churn: fill, drain, refill.
     let mut table = CapTable::with_capacity(8);
     let cap = Capability { kind: CapabilityKind::EndpointFactory, rights: Rights::MANAGE };
+    let alloc = |table: &mut CapTable| Held::plain(cap).and_then(|held| table.allocate(held));
     let mut slots = [0usize; 8];
     for slot in slots.iter_mut() {
-        *slot = match table.allocate(cap) {
+        *slot = match alloc(&mut table) {
             Ok(idx) => idx,
             Err(err) => {
                 log_error!(target: "selftest", "KSELFTEST: resource sentinel FAIL: cap alloc {:?}", err);
@@ -1218,14 +1211,14 @@ fn run_resource_sentinel_selftest(_ctx: &mut Context<'_>) {
             }
         };
     }
-    if table.allocate(cap) != Ok(8) {
+    if alloc(&mut table) != Ok(8) {
         log_error!(target: "selftest", "KSELFTEST: resource sentinel FAIL: cap table grows");
         return;
     }
     for slot in slots {
         let _ = table.take(slot);
     }
-    if table.allocate(cap).is_err() {
+    if alloc(&mut table).is_err() {
         log_error!(target: "selftest", "KSELFTEST: resource sentinel FAIL: cap reuse");
         return;
     }

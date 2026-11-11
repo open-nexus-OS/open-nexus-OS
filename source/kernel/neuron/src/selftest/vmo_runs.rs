@@ -39,8 +39,9 @@ pub(super) fn synthetic_device(
     let dev = crate::mm::devices::register(desc).expect("synthetic device record");
     let kind =
         CapabilityKind::DeviceMmio { base, len: PAGE_SIZE, irq: 0, dma_noncoherent: false, dev };
-    let cap = Capability { kind, rights: Rights::MAP };
-    let slot = sys_ctx.tasks.current_caps_mut().allocate(cap).expect("synthetic device cap");
+    let slot = crate::cap::Held::plain(Capability { kind, rights: Rights::MAP })
+        .and_then(|held| sys_ctx.tasks.current_caps_mut().allocate(held))
+        .expect("synthetic device cap");
     (slot, dev)
 }
 

@@ -16,7 +16,7 @@
 //! ADR: docs/adr/0080-a-process-runs-from-a-sealed-image-text-mapped-from-its-frames-data-copied-no-other-exec-path.md
 
 use super::Context;
-use crate::cap::{Capability, CapabilityKind, Rights};
+use crate::cap::Rights;
 use crate::mm::{reclaim, vm_ops, vmo, AddressSpaceManager, AsHandle, PageFlags, PAGE_SIZE};
 use crate::syscall::{api, Args, Error as SysError, SyscallTable, SYSCALL_EXEC_VMO};
 use crate::task::Pid;
@@ -137,7 +137,7 @@ fn tear_down(ctx: &mut Context<'_>, handle: AsHandle, loaded: &api::LoadedImage)
     }
     let _ = ctx.address_spaces.destroy(handle);
     let _ = api::release_image(&loaded.image);
-    reclaim::orphans(ctx.tasks, ctx.address_spaces, &ids, "selftest");
+    reclaim::orphans(ctx.address_spaces, &ids, "selftest");
 }
 
 pub(super) fn run_exec_image_selftests(ctx: &mut Context<'_>) {
@@ -290,10 +290,10 @@ fn exec_refuses_unsealed_then_reaches_the_loader(ctx: &mut Context<'_>, id: u32)
     ctx.tasks.set_current(Pid::KERNEL);
     let owner = ctx.tasks.selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
     let Ok(ep) = ctx.router.create_endpoint(1, Some(owner.as_raw())) else { return false };
-    let gate = Capability { kind: CapabilityKind::Endpoint(ep), rights: Rights::SEND };
-    let image = Capability {
-        kind: CapabilityKind::Vmo { id, len: PAGES * PAGE_SIZE },
-        rights: Rights::MAP,
+    // Minted at the objects, like every capability to one (RFC-0102).
+    let (Ok(gate), Some(image)) = (ctx.router.mint(ep, Rights::SEND), vmo::mint(id, Rights::MAP))
+    else {
+        return false;
     };
     let given = ctx
         .tasks
@@ -321,11 +321,7 @@ fn exec_refuses_unsealed_then_reaches_the_loader(ctx: &mut Context<'_>, id: u32)
     // with a second, unsealed object first.
     let reach = crate::dma_reach::DmaReach::ALL;
     let unsealed = vmo::create(PAGE_SIZE, vmo::VmoKind::Anon, &reach).ok();
-    let before_seal = unsealed.is_some_and(|raw| {
-        let cap = Capability {
-            kind: CapabilityKind::Vmo { id: raw, len: PAGE_SIZE },
-            rights: Rights::MAP,
-        };
+    let before_seal = unsealed.and_then(|raw| vmo::mint(raw, Rights::MAP)).is_some_and(|cap| {
         sys_ctx.tasks.caps_of_mut(owner).is_some_and(|caps| caps.set(VMO_SLOT + 1, cap).is_ok())
             && table.dispatch(
                 SYSCALL_EXEC_VMO,
@@ -336,6 +332,11 @@ fn exec_refuses_unsealed_then_reaches_the_loader(ctx: &mut Context<'_>, id: u32)
     let at_loader = table.dispatch(SYSCALL_EXEC_VMO, &mut sys_ctx, &args)
         == Err(SysError::AddressSpace(crate::mm::AddressSpaceError::InvalidArgs));
     sys_ctx.tasks.set_current(Pid::KERNEL);
+    // The capabilities go before their objects: an object is not destroyed under one.
+    if let Some(caps) = sys_ctx.tasks.caps_of_mut(owner) {
+        let _ = caps.take(VMO_SLOT);
+        let _ = caps.take(VMO_SLOT + 1);
+    }
     if let Some(raw) = unsealed {
         let _ = vmo::destroy(raw);
     }

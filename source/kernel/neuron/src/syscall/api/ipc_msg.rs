@@ -232,19 +232,20 @@ pub(super) fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
         crate::trap::arm_wakeup(ctx.timer, typed.deadline_ns);
     }
     loop {
-        // If CAP_MOVE is set, take the cap for this attempt. If the attempt fails (QueueFull,
-        // NoSuchEndpoint, etc.) we restore it before returning/rescheduling.
+        // If CAP_MOVE is set, the capability leaves the slot for this attempt — judged where
+        // it sits, taken only once it may travel. The capability itself moves (RFC-0102): its
+        // kind and rights are what the sender held, and its object counts it the whole way.
+        // If the attempt fails (QueueFull, NoSuchEndpoint, etc.) the message hands it back and
+        // it returns to its slot before returning/rescheduling.
         let moved_cap = if let Some(slot) = cap_move_slot {
-            let cap = ctx.tasks.current_caps_mut().take(slot)?;
+            let cap = ctx.tasks.current_caps_mut().get(slot)?;
             // Security floor: never allow moving MANAGE authority in-band.
             if cap.rights.contains(Rights::MANAGE) || cap.kind == CapabilityKind::EndpointFactory {
-                let _ = ctx.tasks.current_caps_mut().set(slot, cap);
                 return Err(Error::Capability(CapError::PermissionDenied));
             }
             // Hardening: do not allow CAP_MOVE of dead/non-existent endpoints.
             if let CapabilityKind::Endpoint(id) = cap.kind {
                 if !ctx.router.endpoint_alive(id) {
-                    let _ = ctx.tasks.current_caps_mut().set(slot, cap);
                     return Err(Error::Ipc(ipc::IpcError::NoSuchEndpoint));
                 }
                 #[cfg(feature = "ipc_trace_ring")]
@@ -258,7 +259,7 @@ pub(super) fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
                     );
                 }
             }
-            Some(cap)
+            Some(ctx.tasks.current_caps_mut().take_held(slot)?)
         } else {
             None
         };
@@ -266,13 +267,6 @@ pub(super) fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
         // fails", but this loop has no `continue` and a failed send hands the whole `Message`
         // back via `Err((IpcError, Message))` — the clone was half of the 2.000 allocations.
         let mut msg = ipc::Message::new(header, payload, moved_cap);
-        if cap_move {
-            if let Some(cap) = msg.moved_cap {
-                if let CapabilityKind::Endpoint(id) = cap.kind {
-                    msg.capmove_expected_ep = id;
-                }
-            }
-        }
         msg.sender_service_id = ctx.tasks.current_service_id();
         #[cfg(feature = "ipc_trace_ring")]
         {
@@ -316,11 +310,11 @@ pub(super) fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
                 }
                 return Ok(typed.payload_len);
             }
-            Err((ipc::IpcError::QueueFull, msg)) if !nonblock => {
+            Err((ipc::IpcError::QueueFull, mut msg)) if !nonblock => {
                 // Roll back moved cap before blocking/rescheduling.
                 if let Some(slot) = cap_move_slot {
-                    if let Some(cap) = msg.moved_cap {
-                        let _ = ctx.tasks.current_caps_mut().set(slot, cap);
+                    if let Some(held) = msg.moved_cap.take() {
+                        let _ = ctx.tasks.current_caps_mut().set(slot, held);
                     }
                 }
                 if typed.deadline_ns != 0 && ctx.timer.now() >= typed.deadline_ns {
@@ -343,11 +337,11 @@ pub(super) fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
                     let _ = ctx.router.remove_send_waiter(endpoint, cur.as_raw());
                 }));
             }
-            Err((e, msg)) => {
+            Err((e, mut msg)) => {
                 // Roll back the moved cap on any error so the caller does not lose it.
                 if let Some(slot) = cap_move_slot {
-                    if let Some(cap) = msg.moved_cap {
-                        let _ = ctx.tasks.current_caps_mut().set(slot, cap);
+                    if let Some(held) = msg.moved_cap.take() {
+                        let _ = ctx.tasks.current_caps_mut().set(slot, held);
                     }
                 }
                 #[cfg(feature = "ipc_trace_ring")]
@@ -436,7 +430,7 @@ pub(super) fn sys_ipc_recv_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
                     }
                 }
                 // RFC-0079 last-sender EOF (opt-in): the one host-tested verdict.
-                if empty_queue_verdict(ctx.tasks, ctx.router, endpoint, false, eof_opt)
+                if empty_queue_verdict(ctx.router, endpoint, false, eof_opt)
                     == EmptyQueue::PeerClosed
                 {
                     let _ = ctx.router.remove_recv_waiter(endpoint, cur.as_raw());
@@ -461,8 +455,7 @@ pub(super) fn sys_ipc_recv_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
                     // TASK-0333 6a: the verdict does not depend on the wait mode — a waitset
                     // receiver (non-blocking after its wake) learns of its last peer's death
                     // here, instead of consuming the latch and parking forever.
-                    let verdict =
-                        empty_queue_verdict(ctx.tasks, ctx.router, endpoint, true, eof_opt);
+                    let verdict = empty_queue_verdict(ctx.router, endpoint, true, eof_opt);
                     ctx.router.clear_eof_pending(endpoint);
                     if verdict == EmptyQueue::PeerClosed {
                         return Err(Error::Ipc(ipc::IpcError::PeerClosed));
@@ -486,28 +479,11 @@ pub(super) fn sys_ipc_recv_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
 
     // If the message carries a moved capability, allocate it into the receiver now and write the
     // allocated slot into the returned header's `src` field.
-    if let Some(mut cap) = msg.moved_cap.take() {
-        // CAP_MOVE robustness: if the moved endpoint id is inconsistent with what the sender
-        // observed, prefer the sender's value (kernel internal field).
-        if msg.capmove_expected_ep != 0 {
-            if let CapabilityKind::Endpoint(id) = cap.kind {
-                if id != msg.capmove_expected_ep {
-                    #[cfg(feature = "ipc_trace_ring")]
-                    {
-                        use core::fmt::Write as _;
-                        let mut u = crate::uart::raw_writer();
-                        let _ = writeln!(
-                            u,
-                            "IPC-CAPMOVE fix exp=0x{:x} got=0x{:x}",
-                            msg.capmove_expected_ep, id
-                        );
-                    }
-                    cap.kind = CapabilityKind::Endpoint(msg.capmove_expected_ep);
-                }
-            }
-        }
+    // The capability arrives as the sender held it — its kind and rights are fixed (RFC-0102),
+    // nothing on the way rewrites which object it names.
+    if let Some(held) = msg.moved_cap.take() {
         #[cfg(feature = "ipc_trace_ring")]
-        let moved_ep_for_trace: u32 = match cap.kind {
+        let moved_ep_for_trace: u32 = match held.cap().kind {
             CapabilityKind::Endpoint(id) => id,
             _ => 0,
         };
@@ -516,12 +492,12 @@ pub(super) fn sys_ipc_recv_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
             use core::fmt::Write as _;
             let mut u = crate::uart::raw_writer();
             let mut cap_info = 0usize;
-            if let CapabilityKind::Endpoint(id) = cap.kind {
+            if let CapabilityKind::Endpoint(id) = held.cap().kind {
                 cap_info = id as usize;
             }
             let _ = writeln!(u, "IPC-CAPMOVE recv ep=0x{:x} cap_ep=0x{:x}", endpoint, cap_info);
         }
-        match ctx.tasks.current_caps_mut().allocate(cap) {
+        match ctx.tasks.current_caps_mut().try_allocate(held) {
             Ok(slot) => {
                 #[cfg(feature = "ipc_trace_ring")]
                 {
@@ -546,7 +522,7 @@ pub(super) fn sys_ipc_recv_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
                     crate::ipc::trace::maybe_dump_capmove_big_recv("capmove-big-recv");
                 }
             }
-            Err(_) => {
+            Err((_, held)) => {
                 #[cfg(feature = "debug_uart")]
                 {
                     use core::fmt::Write as _;
@@ -555,7 +531,7 @@ pub(super) fn sys_ipc_recv_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
                 }
                 // Roll back: receiver cannot accept a moved cap right now (e.g. no free cap slots).
                 // Re-queue the message and surface a stable syscall error (ENOSPC).
-                msg.moved_cap = Some(cap);
+                msg.moved_cap = Some(held);
                 let _ = ctx.router.requeue_front(endpoint, msg);
                 return Err(Error::Ipc(ipc::IpcError::NoSpace));
             }

@@ -136,20 +136,13 @@ pub(super) fn sys_ipc_recv_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
     };
 
     // CAP_MOVE allocation (same semantics as v1).
-    if let Some(mut cap) = msg.moved_cap.take() {
-        if msg.capmove_expected_ep != 0 {
-            if let CapabilityKind::Endpoint(id) = cap.kind {
-                if id != msg.capmove_expected_ep {
-                    cap.kind = CapabilityKind::Endpoint(msg.capmove_expected_ep);
-                }
-            }
-        }
-        match ctx.tasks.current_caps_mut().allocate(cap) {
+    if let Some(held) = msg.moved_cap.take() {
+        match ctx.tasks.current_caps_mut().try_allocate(held) {
             Ok(slot) => {
                 msg.header.src = slot as u32;
             }
-            Err(_) => {
-                msg.moved_cap = Some(cap);
+            Err((_, held)) => {
+                msg.moved_cap = Some(held);
                 let _ = ctx.router.requeue_front(endpoint, msg);
                 return Err(Error::Ipc(ipc::IpcError::NoSpace));
             }

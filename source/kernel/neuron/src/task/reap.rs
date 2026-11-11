@@ -200,7 +200,7 @@ impl TaskTable {
             );
         }
 
-        crate::mm::reclaim::orphans(self, address_spaces, &orphans, "reap");
+        crate::mm::reclaim::orphans(address_spaces, &orphans, "reap");
         crate::mm::usage::report_growth(self, address_spaces);
         freed
     }

@@ -1,10 +1,10 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: The router's RFC-0079 last-sender-EOF accessors — the `had_sender` latch, the
-//! endpoint owner (TASK-0324 P7-b: an owner is never its own peer) and the recv-waiter drain
-//! the EOF scan wakes. Split out of `ipc/mod.rs` (structure-gate); the decision itself is the
-//! host-tested predicate in `crate::ipc_eof`, the per-task scan lives in
+//! CONTEXT: The router's RFC-0079 last-sender-EOF accessors — the `had_sender` latch and the
+//! recv-waiter drain the EOF judgement wakes. Split out of `ipc/mod.rs` (structure-gate); the
+//! decision itself is the host-tested predicate in `crate::ipc_eof`, who still holds the
+//! endpoint is its header's count (`ipc/lifetime.rs`, RFC-0102), the judgement lives in
 //! `syscall::api::eof_scan`.
 //! OWNERS: @kernel-ipc-team
 //! STATUS: Functional
@@ -15,38 +15,12 @@ use alloc::vec::Vec;
 use super::{EndpointId, Router, WaiterId};
 
 impl Router {
-    /// RFC-0079 / TASK-0324 P7-b: SEND caps to `id` that are IN FLIGHT — moved inside a
-    /// message still queued on some endpoint, held by no task's table yet. The peer that will
-    /// dequeue them is a sender the last-peer scan must count, or a client whose request
-    /// (with its reply cap) has not been received yet would EOF against itself: its own SEND
-    /// base is excluded as the channel owner, and nothing else holds a cap at that instant.
-    #[must_use]
-    pub fn in_flight_send_cap_count(&self, id: EndpointId) -> usize {
-        self.endpoints
-            .iter()
-            .filter(|ep| ep.alive)
-            .flat_map(|ep| ep.queue.iter())
-            .filter_map(|msg| msg.moved_cap.as_ref())
-            .filter(|cap| {
-                matches!(cap.kind, crate::cap::CapabilityKind::Endpoint(ep) if ep == id)
-                    && cap.rights.contains(crate::cap::Rights::SEND)
-            })
-            .count()
-    }
-
     /// RFC-0079: whether endpoint `id` has EVER had a sender (the monotonic
     /// latch). `false` for a missing/dead endpoint. The EOF decision requires
     /// this true, so an endpoint that never had a sender never wrongly EOFs.
     #[must_use]
     pub fn endpoint_had_sender(&self, id: EndpointId) -> bool {
         self.endpoints.get(id as usize).is_some_and(|ep| ep.had_sender)
-    }
-
-    /// The task the endpoint was created FOR (the factory's `owner`), if recorded. The
-    /// last-sender scan excludes it: an owner is never its own peer (TASK-0324 P7-b).
-    #[must_use]
-    pub fn endpoint_owner(&self, id: EndpointId) -> Option<WaiterId> {
-        self.endpoints.get(id as usize).and_then(|ep| ep.owner)
     }
 
     /// ADR-0082: marks (or unmarks) `id` as an endpoint whose receiver is frozen — a send that

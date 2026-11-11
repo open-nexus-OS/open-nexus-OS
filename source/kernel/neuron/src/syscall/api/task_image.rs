@@ -120,7 +120,8 @@ pub fn exit_task_and_release(
     reason: crate::task::ExitReason,
 ) {
     let is_thread = tasks.task(exiting).is_some_and(|t| t.is_thread());
-    // Every endpoint the table named, judged after the drop with one census each: the
+    // Every endpoint the table held a capability to, judged after the drop with one reading of
+    // its header each (RFC-0102): the
     // receivers' EOF, the senders' `PeerClosed`, the reclaim.
     let mut named = alloc::vec::Vec::new();
     if let Some(caps) = tasks.caps_of(exiting) {

@@ -16,7 +16,7 @@ use core::{fmt::Write as _, mem::MaybeUninit};
 use crate::ipc;
 use crate::ipc::header::MessageHeader;
 use crate::{
-    cap::{Capability, CapabilityKind, Rights},
+    cap::{Capability, CapabilityKind, Held, Rights},
     hal::platform::Machine,
     hal::{IrqCtl, Tlb},
     mm::{AddressSpaceManager, AsHandle},
@@ -137,21 +137,21 @@ impl KernelState {
                 tf.scause, tf.sepc, tf.stval
             );
         }
-        // Slot 0: bootstrap endpoint loopback
+        let router = ipc::Router::new(8);
+        // Slot 0: bootstrap endpoint loopback — minted at the endpoint, like every capability
+        // to one (RFC-0102).
         {
             let caps = tasks.bootstrap_mut().caps_mut();
-            let _ = caps.set(
-                0,
-                Capability {
-                    kind: CapabilityKind::Endpoint(0),
-                    rights: Rights::SEND | Rights::RECV,
-                },
-            );
+            if let Ok(loopback) = router.mint(0, Rights::SEND | Rights::RECV) {
+                let _ = caps.set(0, loopback);
+            }
             // Slot 2: endpoint-factory authority (init-lite receives a derived copy).
-            let _ = caps.set(
-                2,
-                Capability { kind: CapabilityKind::EndpointFactory, rights: Rights::MANAGE },
-            );
+            if let Ok(factory) = Held::plain(Capability {
+                kind: CapabilityKind::EndpointFactory,
+                rights: Rights::MANAGE,
+            }) {
+                let _ = caps.set(2, factory);
+            }
         }
         // Bind kernel AS handle to bootstrap task
         tasks.bootstrap_mut().address_space = Some(kernel_as);
@@ -163,8 +163,6 @@ impl KernelState {
 
         let mut syscalls = SyscallTable::new();
         api::install_handlers(&mut syscalls);
-
-        let router = ipc::Router::new(8);
 
         let hal = Machine::new();
         #[cfg(feature = "debug_uart")]

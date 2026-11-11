@@ -56,7 +56,8 @@ pub(super) fn sys_timer_create(ctx: &mut Context<'_>, args: &Args) -> SysResult<
         .alloc(ctx.tasks.current_pid().as_raw(), notify_ep, interval_ns)
         .map_err(map_timer_error)?;
     let timer_cap = Capability { kind: CapabilityKind::Timer(timer_id.0), rights: Rights::MANAGE };
-    match ctx.tasks.current_caps_mut().allocate(timer_cap) {
+    let caps = ctx.tasks.current_caps_mut();
+    match Held::plain(timer_cap).and_then(|held| caps.allocate(held)) {
         Ok(slot) => Ok(slot),
         Err(err) => {
             let _ = ctx.hart_timers.free(timer_id);
@@ -200,7 +201,8 @@ pub(super) fn sys_waitset_create(ctx: &mut Context<'_>, _args: &Args) -> SysResu
     // the table so it can never take a low slot that init's deterministic
     // post-spawn wiring is about to install into (the policyd waitset
     // collision → capability-denied → init abort).
-    match ctx.tasks.current_caps_mut().allocate_high(cap) {
+    let caps = ctx.tasks.current_caps_mut();
+    match Held::plain(cap).and_then(|held| caps.allocate_high(held)) {
         Ok(slot) => Ok(slot),
         Err(err) => {
             let _ = ctx.waitsets.free(ws_id);
@@ -405,7 +407,8 @@ pub(super) fn sys_fence_create(ctx: &mut Context<'_>, _args: &Args) -> SysResult
         kind: CapabilityKind::Fence(fence_id.0),
         rights: Rights::MANAGE | Rights::WAIT,
     };
-    match ctx.tasks.current_caps_mut().allocate(cap) {
+    let caps = ctx.tasks.current_caps_mut();
+    match Held::plain(cap).and_then(|held| caps.allocate(held)) {
         Ok(slot) => Ok(slot),
         Err(err) => {
             let _ = ctx.fences.free(fence_id);

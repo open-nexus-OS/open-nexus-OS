@@ -16,7 +16,7 @@
 //!   `crate::cap_rules`
 
 use super::Context;
-use crate::cap::{CapError, Capability, CapabilityKind, Rights};
+use crate::cap::{CapError, Capability, CapabilityKind, Held, Rights};
 use crate::ipc::{header::MessageHeader, Message, Payload};
 use crate::mm::AddressSpaceError;
 use crate::syscall::{
@@ -36,9 +36,28 @@ const FLAGS_SLOT: usize = 66;
 /// The waiting client's slot of its inbox.
 const INBOX_SLOT: usize = 60;
 
+/// A capability into `pid`'s `slot` through the doors every capability comes through
+/// (RFC-0102): one to an endpoint is minted at the LIVE endpoint, a plain kind made as it is.
 fn set(ctx: &mut Context<'_>, pid: Pid, slot: usize, kind: CapabilityKind, rights: Rights) -> bool {
-    let cap = Capability { kind, rights };
-    ctx.tasks.caps_of_mut(pid).is_some_and(|caps| caps.set(slot, cap).is_ok())
+    let held = match kind {
+        CapabilityKind::Endpoint(id) => ctx.router.mint(id, rights).ok(),
+        _ => Held::plain(Capability { kind, rights }).ok(),
+    };
+    held.is_some_and(|held| {
+        ctx.tasks.caps_of_mut(pid).is_some_and(|caps| caps.set(slot, held).is_ok())
+    })
+}
+
+/// A capability to the live endpoint `ep` into the current task's `slot` — minted at the
+/// endpoint (the selftests' wiring of a task they drive through the syscall table).
+pub(super) fn install_endpoint(
+    ctx: &mut api::Context<'_>,
+    slot: usize,
+    ep: u32,
+    rights: Rights,
+) -> Result<(), SysError> {
+    let held = ctx.router.mint(ep, rights)?;
+    Ok(ctx.tasks.current_caps_mut().set(slot, held)?)
 }
 
 pub(super) fn run_cap_rules_selftests(ctx: &mut Context<'_>) {
@@ -61,11 +80,13 @@ fn run_transfer_rules(ctx: &mut Context<'_>) {
         log_error!(target: "selftest", "KSELFTEST: cap transfer rules FAIL (create)");
         return;
     };
-    let _ = ctx.router.close_endpoints_for_owner(dead_owner.as_raw());
+    // The capabilities to the endpoint that dies are made while it lives — a capability to a
+    // dead endpoint exists only as one that outlived it.
     let staged = set(ctx, parent, HELD, CapabilityKind::Endpoint(live), Rights::SEND)
         && set(ctx, child, DEAD_SLOT, CapabilityKind::Endpoint(dead), Rights::SEND)
         && set(ctx, child, FLAGLESS_SLOT, CapabilityKind::Endpoint(dead), Rights::SEND)
         && set(ctx, child, KIND_SLOT, CapabilityKind::Timer(u32::MAX), Rights::empty());
+    let _ = ctx.router.close_endpoints_for_owner(dead_owner.as_raw());
     if !staged {
         log_error!(target: "selftest", "KSELFTEST: cap transfer rules FAIL (stage)");
         return;
@@ -175,13 +196,14 @@ fn run_in_flight_release(ctx: &mut Context<'_>) {
         log_error!(target: "selftest", "KSELFTEST: in-flight caps released FAIL (create)");
         return;
     };
-    let reply = Capability { kind: CapabilityKind::Endpoint(inbox), rights: Rights::SEND };
+    let reply = ctx.router.mint(inbox, Rights::SEND).ok();
     let payload = [0x5au8; 4];
     let header = MessageHeader::new(0, request, 1, 0, payload.len() as u32);
-    let queued = set(ctx, client, INBOX_SLOT, CapabilityKind::Endpoint(inbox), Rights::RECV)
+    let queued = reply.is_some()
+        && set(ctx, client, INBOX_SLOT, CapabilityKind::Endpoint(inbox), Rights::RECV)
         && ctx
             .router
-            .send(request, Message::new(header, Payload::from_slice(&payload), Some(reply)))
+            .send(request, Message::new(header, Payload::from_slice(&payload), reply))
             .is_ok();
     let before = ctx.router.eof_pending(inbox);
     ctx.tasks.set_current(server);

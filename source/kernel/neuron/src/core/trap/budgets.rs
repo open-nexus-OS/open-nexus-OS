@@ -81,6 +81,7 @@ pub fn reset(now: u64) {
     crate::lock_stats::reset(now);
     crate::lock_share::reset(now);
     crate::ready_stats::reset(now);
+    crate::yield_stats::reset();
     SWEEP_MAX_TICKS.store(0, Ordering::Relaxed);
     SWEEP_MAX_TASKS.store(0, Ordering::Relaxed);
     SWEEP_CALLS.store(0, Ordering::Relaxed);

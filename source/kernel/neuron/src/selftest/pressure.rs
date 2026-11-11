@@ -20,7 +20,7 @@
 //!   `KSELFTEST: mem compress ok (…)`, every QEMU lane and the board ladder
 
 use super::Context;
-use crate::cap::{CapError, Capability, CapabilityKind, Rights};
+use crate::cap::{CapError, Rights};
 use crate::mm::pressure_endpoint;
 use crate::pressure::{self, Level};
 use crate::syscall::{api, Args, Error as SysError, SyscallTable, SYSCALL_MEM_PRESSURE_BIND};
@@ -63,9 +63,9 @@ pub(super) fn run_pressure_selftests(ctx: &mut Context<'_>) {
             log_error!(target: "selftest", "KSELFTEST: mem pressure notify FAIL (create)");
             return;
         };
-        let cap =
-            Capability { kind: CapabilityKind::Endpoint(ep), rights: Rights::RECV | Rights::SEND };
-        if ctx.tasks.caps_of_mut(pid).is_none_or(|caps| caps.set(SINK_SLOT, cap).is_err()) {
+        let cap = ctx.router.mint(ep, Rights::RECV | Rights::SEND).ok();
+        let set = cap.and_then(|cap| ctx.tasks.caps_of_mut(pid)?.set(SINK_SLOT, cap).ok());
+        if set.is_none() {
             log_error!(target: "selftest", "KSELFTEST: mem pressure notify FAIL (caps)");
             return;
         }

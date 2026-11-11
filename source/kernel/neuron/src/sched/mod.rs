@@ -60,8 +60,9 @@ impl QosClass {
 struct Task {
     id: TaskId,
     qos: QosClass,
-    /// The tick it entered a run queue at (`ready_stats`: how long a runnable task waits).
+    /// The tick it entered a run queue at and what its hart ran then (`ready_stats`).
     ready_at: u64,
+    behind: crate::ready_stats::Behind,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -307,8 +308,8 @@ impl Scheduler {
             }
         }
 
-        let task = Task::ready(id, qos);
         let cur = Self::current_cpu_index();
+        let task = Task::ready(id, qos, self.cpus[cur].current.as_ref());
         Self::bounded_push(
             self.cpus[cur].queue_mut(qos),
             task,
@@ -376,11 +377,12 @@ impl Scheduler {
     /// Re-enqueue the currently running task (call on timeslice/yield).
     pub fn yield_current(&mut self) {
         let cur = Self::current_cpu_index();
-        if let Some(task) = self.cpus[cur].current.take() {
-            if matches!(self.try_enqueue(task.id, task.qos), EnqueueOutcome::Rejected(_)) {
-                // Deterministic fail-closed behavior for queue saturation:
-                // keep the task as current so it is not silently dropped.
-                self.cpus[cur].current = Some(task);
+        if let Some(task) = self.cpus[cur].current.clone() {
+            // Queued while still its hart's current: it waits behind its peers, not behind an
+            // idle hart (`ready_stats`). Deterministic fail-closed behavior for queue
+            // saturation: a rejected task stays current so it is not silently dropped.
+            if matches!(self.try_enqueue(task.id, task.qos), EnqueueOutcome::Enqueued) {
+                self.cpus[cur].current = None;
             }
         }
     }
@@ -480,7 +482,7 @@ impl Scheduler {
                 log_info!(target: "smp", "KINIT: enqueue cpu{} pid={}", cpu_idx, id.as_raw());
             }
         }
-        let task = Task::ready(id, qos);
+        let task = Task::ready(id, qos, self.cpus[cpu_idx].current.as_ref());
         Self::bounded_push(
             self.cpus[cpu_idx].queue_mut(qos),
             task,
@@ -535,7 +537,7 @@ impl Scheduler {
         if cpu_idx >= crate::smp::MAX_CPUS {
             return EnqueueOutcome::Rejected(EnqueueRejectReason::InvalidCpu { cpu });
         }
-        let task = Task::ready(id, qos);
+        let task = Task::ready(id, qos, self.cpus[cpu_idx].current.as_ref());
         Self::bounded_push(
             self.selftest_queue_for(cpu_idx, qos),
             task,

@@ -16,7 +16,7 @@
 //! TEST_COVERAGE: the `KSELFTEST:` lines below, every QEMU lane (`scripts/qemu-test.sh`)
 
 use super::Context;
-use crate::cap::{Capability, CapabilityKind, Rights};
+use crate::cap::{CapabilityKind, Rights};
 use crate::ipc::{header::MessageHeader, IpcError, Message, Payload};
 use crate::syscall::{
     api, Args, Error as SysError, SyscallTable, SYSCALL_CAP_CLOSE, SYSCALL_CHILD_EXIT_BIND,
@@ -56,8 +56,9 @@ fn frame(ep: u32) -> Message {
 }
 
 fn give(ctx: &mut Context<'_>, pid: Pid, slot: usize, ep: u32, rights: Rights) -> bool {
-    let cap = Capability { kind: CapabilityKind::Endpoint(ep), rights };
-    ctx.tasks.caps_of_mut(pid).is_some_and(|caps| caps.set(slot, cap).is_ok())
+    // Minted at the live endpoint, like every capability to one (RFC-0102).
+    let Ok(held) = ctx.router.mint(ep, rights) else { return false };
+    ctx.tasks.caps_of_mut(pid).is_some_and(|caps| caps.set(slot, held).is_ok())
 }
 
 pub(super) fn run_lifetime_selftests(ctx: &mut Context<'_>) {

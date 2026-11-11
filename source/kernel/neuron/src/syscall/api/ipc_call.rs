@@ -184,8 +184,7 @@ fn collect_queued_reply(
         // SAME host-tested predicate the receive path uses — inventing a second
         // EOF rule here is how the two would drift.
         Err(ipc::IpcError::QueueEmpty) => {
-            let any_sender =
-                super::eof_scan::foreign_sender_remains(ctx.tasks, ctx.router, state.wait_ep);
+            let any_sender = super::eof_scan::foreign_sender_remains(ctx.router, state.wait_ep);
             if any_sender {
                 ctx.router.mark_endpoint_had_sender(state.wait_ep);
             }

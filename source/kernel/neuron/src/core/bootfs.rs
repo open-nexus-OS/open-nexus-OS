@@ -20,7 +20,7 @@
 
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::cap::{Capability, CapabilityKind, Rights};
+use crate::cap::{Held, Rights};
 use crate::mm::vmo::VmoId;
 use nexus_bootfs::toc::{Toc, MAX_FILES};
 
@@ -207,22 +207,15 @@ pub fn init_file() -> Option<File> {
 }
 
 /// The read-only capability of the table page init receives (`INIT_BOOTFS_TOC_SLOT`).
-pub fn toc_alias() -> Option<Capability> {
-    let id = adopted().toc?;
-    Some(Capability { kind: CapabilityKind::VmoRo { id, len: PAGE }, rights: Rights::MAP })
+pub fn toc_alias() -> Option<Held> {
+    crate::mm::vmo::mint_read_only(adopted().toc?, Rights::MAP)
 }
 
 /// Every file's read-only capability with its table index (`INIT_BOOTFS_FILES_SLOT + index`).
-pub fn file_aliases() -> impl Iterator<Item = (usize, Capability)> {
+pub fn file_aliases() -> impl Iterator<Item = (usize, Held)> {
     let a = adopted();
     a.files[..a.count].iter().enumerate().filter_map(|(index, file)| {
         let file = (*file)?;
-        Some((
-            index,
-            Capability {
-                kind: CapabilityKind::VmoRo { id: file.vmo, len: file.pages },
-                rights: Rights::MAP,
-            },
-        ))
+        Some((index, crate::mm::vmo::mint_read_only(file.vmo, Rights::MAP)?))
     })
 }

@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-11-11 (a held capability is counted at its object — TASK-0330 P5)
+
+- **A receive and a close cost what they touch**: an endpoint and a memory object count the
+  capabilities held to them — in tables and in messages — where one is made and dropped
+  (`cap/held.rs`, RFC-0102). Last-sender EOF, `PeerClosed`, an endpoint's death, a memory
+  object's reclaim and `vmo_destroy`'s sole-owner check read those counts; the walks over every
+  task's capability table under the kernel lock are deleted (the receive's alone was 58 % of
+  the lock's time on the board), and so is the census an endpoint create ran per dead endpoint.
+- **A capability cannot be turned into another**: a held capability's kind and rights are
+  fixed when it comes into being and it moves through a message as itself — the receive path
+  no longer rewrites which endpoint a moved capability names. One to an endpoint or a memory
+  object is made only at the live object or from a held one with a subset of its rights; a
+  read-only alias has no way back to the writable kind (`test_reject_*` on the host for every
+  door).
+- **No capability outlives its object's id**: a memory object is not destroyed while a
+  capability is held to it, and a dead endpoint's id is reused only when none is. A capability
+  travelling in a message now counts for the memory object's lifetime too (the old walk saw
+  tables only).
+- The capability table and its tests compile and run on the host (`just test-kernel`); the
+  old property test never ran.
+- **A late dispatch says what it waited behind** (TASK-0363 P0): `KINIT: ready latency` counts
+  the waits above one millisecond by what the task's hart ran when it became runnable
+  (`late_idle`, `late_lower`, `late_peer`), and `KINIT: yield top` names the three tasks that
+  yield most — the measurement the scheduler's rebuild starts from.
+
 ### Added - 2026-11-10 (the SMP lane opens — TASK-0330 P0)
 
 - **The kernel lock says where its time goes**: every take names its holder (a syscall number,
@@ -17,6 +42,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`KINIT: cpuN speed`) and the boot states what the tree says the harts offer
   (`KINIT: isa from hart=`). First finding: a blocking receive and a capability close walk
   every capability table under the lock — TASK-0330 P5.
+- **The board's baseline (2026-11-11)**: four of eight harts hold the lock 96 % of the steady
+  window; the receive's walk alone is 58 % of that time (145 µs per take), a device asking for
+  a lazy object's runs commits under the lock (1.46 ms per take), and an interactive task
+  waits 1.5 ms on average for a hart. The harts run at the stock system's clock and all eight
+  state F, D and V (`docs/board/measurements/2026-11-10-smp-baseline/`).
 - **The lane is planned as data**: TASK-0330 P0–P5 and TASK-0362–0369 (hard float and vectors,
   the scheduler with time rights, threads and a futex, placement by load, the runtime, app-host
   on several harts, the compute broker's second version, pictures and the Images app), the

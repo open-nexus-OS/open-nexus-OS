@@ -1,14 +1,19 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Capability table implementation (Endpoint, VMO, IRQ) and rights
+//! CONTEXT: Capability table implementation (Endpoint, VMO, IRQ) and rights. A slot holds a
+//! `Held` — one held capability, counted at its object's header (`held.rs`, RFC-0102); the
+//! descriptor a check reads (`Capability`: kind and rights) stays a plain value.
 //! OWNERS: @kernel-cap-team
 //! STATUS: Functional
 //! API_STABILITY: Stable
-//! TEST_COVERAGE: QEMU selftests + boot markers
-//! PUBLIC API: CapTable, Capability{Kind,rights}, Rights
-//! DEPENDS_ON: ipc::EndpointId
-//! INVARIANTS: Rights enforced at syscall boundaries; slots validated; no cross-layer leaks
+//! TEST_COVERAGE: host — `cap/tests_prop.rs` (slot discipline, growth, the counts against a
+//!   census, the `test_reject_*` of the doors); QEMU selftests + boot markers
+//! PUBLIC API: CapTable, Capability{Kind,rights}, Rights, Held, HeldCounts
+//! DEPENDS_ON: kheap (the table's growth, a header's admission)
+//! INVARIANTS: Rights enforced at syscall boundaries; slots validated; no cross-layer leaks;
+//!   a slot is filled only with a `Held`, so a counted kind enters a table only through its
+//!   object's header or a `dup`, and what a slot holds never changes its kind or rights
 //! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 extern crate alloc;
@@ -18,7 +23,11 @@ use bitflags::bitflags;
 use core::fmt;
 use core::marker::PhantomData;
 
-use crate::ipc::EndpointId;
+mod held;
+pub use held::{Held, HeldCounts};
+
+/// The id of a kernel endpoint — what an endpoint capability names.
+pub type EndpointId = u32;
 
 bitflags! {
     #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -91,7 +100,8 @@ pub enum CapabilityKind {
     SchedSetAffinity,
 }
 
-/// Capability descriptor stored in the table.
+/// Capability descriptor: what a slot holds, described — kind and rights, a plain value that
+/// holds nothing and installs nowhere.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Capability {
     pub kind: CapabilityKind,
@@ -144,47 +154,58 @@ impl EndpointCapRef {
 }
 
 /// Per-task capability table.
-#[derive(Default, Clone)]
+#[derive(Default)]
 pub struct CapTable {
-    slots: Vec<Option<Capability>>,
+    slots: Vec<Option<Held>>,
+    /// The task this table belongs to: an endpoint's owner holding a send capability to it is
+    /// not its own peer (`Held::enter_table`). `None`: a table of nobody (a dead task's).
+    holder: Option<u32>,
     // Pre-SMP contract: capability tables are task-local and never shared directly.
     _not_send_sync: PhantomData<*mut ()>,
 }
 static_assertions::assert_not_impl_any!(CapTable: Send, Sync);
 
 impl CapTable {
-    /// Creates an empty table sized for `slots` entries.
+    /// Creates an empty table of nobody, sized for `slots` entries.
     pub fn with_capacity(slots: usize) -> Self {
-        let mut table: Vec<Option<Capability>> = Vec::with_capacity(slots);
+        let mut table: Vec<Option<Held>> = Vec::with_capacity(slots);
         for _ in 0..slots {
             // Avoids potential libc/memset intrinsics on no_std target
             table.push(None);
         }
-        crate::log_trace!(target: "cap", "with_capacity slots={}", slots);
-        Self { slots: table, _not_send_sync: PhantomData }
+        Self { slots: table, holder: None, _not_send_sync: PhantomData }
     }
 
     /// Default slot count for task capability tables. Raised 128 → 256
     /// (2026-07-22, TASK-0147 recorded follow-up): init's table ran AT the
     /// 128 ceiling by the end of wiring — every late `cap_clone` (allocates
     /// caller-side) failed NoSpace, silently breaking runtime `@mint-pair`
-    /// and app-launch legs. 256 × 16-byte entries = 4 KiB per task. Since
-    /// TASK-0352 P7 (ADR-0093) these are the FIRST 256: a full table doubles,
-    /// above the kernel heap's reserve (ADR-0091) — `NoSpace` is the heap's
-    /// refusal, never a constant's.
+    /// and app-launch legs. Since TASK-0352 P7 (ADR-0093) these are the FIRST
+    /// 256: a full table doubles, above the kernel heap's reserve (ADR-0091) —
+    /// `NoSpace` is the heap's refusal, never a constant's.
     const DEFAULT_CAP_SLOTS: usize = 256;
 
-    /// Convenience constructor for the bootstrap task.
+    /// A table of nobody with the first slots (the tests' seam; a task's table is `new_for`).
     pub fn new() -> Self {
-        crate::log_trace!(target: "cap", "new enter");
-        // The first slots; the table grows with the task's use (ADR-0093).
-        let table = Self::with_capacity(Self::DEFAULT_CAP_SLOTS);
-        crate::log_trace!(target: "cap", "new exit");
+        Self::with_capacity(Self::DEFAULT_CAP_SLOTS)
+    }
+
+    /// The table of task `holder`, with the first slots; it grows with the task's use
+    /// (ADR-0093).
+    pub fn new_for(holder: u32) -> Self {
+        let mut table = Self::new();
+        table.holder = Some(holder);
         table
     }
 
-    /// Inserts or overwrites a slot.
-    pub fn set(&mut self, slot: usize, cap: Capability) -> Result<(), CapError> {
+    fn enter(&self, mut held: Held) -> Held {
+        held.enter_table(self.holder);
+        held
+    }
+
+    /// Inserts or overwrites a slot; what the slot held is dropped. Refused, `held` is
+    /// dropped — counted off.
+    pub fn set(&mut self, slot: usize, held: Held) -> Result<(), CapError> {
         if slot >= self.slots.len() {
             #[cfg(all(target_arch = "riscv64", target_os = "none"))]
             {
@@ -194,44 +215,50 @@ impl CapTable {
             }
             return Err(CapError::InvalidSlot);
         }
-        if let Some(entry) = self.slots.get_mut(slot) {
-            *entry = Some(cap);
-            Ok(())
-        } else {
-            Err(CapError::InvalidSlot)
-        }
+        let held = self.enter(held);
+        self.slots[slot] = Some(held);
+        Ok(())
     }
 
     /// Inserts a capability only if the slot is empty.
-    pub fn set_if_empty(&mut self, slot: usize, cap: Capability) -> Result<(), CapError> {
-        if slot >= self.slots.len() {
-            return Err(CapError::InvalidSlot);
+    pub fn set_if_empty(&mut self, slot: usize, held: Held) -> Result<(), CapError> {
+        match self.slots.get(slot) {
+            None => Err(CapError::InvalidSlot),
+            Some(Some(_)) => Err(CapError::PermissionDenied),
+            Some(None) => self.set(slot, held),
         }
-        let entry = self.slots.get_mut(slot).ok_or(CapError::InvalidSlot)?;
-        if entry.is_some() {
-            return Err(CapError::PermissionDenied);
-        }
-        *entry = Some(cap);
-        Ok(())
+    }
+
+    /// The descriptors the table holds.
+    fn caps(&self) -> impl Iterator<Item = Capability> + '_ {
+        self.slots.iter().flatten().map(Held::cap)
     }
 
     /// Whether a capability of a device that does not snoop the CPU caches is in the table —
     /// the right to user-mode cache maintenance (ADR-0079).
     pub fn holds_noncoherent_device(&self) -> bool {
-        self.slots
-            .iter()
-            .flatten()
+        self.caps()
             .any(|cap| matches!(cap.kind, CapabilityKind::DeviceMmio { dma_noncoherent: true, .. }))
     }
 
-    /// Allocates the first free slot and inserts `cap`, returning the slot index. A full table
-    /// grows first (ADR-0093).
-    pub fn allocate(&mut self, cap: Capability) -> Result<usize, CapError> {
+    /// Allocates the first free slot and inserts `held`, returning the slot index. A full
+    /// table grows first (ADR-0093). Refused, `held` is dropped — counted off.
+    pub fn allocate(&mut self, held: Held) -> Result<usize, CapError> {
+        self.try_allocate(held).map_err(|(err, _dropped)| err)
+    }
+
+    /// `allocate` that hands a refused capability back: one that travelled in a message stays
+    /// with its message.
+    pub fn try_allocate(&mut self, held: Held) -> Result<usize, (CapError, Held)> {
         let index = match self.slots.iter().position(Option::is_none) {
             Some(index) => index,
-            None => self.grow()?,
+            None => match self.grow() {
+                Ok(index) => index,
+                Err(err) => return Err((err, held)),
+            },
         };
-        self.slots[index] = Some(cap);
+        let held = self.enter(held);
+        self.slots[index] = Some(held);
         Ok(index)
     }
 
@@ -245,9 +272,8 @@ impl CapTable {
     fn grow(&mut self) -> Result<usize, CapError> {
         let first = self.slots.len();
         let more = first.max(8);
-        let bytes = more
-            .checked_mul(core::mem::size_of::<Option<Capability>>())
-            .ok_or(CapError::NoSpace)?;
+        let bytes =
+            more.checked_mul(core::mem::size_of::<Option<Held>>()).ok_or(CapError::NoSpace)?;
         if !crate::kheap::admits(bytes) || self.slots.try_reserve(more).is_err() {
             return Err(CapError::NoSpace);
         }
@@ -261,44 +287,24 @@ impl CapTable {
     /// installs, `cap_transfer`, CAP_MOVE deliveries) keep packing low — so
     /// init's deterministic child layout and a service's own early object
     /// creation can never race for the same slot.
-    pub fn allocate_high(&mut self, cap: Capability) -> Result<usize, CapError> {
+    pub fn allocate_high(&mut self, held: Held) -> Result<usize, CapError> {
         let index = match self.slots.iter().rposition(Option::is_none) {
             Some(index) => index,
             // A full table grows (ADR-0093); the task's own object lands at the new top.
             None => self.grow().map(|_| self.slots.len() - 1)?,
         };
-        self.slots[index] = Some(cap);
+        let held = self.enter(held);
+        self.slots[index] = Some(held);
         Ok(index)
     }
 
-    /// Counts capabilities whose VMO range overlaps `[base, base + len)`.
-    /// `vmo_destroy`'s sole-owner safety net: summed over every task's table,
-    /// the destroying cap itself accounts for exactly 1 — anything above means
-    /// a clone/transfer alias still names the object.
+    /// How many capabilities in THIS table hold the memory object `id` (`Vmo` and its `VmoRo`
+    /// aliases alike). How many exist anywhere is the object's own count (`HeldCounts::any`).
     pub fn vmo_ref_count(&self, id: u32) -> usize {
-        self.slots
-            .iter()
-            .flatten()
+        self.caps()
             .filter(|cap| match cap.kind {
-                // A VmoRo alias names the SAME object, so it counts toward the
-                // sole-owner check (RFC-0080).
                 CapabilityKind::Vmo { id: i, .. } | CapabilityKind::VmoRo { id: i, .. } => i == id,
                 _ => false,
-            })
-            .count()
-    }
-
-    /// RFC-0079: counts live SEND-right caps referencing endpoint `id` in this
-    /// table. Summed over every task's table it answers "does any sender still
-    /// hold this endpoint?" — the last-sender-EOF gate (mirrors
-    /// `vmo_overlap_count`). RECV/MANAGE-only caps do not count as senders.
-    pub fn endpoint_send_cap_count(&self, id: EndpointId) -> usize {
-        self.slots
-            .iter()
-            .flatten()
-            .filter(|cap| {
-                matches!(cap.kind, CapabilityKind::Endpoint(ep) if ep == id)
-                    && cap.rights.contains(Rights::SEND)
             })
             .count()
     }
@@ -306,35 +312,13 @@ impl CapTable {
     /// The distinct endpoints this table holds a live SEND right to (TASK-0324 P7-b): what
     /// a dying task must be scanned for so every receiver it was the last peer of is woken.
     pub fn endpoint_send_ids(&self, out: &mut alloc::vec::Vec<EndpointId>) {
-        for cap in self.slots.iter().flatten() {
-            if let CapabilityKind::Endpoint(id) = cap.kind {
-                if cap.rights.contains(Rights::SEND) && !out.contains(&id) {
-                    out.push(id);
-                }
-            }
-        }
-    }
-
-    /// Live caps referencing endpoint `id`, counted in ONE pass as `(senders, receivers,
-    /// any)` (TASK-0333 6a): the senders behind last-sender EOF, the receivers behind the
-    /// sender-side `PeerClosed`, and "does anything still name it" behind the reclaim.
-    pub fn endpoint_census(&self, id: EndpointId) -> (usize, usize, usize) {
-        let (mut send, mut recv, mut any) = (0, 0, 0);
-        for cap in self.slots.iter().flatten() {
-            if !matches!(cap.kind, CapabilityKind::Endpoint(ep) if ep == id) {
-                continue;
-            }
-            any += 1;
-            send += usize::from(cap.rights.contains(Rights::SEND));
-            recv += usize::from(cap.rights.contains(Rights::RECV));
-        }
-        (send, recv, any)
+        self.endpoint_ids_with(Rights::SEND, out);
     }
 
     /// The distinct endpoints this table names with every right in `rights`, each once
     /// (`Rights::empty()` = every endpoint it names) — what a dying task's exit must judge.
     pub fn endpoint_ids_with(&self, rights: Rights, out: &mut alloc::vec::Vec<EndpointId>) {
-        for cap in self.slots.iter().flatten() {
+        for cap in self.caps() {
             if let CapabilityKind::Endpoint(id) = cap.kind {
                 if cap.rights.contains(rights) && !out.contains(&id) {
                     out.push(id);
@@ -346,7 +330,7 @@ impl CapTable {
     /// Every VMO this table names (`Vmo` and its `VmoRo` aliases alike), each once — what a
     /// dying task may leave orphaned (TASK-0333 6a, RFC-0100 §1).
     pub fn vmo_ids(&self, out: &mut alloc::vec::Vec<u32>) {
-        for cap in self.slots.iter().flatten() {
+        for cap in self.caps() {
             if let CapabilityKind::Vmo { id, .. } | CapabilityKind::VmoRo { id, .. } = cap.kind {
                 if !out.contains(&id) {
                     out.push(id);
@@ -360,7 +344,7 @@ impl CapTable {
     /// capability carries — never a number it names).
     pub fn holds_device_irq(&self, irq: u32) -> bool {
         irq != 0
-            && self.slots.iter().flatten().any(|cap| {
+            && self.caps().any(|cap| {
                 matches!(cap.kind, CapabilityKind::DeviceMmio { irq: line, .. } if line == irq)
                     && cap.rights.contains(Rights::MAP)
             })
@@ -376,24 +360,44 @@ impl CapTable {
         }
     }
 
-    /// Returns a capability without consuming it.
-    pub fn get(&self, slot: usize) -> Result<Capability, CapError> {
-        self.slots.get(slot).and_then(|entry| *entry).ok_or(CapError::InvalidSlot)
+    /// What `slot` holds, left where it is.
+    pub fn held(&self, slot: usize) -> Result<&Held, CapError> {
+        self.slots.get(slot).and_then(Option::as_ref).ok_or(CapError::InvalidSlot)
     }
 
-    /// The capability in `slot`, `None` when the slot is empty (`InvalidSlot` past the table) —
+    /// The descriptor of the capability in `slot`.
+    pub fn get(&self, slot: usize) -> Result<Capability, CapError> {
+        self.held(slot).map(Held::cap)
+    }
+
+    /// The descriptor in `slot`, `None` when the slot is empty (`InvalidSlot` past the table) —
     /// where `get` cannot tell an empty slot from a missing one.
     pub fn peek(&self, slot: usize) -> Result<Option<Capability>, CapError> {
-        self.slots.get(slot).copied().ok_or(CapError::InvalidSlot)
+        self.slots.get(slot).map(|entry| entry.as_ref().map(Held::cap)).ok_or(CapError::InvalidSlot)
     }
 
-    /// Removes and returns the capability stored in `slot`.
+    /// Closes `slot`: the capability is dropped — counted off — and its descriptor returned,
+    /// so the caller judges the object after the drop.
     pub fn take(&mut self, slot: usize) -> Result<Capability, CapError> {
-        let entry = self.slots.get_mut(slot).ok_or(CapError::InvalidSlot)?;
-        entry.take().ok_or(CapError::InvalidSlot)
+        self.take_held(slot).map(|held| held.cap())
     }
 
-    /// Derives a new capability with intersected rights.
+    /// Takes the capability out of `slot` to travel (into a message, or back into a slot). The
+    /// object's counts of all, of senders and of receivers do not change: it is still held.
+    pub fn take_held(&mut self, slot: usize) -> Result<Held, CapError> {
+        let entry = self.slots.get_mut(slot).ok_or(CapError::InvalidSlot)?;
+        let mut held = entry.take().ok_or(CapError::InvalidSlot)?;
+        held.leave_table();
+        Ok(held)
+    }
+
+    /// A second capability to what `slot` holds, of the same kind, with `rights` (a subset of
+    /// the slot's).
+    pub fn dup(&self, slot: usize, rights: Rights) -> Result<Held, CapError> {
+        self.held(slot)?.dup(rights)
+    }
+
+    /// The descriptor `slot` would have with `rights` (a subset) — a check, not a capability.
     pub fn derive(&self, slot: usize, rights: Rights) -> Result<Capability, CapError> {
         let base = self.get(slot)?;
         if !base.rights.contains(rights) {

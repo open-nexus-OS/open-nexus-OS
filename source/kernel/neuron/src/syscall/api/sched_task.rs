@@ -324,6 +324,8 @@ pub(super) fn sys_spawn_last_error(ctx: &mut Context<'_>, _args: &Args) -> SysRe
 
 pub(super) fn sys_yield(ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
     crate::liveness::bump();
+    // TASK-0363 P0: who yields is counted per task (`KINIT: yield top`).
+    crate::yield_stats::record(ctx.tasks.current_pid().as_raw(), ctx.tasks.current_service_id());
     // Honor pending IPC deadlines at every scheduling transition, not just at
     // recv/send blocks. A task that polls via `yield_()` would otherwise keep the
     // scheduler perpetually runnable, so a peer blocked on a timed recv (windowd's

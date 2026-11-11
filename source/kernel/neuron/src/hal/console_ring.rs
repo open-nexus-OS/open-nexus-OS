@@ -159,9 +159,8 @@ fn flush_block(_at: usize, _block: usize) {}
 
 /// The ring as init receives it: read-only pages over the image's own frames (the pool never
 /// owned them), like the tree's alias (`boot_fdt::init_alias`).
-pub fn init_alias() -> Option<crate::cap::Capability> {
-    use crate::cap::{Capability, CapabilityKind, Rights};
+pub fn init_alias() -> Option<crate::cap::Held> {
     let pa = crate::phys::virt_to_phys(base() as usize);
     let id = crate::mm::vmo::adopt_fixed(pa, BYTES).ok()?;
-    Some(Capability { kind: CapabilityKind::VmoRo { id, len: BYTES }, rights: Rights::MAP })
+    crate::mm::vmo::mint_read_only(id, crate::cap::Rights::MAP)
 }

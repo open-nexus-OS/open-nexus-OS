@@ -7,8 +7,10 @@
 //! recv path feeds it three observed booleans; this function owns the rule:
 //! EOF only when the receiver OPTED IN, a sender was once observed
 //! (`had_sender`, monotonic latch), AND no live SEND cap remains
-//! (`any_sender` scan). Any other combination BLOCKS — so a missed latch or a
-//! server that never had a sender can never wrongly disconnect a live receiver.
+//! (`any_sender`: the endpoint's count of foreign senders, `cap/held.rs`, where "an owner
+//! is never its own peer" and "a receiver remains while a RECV capability is held" are
+//! proven). Any other combination BLOCKS — so a missed latch or a server that never had a
+//! sender can never wrongly disconnect a live receiver.
 //! OWNERS: @kernel-ipc-team
 //! STATUS: Functional
 //! API_STABILITY: Unstable
@@ -24,19 +26,6 @@
 #[must_use]
 pub fn should_disconnect(eof_opt: bool, had_sender: bool, any_sender: bool) -> bool {
     eof_opt && had_sender && !any_sender
-}
-
-/// TASK-0324 P7-b: whether a live SEND cap to an endpoint is held by anyone OTHER than the
-/// endpoint's owner. An owner is never its own peer: a service keeps the SEND half of its
-/// reply channel so it can clone one per exchange, and that base cap must not keep the
-/// channel "connected" once the server that received the clone is gone — otherwise a dead
-/// peer could never EOF a waiting client. `holders` yields `(pid, live_send_caps)` per task.
-#[must_use]
-pub fn foreign_sender_remains(
-    owner: Option<u32>,
-    holders: impl IntoIterator<Item = (u32, usize)>,
-) -> bool {
-    holders.into_iter().any(|(pid, count)| count > 0 && Some(pid) != owner)
 }
 
 /// What a recv does when it finds the queue empty (TASK-0333 6a). The wait mode chooses
@@ -72,23 +61,9 @@ pub fn empty_queue_verdict(
     }
 }
 
-/// The sender's mirror of the rule (TASK-0333 6a): whether ANY live RECV capability to an
-/// endpoint still exists — in a task's table or moving inside a queued message. The owner is
-/// not excluded here: a receive needs a RECV capability, so when none exists nobody can ever
-/// drain the queue, and a send into it is futile. The scan that finds none latches the
-/// endpoint; every send after that returns `PeerClosed` instead of parking the sender on a
-/// peer that is gone (windowd on a crashed app).
-#[must_use]
-pub fn receiver_remains(in_flight: usize, holders: impl IntoIterator<Item = usize>) -> bool {
-    in_flight > 0 || holders.into_iter().any(|count| count > 0)
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{
-        empty_queue_verdict, foreign_sender_remains, receiver_remains, should_disconnect,
-        EmptyQueue,
-    };
+    use super::{empty_queue_verdict, should_disconnect, EmptyQueue};
 
     #[test]
     fn the_wait_mode_never_changes_the_eof_verdict() {
@@ -106,33 +81,6 @@ mod tests {
         // A receiver that never had a peer blocks or would-block, never disconnects.
         assert_eq!(empty_queue_verdict(true, true, false, false), EmptyQueue::WouldBlock);
         assert_eq!(empty_queue_verdict(false, true, false, false), EmptyQueue::Park);
-    }
-
-    #[test]
-    fn a_receiver_remains_while_any_recv_capability_lives() {
-        assert!(receiver_remains(0, [0, 1]));
-        assert!(receiver_remains(1, [0, 0]), "a RECV cap in flight will be received");
-        assert!(!receiver_remains(0, [0, 0]));
-        assert!(!receiver_remains(0, core::iter::empty()));
-    }
-
-    #[test]
-    fn owner_is_never_its_own_peer() {
-        // Only the owner holds a SEND cap (its clone base): no peer remains.
-        assert!(!foreign_sender_remains(Some(7), [(7, 1)]));
-        // The server still holds the moved clone: a peer remains.
-        assert!(foreign_sender_remains(Some(7), [(7, 1), (9, 1)]));
-        // The server dropped it (reply_and_close or exit): the owner's base does not count.
-        assert!(!foreign_sender_remains(Some(7), [(7, 1), (9, 0)]));
-    }
-
-    #[test]
-    fn test_reject_unowned_endpoint_counts_every_sender() {
-        // No owner recorded: every live SEND cap keeps the channel connected (fail-safe —
-        // never a spurious EOF on an endpoint the kernel cannot attribute).
-        assert!(foreign_sender_remains(None, [(7, 1)]));
-        assert!(!foreign_sender_remains(None, [(7, 0), (8, 0)]));
-        assert!(!foreign_sender_remains(Some(7), core::iter::empty()));
     }
 
     #[test]

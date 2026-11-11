@@ -24,9 +24,11 @@
 //!   never frees; the table lock is a leaf (never held across a memset or a codec call — a
 //!   squeezed page's record is copied in and out under it, ADR-0087).
 
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 
 use super::frame_pool;
+use crate::cap::{Held, HeldCounts, Rights};
 use crate::dma_reach::{DmaReach, MAX_DMA_WINDOWS};
 use crate::frames::{Block, FrameError, FRAME_SIZE, MAX_ORDER};
 use crate::lazy::{CommitError, LazyPages, PageState, PAGE};
@@ -90,6 +92,9 @@ pub enum VmoError {
     /// The kernel heap above its reserve cannot hold the object's bookkeeping — its page words
     /// or its block list (ADR-0091): the caller hears `ENOMEM`, the kernel never panics.
     HeapExhausted,
+    /// A capability is still held to the object (RFC-0102): it is not destroyed under one —
+    /// a held capability never names an id the table gave to another object.
+    Held,
 }
 
 /// The largest object a caller may ask for (ADR-0091): the frames the pool was ever given — no
@@ -149,6 +154,9 @@ pub struct VmoObject {
     /// ADR-0092: the cache block a CPU write must be cleaned in before the object's device reads
     /// it — 0 when that device snoops the caches, or there is none. Set before any capability.
     clean_block: u16,
+    /// The capabilities held to this object, in a table or in a message (RFC-0102): the
+    /// header the table gives it with its id (`VmoTable::insert`); `None` only before that.
+    held: Option<Arc<HeldCounts>>,
 }
 
 impl VmoObject {
@@ -242,8 +250,12 @@ impl VmoTable {
                 self.objects.len() - 1
             }
         };
-        self.objects[index] = object.take();
-        Ok(index as VmoId + 1)
+        let id = index as VmoId + 1;
+        // The header first: refused by the heap, the object stays with the caller too.
+        let len = object.as_ref().map_or(0, VmoObject::len);
+        let held = HeldCounts::vmo(id, len).ok_or(VmoError::HeapExhausted)?;
+        self.objects[index] = object.take().map(|object| VmoObject { held: Some(held), ..object });
+        Ok(id)
     }
 
     fn get(&self, id: VmoId) -> Option<&VmoObject> {
@@ -282,6 +294,7 @@ pub fn create(len: usize, kind: VmoKind, reach: &DmaReach) -> Result<VmoId, VmoE
             purgeable: false,
             purged: false,
             clean_block: 0,
+            held: None,
         };
         // A refused lazy object holds no frame: its words go with it.
         return TABLE.lock().insert(&mut Some(object));
@@ -334,6 +347,7 @@ pub fn create(len: usize, kind: VmoKind, reach: &DmaReach) -> Result<VmoId, VmoE
         purgeable: false,
         purged: false,
         clean_block: 0,
+        held: None,
     });
     let result = TABLE.lock().insert(&mut object);
     if let Some(refused) = object {
@@ -360,6 +374,7 @@ pub fn adopt_fixed(base: usize, len: usize) -> Result<VmoId, VmoError> {
         purgeable: false,
         purged: false,
         clean_block: 0,
+        held: None,
     };
     // A fixed object's frames are not the pool's: nothing goes back on a refusal.
     TABLE.lock().insert(&mut Some(object))
@@ -385,17 +400,24 @@ pub fn adopt_sealed(base: usize, len: usize) -> Result<VmoId, VmoError> {
         purgeable: false,
         purged: false,
         clean_block: 0,
+        held: None,
     };
     TABLE.lock().insert(&mut Some(object))
 }
 
 /// Destroy: the frames go back to the pool (a `Fixed` object frees nothing)
-/// and the id becomes free. The caller has proven nobody maps or names it.
+/// and the id becomes free. The caller has proven nobody maps it; that no capability is held
+/// to it the object answers itself (`Held` otherwise) — so no capability outlives its object
+/// to name the next one that gets the id.
 pub fn destroy(id: VmoId) -> Result<(), VmoError> {
     let object = {
         let mut table = TABLE.lock();
         let slot = table.objects.get_mut(id.checked_sub(1).ok_or(VmoError::NoSuchObject)? as usize);
-        slot.and_then(Option::take).ok_or(VmoError::NoSuchObject)?
+        let slot = slot.ok_or(VmoError::NoSuchObject)?;
+        if slot.as_ref().and_then(|o| o.held.as_ref()).is_some_and(|held| held.any() > 0) {
+            return Err(VmoError::Held);
+        }
+        slot.take().ok_or(VmoError::NoSuchObject)?
     };
     frame_pool::free_blocks(&object.blocks);
     if let Some(pages) = &object.lazy {
@@ -413,6 +435,29 @@ pub fn destroy(id: VmoId) -> Result<(), VmoError> {
 /// Run `f` over the live object.
 pub fn with<R>(id: VmoId, f: impl FnOnce(&VmoObject) -> R) -> Option<R> {
     TABLE.lock().get(id).map(f)
+}
+
+/// The header of the live object `id`: the capabilities held to it (RFC-0102).
+pub fn held_counts(id: VmoId) -> Option<Arc<HeldCounts>> {
+    with(id, |o| o.held.clone()).flatten()
+}
+
+/// A new capability to the live object `id` with `rights` — the object's own door (its
+/// creation, the kernel's wiring of a task): a capability to a memory object is made here or
+/// from another one (`Held::dup`, `Held::read_only_alias`), never from the id alone.
+pub fn mint(id: VmoId, rights: Rights) -> Option<Held> {
+    held_counts(id).map(|counts| counts.mint(rights))
+}
+
+/// A new read-only capability to the live object `id` — the kernel's own objects, which
+/// nobody holds writably (the device tree, the console ring, the boot image's files).
+pub fn mint_read_only(id: VmoId, rights: Rights) -> Option<Held> {
+    held_counts(id).and_then(|counts| counts.mint_read_only(rights))
+}
+
+/// How many capabilities are held to the live object `id` (0 for one that is gone).
+pub fn held(id: VmoId) -> usize {
+    held_counts(id).map_or(0, |counts| counts.any())
 }
 
 /// The object's runs, copied out (syscalls walk them without the lock). `None` for a lazy

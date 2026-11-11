@@ -351,27 +351,25 @@ mod arch;
 #[path = "core/boot.rs"]
 mod boot;
 #[cfg(target_os = "none")]
-#[path = "core/boot_handoff.rs"]
-pub mod boot_handoff;
-#[path = "diag/boot_mode.rs"]
-mod boot_mode;
-#[cfg(target_os = "none")]
-#[path = "task/bootstrap.rs"]
-mod bootstrap;
-// NOTE (RFC-0069): still target-gated, so cap's property tests (incl. the
-// allocate/allocate_high slot-discipline invariant) do NOT run on the host —
-// cap pulls crate::ipc/log_trace/alloc, all target-gated. Un-gating it is the
-// known host-testability item of the orchestrator track's Part 2.
-#[cfg(target_os = "none")]
 #[path = "core/boot_fdt.rs"]
 pub mod boot_fdt;
 #[cfg(target_os = "none")]
+#[path = "core/boot_handoff.rs"]
+pub mod boot_handoff;
+#[cfg(target_os = "none")]
 #[path = "core/boot_image.rs"]
 pub mod boot_image;
+#[path = "diag/boot_mode.rs"]
+mod boot_mode;
 #[cfg(target_os = "none")]
 #[path = "core/bootfs.rs"]
 pub mod bootfs;
 #[cfg(target_os = "none")]
+#[path = "task/bootstrap.rs"]
+mod bootstrap;
+// The capability table and the counts a held capability keeps at its object (RFC-0102) — NOT
+// target-gated since TASK-0330 P5: the slot discipline (RFC-0069) and the counts against a
+// census run on the host (`cap/tests_prop.rs`).
 mod cap;
 #[cfg(target_os = "none")]
 #[path = "core/cpu_main.rs"]
@@ -485,6 +483,10 @@ mod lock_stats;
 mod lock_share;
 #[path = "sched/ready_stats.rs"]
 mod ready_stats;
+// TASK-0363 P0: who yields, per task — host-tested like its neighbours; fed by the yield
+// syscall.
+#[path = "sched/yield_stats.rs"]
+mod yield_stats;
 // TASK-0333 6c-1a (ADR-0079): the pure cache-maintenance rule — NOT target-gated, so the
 // decode and the decision run on host. Fed by `trap::cache_right`.
 #[path = "core/trap/cbo_rule.rs"]

@@ -6,7 +6,7 @@ status: in_progress
 status_note: "recut 2026-10-06 to the end state; P0 seeded 2026-11-09 (W46), the phases after P0 are planned in the repo"
 owner: ["@kernel-team"]
 created: 2026-09-21
-updated: 2026-11-10
+updated: 2026-11-11
 subsystem: kernel
 kind: service
 novelty: variant
@@ -42,10 +42,12 @@ links:
 phases:
   - id: P0
     story: "today's SMP baseline is measured after layers 6 and 8: harts online, the BKL's holds and waits with their top holders, the lost-hart rate, and the MAX_CPUS inventory re-checked against the code TASK-0352 changed"
-    state: proving
-    gate: "board: KGATE: smp bringup and bkl budget lines logged (harts online N of 8, max_hold, max_wait, top 3 holders in ms), the kernel lock's hold split by subsystem (scheduler, IPC router, address spaces, fault path), the wake-to-run histogram per class, the cost of a resched IPI, the harts' clock against the stock system's and the tree's riscv,isa line; QEMU: 10 boots at -smp 8 with the lost-hart count; the S0 inventory table updated with the count of MAX_CPUS-sized statics and literal masks left; the split order written as an ADR from these numbers"
+    state: done
+    gate: "board: KGATE: smp bringup and bkl budget lines logged (harts online N of 8, max_hold, max_wait, top 3 holders in ms), the kernel lock's hold split by subsystem (scheduler, IPC router, address spaces, fault path), the wake-to-run histogram per class, the cost of a resched IPI, the harts' clock against the stock system's and the tree's riscv,isa line; QEMU: 10 boots at -smp 8 with the lost-hart count; the S0 inventory table updated with the count of MAX_CPUS-sized statics and literal masks left; the hypotheses H1-H8 judged in docs/board/measurements/2026-11-10-smp-baseline (the split order's ADR is P5's, read from the boot after it)"
     started: 2026-11-10
-    note: "2026-11-10: built and proven on QEMU — one-hart lane green with every take named (build/logs/smp1--2026-11-10T18-30-11), ten of ten boots with eight harts in the tree start four and lose none, inventory counted, hypotheses H1-H8 written (docs/board/measurements/2026-11-10-smp-baseline); just check and just diag green; first finding -> P5; waits for the board cycle and the stock-side speed run"
+    done: 2026-11-11
+    evidence: build/logs/board--2026-11-11T09-05-45
+    note: "2026-11-11 board: 4 of 8 harts, the lock held 96 % of the window (8.55 s of 8.94 s): ipc 64 % (receive id=18 alone 58 %, 144.7 us per take), sched 12 % (a yield loop, 70 000 a second), mm 11 % (id=60 commits under the lock, 1.46 ms per take), caps 5 %; interactive ready latency mean 1.5 ms, 55 % above 1 ms; harts at the stock clock (803 us = 803 us); f/d/v on all eight; ipc call rt=25us; H2 and H4 refuted, H1 H3 H5 H6 H7 H8 hold"
   - id: P1
     story: "every hart the device tree names runs: per-hart state comes from a boot slab sized by the tree, a CPU set is 64 bits wide in the ABI, MAX_CPUS is deleted, the cluster topology is exported, every hart has its PLIC context and serves interrupts, and a hart that failed to start is started again at its physical address"
     state: planned
@@ -58,15 +60,18 @@ phases:
     story: "a page fault and a mapping on one hart wait for no other process: a lock per address space and per memory object, frames from a per-hart magazine, and a shootdown reaches only the harts that ran the address space"
     state: planned
     gate: "KSELFTEST: tlb shootdown targeted ok (harts reached <= harts that ran the ASID, counted); board: the fault path's longest hold below 100 us and 8 threads touching fresh pages reach >= 6x the rate of one"
+    note: "2026-11-11 from P0's board boot: vmo_runs (id=60) commits a lazy object's pages under the lock, 1.46 ms per take, 42 a second while windows open, the third largest holder — the commit is staged under the lock and done outside it in this phase (RFC-0102, work whose length the caller decides)"
   - id: P4
     story: "no kernel path takes a global lock: the kernel lock and its guard are deleted, a wrong lock order is refused by a rank check in debug builds, and every lock class has a budget the boot gate judges"
     state: planned
     gate: "retired-name gate for KERNEL_LOCK and KernelGuard; board: KSELFTEST: lock budgets ok for every class at 8 harts; the smp8 lane part of test-all and test-all green"
   - id: P5
     story: "a blocking receive and a capability close cost what they touch, not what the system holds: an endpoint and a memory object count the capabilities that name them (for an endpoint: send, receive, any) where one is installed, moved into a message, received or dropped, and no path walks another process's capability table — built right after P0, before the split order is decided, so the order is not read from a scan"
-    state: planned
-    gate: "host: the counts equal a census after 10 000 random capability operations (model test) and the census walk is deleted (retired-name gate endpoint_census); one-hart lane (instruction-counted): KINIT: bkl held us / bkl takes per take ipc <= 15 us and caps <= 25 us (were 57 and 106, build/logs/smp1--2026-11-10T17-43-51); board: both per-take values at most a quarter of P0's board baseline"
-    note: "found by P0's instrument 2026-11-10: every blocking receive on an empty queue (eof_scan::foreign_sender_remains), every close of an endpoint capability (eof_scan::census) and every close or destroy of a memory object (mm/reclaim.rs names, sys_vmo_destroy) walks all capability slots of all tasks under the kernel lock — receive 152 us and close 238 us per take on the one-hart lane, the two largest holders (id=18, id=20)"
+    state: proving
+    gate: "host: the counts equal a census after 10 000 random capability operations (model test) and the census walk is deleted (retired-name gate endpoint_census); one-hart lane (instruction-counted): KINIT: bkl held us / bkl takes per take ipc <= 15 us and caps <= 25 us (were 57 and 106, build/logs/smp1--2026-11-10T17-43-51); board: per take ipc <= 16.4 us and caps <= 23.9 us (a quarter of 65.7 and 95.5, build/logs/board--2026-11-11T09-05-45); the split order written as an ADR from that boot"
+    started: 2026-11-11
+    evidence: build/logs/board--2026-11-11T10-01-24
+    note: "2026-11-11 board (build dev-ef48c745, build/logs/board--2026-11-11T10-01-24, ladder 106 rungs): per take ipc 3.8 us (was 65.7; gate <= 16.4) and caps 2.4 us (was 95.5; gate <= 23.9) — met; longest wait for the lock 556 us (was 6 930), waits and holds above 1 ms 0 (were 1 366 and 371). Still open: the ADR of the split order — not written from this boot, its window (3.5 s, before the operator's input, no interactive dispatch) is held by two polling loops (yield 66 %, mmio_map_auto 18 %: the ladder's client and netstackd probing a network device the board lacks); it is written from a window with the desktop in use once netstackd's probe is no loop"
 ---
 
 > Status (migrated 2026-11-02): Draft (recut 2026-10-06 to the end state — n harts from the FDT, not `MAX_CPUS` 4 → 8; no distributed kernel; seeded 2026-09-21 by the hardware fast track — `tasks/IMPLEMENTATION-ORDER.md`; starts after Block 3)

@@ -16,41 +16,61 @@
 //! TEST_COVERAGE: `KSELFTEST: task exit releases ok`, `KSELFTEST: ipc peer closed send ok`;
 //!   the rules themselves are host-tested in `crate::ipc_eof`
 
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 
 use super::endpoint::Endpoint;
 use super::{EndpointId, IpcError, Router, WaiterId};
-use crate::cap::{CapabilityKind, Rights};
+use crate::cap::{Capability, Held, HeldCounts, Rights};
 
 impl Router {
-    /// Capabilities to `id` that are IN FLIGHT — moved inside a message still queued on some
-    /// live endpoint; the peer that dequeues them will hold them — counted in ONE pass as
-    /// `(senders, receivers, any)`.
+    /// The header of endpoint `id`: the capabilities held to it, in a table or in a message
+    /// (RFC-0102). A dead slot keeps its header — a stale capability still counts there.
     #[must_use]
-    pub fn in_flight_census(&self, id: EndpointId) -> (usize, usize, usize) {
-        let (mut send, mut recv, mut any) = (0, 0, 0);
-        for cap in self
-            .endpoints
-            .iter()
-            .filter(|ep| ep.alive)
-            .flat_map(|ep| ep.queue.iter())
-            .filter_map(|msg| msg.moved_cap.as_ref())
-        {
-            if !matches!(cap.kind, CapabilityKind::Endpoint(ep) if ep == id) {
-                continue;
-            }
-            any += 1;
-            send += usize::from(cap.rights.contains(Rights::SEND));
-            recv += usize::from(cap.rights.contains(Rights::RECV));
+    pub fn held_counts(&self, id: EndpointId) -> Option<&Arc<HeldCounts>> {
+        self.endpoints.get(id as usize).map(|ep| &ep.counts)
+    }
+
+    /// A new capability to the live endpoint `id` with `rights` — the endpoint's own door
+    /// (its creation, the kernel's wiring of a task): a capability to an endpoint is made
+    /// here or from another one (`Held::dup`), never from the id alone.
+    pub fn mint(&self, id: EndpointId, rights: Rights) -> Result<Held, IpcError> {
+        match self.endpoints.get(id as usize) {
+            Some(ep) if ep.alive => Ok(ep.counts.mint(rights)),
+            _ => Err(IpcError::NoSuchEndpoint),
         }
-        (send, recv, any)
     }
 
     /// One capability that was in flight in an endpoint closed since (RFC-0112, amendment
-    /// 2026-11-02): the census above no longer sees it, so the caller releases it like a
-    /// `cap_close` (`syscall::api::eof_scan::release_in_flight`). `None` once all are out.
-    pub fn take_in_flight_dropped(&mut self) -> Option<crate::cap::Capability> {
-        self.in_flight_dropped.pop()
+    /// 2026-11-02), dropped here — counted off — and described to the caller, who judges its
+    /// object like after a `cap_close` (`syscall::api::eof_scan::release_in_flight`). `None`
+    /// once all are out.
+    pub fn take_in_flight_dropped(&mut self) -> Option<Capability> {
+        self.in_flight_dropped.pop().map(|held| held.cap())
+    }
+
+    /// Creates a new kernel endpoint and returns its identifier.
+    pub fn create_endpoint(
+        &mut self,
+        depth: usize,
+        owner: Option<WaiterId>,
+    ) -> Result<EndpointId, IpcError> {
+        let depth = depth.clamp(1, 256);
+        if owner.is_some_and(|pid| self.owned_alive(pid) >= super::MAX_ENDPOINTS_PER_OWNER) {
+            return Err(IpcError::NoSpace);
+        }
+        // ADR-0093: a full table doubles, above the kernel heap's reserve — or `ENOSPC`.
+        let more = self.endpoints.capacity().max(8);
+        if self.endpoints.len() == self.endpoints.capacity()
+            && (!crate::kheap::admits(more * core::mem::size_of::<Endpoint>())
+                || self.endpoints.try_reserve(more).is_err())
+        {
+            return Err(IpcError::NoSpace);
+        }
+        let id = self.endpoints.len() as EndpointId;
+        let counts = HeldCounts::endpoint(id, owner).ok_or(IpcError::NoSpace)?;
+        self.endpoints.push(Endpoint::with_depth(depth, owner, counts));
+        Ok(id)
     }
 
     /// Whether `id` is latched "no receiver can ever drain this" (a send returns
@@ -94,32 +114,34 @@ impl Router {
         }
     }
 
-    /// Every dead slot, appended to `out` — the candidates a create may reuse once the syscall
-    /// layer has checked that no capability and no queued message names the id any more
-    /// (the waitsets, timers, interrupt lines and exit bindings forgot it when it died).
-    pub fn dead_endpoint_ids(&self, out: &mut Vec<EndpointId>) {
-        for (id, ep) in self.endpoints.iter().enumerate() {
-            if !ep.alive {
-                out.push(id as EndpointId);
-            }
-        }
+    /// A dead slot no capability is held to any more, in a table or in a message — one a
+    /// create may give a fresh endpoint (the waitsets, timers, interrupt lines and exit
+    /// bindings forgot the id when it died).
+    #[must_use]
+    pub fn reusable_dead_endpoint(&self) -> Option<EndpointId> {
+        self.endpoints
+            .iter()
+            .position(|ep| !ep.alive && ep.counts.any() == 0)
+            .map(|id| id as EndpointId)
     }
 
-    /// Gives dead slot `id` a fresh endpoint. The id of a slot something still names is never
-    /// handed out again (the caller checked): a stale capability must keep naming nothing.
+    /// Gives dead slot `id` a fresh endpoint with a header of its own. The id of a slot a
+    /// capability is still held to is never handed out again: a stale capability must keep
+    /// holding nothing.
     pub fn revive_endpoint(
         &mut self,
         id: EndpointId,
         depth: usize,
         owner: Option<WaiterId>,
     ) -> Result<EndpointId, IpcError> {
-        if self.endpoints.get(id as usize).is_none_or(|ep| ep.alive) {
+        if self.endpoints.get(id as usize).is_none_or(|ep| ep.alive || ep.counts.any() > 0) {
             return Err(IpcError::NoSuchEndpoint);
         }
         if owner.is_some_and(|pid| self.owned_alive(pid) >= super::MAX_ENDPOINTS_PER_OWNER) {
             return Err(IpcError::NoSpace);
         }
-        self.endpoints[id as usize] = Endpoint::with_depth(depth.clamp(1, 256), owner);
+        let counts = HeldCounts::endpoint(id, owner).ok_or(IpcError::NoSpace)?;
+        self.endpoints[id as usize] = Endpoint::with_depth(depth.clamp(1, 256), owner, counts);
         Ok(id)
     }
 }

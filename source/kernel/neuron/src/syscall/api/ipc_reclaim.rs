@@ -7,7 +7,8 @@
 //! everything that remembered its id forgets it — waitset member lists, timers notifying it,
 //! interrupt lines bound to it, parents that bound it for their children's deaths — so the
 //! slot can carry a new endpoint without a stale name reaching it. The judgement is one
-//! census per dropped capability (`eof_scan::judge_dropped`, shared with the EOF wakes); this
+//! reading of the endpoint's header per dropped capability (`eof_scan::judge_dropped`, shared
+//! with the EOF wakes; the header counts what is held, RFC-0102); this
 //! module is the destroy, the forget, the record and the slot reuse. Measured before this:
 //! two endpoints per app launch, owned by execd, closed by nobody
 //! (`docs/board/measurements/2026-10-20-memory-lifecycle-baseline/`).
@@ -42,7 +43,7 @@ pub(super) fn forget_dead(
     crate::mm::pressure_endpoint::forget_endpoint(id);
 }
 
-/// Destroys `id` — the census found nothing naming it — and forgets it everywhere; `by`
+/// Destroys `id` — nothing holds a capability to it — and forgets it everywhere; `by`
 /// names the caller (`exit`, `close`) on the console. Returns whether it died (a blocked peer
 /// of an unnamed endpoint cannot exist, so its drained waiters need no wake).
 pub(super) fn destroy(
@@ -75,19 +76,15 @@ pub fn stats() -> usize {
     RECLAIMED.load(Ordering::Relaxed)
 }
 
-/// A create that prefers a dead slot nothing names any more (the table and the per-owner
-/// quota were a launch counter while ids were never reused); a fresh slot otherwise.
+/// A create that prefers a dead slot no capability is held to any more (the table and the
+/// per-owner quota were a launch counter while ids were never reused); a fresh slot otherwise.
 pub(super) fn create_endpoint(
     ctx: &mut Context<'_>,
     depth: usize,
     owner: Option<u32>,
 ) -> Result<ipc::EndpointId, ipc::IpcError> {
-    let mut dead = alloc::vec::Vec::new();
-    ctx.router.dead_endpoint_ids(&mut dead);
-    for id in dead {
-        if !super::eof_scan::census(ctx.tasks, ctx.router, id).named {
-            return ctx.router.revive_endpoint(id, depth, owner);
-        }
+    match ctx.router.reusable_dead_endpoint() {
+        Some(id) => ctx.router.revive_endpoint(id, depth, owner),
+        None => ctx.router.create_endpoint(depth, owner),
     }
-    ctx.router.create_endpoint(depth, owner)
 }

@@ -144,10 +144,7 @@ pub(super) fn sys_ipc_endpoint_create_v2(ctx: &mut Context<'_>, args: &Args) -> 
         return Err(Error::Capability(CapError::PermissionDenied));
     }
     let id = super::ipc_reclaim::create_endpoint(ctx, depth, Some(current.as_raw()))?;
-    let ep_cap = Capability {
-        kind: CapabilityKind::Endpoint(id),
-        rights: Rights::SEND | Rights::RECV | Rights::MANAGE,
-    };
+    let ep_cap = ctx.router.mint(id, Rights::SEND | Rights::RECV | Rights::MANAGE)?;
     let slot = ctx.tasks.current_caps_mut().allocate(ep_cap)?;
     Ok(slot)
 }
@@ -195,10 +192,7 @@ pub(super) fn sys_ipc_endpoint_create_for(ctx: &mut Context<'_>, args: &Args) ->
             owner_pid.as_raw() as u16,
         );
     }
-    let ep_cap = Capability {
-        kind: CapabilityKind::Endpoint(id),
-        rights: Rights::SEND | Rights::RECV | Rights::MANAGE,
-    };
+    let ep_cap = ctx.router.mint(id, Rights::SEND | Rights::RECV | Rights::MANAGE)?;
     let slot = ctx.tasks.current_caps_mut().allocate(ep_cap)?;
     Ok(slot)
 }
@@ -211,10 +205,10 @@ pub(super) fn sys_cap_close(ctx: &mut Context<'_>, args: &Args) -> SysResult<usi
     // Release the backing kernel object for caps that own one (no dangling table entries).
     match cap.kind {
         CapabilityKind::Endpoint(id) => {
-            // A dropped endpoint capability — one census, three verdicts (RFC-0079 last-sender
+            // A dropped endpoint capability — one reading, three verdicts (RFC-0079 last-sender
             // EOF for the receivers, the sender-side `PeerClosed`, and RFC-0100 §1: an endpoint
-            // dies with its last capability). The cap is already removed above, so the census
-            // reflects the drop.
+            // dies with its last capability). The cap is already dropped above, so the
+            // endpoint's counts reflect it.
             let _ = super::eof_scan::judge_dropped(
                 ctx.tasks,
                 ctx.router,
@@ -236,8 +230,8 @@ pub(super) fn sys_cap_close(ctx: &mut Context<'_>, args: &Args) -> SysResult<usi
         }
         CapabilityKind::Vmo { id, .. } | CapabilityKind::VmoRo { id, .. } => {
             // RFC-0100 §1 (TASK-0333 6a): a VMO dies with its last capability — when no other
-            // table names the object and no address space maps it, its frames return now.
-            crate::mm::reclaim::orphans(ctx.tasks, ctx.address_spaces, &[id], "close");
+            // one is held to the object and no address space maps it, its frames return now.
+            crate::mm::reclaim::orphans(ctx.address_spaces, &[id], "close");
         }
         CapabilityKind::Timer(id) => {
             let _ = ctx.hart_timers.free(crate::timer::TimerId(id));
@@ -267,7 +261,9 @@ pub(super) fn sys_cap_clone(ctx: &mut Context<'_>, args: &Args) -> SysResult<usi
     if cap.kind == CapabilityKind::EndpointFactory {
         return Err(Error::Capability(CapError::PermissionDenied));
     }
-    let new_slot = ctx.tasks.current_caps_mut().allocate(cap)?;
+    // A second capability of the same kind with the same rights, counted at its object.
+    let clone = ctx.tasks.current_caps_mut().dup(slot, cap.rights)?;
+    let new_slot = ctx.tasks.current_caps_mut().allocate(clone)?;
     Ok(new_slot)
 }
 
@@ -465,7 +461,7 @@ pub(super) fn sys_cap_transfer_to(ctx: &mut Context<'_>, args: &Args) -> SysResu
         typed.child_slot.0,
     )?;
     if let Some(id) = replaced {
-        // The one drop path, though a dead endpoint's census changes nothing.
+        // The one drop path, though a dead endpoint's counts change nothing.
         let _ = super::eof_scan::judge_dropped(
             ctx.tasks,
             ctx.router,

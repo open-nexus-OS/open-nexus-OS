@@ -5,7 +5,7 @@ role: guide
 subsystem: kernel
 sources: [source/kernel/neuron/src, source/kernel/neuron-boot/src]
 contracts: [RFC-0005, RFC-0021, RFC-0085, RFC-0098, RFC-0100, ADR-0049, ADR-0073, ADR-0077, ADR-0080, ADR-0082, ADR-0091]
-verified: 2026-11-04
+verified: 2026-11-11
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -168,12 +168,11 @@ retired numbers stay retired.
 - **Commit on touch** (ADR-0077). A lazy VMO takes no frame at create; a page takes one zeroed
   frame at its first touch.
 - **Kernel-chosen addresses** (RFC-0085). `vm_map` and `mmio_map_auto` place a mapping inside the
-  managed window — from `USER_VM_WINDOW_BASE` to `USER_VADDR_LIMIT`, the whole user half
-  (`source/kernel/neuron/src/mm/mod.rs`) and return the address.
-  Placement policy is host-tested in `source/kernel/neuron/src/va_space.rs`.
+  managed window — the whole user half (`source/kernel/neuron/src/mm/mod.rs`).
+  Placement is host-tested in `source/kernel/neuron/src/va_space.rs`.
 - **Tables grow with their use** (ADR-0093). The kernel heap (`source/kernel/neuron/src/mm/kheap.rs`),
-  lazy page maps, regions, capabilities and endpoints grow from the pool, never bounded by a
-  constant; what the pool cannot give answers `ENOMEM`, never a panic.
+  lazy page maps, regions, capabilities and endpoints grow from the pool; what the pool cannot
+  give answers `ENOMEM`, never a panic.
 - **W^X.** The page table refuses a writable, executable leaf; `vm_map` refuses EXECUTE.
 - **DMA.** A device capability carries its DMA reach; `vmo_runs` is the only way a bus address
   leaves the kernel (`source/kernel/neuron/src/mm/dma_runs.rs`, `source/kernel/neuron/src/mm/dma_reach.rs`).
@@ -199,6 +198,7 @@ retired numbers stay retired.
   waitset, fence, affinity control.
 - Rights: `SEND`, `RECV`, `MAP`, `MANAGE`, `WAIT`. A transfer or clone intersects rights with the
   source's; they never grow.
+- Held capabilities (`cap/held.rs`, RFC-0102): kind and rights fixed; objects count holders.
 - Identity is the kernel's: `ipc_recv_v2` reports the sender's service id; a payload string never
   is.
 - Device capabilities are minted by init from the device tree; MMIO maps are USER|RW, never EXEC.

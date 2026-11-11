@@ -11,12 +11,16 @@
 //! TEST_COVERAGE: exercised via Router host tests in `ipc/mod.rs`
 
 use super::{IpcError, Message, WaiterId};
-use crate::cap::Capability;
+use crate::cap::{Held, HeldCounts};
 use alloc::collections::VecDeque;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 
-#[derive(Default)]
 pub(super) struct Endpoint {
+    /// The capabilities held to this endpoint, counted where each one is made and dropped
+    /// (RFC-0102): who can still send, who can still receive, whether anything holds it at
+    /// all. Kept while the slot is dead — its id is handed out again only at zero.
+    pub(super) counts: Arc<HeldCounts>,
     pub(super) queue: VecDeque<Message>,
     pub(super) depth: usize,
     pub(super) queued_bytes: usize,
@@ -50,7 +54,12 @@ pub(super) struct Endpoint {
 }
 
 impl Endpoint {
-    pub(super) fn with_depth(depth: usize, owner: Option<WaiterId>) -> Self {
+    /// The endpoint `counts` is the header of (its id, its owner).
+    pub(super) fn with_depth(
+        depth: usize,
+        owner: Option<WaiterId>,
+        counts: Arc<HeldCounts>,
+    ) -> Self {
         // Byte-based DoS hardening: in addition to queue depth, cap the total bytes that can be
         // buffered in an endpoint. This keeps memory use bounded even if messages are large.
         //
@@ -59,6 +68,7 @@ impl Endpoint {
         // is full, retry may help), never `TooBig` (the message can never fit) — TASK-0054C P3b.
         let max_queued_bytes = depth.saturating_mul(super::IPC_PAYLOAD_MAX);
         Self {
+            counts,
             queue: VecDeque::new(),
             depth,
             queued_bytes: 0,
@@ -170,7 +180,7 @@ impl Endpoint {
     pub(super) fn close_if_owned_by(
         &mut self,
         owner: WaiterId,
-        dropped: &mut Vec<Capability>,
+        dropped: &mut Vec<Held>,
     ) -> Option<(Vec<WaiterId>, Vec<WaiterId>)> {
         if !self.alive || self.owner != Some(owner) {
             return None;
@@ -187,8 +197,8 @@ impl Endpoint {
     /// Empties a closing endpoint's queue. The capabilities still in flight in it go to
     /// `dropped` — the caller releases each like a `cap_close` (RFC-0112, amendment
     /// 2026-11-02): a reply capability moved with a request the dead server never read was the
-    /// caller's last word on its inbox, and dropped uncounted its EOF never came.
-    pub(super) fn clear_queue_into(&mut self, dropped: &mut Vec<Capability>) {
+    /// caller's last word on its inbox, and dropped unjudged its EOF never came.
+    pub(super) fn clear_queue_into(&mut self, dropped: &mut Vec<Held>) {
         dropped.extend(self.queue.drain(..).filter_map(|msg| msg.moved_cap));
         self.queued_bytes = 0;
     }

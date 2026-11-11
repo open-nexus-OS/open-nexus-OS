@@ -21,22 +21,12 @@ use alloc::vec::Vec;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 use super::{vm_ops, vmo, AddressSpaceManager};
-use crate::task::TaskTable;
-use crate::types::Pid;
 
 /// Objects freed by this path since boot, and their bytes (`KSELFTEST: vm reclaim (`).
 static RECLAIMED_VMOS: AtomicUsize = AtomicUsize::new(0);
 static RECLAIMED_BYTES: AtomicUsize = AtomicUsize::new(0);
 
 use crate::vmo_lifetime::should_reclaim;
-
-/// How many capabilities across every task name `id` (`Vmo` and `VmoRo` alike).
-fn names(tasks: &TaskTable, id: u32) -> usize {
-    (0..tasks.len() as u32)
-        .filter_map(|raw| tasks.caps_of(Pid::from_raw(raw)))
-        .map(|caps| caps.vmo_ref_count(id))
-        .sum()
-}
 
 /// Reclaims named on the console before the line goes quiet (the first ones of a boot name
 /// the objects a reader chasing a lost object needs; the fence's total counts the rest).
@@ -45,12 +35,7 @@ const NAMED_RECLAIMS: usize = 24;
 /// Free every object in `ids` the rule allows; each id judged once; `by` names the caller
 /// (`reap`, `close`) on the console. An object between a create's phases is left alone. Returns
 /// what was freed: objects and bytes (a `Fixed` object frees nothing and counts its length as 0).
-pub fn orphans(
-    tasks: &TaskTable,
-    spaces: &AddressSpaceManager,
-    ids: &[u32],
-    by: &'static str,
-) -> (usize, usize) {
+pub fn orphans(spaces: &AddressSpaceManager, ids: &[u32], by: &'static str) -> (usize, usize) {
     let (mut freed, mut bytes) = (0usize, 0usize);
     let mut seen: Vec<u32> = Vec::new();
     for &id in ids {
@@ -58,7 +43,11 @@ pub fn orphans(
             continue;
         }
         seen.push(id);
-        if !should_reclaim(names(tasks, id), vm_ops::any_space_maps_vmo(spaces, id)) {
+        // The capabilities held to it, in a table or in a message, are the object's own count
+        // (RFC-0102). While one is held it lives; who maps it is asked — a walk over the
+        // address spaces until they count too (TASK-0330 P3) — only for the last one.
+        let held = vmo::held(id);
+        if held > 0 || !should_reclaim(held, vm_ops::any_space_maps_vmo(spaces, id)) {
             continue;
         }
         let Some(len) = vmo::with(id, |o| o.len()) else { continue };

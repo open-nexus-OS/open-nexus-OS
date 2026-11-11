@@ -89,8 +89,7 @@ pub fn phys() -> Option<(usize, usize)> {
 /// and hands it to the harness. The loader's copy is page-aligned (nxboot allocates
 /// it so); a tree that is not cannot be exposed as pages, and init goes without —
 /// loudly, never with a guess.
-pub fn init_alias() -> Option<crate::cap::Capability> {
-    use crate::cap::{Capability, CapabilityKind, Rights};
+pub fn init_alias() -> Option<crate::cap::Held> {
     let (base, len) = phys()?;
     if base % PAGE != 0 {
         log_error!(target: "boot", "device tree at {:#x} is not page-aligned: init receives no device.fdt", base);
@@ -99,7 +98,7 @@ pub fn init_alias() -> Option<crate::cap::Capability> {
     let pages = len.div_ceil(PAGE) * PAGE;
     // A FIXED object over the tree's frames (excluded from the pool).
     let id = crate::mm::vmo::adopt_fixed(base, pages).ok()?;
-    Some(Capability { kind: CapabilityKind::VmoRo { id, len: pages }, rights: Rights::MAP })
+    crate::mm::vmo::mint_read_only(id, crate::cap::Rights::MAP)
 }
 
 /// The tree as bytes: at its physical address while paging is off, through the

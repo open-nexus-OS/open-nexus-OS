@@ -37,10 +37,8 @@ pub(super) fn run_vmo_clean_selftest(table: &SyscallTable, sys_ctx: &mut api::Co
         dma_noncoherent: true,
         dev,
     };
-    let dev_slot = sys_ctx
-        .tasks
-        .current_caps_mut()
-        .allocate(Capability { kind, rights: Rights::MAP })
+    let dev_slot = crate::cap::Held::plain(Capability { kind, rights: Rights::MAP })
+        .and_then(|held| sys_ctx.tasks.current_caps_mut().allocate(held))
         .expect("synthetic device cap");
     let create = |table: &SyscallTable, ctx: &mut api::Context<'_>, device: usize| {
         let args = [usize::MAX, 2 * PAGE_SIZE, api::VMO_CREATE_LAZY, device, 0, 0];

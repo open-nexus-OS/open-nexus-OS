@@ -119,7 +119,7 @@ pub(super) fn sys_vm_unmap(ctx: &mut Context<'_>, args: &Args) -> SysResult<usiz
 /// last capability closed while a space mapped it dies at its last unmap.
 fn reclaim_unmapped(ctx: &Context<'_>, vmo: u32) {
     if vmo != 0 {
-        crate::mm::reclaim::orphans(ctx.tasks, ctx.address_spaces, &[vmo], "unmap");
+        crate::mm::reclaim::orphans(ctx.address_spaces, &[vmo], "unmap");
     }
 }
 

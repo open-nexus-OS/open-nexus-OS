@@ -15,7 +15,7 @@
 //! TEST_COVERAGE: `KSELFTEST: process ctl ok (…)`, every QEMU lane and the board ladder
 
 use super::Context;
-use crate::cap::{CapError, Capability, CapabilityKind, Rights};
+use crate::cap::{CapError, Rights};
 use crate::ipc::{header::MessageHeader, IpcError, Message, Payload};
 use crate::syscall::{
     api, Args, Error as SysError, SyscallTable, SYSCALL_TASK_KILL, SYSCALL_TASK_RESUME,
@@ -51,8 +51,8 @@ pub(super) fn run_process_ctl_selftests(ctx: &mut Context<'_>) {
         log_error!(target: "selftest", "KSELFTEST: process ctl FAIL (create)");
         return;
     };
-    let cap = Capability { kind: CapabilityKind::Endpoint(ep), rights: Rights::RECV };
-    if ctx.tasks.caps_of_mut(child).is_none_or(|caps| caps.set(RECV_SLOT, cap).is_err()) {
+    let cap = ctx.router.mint(ep, Rights::RECV).ok();
+    if cap.and_then(|cap| ctx.tasks.caps_of_mut(child)?.set(RECV_SLOT, cap).ok()).is_none() {
         log_error!(target: "selftest", "KSELFTEST: process ctl FAIL (caps)");
         return;
     }

@@ -21,16 +21,12 @@ use super::*;
 /// owner keeps the writable `Vmo` (to fill it); it grants clones of the alias.
 pub(super) fn sys_vmo_share_ro(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let slot = args.get(0);
-    let cap = ctx.tasks.current_caps_mut().get(slot)?;
-    // Only a real (writable) VMO can be downgraded; require MAP authority.
-    let CapabilityKind::Vmo { id, len } = cap.kind else {
-        return Err(Error::Capability(CapError::PermissionDenied));
-    };
-    if !cap.rights.contains(Rights::MAP) {
-        return Err(Error::Capability(CapError::PermissionDenied));
-    }
-    let ro = Capability { kind: CapabilityKind::VmoRo { id, len }, rights: Rights::MAP };
-    let new_slot = ctx.tasks.current_caps_mut().allocate(ro)?;
+    // Only a real (writable) VMO can be downgraded; require MAP authority. The alias is made
+    // from the capability held, at the same header — `read_only_alias` refuses any other kind
+    // and any right the holder lacks (RFC-0102).
+    let caps = ctx.tasks.current_caps_mut();
+    let ro = caps.held(slot)?.read_only_alias(Rights::MAP)?;
+    let new_slot = caps.allocate(ro)?;
     Ok(new_slot)
 }
 

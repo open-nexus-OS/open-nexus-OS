@@ -24,8 +24,8 @@ pub mod header;
 #[cfg(feature = "ipc_trace_ring")]
 pub mod trace;
 
-/// Identifier for a kernel endpoint.
-pub type EndpointId = u32;
+/// Identifier for a kernel endpoint — what an endpoint capability holds.
+pub use crate::cap::EndpointId;
 
 /// Waiter identifier stored in endpoint wait queues.
 ///
@@ -81,7 +81,7 @@ pub struct Router {
     owner_queued_bytes: BTreeMap<WaiterId, usize>,
     max_queued_bytes_per_owner: usize,
     /// RFC-0112: caps in flight in closed endpoints, each released like a `cap_close`.
-    in_flight_dropped: Vec<crate::cap::Capability>,
+    in_flight_dropped: Vec<crate::cap::Held>,
     // Pre-SMP contract: router mutability is trap-context local until per-CPU routing lands.
     _not_send_sync: PhantomData<*mut ()>,
 }
@@ -103,8 +103,10 @@ impl Router {
         const DEFAULT_MAX_QUEUED_BYTES_TOTAL: usize = 1024 * 1024; // 1 MiB
         const DEFAULT_MAX_QUEUED_BYTES_PER_OWNER: usize = 256 * 1024; // 256 KiB
         let mut endpoints = Vec::with_capacity(count);
-        for _ in 0..count {
-            endpoints.push(Endpoint::with_depth(8, None));
+        for id in 0..count as EndpointId {
+            // A header the heap refuses ends the first endpoints there (ADR-0091).
+            let Some(counts) = crate::cap::HeldCounts::endpoint(id, None) else { break };
+            endpoints.push(Endpoint::with_depth(8, None, counts));
         }
         Self {
             endpoints,
@@ -366,29 +368,6 @@ impl Router {
             return Err(IpcError::NoSuchEndpoint);
         }
         Ok(ep.remove_send_waiter(pid))
-    }
-
-    /// Creates a new kernel endpoint and returns its identifier.
-    pub fn create_endpoint(
-        &mut self,
-        depth: usize,
-        owner: Option<WaiterId>,
-    ) -> Result<EndpointId, IpcError> {
-        let depth = depth.clamp(1, 256);
-        if owner.is_some_and(|pid| self.owned_alive(pid) >= MAX_ENDPOINTS_PER_OWNER) {
-            return Err(IpcError::NoSpace);
-        }
-        // ADR-0093: a full table doubles, above the kernel heap's reserve — or `ENOSPC`.
-        let more = self.endpoints.capacity().max(8);
-        if self.endpoints.len() == self.endpoints.capacity()
-            && (!crate::kheap::admits(more * core::mem::size_of::<Endpoint>())
-                || self.endpoints.try_reserve(more).is_err())
-        {
-            return Err(IpcError::NoSpace);
-        }
-        let id = self.endpoints.len() as EndpointId;
-        self.endpoints.push(Endpoint::with_depth(depth, owner));
-        Ok(id)
     }
 
     /// Returns true if `id` exists and is alive.
