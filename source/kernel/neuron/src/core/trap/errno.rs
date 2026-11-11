@@ -126,6 +126,8 @@ pub(super) fn address_space_errno(err: &AddressSpaceError) -> usize {
         AddressSpaceError::OutOfFrames => errno(ENOMEM),
         AddressSpaceError::AsidExhausted => errno(ENOSPC),
         AddressSpaceError::InUse => errno(EPERM),
+        // A hart still runs on the space: not a refusal of the caller's right, a state that ends.
+        AddressSpaceError::HeldByHart => errno(EBUSY),
         AddressSpaceError::Unsupported => errno(ENOSYS),
         AddressSpaceError::Mapping(MapError::PermissionDenied) => errno(EPERM),
         // ADR-0054: each map refusal keeps its identity across the ABI. The

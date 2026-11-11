@@ -31,9 +31,10 @@ one hart so it would not queue behind the others. With eight harts the pin is th
 services share one hart while three to seven idle. A bound that is a measurement is also not a
 property (TRACK-TIME-AS-RESOURCE, gate G1). The end state is no global lock.
 
-The order in which the lock is taken apart is **not decided here**: it is written as an ADR from
-TASK-0330 P0's numbers (`KINIT: bkl held us`, the lock's time per subsystem), as the task's red
-flag demands.
+The order in which the lock is taken apart is **not decided here**: it is ADR-0098
+(`docs/adr/0098-the-kernel-lock-is-split-in-the-order-the-desktop-in-use-holds-it.md`), written
+from the board's windows with the desktop in use (`KINIT: bkl held us`, the lock's time per
+subsystem) — the idle loop and the run queues, then IPC, then memory.
 
 ## Scope
 

@@ -608,7 +608,7 @@ where
     );
     crate::bootstrap::resume::materialize_graph(
         &ctrl_channels,
-        boot_graph,
+        crate::boot_graph::ResumeSet::of(boot_graph, devices.planes()),
         init_fold,
         &mut init_misc,
     );

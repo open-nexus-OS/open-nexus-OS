@@ -5,7 +5,7 @@ role: reference
 subsystem: devx
 sources: [source/services/policyd, source/services/keystored, source/apps/selftest-client/proof-manifest/markers/policy.toml, source/kernel/neuron/src/cap]
 contracts: [RFC-0005, RFC-0008, RFC-0075, RFC-0091]
-verified: 2026-11-03
+verified: 2026-11-11
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -77,6 +77,9 @@ pub enum AuthError {
 
 - Sensitive operations go through `policyd`; policy logic is not duplicated in services.
 - No ambient capabilities; grant the minimum. No policy skip for "trusted" services.
+- A held capability's kind and rights are fixed when it is minted at its object; it is derived
+  only as a subset of what is held and never built from a number or renamed
+  (`source/kernel/neuron/src/cap/held.rs`, RFC-0102).
 - Policy does not change at runtime, with one exception (RFC-0091 §6): the per-subject ABI mode
   (Enforce ↔ Learn) through `OP_SET_ABI_MODE` in `source/services/policyd/src/abi_mode.rs` —
   sender-authenticated (`policy.abi_mode`), epoch-guarded, audited, never persisted (every boot

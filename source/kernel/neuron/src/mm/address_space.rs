@@ -84,6 +84,8 @@ pub enum AddressSpaceError {
     AsidExhausted,
     /// Address space still has outstanding task references.
     InUse,
+    /// A hart's `satp` still names this space's page table (`mm::hart_spaces`).
+    HeldByHart,
     /// Address-space destruction is not implemented yet.
     Unsupported,
     /// Underlying map operation failed.
@@ -202,6 +204,7 @@ impl AddressSpace {
 pub struct AddressSpaceManager {
     pub(super) spaces: Vec<Option<AddressSpace>>,
     asids: AsidAllocator,
+    harts: crate::hart_spaces::HartSpaces<{ crate::smp::MAX_CPUS }>,
     // Pre-SMP contract: AS manager is owned by single kernel execution context.
     _not_send_sync: PhantomData<*mut ()>,
 }
@@ -210,7 +213,24 @@ static_assertions::assert_not_impl_any!(AddressSpaceManager: Send, Sync);
 impl AddressSpaceManager {
     /// Creates an empty manager.
     pub fn new() -> Self {
-        Self { spaces: Vec::new(), asids: AsidAllocator::new(), _not_send_sync: PhantomData }
+        let harts = crate::hart_spaces::HartSpaces::new();
+        Self { spaces: Vec::new(), asids: AsidAllocator::new(), harts, _not_send_sync: PhantomData }
+    }
+
+    /// A hart whose `satp` names `handle`'s page table, if any.
+    pub fn hart_on(&self, handle: AsHandle) -> Option<usize> {
+        self.harts.hart_on(handle.to_raw())
+    }
+
+    /// This hart, if it runs on `handle` and no task owns the space any more, switches to
+    /// `kernel` — the kernel's own space. A space with an owner is left alone: the caller may be
+    /// that owner (a process reaping one of its threads runs on the space it shares with it).
+    pub fn leave(&self, handle: AsHandle, kernel: AsHandle) {
+        let cpu = crate::smp::cpu_current_id().as_index();
+        let unowned = self.get(handle).is_ok_and(|space| space.refcount() == 0);
+        if unowned && handle != kernel && self.harts.is_on(cpu, handle.to_raw()) {
+            let _ = self.activate(kernel);
+        }
     }
 
     /// Every live address space (accounting, TASK-0286 P5).
@@ -276,8 +296,9 @@ impl AddressSpaceManager {
         #[cfg(all(target_arch = "riscv64", target_os = "none", not(feature = "selftest_no_satp")))]
         {
             // CRITICAL: Separate function to ensure all logs/temporaries drop BEFORE AS switch
-            do_preflight_checks_and_switch(space.satp_value());
+            crate::hart_spaces::switch_satp(space.satp_value());
         }
+        self.harts.enter(crate::smp::cpu_current_id().as_index(), handle.to_raw());
         // ADR-0079: user mode runs with cache maintenance exactly when this space holds it.
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]
         crate::hal::platform::apply_user_cache_maintenance(space.cache_maintenance);
@@ -327,12 +348,15 @@ impl AddressSpaceManager {
         Ok(())
     }
 
-    /// Destroys an address space once no task references remain.
+    /// Destroys an address space once no task references remain and no hart runs on it.
     pub fn destroy(&mut self, handle: AsHandle) -> Result<(), AddressSpaceError> {
         let slot = self.spaces.get_mut(handle.index()).ok_or(AddressSpaceError::InvalidHandle)?;
         let asid = match slot.as_ref() {
             None => return Err(AddressSpaceError::InvalidHandle),
             Some(space) if space.refcount() != 0 => return Err(AddressSpaceError::InUse),
+            Some(_) if self.harts.hart_on(handle.to_raw()).is_some() => {
+                return Err(AddressSpaceError::HeldByHart)
+            }
             Some(space) => space.asid(),
         };
         *slot = None;
@@ -479,89 +503,6 @@ pub(super) fn fence_i() {
 #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
 #[allow(dead_code)]
 pub(super) fn fence_i() {}
-
-#[cfg(all(target_arch = "riscv64", target_os = "none", not(feature = "selftest_no_satp")))]
-#[inline(never)]
-fn do_preflight_checks_and_switch(satp_val: usize) {
-    const LOG_LIMIT: usize = 16;
-    static LOG_COUNT: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
-    let log_now = LOG_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < LOG_LIMIT
-        && crate::log::would_log(crate::log::Level::Trace, "vm");
-
-    // SAFE logging using raw UART - no heap allocation, logs in separate scopes
-    if log_now {
-        use core::fmt::Write;
-        let mut u = crate::uart::raw_writer();
-        let _ = u.write_str("AS: activating satp=0x");
-        crate::trap::uart_write_hex(&mut u, satp_val);
-        let _ = u.write_str("\n");
-    }
-
-    // Preflight: verify PC is executable
-    if log_now {
-        use core::fmt::Write;
-        let mut u = crate::uart::raw_writer();
-        let pc = crate::arch::riscv::read_pc() & !(PAGE_SIZE - 1);
-        let _ = u.write_str("AS: pc check va=0x");
-        crate::trap::uart_write_hex(&mut u, pc);
-        let _ = u.write_str("\n");
-    }
-
-    // Preflight: verify SP is accessible
-    if log_now {
-        use core::fmt::Write;
-        let mut u = crate::uart::raw_writer();
-        let sp = crate::arch::riscv::read_sp() & !(PAGE_SIZE - 1);
-        let _ = u.write_str("AS: sp check va=0x");
-        crate::trap::uart_write_hex(&mut u, sp);
-        let _ = u.write_str("\n");
-    }
-
-    ensure_rx_guard();
-
-    // Call satp switch - any code after this runs in new AS!
-    unsafe {
-        extern "C" {
-            fn satp_switch_island(val: usize);
-        }
-        satp_switch_island(satp_val);
-    }
-    // Function returns - back to activate() which is now in new AS
-}
-
-#[cfg(all(target_arch = "riscv64", target_os = "none"))]
-#[allow(dead_code)]
-fn ensure_rx_guard() {
-    const LOG_LIMIT: usize = 16;
-    static LOG_COUNT: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
-    let log_now = LOG_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < LOG_LIMIT
-        && crate::log::would_log(crate::log::Level::Trace, "vm");
-
-    let pc = crate::arch::riscv::read_pc();
-    if log_now {
-        use core::fmt::Write;
-        let mut u = crate::uart::raw_writer();
-        let _ = u.write_str("AS: ensure_rx_guard pc=0x");
-        crate::trap::uart_write_hex(&mut u, pc);
-        let _ = u.write_str("\n");
-    }
-    let mut zero = true;
-    let mut offset = 0usize;
-    while offset < 8 {
-        let byte = unsafe { core::ptr::read_volatile((pc + offset) as *const u8) };
-        if byte != 0 {
-            zero = false;
-        }
-        offset += 1;
-    }
-    if zero {
-        panic!("rx guard: zero fetch");
-    }
-}
-
-#[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
-#[allow(dead_code)]
-fn ensure_rx_guard() {}
 
 #[cfg(test)]
 mod tests {

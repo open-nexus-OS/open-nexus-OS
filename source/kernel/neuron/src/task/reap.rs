@@ -153,6 +153,7 @@ impl TaskTable {
         let mut orphans = Vec::new();
         let mut freed = false;
         let mut threads_taken = 0u8;
+        let kernel = self.tasks.get(Pid::KERNEL.as_index()).and_then(|t| t.address_space);
         if let Some(task) = self.tasks.get_mut(pid.as_index()) {
             task.exit_code = None;
             task.parent = None;
@@ -174,9 +175,24 @@ impl TaskTable {
                         err
                     );
                 }
+                // A task released from its own exit (a thread that outlived its leader) is
+                // still what its hart runs on: the hart leaves before the frames go.
+                if let Some(kernel) = kernel {
+                    address_spaces.leave(handle, kernel);
+                }
                 match address_spaces.destroy(handle) {
                     Ok(()) => freed = true,
                     Err(AddressSpaceError::InUse) => {}
+                    // The space is kept, never freed under a hart: a leak is safe, the free is
+                    // not. FAIL-shaped — no path may leave a hart on a dead task's space.
+                    Err(AddressSpaceError::HeldByHart) => {
+                        log_error!(
+                            target: "task",
+                            "KSELFTEST: address space free FAIL (pid={} hart={:?} still runs on it)",
+                            pid.as_raw(),
+                            address_spaces.hart_on(handle)
+                        );
+                    }
                     Err(err) => {
                         log_error!(
                             target: "task",

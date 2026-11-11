@@ -217,9 +217,27 @@ pub(super) fn switch_to_next(
             return;
         }
     }
-    // Nothing runnable on this hart: re-enter THIS hart's scheduler loop (A3), never PID 0's
-    // stale frame (see `fault::kill_faulting_user_task`).
+    park_hart(frame, tasks, spaces);
+}
+
+/// Nothing runnable on this hart: it has no task now. It leaves the space of the task it ran
+/// for the kernel's own — that task's reap, on any hart, frees its page table, and a hart still
+/// running on it walks freed frames at its next translation miss (the 4-hart panics and board
+/// freezes of 2026-11-11, hidden while a polling service gave every idle hart work to steal).
+/// Then it re-enters THIS hart's scheduler loop (A3), never PID 0's stale frame: that is the
+/// boot hart's S-mode context, and a secondary `sret`ing into it fell silent
+/// (`tlb shootdown ack timeout … activity=class1:0xd10`, hart 2 after killing the fault-probe
+/// with an empty queue, 2026-09-08). The syscall path makes the same switch in `handle_ecall`.
+pub(super) fn park_hart(
+    frame: &mut TrapFrame,
+    tasks: &mut task::TaskTable,
+    spaces: &AddressSpaceManager,
+) {
     tasks.set_current(crate::types::Pid::KERNEL);
+    #[cfg(not(feature = "selftest_no_satp"))]
+    if let Some(kernel) = tasks.task(crate::types::Pid::KERNEL).and_then(|t| t.address_space()) {
+        let _ = spaces.activate(kernel);
+    }
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     if crate::cpu_main::sched_loop_entered(crate::smp::cpu_current_id()) {
         crate::cpu_main::stage_idle_reentry_frame(frame);

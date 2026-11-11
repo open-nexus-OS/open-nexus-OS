@@ -299,3 +299,110 @@ KSELFTEST: bkl budget ok (max_wait=556us max_hold=0ms nr=11)
 - TASK-0363 P0: the yielders are named; the interactive attribution needs a window that
   contains interactive work — the baseline lines printed a second time when the operator's
   input window closes.
+
+## Board with the device planes decided by the tree (`build/logs/board--2026-11-11T10-41-29`, build `dev-dd1c4b5a`)
+
+`init: withheld svc=netstackd|ingressd|dsoftbusd (no net plane)` — the three services standing
+on the network plane stay suspended on the board. The fence window (3.66 s):
+
+| | before (`…T10-01-24`) | now |
+|---|---|---|
+| `bkl held us mm=` | 565 376 (18 %) | 11 254 (0.4 %) |
+| `bkl takes mm=` | 402 410 | 2 880 |
+| `yield top`, the network owner | 400 465 | not among the three |
+| `yield top`, the proof harness | 689 888 | 1 467 706 |
+| longest lock wait | 556 us | 261 us |
+| `ipc call budget` rt | 51 us | 34 us |
+
+The harness's ladder is now the one yielder of the fence window (its RPC waits); it takes the
+time the network owner's loop left.
+
+**Not read in this cycle:** the windows after `SELFTEST: input window open`. The harness never
+reached that line: its supervised-restart proof pinged an instance that was already dying (the
+route ask overtook init's notice of the exit while a login was in progress) and then waited on
+a receive nothing could end. The proof is rewritten on the exchange that ends by the answer
+or the peer's death (no yield, no deadline; one-hart lane `build/logs/smp1--2026-11-11T10-52-55`).
+
+**Red in this cycle:** `xhcid: FAIL (step=control cc=4)` — one device behind the hub (the hub's
+own billboard function, enumerated in every earlier cycle) ended a control transfer with a
+transaction error and was given up; keyboard and mouse enumerated and reported. Seen once;
+judged at the next cycle (recurs at the same step: a timing fault of ours; does not: the bus).
+
+## The desktop in use, ten windows of 10 s (`build/logs/board--2026-11-11T11-05-00`, build `dev-4c9ca759`)
+
+The windows the split order is written from (ADR-0098). The harness reached
+`SELFTEST: input window open`; its observer printed the baseline every 10 s while the desktop
+was used (pointer, keyboard, apps opened and closed). Sums over the ten windows:
+
+| `bkl held us` | held | takes | per take |
+|---|---|---|---|
+| `idle` | 39 184 957 | 9 117 091 | 4.3 us |
+| `ipc` | 10 625 613 | 3 234 308 | 3.3 us |
+| `mm` | 2 111 387 | 3 555 | 594 us |
+| `misc` | 287 619 | 11 349 | |
+| `fault` | 126 914 | 62 218 | |
+| `sched` | 102 413 | 37 067 | 2.8 us |
+| `ext` / `caps` / `timer` / `task` | 59 998 / 35 884 / 23 453 / 1 129 | | |
+
+Top holders per window: the idle loop, `waitset_wait` (id 40: 231–581 ms), `ipc_send` (id 14:
+233–497 ms), and in five windows `vmo_runs` (id 60: 234–795 ms in 196–903 takes, 0.4–1.5 ms per
+take). `yield top total=0` in every window: nothing yields while the desktop is in use.
+
+`ready latency class=interactive`, summed: n=273 295, le100us=270 578, le1ms=2 198,
+le10ms=494, gt10ms=25, max 222 982 us; `late_peer=508 late_idle=9 late_lower=2`. The five
+windows with a wait above 50 ms (57–223 ms) are the five with `vmo_runs` among the top holders;
+the other five stay below 26 ms.
+
+**Red in this cycle:** `SELFTEST: heap 32m FAIL` — the proof read its cost from the pool's free
+count while an app exited and returned its frames; it reads the harness's own resident bytes
+now. The USB control failure of the cycle before did not recur (the hub's billboard function
+enumerated): judged a bus fault.
+
+
+## Five boots, four frozen (`build/logs/board--2026-11-11T11-22-31`, build `dev-ba8b0f2c`)
+
+The first build without the network services on the board. The operator booted five times:
+four ended with a dead pointer or the test picture, one was complete (106 rungs, the nine known
+board reds).
+
+| boot | the trace ends at | last proof running |
+|---|---|---|
+| 1 | line 1381 | the harness's thread / workpool / supervised-restart proofs |
+| 2 | line 1361 | the same (`workpool determinism FAIL` after its 5 s deadline) |
+| 3 | line 1364 | the same |
+| 4 | line 963 | right after `init: up gpud` |
+| 5 | complete | — |
+
+No trace carries a kernel word: the block service appends the console ring every 250 ms, a
+dead kernel never reaches the disk (TASK-0330 P7). All four end after the fault-probe
+fixture's kills (`[USER-PF]`).
+
+**Hypotheses, in the order they fell:** the USB bring-up's timing (refuted: the pointer's
+interface enumerated in boots 1 and 3); a hang inside the workpool proof (refuted: boot 4
+stopped long before it); a wait's deadline nothing wakes (real — a waitset's and a fence's
+deadline is woken only by another task's syscall, TASK-0363 P6 — but the block service's
+250 ms timer keeps those sweeps going, and it stopped too).
+
+**Reproduced on QEMU:** four harts and no network device (the launcher with an empty netdev,
+so init withholds the same three services): 1 kernel page fault in 4 boots, after four
+fault-probe kills.
+
+**Cause:** a hart left without a task by a fault kill or by an order stayed on the dead
+task's page table; the parent's reap on another hart freed it; the idle hart's next
+translation miss walked freed frames. The network owner's `yield` loop had given every idle
+hart work within a millisecond — deleting it opened the window, it did not create the fault.
+The rule and its proof: `docs/kernel/hart-spaces.md` (TASK-0330 P6).
+
+## Six boots with the rule in place (`build/logs/board--2026-11-11T13-43-55`, build `dev-0cdd0c91`)
+
+Six boots in the trace (the one after the flash and five by the operator, the last with the
+desktop used): every one prints `KSELFTEST: address space held by hart ok`, withholds the three
+network services, passes the thread and workpool proofs and reaches
+`SELFTEST: input window open`; no `PANIC`, no `KSELFTEST: address space free FAIL`. The last
+boot's ladder is complete (106 rungs, the nine known board reds). Were 1 of 5.
+
+On QEMU, four harts without a network device (`build/logs/smp4-nonet--2026-11-11-before`,
+`…-after`): before the rule 1 kernel page fault in 4 boots; with it the boots pass the thread
+and workpool proofs with no fault. The first cut of the rule left the space also when a process
+reaped one of its own threads — ten of ten boots hung before `SELFTEST: thread spawn ok`; the
+boot proof now holds that case (`kept`).

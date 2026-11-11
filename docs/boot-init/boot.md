@@ -5,7 +5,7 @@ role: guide
 subsystem: kernel
 sources: [source/boot/nxboot, source/kernel/neuron-boot, source/kernel/neuron, source/init/nexus-init, scripts/qemu-test.sh]
 contracts: [ADR-0059, ADR-0081, ADR-0080, RFC-0098, RFC-0106, RFC-0107]
-verified: 2026-11-10
+verified: 2026-11-11
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -56,7 +56,9 @@ verified: 2026-11-10
 - The kernel reads its platform (console, PLIC, timer, memory banks) from the tree in `a1` and
   hands init a read-only alias of it.
 - Init discovers virtio transports and the RTC from the tree; every device capability carries
-  the node's MMIO window and interrupt line (`init: devices from fdt ok (…)`, RFC-0098).
+  the node's MMIO window and interrupt line (`init: devices from fdt ok (…)`, RFC-0098). A
+  service standing on a device plane the tree lacks is not resumed
+  (`init: withheld svc=<n> (no <plane> plane)`); no service probes for its device.
 - Each ECAM host is planned with `nexus-pci` (the planner nxboot shares): BARs on their own
   pages, INTx routed, bus mastering left to the grant (`init: devices from pci ok (…)`).
 

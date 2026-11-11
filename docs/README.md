@@ -81,6 +81,7 @@ a commit after their `verified` day; `just brief` counts them. After moving a pa
 | page | role | what |
 |---|---|---|
 | [README.md](kernel/README.md) | guide | NEURON kernel |
+| [hart-spaces.md](kernel/hart-spaces.md) | reference | The address space a hart runs on |
 | [smp.md](kernel/smp.md) | guide | SMP and IPIs |
 
 **network/**

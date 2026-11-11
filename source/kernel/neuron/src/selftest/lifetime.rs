@@ -85,7 +85,46 @@ pub(super) fn run_lifetime_selftests(ctx: &mut Context<'_>) {
     // TASK-0352 P5–P7 (ADR-0093): the heap grows by an arena, a reservation costs nothing per
     // page, the region, capability and endpoint tables grow past their old constants.
     super::pressure::run_tables_selftests(ctx);
+    run_space_held_by_hart(ctx);
     ctx.tasks.set_current(Pid::KERNEL);
+}
+
+/// TASK-0330 P6: a space a hart still runs on is not freed, and a hart that leaves runs on the
+/// kernel's own. This hart enters a fresh space (the kernel half is every space's), the free is
+/// refused, the hart leaves, the free goes through — the reap's order for a task that died as
+/// the last owner of what its own hart ran on.
+fn run_space_held_by_hart(ctx: &mut Context<'_>) {
+    use crate::mm::AddressSpaceError;
+    let kernel = ctx.tasks.task(Pid::KERNEL).and_then(|t| t.address_space());
+    let (Some(kernel), Ok(probe)) = (kernel, ctx.address_spaces.create()) else {
+        log_error!(target: "selftest", "KSELFTEST: address space held by hart FAIL (setup)");
+        return;
+    };
+    let entered = ctx.address_spaces.activate(probe).is_ok();
+    // While a task owns the space the hart stays: a process reaping one of its threads runs on
+    // the space it shares with it (the first cut left here and hung every thread proof).
+    let _ = ctx.address_spaces.attach(probe, Pid::KERNEL);
+    ctx.address_spaces.leave(probe, kernel);
+    let kept = ctx.address_spaces.hart_on(probe).is_some();
+    let _ = ctx.address_spaces.detach(probe, Pid::KERNEL);
+    let refused = ctx.address_spaces.destroy(probe) == Err(AddressSpaceError::HeldByHart);
+    ctx.address_spaces.leave(probe, kernel);
+    let left =
+        ctx.address_spaces.hart_on(probe).is_none() && ctx.address_spaces.hart_on(kernel).is_some();
+    let freed = ctx.address_spaces.destroy(probe).is_ok();
+    if entered && kept && refused && left && freed {
+        log_info!(target: "selftest", "KSELFTEST: address space held by hart ok");
+    } else {
+        log_error!(
+            target: "selftest",
+            "KSELFTEST: address space held by hart FAIL (entered={} kept={} refused={} left={} freed={})",
+            entered,
+            kept,
+            refused,
+            left,
+            freed
+        );
+    }
 }
 
 /// The unmap is the lifetime rule's third caller (RFC-0100 §1, TASK-0333 6b-3): an object whose

@@ -28,6 +28,7 @@ const TOP_SPACES: usize = 12;
 /// so the boot-end gate judges the steady-state window on its own numbers.
 /// OP 4: emit the boot-end gate line. Read-only, and called late by the ladder
 /// so the report covers the whole service bring-up contention window.
+/// OP 6: the baseline's lines for the window ending now, then a new window.
 pub(super) fn sched_telemetry_op(
     args: &Args,
     spaces: &AddressSpaceManager,
@@ -38,6 +39,18 @@ pub(super) fn sched_telemetry_op(
     // ladder so the report COVERS the service bring-up contention window.
     // OP 5 (P0 two-window): log the bring-up burst maxima, then reset the
     // accounting so the boot-end gate judges the steady-state window.
+    // OP 6 (TASK-0363 P0): a window the caller frames — the baseline's lines for the window
+    // that ends here, then a new one. The boot-end fence closes before anyone uses the desktop,
+    // so the interactive class's waits are read in windows the observer opens after it.
+    if args.get(0) == 6 {
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+        {
+            crate::trap::baseline::log_smp_baseline();
+            crate::trap::budgets::reset(riscv::register::time::read() as u64);
+            crate::ipc_stats::reset();
+        }
+        return Some(Ok(0));
+    }
     if args.get(0) == 5 {
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]
         {

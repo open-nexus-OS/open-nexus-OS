@@ -80,6 +80,18 @@ pub(crate) struct VirtioDevices {
     pub transports: usize,
 }
 
+impl VirtioDevices {
+    /// The optional planes this machine has (`service_topology::PLANE_NEEDS`): the one place the
+    /// set is built — from the tree, never from a service's report.
+    pub(crate) fn planes(&self) -> crate::service_topology::Planes {
+        let planes = crate::service_topology::Planes::NONE;
+        match self.net {
+            Some(_) => planes.with(crate::service_topology::DevicePlane::Net),
+            None => planes,
+        }
+    }
+}
+
 /// Where the tree is mapped (0 = not yet / unavailable).
 static TREE_VA: AtomicUsize = AtomicUsize::new(0);
 static TREE_LEN: AtomicUsize = AtomicUsize::new(0);

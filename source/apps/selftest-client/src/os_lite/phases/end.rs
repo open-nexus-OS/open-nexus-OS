@@ -33,6 +33,9 @@ use crate::runtime_mode::RuntimeMode;
 
 const INTERACTIVE_VISIBLE_STATE_POLL_INTERVAL_NS: u64 = 16_000_000;
 const INTERACTIVE_VISIBLE_STATE_POLL_FALLBACK_TICKS: u32 = 64;
+/// The length of one baseline window of the observer (TASK-0363 P0): long enough for a class's
+/// waits to be a distribution, short enough that a window is one activity of the operator.
+const BASELINE_WINDOW_NS: u64 = 10_000_000_000;
 const V2A_SMOKE_ERR_MARKER: &str = "windowd: v2a smoke err";
 const V2A_SCHEDULER_OFF_MARKER: &str = "windowd: v2a scheduler off";
 const V2A_INPUT_OFF_MARKER: &str = "windowd: v2a input off";
@@ -163,6 +166,11 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> ! {
     // input is welcome from here: the visible lanes' scenario runner sends nothing before this
     // line, and from here on the harness only OBSERVES (and fires the declared memory drill).
     emit_line(crate::markers::M_SELFTEST_INPUT_WINDOW_OPEN);
+    // TASK-0363 P0: the kernel's baseline in windows from here on — the boot-end fence closed
+    // before anyone used the desktop. This call prints the steady window up to here (the fence's
+    // window plus the ladder's tail) and opens the first window of the desktop in use.
+    nexus_abi::sched::baseline_window();
+    let mut window_due = nsec().unwrap_or(0).saturating_add(BASELINE_WINDOW_NS);
 
     if proof_completed {
         if auto_exit_after_proof {
@@ -171,9 +179,8 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> ! {
     }
 
     // Stay alive as an OBSERVER (TASK-0333 6f-3): asleep on the harness's own timer until its
-    // next due look — the memory drill's (once a second while it is armed; never on a board) and
-    // the visible state's (every 16 ms while that proof is open) — and on nothing once neither is
-    // due. The `yield_` spin this replaces kept the one hart busy for the whole lane: every task
+    // next due look — the memory drill's (once a second while it is armed; never on a board),
+    // the visible state's (every 16 ms while that proof is open) and the baseline window's end. The `yield_` spin this replaces kept the one hart busy for the whole lane: every task
     // ran beside a harness that never slept, and under `-icount` the guest's clock ran on the
     // spin's instructions instead of idling with the host's.
     let mut pace = NotifyTimer::bind(nexus_service_topology::slots::selftest_client::TIMER).ok();
@@ -182,7 +189,12 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> ! {
     let mut last_interactive_poll_tick = 0u32;
     loop {
         idle_ticks = idle_ticks.wrapping_add(1);
-        mem_drill.tick(nsec().unwrap_or(0));
+        let now = nsec().unwrap_or(0);
+        mem_drill.tick(now);
+        if now >= window_due {
+            nexus_abi::sched::baseline_window();
+            window_due = now.saturating_add(BASELINE_WINDOW_NS);
+        }
         let should_poll_visible_state = !proof_completed
             || matches!(
                 interactive_mode,
@@ -258,10 +270,8 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> ! {
         let visible_due = should_poll_visible_state.then(|| {
             last_interactive_poll_ns.saturating_add(INTERACTIVE_VISIBLE_STATE_POLL_INTERVAL_NS)
         });
-        let due = match (mem_drill.next_due_ns(), visible_due) {
-            (Some(a), Some(b)) => Some(a.min(b)),
-            (a, b) => a.or(b),
-        };
+        let due =
+            [mem_drill.next_due_ns(), visible_due, Some(window_due)].into_iter().flatten().min();
         sleep_until(&mut pace, due);
     }
 }

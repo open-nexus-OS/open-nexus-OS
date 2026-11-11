@@ -20,6 +20,8 @@
 //!   tier always present, driver split honest).
 //! ADR: docs/adr/0055-bootctld-single-boot-state-authority.md
 
+use crate::service_topology::{DevicePlane, Planes, ServiceId};
+
 /// Boot target as carried on the bootctld wire (0/1/2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BootGraph {
@@ -98,11 +100,113 @@ pub fn includes(graph: BootGraph, service: &str) -> bool {
     }
 }
 
+/// What actually runs: the target's graph on THIS machine. The target withholds what the mode
+/// does not want; the machine withholds what it cannot carry — a service standing on a device
+/// plane the device tree lacks (`service_topology::PLANE_NEEDS`) stays suspended, exactly like a
+/// service the target excludes. So no service ever probes for its device: it runs only where
+/// the plane exists, and its window is granted before its resume.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[must_use]
+pub struct ResumeSet {
+    graph: BootGraph,
+    planes: Planes,
+}
+
+impl ResumeSet {
+    /// The resume set of `graph` on a machine with `planes`.
+    pub const fn of(graph: BootGraph, planes: Planes) -> Self {
+        Self { graph, planes }
+    }
+
+    /// The target's graph.
+    #[must_use]
+    pub const fn graph(self) -> BootGraph {
+        self.graph
+    }
+
+    /// The plane the target would run `service` on and the machine lacks.
+    #[must_use]
+    pub fn withheld_for(self, service: &str) -> Option<DevicePlane> {
+        if !includes(self.graph, service) {
+            return None;
+        }
+        self.planes.missing_for(ServiceId::from_name(service.as_bytes())?)
+    }
+
+    /// `true` if `service` is resumed.
+    #[must_use]
+    pub fn runs(self, service: &str) -> bool {
+        includes(self.graph, service) && self.withheld_for(service).is_none()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::service_supervision::{Criticality, SUPERVISION};
-    use crate::service_topology::ServiceId;
+    use crate::service_topology::PLANE_NEEDS;
+
+    const GRAPHS: [BootGraph; 3] = [BootGraph::Normal, BootGraph::Safe, BootGraph::Recovery];
+
+    fn every_plane() -> Planes {
+        DevicePlane::ALL.iter().fold(Planes::NONE, |set, plane| set.with(*plane))
+    }
+
+    /// With every plane present the machine withholds nothing: the resume set IS the graph.
+    #[test]
+    fn a_machine_with_every_plane_runs_the_graph() {
+        for graph in GRAPHS {
+            let set = ResumeSet::of(graph, every_plane());
+            for id in &ServiceId::ALL {
+                assert_eq!(set.runs(id.name()), includes(graph, id.name()), "{}", id.name());
+            }
+        }
+    }
+
+    /// Without a plane exactly the services standing on it stay suspended, named with the plane.
+    #[test]
+    fn a_machine_without_a_plane_withholds_exactly_its_services() {
+        let set = ResumeSet::of(BootGraph::Normal, Planes::NONE);
+        for id in &ServiceId::ALL {
+            let needs = PLANE_NEEDS.iter().find(|(svc, _)| svc == id).map(|(_, plane)| *plane);
+            assert_eq!(set.withheld_for(id.name()), needs, "{}", id.name());
+            assert_eq!(set.runs(id.name()), needs.is_none(), "{}", id.name());
+        }
+    }
+
+    /// A machine may lack a plane; it may never lack the floor. A core service standing on an
+    /// optional plane would make that machine unbootable, and a stage barrier waiting on one
+    /// would hang it.
+    #[test]
+    fn test_reject_a_plane_need_in_the_core_or_behind_a_stage_barrier() {
+        for (svc, plane) in PLANE_NEEDS {
+            assert!(!in_core(svc.name()), "core {} needs {}", svc.name(), plane.name());
+            for graph in GRAPHS {
+                for stage in crate::service_topology::Stage::ALL {
+                    assert!(
+                        !crate::stage::gates(stage, *svc, graph),
+                        "{stage:?} waits on {} which needs {}",
+                        svc.name(),
+                        plane.name()
+                    );
+                }
+            }
+        }
+    }
+
+    /// The machine never adds a service the target excludes.
+    #[test]
+    fn test_reject_a_plane_running_what_the_target_excludes() {
+        for graph in GRAPHS {
+            for planes in [Planes::NONE, every_plane()] {
+                for id in &ServiceId::ALL {
+                    if ResumeSet::of(graph, planes).runs(id.name()) {
+                        assert!(includes(graph, id.name()), "{} under {graph:?}", id.name());
+                    }
+                }
+            }
+        }
+    }
 
     /// Every critical-boot service must run in EVERY graph — a target that
     /// drops the boot floor is a brick, not a mode.

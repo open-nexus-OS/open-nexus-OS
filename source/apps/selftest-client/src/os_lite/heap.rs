@@ -5,7 +5,9 @@
 //! 64 MiB region of its image the kernel maps as a lazy object (ADR-0077): reserving it costs
 //! nothing, a page costs the pool once it is touched. This client declared no heap size and
 //! allocates 32 MiB — more than any service's old ceiling — touches every page and gives it back;
-//! the pool's free count says what it cost: the pages touched, no more.
+//! its own resident bytes say what it cost: the pages touched, no more. (The pool's free count
+//! said it before; it is everybody's number — on the board, 2026-11-11, an app exited during
+//! the touch and its returned frames failed this proof.)
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable
@@ -17,12 +19,13 @@ extern crate alloc;
 pub(crate) struct HeapProof {
     /// Bytes allocated and touched.
     pub bytes: u64,
-    /// Pool frames the touch committed (the pool's free count before minus during).
+    /// Frames the touch committed to this address space (its resident bytes during minus before).
     pub committed_pages: u64,
 }
 
-/// 32 MiB from the heap, every page touched: the frames it cost are the pages touched, within a
-/// tenth (the allocator's own words and the frames other services take meanwhile).
+/// 32 MiB from the heap, every page touched: the frames it cost this address space are the pages
+/// touched, within a tenth (the allocator's own words). Nothing another task does moves the
+/// number.
 pub(crate) fn heap_32m_probe() -> core::result::Result<HeapProof, ()> {
     const BYTES: usize = 32 * 1024 * 1024;
     const PAGE: usize = 4096;
@@ -36,7 +39,7 @@ pub(crate) fn heap_32m_probe() -> core::result::Result<HeapProof, ()> {
     }
     let during = nexus_abi::mm_stats().map_err(|_| ())?;
     drop(block);
-    let committed_pages = before.free.saturating_sub(during.free);
+    let committed_pages = during.own_rss_bytes.saturating_sub(before.own_rss_bytes) / PAGE as u64;
     let pages = (BYTES / PAGE) as u64;
     if committed_pages < pages * 9 / 10 || committed_pages > pages * 11 / 10 {
         return Err(());

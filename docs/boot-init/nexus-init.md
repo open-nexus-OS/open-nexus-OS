@@ -5,7 +5,7 @@ role: guide
 subsystem: app-platform
 sources: [source/init/nexus-init, source/libs/nexus-service-topology, scripts/system-volume-services.txt]
 contracts: [ADR-0062, ADR-0060, ADR-0081, ADR-0057, RFC-0093, RFC-0087]
-verified: 2026-11-10
+verified: 2026-11-11
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -58,8 +58,11 @@ every file stays under the structure ratchet.
    (`boot_graph::CORE`) off the volume so recovery boots never depend on it.
 4. **Endpoints and server pairs** for all services (bootfs and volume alike), then wave 1.
 5. **Device grants, wiring, boot-attempt handshake** with bootctld (`handshake.rs`), then the
-   remaining waves and the display drivers per the resolved boot graph
-   (`init: stage graph target=<label>`).
+   remaining waves and the display drivers per the resume set — the resolved boot graph on this
+   machine (`boot_graph::ResumeSet`, `init: stage graph target=<label>`). A service standing on
+   a device plane the tree lacks (`nexus_service_topology::PLANE_NEEDS`) stays suspended
+   (`init: withheld svc=<n> (no <plane> plane)`); a service that runs finds its window granted
+   and reads it once — no service probes for its device.
 6. **Stages** — init owns the one kernel timeline fence per boot and signals
    `platform` → `display-ready` → `session-start` → `shell-visible` (`stage: <name>`) when each
    stage's members announced `@ready`. Children hold a WAIT-only copy.

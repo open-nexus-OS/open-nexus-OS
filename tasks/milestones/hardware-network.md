@@ -331,7 +331,7 @@ steps:
     section: NET
     story: "Ethernet and a real lease: DHCP and DNS in netstackd"
     state: planned
-    tasks: [TASK-0138]
+    tasks: [TASK-0138, TASK-0370]
     gate: "board: both links lease, DNS resolves; the network family's hold lifts"
   - key: N3
     section: NET

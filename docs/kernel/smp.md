@@ -16,8 +16,8 @@ verified: 2026-11-11
 > **Purpose** — how NEURON runs on several harts: bring-up, identity, the lock model, rescheduling and TLB shootdown, and which IPIs may be dropped.
 > **Owns** — `source/kernel/neuron/src/core/smp/`, `source/kernel/neuron/src/sync/`
 > **Contracts** — [RFC-0021](../rfcs/RFC-0021-kernel-smp-v1-percpu-runqueues-ipi-contract.md), [ADR-0049](../adr/0049-bkl-lockclass-and-softrt-cpu-placement.md), [ADR-0052](../adr/0052-per-hart-earliest-deadline-timer-and-affinity-respecting-steal.md)
-> **Invariants** — a correctness IPI is never dropped. No lock is held across a context switch. Never take the BKL while holding a lock below it.
-> **Read next** — [README.md](README.md), [../architecture/concurrency.md](../architecture/concurrency.md)
+> **Invariants** — a correctness IPI is never dropped. No lock is held across a context switch. Never take the BKL while holding a lock below it. A hart without a task runs on the kernel's own space; a space a hart runs on is never freed.
+> **Read next** — [README.md](README.md), [hart-spaces.md](hart-spaces.md), [../architecture/concurrency.md](../architecture/concurrency.md)
 
 ## Shape
 
@@ -83,7 +83,10 @@ idle=)`, `KINIT: bkl takes (…)` and `KINIT: bkl top sum` for the three largest
 what the task's hart ran when the task became runnable — `late_idle` (no task: the wake did not
 reach the hart in time), `late_lower` (a lower class it did not preempt), `late_peer` (its own
 class or a higher one: placement). `KINIT: yield top total= pid=<pid>:<service id>:<yields> …`
-names the three tasks that called `yield` most (`sched/yield_stats.rs`). The lines are read in
+names the three tasks that called `yield` most (`sched/yield_stats.rs`). The fence closes before
+anyone uses the desktop, so the proof harness's observer prints the same lines again in 10 s
+windows from `SELFTEST: input window open` on (telemetry op 6, `nexus_abi::sched::baseline_window`:
+the window ending now, then a new one). The lines are read in
 `docs/board/measurements/2026-11-10-smp-baseline/`. The lock's end is RFC-0102: classes with one
 rank order, a budget per class, no global lock.
 
@@ -99,6 +102,12 @@ the thief's QoS class and never against a task's affinity (ADR-0052), at most on
 millisecond per CPU (`steal_rate_gate`). Markers: `KSELFTEST: work stealing ok`,
 `KSELFTEST: steal park ok`, `KSELFTEST: test_reject_steal_above_bound ok`,
 `KSELFTEST: test_reject_steal_higher_qos ok`.
+
+## The space a hart runs on
+
+A hart's `satp` names the space of the task current on it or, with no task, the kernel's own;
+a space a hart runs on is never freed (`AddressSpaceError::HeldByHart`). The rule, the paths
+that leave a hart without a task and the proof: [hart-spaces.md](hart-spaces.md).
 
 ## TLB shootdown
 

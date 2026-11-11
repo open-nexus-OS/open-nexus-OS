@@ -428,6 +428,10 @@ mod image_allocs;
 // bitmap, host-tested; `#[path]`: `mod mm` is riscv/none-only; `pub` like `va_space`.
 #[path = "mm/frames/mod.rs"]
 pub mod frames;
+// Which space each hart's `satp` names (a space a hart runs on is never freed) — a pure table,
+// NOT target-gated so the host tests run it; the switch in the same file is riscv-only.
+#[path = "mm/hart_spaces.rs"]
+pub mod hart_spaces;
 // TASK-0286 M1 P2 (RFC-0098 C4): the physical↔kernel-virtual seam and the boot
 // table of the high-half switch — NOT target-gated so both are host-tested.
 #[path = "mm/phys.rs"]

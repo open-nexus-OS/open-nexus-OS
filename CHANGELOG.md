@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed - 2026-11-11 (a page table is never freed under a hart — TASK-0330 P6)
+
+- **A hart without a task runs on the kernel's own address space.** A task killed by its fault
+  or ended by an order with nothing else runnable left its hart on the dead task's page table;
+  the parent's reap on another hart freed it, and the idle hart's next translation miss walked
+  freed frames (four of five board boots froze; on four emulated harts a kernel page fault in
+  one boot of four). Both trap paths now leave through `trap::pending::park_hart`, a task
+  released from its own exit leaves before the release.
+- **The free asks who runs there.** The kernel records which space each hart's `satp` names
+  (`mm/hart_spaces.rs`, host-tested); `AddressSpaceManager::destroy` refuses while any hart is
+  on the space (`HeldByHart`, `EBUSY`) — a refused free keeps the page table and prints
+  `KSELFTEST: address space free FAIL`. New boot proof on every lane:
+  `KSELFTEST: address space held by hart ok`. Reference: `docs/kernel/hart-spaces.md`.
+
+### Changed - 2026-11-11 (a service runs only where its device exists — TASK-0363 P0)
+
+- **The device tree decides, no service probes.** The service topology declares which
+  services stand on a device plane a machine may lack (`PLANE_NEEDS`: the network owner, the
+  ingress service, the distributed bus). init's resume set is the boot target's graph on this
+  machine (`boot_graph::ResumeSet`): a service whose plane the tree lacks stays suspended and is
+  named (`init: withheld svc=<n> (no net plane)`). Host tests refuse a plane need in the core
+  graph or behind a stage barrier.
+- **The network owner reads its window once.** Its 20-second `yield` retry of the device
+  bring-up and the endless `yield` loop it called a halt are deleted — on the board, which has
+  no such device, the probe's mappings were 18 % and its yields about a quarter of the kernel
+  lock's held time in the fence window. A bring-up failure on a machine that has the
+  plane names itself and exits; the supervisor decides what follows.
+- **The restart proof waits on events.** The harness's supervised-restart storm asked the
+  route again by `yield` and read its ping's answer with a receive nothing could end; a ping
+  that reached a dying instance hung the ladder's tail (the board, under a login). Crash order
+  and ping are now exchanges that end by the answer or the peer's death, the comeback is the
+  parked route ask — no yield, no 30-second deadline.
+- **The heap proof measures its own cost.** `SELFTEST: heap 32m` read the pool's free count,
+  which is everybody's number: an app exiting during the touch failed it on the board. It reads
+  the harness's own resident bytes.
+- **The split order is decided (ADR-0098).** Ten 10 s windows with the desktop in use: the idle
+  loop holds the kernel lock 39 % of the wall time, IPC is 79 % of the work's lock time, memory
+  16 % with the only holds above 1 ms (`vmo_runs`); 98 % of the interactive class's waits above
+  1 ms are placement on one hart. Order: the idle loop and the run queues, IPC, memory.
+- **The baseline in windows.** The kernel's lock-share, ready-latency and yield lines are
+  printed again in 10 s windows from `SELFTEST: input window open` on (telemetry op 6), so the
+  interactive class is measured while the desktop is in use.
+
 ### Changed - 2026-11-11 (a held capability is counted at its object — TASK-0330 P5)
 
 - **A receive and a close cost what they touch**: an endpoint and a memory object count the

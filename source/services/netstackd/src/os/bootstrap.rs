@@ -39,65 +39,50 @@ pub(crate) struct BootstrapResult {
     pub(crate) bind_ip: [u8; 4],
 }
 
+/// The exit status of a network bring-up that failed on a machine that has the plane: a
+/// failure to init's supervision (RFC-0087 §2), restarted per policy and parked by a crash loop.
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
+const EXIT_NET_INIT: i32 = 1;
+
+/// The failure line and its code for a bring-up error (stable: the proof ladder's triage reads
+/// them).
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
+fn net_init_failure(err: NetError) -> (&'static str, &'static str) {
+    match err {
+        NetError::Unsupported => {
+            ("netstackd: net FAIL unsupported", "netstackd: net fail-code 0x0001")
+        }
+        NetError::NoBufs => ("netstackd: net FAIL no-bufs", "netstackd: net fail-code 0x0002"),
+        NetError::Internal(msg) => match msg {
+            "mmio_map_auto failed" => {
+                ("netstackd: net FAIL mmio-map", "netstackd: net fail-code 0x0102")
+            }
+            "virtio probe failed" => {
+                ("netstackd: net FAIL virtio-probe", "netstackd: net fail-code 0x0103")
+            }
+            "virtio features" => {
+                ("netstackd: net FAIL virtio-features", "netstackd: net fail-code 0x0104")
+            }
+            _ => ("netstackd: net FAIL internal", "netstackd: net fail-code 0x01ff"),
+        },
+        _ => ("netstackd: net FAIL other", "netstackd: net fail-code 0x00ff"),
+    }
+}
+
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
 pub(crate) fn bootstrap_network() -> BootstrapResult {
-    let mut net = {
-        let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(20_000_000_000);
-        loop {
-            match SmoltcpVirtioNetStack::new_default() {
-                Ok(n) => break n,
-                Err(err) => {
-                    let now = nexus_abi::nsec().unwrap_or(0);
-                    if now < deadline {
-                        let _ = yield_();
-                        continue;
-                    }
-                    #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
-                    {
-                        let mut q = nexus_abi::CapQuery::default();
-                        if nexus_abi::cap_query(48, &mut q).is_ok() {
-                            let _ = nexus_abi::trace_line("netstackd: mmio cap48 present");
-                        } else {
-                            let _ = nexus_abi::debug_println("netstackd: mmio cap48 missing");
-                        }
-                    }
-                    let (fail_label, fail_diag_code) = match err {
-                        nexus_net::NetError::Unsupported => {
-                            ("netstackd: net FAIL unsupported", "netstackd: net fail-code 0x0001")
-                        }
-                        nexus_net::NetError::NoBufs => {
-                            ("netstackd: net FAIL no-bufs", "netstackd: net fail-code 0x0002")
-                        }
-                        nexus_net::NetError::Internal(msg) => match msg {
-                            "mmio cap not found" => (
-                                "netstackd: net FAIL mmio-cap-missing",
-                                "netstackd: net fail-code 0x0101",
-                            ),
-                            "mmio_map failed" => {
-                                ("netstackd: net FAIL mmio-map", "netstackd: net fail-code 0x0102")
-                            }
-                            "virtio probe failed" => (
-                                "netstackd: net FAIL virtio-probe",
-                                "netstackd: net fail-code 0x0103",
-                            ),
-                            "virtio features" => (
-                                "netstackd: net FAIL virtio-features",
-                                "netstackd: net fail-code 0x0104",
-                            ),
-                            _ => {
-                                ("netstackd: net FAIL internal", "netstackd: net fail-code 0x01ff")
-                            }
-                        },
-                        _ => ("netstackd: net FAIL other", "netstackd: net fail-code 0x00ff"),
-                    };
-                    let _ = nexus_abi::debug_println(fail_label);
-                    let _ = nexus_abi::debug_println(fail_diag_code);
-                    let _ = nexus_abi::debug_println("netstackd: halt net-init-fail");
-                    loop {
-                        let _ = yield_();
-                    }
-                }
-            }
+    // One reading, no retry and no deadline: init resumes this service only on a machine whose
+    // device tree carries a network plane, and grants the plane's window before the resume
+    // (`nexus_service_topology::PLANE_NEEDS`). A failure here is therefore the device's — the
+    // service names it and ends; what follows an exit is the supervisor's decision, never a
+    // loop of ours.
+    let mut net = match SmoltcpVirtioNetStack::new_default() {
+        Ok(net) => net,
+        Err(err) => {
+            let (fail_label, fail_diag_code) = net_init_failure(err);
+            let _ = nexus_abi::debug_println(fail_label);
+            let _ = nexus_abi::debug_println(fail_diag_code);
+            nexus_abi::exit(EXIT_NET_INIT)
         }
     };
 

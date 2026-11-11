@@ -102,6 +102,13 @@ proves = "the per-process region and capability tables and the endpoint table gr
 phase = "end"
 proves = "TASK-0352 P9 (ADR-0093, RFC-0085): a process's mapping window is the whole Sv39 user half (len=), not 768 MiB — a 2 GiB reservation finds its hole (at=) ending past the old window's end, and a page past 0x8000_0000 maps and translates (mapped=)"
 
+# TASK-0330 P6: a hart that has no task runs on the kernel's own space, and a space a hart still
+# runs on is never freed — a task killed on one hart used to be reaped on another, its page table
+# freed under the hart that had killed it (4-hart kernel page faults, board freezes 2026-11-11).
+[marker."KSELFTEST: address space held by hart ok"]
+phase = "end"
+proves = "a hart that entered a space stays on it while a task owns it (a process reaping one of its threads), keeps it from being freed once no owner is left (the destroy answers HeldByHart), and after the hart left for the kernel's own space the same destroy frees it — the reap's order for a task that died as the last owner of what its own hart ran on"
+
 # TASK-0333 6e-2 (ADR-0086, RFC-0100 §3): the one memory authority answers the harness that the
 # kernel's pressure endpoint is bound to it (the sink of ADR-0085 has its listener) and names
 # the level of the moment and the app processes it knows. On every lane, at the end phase.

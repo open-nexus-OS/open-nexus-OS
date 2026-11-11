@@ -168,6 +168,12 @@ pub mod sched {
         let _ = op(5, 0, 0);
     }
 
+    /// Print the kernel's baseline lines (where the lock's time went, how long runnable tasks
+    /// waited per class, who yields) for the window ending now, and begin a new window.
+    pub fn baseline_window() {
+        let _ = op(6, 0, 0);
+    }
+
     /// Cross-task affinity (B4: execd applies declarative sched recipes).
     /// Requires QoS-admin standing in the kernel (execd/policyd).
     #[must_use = "sched outcomes must be handled"]

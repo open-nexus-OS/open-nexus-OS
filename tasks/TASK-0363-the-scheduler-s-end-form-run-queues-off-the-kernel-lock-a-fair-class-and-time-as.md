@@ -27,6 +27,7 @@ phases:
     story: "each hart schedules under its own lock: a wake, a steal and a switch on one hart never wait for a syscall on another"
     state: planned
     gate: "the sched tests run on the host (today they run nowhere); QEMU smp lane green; board: no run-queue operation among the kernel lock's holders"
+    note: "from P0 (ADR-0098): the idle loop takes the kernel lock 91 000 times a second (39 % of wall time on 4 harts) — an idle hart reads only its own run queue; 2 missed preemptions in 273 295 interactive dispatches are examined first"
   - id: P3
     story: "a holder of a time right runs within its budget every period, everything else shares the rest fairly by weight, and every thread's run time is metered"
     state: planned
@@ -44,7 +45,13 @@ phases:
     state: proving
     gate: "board: KINIT: ready latency class=interactive carries the three causes as counts (their sum = the dispatches above 1 ms; were 2 967 of 5 380, mean 1 513 us, build/logs/board--2026-11-11T09-05-45) and KINIT: yield top names the three tasks with the most yields; a missed preemption counted above 0 is fixed before P2; the yield loop is replaced by a wait or stated as the lane's own"
     started: 2026-11-11
-    note: "2026-11-11 board (build/logs/board--2026-11-11T10-01-24): yield top names the yielders — selftest-client 689 888 and netstackd 400 465 of 1 090 420 yields in 3.5 s (netstackd: a 20 s retry of mmio_map_auto with yield for a device the board lacks, then a halt that is a yield loop, source/services/netstackd/src/os/bootstrap.rs). The interactive attribution is NOT read: no interactive dispatch in the window (it ended before the operator's input). Next: netstackd's probe asks once and its halt blocks; the baseline lines print a second time when the input window closes"
+    evidence: build/logs/board--2026-11-11T11-05-00
+    note: "gate met on the board (closes in the ledger when P1 starts, rule 8): ten windows with the desktop in use, 273 295 interactive dispatches, 519 above 1 ms = 508 behind a peer on the pinned hart, 9 a hart asleep, 2 a lower class not preempted (examined before P2); yield top total=0 in use — the network owner's loop removed at its cause, the harness's ladder is the lane's own yielder; ADR-0098"
+  - id: P6
+    story: "a wait that carries a deadline ends at its deadline on an idle system: a waitset wait and a fence wait are woken by the timer like a receive and a send, by one deadline walk instead of three copies (two of which know only IPC), and the idle hart does not walk every task under the kernel lock on each turn"
+    state: planned
+    gate: "host: one deadline walk covers receive, send, waitset and fence (test per kind); KSELFTEST: wait deadline ok — a waitset wait and a fence wait with a 5 ms deadline return within 10 ms while no other task makes a syscall; board: bkl takes idle= per 10 s window below 100 000 (were 911 709, build/logs/board--2026-11-11T11-05-00)"
+    note: "found 2026-11-11 while reading cycle 3: wake_expired_blocked runs only inside another task's scheduling syscall; wake_expired_ipc_deadlines (timer interrupt, cpu0 idle) wakes IpcRecv/IpcSend only. Not the cause of that cycle's freezes (TASK-0330 P6). Part of P4's ground: a tickless hart needs the one walk."
 ---
 
 <!-- `nx ledger new task` copies everything below this line; the frontmatter above shows the

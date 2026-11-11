@@ -891,6 +891,9 @@ expected_sequence=(
   "KSELFTEST: lazy sparse ok ("
   "KSELFTEST: tables grow ok ("
   "KSELFTEST: vm window ok ("
+  # TASK-0330 P6: a space a hart still runs on is not freed; the hart leaves for the kernel's
+  # own space first (a task killed on one hart was reaped on another, under the first).
+  "KSELFTEST: address space held by hart ok"
   # ADR-0080 (TASK-0333 6c-1b): a process runs from a sealed image — text and rodata shared,
   # data copied; the refusal matrix of the loader and the seal.
   "KSELFTEST: exec image shared ok ("
@@ -1529,6 +1532,7 @@ case "${PROFILE:-full}" in
       "KSELFTEST: lazy sparse ok ("
       "KSELFTEST: tables grow ok ("
       "KSELFTEST: vm window ok ("
+      "KSELFTEST: address space held by hart ok"
       "KSELFTEST: exec image shared ok ("
       "KSELFTEST: exec image reject ok ("
       "KSELFTEST: fence transfer ok"
@@ -2177,7 +2181,7 @@ agent_debug_log "$RUN_ID" "H13" "scripts/qemu-test.sh:diag-sink-selftest-probe-m
 
 # #region agent log (hypotheses N1-N4: selftest failure locus and net/mmio side effects)
 line_selftest_service_error=$(grep -aFn "service error svc=selftest-client type=()" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
-line_net_mmio_cap_missing=$(grep -aFn "netstackd: mmio cap48 missing" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+line_net_withheld=$(grep -aFn "init: withheld svc=netstackd" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
 line_net_mmio_map_fail=$(grep -aFn "netstackd: net FAIL mmio-map" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
 line_sink_slots_configured=$(grep -aFn "dbg: selftest sink slots configured" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
 line_sink_slots_config_fail=$(grep -aFn "dbg: selftest sink slots configure-fail" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
@@ -2200,7 +2204,7 @@ agent_debug_log "$RUN_ID" "N3" "scripts/qemu-test.sh:diag-statefs-deny-pressure"
   "{\"count_statefs_denied_keystore\":$count_statefs_denied_keystore,\"count_statefs_reply_send_fail\":$count_statefs_reply_send_fail}"
 
 agent_debug_log "$RUN_ID" "N4" "scripts/qemu-test.sh:diag-netstackd-mmio-failure" "netstackd mmio failure marker locus" \
-  "{\"line_net_mmio_cap_missing\":$line_net_mmio_cap_missing,\"line_net_mmio_map_fail\":$line_net_mmio_map_fail}"
+  "{\"line_net_withheld\":$line_net_withheld,\"line_net_mmio_map_fail\":$line_net_mmio_map_fail}"
 
 line_cp0=$(grep -aFn "dbg: selftest cp0 run-start" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
 line_cp1=$(grep -aFn "dbg: selftest cp1 keystored-resolved" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)

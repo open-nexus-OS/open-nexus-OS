@@ -17,7 +17,7 @@ verified: 2026-11-11
 > **Owns** — `source/kernel/neuron/`, `source/kernel/neuron-boot/`
 > **Contracts** — [RFC-0005](../rfcs/RFC-0005-kernel-ipc-capability-model.md), [RFC-0021](../rfcs/RFC-0021-kernel-smp-v1-percpu-runqueues-ipi-contract.md), [RFC-0085](../rfcs/RFC-0085-kernel-owned-va-allocation.md), [RFC-0098](../rfcs/RFC-0098-board-support-contract-fdt-truth-boot-chain.md), [RFC-0100](../rfcs/RFC-0100-memory-object-model-v2-commit-on-touch-unified-gpu-memory-pressure.md)
 > **Invariants** — the kernel holds only scheduling, memory, IPC and capabilities; drivers and policy live in userspace. The device tree is the only hardware truth. Syscall numbers are never reused.
-> **Read next** — [smp.md](smp.md), [../storage/vmo.md](../storage/vmo.md), [../security/capabilities.md](../security/capabilities.md), [../boot-init/boot.md](../boot-init/boot.md)
+> **Read next** — [smp.md](smp.md), [hart-spaces.md](hart-spaces.md), [../storage/vmo.md](../storage/vmo.md), [../security/capabilities.md](../security/capabilities.md), [../boot-init/boot.md](../boot-init/boot.md)
 
 ## What the kernel owns
 

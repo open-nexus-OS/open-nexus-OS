@@ -531,23 +531,9 @@ pub(super) fn kill_faulting_user_task(frame: &mut TrapFrame) {
                 }
             }
 
-            // Nothing runnable on this hart: re-enter THIS hart's
-            // scheduler loop (A3), never PID 0's stale frame — that
-            // is the boot hart's S-mode context and sret'ing a
-            // secondary into it left the hart silent: the
-            // `tlb shootdown ack timeout … activity=class1:0xd10`
-            // class (hart 2 after killing the fault-probe with an
-            // empty queue, 2026-09-08; unreachable before blocking
-            // syscalls parked instead of self-waking).
-            tasks.set_current(crate::types::Pid::KERNEL);
-            #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-            if crate::cpu_main::sched_loop_entered(crate::smp::cpu_current_id()) {
-                crate::cpu_main::stage_idle_reentry_frame(frame);
-                return;
-            }
-            if let Some(task) = tasks.task(crate::types::Pid::KERNEL) {
-                *frame = *task.frame();
-            }
+            // Nothing runnable on this hart: it leaves the dead task's space and re-enters
+            // its own scheduler loop.
+            super::pending::park_hart(frame, tasks, spaces);
         }
     }
     // Otherwise: runtime handles unavailable — stop here.

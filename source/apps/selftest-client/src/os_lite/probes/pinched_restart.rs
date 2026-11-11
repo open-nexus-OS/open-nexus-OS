@@ -16,21 +16,18 @@
 //!   keep-blk double-boot lane.
 //! ADR: docs/adr/0057-service-restart-capability-re-resolve.md
 
-use nexus_ipc::{Client as _, KernelClient, Wait as IpcWait};
-
 use crate::markers::emit_line;
 
 /// TASK-0049B PR-B3b: real-service restart E2E (ADR-0057, standing —
 /// ADR-0048 doctrine). Crashes pinched via the identity-gated
-/// OP_SELFTEST_CRASH, then re-resolves the route until init's supervision
-/// has restarted and re-provisioned it (STALE/dead window included), and
-/// proves the NEW instance answers by pinging an unknown op (deterministic
-/// MALFORMED echo). Fail-loud on deadline.
+/// OP_SELFTEST_CRASH, then re-resolves the route — the ask parks until init's
+/// supervision has restarted and re-provisioned it — and proves the NEW instance
+/// answers by pinging an unknown op (deterministic MALFORMED echo). No yield and no
+/// deadline: every wait ends by an answer or a death.
 pub(crate) fn restart_proof() {
     const OP_SELFTEST_CRASH: u8 = 2;
     const OP_PING_UNKNOWN: u8 = 0x7e;
     const CYCLES: u32 = 3;
-    const DEADLINE_NS: u64 = 30_000_000_000;
 
     // Restart-counter baseline (RFC-0087 §2 persistence): read init's
     // record BEFORE the storm; a non-zero baseline means this is the second
@@ -46,73 +43,29 @@ pub(crate) fn restart_proof() {
     // dead-endpoint caps is the drift the resource discipline forbids).
     let mut prev_send: Option<u32> = None;
     for _cycle in 0..CYCLES {
-        let Some((send_slot, recv_slot)) = resolve_pinched() else {
+        let Some(send_slot) = resolve_pinched(&mut prev_send) else {
             emit_line(crate::markers::M_SELFTEST_SERVICE_RESTART_FAIL);
             return;
         };
-        if let Some(old) = prev_send {
-            if old != send_slot {
-                let _ = nexus_abi::cap_close(old);
-            }
-        }
-        prev_send = Some(send_slot);
-        let Ok(client) = KernelClient::new_with_slots(send_slot, recv_slot) else {
-            emit_line(crate::markers::M_SELFTEST_SERVICE_RESTART_FAIL);
-            return;
-        };
+        // The crash request is an exchange like any other: its ack, or the instance's death
+        // before it answered — both mean the order arrived, neither is waited for by a clock.
         let crash = [b'P', b'N', 1, OP_SELFTEST_CRASH];
-        if client.send(&crash, IpcWait::Blocking).is_err() {
-            emit_line(crate::markers::M_SELFTEST_SERVICE_RESTART_FAIL);
-            return;
-        }
-        // Wait for the SUPERVISED comeback: re-resolve (STALE/dead window
-        // retries inside the budget helper) and ping until the NEW
-        // instance answers the deterministic MALFORMED echo.
-        let start = nexus_abi::nsec().unwrap_or(0);
-        let mut revived = false;
-        while nexus_abi::nsec().unwrap_or(u64::MAX).saturating_sub(start) <= DEADLINE_NS {
-            let Some((send_slot, recv_slot)) = resolve_pinched() else {
-                let _ = nexus_abi::yield_();
-                continue;
-            };
-            if prev_send != Some(send_slot) {
-                if let Some(old) = prev_send {
-                    let _ = nexus_abi::cap_close(old);
-                }
-                prev_send = Some(send_slot);
-            }
-            let Ok(client) = KernelClient::new_with_slots(send_slot, recv_slot) else {
-                let _ = nexus_abi::yield_();
-                continue;
+        let _ = exchange(send_slot, &crash, OP_SELFTEST_CRASH);
+        // The SUPERVISED comeback, by events only: init parks a route ask for a service it
+        // knows is down and answers it when the new instance stands; a ping is answered by the
+        // new instance or ended by the death of the one it reached (the old one, when the ask
+        // overtook init's notice of the exit — the board, 2026-11-11: that ping went into a
+        // queue that died with it, and a receive without an end waited on it for good). A
+        // refused ask (the supervisor gave the service up) is the failure, said at once.
+        loop {
+            let Some(send_slot) = resolve_pinched(&mut prev_send) else {
+                emit_line(crate::markers::M_SELFTEST_SERVICE_RESTART_FAIL);
+                return;
             };
             let ping = [b'P', b'N', 1, OP_PING_UNKNOWN];
-            if client.send(&ping, IpcWait::Blocking).is_err() {
-                let _ = nexus_abi::yield_();
-                continue;
-            }
-            for _ in 0..16 {
-                match client.recv(IpcWait::Blocking) {
-                    Ok(rsp) => {
-                        if rsp.len() == 5
-                            && rsp[0] == b'P'
-                            && rsp[1] == b'N'
-                            && rsp[3] == OP_PING_UNKNOWN | 0x80
-                        {
-                            revived = true;
-                            break;
-                        }
-                    }
-                    Err(_) => break,
-                }
-            }
-            if revived {
+            if exchange(send_slot, &ping, OP_PING_UNKNOWN) {
                 break;
             }
-            let _ = nexus_abi::yield_();
-        }
-        if !revived {
-            emit_line(crate::markers::M_SELFTEST_SERVICE_RESTART_FAIL);
-            return;
         }
     }
     emit_line(crate::markers::M_SELFTEST_SERVICE_RESTART_OK);
@@ -126,13 +79,34 @@ pub(crate) fn restart_proof() {
     }
 }
 
-/// Bounded nonce-correlated pinched route resolve over the init responder.
-fn resolve_pinched() -> Option<(u32, u32)> {
+/// One request to pinched answered on the harness's reply inbox: `true` when the frame carrying
+/// `op`'s response arrived, `false` when the instance died first (or was already gone). No
+/// clock: the answer or the peer's death ends the wait (`nexus_ipc::exchange`).
+fn exchange(send_slot: u32, frame: &[u8], op: u8) -> bool {
+    let reply = nexus_service_topology::slots::selftest_client::REPLY;
+    let mut rsp = [0u8; 16];
+    nexus_ipc::exchange::call_matching(send_slot, reply, frame, &mut rsp, |rsp| {
+        (rsp.len() == 5 && rsp[0] == b'P' && rsp[1] == b'N' && rsp[3] == op | 0x80).then_some(())
+    })
+    .is_ok()
+}
+
+/// Asks init for the route to pinched (the ask parks while the service is down) and keeps the
+/// client's table clean: the previous SEND capability is closed once a fresh one is handed
+/// out — a client hoarding capabilities to dead endpoints is the drift the proof forbids.
+fn resolve_pinched(prev_send: &mut Option<u32>) -> Option<u32> {
     use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
-    match budget::route_with_nonce(b"pinched", NonceMismatchBudget::new(64)) {
-        RouteRetryOutcome::Success { send_slot, recv_slot } => Some((send_slot, recv_slot)),
-        _ => None,
+    let RouteRetryOutcome::Success { send_slot, .. } =
+        budget::route_with_nonce(b"pinched", NonceMismatchBudget::new(64))
+    else {
+        return None;
+    };
+    if let Some(old) = prev_send.replace(send_slot) {
+        if old != send_slot {
+            let _ = nexus_abi::cap_close(old);
+        }
     }
+    Some(send_slot)
 }
 
 /// Reads init's persisted restart counter for pinched (0 when absent or on

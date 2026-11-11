@@ -134,20 +134,21 @@ pub(crate) fn resume_core(ctrls: &[CtrlChannel]) {
     resume_non_drivers_where(ctrls, |name| crate::boot_graph::in_core(name) && !in_plane(name));
 }
 
-/// Materializes the resolved boot graph (TASK-0050 PR-5): announces the
-/// target truth, resumes wave 2, and resumes the display/input drivers
-/// only when the graph includes them (recovery keeps them suspended).
+/// Materializes the resume set (TASK-0050 PR-5): announces the target truth, resumes wave 2 —
+/// the target's graph on this machine — and resumes the display/input drivers only when the
+/// graph includes them (recovery keeps them suspended).
 pub(crate) fn materialize_graph(
     ctrls: &[CtrlChannel],
-    graph: crate::boot_graph::BootGraph,
+    set: crate::boot_graph::ResumeSet,
     init_fold: bool,
     init_misc: &mut nexus_event::SpanTally,
 ) {
+    let graph = set.graph();
     crate::bootstrap::diag::emit_marker_atomic(
         &[b"init: stage graph target=", graph.label().as_bytes()],
         None,
     );
-    resume_wave2(ctrls, graph);
+    resume_wave2(ctrls, set);
     if crate::boot_graph::includes(graph, "windowd") {
         resume_drivers(ctrls, init_fold, init_misc);
     } else {
@@ -158,11 +159,25 @@ pub(crate) fn materialize_graph(
     }
 }
 
-/// Wave 2: resume the remaining non-drivers the resolved target includes.
-pub(crate) fn resume_wave2(ctrls: &[CtrlChannel], graph: crate::boot_graph::BootGraph) {
-    resume_non_drivers_where(ctrls, |name| {
-        !crate::boot_graph::in_core(name) && crate::boot_graph::includes(graph, name)
-    });
+/// Wave 2: resume the remaining non-drivers of the resume set. A service the machine cannot
+/// carry stays suspended and is named with the plane it stands on — the device tree decided,
+/// so the service never finds out by trying.
+pub(crate) fn resume_wave2(ctrls: &[CtrlChannel], set: crate::boot_graph::ResumeSet) {
+    for chan in ctrls {
+        if let Some(plane) = set.withheld_for(chan.svc_name) {
+            crate::bootstrap::diag::emit_marker_atomic(
+                &[
+                    b"init: withheld svc=",
+                    chan.svc_name.as_bytes(),
+                    b" (no ",
+                    plane.name().as_bytes(),
+                    b" plane)",
+                ],
+                None,
+            );
+        }
+    }
+    resume_non_drivers_where(ctrls, |name| !crate::boot_graph::in_core(name) && set.runs(name));
 }
 
 /// The display + input device drivers: resumed after their MMIO grants and route wiring, never

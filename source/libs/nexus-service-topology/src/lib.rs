@@ -186,6 +186,8 @@ pub struct NamedSlotBinding {
 
 /// Service identity.
 mod ids;
+/// The device planes a machine may lack and the services standing on them.
+mod planes;
 /// The route graph (required links, delivery kinds).
 mod routes;
 /// Per-service slot constants (split out of `specs` under the module-size ratchet).
@@ -219,6 +221,7 @@ pub mod bootfs {
 }
 
 pub use ids::ServiceId;
+pub use planes::{needs_plane, DevicePlane, Planes, PLANE_NEEDS};
 pub use routes::{Route, RouteKind, REQUIRED_ROUTES};
 pub use specs::{exposes_server, spec_for, ServiceSpec, SERVICE_SPECS};
 pub use stage::Stage;
