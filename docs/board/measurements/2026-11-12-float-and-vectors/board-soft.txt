@@ -1,0 +1,15 @@
+rasterbench build=soft scene=fill px=460800 min_ns=1533675 ns_per_px=3.3 first_ns=1857454 digest=b1cbc9f3b8eaa325
+rasterbench build=soft scene=cards px=460800 min_ns=80447287 ns_per_px=174.5 first_ns=80707768 digest=4303b247540b2465
+rasterbench build=soft scene=shadow px=460800 min_ns=635768962 ns_per_px=1379.7 first_ns=635311576 digest=33362f18d26ca595
+rasterbench build=soft scene=circles px=460800 min_ns=187124443 ns_per_px=406.0 first_ns=187437511 digest=c8f7de22ed47b385
+rasterbench build=soft scene=strokes px=460800 min_ns=654470983 ns_per_px=1420.2 first_ns=657144539 digest=00bc0187353c8585
+rasterbench build=soft scene=filled px=460800 min_ns=116719115 ns_per_px=253.2 first_ns=116398545 digest=523bad3b1b26f94e
+rasterbench build=soft scene=page px=460800 min_ns=1043039598 ns_per_px=2263.5 first_ns=1053271826 digest=d75351079323010b
+rasterbench build=soft scene=svg-logo-256 px=65536 min_ns=30171669 ns_per_px=460.3 first_ns=31066996 digest=1d915840361fb87d
+rasterbench build=soft scene=svg-logo-256 stages parse_ns=572008 plan_ns=1898457 raster_ns=27701204
+rasterbench build=soft scene=svg-logo-1024 px=1048576 min_ns=328488143 ns_per_px=313.2 first_ns=346302900 digest=ab43ec2dffcc34c1
+rasterbench build=soft scene=svg-logo-1024 stages parse_ns=586301 plan_ns=3976305 raster_ns=323925537
+rasterbench build=soft scene=svg-icon-64 px=4096 min_ns=89947166 ns_per_px=21959.7 first_ns=90185770 digest=b6cf0e3a171e5b56
+rasterbench build=soft scene=svg-icon-64 stages parse_ns=246229 plan_ns=2387750 raster_ns=87313187
+rasterbench build=soft scene=svg-icon-512 px=262144 min_ns=3861675706 ns_per_px=14731.1 first_ns=3863563873 digest=94daecdabb0d720d
+rasterbench build=soft scene=svg-icon-512 stages parse_ns=247647 plan_ns=2379999 raster_ns=3859048060

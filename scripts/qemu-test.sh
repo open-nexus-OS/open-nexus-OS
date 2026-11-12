@@ -3406,6 +3406,24 @@ if [[ "$REQUIRE_SMP" == "1" ]]; then
     echo "[error] interrupt proof missing: KSELFTEST: irq off boot hart ok ( — no bound line was delivered off the boot hart" >&2
     exit 1
   fi
+  # TASK-0362 P1 (RFC-0119): a floating-point state written on one CPU was loaded on another
+  # (the soak's two threads hop over the CPUs). Unordered: it appears at the first such load.
+  if [[ "$(count_lines "SELFTEST: fpsoak ok")" -gt 0 && "$(count_lines "KSELFTEST: fp state moved ok (")" -lt 1 ]]; then
+    echo "[error] floating-point proof missing: KSELFTEST: fp state moved ok ( — no state was loaded on another CPU than the one that wrote it" >&2
+    exit 1
+  fi
+fi
+
+# TASK-0362 P1 (RFC-0119): a thread's floating-point registers are its own, in EVERY profile
+# that runs the soak — the kernel wrote the states (10 000 saves) and the unit was never on
+# for a thread without one. Unordered: the kernel's line appears during the soak.
+if [[ "$(count_lines "KSELFTEST: fp state FAIL (")" -gt 0 ]]; then
+  echo "[error] floating-point proof failed: $(grep -aF "KSELFTEST: fp state FAIL (" "$UART_LOG" | head -n1)" >&2
+  exit 1
+fi
+if [[ "$(count_lines "SELFTEST: fpsoak ok")" -gt 0 && "$(count_lines "KSELFTEST: fp state lazy ok (")" -lt 1 ]]; then
+  echo "[error] floating-point proof missing: KSELFTEST: fp state lazy ok ( — the soak passed but the kernel reports no 10 000 saves" >&2
+  exit 1
 fi
 
 # TASK-0244 P3 (RFC-0098): the platform comes from the device tree, in EVERY profile.

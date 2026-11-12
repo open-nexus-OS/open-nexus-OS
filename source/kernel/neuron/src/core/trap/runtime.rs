@@ -345,6 +345,8 @@ pub unsafe fn install_trap_vector_for(cpu: crate::types::CpuId) {
     // ADR-0079: user mode starts without cache maintenance; a process holding a
     // non-coherent device's capability gets it at its first `cbo` (trap/cache_right.rs).
     crate::hal::platform::apply_user_cache_maintenance(false);
+    // RFC-0119: the kernel of this hart runs with the floating-point unit off.
+    super::fp::hart_starts();
 }
 
 #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]

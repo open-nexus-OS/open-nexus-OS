@@ -5,7 +5,7 @@ title: "The scheduler's end form: run queues off the kernel lock, a fair class, 
 status: in_progress
 owner: ["@kernel-team"]
 created: 2026-11-10
-updated: 2026-11-11
+updated: 2026-11-12
 subsystem: kernel
 kind: service
 novelty: first
@@ -40,6 +40,7 @@ phases:
     story: "a woken thread runs where it runs soonest: placement by load, by its last hart and by cluster, and an idle hart pulls work"
     state: planned
     gate: "QEMU -smp 8: 8 runnable compute threads occupy 8 harts within 2 ms (KSELFTEST: sched spread ok); board: the per-hart utilisation line; test_reject_steal_against_affinity kept"
+    note: "found 2026-11-12 (TASK-0362 P1, fpsoak): a pin places a thread only at its next wake. set_affinity re-clamps home_cpu; a thread that yields or is preempted is requeued on the hart it is on (yield_current -> try_enqueue), only wake/resume route to the home hart. A thread that never blocks keeps running on a hart outside its new set (two-hart run smp--2026-11-12T14-07-44: 20 pins, loads=2 — neither thread moved). The placement of this phase must hold at every requeue, not only at a wake; test: test_reject_run_outside_the_set_after_a_pin."
   - id: P0
     story: "what the scheduler is rebuilt from is known: an interactive wake's wait for a hart is attributed (behind a peer of its class on the hart it is pinned to, behind a lower class it did not preempt, or a hart asleep), and the task that yields 70 000 times a second is named"
     state: proving

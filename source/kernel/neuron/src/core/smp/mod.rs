@@ -134,6 +134,7 @@ pub fn size_for_machine() {
         .and_then(|()| bringup::size(harts))
         .and_then(|()| crate::hal::console_line::size(harts))
         .and_then(|()| crate::irq::size(harts))
+        .and_then(|()| crate::trap::fp::size(harts))
         .and_then(|()| crate::trap::size_hart_deadlines(harts));
     if let Err(error) = sized {
         log_error!(target: "smp", "KPANIC: smp slab harts={} ({:?})", harts, error);
@@ -260,6 +261,8 @@ pub fn hart_local_stage_resume(
     unsafe {
         let block = hart_local_ptr(cpu);
         (*block).resume_frame = *frame;
+        // RFC-0119: the task's floating-point registers and its unit switch, as at a trap's end.
+        crate::trap::fp::__fp_user_return(&mut (*block).resume_frame);
         core::ptr::addr_of!((*block).resume_frame)
     }
 }

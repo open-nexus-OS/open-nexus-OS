@@ -35,7 +35,10 @@ pub(super) fn handle(frame: &mut TrapFrame) {
     {
         const SSTATUS_SPP: usize = 1 << 8;
         if frame.sstatus & SSTATUS_SPP == 0 {
-            if super::cache_right::try_grant(frame, inst as usize) {
+            // The first floating-point instruction of a thread gives it its state (RFC-0119).
+            if super::fp::first_use(frame, inst as usize)
+                || super::cache_right::try_grant(frame, inst as usize)
+            {
                 return;
             }
             report_user(frame, inst);

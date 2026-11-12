@@ -5,7 +5,7 @@ title: "app-host paints on every hart, unseen by the DSL: a pass planned once, r
 status: draft
 owner: ["@ui", "@runtime"]
 created: 2026-11-10
-updated: 2026-11-10
+updated: 2026-11-12
 subsystem: ui
 kind: ui
 novelty: variant
@@ -21,6 +21,7 @@ phases:
     story: "where a row's time goes is measured: the fixed cost per row, fills, blends, glyphs, the alpha conversion, the share of float"
     state: planned
     gate: "a host bench and the board line apphost: raster split; the numbers in the ledger"
+    note: "from TASK-0362 P0 (docs/board/measurements/2026-11-12-float-and-vectors, the board's stock system, hard float): a flat span 3.2 ns per pixel (0.5 vectorised), translucent cards 47 (21), a drop shadow 157, line icons 115, a page 226; an SVG app icon 2 305 ns per pixel against the logo's 54, all in the raster stage (603 ms of 604 at 512 px) — the split inside a row and the SVG raster's cost per shape and row are measured here"
   - id: P1
     story: "a pass is planned once into an immutable plan and any band of its rows is painted from it by any thread, byte-equal to today's painter"
     state: planned

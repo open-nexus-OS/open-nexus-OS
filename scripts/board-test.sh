@@ -87,6 +87,12 @@ ladder_headless=(
   "KSELFTEST: per-hart state ok ("
   "KSELFTEST: smp online ok"
   "KSELFTEST: irq off boot hart ok ("
+  # TASK-0362 P1 (RFC-0119): a thread's floating-point registers are its own — the soak's two
+  # threads keep their patterns, the kernel wrote 10 000 states without the unit ever on for
+  # a thread without one, and a state written on one CPU was loaded on another.
+  "SELFTEST: fpsoak ok"
+  "KSELFTEST: fp state lazy ok ("
+  "KSELFTEST: fp state moved ok ("
   # TASK-0330 S2a: the console's serial time is off the kernel lock (the board's layer-0
   # longest holders were the two console syscalls).
   "KSELFTEST: console off lock ok ("

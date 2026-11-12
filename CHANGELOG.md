@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-11-12 (a thread's floating-point registers are its own, kept from first use — TASK-0362 P1, RFC-0119)
+
+- **Kernel:** a thread has no floating-point state until its first floating-point instruction
+  (an illegal-instruction trap gives it a state of zeros and runs the instruction again). The
+  registers are written to the state at a trap entry only when the hardware says they changed,
+  and loaded before the thread runs unless the hart still holds exactly that state (a token
+  per write, a token per hart). A thread without a state runs with the unit off — whatever
+  its frame says — and costs two tests per trap. The rules are a pure module
+  (`core/trap/fp_rule.rs`, 12 host tests, random schedules over 4 harts and 9 threads); the
+  hooks sit at the two places every path passes (`trap.S`, the idle loop's staged resume).
+- **The unit is off while the kernel runs** (hart bring-up, every trap entry; checked at every
+  return to user mode). Found by measurement: under the trapped thread's unit state one timer
+  tick held the kernel lock 12–18 ms on eight emulated harts and the lock budget was red in
+  5 of 5 runs; with the unit off, 0 waits above 10 ms in 4 of 4.
+- **Standing detector `fpsoak`:** two threads hold their own patterns in `f0`–`f31` and the
+  control register, hand the hart over 10 000 times by fence (every round a wake, so a pin
+  moves them: 100 hops over the CPUs of the set), then compute at once for several ticks.
+  Markers: `SELFTEST: fpsoak ok`, `KSELFTEST: fp state lazy ok (…)`, and with more than one
+  hart `KSELFTEST: fp state moved ok (…)`; `KSELFTEST: fp state FAIL (` is an error in every
+  profile. QEMU green with 1, 2 and 8 harts.
+- **Telemetry:** the first twelve long lock waits and holds are named per measurement window
+  (the bring-up burst used up the lines before; a red window now names its own).
+- **Recorded for the scheduler (TASK-0363 P5):** a pin places a thread only at its next wake —
+  a thread that only yields keeps running outside its new set.
+
+### Decided - 2026-11-12 (one hard-float userspace target, vectors asked for at run time — TASK-0362 P0, ADR-0099)
+
+- **Measured before the kernel work:** the row painter and the SVG raster, unchanged, built
+  soft-float, hard-float and hard-float with the compiler's vectorisation, timed on the board's
+  stock system (`docs/board/measurements/2026-11-12-float-and-vectors/`, instrument
+  `rasterbench/`). Soft float costs 3.7× to 12.3× on every path that computes a coverage
+  (a page: 2 264 → 226 ns per pixel; the SVG logo: 313 → 54); the vectorisation moves only the
+  integer spans (a flat fill 3.2 → 0.5 ns, translucent cards 47 → 21); eleven digests are equal
+  across the three builds, on the board and under the emulator.
+- **Decided (ADR-0099):** every userspace program is built for one hard-float target and the
+  soft-float target leaves the build; the kernel stays integer-only and keeps a thread's
+  registers only from first use; a hart without F and D is not started; the vector extension
+  is no build flag — a vector kernel has a scalar reference, is chosen at run time and reads
+  the registers' width (32 bytes on the board, 16 on the emulator).
+- **Recorded for the painter's task (TASK-0367):** hard float is necessary and not enough for
+  a frame (a full window at the page's cost is 469 ms); a drop shadow is the most expensive
+  thing a row paints; an SVG app icon costs 40 times the logo per pixel, all of it in the
+  raster stage.
+
 ### Changed - 2026-11-12 (a device interrupt is taken on the hart its driver runs on — TASK-0330 P8, RFC-0118)
 
 - **A bound line is enabled in one PLIC context: its binder's home CPU's.** Until now every

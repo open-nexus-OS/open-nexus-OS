@@ -53,9 +53,13 @@ pub fn record_bkl_wait(t0: u64, ticks: u64) {
 /// holder's hold (`bkl long hold`), by none is a hart that did not run (the first few; the
 /// gate judges the maximum).
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+/// The long waits and holds named so far in this window (the first twelve of each get a
+/// line): a window that goes red names its own, whatever the bring-up burst before it used.
+static LONG_WAIT_LOGGED: AtomicUsize = AtomicUsize::new(0);
+static LONG_HOLD_LOGGED: AtomicUsize = AtomicUsize::new(0);
+
 pub fn note_long_wait(waited: u64, holder: usize, deferred: u32, passed_over: u64) {
     if waited > crate::hal::platform::ns_to_ticks(10_000_000) {
-        static LONG_WAIT_LOGGED: AtomicUsize = AtomicUsize::new(0);
         if LONG_WAIT_LOGGED.fetch_add(1, Ordering::Relaxed) < 12 {
             log_info!(
                 target: "smp",
@@ -75,7 +79,6 @@ pub fn note_long_wait(waited: u64, holder: usize, deferred: u32, passed_over: u6
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 pub fn note_long_hold(held: u64, holder: usize) {
     if held > crate::hal::platform::ns_to_ticks(10_000_000) {
-        static LONG_HOLD_LOGGED: AtomicUsize = AtomicUsize::new(0);
         if LONG_HOLD_LOGGED.fetch_add(1, Ordering::Relaxed) < 12 {
             log_info!(
                 target: "smp",
@@ -128,6 +131,8 @@ pub fn reset(now: u64) {
     SWEEP_CALLS.store(0, Ordering::Relaxed);
     SWEEP_TICKS_TOTAL.store(0, Ordering::Relaxed);
     SWEEP_SKIPPED.store(0, Ordering::Relaxed);
+    LONG_WAIT_LOGGED.store(0, Ordering::Relaxed);
+    LONG_HOLD_LOGGED.store(0, Ordering::Relaxed);
     // NEXT_DEADLINE_NS is LIVE state, not accounting — never reset it here.
 }
 

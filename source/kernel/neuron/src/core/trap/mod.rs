@@ -144,6 +144,7 @@ pub mod budgets;
 mod cache_right;
 mod errno;
 mod fault;
+pub mod fp;
 mod handler;
 mod illegal;
 /// ADR-0082: the kill / freeze orders a hart executes for its current task at a trap entry.

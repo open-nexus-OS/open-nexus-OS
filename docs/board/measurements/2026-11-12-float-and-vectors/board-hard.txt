@@ -1,0 +1,15 @@
+rasterbench build=hard scene=fill px=460800 min_ns=1497589 ns_per_px=3.2 first_ns=1682939 digest=b1cbc9f3b8eaa325
+rasterbench build=hard scene=cards px=460800 min_ns=21647305 ns_per_px=46.9 first_ns=21809694 digest=4303b247540b2465
+rasterbench build=hard scene=shadow px=460800 min_ns=72618460 ns_per_px=157.5 first_ns=72694842 digest=33362f18d26ca595
+rasterbench build=hard scene=circles px=460800 min_ns=29688007 ns_per_px=64.4 first_ns=29795933 digest=c8f7de22ed47b385
+rasterbench build=hard scene=strokes px=460800 min_ns=53028084 ns_per_px=115.0 first_ns=53066171 digest=00bc0187353c8585
+rasterbench build=hard scene=filled px=460800 min_ns=12764864 ns_per_px=27.7 first_ns=12794742 digest=523bad3b1b26f94e
+rasterbench build=hard scene=page px=460800 min_ns=104204757 ns_per_px=226.1 first_ns=104303224 digest=d75351079323010b
+rasterbench build=hard scene=svg-logo-256 px=65536 min_ns=6190249 ns_per_px=94.4 first_ns=6929771 digest=1d915840361fb87d
+rasterbench build=hard scene=svg-logo-256 stages parse_ns=448664 plan_ns=245189 raster_ns=5496396
+rasterbench build=hard scene=svg-logo-1024 px=1048576 min_ns=57051644 ns_per_px=54.4 first_ns=60981154 digest=ab43ec2dffcc34c1
+rasterbench build=hard scene=svg-logo-1024 stages parse_ns=502586 plan_ns=515711 raster_ns=56033347
+rasterbench build=hard scene=svg-icon-64 px=4096 min_ns=17415144 ns_per_px=4251.7 first_ns=17748048 digest=b6cf0e3a171e5b56
+rasterbench build=hard scene=svg-icon-64 stages parse_ns=204643 plan_ns=471874 raster_ns=16738627
+rasterbench build=hard scene=svg-icon-512 px=262144 min_ns=604211976 ns_per_px=2304.8 first_ns=608834998 digest=94daecdabb0d720d
+rasterbench build=hard scene=svg-icon-512 stages parse_ns=225936 plan_ns=513087 raster_ns=603472953

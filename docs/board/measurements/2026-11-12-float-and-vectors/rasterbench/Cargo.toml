@@ -1,0 +1,28 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# The instrument of TASK-0362 P0: the row painter and the SVG raster as one static program for
+# the stock system, built three ways (soft float, hard float, hard float with vectors).
+# A package of its own (the empty `[workspace]` keeps it out of the repo's workspace: it has no
+# host build and no place in the OS image). `build.sh` is the only way it is built.
+
+[package]
+name = "rasterbench"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[workspace]
+
+[dependencies]
+nexus-layout = { path = "../../../../../userspace/ui/layout" }
+nexus-layout-types = { path = "../../../../../userspace/ui/layout-types" }
+nexus-scene-raster = { path = "../../../../../userspace/ui/scene_raster", default-features = false }
+nexus-svg = { path = "../../../../../userspace/ui/svg", default-features = false }
+
+# The OS image's release profile (root `Cargo.toml`), so the numbers are the image's code.
+[profile.release]
+panic = "abort"
+lto = "fat"
+codegen-units = 1

@@ -124,6 +124,8 @@ fn report_isa(cpus: &nexus_fdt::Cpus<'_>) {
         "f", "d", "v", "zfh", "zvfh", "zba", "zbb", "zbs", "zicbom", "zicboz", "svpbmt", "sscofpmf",
     ];
     let mut last: Option<(&str, u16)> = None;
+    // RFC-0119: a thread gets floating-point registers only when every hart carries F and D.
+    let mut every_hart_floats: Option<bool> = None;
     for cpu in cpus.harts() {
         let node = cpu.node();
         let base = node
@@ -139,6 +141,7 @@ fn report_isa(cpus: &nexus_fdt::Cpus<'_>) {
         for (i, name) in NAMES.iter().enumerate() {
             bits |= u16::from(stated(name)) << i;
         }
+        every_hart_floats = Some(every_hart_floats.unwrap_or(true) && bits & 0b11 == 0b11);
         if last == Some((base, bits)) {
             continue;
         }
@@ -148,6 +151,7 @@ fn report_isa(cpus: &nexus_fdt::Cpus<'_>) {
             "KINIT: isa from hart={} base={} f={} d={} v={} zfh={} zvfh={} zba={} zbb={} zbs={} zicbom={} zicboz={} svpbmt={} sscofpmf={}",
             cpu.hart, base, b(0), b(1), b(2), b(3), b(4), b(5), b(6), b(7), b(8), b(9), b(10), b(11));
     }
+    crate::trap::fp::offer(every_hart_floats == Some(true));
 }
 
 /// Parse the tree and print the platform values it carries, or why it could not
