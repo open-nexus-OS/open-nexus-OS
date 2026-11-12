@@ -3,9 +3,9 @@ schema: 1
 title: "The machine's CPUs: topology, CPU sets, per-hart state"
 role: reference
 subsystem: kernel
-sources: [source/kernel/neuron/src/core/smp/topology.rs, source/kernel/neuron/src/core/smp/hart_state.rs, source/kernel/neuron/src/core/smp/bringup.rs, source/kernel/neuron/src/sync/hart_table.rs, source/libs/nexus-fdt/src/topology.rs, source/libs/nexus-sched/src, source/libs/nexus-abi/src/syscall/sched.rs, source/init/nexus-init/src/affinity.rs]
+sources: [source/kernel/neuron/src/core/smp/topology.rs, source/kernel/neuron/src/core/smp/hart_state.rs, source/kernel/neuron/src/core/smp/bringup.rs, source/kernel/neuron/src/sync/hart_table.rs, source/kernel/neuron/src/core/irq.rs, source/kernel/neuron/src/core/irq_route.rs, source/kernel/neuron/src/hal/plic.rs, source/libs/nexus-fdt/src/topology.rs, source/libs/nexus-sched/src, source/libs/nexus-abi/src/syscall/sched.rs, source/init/nexus-init/src/affinity.rs]
 contracts: [RFC-0118, ADR-0049]
-verified: 2026-11-11
+verified: 2026-11-12
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -77,6 +77,19 @@ A CPU whose hart the interrupt controller has no supervisor context for takes no
 interrupts and is named (`KINIT: cpuN has no plic context in the tree`); its registers are
 never written.
 
+## A device line
+
+A bound line is enabled in one context: the one of the CPU its binder is homed on
+(`core/irq.rs`, rules in `core/irq_route.rs`, host-tested against a controller as specified).
+It follows the binder when it is pinned elsewhere or migrates — off in the old context, then
+on in the new. A claim is completed where it was made and while the line is enabled there, so
+a move under an outstanding claim waits for the completion. A home without a context sends the
+line to the lowest online CPU that has one; with none the bind is refused. Every hart unmasks
+the external interrupt and delivers what it claimed — from user mode at once, from its idle
+loop otherwise. The console's line stays the kernel's, on CPU 0.
+A line whose driver died is released: a claim nobody can complete any more is completed, the
+line disabled, and the driver's successor binds a line that can fire.
+
 ## A program asks
 
 Operation 7 of the sched syscall answers in registers, to any task (the answer carries no
@@ -98,5 +111,6 @@ reports, so the set is one the kernel admits on every machine; a refusal is a fa
 |---|---|
 | the topology equals the tree's; CPU 0 is the boot hart whatever its id | `cargo test -p nexus-fdt` (the board's tree: 8 CPUs in 2 clusters of 4; `virt`; a synthetic tree with sparse 64-bit hart ids and a boot hart that is not the first node) |
 | the set rules and the roles | `cargo test -p nexus-sched`, `placement_ssot_roles_are_sane` (nexus-init) |
-| the IPI plan, the query answers, the hart table | `just test-kernel` |
+| the IPI plan, the query answers, the hart table, a device line's route | `just test-kernel` |
+| a bound line is served where its driver runs | `KSELFTEST: irq off boot hart ok (cpu= irq=)` on every multi-hart lane (`scripts/qemu-test.sh`) and the board |
 | one, two and eight harts boot, none lost | `just ci-os-smp1`, `just ci-os-smp`, the eight-hart series in `docs/board/measurements/2026-11-11-n-harts/README.md` |

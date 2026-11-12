@@ -72,6 +72,15 @@ pub fn take_wake_hint(cpu: CpuId) -> bool {
     hart_state::of(cpu).is_some_and(|hart| hart.wake_hint.swap(0, Ordering::AcqRel) != 0)
 }
 
+/// Tells `cpu`'s idle loop not to sleep: something it must look at arrived without a
+/// reschedule request (a device line its own external-interrupt trap claimed).
+#[inline]
+pub fn set_wake_hint(cpu: CpuId) {
+    if let Some(hart) = hart_state::of(cpu) {
+        hart.wake_hint.store(1, Ordering::Release);
+    }
+}
+
 /// Deterministic round-robin cursor for initial task placement (A4).
 static SPAWN_RR: AtomicUsize = AtomicUsize::new(0);
 

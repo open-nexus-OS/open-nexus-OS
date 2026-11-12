@@ -1059,10 +1059,12 @@ impl TaskTable {
         scheduler.finish_current();
     }
 
-    /// Explicit migration (A8 work stealing): rebinds a task's home CPU.
+    /// Explicit migration (A8 work stealing, a pin): rebinds a task's home CPU; the device
+    /// lines it bound follow it (RFC-0118).
     pub fn set_home_cpu(&mut self, pid: Pid, cpu: crate::types::CpuId) {
         if let Some(task) = self.task_mut(pid) {
             task.home_cpu = cpu;
+            crate::irq::rehome(pid, cpu);
         }
     }
 }

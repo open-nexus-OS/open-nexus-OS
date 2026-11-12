@@ -85,7 +85,9 @@ pub(super) fn sys_timer_cancel(ctx: &mut Context<'_>, args: &Args) -> SysResult<
 /// Binds an external interrupt (PLIC source) to an endpoint the caller owns, so
 /// the kernel routes that device IRQ to the driver's endpoint and wakes it. The
 /// caller must hold an Endpoint capability for the receiving endpoint (proves it
-/// is the intended driver). Args: (irq_source_id, endpoint_cap_slot).
+/// is the intended driver). The line is enabled where the caller is homed and follows it
+/// (RFC-0118); on a machine where no online CPU has a controller context it cannot fire and
+/// the bind is refused (`EINVAL`). Args: (irq_source_id, endpoint_cap_slot).
 pub(super) fn sys_irq_bind(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let irq_raw = args.get(0) as u32;
     let endpoint_slot = args.get(1);
@@ -103,8 +105,11 @@ pub(super) fn sys_irq_bind(ctx: &mut Context<'_>, args: &Args) -> SysResult<usiz
         CapabilityKind::Endpoint(id) => id,
         _ => return Err(Error::Capability(CapError::InvalidSlot)),
     };
-    crate::irq::bind(irq, endpoint);
-    Ok(0)
+    let owner = ctx.tasks.current_pid();
+    let home = ctx.tasks.current_task().home_cpu();
+    crate::irq::bind(irq, endpoint, owner, home)
+        .map(|_| 0)
+        .ok_or(Error::AddressSpace(AddressSpaceError::InvalidArgs))
 }
 
 /// `SYSCALL_CHILD_EXIT_BIND` (62, TASK-0333 6a): binds an endpoint the caller holds a SEND

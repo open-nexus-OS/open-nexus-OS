@@ -3,7 +3,7 @@
 
 # 2026-11-11 — every hart the tree names runs (TASK-0330 P1, RFC-0118)
 
-Status: **proven on QEMU (one, two and eight harts) and on the board (eight harts, two clusters). Open in the phase: an interrupt follows its home CPU.**
+Status: **proven on QEMU (one, two and eight harts) and on the board (eight harts, two clusters); a device interrupt is taken on the hart its driver runs on (TASK-0330 P8, last section).**
 
 ## Question
 
@@ -187,3 +187,27 @@ KSELFTEST: bkl budget ok (max_wait=2476us max_hold=1ms nr=20)
 
 The board ladder is complete (106 rungs, `scripts/board-test.sh --profile=board-visible`; the
 nine known board reds tolerated). The operator markers were not recorded for this capture.
+
+## A device interrupt on the hart its driver runs on (TASK-0330 P8, 2026-11-12)
+
+Before: every bound line was enabled in CPU 0's context and only CPU 0 unmasked the external
+interrupt (read from the code at `ee10ce1a`: `irq::bind` targeted the boot CPU, `sie.SEXT` was
+set in `kmain` only, the idle delivery was the boot hart's) — a driver homed on another hart
+was woken across harts. Instrument: `KSELFTEST: irq off boot hart ok (cpu= irq=)`, printed by
+the first CPU other than the boot hart that claims a bound line and delivers it.
+
+| Machine | Line | Log |
+|---|---|---|
+| QEMU, one hart | absent (as it must be), lane green | `build/logs/smp1--2026-11-12T11-53-14` |
+| QEMU, two harts | `irq off boot hart ok (cpu=1 irq=5)` — the block device; lane green on the first attempt | `build/logs/smp--2026-11-12T11-56-27` |
+| QEMU, eight harts, three boots | `cpu=2`, `cpu=7`, `cpu=6`, each `irq=5`; all three green, `bkl budget ok` (`max_wait` 5.9–6.7 ms) | `build/logs/smp--2026-11-12T11-58-47` … `T12-03-59` |
+| the board, eight harts | `irq off boot hart ok (cpu=6 irq=101)` — the storage host | `build/logs/board--2026-11-12T12-31-01` (build `dev-0f0ef702`) |
+
+The board in that boot: ladder complete (109 rungs with the three this phase adds to
+`scripts/board-test.sh`; the four-hart log of 2026-11-11 fails on the first of them), storage up
+on the host controller (`blkd: backend ok (kind=…sdhci … mode=hs400es)`), keyboard and pointer
+live, `KSELFTEST: bkl budget ok (max_wait=416us max_hold=0ms)` (the cycle before: 2 476 µs),
+`ipc call budget ok (rt=45us)`, waits for the lock in the judged window
+`le100us=1106046 le1ms=180 le10ms=0 gt10ms=0`, no `bkl long` line. One boot each side — the
+shorter wait is an observation, not a claim about the cause. The operator markers were not
+recorded for this capture.

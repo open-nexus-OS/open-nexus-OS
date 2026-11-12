@@ -5,7 +5,7 @@ role: guide
 subsystem: ui
 sources: [source/services/windowd, source/drivers/gpud, source/services/app-host, userspace/apps/window-kit, source/services/imed, source/services/memd]
 contracts: [RFC-0067, RFC-0108, RFC-0109, RFC-0110, RFC-0113, RFC-0114, ADR-0068, ADR-0069, ADR-0071, ADR-0072, ADR-0075, ADR-0076, ADR-0078, ADR-0083, ADR-0086, ADR-0090, ADR-0092]
-verified: 2026-11-10
+verified: 2026-11-12
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->

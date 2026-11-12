@@ -5,7 +5,7 @@ role: guide
 subsystem: kernel
 sources: [source/kernel/neuron/src/sync, source/kernel/neuron/src/core/trap/runtime.rs, source/kernel/neuron/src/core/trap/budgets.rs, source/kernel/neuron/src/core/smp, source/libs/nexus-sync]
 contracts: [RFC-0021, ADR-0049]
-verified: 2026-11-11
+verified: 2026-11-12
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -50,7 +50,7 @@ lock's end — classes with one rank order, no global lock — is RFC-0102.
 |---|---|---|
 | 1 | `KERNEL_LOCK` (BKL, a `SpinIrqLock`) via `KernelGuard` | tasks, scheduler and run queues, IPC router, address spaces and ASIDs, timers, waitsets, fences |
 | 2 | per-CPU run-queue locks, ascending CPU index | reserved; empty while run queues live inside tier 1 |
-| 3 | leaf atomics and `SpinIrqLock` leaves (console line, console ring) | masks, counters, mailboxes, console bytes |
+| 3 | leaf atomics and `SpinIrqLock` leaves (console line, console ring, device lines `irq::LINES`) | masks, counters, mailboxes, console bytes, each line's controller context and its enable writes |
 
 Rules:
 

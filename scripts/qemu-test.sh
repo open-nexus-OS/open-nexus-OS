@@ -3399,6 +3399,13 @@ if [[ "$REQUIRE_SMP" == "1" ]]; then
     echo "[error] SMP per-hart timer proof missing: KSELFTEST: smp per-hart ticks ok" >&2
     exit 1
   fi
+  # TASK-0330 P8 (RFC-0118): a device line is taken on the hart its driver runs on — a bound
+  # line was delivered by a CPU other than the boot hart (the block driver is homed off
+  # CPU 0 on every multi-hart lane). Unordered: it appears at that driver's first interrupt.
+  if [[ "$(count_lines "KSELFTEST: irq off boot hart ok (")" -lt 1 ]]; then
+    echo "[error] interrupt proof missing: KSELFTEST: irq off boot hart ok ( — no bound line was delivered off the boot hart" >&2
+    exit 1
+  fi
 fi
 
 # TASK-0244 P3 (RFC-0098): the platform comes from the device tree, in EVERY profile.

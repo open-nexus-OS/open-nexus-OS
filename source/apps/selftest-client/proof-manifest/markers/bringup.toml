@@ -824,6 +824,11 @@ phase = "bringup"
 emit_when = { profile = "smp" }
 proves = "PLIC S-context of hart 1 initialised (threshold readback, ctx=2*hart+1)"
 
+[marker."KSELFTEST: irq off boot hart ok ("]
+phase = "bringup"
+emit_when = { profile = "smp" }
+proves = "a bound device line was claimed and delivered by a CPU other than the boot hart — the line is enabled in its driver's home CPU's PLIC context (RFC-0118; cpu= irq=; unordered presence check)"
+
 [marker."KSELFTEST: plic isolation ok"]
 phase = "bringup"
 emit_when = { profile = "smp" }

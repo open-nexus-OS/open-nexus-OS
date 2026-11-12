@@ -378,6 +378,12 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
                 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
                 crate::liveness::quiet_stall_witness(cpu, tasks, now);
                 Attempt::Idle
+            } else if crate::irq::has_stash(cpu) {
+                // RFC-0118: a line this hart claimed while it was idle (its driver is homed
+                // here) is delivered under the lock held now; the driver it woke is on this
+                // hart's queue, so look again instead of sleeping.
+                crate::irq::dispatch_external(router, tasks, scheduler);
+                Attempt::Retry
             } else {
                 Attempt::Idle
             }
@@ -421,23 +427,18 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
                     // Secondary WFI idle: mask SIE, sleep unless a wake hint
                     // arrived, unmask. The hint (not RESCHED_PENDING, which
                     // the S_SOFT ack path consumes) closes the lost-wakeup
-                    // window: request_resched sets it before the IPI, and only
+                    // window: request_resched sets it before the IPI, the
+                    // external-interrupt trap when it stashed a line, and only
                     // this loop consumes it. A pending-but-masked interrupt
-                    // still wakes WFI.
-                    // SAFETY: SIE toggling around wfi; interrupts are handled
-                    // right after set_sie re-enables them.
-                    // Secondary WFI idle: mask SIE, sleep unless a wake hint
-                    // arrived, unmask. The hint (not RESCHED_PENDING, which
-                    // the S_SOFT ack path consumes) closes the lost-wakeup
-                    // window. A pending-but-masked interrupt still wakes WFI.
-                    // WFI (not spinning) is also what keeps QEMU vCPUs parked
-                    // instead of burning scheduler quanta on the BKL.
+                    // still wakes WFI. WFI (not spinning) is also what keeps
+                    // QEMU vCPUs parked instead of burning quanta on the BKL.
                     // SAFETY: SIE toggling around wfi; interrupts are handled
                     // right after set_sie re-enables them.
                     crate::smp::mark_cpu_idle(cpu, true);
                     unsafe {
                         riscv::register::sie::set_ssoft();
                         riscv::register::sie::set_stimer();
+                        riscv::register::sie::set_sext();
                         riscv::register::sstatus::clear_sie();
                         if !crate::smp::take_wake_hint(cpu) {
                             core::arch::asm!("wfi", options(nomem, nostack, preserves_flags));
@@ -569,10 +570,13 @@ pub(crate) fn kmain_secondary(cpu: CpuId, stack_top: usize) -> ! {
         core::hint::spin_loop();
     }
 
-    // A3/A4: join the scheduler with a per-hart preemption tick.
+    // A3/A4: join the scheduler with a per-hart preemption tick — and with the external
+    // interrupt unmasked (RFC-0118): the controller's contexts are initialised by now, and a
+    // line is enabled in this hart's only when a driver homed here bound it.
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     unsafe {
         riscv::register::sie::set_stimer();
+        riscv::register::sie::set_sext();
     }
     #[cfg(all(target_arch = "riscv64", target_os = "none", feature = "timer_irq"))]
     crate::trap::timer_arm(crate::trap::default_tick_cycles());

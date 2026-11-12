@@ -62,7 +62,7 @@ phase = "bringup"
 
 [marker."KGATE: smp bringup ok mask="]
 phase = "bringup"
-proves = "every hart the tree enables came online through SBI HSM (mask=0xf on the board's four, 0x1 on QEMU smp1)"
+proves = "every hart the tree enables came online through SBI HSM (mask=0xff on the board's eight, 0x1 on QEMU smp1)"
 
 [marker."KSELFTEST: spawn ok pid="]
 phase = "bringup"

@@ -5,25 +5,34 @@
 //! userspace driver block on a device IRQ instead of polling: the kernel claims
 //! the IRQ, delivers a notification to the bound endpoint, wakes the waiter, and
 //! leaves the source masked at the PLIC until the driver services the device and
-//! calls `irq_complete`. This is the reactive-input foundation (hidrawd blocks on
-//! the virtio-input IRQ).
+//! calls `irq_complete`. A line is taken on the hart its driver runs on (RFC-0118,
+//! TASK-0330 P8): it is enabled in one context — its binder's home CPU's — and follows
+//! that task when it is pinned elsewhere or migrates; the rules are `crate::irq_route`'s
+//! (host-proven), this module keeps one route per line and carries its steps out.
 //! OWNERS: @kernel-hal-team
 //! STATUS: Functional
 //! API_STABILITY: Internal
+//! TEST_COVERAGE: the route rules on the host (`crate::irq_route`); the path by every boot's
+//!   drivers and `KSELFTEST: irq off boot hart ok` on a lane with more than one hart
 //! INVARIANTS: no allocation beyond a small notification Vec; a claimed IRQ stays
 //!   masked until completed (level-triggered storm-safe); delivery runs only with
 //!   exclusive borrows (U-mode S_EXT trap, a syscall, or the idle loop under the
 //!   BKL) — an S-mode-interrupted hart claims into its per-hart stash instead and
-//!   its next `dispatch_external` delivers (`stash_undelivered`).
+//!   its next `dispatch_external` delivers (`stash_undelivered`); a claim and its record,
+//!   a route's change and its controller writes each happen under `LINES` (taken with
+//!   interrupts off, nothing is taken inside it).
 
 extern crate alloc;
 
-use core::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
 use crate::hal::plic::{self, IrqId, MAX_IRQ};
 use crate::ipc::{self, EndpointId};
+use crate::irq_route::{self, Cpu, Route, Step, Steps};
 use crate::sched::Scheduler;
+use crate::sync::spin_irq::SpinIrqLock;
 use crate::task;
+use crate::types::CpuId;
 
 /// IPC op byte for an IRQ-fired notification (payload: 4-byte LE source id).
 pub const OP_IRQ_FIRED: u8 = 0x70;
@@ -38,36 +47,113 @@ static IRQ_ENDPOINT: [AtomicU32; TABLE_LEN] = {
     [UNBOUND; TABLE_LEN]
 };
 
-/// `irq source id -> target CPU index` for the binding (A6). v1 policy: all
-/// bindings target the boot hart (its context takes the S_EXT trap); Phase B
-/// routes per affinity. Recorded so completion targets the claiming context.
-static IRQ_HOME_CPU: [AtomicU32; TABLE_LEN] = {
-    const BOOT: AtomicU32 = AtomicU32::new(0);
-    [BOOT; TABLE_LEN]
-};
-
-fn binding_cpu(irq: IrqId) -> crate::types::CpuId {
-    crate::types::CpuId::from_raw(IRQ_HOME_CPU[irq.raw() as usize].load(Ordering::Acquire) as u16)
+/// Where every line is at the controller, and whose home it follows.
+struct Lines {
+    route: [Route; TABLE_LEN],
+    /// The task that bound the line, until the line's endpoint dies (`forget_endpoint`).
+    owner: [Option<u32>; TABLE_LEN],
 }
 
-/// Binds `irq` to `endpoint` and enables the source at the PLIC for the boot
-/// hart's context (v1 routing policy). Idempotent; a later bind re-points the
-/// source.
-pub fn bind(irq: IrqId, endpoint: EndpointId) {
-    let cpu = crate::types::CpuId::BOOT;
-    IRQ_ENDPOINT[irq.raw() as usize].store(endpoint, Ordering::Release);
-    IRQ_HOME_CPU[irq.raw() as usize].store(cpu.as_index() as u32, Ordering::Release);
-    plic::enable_source(irq, cpu);
+/// One lock for the routes and for every enable-word write they cause: the controller's
+/// enable words are read-modify-write and shared by the lines of a context. A leaf lock —
+/// taken in the external-interrupt trap as well, hence with interrupts off.
+static LINES: SpinIrqLock<Lines> =
+    SpinIrqLock::new(Lines { route: [Route::UNBOUND; TABLE_LEN], owner: [None; TABLE_LEN] });
+
+/// Which tasks ever bound a line, by `pid mod 256` — a filter in front of `rehome`'s scan,
+/// so a task that owns no line costs a migration one load (a false hit costs one scan).
+static BINDERS: [AtomicU64; 4] = [const { AtomicU64::new(0) }; 4];
+
+fn binder_bit(owner: task::Pid) -> (usize, u64) {
+    let slot = owner.as_raw() as usize % 256;
+    (slot / 64, 1u64 << (slot % 64))
+}
+
+fn cpu_of(cpu: Cpu) -> CpuId {
+    CpuId::from_raw(u16::from(cpu))
+}
+
+fn here() -> Cpu {
+    Cpu::try_from(crate::smp::cpu_current_id().as_index()).unwrap_or(Cpu::MAX)
+}
+
+/// The CPU that takes a line whose driver is homed on `home` (`irq_route::target` on this
+/// machine: online, and the tree names a supervisor context for it).
+fn target_for(home: CpuId) -> Option<Cpu> {
+    irq_route::target(
+        Cpu::try_from(home.as_index()).unwrap_or(Cpu::MAX),
+        crate::smp::cpu_online().bits(),
+        |cpu| crate::hal::platform::plic_s_context(usize::from(cpu)).is_some(),
+    )
+}
+
+/// Tells the controller what a route decided. Called with `LINES` held.
+fn carry_out(irq: IrqId, steps: Steps) {
+    for step in steps.iter() {
+        match step {
+            Step::Enable(cpu) => plic::enable_source(irq, cpu_of(cpu)),
+            Step::Disable(cpu) => plic::disable_source(irq, cpu_of(cpu)),
+            Step::Complete(cpu) => plic::complete(irq, cpu_of(cpu)),
+        }
+    }
+}
+
+/// Binds `irq` to `endpoint` for the task `owner` and enables the line in the context of the
+/// CPU that takes it for `home` (the binder's home CPU). Idempotent; a later bind re-points
+/// the line. `None`: no online CPU has a controller context — the line cannot fire and
+/// nothing was bound.
+#[must_use]
+pub fn bind(irq: IrqId, endpoint: EndpointId, owner: task::Pid, home: CpuId) -> Option<CpuId> {
+    let cpu = target_for(home)?;
+    let id = irq.raw() as usize;
+    let (word, bit) = binder_bit(owner);
+    BINDERS[word].fetch_or(bit, Ordering::AcqRel);
+    IRQ_ENDPOINT[id].store(endpoint, Ordering::Release);
+    let mut lines = LINES.lock();
+    lines.owner[id] = Some(owner.as_raw());
+    let steps = lines.route[id].want(Some(cpu));
+    carry_out(irq, steps);
+    Some(cpu_of(cpu))
+}
+
+/// The task `owner` is homed on `home` now (a pin or a migration): every line it bound
+/// follows — at once, or at its completion when a claim is outstanding.
+pub fn rehome(owner: task::Pid, home: CpuId) {
+    let (word, bit) = binder_bit(owner);
+    if BINDERS[word].load(Ordering::Acquire) & bit == 0 {
+        return;
+    }
+    let cpu = target_for(home);
+    let key = Some(owner.as_raw());
+    let last = (crate::hal::platform::plic_ndev() as usize).min(MAX_IRQ as usize);
+    let mut lines = LINES.lock();
+    for id in 1..=last {
+        if lines.owner[id] != key {
+            continue;
+        }
+        if let Some(irq) = IrqId::new(id as u32) {
+            let steps = lines.route[id].want(cpu);
+            carry_out(irq, steps);
+        }
+    }
 }
 
 /// Drops every binding that targets `endpoint` — the endpoint died (TASK-0333 6a), and a
-/// line firing into its slot's next tenant would be a message nobody sent. The PLIC source
-/// stays enabled; an unbound fire is dropped like one before any bind. Returns the lines.
+/// line firing into its slot's next tenant would be a message nobody sent. The line is
+/// released at the controller: a claim its dead driver can no longer complete is completed,
+/// the line disabled — the driver's successor binds a line that can fire. Returns the lines.
 pub fn forget_endpoint(endpoint: EndpointId) -> usize {
     let mut dropped = 0;
-    for slot in IRQ_ENDPOINT.iter().skip(1) {
+    for (id, slot) in IRQ_ENDPOINT.iter().enumerate().skip(1) {
         if slot.compare_exchange(endpoint, 0, Ordering::AcqRel, Ordering::Acquire).is_ok() {
             dropped += 1;
+            let Some(irq) = IrqId::new(id as u32) else {
+                continue;
+            };
+            let mut lines = LINES.lock();
+            lines.owner[id] = None;
+            let steps = lines.route[id].release();
+            carry_out(irq, steps);
         }
     }
     dropped
@@ -84,10 +170,34 @@ pub fn binding(irq: IrqId) -> Option<EndpointId> {
 
 /// Completes `irq` at the PLIC so it can fire again. A driver calls this after it
 /// has cleared the device's interrupt condition (drained the virtqueue). The
-/// completion targets the BINDING's context — the syscall may run on any hart,
-/// but the claim happened where the source is enabled (A6).
+/// completion goes to the context that claimed the line — the syscall may run on any
+/// hart — and a move that waited for it follows.
 pub fn complete(irq: IrqId) {
-    plic::complete(irq, binding_cpu(irq));
+    let mut lines = LINES.lock();
+    let steps = lines.route[irq.raw() as usize].complete();
+    carry_out(irq, steps);
+}
+
+/// Claims this hart's next pending line and records where — one step under `LINES`, so a
+/// move decided on another hart either sees the claim or is carried out before it.
+fn claim_here(cpu: Cpu) -> Option<IrqId> {
+    let mut lines = LINES.lock();
+    let irq = plic::claim()?;
+    // The console's line is the kernel's (RFC-0107): never routed, completed by its handler.
+    if crate::hal::platform::console_irq() != Some(irq) {
+        lines.route[irq.raw() as usize].claimed(cpu);
+    }
+    Some(irq)
+}
+
+/// A claimed line nobody is bound to: completed, then disabled — it cannot storm, and a
+/// later bind finds a line that can fire.
+fn quarantine(irq: IrqId, cpu: Cpu) {
+    let id = irq.raw() as usize;
+    let mut lines = LINES.lock();
+    lines.owner[id] = None;
+    let steps = lines.route[id].quarantine(cpu);
+    carry_out(irq, steps);
 }
 
 fn irq_payload(irq: IrqId) -> [u8; 4] {
@@ -125,30 +235,46 @@ pub fn size(harts: usize) -> Result<(), crate::sync::hart_table::SizeError> {
     STASHED.size(harts, empty_stash)
 }
 
+/// Whether `cpu` holds lines it claimed and has not delivered — its idle loop delivers them
+/// before it sleeps.
+#[must_use]
+pub fn has_stash(cpu: CpuId) -> bool {
+    STASHED
+        .get(cpu.as_index())
+        .is_some_and(|stash| stash.iter().any(|word| word.load(Ordering::Acquire) != 0))
+}
+
 /// Claims every pending source for this hart's context WITHOUT completing it
 /// and records it in the hart's stash (bound sources) or quarantines it
-/// (unbound: masked + completed). Used on the S-mode external trap once the
-/// runtime runs; the idle loop's `dispatch_external` delivers the stash.
+/// (unbound: completed + masked). Used on the S-mode external trap once the
+/// runtime runs; the idle loop's `dispatch_external` delivers the stash. The hart is
+/// told not to sleep on it: the claim took the line's pending bit, so nothing else would
+/// wake a hart that reaches its `wfi` right after this trap.
 pub fn stash_undelivered() {
-    let cpu = crate::smp::cpu_current_id().as_index();
-    let Some(stash) = STASHED.get(cpu) else {
+    let me = crate::smp::cpu_current_id();
+    let Some(stash) = STASHED.get(me.as_index()) else {
         drain_undelivered();
         return;
     };
+    let cpu = here();
+    let mut stashed = false;
     for _ in 0..TABLE_LEN {
-        let Some(irq) = plic::claim() else {
+        let Some(irq) = claim_here(cpu) else {
             break;
         };
         if crate::hal::platform::console_irq_fired(irq) {
             continue;
         }
         let id = irq.raw() as usize;
-        if binding(irq).is_some() && id < TABLE_LEN {
+        if binding(irq).is_some() {
             stash[id / 64].fetch_or(1u64 << (id % 64), Ordering::AcqRel);
+            stashed = true;
         } else {
-            plic::disable_source(irq, crate::smp::cpu_current_id());
-            plic::complete_current(irq);
+            quarantine(irq, cpu);
         }
+    }
+    if stashed {
+        crate::smp::set_wake_hint(me);
     }
 }
 
@@ -168,23 +294,25 @@ fn take_stashed(cpu: usize) -> [u64; STASH_WORDS] {
 /// mask bound sources (delivery resumes on the next U-mode trap). Bounded by the
 /// source count.
 pub fn drain_undelivered() {
+    let cpu = here();
     for _ in 0..TABLE_LEN {
-        let Some(irq) = plic::claim() else {
+        let Some(irq) = claim_here(cpu) else {
             break;
         };
         // Unbound sources are masked so they cannot re-assert into a storm; bound
         // sources are left enabled (just completed) so a later U-mode trap can
         // deliver them.
         if binding(irq).is_none() {
-            plic::disable_source(irq, crate::smp::cpu_current_id());
+            quarantine(irq, cpu);
+        } else {
+            complete(irq);
         }
-        plic::complete_current(irq);
     }
 }
 
 /// Drains all pending external interrupts for our context, delivering each to its
 /// bound endpoint (and waking a blocked driver). Unbound sources are quarantined
-/// (masked + completed) so a stray device cannot storm the CPU.
+/// (completed + masked) so a stray device cannot storm the CPU.
 ///
 /// Caller contract: invoked with exclusive borrows — the S_EXT/timer trap with
 /// a USER-mode interrupted context, or the scheduler idle loop under the BKL —
@@ -195,34 +323,27 @@ pub fn dispatch_external(
     tasks: &mut task::TaskTable,
     scheduler: &mut Scheduler,
 ) {
-    let cpu = crate::smp::cpu_current_id().as_index();
-    let stashed = take_stashed(cpu);
+    let cpu = here();
+    let stashed = take_stashed(usize::from(cpu));
     for (w, word) in stashed.iter().enumerate() {
         let mut bits = *word;
         while bits != 0 {
             let bit = bits.trailing_zeros() as usize;
             bits &= bits - 1;
-            let id = w * 64 + bit;
-            if id == 0 || id > MAX_IRQ as usize {
-                continue;
-            }
-            let Some(irq) = IrqId::new(id as u32) else {
+            let Some(irq) = IrqId::new((w * 64 + bit) as u32) else {
                 continue;
             };
             match binding(irq) {
                 Some(ep) => deliver(irq, ep, router, tasks, scheduler),
-                None => {
-                    // Unbound since the claim: quarantine like a fresh claim.
-                    plic::disable_source(irq, crate::smp::cpu_current_id());
-                    plic::complete_current(irq);
-                }
+                // Unbound since the claim: quarantine like a fresh claim.
+                None => quarantine(irq, cpu),
             }
         }
     }
     // Bound: at most MAX_IRQ claims (each claimed source is masked until
     // completed, so the loop cannot spin on a re-asserting level IRQ).
     for _ in 0..TABLE_LEN {
-        let Some(irq) = plic::claim() else {
+        let Some(irq) = claim_here(cpu) else {
             break;
         };
         if crate::hal::platform::console_irq_fired(irq) {
@@ -230,14 +351,15 @@ pub fn dispatch_external(
         }
         match binding(irq) {
             Some(ep) => deliver(irq, ep, router, tasks, scheduler),
-            None => {
-                // No driver: mask + complete so it cannot re-fire indefinitely.
-                plic::disable_source(irq, crate::smp::cpu_current_id());
-                plic::complete_current(irq);
-            }
+            // No driver: complete + mask so it cannot re-fire indefinitely.
+            None => quarantine(irq, cpu),
         }
     }
 }
+
+/// The first line a CPU other than the boot hart delivered is named once (the proof that
+/// interrupts are served where their drivers run).
+static OFF_BOOT_NAMED: AtomicBool = AtomicBool::new(false);
 
 /// Delivers one claimed source to its bound endpoint and wakes the waiter.
 /// The source stays masked (no complete) until the driver services the device
@@ -256,6 +378,15 @@ fn deliver(
     if router.send(ep, msg).is_ok() {
         if let Ok(Some(waiter)) = router.pop_recv_waiter(ep) {
             let _ = tasks.wake(task::Pid::from_raw(waiter), scheduler);
+        }
+        let cpu = crate::smp::cpu_current_id();
+        if !cpu.is_boot() && !OFF_BOOT_NAMED.swap(true, Ordering::AcqRel) {
+            log_info!(
+                target: "smp",
+                "KSELFTEST: irq off boot hart ok (cpu={} irq={})",
+                cpu.as_index(),
+                irq.raw()
+            );
         }
     }
 }

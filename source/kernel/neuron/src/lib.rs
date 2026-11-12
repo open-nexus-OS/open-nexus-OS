@@ -476,12 +476,13 @@ pub mod console_line;
 mod ipc_eof;
 // RFC-0112: the capability-transfer rules (parent-only, REPLACE_DEAD) — pure, host-tested.
 mod cap_rules;
-// TASK-0054C P1 (RFC-0096): the pure IPC-path counters — NOT target-gated so
-// their record/reset contract runs on host. Fed by the send/recv paths.
+// TASK-0054C P1 (RFC-0096): the pure IPC-path counters, host-tested; fed by send/recv.
 #[path = "ipc/stats.rs"]
 mod ipc_stats;
-// TASK-0330 S0: the kernel lock's wait/hold accounting — NOT target-gated (`mod trap` is
-// riscv/none-only), so the window rule and the units run on host. Fed by `trap::budgets`.
+// TASK-0330 P8 (RFC-0118): where a line's interrupt is enabled — pure, host-tested.
+#[path = "core/irq_route.rs"]
+pub mod irq_route;
+// TASK-0330 S0: the kernel lock's wait/hold accounting, host-tested; fed by `trap::budgets`.
 #[path = "core/trap/lock_stats.rs"]
 mod lock_stats;
 // TASK-0330 P0: where the kernel lock's time goes (per holder, in sum) and how long a
@@ -491,8 +492,7 @@ mod lock_stats;
 mod lock_share;
 #[path = "sched/ready_stats.rs"]
 mod ready_stats;
-// TASK-0363 P0: who yields, per task — host-tested like its neighbours; fed by the yield
-// syscall.
+// TASK-0363 P0: who yields, per task — host-tested; fed by the yield syscall.
 #[path = "sched/yield_stats.rs"]
 mod yield_stats;
 // TASK-0333 6c-1a (ADR-0079): the pure cache-maintenance rule — NOT target-gated, so the

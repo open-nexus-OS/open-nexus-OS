@@ -5,7 +5,7 @@ role: reference
 subsystem: kernel
 sources: [source/kernel/neuron/src/mm/hart_spaces.rs, source/kernel/neuron/src/mm/address_space.rs, source/kernel/neuron/src/core/trap/pending.rs, source/kernel/neuron/src/core/trap/fault.rs, source/kernel/neuron/src/task/reap.rs]
 contracts: [ADR-0082, RFC-0021]
-verified: 2026-11-11
+verified: 2026-11-12
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->

@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-11-12 (a device interrupt is taken on the hart its driver runs on — TASK-0330 P8, RFC-0118)
+
+- **A bound line is enabled in one PLIC context: its binder's home CPU's.** Until now every
+  binding went to CPU 0's context and only CPU 0 unmasked the external interrupt, so a driver
+  on another hart was woken across harts. The line follows the binder when it is pinned
+  elsewhere or migrates (off in the old context, then on in the new); a home without a context
+  sends it to the lowest online CPU that has one, and with none the bind is refused (`EINVAL`).
+- **A claim is completed where it was made, while the line is enabled there.** A move under
+  an outstanding claim waits for the completion; a line without a driver is completed, then
+  disabled (the order was the other way round — a controller that follows the specification
+  ignores that completion and the line never fires again); a line whose driver died is
+  released the same way, so the driver's successor binds a line that can fire.
+- **Every hart unmasks the external interrupt** when it joins the scheduler and delivers what
+  it claimed — from user mode at once, from its idle loop otherwise; a hart that stashed a
+  line does not sleep on it.
+- The rules are pure and host-tested against a controller as specified (`core/irq_route.rs`,
+  10 tests, 10 000 random events); the routes and every enable write sit under one leaf lock,
+  not the kernel lock. Proof on a multi-hart lane: `KSELFTEST: irq off boot hart ok (cpu=1
+  irq=5)` — the block device's line, delivered where its driver runs; on the board (build
+  `dev-0f0ef702`) `(cpu=6 irq=101)`, the storage host. The board ladder requires the line, with
+  `per-hart state ok` and `smp online ok` (109 rungs).
+
 ### Changed - 2026-11-11 (every hart the device tree names runs — TASK-0330 P1, RFC-0118)
 
 - **No constant counts harts.** The kernel builds one topology from the tree's `/cpus`

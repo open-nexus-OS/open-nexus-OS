@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: PLIC driver — base and per-CPU supervisor contexts READ from the
-//! device tree (RFC-0098 C3, RFC-0118; `hal::platform`, `crate::topology`); v1 binding policy
-//! routes device interrupts to the boot hart's context, delivered reactively to userspace
-//! drivers.
+//! device tree (RFC-0098 C3, RFC-0118; `hal::platform`, `crate::topology`). Which context a
+//! line is enabled in is `crate::irq`'s decision (its driver's home CPU's); this file writes
+//! the registers.
 //! OWNERS: @kernel-hal-team
 //! STATUS: Functional
 //! API_STABILITY: Internal
@@ -152,8 +152,8 @@ pub fn selftest_source_enabled(irq: IrqId, cpu: crate::types::CpuId) -> bool {
 }
 
 /// Enables `irq` for `cpu`'s supervisor context with a non-zero priority,
-/// so it can be delivered there. Idempotent. v1 policy: bindings target the
-/// boot hart (the S_EXT trap is boot-owned); Phase B routes per affinity.
+/// so it can be delivered there. Idempotent. The enable words are read-modify-write: the
+/// caller serialises them (`crate::irq`'s line lock; boot, before a second hart schedules).
 pub fn enable_source(irq: IrqId, cpu: crate::types::CpuId) {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {

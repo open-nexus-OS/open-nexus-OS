@@ -2,9 +2,10 @@
 schema: 1
 id: RFC-0118
 title: "n harts from the device tree: a 64-bit CPU set, per-hart state sized at boot, the topology exported"
-status: draft
+status: in_progress
 owners: ["@kernel-team"]
 created: 2026-11-10
+updated: 2026-11-12
 subsystem: kernel
 tasks: [TASK-0330, TASK-0365]
 depends_on: [RFC-0021, RFC-0098]
@@ -102,9 +103,17 @@ online that is not run).
 - A hart's PLIC context is the one the tree's `interrupts-extended` of the controller names for
   its supervisor external interrupt — not `2·hart + 1`. Every online hart's context is
   initialised (threshold, all sources disabled).
-- A bound interrupt is enabled in exactly one context: its driver thread's home CPU's. When the
-  home changes, the kernel moves the enable (off in the old context, on in the new) at the
-  thread's next dispatch; a claim is completed in the context it was claimed in.
+- A bound interrupt is enabled in exactly one context: the one of the CPU its binder is homed
+  on — or, when that CPU has no context, the lowest online CPU that has one; with none the bind
+  is refused (`EINVAL`). When the binder's home changes (a pin, a migration) the kernel moves
+  the enable where the home changes: off in the old context, then on in the new, never both.
+- A claim is completed in the context that claimed it, while the line is still enabled there
+  (a controller ignores the completion of a line that is not enabled for the target). A move
+  decided while a claim is outstanding therefore waits for that completion; a line without a
+  driver that fires is completed, then disabled.
+- Every hart unmasks the external interrupt when it joins the scheduler and delivers what it
+  claimed: at once from user mode, from its idle loop otherwise (a hart that stashed a line
+  does not sleep on it). The rules are pure and host-proven (`core/irq_route.rs`).
 - The console's line stays the kernel's (RFC-0107) and stays on CPU 0.
 
 ### Starting a hart
@@ -136,6 +145,10 @@ online that is not run).
 | every per-hart table holds exactly the machine's CPUs, and none was forgotten at sizing | `KSELFTEST: per-hart state ok (harts= unsized=0)` on every lane; `sync::hart_table` host tests |
 | a reader of the topology refuses answers that describe no machine | `test_reject_answers_that_describe_no_machine` |
 | a role's set is one the kernel admits on every machine | `placement_ssot_roles_are_sane` (one CPU, two, eight with one lost) |
+| a line is enabled in at most one context, and no completion is one the controller ignores | `irq_route` host tests: `random_events_never_lose_or_double_a_line` against a controller as specified |
+| a move under an outstanding claim waits for its completion | `test_reject_move_under_an_outstanding_claim` |
+| a line never goes to a CPU that is offline or has no context | `test_reject_target_without_a_context_or_offline` |
+| a bound line is served where its driver runs | `KSELFTEST: irq off boot hart ok (cpu= irq=)` on every multi-hart lane and the board |
 
 ## Failure model
 

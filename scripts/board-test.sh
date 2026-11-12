@@ -80,6 +80,13 @@ ladder_headless=(
   "KSELFTEST: boot handoff ok (measured)"
   "KSELFTEST: platform from fdt ok ("
   "KGATE: smp bringup ok mask="
+  # TASK-0330 P1/P8 (RFC-0118): the per-hart state holds exactly the machine's CPUs, the
+  # tree's CPUs and clusters are online (the bring-up gate above judges the mask against the
+  # machine), and a device line is taken on the hart its driver runs on — the storage host's
+  # driver is homed off CPU 0 on any board with more than one hart.
+  "KSELFTEST: per-hart state ok ("
+  "KSELFTEST: smp online ok"
+  "KSELFTEST: irq off boot hart ok ("
   # TASK-0330 S2a: the console's serial time is off the kernel lock (the board's layer-0
   # longest holders were the two console syscalls).
   "KSELFTEST: console off lock ok ("

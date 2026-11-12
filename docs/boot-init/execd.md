@@ -5,7 +5,7 @@ role: guide
 subsystem: app-platform
 sources: [source/services/execd, source/kernel/neuron/src/syscall/api/exec.rs, source/libs/nexus-wire/src/execd.rs]
 contracts: [ADR-0080, ADR-0081, ADR-0091, ADR-0073, RFC-0081, RFC-0111]
-verified: 2026-11-10
+verified: 2026-11-12
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->

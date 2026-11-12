@@ -5,7 +5,7 @@ role: guide
 subsystem: app-platform
 sources: [source/init/nexus-init, source/libs/nexus-service-topology, scripts/system-volume-services.txt]
 contracts: [ADR-0062, ADR-0060, ADR-0081, ADR-0057, RFC-0093, RFC-0087]
-verified: 2026-11-11
+verified: 2026-11-12
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
