@@ -14,7 +14,9 @@
 
 use super::{TableLock, VmoId};
 
-const CREATING_SLOTS: usize = crate::smp::MAX_CPUS * 2;
+/// Two per CPU a set can name: the table is a static (a create runs before any sizing could),
+/// so it is bounded by the one ceiling of the CPU count, not by a machine.
+const CREATING_SLOTS: usize = nexus_sched::CpuSet::BITS * 2;
 static CREATING: TableLock<[VmoId; CREATING_SLOTS]> = TableLock::new([0; CREATING_SLOTS]);
 
 /// Mark (`on`) or clear the in-creation state of `id`.

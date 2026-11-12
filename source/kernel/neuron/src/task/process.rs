@@ -278,11 +278,8 @@ impl TaskTable {
             return ResumeOutcome::Resumed;
         }
         // A4/B: keep resume consistent with home CPU, affinity and online set.
-        let home_cpu = clamp_home_to_affinity(
-            task.affinity_mask,
-            task.home_cpu,
-            crate::smp::cpu_online_mask(),
-        );
+        let home_cpu =
+            clamp_home_to_affinity(task.affinity, task.home_cpu, crate::smp::cpu_online());
         match scheduler.enqueue_on_cpu(home_cpu, pid, task.qos) {
             crate::sched::EnqueueOutcome::Enqueued => {
                 if home_cpu != crate::smp::cpu_current_id() {

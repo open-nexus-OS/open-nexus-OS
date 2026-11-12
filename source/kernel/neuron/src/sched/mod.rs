@@ -14,7 +14,7 @@
 extern crate alloc;
 
 use alloc::collections::VecDeque;
-use core::{array, marker::PhantomData};
+use core::marker::PhantomData;
 
 // use crate::determinism; // not needed after inlined guarded access
 use crate::types::{CpuId, Pid};
@@ -145,7 +145,8 @@ impl CpuRunQueues {
 /// markers keep their meaning. SMP=1: everything lands on CPU 0 with
 /// byte-identical scheduling order to the pre-SMP scheduler.
 pub struct Scheduler {
-    cpus: [CpuRunQueues; crate::smp::MAX_CPUS],
+    /// One entry per logical CPU of the machine (RFC-0118), built once at boot.
+    cpus: alloc::boxed::Box<[CpuRunQueues]>,
     timeslice_ns: u64,
     // Access is serialized by the BKL; the type must not cross harts on its own.
     _not_send_sync: PhantomData<*mut ()>,
@@ -159,11 +160,7 @@ impl Scheduler {
     #[inline]
     fn current_cpu_index() -> usize {
         let idx = crate::smp::cpu_current_id().as_index();
-        if idx < crate::smp::MAX_CPUS {
-            idx
-        } else {
-            0
-        }
+        idx * (idx < crate::topology::hart_count()) as usize
     }
 
     #[inline]
@@ -215,7 +212,7 @@ impl Scheduler {
             }
         }
         let s = Self {
-            cpus: array::from_fn(|_| CpuRunQueues::new()),
+            cpus: (0..crate::topology::hart_count()).map(|_| CpuRunQueues::new()).collect(),
             timeslice_ns: ts,
             _not_send_sync: PhantomData,
         };
@@ -431,14 +428,14 @@ impl Scheduler {
             QosClass::Normal => &STEAL_CLASSES_NORMAL,
             QosClass::Idle => &STEAL_CLASSES_IDLE,
         };
-        let online_mask = crate::smp::cpu_online_mask();
+        let online = crate::smp::cpu_online();
         for class in steal_classes {
-            for victim in 0..crate::smp::MAX_CPUS {
+            for victim in 0..self.cpus.len() {
                 if victim == local_cpu {
                     continue;
                 }
-                // Unit tests run without a real CPU-online mask contract.
-                if !cfg!(test) && online_mask != 0 && (online_mask & (1usize << victim)) == 0 {
+                // Unit tests run without a real CPU-online set contract.
+                if !cfg!(test) && !online.is_empty() && !online.contains(victim) {
                     continue;
                 }
                 if let Some(task) = self.selftest_queue_for(victim, *class).pop_front() {
@@ -452,7 +449,7 @@ impl Scheduler {
 
     pub fn selftest_reset_cpu(&mut self, cpu: CpuId) {
         let cpu_idx = cpu.as_index();
-        if cpu_idx >= crate::smp::MAX_CPUS {
+        if cpu_idx >= self.cpus.len() {
             return;
         }
         for queue in &mut self.cpus[cpu_idx].queues {
@@ -469,7 +466,7 @@ impl Scheduler {
     /// during IPC wakeups.
     pub fn enqueue_on_cpu(&mut self, cpu: CpuId, id: TaskId, qos: QosClass) -> EnqueueOutcome {
         let cpu_idx = cpu.as_index();
-        if cpu_idx >= crate::smp::MAX_CPUS {
+        if cpu_idx >= self.cpus.len() {
             return EnqueueOutcome::Rejected(EnqueueRejectReason::InvalidCpu { cpu });
         }
         // Bounded bring-up diagnostic: the first few REMOTE enqueues prove
@@ -508,7 +505,7 @@ impl Scheduler {
         // reorder) at the FRONT of its HOME CPU's queue — `schedule_next` has no
         // affinity check, so the old cpu0 park RAN background work on the display hart.
         if !allow(task.id) {
-            let home = home_of(task.id).min(crate::smp::MAX_CPUS - 1);
+            let home = home_of(task.id).min(self.cpus.len() - 1);
             self.cpus[home].queue_mut(task.qos).push_front(task);
             return None;
         }
@@ -534,7 +531,7 @@ impl Scheduler {
         qos: QosClass,
     ) -> EnqueueOutcome {
         let cpu_idx = cpu.as_index();
-        if cpu_idx >= crate::smp::MAX_CPUS {
+        if cpu_idx >= self.cpus.len() {
             return EnqueueOutcome::Rejected(EnqueueRejectReason::InvalidCpu { cpu });
         }
         let task = Task::ready(id, qos, self.cpus[cpu_idx].current.as_ref());
@@ -548,7 +545,7 @@ impl Scheduler {
 
     pub fn selftest_schedule_on_cpu(&mut self, cpu: CpuId) -> Option<TaskId> {
         let cpu_idx = cpu.as_index();
-        if cpu_idx >= crate::smp::MAX_CPUS {
+        if cpu_idx >= self.cpus.len() {
             return None;
         }
 
@@ -576,7 +573,7 @@ impl Scheduler {
         max_qos: QosClass,
     ) -> Option<TaskId> {
         let cpu_idx = local_cpu.as_index();
-        if cpu_idx >= crate::smp::MAX_CPUS {
+        if cpu_idx >= self.cpus.len() {
             return None;
         }
         self.selftest_try_steal(cpu_idx, max_qos).map(|task| task.id)
@@ -584,7 +581,7 @@ impl Scheduler {
 
     pub fn selftest_queue_len(&self, cpu: CpuId, qos: QosClass) -> usize {
         let cpu_idx = cpu.as_index();
-        if cpu_idx >= crate::smp::MAX_CPUS {
+        if cpu_idx >= self.cpus.len() {
             return 0;
         }
         let queue_idx = match qos {

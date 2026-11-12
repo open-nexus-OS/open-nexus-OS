@@ -47,6 +47,47 @@ pub fn record_bkl_wait(t0: u64, ticks: u64) {
     crate::lock_stats::record_wait(t0, ticks, ticks_per_us());
 }
 
+/// A wait of the convoy class (above 10 ms) names its hart, what it wanted the lock for, how
+/// long it stood back for CPU 0's right of way and how often the lock changed hands meanwhile:
+/// passed over many times is a lock that is not fair, passed over by one holder is that
+/// holder's hold (`bkl long hold`), by none is a hart that did not run (the first few; the
+/// gate judges the maximum).
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+pub fn note_long_wait(waited: u64, holder: usize, deferred: u32, passed_over: u64) {
+    if waited > crate::hal::platform::ns_to_ticks(10_000_000) {
+        static LONG_WAIT_LOGGED: AtomicUsize = AtomicUsize::new(0);
+        if LONG_WAIT_LOGGED.fetch_add(1, Ordering::Relaxed) < 12 {
+            log_info!(
+                target: "smp",
+                "KINIT: bkl long wait {}us cpu{} for={} deferred={} passed_over={}",
+                waited / ticks_per_us(),
+                crate::smp::cpu_current_id().as_index(),
+                holder,
+                deferred,
+                passed_over
+            );
+        }
+    }
+}
+
+/// A hold of the convoy class names its holder — a syscall or a trap kind; the ecall budget
+/// sees syscalls only (the first few).
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+pub fn note_long_hold(held: u64, holder: usize) {
+    if held > crate::hal::platform::ns_to_ticks(10_000_000) {
+        static LONG_HOLD_LOGGED: AtomicUsize = AtomicUsize::new(0);
+        if LONG_HOLD_LOGGED.fetch_add(1, Ordering::Relaxed) < 12 {
+            log_info!(
+                target: "smp",
+                "KINIT: bkl long hold {}us cpu{} by={}",
+                held / ticks_per_us(),
+                crate::smp::cpu_current_id().as_index(),
+                holder
+            );
+        }
+    }
+}
+
 /// Closes an ecall that began at `t0`: records its hold and names the first few above 10 ms.
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 pub fn record_ecall(t0: u64, nr: u64) {

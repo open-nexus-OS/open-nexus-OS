@@ -4,7 +4,7 @@ title: "SMP and IPIs"
 role: guide
 subsystem: kernel
 sources: [source/kernel/neuron/src/core/smp, source/kernel/neuron/src/sync, source/kernel/neuron/src/core/cpu_main.rs, source/kernel/neuron/src/core/trap/runtime.rs]
-contracts: [RFC-0021, ADR-0049, ADR-0052]
+contracts: [RFC-0021, RFC-0118, ADR-0049, ADR-0052]
 verified: 2026-11-11
 ---
 
@@ -17,13 +17,14 @@ verified: 2026-11-11
 > **Owns** — `source/kernel/neuron/src/core/smp/`, `source/kernel/neuron/src/sync/`
 > **Contracts** — [RFC-0021](../rfcs/RFC-0021-kernel-smp-v1-percpu-runqueues-ipi-contract.md), [ADR-0049](../adr/0049-bkl-lockclass-and-softrt-cpu-placement.md), [ADR-0052](../adr/0052-per-hart-earliest-deadline-timer-and-affinity-respecting-steal.md)
 > **Invariants** — a correctness IPI is never dropped. No lock is held across a context switch. Never take the BKL while holding a lock below it. A hart without a task runs on the kernel's own space; a space a hart runs on is never freed.
-> **Read next** — [README.md](README.md), [hart-spaces.md](hart-spaces.md), [../architecture/concurrency.md](../architecture/concurrency.md)
+> **Read next** — [README.md](README.md), [topology.md](topology.md), [hart-spaces.md](hart-spaces.md), [../architecture/concurrency.md](../architecture/concurrency.md)
 
 ## Shape
 
-- `MAX_CPUS` = 4 (`source/kernel/neuron/src/core/smp/mod.rs`). The interactive launcher boots
-  `SMP=4`; proof lanes default to `SMP=1`; the `smp` profile and `just ci-os-smp` run several harts
-  under MTTCG. With `SMP=1` everything lands on CPU 0 in the same order as a single-CPU scheduler.
+- The harts are the device tree's (RFC-0118): [topology.md](topology.md).
+- The interactive launcher boots `SMP=4`; proof lanes default to `SMP=1`; the `smp` profile and
+  `just ci-os-smp` run several harts under MTTCG. With `SMP=1` everything lands on CPU 0 in the
+  same order as a single-CPU scheduler.
 - Every hart runs `cpu_main` (`source/kernel/neuron/src/core/cpu_main.rs`) and schedules from its
   own run-queue set inside the one `Scheduler`. Secondaries park in WFI until `runtime_ready()`
   (set after kernel selftests and the init spawn).
@@ -32,19 +33,17 @@ verified: 2026-11-11
 
 `source/kernel/neuron/src/core/smp/bringup.rs` starts secondaries one by one over SBI HSM, waits for
 each to settle, re-issues the start for a hart that did not come online (bounded), and prints
-the gate:
+the gate ([topology.md](topology.md)):
 
-- `KINIT: cpuN online` per hart, `KINIT: hartN disabled by the tree — not started` for a hart the
-  device tree disables;
+- `KINIT: cpuN online` and `KGATE: smp cpuN hart=… online= asm= stage= hsm=` per CPU;
 - `KGATE: smp bringup ok mask=0x…`, or `KGATE: smp bringup DEGRADED expected=… got=…` — a lost hart
   degrades the boot loudly instead of killing it;
+- `KSELFTEST: smp online ok harts= clusters=`;
 - `KINIT: isa from hart=… base= f= d= v= …` — what the tree states the harts offer, one line per
   run of harts stating the same (`source/kernel/neuron/src/core/boot_fdt.rs`);
 - `KINIT: cpuN speed (loop_us= iters= left=)` — the time of one fixed two-instruction loop when
   the hart first enters its scheduling loop; the same loop runs on the stock system for the
   comparison of the clocks (`docs/board/measurements/2026-11-10-smp-baseline/hartspeed.rs`).
-
-RFC-0118 replaces `MAX_CPUS` by the tree's hart count (TASK-0330 P1).
 
 ## CPU identity
 

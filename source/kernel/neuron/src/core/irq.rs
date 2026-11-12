@@ -109,11 +109,21 @@ fn irq_payload(irq: IrqId) -> [u8; 4] {
 /// the block-plane IRQ was never delivered (`init: volume spawn FAIL
 /// reason=query`, 2026-09-08).
 const STASH_WORDS: usize = (TABLE_LEN + 63) / 64;
-static STASHED: [[AtomicU64; STASH_WORDS]; crate::smp::MAX_CPUS] = {
-    const WORD: AtomicU64 = AtomicU64::new(0);
-    const ROW: [AtomicU64; STASH_WORDS] = [WORD; STASH_WORDS];
-    [ROW; crate::smp::MAX_CPUS]
-};
+type Stash = [AtomicU64; STASH_WORDS];
+
+const fn empty_stash() -> Stash {
+    [const { AtomicU64::new(0) }; STASH_WORDS]
+}
+
+/// One stash per CPU; the boot hart's is the static's own (a trap may stash before any
+/// allocator runs), the others come with the machine (`smp::size_for_machine`).
+static STASHED: crate::sync::hart_table::HartTable<Stash> =
+    crate::sync::hart_table::HartTable::new(empty_stash());
+
+/// Sizes the stashes for a machine of `harts` CPUs.
+pub fn size(harts: usize) -> Result<(), crate::sync::hart_table::SizeError> {
+    STASHED.size(harts, empty_stash)
+}
 
 /// Claims every pending source for this hart's context WITHOUT completing it
 /// and records it in the hart's stash (bound sources) or quarantines it
@@ -121,10 +131,10 @@ static STASHED: [[AtomicU64; STASH_WORDS]; crate::smp::MAX_CPUS] = {
 /// runtime runs; the idle loop's `dispatch_external` delivers the stash.
 pub fn stash_undelivered() {
     let cpu = crate::smp::cpu_current_id().as_index();
-    if cpu >= crate::smp::MAX_CPUS {
+    let Some(stash) = STASHED.get(cpu) else {
         drain_undelivered();
         return;
-    }
+    };
     for _ in 0..TABLE_LEN {
         let Some(irq) = plic::claim() else {
             break;
@@ -134,7 +144,7 @@ pub fn stash_undelivered() {
         }
         let id = irq.raw() as usize;
         if binding(irq).is_some() && id < TABLE_LEN {
-            STASHED[cpu][id / 64].fetch_or(1u64 << (id % 64), Ordering::AcqRel);
+            stash[id / 64].fetch_or(1u64 << (id % 64), Ordering::AcqRel);
         } else {
             plic::disable_source(irq, crate::smp::cpu_current_id());
             plic::complete_current(irq);
@@ -145,9 +155,9 @@ pub fn stash_undelivered() {
 /// Takes this hart's stash (claimed, undelivered, still masked sources).
 fn take_stashed(cpu: usize) -> [u64; STASH_WORDS] {
     let mut out = [0u64; STASH_WORDS];
-    if cpu < crate::smp::MAX_CPUS {
-        for (w, slot) in out.iter_mut().enumerate() {
-            *slot = STASHED[cpu][w].swap(0, Ordering::AcqRel);
+    if let Some(stash) = STASHED.get(cpu) {
+        for (slot, word) in out.iter_mut().zip(stash) {
+            *slot = word.swap(0, Ordering::AcqRel);
         }
     }
     out

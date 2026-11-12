@@ -120,9 +120,8 @@ pub fn quiet_stall_witness(cpu: crate::types::CpuId, tasks: &crate::task::TaskTa
         return;
     }
     // This hart is about to idle; every OTHER online hart must already be idle.
-    let online = crate::smp::cpu_online_mask();
-    let idle = crate::smp::cpu_idle_mask() | (1usize << cpu.as_index());
-    if online & !idle != 0 {
+    let online = crate::smp::cpu_online();
+    if !online.without(crate::smp::cpu_idle().with(cpu.as_index())).is_empty() {
         return;
     }
     let blocked = (0..tasks.len())

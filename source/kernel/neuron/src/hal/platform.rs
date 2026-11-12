@@ -52,10 +52,6 @@ static UART_IRQ: AtomicU32 = AtomicU32::new(0);
 static PLIC_BASE: AtomicUsize = AtomicUsize::new(0);
 static PLIC_LEN: AtomicUsize = AtomicUsize::new(0);
 static PLIC_NDEV: AtomicU32 = AtomicU32::new(0);
-/// S-mode PLIC context per cpu index; `NO_CONTEXT` when the tree lists none.
-const NO_CONTEXT: u32 = u32::MAX;
-static PLIC_SCTX: [AtomicU32; crate::smp::MAX_CPUS] =
-    [const { AtomicU32::new(NO_CONTEXT) }; crate::smp::MAX_CPUS];
 /// Timebase and timer source. `NS_MUL`/`NS_DIV` are `1e9/hz` reduced by their
 /// gcd at init (10 MHz → 100/1, 24 MHz → 125/3), so every conversion is one
 /// 64-bit multiply and one 64-bit divide on the syscall path — exact, and no
@@ -67,9 +63,6 @@ static TIMER_SSTC: AtomicBool = AtomicBool::new(false);
 /// The harts' Zicbom cache-block size from the tree (`riscv,cbom-block-size`),
 /// 0 when the ISA does not list `zicbom` (RFC-0098 C4).
 static CBOM_BLOCK: AtomicUsize = AtomicUsize::new(0);
-static HART_COUNT: AtomicUsize = AtomicUsize::new(0);
-/// Bit `h` set: the tree lists hart `h` as a cpu the OS may use (`status` okay or absent).
-static HART_MASK: AtomicUsize = AtomicUsize::new(0);
 /// `/memory` banks `(base, len)`, in tree order; the direct map and the frame
 /// allocator (TASK-0286) are built over these.
 static MEM_BANKS: [(AtomicUsize, AtomicUsize); MAX_BANKS] =
@@ -115,19 +108,15 @@ pub fn init_from_fdt(bytes: Option<&[u8]>) -> Result<(), PlatformError> {
     // The base is stored LAST: from here on the console is live.
     UART_BASE.store(reg.addr as usize, Ordering::Release);
 
-    // PLIC + the S-mode context of every hart we may run.
+    // PLIC. The S-mode context of each CPU is the machine's (`topology::plic_context`).
     let plic = fdt.plic().ok_or(PlatformError::NoPlic)?;
     let reg = plic.reg(0).map_err(PlatformError::Parse)?.ok_or(PlatformError::NoPlic)?;
     PLIC_BASE.store(reg.addr as usize, Ordering::Relaxed);
     PLIC_LEN.store(reg.size as usize, Ordering::Relaxed);
     PLIC_NDEV.store(plic.plic_ndev().unwrap_or(0), Ordering::Relaxed);
-    for (hart, ctx) in plic.plic_s_contexts() {
-        if let Some(slot) = PLIC_SCTX.get(hart as usize) {
-            slot.store(ctx, Ordering::Relaxed);
-        }
-    }
 
-    // Harts, timebase, timer source.
+    // Timebase and timer source. Which harts the kernel runs is the machine's
+    // (`crate::topology`, read from the same tree).
     let cpus = fdt.cpus().map_err(|_| PlatformError::NoCpus)?;
     let hz = u64::from(cpus.timebase_hz);
     if hz == 0 {
@@ -137,12 +126,6 @@ pub fn init_from_fdt(bytes: Option<&[u8]>) -> Result<(), PlatformError> {
     NS_MUL.store(1_000_000_000 / g, Ordering::Relaxed);
     NS_DIV.store(hz / g, Ordering::Relaxed);
     TIMEBASE_HZ.store(hz, Ordering::Relaxed);
-    HART_COUNT.store(cpus.count(), Ordering::Relaxed);
-    let mut mask = 0usize;
-    for hart in cpus.harts().map(|c| c.hart as usize).filter(|&h| h < usize::BITS as usize) {
-        mask |= 1 << hart;
-    }
-    HART_MASK.store(mask, Ordering::Relaxed);
     // Memory banks (RFC-0098 C4): every `/memory` bank, bounded by MAX_BANKS.
     let mut banks = 0usize;
     for bank in fdt.memory_banks().take(MAX_BANKS) {
@@ -200,24 +183,18 @@ pub fn plic_ndev() -> u32 {
     PLIC_NDEV.load(Ordering::Relaxed)
 }
 
-/// The S-mode PLIC context of a cpu index, as the tree lists it.
+/// The S-mode PLIC context of a logical CPU, as the tree lists it for that CPU's hart.
 pub fn plic_s_context(cpu_index: usize) -> Option<usize> {
-    let ctx = PLIC_SCTX.get(cpu_index)?.load(Ordering::Relaxed);
-    (ctx != NO_CONTEXT).then_some(ctx as usize)
+    crate::topology::plic_context(cpu_index).map(|context| context as usize)
 }
 
 pub fn timebase_hz() -> u64 {
     TIMEBASE_HZ.load(Ordering::Relaxed)
 }
 
+/// The number of logical CPUs the kernel runs (the machine's, RFC-0118).
 pub fn hart_count() -> usize {
-    HART_COUNT.load(Ordering::Relaxed)
-}
-
-/// Whether the tree lists hart `hart` as one the OS may start (RFC-0098: a cpu node
-/// with `status = "disabled"` is not).
-pub fn hart_enabled(hart: usize) -> bool {
-    hart < usize::BITS as usize && HART_MASK.load(Ordering::Relaxed) & (1 << hart) != 0
+    crate::topology::hart_count()
 }
 
 /// The harts' Zicbom cache-block size in bytes, 0 without Zicbom (RFC-0098 C4).

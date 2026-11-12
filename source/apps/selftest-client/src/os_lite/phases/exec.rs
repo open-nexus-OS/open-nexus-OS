@@ -46,7 +46,7 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
 
     // B6 (TASK-0042): the sched ABI applied from userspace — affinity and
     // shares round-trip through the REAL syscalls on this task.
-    probes::soaks::sched_applied_proof();
+    probes::sched_applied::sched_applied_proof();
 
     // Task #14: the direct symptom — building and rasterizing the SAME SVG
     // plan multiple times in THIS process must be deterministic and match

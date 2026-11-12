@@ -195,27 +195,29 @@ impl fmt::Display for CapSlot {
     }
 }
 
-/// Hardware hart identifier as reported by RISC-V (`mhartid`).
+/// Hardware hart identifier, as wide and as sparse as the device tree states it (`reg` of a
+/// cpu node) — what the firmware is told and what a log names.
 ///
-/// We keep this distinct from scheduler-facing CPU IDs so call-sites cannot
-/// accidentally mix hardware identity with logical scheduler routing.
+/// It is NOT an index and has no conversion to one (RFC-0118): which logical CPU a hart is,
+/// is the machine's to say (`crate::topology::cpu_of`).
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(transparent)]
-pub struct HartId(u16);
+pub struct HartId(u64);
 
 impl HartId {
     #[inline]
-    pub const fn from_raw(raw: u16) -> Self {
+    pub const fn from_raw(raw: u64) -> Self {
         Self(raw)
     }
 
     #[inline]
-    pub const fn as_raw(self) -> u16 {
+    pub const fn as_raw(self) -> u64 {
         self.0
     }
 
+    /// The id as an SBI call takes it (one register).
     #[inline]
-    pub const fn as_index(self) -> usize {
+    pub const fn as_sbi(self) -> usize {
         self.0 as usize
     }
 }
@@ -226,10 +228,8 @@ impl fmt::Display for HartId {
     }
 }
 
-/// Logical CPU identifier used by scheduler and per-CPU kernel state.
-///
-/// In TASK-0012 v1 this is a 1:1 mapping from `HartId`, but remains a dedicated
-/// type to keep future topology/affinity changes explicit.
+/// Logical CPU identifier used by scheduler and per-CPU kernel state: dense from 0, CPU 0 is
+/// the boot hart whatever its hart id (RFC-0118). There is no conversion from a [`HartId`].
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(transparent)]
 pub struct CpuId(u16);
@@ -240,11 +240,6 @@ impl CpuId {
     #[inline]
     pub const fn from_raw(raw: u16) -> Self {
         Self(raw)
-    }
-
-    #[inline]
-    pub const fn from_hart(hart: HartId) -> Self {
-        Self(hart.as_raw())
     }
 
     #[inline]

@@ -25,7 +25,7 @@ use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use crate::console_line::{LineBuf, LineOwner, TaskLines};
-use crate::smp::MAX_CPUS;
+use crate::sync::hart_table::{HartTable, SizeError};
 use crate::sync::spin_irq::SpinIrqLock;
 
 /// The gate a unit goes out through — one hart's whole line at a time.
@@ -84,10 +84,14 @@ const fn hart_line() -> HartLine {
     HartLine { line: UnsafeCell::new(LineBuf::new()), busy: AtomicBool::new(false) }
 }
 
-/// A const item, so the array below is `MAX_CPUS` fresh buffers whatever that count is.
-const EMPTY_LINE: HartLine = hart_line();
+/// One line per CPU: the boot hart's is the static's own (the console speaks before any
+/// allocator runs), the others come with the machine (`smp::size_for_machine`).
+static LINES: HartTable<HartLine> = HartTable::new(hart_line());
 
-static LINES: [HartLine; MAX_CPUS] = [EMPTY_LINE; MAX_CPUS];
+/// Sizes the line buffers for a machine of `harts` CPUs.
+pub fn size(harts: usize) -> Result<(), SizeError> {
+    LINES.size(harts, hart_line)
+}
 
 /// Emits `byte` as part of this hart's line: gathered, then sent as one unit at `\n`. `emit` is
 /// the ring-then-UART path for one byte.

@@ -12,6 +12,8 @@ pub mod dma;
 pub mod ipc;
 pub mod memory;
 pub mod pressure;
+#[cfg(nexus_env = "os")]
+pub mod sched;
 pub mod squeeze;
 pub mod swap;
 pub mod task;

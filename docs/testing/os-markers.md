@@ -3,9 +3,9 @@ schema: 1
 title: "OS markers"
 role: reference
 subsystem: devx
-sources: [source/apps/selftest-client/proof-manifest/markers, source/apps/selftest-client/proof-manifest/phases.toml, tools/nx/chains/markers.txt, scripts/qemu-test.sh, scripts/check-chain-markers.sh, config/fail-marker-allow.txt]
+sources: [source/apps/selftest-client/proof-manifest/markers, source/apps/selftest-client/proof-manifest/phases.toml, tools/nx/chains/markers.txt, scripts/qemu-test.sh, scripts/check-chain-markers.sh, config/fail-marker-allow.txt, config/fail-marker-allow-mttcg.txt]
 contracts: [RFC-0013, RFC-0014, RFC-0038, RFC-0108]
-verified: 2026-11-10
+verified: 2026-11-11
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -28,14 +28,14 @@ verified: 2026-11-10
 | `source/apps/selftest-client/proof-manifest/profiles/*.toml` | which lane expects what (`emit_when`/`forbidden_when` resolve against these) | the same |
 | `tools/nx/chains/markers.txt` | cross-service chain markers, by group | `cargo test -p nx`, `scripts/check-chain-markers.sh` |
 | `scripts/qemu-test.sh` | lane-only ladders (`USB_MARKERS`, `USB_INPUT_MARKERS`, `LOWMEM_INPUT_MARKERS`, …) and `RUN_PHASE` slices | the harness itself |
-| `config/fail-marker-allow.txt`, `config/fail-marker-allow-board.txt` | tolerated `FAIL` lines, each with its tracking reference | FAIL gate |
+| `config/fail-marker-allow.txt`, `config/fail-marker-allow-board.txt`, `config/fail-marker-allow-mttcg.txt` | tolerated `FAIL` lines, each with its tracking reference; the third holds the timing verdicts a multi-hart QEMU lane (MTTCG, the host's wall clock) cannot judge — one-hart lanes under icount and the board keep judging them | FAIL gate |
 
 ## Phases
 
 <!-- gen:markers -->
 | # | phase | markers | declared in |
 |---|---|---|---|
-| 1 | `bringup` | 580 | board.toml, bringup.toml, ota.toml, ui.toml, usb.toml |
+| 1 | `bringup` | 582 | board.toml, bringup.toml, ota.toml, ui.toml, usb.toml |
 | 2 | `ipc_kernel` | 27 | ipc_kernel.toml |
 | 3 | `mmio` | 17 | mmio.toml |
 | 4 | `routing` | 53 | routing.toml |
@@ -48,7 +48,7 @@ verified: 2026-11-10
 | 11 | `remote` | 21 | remote.toml |
 | 12 | `end` | 191 | board.toml, end.toml, ui.toml, usb.toml |
 
-1252 markers in 15 files.
+1254 markers in 15 files.
 <!-- /gen:markers -->
 
 ## Declaring a marker
@@ -84,7 +84,7 @@ frame (privacy rule, `docs/standards/SECURITY_STANDARDS.md`).
 |---|---|---|---|
 | Ladder | `scripts/qemu-test.sh` (`list-markers --profile`) + lane ladders | a required marker is missing; prints `first_failed_phase=` and `missing_marker=` | — |
 | Deny-by-default | `nexus-proof-manifest verify-uart` | an unexpected or `forbidden_when` marker appears (all lanes except the non-display list in `profile_has_display` and `display-gpu`) | `PM_VERIFY_UART=0` |
-| FAIL gate | `scripts/qemu-test.sh` | any `SELFTEST:`/`KSELFTEST:` `FAIL` line not in `config/fail-marker-allow.txt` | `FAIL_MARKER_GATE=0` |
+| FAIL gate | `scripts/qemu-test.sh` | any `SELFTEST:`/`KSELFTEST:` `FAIL` line not in `config/fail-marker-allow.txt` (a lane with more than one hart also reads `config/fail-marker-allow-mttcg.txt`) | `FAIL_MARKER_GATE=0` |
 | Chain contract | `scripts/check-chain-markers.sh` | a chain group of `tools/nx/chains/markers.txt` the lane covers is missing | `MARKER_CONTRACT=0` |
 | Trace contract | `scripts/qemu-test.sh` (RFC-0107) | the boot disk's kept trace differs from the UART | — |
 | Pixel proof | `tools/pixel_proof_judge.py` (`visible*` lanes) | the desktop or settled frame is black, has an unpainted band, or equals the splash | — |

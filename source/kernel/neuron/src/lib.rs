@@ -432,6 +432,10 @@ pub mod frames;
 // NOT target-gated so the host tests run it; the switch in the same file is riscv-only.
 #[path = "mm/hart_spaces.rs"]
 pub mod hart_spaces;
+// RFC-0118: the machine's logical CPUs and the CPU↔hart map — pure over the device tree, NOT
+// target-gated (`mod smp` is riscv/none-only) so the host tests run it on `nexus-fdt`'s trees.
+#[path = "core/smp/topology.rs"]
+pub mod topology;
 // TASK-0286 M1 P2 (RFC-0098 C4): the physical↔kernel-virtual seam and the boot
 // table of the high-half switch — NOT target-gated so both are host-tested.
 #[path = "mm/phys.rs"]

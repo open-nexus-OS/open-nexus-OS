@@ -4,7 +4,9 @@
 //! The kernel half of every address space (RFC-0098 C4, TASK-0286 P2): the
 //! image at its high alias with segment permissions (text RX, the rest RW,
 //! the stack guard left out), every memory bank the tree names through the
-//! direct map `PHYS_OFFSET + PA` (minus the image's own frames), the console,
+//! direct map `PHYS_OFFSET + PA` (minus the image's own frames and the guard frame below
+//! every secondary hart's stack, RFC-0118 — a hole carved here is a hole in every space,
+//! because every space shares this half), the console,
 //! interrupt-controller and boot-LED windows, and the tree when it lies outside every
 //! bank. All GLOBAL, none below `KERNEL_VA_BASE`; the identity map is gone.
 //! Split out of `address_space.rs` (structure-gate, RFC-0085 Phase 2). The
@@ -61,10 +63,13 @@ pub(super) fn map_kernel_segments(table: &mut PageTable) -> Result<(), MapError>
         stack_bottom.checked_add(kernel_stack_guard_bytes()).ok_or(MapError::OutOfRange)?;
     map_range(table, stack_from, image_end, RW, "KSTACK")?;
 
-    // Every bank through the direct map, minus the image's frames (mapped
-    // above with their own permissions). RAM the tree does not name is never
+    // Every bank through the direct map, minus its holes: the image's frames (mapped
+    // above with their own permissions) and the guard page below each secondary hart's
+    // stack (RFC-0118 — reserved before this table is built, so an overflow of such a
+    // stack faults in every address space). RAM the tree does not name is never
     // mapped: nothing kernel-owned can live there.
-    let (image_pa, image_pa_end) = (virt_to_phys(text_start), virt_to_phys(image_end));
+    let image = (virt_to_phys(text_start), virt_to_phys(image_end));
+    let holes = || core::iter::once(image).chain(crate::smp::stack_guards());
     let mut tree_in_bank = false;
     let tree = crate::boot_fdt::range();
     for (base, len) in crate::hal::platform::memory_banks() {
@@ -72,10 +77,14 @@ pub(super) fn map_kernel_segments(table: &mut PageTable) -> Result<(), MapError>
         if let Some((s, e)) = tree {
             tree_in_bank |= s >= base && e <= end;
         }
-        let lo_end = image_pa.clamp(base, end);
-        let hi_start = image_pa_end.clamp(base, end);
-        map_range(table, base + PHYS_OFFSET, lo_end + PHYS_OFFSET, RW, "BANK")?;
-        map_range(table, hi_start + PHYS_OFFSET, end + PHYS_OFFSET, RW, "BANK")?;
+        // From hole to hole: the lowest hole that still ends above `at` is the next one.
+        let mut at = base;
+        while at < end {
+            let next = holes().filter(|&(s, e)| e > at && s < end).min_by_key(|&(s, _)| s);
+            let (hole, resume) = next.map_or((end, end), |(s, e)| (s.max(at), e.min(end)));
+            map_range(table, at + PHYS_OFFSET, hole + PHYS_OFFSET, RW, "BANK")?;
+            at = resume;
+        }
     }
     // The console, the interrupt controller and the boot LED's GPIO block: the
     // device windows the kernel itself drives, at the addresses the device tree

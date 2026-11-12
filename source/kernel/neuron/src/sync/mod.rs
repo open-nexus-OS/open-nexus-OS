@@ -17,6 +17,7 @@
 //! queue locks (ascending CPU index) -> leaf atomics. Never acquire the BKL
 //! while holding a run-queue lock.
 
+pub mod hart_table;
 pub mod percpu;
 pub mod spin_irq;
 

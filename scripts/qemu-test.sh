@@ -3408,6 +3408,16 @@ if [[ "$(count_lines "KSELFTEST: platform from fdt ok (")" -lt 1 ]]; then
   echo "[error] platform-from-fdt proof missing: KSELFTEST: platform from fdt ok (" >&2
   exit 1
 fi
+# TASK-0330 P1 (RFC-0118): the kernel's per-hart state is sized by the machine the tree
+# names, in EVERY profile — one hart or sixty-four.
+if [[ "$(count_lines "KSELFTEST: per-hart state FAIL (")" -gt 0 ]]; then
+  echo "[error] per-hart state proof failed: $(grep -aF "KSELFTEST: per-hart state FAIL (" "$UART_LOG" | head -n1)" >&2
+  exit 1
+fi
+if [[ "$(count_lines "KSELFTEST: per-hart state ok (")" -lt 1 ]]; then
+  echo "[error] per-hart state proof missing: KSELFTEST: per-hart state ok (" >&2
+  exit 1
+fi
 # TASK-0245 P2 (RFC-0098 C6): the kernel is a position-independent image and prints the
 # base it runs at (nxboot's window, or the firmware entry on a direct-kernel boot).
 if [[ "$(count_lines "KSELFTEST: kernel image ok (")" -lt 1 ]]; then
@@ -3616,8 +3626,15 @@ if [[ "${FAIL_MARKER_GATE:-1}" == "1" ]]; then
   if [[ -n "$fail_lines" && -f "$allow_file" ]]; then
     fail_lines=$(printf '%s\n' "$fail_lines" | grep -vFf <(grep -v '^#' "$allow_file" | sed '/^[[:space:]]*$/d') || true)
   fi
+  # Several harts run under MTTCG (no icount): the guest's clock is the host's wall clock,
+  # so the timing verdicts named in config/fail-marker-allow-mttcg.txt are rungs there, not
+  # verdicts — one-hart lanes (icount) and the board keep judging them.
+  mttcg_allow_file="$ROOT/config/fail-marker-allow-mttcg.txt"
+  if [[ -n "$fail_lines" && "${SMP:-1}" -gt 1 && -f "$mttcg_allow_file" ]]; then
+    fail_lines=$(printf '%s\n' "$fail_lines" | grep -vFf <(grep -v '^#' "$mttcg_allow_file" | sed '/^[[:space:]]*$/d') || true)
+  fi
   if [[ -n "$fail_lines" ]]; then
-    echo "[error] FAIL markers present in the UART (not allow-listed in config/fail-marker-allow.txt):" >&2
+    echo "[error] FAIL markers present in the UART (not allow-listed in config/fail-marker-allow.txt, nor — on a multi-hart lane — in config/fail-marker-allow-mttcg.txt):" >&2
     printf '%s\n' "$fail_lines" | sort | uniq -c >&2
     exit 1
   fi

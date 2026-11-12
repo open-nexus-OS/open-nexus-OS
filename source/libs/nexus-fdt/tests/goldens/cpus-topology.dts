@@ -1,0 +1,161 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// A synthetic tree for the forms of `/cpus` the two real trees do not use (RFC-0118): the
+// reader must hold on a machine it has never seen.
+//   - hart ids of two cells, sparse, one above 32 bits;
+//   - no `timebase-frequency` on `/cpus`, one per cpu node;
+//   - an enabled monitor core without an MMU, a cpu with `mmu-type = "riscv,none"`, a
+//     disabled cpu — none of them a hart an OS schedules on;
+//   - a `cpu-map` with sockets, a cluster inside a cluster, a core with two threads;
+//   - a PLIC whose `interrupts-extended` is in the controller's order, not the harts'.
+// Compiled with
+//   dtc -I dts -O dtb -o cpus-topology.dtb cpus-topology.dts
+/dts-v1/;
+
+/ {
+	#address-cells = <2>;
+	#size-cells = <2>;
+	compatible = "test,cpus-topology";
+
+	cpus {
+		#address-cells = <2>;
+		#size-cells = <0>;
+
+		monitor: cpu@0 {
+			device_type = "cpu";
+			compatible = "riscv";
+			reg = <0x0 0x0>;
+			timebase-frequency = <10000000>;
+			riscv,isa-base = "rv64i";
+			riscv,isa-extensions = "i", "m", "a", "c";
+			intc_monitor: interrupt-controller {
+				compatible = "riscv,cpu-intc";
+				#interrupt-cells = <1>;
+				interrupt-controller;
+			};
+		};
+
+		t0: cpu@100 {
+			device_type = "cpu";
+			compatible = "riscv";
+			reg = <0x0 0x100>;
+			timebase-frequency = <10000000>;
+			mmu-type = "riscv,sv39";
+			riscv,isa-base = "rv64i";
+			riscv,isa-extensions = "i", "m", "a", "c", "sstc";
+			intc_t0: interrupt-controller {
+				compatible = "riscv,cpu-intc";
+				#interrupt-cells = <1>;
+				interrupt-controller;
+			};
+		};
+
+		t1: cpu@101 {
+			device_type = "cpu";
+			compatible = "riscv";
+			reg = <0x0 0x101>;
+			timebase-frequency = <10000000>;
+			mmu-type = "riscv,sv39";
+			riscv,isa-base = "rv64i";
+			riscv,isa-extensions = "i", "m", "a", "c", "sstc";
+			intc_t1: interrupt-controller {
+				compatible = "riscv,cpu-intc";
+				#interrupt-cells = <1>;
+				interrupt-controller;
+			};
+		};
+
+		big: cpu@200 {
+			device_type = "cpu";
+			compatible = "riscv";
+			reg = <0x0 0x200>;
+			timebase-frequency = <10000000>;
+			mmu-type = "riscv,sv48";
+			riscv,isa-base = "rv64i";
+			riscv,isa-extensions = "i", "m", "a", "c", "sstc";
+			intc_big: interrupt-controller {
+				compatible = "riscv,cpu-intc";
+				#interrupt-cells = <1>;
+				interrupt-controller;
+			};
+		};
+
+		off: cpu@300 {
+			device_type = "cpu";
+			compatible = "riscv";
+			reg = <0x0 0x300>;
+			status = "disabled";
+			mmu-type = "riscv,sv39";
+		};
+
+		bare: cpu@400 {
+			device_type = "cpu";
+			compatible = "riscv";
+			reg = <0x0 0x400>;
+			mmu-type = "riscv,none";
+		};
+
+		far: cpu@100000000 {
+			device_type = "cpu";
+			compatible = "riscv";
+			reg = <0x1 0x0>;
+			timebase-frequency = <10000000>;
+			mmu-type = "riscv,sv39";
+			riscv,isa-base = "rv64i";
+			riscv,isa-extensions = "i", "m", "a", "c", "sstc";
+			intc_far: interrupt-controller {
+				compatible = "riscv,cpu-intc";
+				#interrupt-cells = <1>;
+				interrupt-controller;
+			};
+		};
+
+		cpu-map {
+			socket0 {
+				cluster0 {
+					cluster0 {
+						core0 {
+							thread0 {
+								cpu = <&t0>;
+							};
+							thread1 {
+								cpu = <&t1>;
+							};
+						};
+					};
+					cluster1 {
+						core0 {
+							cpu = <&big>;
+						};
+					};
+				};
+			};
+			socket1 {
+				cluster0 {
+					core0 {
+						cpu = <&far>;
+					};
+				};
+			};
+		};
+	};
+
+	soc {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		compatible = "simple-bus";
+		ranges;
+
+		plic@c000000 {
+			compatible = "sifive,plic-1.0.0";
+			reg = <0x0 0xc000000 0x0 0x4000000>;
+			#interrupt-cells = <1>;
+			interrupt-controller;
+			riscv,ndev = <31>;
+			// context 0: far M, 1: far S, 2: monitor M, 3: big S, 4: t0 M, 5: t0 S, 6: t1 S
+			interrupts-extended = <&intc_far 11>, <&intc_far 9>, <&intc_monitor 11>,
+					      <&intc_big 9>, <&intc_t0 11>, <&intc_t0 9>, <&intc_t1 9>;
+		};
+	};
+};

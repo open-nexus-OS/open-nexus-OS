@@ -33,5 +33,6 @@ pub(crate) mod pinched;
 pub(crate) mod pinched_restart;
 pub(crate) mod reset;
 pub(crate) mod rng;
+pub(crate) mod sched_applied;
 pub(crate) mod soaks;
 pub(crate) mod soc;

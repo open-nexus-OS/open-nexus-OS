@@ -556,6 +556,7 @@ pub fn entry(ctx: &mut Context<'_>) {
     run_resource_sentinel_selftest(ctx);
     run_cpuid_selftest();
     run_sched_abi_selftest(ctx);
+    crate::smp::hart_state::selftest();
     run_smp_selftests(ctx);
     // Ensure subsequent lifecycle tests run as the bootstrap task (PID 0)
     // so parent/child linkage during spawn and wait behaves deterministically.
@@ -1287,18 +1288,19 @@ fn run_cpuid_selftest() {
 /// Runs under SMP=1 and SMP>=2 alike (validation uses the live online mask).
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 fn run_sched_abi_selftest(ctx: &mut Context<'_>) {
-    let online = crate::smp::cpu_online_mask();
+    use nexus_sched::CpuSet;
+    let online = crate::smp::cpu_online();
     let current = ctx.tasks.current_pid();
 
-    // Counterfactuals: empty mask, out-of-ceiling mask, offline-only mask.
-    let empty = crate::task::validate_affinity_mask(0, online).is_err();
-    let too_big = crate::task::validate_affinity_mask(0x100, online).is_err();
-    let offline_only = if online.count_ones() < crate::smp::MAX_CPUS as u32 {
-        let offline_mask = (!online) & ((1usize << crate::smp::MAX_CPUS) - 1);
-        crate::task::validate_affinity_mask(offline_mask, online).is_err()
-    } else {
-        true // all online: no offline-only mask constructible; covered above
-    };
+    // Counterfactuals (RFC-0118): the empty set, a set naming a CPU the kernel does not run
+    // (beside an online one — refused, not clamped), a set of offline CPUs only. Where the
+    // machine leaves no such set to build (64 CPUs, all online) the host tests carry the rule.
+    let runs = crate::topology::runs();
+    let admitted = |set: CpuSet| crate::task::admit_affinity(set, online).is_ok();
+    let empty = !admitted(CpuSet::EMPTY);
+    let too_big = CpuSet::single(runs.count()).is_none_or(|one| !admitted(one.union(online)));
+    let offline = runs.without(online);
+    let offline_only = offline.is_empty() || !admitted(offline);
     if empty && too_big && offline_only {
         log_info!(target: "selftest", "KSELFTEST: sched affinity reject ok");
     } else {
@@ -1441,22 +1443,27 @@ fn run_runtime_budget_selftests(target: CpuId) {
 }
 
 fn run_smp_selftests(ctx: &mut Context<'_>) {
-    let online_mask = crate::smp::cpu_online_mask();
-    let cpu1_online = (online_mask & (1usize << 1)) != 0;
-    if !cpu1_online {
+    // The proofs below need one other CPU: the first secondary that is online, whichever
+    // hart that is (a boot that lost CPU 1 still proves them against CPU 2).
+    let Some(target) = crate::smp::secondaries_online().next() else {
         // SMP=1 default smoke: skip SMP-only markers — with an explicit skip
         // line (fake-proof doctrine: absence is never a pass).
         log_info!(target: "selftest", "KSELFTEST: tlb shootdown skipped (smp=1)");
         return;
-    }
+    };
 
-    log_info!(target: "selftest", "KSELFTEST: smp online ok");
+    log_info!(
+        target: "selftest",
+        "KSELFTEST: smp online ok harts={} clusters={}",
+        crate::smp::cpu_online().count(),
+        crate::topology::clusters()
+    );
 
     // A2: two-hart lock ping — proves SpinIrqLock mutual exclusion across
     // real harts with an exact-count result (no timing assertion).
     {
         const PING_ROUNDS: usize = 1000;
-        let secondaries = crate::smp::cpu_online_mask().count_ones().saturating_sub(1) as usize;
+        let secondaries = crate::smp::cpu_online().count().saturating_sub(1);
         let (total, acks) = crate::smp::selftest_lock_ping(PING_ROUNDS, 50_000_000);
         if acks == secondaries && acks >= 1 && total == PING_ROUNDS * (1 + acks) {
             log_info!(target: "selftest", "KSELFTEST: kernel lock contention bounded ok");
@@ -1474,7 +1481,6 @@ fn run_smp_selftests(ctx: &mut Context<'_>) {
     // Counterfactual anti-fake proof:
     // force IPI send failure and require that no S_SOFT trap/ack chain appears.
     crate::smp::reset_selftest_counters();
-    let target = CpuId::from_raw(1);
     crate::smp::selftest_force_ipi_send_failure(true);
     if crate::smp::request_resched(target) {
         let mut unexpected_ack = false;
@@ -1542,7 +1548,8 @@ fn run_smp_selftests(ctx: &mut Context<'_>) {
         log_error!(target: "selftest", "KSELFTEST: ipi resched FAIL");
     }
 
-    let invalid_target = CpuId::from_raw(crate::smp::MAX_CPUS as u16);
+    // A CPU the machine does not have: the first index beyond its harts.
+    let invalid_target = CpuId::from_raw(crate::topology::hart_count() as u16);
     if !crate::smp::request_resched(invalid_target) {
         log_info!(target: "selftest", "KSELFTEST: test_reject_invalid_ipi_target_cpu ok");
     } else {
@@ -1550,17 +1557,15 @@ fn run_smp_selftests(ctx: &mut Context<'_>) {
     }
 
     // `request_resched` must refuse any CPU that cannot run the request —
-    // one guard, two reasons: `idx >= MAX_CPUS || !cpu_is_online(target)`.
+    // one guard, two reasons: a CPU the machine does not have, or one not online.
     //
     // This used to hunt for a genuinely offline hart (CPU 2, else CPU 3) and
     // FAIL when it could not find one, which inverted the gate: it passed only
     // on DEGRADED boots and failed on every healthy 4-hart boot. Now it picks
     // a real offline hart when one exists and otherwise proves the same guard
     // against an out-of-range id, so a healthy machine can pass.
-    let offline_target = (0..crate::smp::MAX_CPUS)
-        .map(|i| CpuId::from_raw(i as u16))
-        .find(|c| !crate::smp::cpu_is_online(*c))
-        .unwrap_or_else(|| CpuId::from_raw(crate::smp::MAX_CPUS as u16));
+    let offline = crate::topology::runs().without(crate::smp::cpu_online()).lowest();
+    let offline_target = offline.map_or(invalid_target, |cpu| CpuId::from_raw(cpu as u16));
     if !crate::smp::request_resched(offline_target) {
         log_info!(target: "selftest", "KSELFTEST: test_reject_offline_cpu_resched ok");
     } else {
@@ -1590,7 +1595,7 @@ fn run_smp_selftests(ctx: &mut Context<'_>) {
             );
         }
 
-        let cpu1 = CpuId::from_raw(1);
+        let cpu1 = target;
         let (epoch_before, _, cpu1_ack_before) = crate::smp::tlb::selftest_evidence(cpu1);
         crate::smp::tlb::shootdown_all();
         let (epoch_after, cpu1_req, cpu1_ack) = crate::smp::tlb::selftest_evidence(cpu1);
@@ -1612,12 +1617,13 @@ fn run_smp_selftests(ctx: &mut Context<'_>) {
             );
         }
     }
-    // B (TASK-0042): affinity home-clamp — a boot-homed task with a
-    // cpu1-only mask must be routed to cpu1 (first online CPU in the mask).
+    // B (TASK-0042): affinity home-clamp — a boot-homed task whose set names only
+    // the other CPU must be routed there (the lowest online CPU of the set).
     {
+        let only = nexus_sched::CpuSet::EMPTY.with(target.as_index());
         let clamped =
-            crate::task::clamp_home_to_affinity(0b10, CpuId::BOOT, crate::smp::cpu_online_mask());
-        if clamped == CpuId::from_raw(1) {
+            crate::task::clamp_home_to_affinity(only, CpuId::BOOT, crate::smp::cpu_online());
+        if clamped == target {
             log_info!(target: "selftest", "KSELFTEST: sched affinity clamp ok");
         } else {
             log_error!(

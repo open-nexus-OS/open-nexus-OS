@@ -771,9 +771,22 @@ proves = "init enumerated every ECAM host of the tree with the shared planner an
 phase = "bringup"
 proves = "init granted the block owner exactly the disk the loader recorded, asked for its kind's class"
 
+# RFC-0118 (TASK-0330 P1): the kernel's per-hart state is sized by the machine the tree
+# names — the SMP layer's table holds exactly its CPUs, and no hart asked a per-hart table
+# for an entry the sizing forgot. Required in every profile (one hart included).
+[marker."KSELFTEST: per-hart state ok ("]
+phase = "bringup"
+proves = "every per-hart table of the kernel was sized for the CPUs the device tree names"
+
+[marker."KSELFTEST: per-hart state FAIL ("]
+phase = "bringup"
+
+# RFC-0118: the line carries what came online — `harts=<online CPUs> clusters=<clusters of
+# the tree>` (the board's gate reads `harts=8 clusters=2`).
 [marker."KSELFTEST: smp online ok"]
 phase = "bringup"
 emit_when = { profile = "smp" }
+proves = "a secondary hart is online; the line names the online CPUs and the tree's clusters"
 
 [marker."KSELFTEST: ipi counterfactual ok"]
 phase = "bringup"

@@ -5,7 +5,7 @@ role: guide
 subsystem: networking
 sources: [source/services/netstackd, source/services/dsoftbusd, source/services/ingressd, source/apps/selftest-client/proof-manifest/profiles/harness.toml, tools/os2vm.sh]
 contracts: [RFC-0006, RFC-0007, RFC-0092, ADR-0025, ADR-0026]
-verified: 2026-11-03
+verified: 2026-11-11
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -28,6 +28,8 @@ verified: 2026-11-03
 | `ingressd` | the only non-loopback listener; exposure intents → loopback backends | `ipc.core`, `policy.delegate` |
 
 No other path exists in the tree: there are no `net-canonical` / `net-bringup-lite` features and no `*-lite` network services.
+
+The three stand on the network plane (`nexus_service_topology::planes::PLANE_NEEDS`): on a machine whose device tree names no network device init leaves them suspended and says so (`init: withheld svc=<name> (no net plane)`) — none of them starts and probes for a device that is not there.
 
 ## Authority rules
 

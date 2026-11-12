@@ -272,6 +272,16 @@ pub(super) fn sys_sched(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> 
         return result;
     }
     let op = args.get(0);
+    if op == nexus_sched::TOPOLOGY_OP {
+        // RFC-0118: `(op, what, index)` in registers, one register out. Any task may ask —
+        // the answer carries no authority and no user memory is read or written.
+        let answer = nexus_sched::TopologyQuery::from_raw(args.get(1))
+            .zip(crate::topology::machine())
+            .and_then(|(what, machine)| {
+                crate::topology::answer(machine, crate::smp::cpu_online(), what, args.get(2))
+            });
+        return answer.ok_or(AddressSpaceError::InvalidArgs.into());
+    }
     let raw_target = args.get(1);
     if raw_target > u32::MAX as usize {
         return Err(AddressSpaceError::InvalidArgs.into());
@@ -285,17 +295,20 @@ pub(super) fn sys_sched(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> 
     match op {
         SCHED_OP_GET_AFFINITY => {
             let task = ctx.tasks.task(target).ok_or(AddressSpaceError::InvalidArgs)?;
-            Ok(task.affinity_mask() as usize)
+            Ok(task.affinity().bits() as usize)
         }
         SCHED_OP_SET_AFFINITY => {
-            let mask = crate::task::validate_affinity_mask(value, crate::smp::cpu_online_mask())
+            // RFC-0118: the register is the set; one that is empty, names a CPU the kernel
+            // does not run or names no online CPU is refused (`EINVAL`), never clamped.
+            let online = crate::smp::cpu_online();
+            let set = nexus_sched::CpuSet::from_bits(value as u64);
+            let set = crate::task::admit_affinity(set, online)
                 .map_err(|_| Error::AddressSpace(AddressSpaceError::InvalidArgs))?;
-            let online = crate::smp::cpu_online_mask();
             let home = {
                 let task = ctx.tasks.task_mut(target).ok_or(AddressSpaceError::InvalidArgs)?;
-                task.set_affinity_mask(mask);
+                task.set_affinity(set);
                 // Re-clamp the home CPU; takes effect on the next wake/dispatch.
-                crate::task::clamp_home_to_affinity(mask, task.home_cpu(), online)
+                crate::task::clamp_home_to_affinity(set, task.home_cpu(), online)
             };
             ctx.tasks.set_home_cpu(target, home);
             Ok(0)

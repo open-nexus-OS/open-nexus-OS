@@ -5,7 +5,7 @@ role: guide
 subsystem: app-platform
 sources: [source/services, source/libs/nexus-service-entry, source/libs/nexus-service-topology, source/libs/nexus-wire, config/service-layout.allow]
 contracts: [ADR-0017, ADR-0051, RFC-0005, RFC-0040, RFC-0003]
-verified: 2026-11-10
+verified: 2026-11-11
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -44,7 +44,9 @@ If a service accumulates real logic, the boundary is leaking: move it into the c
 
 - **Declarations**: `source/libs/nexus-service-topology/` holds service ids, routes and the
   capability slots each service gets. Init pins every capability into the slot declared there;
-  the service reads the same constants (`nexus_service_topology::slots::<svc>`).
+  the service reads the same constants (`nexus_service_topology::slots::<svc>`). A service that
+  stands on a device plane a machine may lack declares it there too (`planes.rs`,
+  `PLANE_NEEDS`): init resumes it only where the device tree names that plane.
 - **Readiness**: `nexus_service_entry::ready("<svc>: ready")` prints the marker and sends
   `@ready` to init; nothing else may print `": ready"`.
 - **Routes**: a service asks init's responder for a route to another service; see

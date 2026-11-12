@@ -16,8 +16,6 @@
 //! the lightweight `#[cfg(not(target_arch = "riscv64"))]` stubs.
 #![cfg_attr(any(test, not(target_arch = "riscv64")), allow(dead_code))]
 
-use crate::types::HartId;
-
 /// Returns the current program counter.
 #[inline]
 #[allow(dead_code)]
@@ -152,21 +150,5 @@ pub fn read_sp() -> usize {
     #[cfg(not(target_arch = "riscv64"))]
     {
         0
-    }
-}
-
-/// Reads the currently executing hart id (`mhartid` CSR).
-#[inline]
-#[allow(dead_code)]
-pub fn read_mhartid() -> HartId {
-    #[cfg(target_arch = "riscv64")]
-    unsafe {
-        let value: usize;
-        core::arch::asm!("csrr {0}, mhartid", out(reg) value, options(nomem, nostack, preserves_flags));
-        HartId::from_raw(value as u16)
-    }
-    #[cfg(not(target_arch = "riscv64"))]
-    {
-        HartId::from_raw(0)
     }
 }

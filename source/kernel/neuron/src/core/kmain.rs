@@ -224,6 +224,10 @@ pub fn kmain() -> ! {
     crate::hal::boot_led::milestone(3);
     #[cfg(feature = "boot_timing")]
     let t0 = crate::arch::riscv::read_time();
+    // RFC-0118: every per-hart table and the secondaries' stacks, for the machine the tree
+    // describes — before the kernel state (run queues, the current-task table and the kernel
+    // address space, whose direct map leaves the stacks' guard pages out) is built.
+    crate::smp::size_for_machine();
     let kernel = unsafe { init_kernel_state() };
     crate::smp::init_boot_hart_state();
     // Provide the syscall/trap runtime with a stable timer reference. We store it as a raw pointer
@@ -247,22 +251,22 @@ pub fn kmain() -> ! {
     // Milestone 4: the kernel state exists and the trap runtime is installed.
     crate::hal::boot_led::milestone(4);
 
-    let expected_online_mask = crate::smp::start_secondary_harts();
+    let expected_online = crate::smp::start_secondary_harts();
     // Bounded HSM bring-up with retry: a start request issued in quick
     // succession can get lost (hart never reaches the kernel entry despite a
     // success return); retry up to 3 times before declaring the timeout.
-    let mut online_ok = crate::smp::wait_for_online_mask(expected_online_mask, 500_000_000);
+    let mut online_ok = crate::smp::wait_for_online(expected_online, 500_000_000);
     for _ in 0..3 {
         if online_ok {
             break;
         }
-        crate::smp::retry_missing_harts(expected_online_mask);
-        online_ok = crate::smp::wait_for_online_mask(expected_online_mask, 500_000_000);
+        crate::smp::retry_missing_harts(expected_online);
+        online_ok = crate::smp::wait_for_online(expected_online, 500_000_000);
     }
     // Boot gate: per-hart evidence + verdict. A lost hart is loud but NOT
     // fatal — the system boots degraded with the online set (the SMP proof
     // gate still requires its markers, so CI catches it honestly).
-    crate::smp::emit_bringup_gate(expected_online_mask);
+    crate::smp::emit_bringup_gate(expected_online);
     // Milestone 5: the secondary harts are started and gated (online or loudly missing).
     crate::hal::boot_led::milestone(5);
     let _ = online_ok;
@@ -389,26 +393,28 @@ pub fn kmain() -> ! {
     // A6 structural proofs (SMP>=2 only, right after plic_init): every online
     // hart's S-context is addressable + initialised (threshold readback), and
     // per-context enable bitmaps are isolated (a probe source enabled for the
-    // boot context must not leak into cpu1's).
+    // boot context must not leak into another CPU's).
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-    if crate::smp::cpu_online_mask().count_ones() > 1 {
+    if crate::smp::cpu_online().count() > 1 {
         let mut ctx_ok = true;
-        for idx in 0..crate::smp::MAX_CPUS {
-            let cpu = CpuId::from_raw(idx as u16);
-            if !crate::smp::cpu_is_online(cpu) {
-                continue;
-            }
-            if crate::hal::plic::selftest_ctx_threshold(cpu) == 0 {
-                log_info!(target: "smp", "KSELFTEST: plic ctx cpu{} ok", idx);
-            } else {
-                ctx_ok = false;
-                log_error!(target: "smp", "KSELFTEST: plic ctx cpu{} FAIL", idx);
+        for idx in crate::smp::cpu_online().iter() {
+            // A CPU the tree names no context for was named by `plic_init`; it has nothing
+            // to read back and is not a failure of the ones that have.
+            match crate::hal::plic::selftest_ctx_threshold(CpuId::from_raw(idx as u16)) {
+                Some(0) => log_info!(target: "smp", "KSELFTEST: plic ctx cpu{} ok", idx),
+                Some(_) => {
+                    ctx_ok = false;
+                    log_error!(target: "smp", "KSELFTEST: plic ctx cpu{} FAIL", idx);
+                }
+                None => {}
             }
         }
-        // Probe source 90 is unwired on QEMU virt (virtio 1..8, uart 10,
-        // rtc 11, pci 32..35) — enabling it cannot fire anything.
-        if let Some(probe) = crate::hal::plic::IrqId::new(90) {
-            let cpu1 = CpuId::from_raw(1);
+        // The probe is a source no driver is bound to at this point (source 90 is unwired on
+        // QEMU virt: virtio 1..8, uart 10, rtc 11, pci 32..35; on a controller with fewer
+        // sources its last one). Were it asserted, the unbound-source quarantine masks it.
+        let probe = crate::hal::platform::plic_ndev().min(90);
+        let other = crate::smp::secondaries_online().next();
+        if let (Some(probe), Some(cpu1)) = (crate::hal::plic::IrqId::new(probe), other) {
             crate::hal::plic::enable_source(probe, CpuId::BOOT);
             let boot_sees = crate::hal::plic::selftest_source_enabled(probe, CpuId::BOOT);
             let cpu1_sees = crate::hal::plic::selftest_source_enabled(probe, cpu1);
@@ -455,11 +461,8 @@ pub fn kmain() -> ! {
     // TASK-0330 S2a: from here the console's bytes go to a queue the UART's own interrupt
     // drains — a console write no longer holds the kernel lock for its serial time.
     crate::hal::platform::console_async_enable();
-    for idx in 1..crate::smp::MAX_CPUS {
-        let target = CpuId::from_raw(idx as u16);
-        if crate::smp::cpu_is_online(target) {
-            let _ = crate::smp::request_resched(target);
-        }
+    for target in crate::smp::secondaries_online() {
+        let _ = crate::smp::request_resched(target);
     }
     crate::cpu_main::cpu_main(CpuId::BOOT)
 }

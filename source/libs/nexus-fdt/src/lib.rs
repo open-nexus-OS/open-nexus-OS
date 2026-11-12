@@ -23,7 +23,8 @@
 //! DMA reach (the `dma-ranges` above it, composed level by level — RFC-0098 C4),
 //! `#interrupt-cells` of the `interrupt-parent` for `interrupts`,
 //! phandle lookups, `compatible` matching, `/memory@*`, `/reserved-memory`, `/cpus`
-//! (+ `cpu-map` clusters), `/chosen` and `/aliases` path resolution. The writer edits
+//! (+ `cpu-map` clusters; the logical CPUs with the boot hart first, RFC-0118 —
+//! `Topology`), `/chosen` and `/aliases` path resolution. The writer edits
 //! exactly one thing: `/chosen` properties, in place, inside headroom the FIT build
 //! reserved (RFC-0098 C2 — nxboot is the only writer).
 //!
@@ -38,12 +39,14 @@ mod dma;
 mod header;
 mod node;
 mod platform;
+mod topology;
 
 pub use chosen::ChosenWriter;
 pub use dma::{DmaReach, DmaWindow, MAX_DMA_WINDOWS};
 pub use header::{Error, Fdt, ReservedEntry};
 pub use node::{Node, Prop, Reg, Specifier, StrList};
 pub use platform::{Chosen, Cpu, CpuMap, Cpus, MemoryBank, ReservedRange};
+pub use topology::{LogicalCpu, Topology};
 
 /// The token values of the structure block (DTB spec §5.4.1).
 pub(crate) const FDT_BEGIN_NODE: u32 = 0x1;

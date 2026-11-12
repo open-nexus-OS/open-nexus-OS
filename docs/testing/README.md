@@ -5,7 +5,7 @@ role: guide
 subsystem: devx
 sources: [scripts/qemu-test.sh, source/apps/selftest-client/proof-manifest, tests, ".github/workflows/ci.yml"]
 contracts: [RFC-0013, RFC-0014, RFC-0038, ADR-0025, ADR-0063]
-verified: 2026-11-10
+verified: 2026-11-11
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -56,7 +56,7 @@ Each `ci-os-*` recipe wraps one profile with its timeout. Profiles live in
 |---|---|---|
 | `just ci-os-headless` | `headless` | full service chain, no display (the CI lane) |
 | `just ci-os-smp1` | `smp1` | one hart + icount: the deterministic gate |
-| `just ci-os-smp` | `smp` | two harts, MTTCG, secondary-hart proofs, bounded retry |
+| `just ci-os-smp` | `smp` | two harts, MTTCG, secondary-hart proofs, bounded retry; its clock is the host's wall clock, so the timing verdicts named in `config/fail-marker-allow-mttcg.txt` are rungs there, judged on `smp1` and the board |
 | `just ci-os-visible` / `-fhd` / `-2d` | `visible*` | virgl (or 2D) compositor over VNC + host pixel proof |
 | `just ci-os-usb` / `ci-os-usb-visible` | `usb*` | xHCI + hub + HID; the desktop driven over USB alone |
 | `just ci-os-lowmem`, `ci-os-many-windows`, `ci-os-many-apps` | `lowmem`, `many-windows`, `many-apps` | declared scenarios: real memory pressure, twelve windows and a compositor restart, forty launches |

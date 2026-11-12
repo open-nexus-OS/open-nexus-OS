@@ -12,9 +12,7 @@
 //! TEST_COVERAGE: QEMU marker ladder (`KSELFTEST: smp lock ping`)
 //! ADR: docs/rfcs/RFC-0021-kernel-smp-v1-percpu-runqueues-ipi-contract.md
 
-use super::{
-    cpu_is_online, cpu_online_mask, request_resched, AtomicUsize, CpuId, Ordering, MAX_CPUS,
-};
+use super::{cpu_online, request_resched, secondaries_online, AtomicUsize, Ordering};
 
 // ——— A2 lock-ping selftest: proves SpinIrqLock excludes across real harts ———
 
@@ -53,11 +51,8 @@ pub fn selftest_lock_ping(rounds: usize, spin_budget: usize) -> (usize, usize) {
     LOCK_PING_ACKS.store(0, Ordering::Release);
     LOCK_PING_ROUNDS.store(rounds, Ordering::Release);
     // Parked secondaries WFI; punch them out so they observe the request.
-    for idx in 1..MAX_CPUS {
-        let target = CpuId::from_raw(idx as u16);
-        if cpu_is_online(target) {
-            let _ = request_resched(target);
-        }
+    for target in secondaries_online() {
+        let _ = request_resched(target);
     }
 
     for _ in 0..rounds {
@@ -65,7 +60,7 @@ pub fn selftest_lock_ping(rounds: usize, spin_budget: usize) -> (usize, usize) {
         *counter += 1;
     }
 
-    let expected_acks = cpu_online_mask().count_ones().saturating_sub(1) as usize;
+    let expected_acks = cpu_online().count().saturating_sub(1);
     for _ in 0..spin_budget {
         if LOCK_PING_ACKS.load(Ordering::Acquire) >= expected_acks {
             break;

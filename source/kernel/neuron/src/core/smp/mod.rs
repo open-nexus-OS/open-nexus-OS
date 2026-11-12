@@ -1,38 +1,42 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: TASK-0012 SMP v1 scaffolding (CPU identity, online mask, secondary boot, IPI bookkeeping)
+//! CONTEXT: the kernel's logical CPUs at run time (RFC-0021, sized by RFC-0118): CPU identity,
+//! the online set, secondary boot, reschedule requests and their evidence. How many CPUs
+//! there are and which hart each one is, is the machine's (`crate::topology`); the state of
+//! one CPU lives in `hart_state`.
 //! OWNERS: @kernel-team
-//! STATUS: In Progress
+//! STATUS: Functional
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: QEMU SMP marker path + kernel selftests
-//! PUBLIC API: cpu_current_id(), cpu_online_mask(), start_secondary_harts(), request_resched(), handle_ssoft_resched(), HartLocal prepare/adopt
+//! PUBLIC API: cpu_current_id(), cpu_online(), size_for_machine(), start_secondary_harts(), request_resched(), handle_ssoft_resched(), HartLocal prepare/adopt
 //! DEPENDS_ON: sbi-rt (HSM/SPI), HartLocal blocks consumed by trap.S prologue (sscratch/tp ABI)
-//! INVARIANTS: bounded CPU set, atomic online-mask updates, tp->HartLocal identity fast path with counted fallback, deterministic markers
+//! INVARIANTS: a CPU is an index, a hart id is what the firmware is told — never the other way
+//!   round; atomic online-set updates; tp->HartLocal identity fast path with counted fallback
 //! ADR: docs/rfcs/RFC-0021-kernel-smp-v1-percpu-runqueues-ipi-contract.md
 
 use core::cell::UnsafeCell;
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+
+use nexus_sched::CpuSet;
 
 use crate::types::CpuId;
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 use sbi_rt as sbi;
 
-/// Fixed v1 CPU ceiling for deterministic bring-up and bounded per-CPU state.
-pub const MAX_CPUS: usize = 4;
-
 mod bringup;
+pub(crate) mod hart_state;
 mod lock_ping;
 mod masks;
 mod runtime;
 pub mod tlb;
 
-pub use masks::{cpu_idle_mask, cpu_is_online, mark_cpu_idle};
+pub use masks::{cpu_idle, cpu_is_online, mark_cpu_idle};
 
 pub use bringup::{
-    emit_bringup_gate, retry_missing_harts, start_secondary_harts, wait_for_online_mask,
-    BRINGUP_STAGE,
+    emit_bringup_gate, note_bringup_stage, retry_missing_harts, stack_guards,
+    start_secondary_harts, wait_for_online,
 };
 pub use lock_ping::{lock_ping_participate, selftest_lock_ping};
 pub use runtime::{
@@ -92,35 +96,71 @@ struct HartLocalBlock(UnsafeCell<HartLocal>);
 // prologue with traps unable to nest.
 unsafe impl Sync for HartLocalBlock {}
 
-static HART_LOCALS: [HartLocalBlock; MAX_CPUS] =
-    [const { HartLocalBlock(UnsafeCell::new(HartLocal::EMPTY)) }; MAX_CPUS];
+/// One block per CPU a [`CpuSet`] can name. The one per-hart table that is not sized by the
+/// machine: the trap prologue finds a hart's block by its address (`sscratch`, `tp`), from the
+/// first trap on — before any allocator runs — and `cpu_from_hart_local_tp` proves a `tp` by
+/// this array's bounds. Blocks beyond the machine's harts stay zero pages of BSS.
+static HART_LOCALS: [HartLocalBlock; CpuSet::BITS] =
+    [const { HartLocalBlock(UnsafeCell::new(HartLocal::EMPTY)) }; CpuSet::BITS];
 
 /// Counterfactual tripwire: how often CPU identity had to fall back to the
 /// legacy heuristic because `tp` did not point at a valid hart-local block.
 /// Selftests assert this stays 0 after bring-up.
 static CPUID_FALLBACK_EVENTS: AtomicUsize = AtomicUsize::new(0);
 
-static CPU_ONLINE_MASK: AtomicUsize = AtomicUsize::new(0);
-static RESCHED_PENDING: [AtomicUsize; MAX_CPUS] = [const { AtomicUsize::new(0) }; MAX_CPUS];
-/// Redundant wake IPIs elided because a resched was already outstanding on the
-/// target. Reported so the saving is visible instead of assumed.
-static RESCHED_IPI_SKIPPED: [AtomicUsize; MAX_CPUS] = [const { AtomicUsize::new(0) }; MAX_CPUS];
+/// The CPUs that are online (bit `n` = logical CPU `n`).
+static CPU_ONLINE: AtomicU64 = AtomicU64::new(0);
 
-/// `(sent, skipped)` across all CPUs.
+/// `(sent, skipped)` wake interrupts across all CPUs — the skipped ones were elided because a
+/// reschedule was already outstanding on the target; reported so the saving is visible.
 #[must_use]
 pub fn resched_ipi_counts() -> (usize, usize) {
-    let mut sent = 0;
-    let mut skipped = 0;
-    for i in 0..MAX_CPUS {
-        sent += RESCHED_IPI_SENT_OK[i].load(Ordering::Relaxed);
-        skipped += RESCHED_IPI_SKIPPED[i].load(Ordering::Relaxed);
-    }
-    (sent, skipped)
+    hart_state::all().fold((0, 0), |(sent, skipped), (_, hart)| {
+        (
+            sent + hart.resched_ipi_sent_ok.load(Ordering::Relaxed),
+            skipped + hart.resched_ipi_skipped.load(Ordering::Relaxed),
+        )
+    })
 }
-static RESCHED_REQ_ACCEPTED: [AtomicUsize; MAX_CPUS] = [const { AtomicUsize::new(0) }; MAX_CPUS];
-static RESCHED_IPI_SENT_OK: [AtomicUsize; MAX_CPUS] = [const { AtomicUsize::new(0) }; MAX_CPUS];
-static RESCHED_SSOFT_TRAPS: [AtomicUsize; MAX_CPUS] = [const { AtomicUsize::new(0) }; MAX_CPUS];
-static RESCHED_ACK: [AtomicUsize; MAX_CPUS] = [const { AtomicUsize::new(0) }; MAX_CPUS];
+
+/// Sizes every per-hart table of the kernel for the machine the tree describes and reserves
+/// the secondaries' stacks — once, by the boot hart, after the heap and the frame pool exist
+/// and before the kernel's address space is built (the stacks' guard pages are holes in it)
+/// and before any secondary starts. A kernel that cannot hold its own harts' state does not
+/// run: the failure is named on the console and the boot stops.
+pub fn size_for_machine() {
+    let harts = crate::topology::hart_count();
+    let sized = hart_state::size(harts)
+        .and_then(|()| bringup::size(harts))
+        .and_then(|()| crate::hal::console_line::size(harts))
+        .and_then(|()| crate::irq::size(harts))
+        .and_then(|()| crate::trap::size_hart_deadlines(harts));
+    if let Err(error) = sized {
+        log_error!(target: "smp", "KPANIC: smp slab harts={} ({:?})", harts, error);
+        panic!("smp slab: per-hart state not sized");
+    }
+    if let Err(error) = bringup::reserve_stacks(harts) {
+        log_error!(target: "smp", "KPANIC: smp slab harts={} stacks ({:?})", harts, error);
+        panic!("smp slab: secondary stacks not reserved");
+    }
+    crate::sync::hart_table::machine_sized(harts);
+}
+
+/// Raises the supervisor software interrupt on the CPUs of `targets`. The firmware is told
+/// harts, the kernel speaks CPUs: the machine translates (`topology::plan_ipi`). `false` when
+/// the firmware refused a call or the machine is not read yet.
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+pub(crate) fn send_ipi(targets: CpuSet) -> bool {
+    let Some(machine) = crate::topology::machine() else {
+        return false;
+    };
+    let mut accepted = true;
+    crate::topology::plan_ipi(machine, targets, |mask, base| {
+        accepted &= sbi::send_ipi(mask, base).error == 0;
+    });
+    accepted
+}
+
 static WORK_STEAL_EVENTS: AtomicUsize = AtomicUsize::new(0);
 static SELFTEST_FORCE_IPI_SEND_FAIL: AtomicUsize = AtomicUsize::new(0);
 
@@ -139,21 +179,6 @@ pub enum ReschedTrapOutcome {
     NoPendingRequest,
 }
 
-#[cfg(test)]
-#[inline]
-fn cpu_from_tp_hint_raw(raw_tp: usize, online_mask: usize) -> Option<CpuId> {
-    if raw_tp >= MAX_CPUS {
-        return None;
-    }
-    let cpu = CpuId::from_raw(raw_tp as u16);
-    let bit = 1usize << cpu.as_index();
-    if online_mask == 0 || (online_mask & bit) != 0 {
-        Some(cpu)
-    } else {
-        None
-    }
-}
-
 #[inline]
 fn resolve_cpu_id(tp_hint: Option<CpuId>, stack_cpu: Option<CpuId>) -> CpuId {
     match (tp_hint, stack_cpu) {
@@ -162,21 +187,6 @@ fn resolve_cpu_id(tp_hint: Option<CpuId>, stack_cpu: Option<CpuId>) -> CpuId {
         (Some(tp), None) if tp.is_boot() => tp,
         _ => CpuId::BOOT,
     }
-}
-
-#[cfg(all(target_arch = "riscv64", target_os = "none"))]
-fn cpu_from_stack_pointer(sp: usize) -> Option<CpuId> {
-    for idx in 1..MAX_CPUS {
-        let cpu = CpuId::from_raw(idx as u16);
-        let Some(top) = bringup::secondary_stack_top(cpu) else {
-            continue;
-        };
-        let base = top.saturating_sub(bringup::SECONDARY_STACK_SIZE);
-        if sp >= base && sp <= top {
-            return Some(cpu);
-        }
-    }
-    None
 }
 
 fn hart_local_ptr(cpu: CpuId) -> *mut HartLocal {
@@ -189,7 +199,7 @@ fn hart_local_ptr(cpu: CpuId) -> *mut HartLocal {
 /// idempotently in its trap-install path.
 pub fn hart_local_prepare(cpu: CpuId, trap_stack_top: usize) {
     let idx = cpu.as_index();
-    if idx >= MAX_CPUS {
+    if idx >= HART_LOCALS.len() {
         return;
     }
     // SAFETY: single-writer per block by the HSM ordering contract above; the
@@ -266,7 +276,7 @@ pub(crate) fn cpu_from_hart_local_tp() -> Option<CpuId> {
     }
     let base = HART_LOCALS.as_ptr() as usize;
     let stride = core::mem::size_of::<HartLocalBlock>();
-    let end = base + stride * MAX_CPUS;
+    let end = base + stride * HART_LOCALS.len();
     if raw_tp < base || raw_tp >= end || (raw_tp - base) % stride != 0 {
         return None;
     }
@@ -302,7 +312,7 @@ pub fn cpu_current_id() -> CpuId {
         // the counter is asserted 0 by KSELFTEST (fake-proof tripwire).
         CPUID_FALLBACK_EVENTS.fetch_add(1, Ordering::AcqRel);
         let sp = crate::arch::riscv::read_sp();
-        let stack_cpu = cpu_from_stack_pointer(sp);
+        let stack_cpu = bringup::cpu_of_stack(sp);
         resolve_cpu_id(None, stack_cpu)
     }
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
@@ -333,20 +343,26 @@ pub fn selftest_poisoned_tp_probe() -> (CpuId, usize) {
     (resolved, cpuid_fallback_count() - before)
 }
 
+/// The CPUs that are online.
 #[inline]
-pub fn cpu_online_mask() -> usize {
-    CPU_ONLINE_MASK.load(Ordering::Acquire)
+pub fn cpu_online() -> CpuSet {
+    CpuSet::from_bits(CPU_ONLINE.load(Ordering::Acquire))
 }
 
-/// Emits deterministic online markers exactly once per CPU.
+/// The online CPUs other than the boot hart's.
+pub fn secondaries_online() -> impl Iterator<Item = CpuId> {
+    cpu_online().iter().skip_while(|&cpu| cpu == 0).map(|cpu| CpuId::from_raw(cpu as u16))
+}
+
+/// Emits deterministic online markers exactly once per CPU. A CPU the machine does not have
+/// never comes online.
 pub fn mark_cpu_online(cpu: CpuId) {
     let idx = cpu.as_index();
-    if idx >= MAX_CPUS {
+    let Some(one) = CpuSet::single(idx).filter(|_| idx < crate::topology::hart_count()) else {
         return;
-    }
-    let bit = 1usize << idx;
-    let previous = CPU_ONLINE_MASK.fetch_or(bit, Ordering::AcqRel);
-    if previous & bit == 0 {
+    };
+    let previous = CpuSet::from_bits(CPU_ONLINE.fetch_or(one.bits(), Ordering::AcqRel));
+    if !previous.contains(idx) {
         log_info!(target: "smp", "KINIT: cpu{} online", idx);
     }
 }
@@ -372,10 +388,10 @@ pub(crate) fn linker_boot_stack_top() -> usize {
 
 pub fn request_resched(target: CpuId) -> bool {
     let idx = target.as_index();
-    if idx >= MAX_CPUS || !cpu_is_online(target) {
+    let Some(hart) = hart_state::of(target).filter(|_| cpu_is_online(target)) else {
         return false;
-    }
-    RESCHED_REQ_ACCEPTED[idx].fetch_add(1, Ordering::AcqRel);
+    };
+    hart.resched_req_accepted.fetch_add(1, Ordering::AcqRel);
     // CLAIM, not a store: `take_resched` consumes the flag with `swap(0)`, so
     // a non-zero previous value means a resched is ALREADY outstanding on that
     // CPU and a second IPI buys nothing — whoever consumes the flag rescans
@@ -388,44 +404,35 @@ pub fn request_resched(target: CpuId) -> bool {
     //
     // Worth doing because the IPI is not cheap: measured at ~50-60 us mean and
     // up to 6.3 ms, and it runs inside the held BKL (TASK-0306 Phase 3).
-    let already_pending = RESCHED_PENDING[idx].swap(1, Ordering::AcqRel) != 0;
-    runtime::set_wake_hint(idx);
+    let already_pending = hart.resched_pending.swap(1, Ordering::AcqRel) != 0;
+    hart.wake_hint.store(1, Ordering::Release);
 
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
         if already_pending {
-            RESCHED_IPI_SKIPPED[idx].fetch_add(1, Ordering::Relaxed);
-        } else if idx < usize::BITS as usize
-            && SELFTEST_FORCE_IPI_SEND_FAIL.load(Ordering::Acquire) == 0
+            hart.resched_ipi_skipped.fetch_add(1, Ordering::Relaxed);
+        } else if SELFTEST_FORCE_IPI_SEND_FAIL.load(Ordering::Acquire) == 0
+            && CpuSet::single(idx).is_some_and(send_ipi)
         {
-            let ret = sbi::send_ipi(1usize << idx, 0);
-            if ret.error == 0 {
-                RESCHED_IPI_SENT_OK[idx].fetch_add(1, Ordering::AcqRel);
-            }
+            hart.resched_ipi_sent_ok.fetch_add(1, Ordering::AcqRel);
         }
     }
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
-    let _ = already_pending;
+    let _ = (already_pending, idx);
 
     true
 }
 
 #[inline]
 pub fn take_resched(cpu: CpuId) -> bool {
-    let idx = cpu.as_index();
-    if idx >= MAX_CPUS {
-        return false;
-    }
-    RESCHED_PENDING[idx].swap(0, Ordering::AcqRel) != 0
+    hart_state::of(cpu).is_some_and(|hart| hart.resched_pending.swap(0, Ordering::AcqRel) != 0)
 }
 
 #[inline]
 pub fn acknowledge_resched(cpu: CpuId) {
-    let idx = cpu.as_index();
-    if idx >= MAX_CPUS {
-        return;
+    if let Some(hart) = hart_state::of(cpu) {
+        hart.resched_ack.fetch_add(1, Ordering::AcqRel);
     }
-    RESCHED_ACK[idx].fetch_add(1, Ordering::AcqRel);
 }
 
 #[inline]
@@ -441,38 +448,34 @@ pub fn handle_ssoft_resched(cpu: CpuId) -> ReschedTrapOutcome {
 
 #[inline]
 pub fn record_ssoft_trap(cpu: CpuId) {
-    let idx = cpu.as_index();
-    if idx >= MAX_CPUS {
+    let Some(hart) = hart_state::of(cpu) else {
         return;
-    }
-    RESCHED_SSOFT_TRAPS[idx].fetch_add(1, Ordering::AcqRel);
+    };
+    hart.resched_ssoft_traps.fetch_add(1, Ordering::AcqRel);
     // Bounded bring-up diagnostic: first few S_SOFT traps per boot.
     static SSOFT_LOGGED: AtomicUsize = AtomicUsize::new(0);
     if SSOFT_LOGGED.fetch_add(1, Ordering::Relaxed) < 4 {
-        log_info!(target: "smp", "KINIT: cpu{} ssoft trap", idx);
+        log_info!(target: "smp", "KINIT: cpu{} ssoft trap", cpu.as_index());
     }
 }
 
 #[inline]
 pub fn clear_resched_pending(cpu: CpuId) {
-    let idx = cpu.as_index();
-    if idx >= MAX_CPUS {
-        return;
+    if let Some(hart) = hart_state::of(cpu) {
+        hart.resched_pending.store(0, Ordering::Release);
     }
-    RESCHED_PENDING[idx].store(0, Ordering::Release);
 }
 
 #[inline]
 pub fn resched_evidence(cpu: CpuId) -> ReschedEvidence {
-    let idx = cpu.as_index();
-    if idx >= MAX_CPUS {
+    let Some(hart) = hart_state::of(cpu) else {
         return ReschedEvidence::default();
-    }
+    };
     ReschedEvidence {
-        request_accepted_count: RESCHED_REQ_ACCEPTED[idx].load(Ordering::Acquire),
-        ipi_send_ok_count: RESCHED_IPI_SENT_OK[idx].load(Ordering::Acquire),
-        ssoft_trap_count: RESCHED_SSOFT_TRAPS[idx].load(Ordering::Acquire),
-        ack_count: RESCHED_ACK[idx].load(Ordering::Acquire),
+        request_accepted_count: hart.resched_req_accepted.load(Ordering::Acquire),
+        ipi_send_ok_count: hart.resched_ipi_sent_ok.load(Ordering::Acquire),
+        ssoft_trap_count: hart.resched_ssoft_traps.load(Ordering::Acquire),
+        ack_count: hart.resched_ack.load(Ordering::Acquire),
     }
 }
 
@@ -491,20 +494,12 @@ pub fn work_steal_count() -> usize {
 }
 
 pub fn reset_selftest_counters() {
-    for counter in &RESCHED_PENDING {
-        counter.store(0, Ordering::Release);
-    }
-    for counter in &RESCHED_REQ_ACCEPTED {
-        counter.store(0, Ordering::Release);
-    }
-    for counter in &RESCHED_IPI_SENT_OK {
-        counter.store(0, Ordering::Release);
-    }
-    for counter in &RESCHED_SSOFT_TRAPS {
-        counter.store(0, Ordering::Release);
-    }
-    for counter in &RESCHED_ACK {
-        counter.store(0, Ordering::Release);
+    for (_, hart) in hart_state::all() {
+        hart.resched_pending.store(0, Ordering::Release);
+        hart.resched_req_accepted.store(0, Ordering::Release);
+        hart.resched_ipi_sent_ok.store(0, Ordering::Release);
+        hart.resched_ssoft_traps.store(0, Ordering::Release);
+        hart.resched_ack.store(0, Ordering::Release);
     }
     SELFTEST_FORCE_IPI_SEND_FAIL.store(0, Ordering::Release);
     WORK_STEAL_EVENTS.store(0, Ordering::Release);
@@ -521,9 +516,9 @@ mod tests {
     fn test_reject_invalid_ipi_target_cpu() {
         let _guard = TEST_LOCK.lock();
         reset_selftest_counters();
-        CPU_ONLINE_MASK.store(1usize << CpuId::BOOT.as_index(), Ordering::Release);
+        CPU_ONLINE.store(CpuSet::first(1).bits(), Ordering::Release);
 
-        let invalid = CpuId::from_raw(MAX_CPUS as u16);
+        let invalid = CpuId::from_raw(CpuSet::BITS as u16);
         assert!(!request_resched(invalid));
         assert_eq!(resched_evidence(CpuId::BOOT).request_accepted_count, 0);
     }
@@ -532,7 +527,7 @@ mod tests {
     fn test_reject_offline_cpu_resched() {
         let _guard = TEST_LOCK.lock();
         reset_selftest_counters();
-        CPU_ONLINE_MASK.store(1usize << CpuId::BOOT.as_index(), Ordering::Release);
+        CPU_ONLINE.store(CpuSet::first(1).bits(), Ordering::Release);
 
         let offline = CpuId::from_raw(1);
         assert!(!request_resched(offline));
@@ -544,10 +539,7 @@ mod tests {
         let _guard = TEST_LOCK.lock();
         reset_selftest_counters();
         let target = CpuId::from_raw(1);
-        CPU_ONLINE_MASK.store(
-            (1usize << CpuId::BOOT.as_index()) | (1usize << target.as_index()),
-            Ordering::Release,
-        );
+        CPU_ONLINE.store(CpuSet::first(2).bits(), Ordering::Release);
 
         assert!(request_resched(target));
         assert_eq!(handle_ssoft_resched(target), ReschedTrapOutcome::Acked);
@@ -563,10 +555,7 @@ mod tests {
         let _guard = TEST_LOCK.lock();
         reset_selftest_counters();
         let target = CpuId::from_raw(1);
-        CPU_ONLINE_MASK.store(
-            (1usize << CpuId::BOOT.as_index()) | (1usize << target.as_index()),
-            Ordering::Release,
-        );
+        CPU_ONLINE.store(CpuSet::first(2).bits(), Ordering::Release);
 
         assert_eq!(handle_ssoft_resched(target), ReschedTrapOutcome::NoPendingRequest);
 
@@ -574,13 +563,6 @@ mod tests {
         assert_eq!(evidence.request_accepted_count, 0);
         assert_eq!(evidence.ssoft_trap_count, 1);
         assert_eq!(evidence.ack_count, 0);
-    }
-
-    #[test]
-    fn test_reject_tp_hint_for_offline_cpu() {
-        let _guard = TEST_LOCK.lock();
-        let online_mask = 1usize << CpuId::BOOT.as_index();
-        assert_eq!(cpu_from_tp_hint_raw(1, online_mask), None);
     }
 
     #[test]

@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: Standing runtime-integrity detectors run at the top of the exec
-//!   phase (ADR-0048): regsoak, UI floor, sched ABI, f32/alloc/memset soaks,
-//!   SVG determinism, thread spawn, workpool. Split out of `phases/exec.rs`
-//!   during the TASK-0049 reanimation — bodies are verbatim.
+//!   phase (ADR-0048): regsoak, UI floor, f32/alloc/memset soaks, SVG determinism,
+//!   thread spawn, workpool (the sched ABI's proof: `sched_applied.rs`). Split out of
+//!   `phases/exec.rs` during the TASK-0049 reanimation — bodies are verbatim.
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable
@@ -14,31 +14,6 @@
 use nexus_abi::yield_;
 
 use crate::markers::emit_line;
-// ——— B6 (TASK-0042): sched ABI applied from userspace ———
-
-pub(crate) fn sched_applied_proof() {
-    // Affinity: pin to CPU0 (present in every SMP config), verify, widen back.
-    let ok_aff = nexus_abi::sched::set_affinity(0b1).is_ok()
-        && nexus_abi::sched::get_affinity() == Ok(0b1)
-        && nexus_abi::sched::set_affinity(0xF).is_ok();
-    if ok_aff {
-        emit_line(crate::markers::M_SELFTEST_AFFINITY_APPLIED_OK);
-    } else {
-        emit_line(crate::markers::M_SELFTEST_AFFINITY_APPLIED_FAIL);
-    }
-    // Shares: a 3x ratio request must persist exactly (the slice math itself
-    // is host-tested in the kernel; this proves the userspace path applies).
-    let ok_shares = nexus_abi::sched::set_shares(300).is_ok()
-        && nexus_abi::sched::get_shares() == Ok(300)
-        && nexus_abi::sched::set_shares(100).is_ok()
-        && nexus_abi::sched::get_shares() == Ok(100);
-    if ok_shares {
-        emit_line(crate::markers::M_SELFTEST_QOS_SHARES_RATIO_OK);
-    } else {
-        emit_line(crate::markers::M_SELFTEST_QOS_SHARES_RATIO_FAIL);
-    }
-}
-
 // ——— TASK-0288: interactive floor ———
 
 pub(crate) fn ui_runtime_floor_proof() {

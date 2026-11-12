@@ -67,11 +67,8 @@ impl TaskTable {
         let qos = task.qos;
         // A4/B: route to the task's home CPU, clamped into its affinity mask
         // and the online set.
-        let home_cpu = clamp_home_to_affinity(
-            task.affinity_mask,
-            task.home_cpu,
-            crate::smp::cpu_online_mask(),
-        );
+        let home_cpu =
+            clamp_home_to_affinity(task.affinity, task.home_cpu, crate::smp::cpu_online());
         // No duplicates, then enqueue with the stored QoS. MEASURED: the runqueue half of a
         // wake, what D3's handoff would have removed (TASK-0054C P4c-2).
         if crate::trap::budgets::timed_wake_enqueue(|| {

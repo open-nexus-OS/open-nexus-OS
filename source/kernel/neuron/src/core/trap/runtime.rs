@@ -80,13 +80,18 @@ impl Drop for KernelGuard {
     fn drop(&mut self) {
         // Recorded while the lock is still held (the fields drop after this body).
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-        crate::lock_share::record(
-            self.holder,
-            self.taken_at,
-            (riscv::register::time::read() as u64).saturating_sub(self.taken_at),
-        );
+        {
+            let held = (riscv::register::time::read() as u64).saturating_sub(self.taken_at);
+            crate::lock_share::record(self.holder, self.taken_at, held);
+            super::budgets::note_long_hold(held, self.holder);
+        }
     }
 }
+
+/// How often the kernel lock was taken (written under it) — a waiter reads it before and
+/// after its wait to learn how often it was passed over.
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+static LOCK_TAKES: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
 
 impl KernelGuard {
     /// Takes the lock for `holder` (`lock_share`: a syscall number or a trap kind). Every take
@@ -98,13 +103,15 @@ impl KernelGuard {
         // gun for cross-hart BKL contention inflating IPC round-trips.
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]
         let t0 = riscv::register::time::read() as u64;
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+        let takes_before = LOCK_TAKES.load(core::sync::atomic::Ordering::Relaxed);
         // P2 soft-realtime preference: cpu0 carries the pinned display/input
         // chain (service_topology::affinity_for), so it gets RIGHT OF WAY at
         // the BKL — while cpu0 is waiting, other harts back off before
         // acquiring, letting cpu0 take the next release instead of joining a
         // convoy. Bounded (backoff limit) so background harts cannot starve.
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-        let bkl = {
+        let (bkl, deferred) = {
             use core::sync::atomic::{AtomicBool, Ordering};
             static CPU0_WAITING: AtomicBool = AtomicBool::new(false);
             let me = crate::smp::cpu_current_id();
@@ -141,7 +148,7 @@ impl KernelGuard {
             if is_cpu0 {
                 CPU0_WAITING.store(false, Ordering::Release);
             }
-            guard
+            (guard, backoff)
         };
         #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
         let bkl = KERNEL_LOCK.lock();
@@ -150,6 +157,10 @@ impl KernelGuard {
         let taken_at = {
             let taken_at = riscv::register::time::read() as u64;
             let waited = taken_at.saturating_sub(t0);
+            // Written under the lock: how often it changed hands while this hart waited.
+            let passed_over = LOCK_TAKES
+                .fetch_add(1, core::sync::atomic::Ordering::Relaxed)
+                .wrapping_sub(takes_before);
             super::budgets::record_bkl_wait(t0, waited);
             // More than 1 ms of the platform's timebase spent spinning for the lock
             // (was the literal `10_000` ticks — 1 ms only at QEMU's 10 MHz).
@@ -165,6 +176,7 @@ impl KernelGuard {
                     );
                 }
             }
+            super::budgets::note_long_wait(waited, holder, deferred, passed_over);
             taken_at
         };
         #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
@@ -379,12 +391,17 @@ pub(crate) const OP_TIMER_FIRED: u8 = 0x30;
 /// win (windowd's 8.33ms pacer slipping to the 10ms fallback tick — the SMP
 /// frame-jitter class measured by the Stage-0 slip histogram). Written only by
 /// the owning hart under the BKL; Relaxed is sufficient.
-static ARMED_DEADLINE_NS: [core::sync::atomic::AtomicU64; crate::smp::MAX_CPUS] =
-    [const { core::sync::atomic::AtomicU64::new(0) }; crate::smp::MAX_CPUS];
+static ARMED_DEADLINE_NS: crate::sync::hart_table::HartTable<core::sync::atomic::AtomicU64> =
+    crate::sync::hart_table::HartTable::new(core::sync::atomic::AtomicU64::new(0));
+
+/// Sizes the deadline shadows for a machine of `harts` CPUs (`smp::size_for_machine`).
+pub fn size_hart_deadlines(harts: usize) -> Result<(), crate::sync::hart_table::SizeError> {
+    ARMED_DEADLINE_NS.size(harts, || core::sync::atomic::AtomicU64::new(0))
+}
 
 fn armed_slot() -> &'static core::sync::atomic::AtomicU64 {
-    let idx = crate::smp::cpu_current_id().as_index();
-    &ARMED_DEADLINE_NS[if idx < crate::smp::MAX_CPUS { idx } else { 0 }]
+    let cpu = crate::smp::cpu_current_id().as_index();
+    ARMED_DEADLINE_NS.get(cpu).unwrap_or(ARMED_DEADLINE_NS.boot())
 }
 
 /// Arm this hart's wakeup for `deadline_ns`, keeping the earliest pending

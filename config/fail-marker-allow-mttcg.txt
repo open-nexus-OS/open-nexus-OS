@@ -1,0 +1,35 @@
+# FAIL markers a MULTI-HART QEMU lane tolerates on top of config/fail-marker-allow.txt
+# (scripts/qemu-test.sh reads this file only when the lane runs more than one hart). One
+# marker prefix per line; '#' starts a comment. Every entry is a TIMING verdict, never a
+# result proof, and names why the lane's clock cannot judge it and where the verdict is read.
+#
+# Why this list exists: several harts run under MTTCG — one host thread per hart, no icount.
+# The guest's clock is then the host's wall clock: a wake that crosses harts goes through a
+# host thread wake-up, and a hart whose host thread is descheduled inside a hold keeps the
+# clock running. The one-hart lanes run under icount, where the same lines are deterministic
+# (`ipc call budget ok (rt=51us …)`, `console off lock ok (max_us=96 …)` on
+# smp1--2026-11-11T16-55-00) and stay a hard gate there; the board judges them at real harts
+# (scripts/board-test.sh). On a multi-hart QEMU lane the line's presence is the rung; the
+# result proofs of that lane (bring-up, lock ping, IPI, steal, shootdown, per-hart state) and
+# the lock's wait budget (`KSELFTEST: bkl budget ok`, required there by name) are judged as
+# everywhere.
+#
+# NOT on this list, on purpose: `KSELFTEST: bkl budget FAIL`. Its reds on this lane
+# (max_wait 44–120 ms, three boots of five) were the host's page faults on the guest's
+# memory, not the lock — fixed where they came from (`-mem-prealloc`,
+# scripts/qemu-launcher.sh; six of six green after, max_wait 2.3–10.1 ms):
+# docs/board/measurements/2026-11-11-n-harts/README.md.
+#
+# The fastest of 64 calls, each crossing to the server's hart through a host thread wake:
+# 500–662 µs in every two-hart run since 2026-11-10 (smp--2026-11-10T17-51-58 …
+# smp--2026-11-11T18-27-23, with and without preallocated memory) against 51 µs under icount
+# and 26–44 µs on the board; the lane was red on this line alone since at least 2026-10-20
+# (docs/board/measurements/2026-11-10-smp-baseline/README.md, "Two harts").
+# Tracking: TASK-0330 P2 (its board gate is `ipc call budget ok` on every hart).
+KSELFTEST: ipc call budget FAIL
+# The longest debug write under the kernel lock, timed by the wall clock of a host thread
+# that may be descheduled inside it: 1.1–5.1 ms in four boots of six with preallocated
+# memory (smp--2026-11-11T18-13-35 … T18-27-23; 0.7 and 1.0 ms in the other two) against a
+# 1 ms budget, 96 µs under icount. Tracking: TASK-0330 P4 (budgets per lock class at 8
+# harts, judged on the board).
+KSELFTEST: console off lock FAIL

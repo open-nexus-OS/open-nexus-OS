@@ -141,7 +141,7 @@ retired numbers stay retired.
 
 - **Preemptive.** The `timer_irq` feature is on by default; the tick is 10 ms of the device tree's
   timebase. Per-hart deadlines arm the compare register earliest-first (ADR-0052).
-- **SMP.** Up to `MAX_CPUS` = 4 harts. Every hart runs `cpu_main` on its own run-queue set;
+- **SMP.** The device tree's harts. Every hart runs `cpu_main` on its own run-queue set;
   cross-CPU operations (wake to home CPU, bounded steal) are serialized by the BKL. Lane defaults
   and details: [smp.md](smp.md).
 - **QoS.** Four classes per CPU queue — `Idle`, `Normal`, `Interactive`, `PerfBurst` — round-robin
@@ -151,8 +151,8 @@ retired numbers stay retired.
   (`Scheduler::ready_above_current`). init raises the soft-realtime chain
   (`service_topology::soft_realtime`) to `Interactive` before its wake; everything else runs
   `Normal` and may only lower itself.
-- **Placement.** init pins the soft-realtime chain to cpu0 and background services to cpu1–3 at
-  resume (`affinity_for`, ADR-0049); `sched` carries affinity and shares.
+- **Placement.** init places services by role at resume (ADR-0049): the soft-realtime chain
+  on CPU 0, the rest on the other online CPUs ([topology.md](topology.md)).
 - **No lock across a context switch.** The schedule decision copies the next frame into the
   hart-local staging slot under the BKL, the guard drops, then `sret` reads only hart-local state.
 

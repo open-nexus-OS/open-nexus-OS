@@ -1,7 +1,8 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Task lifecycle syscalls — yield/pid/qos/sched/spawn/thread/exec/exit/wait
+//! CONTEXT: Task lifecycle syscalls — yield/pid/qos/spawn/thread/exec/exit/wait; the sched
+//! syscall's operations (CPU set, shares, topology) live in `sched.rs`.
 //! (Mechanical split out of the former lib.rs monolith — ADR-0051 hygiene
 //! pass; behavior and syscall IDs unchanged.)
 
@@ -78,113 +79,6 @@ pub fn task_qos_set_self(qos: QosClass) -> SysResult<()> {
     {
         let _ = qos;
         Err(AbiError::Unsupported)
-    }
-}
-
-/// B (TASK-0042): scheduling-attribute ops via SYSCALL_SCHED=46.
-/// target 0 = self; cross-task requires the QoS-admin capability.
-#[cfg(nexus_env = "os")]
-pub mod sched {
-    use super::*;
-
-    const SYSCALL_SCHED: usize = 48;
-    const OP_GET_AFFINITY: usize = 0;
-    const OP_SET_AFFINITY: usize = 1;
-    const OP_GET_SHARES: usize = 2;
-    const OP_SET_SHARES: usize = 3;
-
-    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-    fn op(op: usize, target: usize, value: usize) -> SysResult<usize> {
-        // SAFETY: plain syscall; the kernel validates every argument.
-        let raw = unsafe { ecall3(SYSCALL_SCHED, op, target, value) };
-        decode_syscall(raw)
-    }
-
-    /// Returns the caller's CPU affinity mask (bit N = may run on CPU N).
-    #[must_use = "affinity get result must be handled"]
-    pub fn get_affinity() -> SysResult<usize> {
-        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-        {
-            op(OP_GET_AFFINITY, 0, 0)
-        }
-        #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
-        {
-            Err(AbiError::Unsupported)
-        }
-    }
-
-    /// Sets the caller's CPU affinity mask. The kernel validates: non-empty,
-    /// within the CPU ceiling, intersecting the online set.
-    #[must_use = "affinity set result must be handled"]
-    pub fn set_affinity(mask: usize) -> SysResult<()> {
-        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-        {
-            op(OP_SET_AFFINITY, 0, mask).map(|_| ())
-        }
-        #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
-        {
-            let _ = mask;
-            Err(AbiError::Unsupported)
-        }
-    }
-
-    /// Returns the caller's scheduling shares [1, 1000].
-    #[must_use = "shares get result must be handled"]
-    pub fn get_shares() -> SysResult<usize> {
-        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-        {
-            op(OP_GET_SHARES, 0, 0)
-        }
-        #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
-        {
-            Err(AbiError::Unsupported)
-        }
-    }
-
-    /// Sets the caller's scheduling shares; the kernel clamps to [1, 1000]
-    /// and returns the applied value.
-    #[must_use = "shares set result must be handled"]
-    pub fn set_shares(shares: usize) -> SysResult<usize> {
-        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-        {
-            op(OP_SET_SHARES, 0, shares)
-        }
-        #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
-        {
-            let _ = shares;
-            Err(AbiError::Unsupported)
-        }
-    }
-
-    /// Emit the kernel's BKL budget gate line (P0; late in the boot ladder
-    /// so the report covers the bring-up contention window).
-    pub fn bkl_budget_report() {
-        let _ = op(4, 0, 0);
-    }
-
-    /// Log the bring-up burst maxima and reset the accounting (P0 two-window:
-    /// called once bring-up completes; the gate then judges steady state).
-    pub fn bkl_budget_reset() {
-        let _ = op(5, 0, 0);
-    }
-
-    /// Print the kernel's baseline lines (where the lock's time went, how long runnable tasks
-    /// waited per class, who yields) for the window ending now, and begin a new window.
-    pub fn baseline_window() {
-        let _ = op(6, 0, 0);
-    }
-
-    /// Cross-task affinity (B4: execd applies declarative sched recipes).
-    /// Requires QoS-admin standing in the kernel (execd/policyd).
-    #[must_use = "sched outcomes must be handled"]
-    pub fn set_affinity_for(pid: u32, mask: usize) -> SysResult<()> {
-        op(OP_SET_AFFINITY, pid as usize, mask).map(|_| ())
-    }
-
-    /// Cross-task shares (B4).
-    #[must_use = "sched outcomes must be handled"]
-    pub fn set_shares_for(pid: u32, shares: usize) -> SysResult<()> {
-        op(OP_SET_SHARES, pid as usize, shares).map(|_| ())
     }
 }
 

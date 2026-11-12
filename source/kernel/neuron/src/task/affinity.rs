@@ -1,44 +1,33 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Pure affinity-mask helpers (ABI-boundary validation + home-CPU
-//! clamping) — split out of `task/mod.rs` (module-size ratchet); bodies are
-//! verbatim.
+//! CONTEXT: a task's CPU set at the kernel's edges (RFC-0118) — the admission at the ABI
+//! boundary and the home CPU a set allows. The rules themselves are `nexus_sched::CpuSet`'s
+//! (`admit`, `home`; host-tested there); this module binds them to the machine: the CPUs
+//! the kernel runs are the topology's.
 //! OWNERS: @kernel-sched-team
 //! STATUS: Functional
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: kernel selftests (sched affinity reject/clamp markers)
+//! TEST_COVERAGE: `nexus-sched` (`test_reject_empty_cpu_set`,
+//!   `test_reject_cpu_set_beyond_the_harts`, `test_reject_cpu_set_without_an_online_cpu`);
+//!   kernel selftests (sched affinity reject/clamp markers)
 //! ADR: docs/adr/0052-per-hart-earliest-deadline-timer-and-affinity-respecting-steal.md
+//! RFC: docs/rfcs/RFC-0118-n-harts-from-the-device-tree-a-64-bit-cpu-set-the-topology-exported.md
 
-use super::ALL_CPUS_MASK;
+use nexus_sched::{CpuSet, CpuSetError};
 
-/// Validates an affinity mask at the ABI boundary: non-empty, within the
-/// CPU ceiling, and intersecting the online set (a mask of only-offline CPUs
-/// would strand the task forever).
-pub fn validate_affinity_mask(mask: usize, online_mask: usize) -> Result<u8, ()> {
-    if mask == 0 || mask > ALL_CPUS_MASK as usize {
-        return Err(());
-    }
-    if mask & online_mask == 0 {
-        return Err(());
-    }
-    Ok(mask as u8)
+use crate::types::CpuId;
+
+/// Admits a set at the ABI boundary: it names at least one CPU, none the kernel does not
+/// run, and at least one that is online (a set of only-offline CPUs would strand the task
+/// forever). A refused set is refused as it is — never clamped into a valid one.
+pub fn admit_affinity(set: CpuSet, online: CpuSet) -> Result<CpuSet, CpuSetError> {
+    set.admit(crate::topology::runs(), online)
 }
 
-/// Clamps a home CPU into an affinity mask: keeps `home` when allowed,
-/// otherwise picks the first ONLINE CPU in the mask (boot as last resort).
-pub fn clamp_home_to_affinity(
-    mask: u8,
-    home: crate::types::CpuId,
-    online_mask: usize,
-) -> crate::types::CpuId {
-    if mask & (1u8 << home.as_index()) != 0 && online_mask & (1usize << home.as_index()) != 0 {
-        return home;
-    }
-    for idx in 0..crate::smp::MAX_CPUS {
-        if mask & (1u8 << idx) != 0 && online_mask & (1usize << idx) != 0 {
-            return crate::types::CpuId::from_raw(idx as u16);
-        }
-    }
-    crate::types::CpuId::BOOT
+/// The home CPU a set allows: `home` when the set names it and it is online, otherwise the
+/// lowest online CPU of the set (the boot hart as last resort — an admitted set always names
+/// an online CPU).
+pub fn clamp_home_to_affinity(set: CpuSet, home: CpuId, online: CpuSet) -> CpuId {
+    set.home(home.as_index(), online).map_or(CpuId::BOOT, |cpu| CpuId::from_raw(cpu as u16))
 }

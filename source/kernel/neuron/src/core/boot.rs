@@ -50,8 +50,14 @@ pub fn early_boot_init(hartid: usize, dtb: usize) -> usize {
     // is no console and the first log line below is dropped: silence on the
     // harness, never a guess.
     crate::boot_fdt::record(hartid, dtb);
+    // RFC-0118: the machine's logical CPUs, with the hart the firmware entered on as CPU 0 —
+    // fixed here, before anything asks how many harts there are.
+    let machine = crate::topology::init(crate::boot_fdt::bytes(), hartid as u64);
     let platform = crate::hal::platform::init_from_fdt(crate::boot_fdt::bytes());
     log_info!(target: "boot", "boot: ok");
+    if machine == crate::topology::Source::BootHartAlone {
+        log_info!(target: "boot", "boot: the tree names no cpus for hart {} — one hart", hartid);
+    }
     if let Err(e) = platform {
         log_info!(target: "boot", "boot: platform from fdt FAILED ({:?})", e);
         return 0;

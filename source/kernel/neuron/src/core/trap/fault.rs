@@ -369,6 +369,27 @@ pub fn user_fault_report() -> (u32, u64, u64) {
     )
 }
 
+/// A step of the fault path that held the kernel lock for more than 10 ms names itself (the
+/// first few): `KINIT: fault long step=<fill|pressure|exit> us= pid= va=` — which part of a
+/// fault a `KINIT: bkl long hold … by=83` was.
+fn note_long_step(step: &str, t0: u64, pid: u32, va: usize) {
+    let ticks = crate::arch::riscv::read_time().wrapping_sub(t0);
+    if ticks <= crate::hal::platform::ns_to_ticks(10_000_000) {
+        return;
+    }
+    static LOGGED: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+    if LOGGED.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < 12 {
+        log_info!(
+            target: "mm",
+            "KINIT: fault long step={} us={} pid={} va=0x{:x}",
+            step,
+            ticks / crate::hal::platform::ticks_per_us().max(1),
+            pid,
+            va
+        );
+    }
+}
+
 /// A U-mode page fault (`exc` 12/13/15 at `stval`) on a lazy page is a missing page, not an
 /// error (ADR-0077): commit and map it under the kernel lock and resume the instruction. `true`
 /// = filled (or spurious) — the trap returns to the same `sepc`; `false` = a real fault, the
@@ -389,7 +410,10 @@ pub(super) fn fill_user_fault(frame: &mut TrapFrame, exc: usize, stval: usize) -
     let Some(handle) = tasks.current_task().address_space() else { return false };
     let Ok(space) = spaces.get_mut(handle) else { return false };
     let mut parked = false;
-    let filled = match crate::mm::populate::fill(space, stval, access) {
+    let fill_t0 = crate::arch::riscv::read_time();
+    let fill = crate::mm::populate::fill(space, stval, access);
+    note_long_step("fill", fill_t0, pid.as_raw(), stval);
+    let filled = match fill {
         Ok(()) => true,
         Err(FillError::Exhausted) => {
             log_error!(target: "mm", "KINIT: vm commit exhausted (pid={} va=0x{:x})", pid.as_raw(), stval);
@@ -414,7 +438,9 @@ pub(super) fn fill_user_fault(frame: &mut TrapFrame, exc: usize, stval: usize) -
     // ADR-0085: the page this fill committed may have crossed a watermark — the sink hears it
     // on this trap, with the trap's exclusive borrows (and the pager its page-in request).
     if crate::mm::pressure_endpoint::pending() {
+        let t0 = crate::arch::riscv::read_time();
         crate::mm::pressure_endpoint::dispatch(router, tasks, scheduler);
+        note_long_step("pressure", t0, pid.as_raw(), stval);
     }
     if parked {
         super::pending::switch_to_next(
@@ -457,6 +483,7 @@ pub(super) fn kill_faulting_user_task(frame: &mut TrapFrame) {
             // Kill the faulting task (never scheduled again). RFC-0005
             // lifecycle: close its endpoints + wake any blocked peers.
             let doomed = tasks.current_pid();
+            let exit_t0 = crate::arch::riscv::read_time();
             let waiters = router.close_endpoints_for_owner(doomed.as_raw());
             for pid in waiters {
                 match tasks.wake(crate::types::Pid::from_raw(pid), scheduler) {
@@ -491,6 +518,7 @@ pub(super) fn kill_faulting_user_task(frame: &mut TrapFrame) {
             );
             scheduler.purge(doomed);
             scheduler.finish_current();
+            note_long_step("exit", exit_t0, doomed.as_raw(), frame.sepc);
 
             // Select a runnable task and switch to it (bounded attempts to avoid loops).
             for _ in 0..8 {

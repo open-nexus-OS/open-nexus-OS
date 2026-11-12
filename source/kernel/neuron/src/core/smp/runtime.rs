@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: SMP runtime coordination flags — runtime-ready release, WFI wake
-//! hints, lazy TLB flush flags, spawn placement, steal rate gate, per-hart
-//! tick/dispatch bookkeeping (A3/A4/A7/A8).
+//! hints, spawn placement, steal rate gate, per-hart tick/dispatch bookkeeping
+//! (A3/A4/A7/A8). The per-hart fields live in `hart_state` (one record per CPU).
 //! OWNERS: @kernel-team
 //! STATUS: Functional
 //! API_STABILITY: Unstable
@@ -16,7 +16,7 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::types::CpuId;
 
-use super::{cpu_current_id, cpu_online_mask, MAX_CPUS};
+use super::{cpu_current_id, cpu_online, hart_state};
 
 // ——— A3/A4/A8 runtime state ———
 
@@ -24,14 +24,6 @@ use super::{cpu_current_id, cpu_online_mask, MAX_CPUS};
 /// secondaries must not touch the scheduler before this (the selftest phase
 /// mutates kernel state through kmain's direct borrows, not the BKL).
 static RUNTIME_READY: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
-
-/// Per-CPU count of user-task dispatches performed by `cpu_main` (A3 proof:
-/// written only by the owning hart with tp-derived identity).
-static USER_DISPATCHES: [AtomicUsize; MAX_CPUS] = [const { AtomicUsize::new(0) }; MAX_CPUS];
-
-/// Work-steal rate gate (A8): last steal attempt timestamp per CPU.
-static LAST_STEAL_NS: [core::sync::atomic::AtomicU64; MAX_CPUS] =
-    [const { core::sync::atomic::AtomicU64::new(0) }; MAX_CPUS];
 
 pub fn mark_runtime_ready() {
     RUNTIME_READY.store(true, Ordering::Release);
@@ -42,11 +34,12 @@ pub fn runtime_ready() -> bool {
     RUNTIME_READY.load(Ordering::Acquire)
 }
 
+/// Counts a user-task dispatch `cpu_main` performed on `cpu` (A3 proof: written only by the
+/// owning hart with tp-derived identity).
 #[inline]
 pub fn record_user_dispatch(cpu: CpuId) {
-    let idx = cpu.as_index();
-    if idx < MAX_CPUS {
-        USER_DISPATCHES[idx].fetch_add(1, Ordering::AcqRel);
+    if let Some(hart) = hart_state::of(cpu) {
+        hart.user_dispatches.fetch_add(1, Ordering::AcqRel);
     }
 }
 
@@ -55,48 +48,28 @@ pub fn record_user_dispatch(cpu: CpuId) {
 /// quietly waiting". This counter only moves when a task actually ran (TASK-0324 P5-a).
 #[inline]
 pub fn user_dispatch_total() -> usize {
-    let mut total: usize = 0;
-    for slot in USER_DISPATCHES.iter().take(MAX_CPUS) {
-        total = total.saturating_add(slot.load(Ordering::Acquire));
-    }
-    total
+    hart_state::all().fold(0usize, |total, (_, hart)| {
+        total.saturating_add(hart.user_dispatches.load(Ordering::Acquire))
+    })
 }
 
-/// Per-hart supervisor timer tick counters (A7): written by the owning
-/// hart's S_TIMER trap; proves every online hart has a live preemption tick.
-static TIMER_TICKS: [AtomicUsize; MAX_CPUS] = [const { AtomicUsize::new(0) }; MAX_CPUS];
-
-/// Records a timer tick for `cpu` and returns the previous count (A7 proof:
-/// the first tick on a secondary hart emits the per-hart-ticks marker).
+/// Records a supervisor timer tick for `cpu` and returns the previous count (A7 proof:
+/// written by the owning hart's S_TIMER trap; the first tick on a secondary hart emits the
+/// per-hart-ticks marker — every online hart has a live preemption tick).
 #[inline]
 pub fn record_timer_tick(cpu: CpuId) -> usize {
-    let idx = cpu.as_index();
-    if idx < MAX_CPUS {
-        TIMER_TICKS[idx].fetch_add(1, Ordering::AcqRel)
-    } else {
-        0
-    }
-}
-
-/// WFI wake hints (A4): set by `request_resched`, consumed ONLY by the
-/// target's `cpu_main` idle path. The RESCHED_PENDING flag cannot serve this
-/// purpose — the S_SOFT handler consumes it for the ack evidence chain, which
-/// races a hart into WFI with a freshly filled queue (lost wakeup).
-static WAKE_HINT: [AtomicUsize; MAX_CPUS] = [const { AtomicUsize::new(0) }; MAX_CPUS];
-
-/// Marks a wake hint for `cpu_idx` (called by `request_resched` before the IPI).
-#[inline]
-pub(super) fn set_wake_hint(cpu_idx: usize) {
-    if cpu_idx < MAX_CPUS {
-        WAKE_HINT[cpu_idx].store(1, Ordering::Release);
-    }
+    hart_state::of(cpu).map_or(0, |hart| hart.timer_ticks.fetch_add(1, Ordering::AcqRel))
 }
 
 /// Consumes this hart's wake hint; `cpu_main` skips WFI when it was set.
+///
+/// WFI wake hints (A4) are set by `request_resched` and consumed ONLY by the target's
+/// `cpu_main` idle path. The resched-pending flag cannot serve this purpose — the S_SOFT
+/// handler consumes it for the ack evidence chain, which races a hart into WFI with a freshly
+/// filled queue (lost wakeup).
 #[inline]
 pub fn take_wake_hint(cpu: CpuId) -> bool {
-    let idx = cpu.as_index();
-    idx < MAX_CPUS && WAKE_HINT[idx].swap(0, Ordering::AcqRel) != 0
+    hart_state::of(cpu).is_some_and(|hart| hart.wake_hint.swap(0, Ordering::AcqRel) != 0)
 }
 
 /// Deterministic round-robin cursor for initial task placement (A4).
@@ -112,34 +85,23 @@ pub fn assign_spawn_cpu() -> CpuId {
     if !runtime_ready() {
         return cpu_current_id();
     }
-    let mask = cpu_online_mask();
-    let count = mask.count_ones() as usize;
-    if count <= 1 {
+    let online = cpu_online();
+    if online.count() <= 1 {
         return cpu_current_id();
     }
-    let n = SPAWN_RR.fetch_add(1, Ordering::AcqRel);
-    let mut k = n % count;
-    for idx in 0..MAX_CPUS {
-        if mask & (1 << idx) != 0 {
-            if k == 0 {
-                return CpuId::from_raw(idx as u16);
-            }
-            k -= 1;
-        }
-    }
-    CpuId::BOOT
+    let turn = SPAWN_RR.fetch_add(1, Ordering::AcqRel) % online.count();
+    online.iter().nth(turn).map_or(CpuId::BOOT, |cpu| CpuId::from_raw(cpu as u16))
 }
 
 /// A8 rate gate: allow at most one steal attempt per `min_interval_ns` per CPU.
 pub fn steal_rate_gate(cpu: CpuId, now_ns: u64, min_interval_ns: u64) -> bool {
-    let idx = cpu.as_index();
-    if idx >= MAX_CPUS {
+    let Some(hart) = hart_state::of(cpu) else {
         return false;
-    }
-    let last = LAST_STEAL_NS[idx].load(Ordering::Acquire);
+    };
+    let last = hart.last_steal_ns.load(Ordering::Acquire);
     if now_ns.saturating_sub(last) < min_interval_ns {
         return false;
     }
-    LAST_STEAL_NS[idx].store(now_ns, Ordering::Release);
+    hart.last_steal_ns.store(now_ns, Ordering::Release);
     true
 }

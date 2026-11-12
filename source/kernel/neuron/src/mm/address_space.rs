@@ -204,7 +204,7 @@ impl AddressSpace {
 pub struct AddressSpaceManager {
     pub(super) spaces: Vec<Option<AddressSpace>>,
     asids: AsidAllocator,
-    harts: crate::hart_spaces::HartSpaces<{ crate::smp::MAX_CPUS }>,
+    harts: crate::hart_spaces::HartSpaces,
     // Pre-SMP contract: AS manager is owned by single kernel execution context.
     _not_send_sync: PhantomData<*mut ()>,
 }
@@ -213,7 +213,7 @@ static_assertions::assert_not_impl_any!(AddressSpaceManager: Send, Sync);
 impl AddressSpaceManager {
     /// Creates an empty manager.
     pub fn new() -> Self {
-        let harts = crate::hart_spaces::HartSpaces::new();
+        let harts = crate::hart_spaces::HartSpaces::new(crate::topology::hart_count());
         Self { spaces: Vec::new(), asids: AsidAllocator::new(), harts, _not_send_sync: PhantomData }
     }
 

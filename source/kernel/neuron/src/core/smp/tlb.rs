@@ -24,27 +24,28 @@
 
 use core::sync::atomic::{AtomicU64, Ordering};
 
+use nexus_sched::CpuSet;
+
 use crate::types::CpuId;
 
-use super::{cpu_current_id, cpu_online_mask, MAX_CPUS};
-
-#[cfg(all(target_arch = "riscv64", target_os = "none"))]
-use sbi_rt as sbi;
+use super::{cpu_current_id, cpu_online, hart_state};
 
 /// Global shootdown generation. Monotonic; one increment per shootdown.
 static TLB_EPOCH: AtomicU64 = AtomicU64::new(0);
 
-/// Per-hart mailbox: the epoch the hart must flush up to (`requested`) and
-/// the epoch it has flushed (`acked`). v1 scope: every shootdown is a FULL
-/// local flush on the responder (per-ASID scoping is a later optimization —
-/// over-invalidation is always safe).
-struct TlbMailbox {
-    requested: AtomicU64,
-    acked: AtomicU64,
-}
+// Per-hart mailbox (`hart_state`: `tlb_requested`, `tlb_acked`): the epoch the hart must
+// flush up to and the epoch it has flushed. v1 scope: every shootdown is a FULL local flush
+// on the responder (per-ASID scoping is a later optimization — over-invalidation is always
+// safe).
 
-static TLB_MAIL: [TlbMailbox; MAX_CPUS] =
-    [const { TlbMailbox { requested: AtomicU64::new(0), acked: AtomicU64::new(0) } }; MAX_CPUS];
+/// The CPUs of `waited` whose mailbox has not reached `epoch`.
+fn not_acked(waited: CpuSet, epoch: u64) -> CpuSet {
+    hart_state::all()
+        .filter(|(cpu, hart)| {
+            waited.contains(*cpu) && hart.tlb_acked.load(Ordering::Acquire) < epoch
+        })
+        .fold(CpuSet::EMPTY, |missing, (cpu, _)| missing.with(cpu))
+}
 
 /// Wait budget for all acks: 100 ms of the platform's timebase (was the literal
 /// `1_000_000` ticks — 100 ms only at QEMU's 10 MHz). A hart that cannot ack
@@ -63,14 +64,10 @@ fn local_flush_all() {
     }
 }
 
-/// Per-hart activity tag (evidence, not control): what a hart was doing
-/// when it last passed a tag point. Named on the `KPANIC: tlb shootdown ack
-/// timeout` line so a hart that never acked is not a blank — the 2026-09-08
-/// timeouts could only be *inferred* to be a phase-B memset.
-static HART_ACTIVITY: [core::sync::atomic::AtomicUsize; MAX_CPUS] =
-    [const { core::sync::atomic::AtomicUsize::new(0) }; MAX_CPUS];
-
-/// Activity tags (`HART_ACTIVITY`): low byte = class, upper bits = detail
+/// Activity tags — per hart (`hart_state`: `activity`), evidence, not control: what a hart
+/// was doing when it last passed a tag point. Named on the `KPANIC: tlb shootdown ack
+/// timeout` line so a hart that never acked is not a blank — the 2026-09-08 timeouts could
+/// only be *inferred* to be a phase-B memset. Low byte = class, upper bits = detail
 /// (syscall number / scause).
 pub const ACT_TRAP: usize = 1;
 pub const ACT_PHASE_B_ZERO: usize = 2;
@@ -81,9 +78,8 @@ pub const ACT_FAULT_KILL: usize = 5;
 
 #[inline]
 pub fn note_activity(cpu: CpuId, class: usize, detail: usize) {
-    let idx = cpu.as_index();
-    if idx < MAX_CPUS {
-        HART_ACTIVITY[idx].store((detail << 8) | (class & 0xff), Ordering::Relaxed);
+    if let Some(hart) = hart_state::of(cpu) {
+        hart.activity.store((detail << 8) | (class & 0xff), Ordering::Relaxed);
     }
 }
 
@@ -144,16 +140,15 @@ pub enum TlbPollOutcome {
 /// Responder side, called from the S_SOFT trap (LOCK-FREE — the initiator
 /// may hold the BKL while waiting). Flushes and acks any pending epoch.
 pub fn poll_mailbox(cpu: CpuId) -> TlbPollOutcome {
-    let idx = cpu.as_index();
-    if idx >= MAX_CPUS {
+    let Some(hart) = hart_state::of(cpu) else {
         return TlbPollOutcome::NoPending;
-    }
-    let requested = TLB_MAIL[idx].requested.load(Ordering::Acquire);
-    if TLB_MAIL[idx].acked.load(Ordering::Acquire) >= requested {
+    };
+    let requested = hart.tlb_requested.load(Ordering::Acquire);
+    if hart.tlb_acked.load(Ordering::Acquire) >= requested {
         return TlbPollOutcome::NoPending;
     }
     local_flush_all();
-    TLB_MAIL[idx].acked.store(requested, Ordering::Release);
+    hart.tlb_acked.store(requested, Ordering::Release);
     TlbPollOutcome::Flushed
 }
 
@@ -165,32 +160,32 @@ pub fn shootdown_all() {
     local_flush_all();
 
     let me = cpu_current_id().as_index();
-    let online = cpu_online_mask();
+    let online = cpu_online();
     let epoch = TLB_EPOCH.fetch_add(1, Ordering::AcqRel).wrapping_add(1);
 
-    let mut targets = 0usize;
-    for (idx, mail) in TLB_MAIL.iter().enumerate() {
-        if idx == me || online & (1 << idx) == 0 {
+    let mut targets = CpuSet::EMPTY;
+    for (cpu, hart) in hart_state::all() {
+        if cpu == me || !online.contains(cpu) {
             continue;
         }
-        targets |= 1 << idx;
+        targets = targets.with(cpu);
         // Monotonic max: coalesce with a concurrent request. Concurrent
         // initiators ARE possible: `vm_unmap` shoots down in phase B with the
         // BKL dropped while a task exit (AS destroy / ASID recycle) shoots
         // down under the BKL on another hart.
-        mail.requested.fetch_max(epoch, Ordering::AcqRel);
+        hart.tlb_requested.fetch_max(epoch, Ordering::AcqRel);
     }
-    if targets == 0 {
+    if targets.is_empty() {
         return;
     }
     // Idle harts (parked in WFI, no user translation live) flush at their
     // next dispatch instead of acking now: read AFTER the mailboxes were
     // raised, so a hart leaving idle from here on sees the request at its
     // dispatch poll. The doorbell still goes to every target.
-    let wait_targets = targets & !super::cpu_idle_mask();
-    if wait_targets == 0 {
+    let wait_targets = targets.without(super::cpu_idle());
+    if wait_targets.is_empty() {
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-        let _ = sbi::send_ipi(targets, 0);
+        let _ = super::send_ipi(targets);
         return;
     }
 
@@ -203,31 +198,16 @@ pub fn shootdown_all() {
         // and gives TCG vCPU-scheduling jitter more than one 100ms window.
         const RESEND_ROUNDS: u32 = 4;
         for _ in 0..RESEND_ROUNDS {
-            // Correctness-class IPI: direct send, no rate limiting. Only
-            // still-missing harts get the re-send.
-            let mut missing = 0usize;
-            for (idx, mail) in TLB_MAIL.iter().enumerate() {
-                if wait_targets & (1 << idx) != 0 && mail.acked.load(Ordering::Acquire) < epoch {
-                    missing |= 1 << idx;
-                }
-            }
-            if missing == 0 {
+            // Correctness-class IPI: direct send, no rate limiting.
+            if not_acked(wait_targets, epoch).is_empty() {
                 return;
             }
             // Doorbell to every target (idle ones ack early when it lands).
-            let _ = sbi::send_ipi(targets, 0);
+            let _ = super::send_ipi(targets);
             let deadline =
                 (riscv::register::time::read() as u64).saturating_add(ack_budget_ticks());
             while (riscv::register::time::read() as u64) < deadline {
-                let mut all_acked = true;
-                for (idx, mail) in TLB_MAIL.iter().enumerate() {
-                    if wait_targets & (1 << idx) != 0 && mail.acked.load(Ordering::Acquire) < epoch
-                    {
-                        all_acked = false;
-                        break;
-                    }
-                }
-                if all_acked {
+                if not_acked(wait_targets, epoch).is_empty() {
                     return;
                 }
                 // A waiting initiator is also a responder: with two
@@ -243,44 +223,40 @@ pub fn shootdown_all() {
         }
         // Fail closed: silent TLB staleness is never acceptable. Name the
         // evidence — WHICH hart, and how far its mailbox got.
-        for (idx, mail) in TLB_MAIL.iter().enumerate() {
-            if wait_targets & (1 << idx) != 0 && mail.acked.load(Ordering::Acquire) < epoch {
-                // The panic path cannot format arguments; name the evidence
-                // on the log first (which hart, how far its mailbox got).
-                let act = HART_ACTIVITY[idx].load(Ordering::Relaxed);
-                log_error!(
-                    target: "smp",
-                    "KPANIC: tlb shootdown ack timeout hart={} epoch={} requested={} acked={} online=0x{:x} me={} activity=class{}:0x{:x}",
-                    idx,
-                    epoch,
-                    mail.requested.load(Ordering::Acquire),
-                    mail.acked.load(Ordering::Acquire),
-                    online,
-                    me,
-                    act & 0xff,
-                    act >> 8
-                );
-                panic!(
-                    "tlb shootdown ack timeout hart={} epoch={} requested={} acked={}",
-                    idx,
-                    epoch,
-                    mail.requested.load(Ordering::Acquire),
-                    mail.acked.load(Ordering::Acquire)
-                );
-            }
+        if let Some(cpu) = not_acked(wait_targets, epoch).lowest() {
+            let (_, requested, acked) = selftest_evidence(CpuId::from_raw(cpu as u16));
+            // The panic path cannot format arguments; name the evidence
+            // on the log first (which CPU, how far its mailbox got).
+            let act = hart_state::at(cpu).map_or(0, |hart| hart.activity.load(Ordering::Relaxed));
+            log_error!(
+                target: "smp",
+                "KPANIC: tlb shootdown ack timeout hart={} epoch={} requested={} acked={} online=0x{:x} me={} activity=class{}:0x{:x}",
+                cpu,
+                epoch,
+                requested,
+                acked,
+                online,
+                me,
+                act & 0xff,
+                act >> 8
+            );
+            panic!(
+                "tlb shootdown ack timeout hart={} epoch={} requested={} acked={}",
+                cpu, epoch, requested, acked
+            );
         }
     }
 }
 
 /// Selftest evidence: `(epoch, requested[cpu], acked[cpu])`.
 pub fn selftest_evidence(cpu: CpuId) -> (u64, u64, u64) {
-    let idx = cpu.as_index();
-    if idx >= MAX_CPUS {
-        return (TLB_EPOCH.load(Ordering::Acquire), 0, 0);
+    let epoch = TLB_EPOCH.load(Ordering::Acquire);
+    match hart_state::of(cpu) {
+        Some(hart) => (
+            epoch,
+            hart.tlb_requested.load(Ordering::Acquire),
+            hart.tlb_acked.load(Ordering::Acquire),
+        ),
+        None => (epoch, 0, 0),
     }
-    (
-        TLB_EPOCH.load(Ordering::Acquire),
-        TLB_MAIL[idx].requested.load(Ordering::Acquire),
-        TLB_MAIL[idx].acked.load(Ordering::Acquire),
-    )
 }

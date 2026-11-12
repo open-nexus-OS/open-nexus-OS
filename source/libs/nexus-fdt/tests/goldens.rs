@@ -42,7 +42,7 @@ fn timebase_and_harts_differ_between_the_two_machines() {
     let board = Fdt::new(BOARD).unwrap().cpus().unwrap();
     assert_eq!(board.timebase_hz, 24_000_000);
     assert_eq!(board.count(), 8);
-    let harts: Vec<u32> = board.harts().map(|c| c.hart).collect();
+    let harts: Vec<u64> = board.harts().map(|c| c.hart).collect();
     assert_eq!(harts, [0, 1, 2, 3, 4, 5, 6, 7]);
     let map = board.cpu_map().expect("cpu-map");
     assert_eq!(map.clusters(), 2);
@@ -429,7 +429,7 @@ fn a_disabled_cpu_node_is_not_a_hart() {
     let cpus = Fdt::new(DISABLED).unwrap().cpus().unwrap();
     assert_eq!(cpus.timebase_hz, 24_000_000);
     assert_eq!(cpus.count(), 2);
-    let harts: Vec<u32> = cpus.harts().map(|c| c.hart).collect();
+    let harts: Vec<u64> = cpus.harts().map(|c| c.hart).collect();
     assert_eq!(harts, [0, 2], "hart 1 is disabled, hart 2 has no status (enabled)");
     assert!(cpus.harts().all(|c| c.is_enabled() && c.has_extension("sstc")));
     // The node itself is still in the tree (a cpu-map may name it).

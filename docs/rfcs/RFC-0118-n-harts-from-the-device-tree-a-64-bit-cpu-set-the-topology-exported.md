@@ -47,7 +47,7 @@ kernel and userspace read it there.
 - The kernel numbers the harts it runs densely from 0: **CPU 0 is the boot hart**, the others
   follow in the tree's order of enabled `/cpus/cpu@*` nodes. A hart id is never an index;
   `hart_of(cpu)` and `cpu_of(hart)` are the two maps, built once at boot.
-- `CPU_SET_BITS = 64` is the one compile-time ceiling. A tree naming more enabled harts than
+- `CpuSet::BITS = 64` (`nexus-sched`) is the one compile-time ceiling. A tree naming more enabled harts than
   that starts the first 64 and says so (`KGATE: smp harts beyond the cpu set (named=N run=64)`).
   `MAX_CPUS` is deleted; its name is retired (`scripts/check-retired-names.sh`).
 
@@ -68,7 +68,7 @@ kernel and userspace read it there.
   wake hints, timer and deadline shadows, the steal gate, the interrupt stash, PLIC context
   numbers, console line buffers, TLB mailboxes, the secondary stacks (from the frame pool, each
   with an unmapped guard page below it).
-- `HART_LOCALS` stays a static array of `CPU_SET_BITS` entries: `trap.S` finds a hart's block by
+- `HART_LOCALS` stays a static array of `CpuSet::BITS` entries: `trap.S` finds a hart's block by
   address before any allocator runs. The boot hart's entries that a trap may touch before the
   slab exists (its interrupt stash, its console line) are the static block's own.
 - No structure is indexed by a hart id, and no loop runs to a constant: loops run to
@@ -82,17 +82,20 @@ of the sched syscall, registers only (no user memory is read or written):
 | `what` | argument | result |
 |---|---|---|
 | `CPUS` | — | the number of logical CPUs the kernel runs |
-| `ONLINE` | — | the `CpuSet` of CPUs that reached their scheduling loop |
+| `ONLINE` | — | the `CpuSet` of CPUs that came up (trap vector installed, about to enter their scheduling loop) — the set an affinity set is admitted against |
 | `CLUSTERS` | — | the number of clusters (`/cpus/cpu-map`; 1 when the tree names none) |
 | `CLUSTER_SET` | cluster index | the `CpuSet` of that cluster; `EINVAL` beyond the count |
 | `HART_OF` | CPU index | the hart id (for diagnostics and logs); `EINVAL` beyond the count |
 
 Any task may ask: the answer carries no authority. Changing another task's set stays the right
 of the QoS administrators (ADR-0049). `nexus_abi::sched::topology()` returns the whole picture
-as one value; init, execd, the workpool and pinched derive their sets from it. Until TASK-0365
-replaces pinning by roles and time rights, the two roles of ADR-0049 are derived, not written:
-the display chain's set is `{CPU 0}`, the background's set is `ONLINE \ {CPU 0}` (and all of
-`ONLINE` on one hart).
+as one value; init, execd and the workpool (pinched through it) derive their sets from it. Until
+TASK-0365 replaces pinning by roles and time rights, the roles of ADR-0049 are derived, not
+written (`nexus_sched::Placement`): the display chain's set is `{CPU 0}`, the background's set
+is `ONLINE \ {CPU 0}` (and all of `ONLINE` on one hart), a program that may run anywhere gets
+`ONLINE`. The operation is number 7 of the sched syscall (`nexus_sched::TOPOLOGY_OP`); a reader
+refuses answers that describe no machine (no CPU, more than the set holds, CPU 0 offline, a CPU
+online that is not run).
 
 ### Interrupts
 
@@ -108,7 +111,11 @@ the display chain's set is `{CPU 0}`, the background's set is `ONLINE \ {CPU 0}`
 
 - A secondary is started through SBI HSM at the **physical** address of the entry stub, on the
   first try and on every retry (`retry_missing_harts` passed a virtual address).
-- A hart the tree disables is not started and is named. A hart that does not come online after
+- The stub is handed the physical address of its CPU's entry record (`a1`): it marks the record
+  before it has a stack or a translation, and takes its stack and its logical CPU from the
+  record — never from the hart id, which indexes nothing. A start the firmware refuses is named
+  and the next hart is still tried.
+- A hart the tree disables is not a CPU and is never started. A hart that does not come online after
   the bounded retries degrades the boot loudly (`KGATE: smp bringup DEGRADED expected=… got=…`),
   as today; the kernel runs the harts it has.
 - The boot hart is whichever hart the firmware entered on; nothing assumes hart 0.
@@ -126,10 +133,13 @@ the display chain's set is `{CPU 0}`, the background's set is `ONLINE \ {CPU 0}`
 | CPU 0 is the boot hart whatever its hart id | host test with a tree whose boot hart is not 0 |
 | a steal never crosses a task's set | `KSELFTEST: test_reject_steal_against_affinity` (kept) |
 | no per-hart static is sized by a constant | the retired-name gate for `MAX_CPUS` |
+| every per-hart table holds exactly the machine's CPUs, and none was forgotten at sizing | `KSELFTEST: per-hart state ok (harts= unsized=0)` on every lane; `sync::hart_table` host tests |
+| a reader of the topology refuses answers that describe no machine | `test_reject_answers_that_describe_no_machine` |
+| a role's set is one the kernel admits on every machine | `placement_ssot_roles_are_sane` (one CPU, two, eight with one lost) |
 
 ## Failure model
 
-- More harts than `CPU_SET_BITS`: the rest are not started, one line says so.
+- More harts than `CpuSet::BITS`: the rest are not started, one line says so.
 - The boot slab cannot be allocated: the boot stops with its name (`KPANIC: smp slab`); there is
   no path that runs with a partial per-hart state.
 - A hart lost at bring-up: degraded boot, the lost hart is absent from `ONLINE`, sets naming
@@ -147,7 +157,7 @@ memory, so it adds no copy path.
 ```bash
 just test-kernel                      # CpuSet rules, cpu_of/hart_of, slab sizing
 cargo test -p nexus-fdt               # topology goldens
-just ci-os-smp1 && just ci-os-smp     # one hart and two harts
+just ci-os-smp1 && just ci-os-smp     # one hart and two harts (per-hart state, the roles applied)
 SMP=8 … ×10                           # 0 lost harts (TASK-0330 P1's gate)
 ```
 

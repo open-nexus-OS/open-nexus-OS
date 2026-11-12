@@ -18,6 +18,8 @@
 #   RUN_UNTIL_MARKER        – when "1", stop QEMU after success marker set
 #   SMP                     – number of CPU cores
 #   QEMU_MEM                – machine memory (default 320M; the kernel reads the tree)
+#   QEMU_MEM_PREALLOC       – "0" leaves the machine memory lazy on the host (default 1:
+#                             preallocated, so no guest instruction waits on a host page fault)
 #   QEMU_NETDEV             – QEMU net backend
 #   QEMU_NETDEV_DEVICE      – QEMU net device
 #   QEMU_RNG_OBJECT         – QEMU RNG backend
@@ -328,6 +330,17 @@ build_qemu_args() {
   # RFC-0098 C4 (TASK-0286 P3b): the kernel sizes itself from the tree, so the
   # machine memory is a lane knob, not a kernel constant (256M and 1G are proven).
   args+=(-machine "virt,aclint=${QEMU_ACLINT:-on}" -cpu max -m "${QEMU_MEM:-320M}" -smp "${SMP:-4}" -bios default)
+  # The machine's memory is the host's BEFORE the guest runs (`-mem-prealloc`): a guest's
+  # first touch of a fresh 2 MiB region of its RAM otherwise waits on the host's page fault —
+  # with transparent huge pages a compaction of tens of milliseconds — inside whatever the
+  # guest was doing. Measured 2026-11-11 on the two-hart lane: zeroing ONE 4 KiB frame at a
+  # 2 MiB-aligned address took 20–28 ms under the kernel lock, the other hart waited 44–120 ms
+  # (`KSELFTEST: bkl budget FAIL`) in three boots of five
+  # (docs/board/measurements/2026-11-11-n-harts/README.md). Real hardware has no such fault.
+  # QEMU_MEM_PREALLOC=0 leaves the memory lazy (a host too small to hold it).
+  if [[ "${QEMU_MEM_PREALLOC:-1}" == "1" ]]; then
+    args+=(-mem-prealloc)
+  fi
   # TASK-0289 A4 boot flip: the loader verifies and chains into the slot
   # image from the GPT disk (ADR-0059). ADR-0081: there is no other boot — the
   # kernel runs from the container the loader placed (its bootfs holds init).

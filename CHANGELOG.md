@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-11-11 (every hart the device tree names runs — TASK-0330 P1, RFC-0118)
+
+- **No constant counts harts.** The kernel builds one topology from the tree's `/cpus`
+  (enabled harts, `cpu-map` clusters, the interrupt controller's `interrupts-extended`):
+  logical CPUs dense from 0, CPU 0 the boot hart whatever its hart id, `hart_of`/`cpu_of` the
+  only translation, hart ids 64 bits wide and never an index. `MAX_CPUS`, `ALL_CPUS_MASK` and
+  the PLIC context table are deleted and retired by name (`scripts/check-retired-names.sh`).
+  A CPU the controller has no context for takes no external interrupts and is named — the old
+  fallback number wrote registers beyond the controller's window.
+- **Per-hart state is sized at boot.** `HartTable<T>` (`sync/hart_table.rs`, host-tested)
+  holds the boot hart's entry in the image and the others on the heap, sized once before a
+  secondary starts; a failure is `KPANIC: smp slab`. New boot proof on every lane:
+  `KSELFTEST: per-hart state ok (harts= unsized=0)`. `KSELFTEST: smp online ok` now carries
+  `harts= clusters=`.
+- **A hart is started at its physical address, every time,** with the physical address of its
+  CPU's entry record: the stub takes stack and logical CPU from the record, never from the hart
+  id (the old stub indexed a four-entry table with it). Secondary stacks come from the frame
+  pool with an unmapped guard frame. A start the firmware refuses is named and the next hart is
+  still tried; the gate judges every CPU of the machine.
+- **A CPU set is 64 bits in the kernel and the ABI** (`nexus_sched::CpuSet`); an empty set, a
+  set naming a CPU the kernel does not run, or one naming no online CPU is refused (`EINVAL`),
+  never clamped. **A program asks for the machine** (operation 7 of the sched syscall,
+  `nexus_abi::sched::topology` / `online` / `hart_of`) and places by role
+  (`nexus_sched::Placement`): init, execd's sched recipes, the workpool and the selftest derive
+  their sets from the online set the kernel reports — no mask is written anywhere.
+- **Proof.** One hart and two harts green (`just ci-os-smp1`, `just ci-os-smp` — the two-hart
+  lane's first green since 2026-10-20); eight harts: 10 of 10 boots with all eight online, none
+  lost, no panic (`docs/board/measurements/2026-11-11-n-harts/README.md`; before: four of
+  eight started). A multi-hart QEMU lane runs on the host's wall clock, so two timing verdicts
+  (`ipc call budget`, `console off lock`) are rungs there (`config/fail-marker-allow-mttcg.txt`)
+  and stay verdicts on the one-hart lanes and the board. Reference: `docs/kernel/topology.md`.
+- **The lock says who made a hart wait.** Three bounded diagnostics (first twelve lines each,
+  above 10 ms): `KINIT: bkl long wait … for= deferred= passed_over=`, `KINIT: bkl long hold …
+  by=` (any holder, not only syscalls) and `KINIT: fault long step=`. They found the multi-hart
+  lane's red `bkl budget` (waits of 44–155 ms): not the lock — the host's page fault on the
+  guest's first touch of a 2 MiB region, taken while a fault zeroes a frame under the lock. QEMU
+  now preallocates the machine's memory (`-mem-prealloc`, `QEMU_MEM_PREALLOC=0` to turn off):
+  six of six two-hart boots green after it (`max_wait` 2.3–10.1 ms), and the wait budget stays a
+  verdict on that lane.
+- **On the board** (build `dev-c22532d5`): `KSELFTEST: smp online ok harts=8 clusters=2` (was
+  four of eight), `per-hart state ok (harts=8 unsized=0)`, 31 placements applied against
+  `online=0xff`, `bkl budget ok (max_wait=2476us max_hold=1ms)`, `ipc call budget ok (rt=32us)`,
+  no long wait or hold in the session. Open in the phase: an interrupt follows its home CPU.
+
 ### Fixed - 2026-11-11 (a page table is never freed under a hart — TASK-0330 P6)
 
 - **A hart without a task runs on the kernel's own address space.** A task killed by its fault

@@ -20,33 +20,40 @@ use crate::os_payload::*;
 /// (`hidrawd` previously raced here — see its `entry_to_ready_ms`). IPC wiring
 /// happens after grants.
 
-/// P1: apply the declarative CPU placement (service_topology::affinity_for)
-/// right before waking the service. Best-effort: a rejected mask (e.g. all
-/// target cpus offline) leaves the inherited mask; the kernel clamps.
+/// P1: apply the declarative CPU placement (service_topology::placement_for)
+/// right before waking the service. The role's CPU set is derived from the CPUs the kernel
+/// reports online (RFC-0118), so it is a set the kernel admits on every machine: a refusal
+/// is a failure, never a reason to try a wider set.
 static AFFINITY_APPLIED: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
-static AFFINITY_CLAMPED: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
 static AFFINITY_FAILED: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+/// The online CPUs as the kernel reported them, asked once (0: not asked yet — a machine
+/// always has one online).
+static ONLINE: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
 
-/// "Any CPU" — the placement a mask degrades to when none of its target
-/// CPUs is online (a 1-CPU boot has no cpu1-3 to put background work on).
-const AFFINITY_ANY: usize = 0b1111;
+fn online_cpus() -> Option<nexus_abi::sched::CpuSet> {
+    use core::sync::atomic::Ordering;
+    let known = nexus_abi::sched::CpuSet::from_bits(ONLINE.load(Ordering::Relaxed));
+    if !known.is_empty() {
+        return Some(known);
+    }
+    let asked = nexus_abi::sched::online().ok()?;
+    ONLINE.store(asked.bits(), Ordering::Relaxed);
+    Some(asked)
+}
 
 pub(crate) fn apply_affinity(chan_name: &str, pid: u32) {
-    let mask = crate::service_topology::affinity_for(chan_name);
-    if nexus_abi::sched::set_affinity_for(pid, mask as usize).is_ok() {
+    let set =
+        online_cpus().map(|online| crate::service_topology::placement_for(chan_name).set(online));
+    let applied = set.is_some_and(|set| nexus_abi::sched::set_affinity_for(pid, set).is_ok());
+    if applied {
         AFFINITY_APPLIED.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-    } else if nexus_abi::sched::set_affinity_for(pid, AFFINITY_ANY).is_ok() {
-        // The kernel refuses a mask that misses every online CPU (fewer
-        // CPUs than the placement assumes): degrade to any-CPU, counted in
-        // the summary line rather than a per-item FAIL — nothing failed.
-        AFFINITY_CLAMPED.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
     } else {
         // RFC-0068: per-item lines only for the failure path.
         AFFINITY_FAILED.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         debug_write_str("init: affinity FAIL svc=");
         debug_write_str(chan_name);
-        debug_write_str(" mask=0x");
-        debug_write_hex(mask as usize);
+        debug_write_str(" set=0x");
+        debug_write_hex(set.map_or(0, |set| set.bits() as usize));
         debug_write_byte(b'\n');
     }
 }
@@ -75,10 +82,10 @@ pub(crate) fn apply_qos(chan_name: &str, pid: u32) {
 pub(crate) fn affinity_summary() {
     debug_write_str("init: affinity applied n=0x");
     debug_write_hex(AFFINITY_APPLIED.load(core::sync::atomic::Ordering::Relaxed));
-    debug_write_str(" clamped=0x");
-    debug_write_hex(AFFINITY_CLAMPED.load(core::sync::atomic::Ordering::Relaxed));
     debug_write_str(" fail=0x");
     debug_write_hex(AFFINITY_FAILED.load(core::sync::atomic::Ordering::Relaxed));
+    debug_write_str(" online=0x");
+    debug_write_hex(ONLINE.load(core::sync::atomic::Ordering::Relaxed) as usize);
     debug_write_byte(b'\n');
     debug_write_str("init: qos interactive n=0x");
     debug_write_hex(QOS_RAISED.load(core::sync::atomic::Ordering::Relaxed));

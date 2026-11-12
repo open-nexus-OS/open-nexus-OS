@@ -38,7 +38,19 @@ pub struct Cpus<'a> {
 #[derive(Clone, Copy)]
 pub struct Cpu<'a> {
     node: Node<'a>,
-    pub hart: u32,
+    /// The hart id: `reg`, as wide as `/cpus` says (`#address-cells` of 1 or 2).
+    pub hart: u64,
+}
+
+/// A cpu node's hart id: its `reg`, read with the `#address-cells` of its parent (`/cpus`).
+/// Hart ids are as wide as the machine's registers and sparse on real SoCs; the first cell
+/// alone is the id only on a tree with one address cell.
+pub(crate) fn hart_id(cpu: &Node<'_>) -> Option<u64> {
+    match cpu.parent()?.address_cells() {
+        1 => cpu.prop_cell("reg", 0).map(u64::from),
+        2 => cpu.prop_u64("reg"),
+        _ => None,
+    }
 }
 
 /// `/cpus/cpu-map`: which cluster a hart belongs to.
@@ -84,10 +96,13 @@ impl<'a> Fdt<'a> {
         block.chain(children)
     }
 
-    /// `/cpus`, refused when absent or without a timebase.
+    /// `/cpus`, refused when absent or without a timebase. The timebase is `/cpus`'s
+    /// `timebase-frequency`, or — on a tree that states it per hart — the first cpu node's.
     pub fn cpus(&self) -> Result<Cpus<'a>, Error> {
         let node = self.node_at_path("/cpus").ok_or(Error::NotFound)?;
-        let timebase_hz = node.prop_u32("timebase-frequency").ok_or(Error::NotFound)?;
+        let per_cpu = || node.children().find_map(|c| c.prop_u32("timebase-frequency"));
+        let timebase_hz =
+            node.prop_u32("timebase-frequency").or_else(per_cpu).ok_or(Error::NotFound)?;
         Ok(Cpus { node, timebase_hz })
     }
 
@@ -133,7 +148,7 @@ impl<'a> Cpus<'a> {
         self.node
             .children()
             .filter(|c| c.prop_str("device_type") == Some("cpu") && c.is_enabled())
-            .filter_map(|c| c.prop_cell("reg", 0).map(|hart| Cpu { node: c, hart }))
+            .filter_map(|c| hart_id(&c).map(|hart| Cpu { node: c, hart }))
     }
 
     pub fn count(&self) -> usize {
@@ -178,6 +193,13 @@ impl<'a> Cpu<'a> {
         self.node.prop_str("mmu-type")
     }
 
+    /// Whether the hart can run a paged supervisor: it states an `mmu-type` other than
+    /// `riscv,none`. A monitor core without an MMU is in the tree and enabled on some SoCs;
+    /// it is not a hart an OS schedules on.
+    pub fn has_mmu(&self) -> bool {
+        self.mmu().is_some_and(|mmu| mmu != "riscv,none")
+    }
+
     /// The hart's `interrupt-controller` child (`riscv,cpu-intc`) phandle.
     pub fn intc_phandle(&self) -> Option<u32> {
         self.node.children().find(|c| c.is_compatible("riscv,cpu-intc")).and_then(|c| c.phandle())
@@ -189,19 +211,52 @@ impl<'a> Cpu<'a> {
 }
 
 impl CpuMap<'_> {
-    /// The cluster index (order of `clusterN` children) of the cpu with `phandle`.
+    /// The cluster of the cpu with `phandle`: the index, in tree order, of the innermost
+    /// `cluster*` node that holds it. The binding nests — `socketN` above clusters, clusters
+    /// inside clusters, `threadN` below a core — and a tree may use any of it.
     pub fn cluster_of(&self, cpu_phandle: u32) -> Option<u32> {
-        self.node.children().enumerate().find_map(|(ci, cluster)| {
-            cluster
-                .children()
-                .any(|core| core.prop_u32("cpu") == Some(cpu_phandle))
-                .then_some(ci as u32)
-        })
+        let mut next = 0;
+        find_cluster(self.node, Some(cpu_phandle), &mut next, 0)
     }
 
+    /// The number of innermost clusters.
     pub fn clusters(&self) -> usize {
-        self.node.children().count()
+        let mut next = 0;
+        let _ = find_cluster(self.node, None, &mut next, 0);
+        next as usize
     }
+}
+
+fn named(node: &Node<'_>, prefix: &str) -> bool {
+    node.name().starts_with(prefix)
+}
+
+/// Walks the innermost clusters below `node` in tree order, numbering them through `next`,
+/// and answers the number of the one holding the cpu `phandle` (`None`: only count). The
+/// depth is the tree's, which the parser bounds ([`crate::MAX_DEPTH`]).
+fn find_cluster(node: Node<'_>, phandle: Option<u32>, next: &mut u32, depth: usize) -> Option<u32> {
+    if depth > crate::MAX_DEPTH {
+        return None;
+    }
+    let mut found = None;
+    for child in node.children() {
+        let nests = child.children().any(|c| named(&c, "cluster"));
+        let hit = if named(&child, "socket") || (named(&child, "cluster") && nests) {
+            find_cluster(child, phandle, next, depth + 1)
+        } else if named(&child, "cluster") {
+            let index = *next;
+            *next += 1;
+            let names = |n: &Node<'_>| phandle.is_some() && n.prop_u32("cpu") == phandle;
+            let holds =
+                child.children().any(|core| names(&core) || core.children().any(|t| names(&t)));
+            holds.then_some(index)
+        } else {
+            None
+        };
+        // The walk goes on after a hit: the count comes from the same walk.
+        found = found.or(hit);
+    }
+    found
 }
 
 impl<'a> Chosen<'a> {
@@ -312,7 +367,8 @@ impl NexusKey {
 
 /// The S-mode external-interrupt context of each hart on a PLIC, from
 /// `interrupts-extended` = `<&intc cause>` pairs: the pair index is the context
-/// number, cause 9 is S-mode external, and the intc's parent is the hart.
+/// number, cause 9 is S-mode external, and the intc's parent is the hart. The pairs come in
+/// the controller's order, which is not the harts' on every SoC.
 pub struct PlicContexts<'a> {
     fdt: Fdt<'a>,
     prop: &'a [u8],
@@ -332,8 +388,8 @@ impl<'a> Node<'a> {
 }
 
 impl Iterator for PlicContexts<'_> {
-    type Item = (u32, u32);
-    fn next(&mut self) -> Option<(u32, u32)> {
+    type Item = (u64, u32);
+    fn next(&mut self) -> Option<(u64, u32)> {
         const S_EXTERNAL: u32 = 9;
         loop {
             let off = self.i * 8;
@@ -352,7 +408,7 @@ impl Iterator for PlicContexts<'_> {
                 .fdt
                 .node_by_phandle(intc)
                 .and_then(|n| n.parent())
-                .and_then(|cpu| cpu.prop_cell("reg", 0));
+                .and_then(|cpu| hart_id(&cpu));
             if let Some(hart) = hart {
                 return Some((hart, ctx));
             }

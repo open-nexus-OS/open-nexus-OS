@@ -5,7 +5,7 @@ role: reference
 subsystem: devx
 sources: [tools/os2vm.sh, scripts/qemu-test.sh, tests/remote_e2e, userspace/dsoftbus, source/services/dsoftbusd, tools/pcap_summary.py]
 contracts: [RFC-0007, RFC-0010, ADR-0025]
-verified: 2026-11-04
+verified: 2026-11-11
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->

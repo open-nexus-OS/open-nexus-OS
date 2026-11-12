@@ -176,13 +176,14 @@ static mut WORKER_STACKS: [[u8; WORKER_STACK_BYTES]; MAX_WORKERS] =
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 extern "C" fn worker_entry(idx: usize) {
     SHARED.alive[idx].store(1, Ordering::Release);
-    // TASK-0042/C4: deterministic self-pin — worker idx wants CPU idx. On
-    // hosts with fewer online CPUs the kernel rejects the mask (mask ∩ online
-    // = 0) and the worker deterministically keeps the inherited full mask.
-    let desired = 1usize << (idx & 0x7);
-    if nexus_abi::sched::set_affinity(desired).is_ok()
-        && nexus_abi::sched::get_affinity() == Ok(desired)
-    {
+    // TASK-0042/C4: deterministic self-pin — worker idx wants the idx-th online CPU
+    // (RFC-0118: asked of the kernel, never assumed). A machine with fewer online CPUs
+    // has no such CPU and the worker deterministically keeps the inherited set.
+    let wanted = nexus_abi::sched::online().ok().and_then(|online| online.iter().nth(idx));
+    let desired = wanted.and_then(nexus_abi::sched::CpuSet::single);
+    if desired.is_some_and(|set| {
+        nexus_abi::sched::set_affinity(set).is_ok() && nexus_abi::sched::get_affinity() == Ok(set)
+    }) {
         SHARED.pinned[idx].store(1, Ordering::Release);
     }
     let job_slot = SHARED.worker_job_slot[idx].load(Ordering::Acquire) as u32;
@@ -265,8 +266,8 @@ pub fn selftest_probe_job_selfsignal() -> bool {
 }
 
 /// C4 (TASK-0042): deterministic worker placement — worker `i` pins itself
-/// to CPU `i % MAX_WORKERS` when that CPU is online (the kernel validates);
-/// otherwise it keeps the inherited full mask.
+/// to the `i`-th online CPU the kernel reports (RFC-0118), and keeps the
+/// inherited set on a machine with fewer online CPUs than workers.
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 fn pin_worker(pid: nexus_abi::Pid, idx: usize) {
     let _ = pid;

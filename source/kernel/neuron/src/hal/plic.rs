@@ -1,15 +1,18 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: PLIC driver — base and per-hart supervisor contexts READ from the
-//! device tree (RFC-0098 C3; `hal::platform`); v1 binding policy routes device interrupts to
-//! the boot hart's context, delivered reactively to userspace drivers.
+//! CONTEXT: PLIC driver — base and per-CPU supervisor contexts READ from the
+//! device tree (RFC-0098 C3, RFC-0118; `hal::platform`, `crate::topology`); v1 binding policy
+//! routes device interrupts to the boot hart's context, delivered reactively to userspace
+//! drivers.
 //! OWNERS: @kernel-hal-team
 //! STATUS: Functional
 //! API_STABILITY: Internal
 //! PUBLIC API: IrqId, plic_init, enable_source, disable_source, claim, complete
 //! INVARIANTS: MMIO-only, no allocation; claim masks a source until complete
-//!   (so level-triggered virtio IRQs cannot storm while a driver services them).
+//!   (so level-triggered virtio IRQs cannot storm while a driver services them); a CPU the
+//!   tree names no supervisor context for has no register here — every access is skipped,
+//!   none is made at an index the tree did not give.
 //! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
@@ -33,21 +36,19 @@ const PLIC_CLAIM_BASE: usize = 0x20_0004;
 const PLIC_CONTEXT_STRIDE: usize = 0x1000;
 const PLIC_ENABLE_STRIDE: usize = 0x80;
 
-/// Supervisor context of a cpu index, READ from the tree's `interrupts-extended`
+/// Supervisor context of a logical CPU, READ from the tree's `interrupts-extended`
 /// (RFC-0098 C3) — QEMU virt and the board both happen to be `2·hart+1`, but the
-/// kernel no longer assumes it. A cpu the tree lists no S-context for gets no
-/// interrupts: its context index is out of the controller's range, so every
-/// register write below lands in a no-op window instead of another hart's.
-fn s_context(cpu_index: usize) -> usize {
-    crate::hal::platform::plic_s_context(cpu_index).unwrap_or(NO_CONTEXT)
+/// kernel does not assume it. `None` for a CPU the tree lists no S-context for: it takes no
+/// external interrupts, and no register is touched on its behalf (the made-up index this
+/// used to fall back to named memory beyond the controller's window).
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+fn s_context(cpu_index: usize) -> Option<usize> {
+    crate::hal::platform::plic_s_context(cpu_index)
 }
-
-/// A context index past any controller's 15872-context space.
-const NO_CONTEXT: usize = 0xffff;
 
 /// The executing hart's supervisor context (A6).
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-fn current_s_context() -> usize {
+fn current_s_context() -> Option<usize> {
     s_context(crate::smp::cpu_current_id().as_index())
 }
 
@@ -106,12 +107,15 @@ fn read_reg(addr: usize) -> u32 {
 pub fn plic_init() {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
-        let online = crate::smp::cpu_online_mask();
-        for cpu_idx in 0..crate::smp::MAX_CPUS {
-            if online & (1 << cpu_idx) == 0 {
+        for cpu_idx in crate::smp::cpu_online().iter() {
+            let Some(ctx) = s_context(cpu_idx) else {
+                log_info!(
+                    target: "plic",
+                    "KINIT: cpu{} has no plic context in the tree — takes no external interrupts",
+                    cpu_idx
+                );
                 continue;
-            }
-            let ctx = s_context(cpu_idx);
+            };
             write_reg(plic_base() + PLIC_THRESHOLD_BASE + ctx * PLIC_CONTEXT_STRIDE, 0);
             // Clear the S-context enable bitmap (sources 0..=MAX_IRQ).
             let enable = plic_base() + PLIC_ENABLE_BASE + ctx * PLIC_ENABLE_STRIDE;
@@ -127,21 +131,23 @@ pub fn plic_init() {
 }
 
 /// Structural selftest read: a context's priority threshold (proves the
-/// context registers were initialised and are addressable).
+/// context registers were initialised and are addressable). `None`: the tree names no
+/// context for `cpu`.
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-pub fn selftest_ctx_threshold(cpu: crate::types::CpuId) -> u32 {
-    read_reg(plic_base() + PLIC_THRESHOLD_BASE + s_context(cpu.as_index()) * PLIC_CONTEXT_STRIDE)
+pub fn selftest_ctx_threshold(cpu: crate::types::CpuId) -> Option<u32> {
+    let ctx = s_context(cpu.as_index())?;
+    Some(read_reg(plic_base() + PLIC_THRESHOLD_BASE + ctx * PLIC_CONTEXT_STRIDE))
 }
 
 /// Structural selftest read: whether `irq` is enabled in a context's bitmap
-/// (proves per-context enable isolation).
+/// (proves per-context enable isolation). A CPU without a context has nothing enabled.
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 pub fn selftest_source_enabled(irq: IrqId, cpu: crate::types::CpuId) -> bool {
+    let Some(ctx) = s_context(cpu.as_index()) else {
+        return false;
+    };
     let src = irq.raw() as usize;
-    let enable = plic_base()
-        + PLIC_ENABLE_BASE
-        + s_context(cpu.as_index()) * PLIC_ENABLE_STRIDE
-        + (src / 32) * 4;
+    let enable = plic_base() + PLIC_ENABLE_BASE + ctx * PLIC_ENABLE_STRIDE + (src / 32) * 4;
     read_reg(enable) & (1u32 << (src % 32)) != 0
 }
 
@@ -151,10 +157,12 @@ pub fn selftest_source_enabled(irq: IrqId, cpu: crate::types::CpuId) -> bool {
 pub fn enable_source(irq: IrqId, cpu: crate::types::CpuId) {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
+        let Some(ctx) = s_context(cpu.as_index()) else {
+            return;
+        };
         let src = irq.raw() as usize;
         // Priority must be > threshold (0) to be delivered.
         write_reg(plic_base() + PLIC_PRIORITY + src * 4, 1);
-        let ctx = s_context(cpu.as_index());
         let enable = plic_base() + PLIC_ENABLE_BASE + ctx * PLIC_ENABLE_STRIDE + (src / 32) * 4;
         let bit = 1u32 << (src % 32);
         write_reg(enable, read_reg(enable) | bit);
@@ -168,8 +176,10 @@ pub fn enable_source(irq: IrqId, cpu: crate::types::CpuId) {
 pub fn disable_source(irq: IrqId, cpu: crate::types::CpuId) {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
+        let Some(ctx) = s_context(cpu.as_index()) else {
+            return;
+        };
         let src = irq.raw() as usize;
-        let ctx = s_context(cpu.as_index());
         let enable = plic_base() + PLIC_ENABLE_BASE + ctx * PLIC_ENABLE_STRIDE + (src / 32) * 4;
         let bit = 1u32 << (src % 32);
         write_reg(enable, read_reg(enable) & !bit);
@@ -188,9 +198,8 @@ pub fn claim() -> Option<IrqId> {
     {
         // A6: claim from the EXECUTING hart's context — only sources enabled
         // for this context can be pending here.
-        let raw =
-            read_reg(plic_base() + PLIC_CLAIM_BASE + current_s_context() * PLIC_CONTEXT_STRIDE);
-        IrqId::new(raw)
+        let ctx = current_s_context()?;
+        IrqId::new(read_reg(plic_base() + PLIC_CLAIM_BASE + ctx * PLIC_CONTEXT_STRIDE))
     }
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
     {
@@ -207,8 +216,9 @@ pub fn claim() -> Option<IrqId> {
 pub fn complete(irq: IrqId, cpu: crate::types::CpuId) {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
-        let ctx = s_context(cpu.as_index());
-        write_reg(plic_base() + PLIC_CLAIM_BASE + ctx * PLIC_CONTEXT_STRIDE, irq.raw());
+        if let Some(ctx) = s_context(cpu.as_index()) {
+            write_reg(plic_base() + PLIC_CLAIM_BASE + ctx * PLIC_CONTEXT_STRIDE, irq.raw());
+        }
     }
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
     let _ = (irq, cpu);
@@ -219,10 +229,9 @@ pub fn complete(irq: IrqId, cpu: crate::types::CpuId) {
 pub fn complete_current(irq: IrqId) {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
-        write_reg(
-            plic_base() + PLIC_CLAIM_BASE + current_s_context() * PLIC_CONTEXT_STRIDE,
-            irq.raw(),
-        );
+        if let Some(ctx) = current_s_context() {
+            write_reg(plic_base() + PLIC_CLAIM_BASE + ctx * PLIC_CONTEXT_STRIDE, irq.raw());
+        }
     }
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
     let _ = irq;

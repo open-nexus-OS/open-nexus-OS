@@ -9,15 +9,21 @@
 //! STATUS: Experimental
 
 #[test]
-fn affinity_ssot_masks_are_sane() {
-    // Soft-RT chain on cpu0; nothing gets an empty mask.
+fn placement_ssot_roles_are_sane() {
+    use nexus_sched::{CpuSet, Placement};
+    // Soft-RT chain on the display CPU, a background service off it.
     for d in ["gpud", "windowd", "inputd", "hidrawd", "touchd"] {
-        assert_eq!(super::affinity_for(d), 0b0001, "{d}");
+        assert_eq!(super::placement_for(d), Placement::Display, "{d}");
     }
-    for s in super::ServiceId::ALL {
-        assert_ne!(super::affinity_for(s.name()), 0, "{}", s.name());
+    assert_eq!(super::placement_for("logd"), Placement::Background);
+    // No service gets an empty set on any machine — one CPU, two, or the board's eight with
+    // one lost at bring-up — and every set is one the kernel admits.
+    for online in [CpuSet::first(1), CpuSet::first(2), CpuSet::from_bits(0xbf)] {
+        for s in super::ServiceId::ALL {
+            let set = super::placement_for(s.name()).set(online);
+            assert!(set.admit(online, online).is_ok(), "{} on {online:?}", s.name());
+        }
     }
-    assert_eq!(super::affinity_for("logd"), 0b1110);
 }
 
 #[test]
@@ -26,7 +32,7 @@ fn the_soft_realtime_chain_is_one_list_for_placement_and_class() {
     // soft-realtime hart (ADR-0049); an app or a background service is never one of them.
     for d in ["gpud", "windowd", "inputd", "hidrawd", "xhcid", "touchd", "imed"] {
         assert!(super::soft_realtime(d), "{d}");
-        assert_eq!(super::affinity_for(d), 0b0001, "{d}");
+        assert_eq!(super::placement_for(d), nexus_sched::Placement::Display, "{d}");
     }
     for s in ["logd", "policyd", "execd", "app-host", "launcher", "nexus-init", "selftest-client"] {
         assert!(!super::soft_realtime(s), "{s}");

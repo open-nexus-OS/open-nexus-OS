@@ -14,11 +14,7 @@
 //!   WFI until smp::runtime_ready().
 //! ADR: docs/rfcs/RFC-0021-kernel-smp-v1-percpu-runqueues-ipi-contract.md
 
-use crate::{
-    sched::QosClass,
-    task::Pid,
-    types::{CpuId, HartId},
-};
+use crate::{sched::QosClass, task::Pid, types::CpuId};
 
 /// Fresh re-entry into this hart's scheduler loop (target of the idle
 /// re-entry frame staged by `stage_idle_reentry_frame`).
@@ -78,34 +74,33 @@ pub(crate) fn stage_idle_reentry_frame(frame: &mut crate::trap::TrapFrame) {
 /// Boot hart: also drives the timer-cap/IRQ backstop and IPC deadline
 /// delivery while idle (v1: PLIC + timer-cap delivery stay boot-owned).
 /// Secondary harts: WFI idle; woken by resched IPIs and their own timer.
-/// Per-hart "this hart runs its scheduler loop" flag: set once at the first
-/// `cpu_main` entry, never cleared. THE predicate for "a trap that leaves no
-/// runnable task may sret into the idle re-entry frame": before a hart enters
-/// its loop, PID 0's frame is that hart's LIVE bring-up context (kmain still
-/// running the kernel selftests on the boot hart while the secondaries are
-/// already scheduling) and must be resumed, not abandoned — gating on the
-/// global `smp::runtime_ready()` did exactly that (boot hart parked out of
-/// kmain by the selftest fault-probe kill, init never spawned, 2026-09-08).
-static SCHED_LOOP_ENTERED: [core::sync::atomic::AtomicUsize; crate::smp::MAX_CPUS] =
-    [const { core::sync::atomic::AtomicUsize::new(0) }; crate::smp::MAX_CPUS];
-
 /// Iterations of the hart-speed loop: two instructions each, a few milliseconds once per hart.
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 const SPEED_LOOP_ITERS: u64 = 1_000_000;
 
-/// True once `cpu` has entered its scheduler loop (see `SCHED_LOOP_ENTERED`).
+/// True once `cpu` has entered its scheduler loop — the per-hart flag
+/// (`hart_state`: `sched_loop_entered`) set once at the first `cpu_main` entry, never
+/// cleared. THE predicate for "a trap that leaves no runnable task may sret into the idle
+/// re-entry frame": before a hart enters its loop, PID 0's frame is that hart's LIVE
+/// bring-up context (kmain still running the kernel selftests on the boot hart while the
+/// secondaries are already scheduling) and must be resumed, not abandoned — gating on the
+/// global `smp::runtime_ready()` did exactly that (boot hart parked out of kmain by the
+/// selftest fault-probe kill, init never spawned, 2026-09-08).
 #[inline]
 pub(crate) fn sched_loop_entered(cpu: CpuId) -> bool {
-    let idx = cpu.as_index();
-    idx < crate::smp::MAX_CPUS
-        && SCHED_LOOP_ENTERED[idx].load(core::sync::atomic::Ordering::Acquire) != 0
+    crate::smp::hart_state::of(cpu).is_some_and(|hart| {
+        hart.sched_loop_entered.load(core::sync::atomic::Ordering::Acquire) != 0
+    })
 }
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 pub(crate) fn cpu_main(cpu: CpuId) -> ! {
     // Once per hart (idle re-entries repeat silently at debug level): proves
     // the hart reached its scheduler loop with the identity it claims.
-    if SCHED_LOOP_ENTERED[cpu.as_index()].swap(1, core::sync::atomic::Ordering::AcqRel) == 0 {
+    let first_entry = crate::smp::hart_state::of(cpu).is_some_and(|hart| {
+        hart.sched_loop_entered.swap(1, core::sync::atomic::Ordering::AcqRel) == 0
+    });
+    if first_entry {
         log_info!(target: "smp", "KINIT: cpu{} sched loop", cpu.as_index());
         // TASK-0330 P0: the hart's speed as the time of one fixed loop of two instructions
         // (the same machine code runs on the stock system for the comparison).
@@ -146,9 +141,6 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
 
     // A8 rate gate: at most one steal attempt per millisecond per CPU.
     const STEAL_MIN_INTERVAL_NS: u64 = 1_000_000;
-    // A3 exec proof: emitted once per secondary from the boot hart's loop.
-    static EXEC_PROOF_EMITTED: [core::sync::atomic::AtomicUsize; crate::smp::MAX_CPUS] =
-        [const { core::sync::atomic::AtomicUsize::new(0) }; crate::smp::MAX_CPUS];
 
     // Fresh liveness window at loop entry: the bring-up phase before this loop
     // is bounded but can be LONG without any bump — sequential hart_start waits
@@ -198,7 +190,7 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
 
             // Own queue first, then a bounded, rate-gated steal (A8).
             let picked = scheduler.schedule_next().or_else(|| {
-                if crate::smp::cpu_online_mask().count_ones() > 1
+                if crate::smp::cpu_online().count() > 1
                     && crate::smp::steal_rate_gate(cpu, timer.now(), STEAL_MIN_INTERVAL_NS)
                 {
                     let stolen = scheduler.steal_into_current(
@@ -303,9 +295,11 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
                                     // anchored; a boot-hart poll can miss the
                                     // harness window).
                                     if !cpu.is_boot()
-                                        && EXEC_PROOF_EMITTED[cpu.as_index()]
-                                            .swap(1, core::sync::atomic::Ordering::AcqRel)
-                                            == 0
+                                        && crate::smp::hart_state::of(cpu).is_some_and(|hart| {
+                                            hart.exec_proof_emitted
+                                                .swap(1, core::sync::atomic::Ordering::AcqRel)
+                                                == 0
+                                        })
                                     {
                                         log_info!(
                                             target: "smp",
@@ -531,21 +525,21 @@ unsafe fn context_switch_to_task(frame: &crate::trap::TrapFrame) -> ! {
     }
 }
 
-pub(crate) fn kmain_secondary(hart: HartId, stack_top: usize) -> ! {
-    let cpu = CpuId::from_hart(hart);
-    let stage = &crate::smp::BRINGUP_STAGE[cpu.as_index()];
-    stage.store(1, core::sync::atomic::Ordering::Release);
+/// A secondary's first Rust: `cpu` is the logical CPU of the entry record the firmware handed
+/// the stub (never derived from the hart id), `stack_top` the stack it runs on.
+pub(crate) fn kmain_secondary(cpu: CpuId, stack_top: usize) -> ! {
+    crate::smp::note_bringup_stage(cpu, 1);
     // Idempotent re-prepare (the boot hart already prepared this block before
     // hart_start); establishes trap stack + identity before any trap or log.
     crate::smp::hart_local_prepare(cpu, stack_top);
-    stage.store(2, core::sync::atomic::Ordering::Release);
+    crate::smp::note_bringup_stage(cpu, 2);
     // SAFETY: secondary hart installs its own trap vector once before entering the wait loop.
     unsafe {
         crate::trap::install_trap_vector_for(cpu);
     }
-    stage.store(3, core::sync::atomic::Ordering::Release);
+    crate::smp::note_bringup_stage(cpu, 3);
     crate::smp::mark_cpu_online(cpu);
-    stage.store(4, core::sync::atomic::Ordering::Release);
+    crate::smp::note_bringup_stage(cpu, 4);
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     unsafe {
         // Secondary harts must accept supervisor software interrupts for IPI proofs.

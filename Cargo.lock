@@ -2062,6 +2062,7 @@ dependencies = [
  "nexus-console-ring",
  "nexus-event",
  "nexus-fdt",
+ "nexus-sched",
  "proptest",
  "riscv",
  "sbi-rt",
@@ -2083,6 +2084,7 @@ dependencies = [
  "bitflags 2.11.0",
  "nexus-console-ring",
  "nexus-event",
+ "nexus-sched",
  "nexus-wire",
 ]
 
@@ -2292,6 +2294,7 @@ dependencies = [
  "nexus-ipc",
  "nexus-log",
  "nexus-pci",
+ "nexus-sched",
  "nexus-service-topology",
  "nexus-soc",
  "nexus-sync",

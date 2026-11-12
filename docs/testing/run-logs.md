@@ -5,7 +5,7 @@ role: reference
 subsystem: devx
 sources: [scripts/qemu-test.sh, scripts/qemu-launcher.sh, scripts/build.sh, scripts/hypothesis-log.sh, tools/os2vm.sh, tools/uart-filter.py]
 contracts: [RFC-0107, ADR-0063]
-verified: 2026-11-10
+verified: 2026-11-11
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -115,6 +115,7 @@ marker.
 | `INIT_LITE_LOG_TOPICS=general,svc-meta,probe` | extra init diagnostics (build-time, baked via `option_env!`) |
 | `INIT_LITE_WATCHDOG_TICKS=<n>` | init panics after n cooperative yields (catch a silent spin) |
 | `UART_LOG_MAX`, `QEMU_LOG_MAX` | raise the post-run trim caps |
+| `QEMU_MEM_PREALLOC=0` | leave the machine's memory lazy on the host (default: preallocated — a first touch that faults on the HOST stalls a hart inside the kernel lock for tens of ms) |
 | `tools/uart-filter.py --strip-escape --grep <s> uart.log` | decode `E`-prefixed probe lines, filter lines |
 | `just check-markers <uart.log>` | run the chain-marker contract against any log |
 
@@ -124,6 +125,9 @@ marker.
 | `!init-lite entry` without `!init-lite ready` | init stopped during service spawn; look for `fatal err=` |
 | `init: up <svc>` without `<svc>: ready` | the service started but never served; a hard failure |
 | `nxboot: PANIC` | the boot chain died (reset loop) |
+| `KINIT: bkl long wait <us> cpuN for=<id> deferred=<n> passed_over=<n>` | a hart waited above 10 ms for the kernel lock: what it wanted it for (`diag/lock_share` id: a syscall number, 80 timer, 81 IPI, 82 external, 83 fault, 84 idle), how many turns it stood back for CPU 0, how often the lock changed hands meanwhile — `passed_over=0` means ONE long holder |
+| `KINIT: bkl long hold <us> cpuN by=<id>` | that holder: any hold above 10 ms, also a fault, the timer or the scheduling loop (the ecall budget sees syscalls only) |
+| `KINIT: fault long step=<fill\|pressure\|exit> us= pid= va=` | which step of a page fault held the lock above 10 ms; `fill` on a multi-hart QEMU lane with `QEMU_MEM_PREALLOC=0` is the host's page fault ([measurement](../board/measurements/2026-11-11-n-harts/README.md)) |
 | `virtio-blk: device failed (needs reset)` | the device reported failure; a slow device only delays requests |
 | `windowd: gpud reply foreign frame …` / `windowd: FAIL gpud reply ate client frame …` | something drained client-surface traffic off windowd's own inbox (`0x49` = `b'I'`, the client envelope's first byte); the desktop then shows at the probe size without input — seen only at 4 harts + virgl (`just start`) |
 

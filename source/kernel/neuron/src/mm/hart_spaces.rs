@@ -23,22 +23,17 @@
 
 use core::cell::Cell;
 
-/// The space each of `N` harts runs on, as the raw handle (never 0 for a space; 0: the boot
-/// table, before the hart's first switch). Interior mutability because a switch does not change
-/// the set of spaces (`AddressSpaceManager::activate` takes `&self`); the manager is `!Sync`
-/// under the kernel lock.
-pub struct HartSpaces<const N: usize>([Cell<u32>; N]);
+/// The space each logical CPU runs on, as the raw handle (never 0 for a space; 0: the boot
+/// table, before the hart's first switch) — one entry per CPU of the machine (RFC-0118), built
+/// once. Interior mutability because a switch does not change the set of spaces
+/// (`AddressSpaceManager::activate` takes `&self`); the manager is `!Sync` under the kernel
+/// lock.
+pub struct HartSpaces(alloc::boxed::Box<[Cell<u32>]>);
 
-impl<const N: usize> Default for HartSpaces<N> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<const N: usize> HartSpaces<N> {
-    /// No hart runs on a space yet.
-    pub const fn new() -> Self {
-        Self([const { Cell::new(0) }; N])
+impl HartSpaces {
+    /// A machine of `harts` CPUs, none on a space yet.
+    pub fn new(harts: usize) -> Self {
+        Self((0..harts).map(|_| Cell::new(0)).collect())
     }
 
     /// Hart `cpu`'s `satp` now names the space `raw`.
@@ -152,7 +147,7 @@ mod tests {
 
     #[test]
     fn a_hart_is_on_the_space_it_entered_last() {
-        let harts = HartSpaces::<HARTS>::new();
+        let harts = HartSpaces::new(HARTS);
         assert_eq!(harts.hart_on(TASK), None);
         harts.enter(1, TASK);
         harts.enter(3, KERNEL);
@@ -164,7 +159,7 @@ mod tests {
 
     #[test]
     fn test_reject_a_free_while_any_hart_still_runs_on_the_space() {
-        let harts = HartSpaces::<HARTS>::new();
+        let harts = HartSpaces::new(HARTS);
         // Two harts ran threads of the process; both tasks are dead, neither hart has left.
         harts.enter(0, TASK);
         harts.enter(2, TASK);
@@ -178,7 +173,7 @@ mod tests {
 
     #[test]
     fn test_reject_a_hart_the_table_does_not_have() {
-        let harts = HartSpaces::<HARTS>::new();
+        let harts = HartSpaces::new(HARTS);
         harts.enter(HARTS, TASK);
         assert_eq!(harts.hart_on(TASK), None);
         assert!(!harts.is_on(HARTS, TASK));

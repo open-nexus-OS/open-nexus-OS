@@ -28,8 +28,6 @@ use crate::{
 
 pub use crate::types::Pid;
 
-/// Every-CPU affinity mask (bits 0..MAX_CPUS).
-pub const ALL_CPUS_MASK: u8 = ((1u16 << crate::smp::MAX_CPUS) - 1) as u8;
 /// Default scheduling shares (one preemption tick per slice).
 pub const DEFAULT_SHARES: u16 = 100;
 
@@ -86,7 +84,7 @@ mod affinity;
 pub mod completion;
 mod exit_reason;
 mod init_caps;
-pub use affinity::{clamp_home_to_affinity, validate_affinity_mask};
+pub use affinity::{admit_affinity, clamp_home_to_affinity};
 pub use exit_reason::ExitReason;
 
 /// ADR-0082: the process model — freeze, thaw, the orders a hart executes at its trap entry.
@@ -294,10 +292,10 @@ pub struct Task {
     /// per-CPU runqueue, avoiding cross-CPU migration during IPC wakeups).
     #[cfg_attr(not(test), allow(dead_code))]
     home_cpu: crate::types::CpuId,
-    /// B (TASK-0042): CPU affinity mask (bit N = may run on CPU N). Default:
-    /// all CPUs. Enforced at wake/resume (home clamp) and in the steal
-    /// predicate; validated non-empty ∩ online at the syscall boundary.
-    affinity_mask: u8,
+    /// B (TASK-0042, RFC-0118): the CPUs this task may run on. Default: every CPU
+    /// the kernel runs. Enforced at wake/resume (home clamp) and in the steal
+    /// predicate; admitted at the syscall boundary (`admit_affinity`).
+    affinity: nexus_sched::CpuSet,
     /// B (TASK-0042): scheduling shares within the QoS class, clamped to
     /// [1, 1000]; 100 = default (one preemption tick per slice).
     shares: u16,
@@ -375,7 +373,7 @@ impl Task {
             user_guard_info: None,
             service_id: 0,
             home_cpu: crate::types::CpuId::BOOT,
-            affinity_mask: ALL_CPUS_MASK,
+            affinity: crate::topology::runs(),
             shares: DEFAULT_SHARES,
             last_spawn_fail_reason: None,
             bootstrap_slot: None,
@@ -513,19 +511,19 @@ impl Task {
         self.home_cpu
     }
 
-    /// B (TASK-0042): CPU affinity mask (bit N = may run on CPU N).
-    pub fn affinity_mask(&self) -> u8 {
-        self.affinity_mask
+    /// B (TASK-0042): the CPUs this task may run on (bit N = logical CPU N).
+    pub fn affinity(&self) -> nexus_sched::CpuSet {
+        self.affinity
     }
 
-    /// Sets the affinity mask (caller must have validated it).
-    pub fn set_affinity_mask(&mut self, mask: u8) {
-        self.affinity_mask = mask;
+    /// Sets the CPU set (the caller admitted it: `admit_affinity`).
+    pub fn set_affinity(&mut self, set: nexus_sched::CpuSet) {
+        self.affinity = set;
     }
 
     /// Whether this task may run on `cpu`.
     pub fn affinity_allows(&self, cpu: crate::types::CpuId) -> bool {
-        self.affinity_mask & (1u8 << cpu.as_index()) != 0
+        self.affinity.contains(cpu.as_index())
     }
 
     /// B (TASK-0042): scheduling shares within the QoS class [1, 1000].
@@ -577,7 +575,7 @@ pub struct TaskTable {
     /// A3: per-CPU current task with implicit current-CPU addressing — each
     /// hart's syscall path sees ITS running task, not the last one any hart
     /// dispatched. Access is serialized by the BKL (`trap::KernelGuard`).
-    current: [Pid; crate::smp::MAX_CPUS],
+    current: alloc::boxed::Box<[Pid]>,
     _not_send_sync: PhantomData<*mut ()>,
 }
 static_assertions::assert_not_impl_any!(TaskTable: Send, Sync);
@@ -588,7 +586,7 @@ impl TaskTable {
         let tasks_vec: Vec<Task> = alloc::vec![Task::bootstrap()];
         Self {
             tasks: tasks_vec,
-            current: [Pid::KERNEL; crate::smp::MAX_CPUS],
+            current: alloc::vec![Pid::KERNEL; crate::topology::hart_count()].into_boxed_slice(),
             _not_send_sync: PhantomData,
         }
     }
@@ -596,11 +594,7 @@ impl TaskTable {
     #[inline]
     fn current_cpu_index() -> usize {
         let idx = crate::smp::cpu_current_id().as_index();
-        if idx < crate::smp::MAX_CPUS {
-            idx
-        } else {
-            0
-        }
+        idx * (idx < crate::topology::hart_count()) as usize
     }
 
     /// Returns the PID of the task currently running on THIS hart.
@@ -631,8 +625,8 @@ impl TaskTable {
         let (parent_affinity, parent_shares) = self
             .tasks
             .get(parent_index)
-            .map(|p| (p.affinity_mask, p.shares))
-            .unwrap_or((ALL_CPUS_MASK, DEFAULT_SHARES));
+            .map(|p| (p.affinity, p.shares))
+            .unwrap_or((crate::topology::runs(), DEFAULT_SHARES));
         let task = Task {
             pid,
             parent: Some(parent),
@@ -656,7 +650,7 @@ impl TaskTable {
             home_cpu: crate::smp::assign_spawn_cpu(),
             // B: inherit scheduling attributes from the parent (reset-on-exec
             // happens naturally: execd spawns fresh children).
-            affinity_mask: parent_affinity,
+            affinity: parent_affinity,
             shares: parent_shares,
             last_spawn_fail_reason: None,
             bootstrap_slot: None,
@@ -672,11 +666,8 @@ impl TaskTable {
             threads_taken: 0,
         };
         // B: the round-robin placement must respect the inherited mask.
-        let clamped = clamp_home_to_affinity(
-            task.affinity_mask,
-            task.home_cpu,
-            crate::smp::cpu_online_mask(),
-        );
+        let clamped =
+            clamp_home_to_affinity(task.affinity, task.home_cpu, crate::smp::cpu_online());
         let mut task = task;
         task.home_cpu = clamped;
         self.tasks.push(task);
@@ -875,8 +866,8 @@ impl TaskTable {
         let (parent_affinity, parent_shares) = self
             .tasks
             .get(parent_index)
-            .map(|p| (p.affinity_mask, p.shares))
-            .unwrap_or((ALL_CPUS_MASK, DEFAULT_SHARES));
+            .map(|p| (p.affinity, p.shares))
+            .unwrap_or((crate::topology::runs(), DEFAULT_SHARES));
         let mut task = Task {
             pid,
             parent: Some(parent),
@@ -897,7 +888,7 @@ impl TaskTable {
             home_cpu: crate::smp::assign_spawn_cpu(),
             // B: inherit scheduling attributes from the parent (reset-on-exec
             // happens naturally: execd spawns fresh children).
-            affinity_mask: parent_affinity,
+            affinity: parent_affinity,
             shares: parent_shares,
             last_spawn_fail_reason: None,
             bootstrap_slot: Some(slot),
@@ -917,11 +908,8 @@ impl TaskTable {
             task.image_allocs.push(block);
         }
         // B: the round-robin placement must respect the inherited mask.
-        task.home_cpu = clamp_home_to_affinity(
-            task.affinity_mask,
-            task.home_cpu,
-            crate::smp::cpu_online_mask(),
-        );
+        task.home_cpu =
+            clamp_home_to_affinity(task.affinity, task.home_cpu, crate::smp::cpu_online());
         self.tasks.push(task);
         if let Err(err) = address_spaces.attach(child_as, pid) {
             self.tasks.pop();

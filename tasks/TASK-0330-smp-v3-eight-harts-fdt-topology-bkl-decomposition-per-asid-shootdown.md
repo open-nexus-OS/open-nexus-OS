@@ -6,7 +6,7 @@ status: in_progress
 status_note: "recut 2026-10-06 to the end state; P0 seeded 2026-11-09 (W46), the phases after P0 are planned in the repo"
 owner: ["@kernel-team"]
 created: 2026-09-21
-updated: 2026-11-11
+updated: 2026-11-12
 subsystem: kernel
 kind: service
 novelty: variant
@@ -53,20 +53,23 @@ phases:
     state: building
     gate: "host: the topology equals the goldens of bpi-f3.dtb and virt.dtb, CpuSet and pin rejects; QEMU: ci-os-smp green and 0 lost harts in 10 boots at -smp 8; board: KSELFTEST: smp online ok harts=8 clusters=2 and an interrupt served off hart 0; retired-name gate for MAX_CPUS"
     started: 2026-11-11
-    note: "starts after this run's commit: host topology goldens first (RFC-0118)"
+    evidence: build/logs/board--2026-11-12T10-55-43
+    note: "built and proven except one part. QEMU gate met: ci-os-smp1 green (build/logs/smp1--2026-11-11T18-30-48), ci-os-smp green on the final tree (smp--2026-11-11T19-13-04), 10 of 10 boots at -smp 8 with all eight harts online, 0 lost, 0 panics (T18-34-13..T19-02-21; lane 8 green, 2 red on the lock budget at eight emulated harts). Board (build dev-c22532d5, board--2026-11-12T10-55-43): KSELFTEST: smp online ok harts=8 clusters=2, per-hart state ok (harts=8 unsized=0), plic ctx cpu0..7 ok, init: affinity applied n=0x1f fail=0x0 online=0xff, bkl budget ok (max_wait=2476us max_hold=1ms), ipc call budget ok (rt=32us), not one bkl long wait/hold line. Retired-name gate green. Record: docs/board/measurements/2026-11-11-n-harts. OPEN in this phase: an interrupt follows its home CPU and is served off hart 0 (KSELFTEST: irq off boot hart ok)"
   - id: P2
     story: "an IPC between two services on two harts waits for no third: an endpoint, a waitset and a fence each carry their own lock, a process's capability table its own, and a call lends the caller's time right to the thread that serves it"
     state: planned
     gate: "host: lock-rank tests for the IPC objects; QEMU: the -smp 8 stress lane green; board: KSELFTEST: ipc call budget ok (rt <= 64 us) measured on every hart and no IPC syscall among the kernel lock's holders"
+    note: "2026-11-11: on a multi-hart QEMU lane 'KSELFTEST: ipc call budget FAIL' (rt 500-662 us: the call crosses to the server's hart through a host thread wake) is a rung, not a verdict (config/fail-marker-allow-mttcg.txt) — the entry leaves that list with this phase's board gate"
   - id: P3
     story: "a page fault and a mapping on one hart wait for no other process: a lock per address space and per memory object, frames from a per-hart magazine, and a shootdown reaches only the harts that ran the address space"
     state: planned
     gate: "KSELFTEST: tlb shootdown targeted ok (harts reached <= harts that ran the ASID, counted); board: the fault path's longest hold below 100 us and 8 threads touching fresh pages reach >= 6x the rate of one"
-    note: "first step (ADR-0098): vmo_runs stops walking an object under the lock — on the board it holds 0.4-1.5 ms per call (234-795 ms per 10 s window) and every interactive wait above 50 ms falls in such a window; number: no hold above 100 us"
+    note: "first step (ADR-0098): vmo_runs stops walking an object under the lock — on the board it holds 0.4-1.5 ms per call (234-795 ms per 10 s window) and every interactive wait above 50 ms falls in such a window; number: no hold above 100 us. Second (found 2026-11-11): a fault zeroes its frame under the kernel lock (mm/populate fill -> vmo::commit) — on QEMU a host page fault inside that zeroing made every other hart wait 44-155 ms (docs/board/measurements/2026-11-11-n-harts; 'KINIT: fault long step=fill'); the zeroing leaves the lock with the per-object lock"
   - id: P4
     story: "no kernel path takes a global lock: the kernel lock and its guard are deleted, a wrong lock order is refused by a rank check in debug builds, and every lock class has a budget the boot gate judges"
     state: planned
     gate: "retired-name gate for KERNEL_LOCK and KernelGuard; board: KSELFTEST: lock budgets ok for every class at 8 harts; the smp8 lane part of test-all and test-all green"
+    note: "found 2026-11-11 by 'KINIT: bkl long hold': the telemetry operation of the sched syscall (by=48) formats its report under the lock, 21-36 ms once in every two-hart boot with the other hart waiting as long; by=69 11-127 ms during bring-up; 'console off lock' 1.1-5.1 ms on a multi-hart QEMU lane is a rung there (config/fail-marker-allow-mttcg.txt) until the budgets per class are judged on the board"
   - id: P5
     story: "a blocking receive and a capability close cost what they touch, not what the system holds: an endpoint and a memory object count the capabilities that name them (for an endpoint: send, receive, any) where one is installed, moved into a message, received or dropped, and no path walks another process's capability table — built right after P0, before the split order is decided, so the order is not read from a scan"
     state: done
@@ -77,10 +80,12 @@ phases:
     note: "board: ipc 3.3 us and caps below 25 us per take with the desktop in use; the split order is ADR-0098 (idle loop and run queues, IPC, memory), written from ten 10 s windows"
   - id: P6
     story: "a hart that has no task runs on the kernel's own address space, and a space a hart still runs on is never freed: a task killed by a fault or by an order leaves no hart on its page table when its reap frees it"
-    state: proving
+    state: done
     gate: "host: test_reject_a_free_while_any_hart_still_runs_on_the_space; QEMU 4 harts without a network device: 0 kernel page faults in 10 boots (was 1 in 4, build/logs repro 2026-11-11) and KSELFTEST: address space held by hart ok on every lane; board: 5 of 5 boots reach the desktop with a working pointer (were 1 of 5, build/logs/board--2026-11-11T11-22-31) and no KSELFTEST: address space free FAIL"
     started: 2026-11-11
-    note: "board gate met: 6 of 6 boots complete with a working pointer (operator: 5 of 5), no address space free FAIL (build/logs/board--2026-11-11T13-43-55, dev-0cdd0c91); host test green; ci-os-smp1 green with the marker (build/logs/smp1--2026-11-11T13-37-48). Open: the 10 QEMU boots at 4 harts without a network device with the final cut (1 done, 9 running). The first cut hung every thread proof (leave on a space its reaper still owns) — the boot proof holds that case now."
+    done: 2026-11-11
+    evidence: build/logs/board--2026-11-11T13-43-55
+    note: "gate met: host test green; QEMU 4 harts without a network device 10 of 10 boots with no kernel page fault and the marker (build/logs/smp4-nonet--2026-11-11-after; was 1 fault in 4, …-before) — the boots stand at the harness's network phase at their timeout, which waits for the withheld network owner on this artificial machine (the full profile on a machine without the plane); board 6 of 6 boots complete, no address space free FAIL (dev-0cdd0c91); ci-os-smp1 green (build/logs/smp1--2026-11-11T13-37-48)"
   - id: P7
     story: "a kernel that faults or panics says where and the words survive: the fault line (hart, sepc, stval, cause) is on the console before the panic text, and on the board the console ring outlives the reset so the next boot appends the dead boot's last lines to the trace"
     state: planned
