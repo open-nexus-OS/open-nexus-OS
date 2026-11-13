@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-11-13 (an arc costs the pixels it crosses, a menu's enter repaints the menu — TASK-0367 P4, TASK-0354 P7)
+
+- **A corner asks only the columns its arc crosses** (`nexus-scene-raster`: `shapes::arc_band`,
+  TASK-0367 P4): a rounded fill, a glass reset, a border ring, the top shine and a drop shadow
+  computed a distance field for every pixel of a corner's columns — and a capsule's every row is
+  a corner row. Now the columns clear of the arc are skipped or joined to the row's span, and a
+  shadow no longer walks the element it is knocked out of. Byte-equal to the pixel paths (600
+  random capsules, circles and wide radii, 60 000 rows; the widest radii keep the whole corner).
+  Host, a keypad of 20 capsule keys with border, shadow and shine: 21.5 → 8.0 us a row. Board
+  (`board--2026-11-13T13-50-14` against `T13-12-28`): the calculator's 340×600 first frame
+  spends 22.1 ms in its boxes, before 57.9; the other windows 24.3-26.5 ms, before 26.6-30.6.
+- **An enter the app paints damages what moves** (`app-host`: `motion_math::moved_extent`,
+  TASK-0354 P7): the damage of an animated node was its own rectangle — for a window menu the
+  window-wide layer that holds the popover, 600-700 rows a frame. It is now the boxes that move
+  with it and paint, with their shadows' reach. Board: a menu's enter repaints 136-259 rows at
+  8-15 ms a frame (median), before 604-698 rows at 37-42 ms.
+- **A refused motion layer says why** (`apphost: motion in app (token= why=)`, once per enter):
+  the board cycle before had to read the reason from the code. Board: the window kit's menus
+  and a window's fades say `why=resets` — a blur root on the window's frost.
+
 ### Changed - 2026-11-13 (a window's frost may carry a motion layer, a stroked icon costs its segments, a tint is divided once — TASK-0354 P7, TASK-0367)
 
 - **A window's frosted base may carry a motion layer** (TASK-0354 P7, RFC-0109 amended): a

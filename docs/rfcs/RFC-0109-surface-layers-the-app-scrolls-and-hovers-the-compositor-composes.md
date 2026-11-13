@@ -281,7 +281,10 @@ woken between the motion's start and its end and paints nothing per frame.
   that grows in scales the whole layer about its centre — `Command::LayerTransform` carries one
   origin, RFC-0101), its theme duration is not 0 (reduced motion rests at once), its subtree is
   no other layer's (no layer inside another) and the bound and the store hold it;
-  otherwise the app animates it as before (Tier 2). An `.overlay(modal)` or `.overlay(transient)`
+  otherwise the app animates it as before (Tier 2) and says why once per enter (`apphost: motion
+  in app (token= why=resets|band|nested|slots|empty|store|subtree)`; an effect token says
+  nothing) — its damage is what moves and paints (`motion_math::moved_extent`), not the
+  rectangle of a container that only lays out. An `.overlay(modal)` or `.overlay(transient)`
   root is a layer in front — with a reduced-motion theme too (it rests at once). A root that is one
   flat fill over the whole surface (a modal's scrim) is the layer's backdrop: the store holds the
   rest of the subtree (the sheet), not a screen of scrim pixels. The layer stays while its node is

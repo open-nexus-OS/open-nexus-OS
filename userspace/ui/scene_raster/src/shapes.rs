@@ -88,6 +88,41 @@ fn covered(c: Rgba8, coverage: f32) -> Rgba8 {
     Rgba8 { a: (c.a as f32 * coverage.clamp(0.0, 1.0) + 0.5) as u8, ..c }
 }
 
+/// The largest radius [`arc_band`] narrows: beyond it a pixel two columns off the band is no
+/// longer clear of the distance's float error, and every column of the corner is asked.
+const ARC_MAX_RADIUS: f32 = 512.0;
+
+/// The columns `[lo, hi)` of a corner's `[x0, x1)` that must be asked for their coverage, in the
+/// quadrant left of the corner centre's column `cx`: a pixel left of `lo` lies farther than
+/// `far` from the centre on a row `oy_far` px off it, a pixel from `hi` on nearer than `near` on
+/// a row `oy_near` px off it — each by two columns more than the arc's crossing, which is over
+/// 3/radius px of distance and far above the error of [`sqrt_f32`] (TASK-0367 P4: a capsule's
+/// every row is a corner row, and asking each of its pixels cost a keypad 58 ms on the board).
+/// The right corner is the mirror image, column for column.
+pub(crate) fn arc_band(
+    cx: f32,
+    (near, oy_near): (f32, f32),
+    (far, oy_far): (f32, f32),
+    (x0, x1): (i32, i32),
+) -> (i32, i32) {
+    if far > ARC_MAX_RADIUS {
+        return (x0, x1);
+    }
+    let reach =
+        |rho: f32, oy: f32| if rho > 0.0 { sqrt_f32((rho * rho - oy * oy).max(0.0)) } else { 0.0 };
+    let lo = (floor_i32(cx - reach(far, oy_far)) - 3).clamp(x0, x1);
+    let hi = (ceil_i32(cx - reach(near, oy_near)) + 2).clamp(lo, x1);
+    (lo, hi)
+}
+
+/// [`arc_band`] for a filled rounded rect's left corner on the row at `py` (a corner row): the
+/// columns its arc of radius `r` crosses.
+fn corner_band(rect: (f32, f32, f32, f32), py: f32, r: i32, zone: (i32, i32)) -> (i32, i32) {
+    let rf = r as f32;
+    let oy = (py - (rect.1 + rect.3 * 0.5)).abs() - (rect.3 * 0.5 - rf);
+    arc_band(rect.0 + rf, (rf - 0.5, oy), (rf + 0.5, oy), zone)
+}
+
 impl RowCanvas<'_> {
     /// The byte index of surface pixel `x` after the scroll shift and the scissor, if it lands.
     #[inline]
@@ -206,11 +241,14 @@ impl RowCanvas<'_> {
         }
         let rect = (x as f32, y as f32, w as f32, h as f32);
         let py = self.y as f32 + 0.5;
-        for xx in (x..x + r).chain(x + w - r..x + w) {
+        // Of a corner's columns only those the arc crosses are partly covered: left of them
+        // nothing is, from them on the row is one span with the middle.
+        let (lo, hi) = corner_band(rect, py, r, (x, x + r));
+        for xx in (lo..hi).flat_map(|xx| [xx, 2 * x + w - 1 - xx]) {
             let cov = round_rect_coverage(xx as f32 + 0.5, py, rect, r as f32);
             self.blend_covered(xx, c, cov);
         }
-        self.blend_span(x + r, x + w - r, c);
+        self.blend_span(hi, 2 * x + w - hi, c);
     }
 
     /// This row's slice of an (optionally rounded) rect fill, REPLACING the destination pixels
@@ -239,11 +277,12 @@ impl RowCanvas<'_> {
             self.set_span(x, x + w, c);
             return;
         }
-        for xx in (x..x + r).chain(x + w - r..x + w) {
+        let (lo, hi) = corner_band(rect, py, r, (x, x + r));
+        for xx in (lo..hi).flat_map(|xx| [xx, 2 * x + w - 1 - xx]) {
             let cov = round_rect_coverage(xx as f32 + 0.5, py, rect, r as f32);
             self.set_covered(xx, c, cov);
         }
-        self.set_span(x + r, x + w - r, c);
+        self.set_span(hi, 2 * x + w - hi, c);
     }
 
     /// This row's slice of a rounded BORDER ring: the outer rounded rect minus the
@@ -279,6 +318,28 @@ impl RowCanvas<'_> {
                 - round_rect_coverage(px, py, inner, r_in);
             canvas.blend_covered(xx, c, cov);
         };
+        // A corner row of a ring whose two outlines share their corner centres: in the corner
+        // the ring lives between the inner and the outer arc, and between the corners both
+        // edges are straight — one coverage, one span.
+        let (hw, hh, wf) = (w as f32 * 0.5, h as f32 * 0.5, width as f32);
+        let rf = r_out.min(hw).min(hh);
+        let oy = (py - (y as f32 + hh)).abs() - (hh - rf);
+        if oy > 0.0 && width >= 0 && radius >= width && w > 2 * width && h > 2 * width {
+            let straight = ceil_i32(x as f32 + rf - 0.5);
+            let band = (x, straight);
+            let (lo, hi) = arc_band(x as f32 + rf, (rf - wf - 0.5, oy), (rf + 0.5, oy), band);
+            for xx in (lo..hi).flat_map(|xx| [xx, 2 * x + w - 1 - xx]) {
+                ring(self, xx);
+            }
+            let end = 2 * x + w - straight;
+            if end > straight {
+                let px = straight as f32 + 0.5;
+                let cov = round_rect_coverage(px, py, outer, r_out)
+                    - round_rect_coverage(px, py, inner, r_in);
+                self.blend_span_covered(straight, end, c, cov);
+            }
+            return;
+        }
         // The straight sides' rows (below the top edge and its arcs, above the bottom ones): the
         // ring lives in the outer `width + 2` columns of each side — between them a pixel lies
         // wholly inside both the outer and the inner shape (both coverages exactly 1), so the

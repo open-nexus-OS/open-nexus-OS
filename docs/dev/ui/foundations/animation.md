@@ -119,7 +119,10 @@ not: their popover is a blur root of its own (`.material(overlay)`), which takes
 backdrop in place of the window's frost. Such an enter app-host paints itself (also: a full store) and
 scales about the same corner — `motion_math::anchor_point` is the anchor of the node's transform
 and of its damage (`probe/motion_layers.rs::enter_anchor`), so a menu looks the same on both
-paths.
+paths. The damage of an enter the app paints is what moves and paints
+(`motion_math::moved_extent`: the popover and its shadow, not the window-wide layer that holds
+it), and the log names why the compositor did not take it: `apphost: motion in app (token=
+why=)`.
 
 `slideUp` and `slideDown` differ in the side they travel FROM: absent, `slideUp`
 sits 16px BELOW its resting place, `slideDown` 10px ABOVE it. Anchor decides — a

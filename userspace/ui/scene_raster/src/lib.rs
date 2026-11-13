@@ -32,7 +32,7 @@ pub use scrolled::{
 };
 
 mod shapes;
-use shapes::sqrt_f32;
+use shapes::{ceil_i32, floor_i32, sqrt_f32};
 #[cfg(test)]
 mod span_identity;
 mod strokes;
@@ -384,7 +384,17 @@ fn paint_shadow_row(
     let x1 = (sx + sw + reach).min(canvas.width);
     let dy = (py - cy).abs() - hh;
     let dyc = if dy > 0.0 { dy } else { 0.0 };
-    for px in x0..x1 {
+    // The columns the knockout takes whole are not asked: on a row a pixel or more inside the
+    // element, everything two columns inside its outline (a key's shadow walked the key).
+    let (k0, k1) = if kdy <= radius - 1.0 && radius <= 512.0 {
+        let arc = if kdy > 0.0 { sqrt_f32((radius * radius - kdy * kdy).max(0.0)) } else { radius };
+        let half = khw + arc - 2.0;
+        (ceil_i32(kcx - half).clamp(x0, x1.max(x0)), floor_i32(kcx + half).clamp(x0, x1.max(x0)))
+    } else {
+        (x1, x1)
+    };
+    let (k0, k1) = if k1 > k0 { (k0, k1) } else { (x1.max(x0), x1.max(x0)) };
+    for px in (x0..k0).chain(k1..x1) {
         let pxf = px as f32 + 0.5;
         let dx = (pxf - cx).abs() - hw;
         let dxc = if dx > 0.0 { dx } else { 0.0 };

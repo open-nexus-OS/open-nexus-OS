@@ -163,6 +163,43 @@ fn extent(
     (cut.2 > cut.0 && cut.3 > cut.1).then_some(cut)
 }
 
+/// What moves when the painter transforms node `owner` (`probe/anim.rs::expand_node_anims`: its
+/// box and every later box laid out inside it): the rectangles, with their reach, of those that
+/// paint — an animated node's damage. A container that only lays its children out is not what
+/// changes (a window menu's layer spans the window and holds one popover: every frame of its
+/// enter repainted the window's rows, 37-58 ms each on the board). `None`: nothing of it paints,
+/// or a part scrolls (it paints where its viewport is, not at its rectangle) — the caller takes
+/// the node's own rectangle.
+pub(crate) fn moved_extent(
+    boxes: &[LayoutBox],
+    owner: usize,
+    has_text: impl Fn(usize) -> bool,
+) -> Option<Span> {
+    let o = &boxes.iter().find(|b| b.node_id == owner)?.rect;
+    let (ox0, oy0, ox1, oy1) = (o.x.0, o.y.0, o.x.0 + o.width.0, o.y.0 + o.height.0);
+    let mut acc: Option<Span> = None;
+    for b in boxes {
+        let (x, y, bw, bh) = (b.rect.x.0, b.rect.y.0, b.rect.width.0, b.rect.height.0);
+        let inside = x >= ox0 && y >= oy0 && x + bw <= ox1 && y + bh <= oy1;
+        if b.node_id < owner || (b.node_id > owner && !inside) || bw <= 0 || bh <= 0 {
+            continue;
+        }
+        if b.scroll_root.is_some() || matches!(b.overflow, Overflow::Scroll(_)) {
+            return None;
+        }
+        if !paints(b, has_text(b.node_id)) {
+            continue;
+        }
+        let (l, t, r, bo) = reach(b);
+        let e = (x - l, y - t, x + bw + r, y + bh + bo);
+        acc = Some(match acc {
+            Some(a) => (a.0.min(e.0), a.1.min(e.1), a.2.max(e.2), a.3.max(e.3)),
+            None => e,
+        });
+    }
+    acc
+}
+
 /// The backdrop box `b` is on a surface `(w, h)`: its colour when it covers the whole surface and
 /// paints nothing but one flat fill there — no gradient, border, corner, shadow, highlight, shape,
 /// glass, opacity, text (`has_text`) or scroll viewport of its own (a modal's scrim).
@@ -387,6 +424,48 @@ mod tests {
         assert_eq!(enter_from(MotionToken::Wiggle), None);
         assert_eq!(enter_from(MotionToken::Snappy), Some((0, 0, 0, 10_000)), "enters as a fade");
         assert_eq!(enter_from(MotionToken::MenuIn), Some((0, 0, 0, 9_200)), "a menu grows in");
+    }
+
+    /// A window menu's layer spans the window and paints nothing; what moves with it is the
+    /// popover and its shadow. A box before the node, or a later one outside it, does not move;
+    /// a scrolling part makes the extent untellable.
+    #[test]
+    fn the_moved_extent_is_what_paints_inside_the_node() {
+        use nexus_layout_types::BoxShadow;
+        let boxed = |node_id: usize, (x, y, w, h): (i32, i32, i32, i32), fill: bool| LayoutBox {
+            node_id,
+            rect: Rect::new(FxPx::new(x), FxPx::new(y), FxPx::new(w), FxPx::new(h)),
+            visual: VisualStyle {
+                background: fill.then_some(Rgba8 { r: 20, g: 20, b: 30, a: 200 }),
+                ..VisualStyle::default()
+            },
+            ..LayoutBox::default()
+        };
+        let mut popover = boxed(6, (12, 44, 240, 180), true);
+        popover.visual.shadow = Some(BoxShadow {
+            offset_x: FxPx::new(0),
+            offset_y: FxPx::new(8),
+            blur_radius: FxPx::new(16),
+            spread: FxPx::new(0),
+            color: Rgba8 { r: 0, g: 0, b: 0, a: 80 },
+        });
+        let mut boxes = [
+            boxed(1, (0, 0, 900, 600), true), // the window's content, before the layer
+            boxed(5, (0, 0, 900, 600), false), // the menu's layer: lays out, paints nothing
+            popover,
+            boxed(7, (24, 56, 200, 28), false), // a row of the menu: text only
+            boxed(9, (880, 580, 40, 40), true), // later, but not inside the layer
+        ];
+        let text = |id: usize| id == 7;
+        // The popover with its shadow's reach (16 blur, 8 down) and a pixel of anti-aliasing.
+        assert_eq!(moved_extent(&boxes, 5, text), Some((12 - 17, 44 - 9, 252 + 17, 224 + 25)));
+        // The popover alone moves itself and its row.
+        assert_eq!(moved_extent(&boxes, 6, text), moved_extent(&boxes, 5, text));
+        // A node that paints nothing, and holds nothing that does, has no extent of its own.
+        assert_eq!(moved_extent(&boxes[..2], 5, text), None);
+        assert_eq!(moved_extent(&boxes, 4, text), None, "no such node");
+        boxes[3].scroll_root = Some(6);
+        assert_eq!(moved_extent(&boxes, 5, text), None, "a scrolled part paints elsewhere");
     }
 
     /// A window's frosted base carries a layer whose boxes all lie over the base: a menu's

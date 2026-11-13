@@ -8,7 +8,7 @@
 //! a square frame around a round element is what a naive per-edge fill
 //! produces, and it reads as a bug.
 
-use super::shapes::round_rect_coverage;
+use super::shapes::{arc_band, round_rect_coverage};
 use super::RowCanvas;
 use nexus_layout_types::Rgba8;
 
@@ -41,6 +41,22 @@ pub(crate) fn paint_inset_highlight_row(
         round_rect_coverage(px, py, inner, r as f32)
             - round_rect_coverage(px, py - 1.0, inner, r as f32)
     };
+    // A row of the top arcs: the band lies between this row's outline and the one a pixel down,
+    // so of a corner's columns only those between the two arcs are asked; between the corners
+    // the edge is straight — one value, one span.
+    if canvas.y < iy + r {
+        let (rf, oy) = (r as f32, (iy + r) as f32 - py);
+        let (lo, hi) =
+            arc_band((ix + r) as f32, (rf - 0.5, oy + 1.0), (rf + 0.5, oy), (ix, ix + r));
+        for xx in (lo..hi).flat_map(|xx| [xx, 2 * ix + iw - 1 - xx]) {
+            canvas.blend_covered(xx, color, band(xx as f32 + 0.5));
+        }
+        if iw > 2 * r {
+            let mid = band((ix + r) as f32 + 0.5);
+            canvas.blend_span_covered(ix + r, ix + iw - r, color, mid);
+        }
+        return;
+    }
     // Between the corner zones the top edge is straight: the band is one value a row there —
     // computed at the middle column, laid as one span (the shine ran two distance fields on
     // every pixel of its rows before).

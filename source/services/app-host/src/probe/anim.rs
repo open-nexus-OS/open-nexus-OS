@@ -526,9 +526,23 @@ impl super::DslApp {
             };
             let prev = self.anim.seen.iter().find(|(id, _)| *id == node_id).map(|(_, v)| *v);
             // TASK-0354 P2: an enter the compositor can draw is stated once — never ticked here.
-            let layered = intent.kind == AnimKind::Transition
-                && prev.is_none_or(|pv| pv != intent.value)
-                && self.start_motion_layer(node_id, token, prev.is_some());
+            let enters =
+                intent.kind == AnimKind::Transition && prev.is_none_or(|pv| pv != intent.value);
+            let layered = enters
+                && match self.start_motion_layer(node_id, token, prev.is_some()) {
+                    Ok(()) => true,
+                    // An effect returns to rest and is the app's by design; any other enter the
+                    // compositor did not take says why, once.
+                    Err(why) => {
+                        if why != "effect" {
+                            raw_marker(&alloc::format!(
+                                "apphost: motion in app (token={} why={why})",
+                                token.id()
+                            ));
+                        }
+                        false
+                    }
+                };
             match prev {
                 _ if layered => {}
                 None => self.anim.seed(node_id, token, intent, tokens),

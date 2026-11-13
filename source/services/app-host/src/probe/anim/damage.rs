@@ -10,8 +10,11 @@
 //! The iOS rule, in our terms: a transition changes the difference between A and B, not
 //! everything the difference's rows hold. Split out of `anim.rs` (structure ratchet).
 
+use crate::motion_math::moved_extent;
+
 impl super::super::DslApp {
-    /// Grow `span` by `node_id`'s CURRENT painted row extent — its layout box transformed by
+    /// Grow `span` by `node_id`'s CURRENT painted row extent — what moves with it and paints
+    /// (`motion_math::moved_extent`; its layout box when that cannot be told) transformed by
     /// the node's active `NodeAnim` (scale can overpaint the box; translate moves it), ±1 row
     /// rounding pad, clamped to the layout (a scroll layer's content runs below the surface) —
     /// and claim its columns the same way. A node without a layout box (mid-relayout) falls
@@ -20,7 +23,12 @@ impl super::super::DslApp {
         let bottom = self.layout_bottom();
         let (x0, x1, y0, y1) = match self.layout.boxes.iter().find(|b| b.node_id == node_id) {
             Some(b) => {
-                let (x, y, w, h) = (b.rect.x.0, b.rect.y.0, b.rect.width.0, b.rect.height.0);
+                // What moves with it and paints; its own rectangle when that cannot be told.
+                let has_text = |id| self.has_text(id);
+                let (x, y, w, h) = match moved_extent(&self.layout.boxes, node_id, has_text) {
+                    Some((l, t, r, bo)) => (l, t, r - l, bo - t),
+                    None => (b.rect.x.0, b.rect.y.0, b.rect.width.0, b.rect.height.0),
+                };
                 // About the point the painter scales it (`expand_node_anims`): its centre, or
                 // the corner a menu grows from.
                 let (nx, ny, nw, nh) = match self.anim.anims.iter().find(|a| a.node_id == node_id) {

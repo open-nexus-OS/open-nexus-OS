@@ -8,8 +8,8 @@
 
 use nexus_layout::LayoutBox;
 use nexus_layout_types::{
-    BoxShadow, CornerRadius, FxPx, Material, PathPoint, PathShape, Rect, Rgba8, ShapeKind,
-    VisualStyle,
+    BoxShadow, CornerRadius, EdgeBorder, FxPx, Material, PathPoint, PathShape, Rect, Rgba8,
+    ShapeKind, VisualStyle,
 };
 use nexus_scene_raster::{paint_row, paint_row_picked_indexed, NodeAnim, RowCanvas};
 use std::time::Instant;
@@ -96,6 +96,36 @@ fn card(node_id: usize, y: i32) -> LayoutBox {
     )
 }
 
+/// A calculator key: a capsule 72x60 on a pane, in the four looks the keypad uses.
+fn key(node_id: usize, x: i32, y: i32, look: u8) -> LayoutBox {
+    let mut visual = VisualStyle {
+        background: Some(Rgba8::new(255, 255, 255, 40)),
+        corner_radius: CornerRadius::uniform(FxPx::new(30)),
+        ..VisualStyle::default()
+    };
+    if look >= 1 {
+        visual.border = EdgeBorder::all(FxPx::new(1), Rgba8::new(255, 255, 255, 60));
+    }
+    if look >= 2 {
+        visual.shadow = Some(BoxShadow {
+            offset_x: FxPx::new(0),
+            offset_y: FxPx::new(1),
+            blur_radius: FxPx::new(3),
+            spread: FxPx::new(0),
+            color: Rgba8::new(0, 0, 0, 40),
+        });
+    }
+    if look >= 3 {
+        visual.inset_highlight = Some(Rgba8::new(255, 255, 255, 50));
+    }
+    boxed(node_id, (x, y, 72, 60), visual)
+}
+
+/// The keypad: five rows of four keys, 340 px wide.
+fn keypad(look: u8) -> Vec<LayoutBox> {
+    (0..20i32).map(|i| key(100 + i as usize, 14 + (i % 4) * 80, 120 + (i / 4) * 68, look)).collect()
+}
+
 fn rows_us(label: &str, rows: std::ops::Range<i32>, mut f: impl FnMut(&mut RowCanvas<'_>)) {
     let mut buf = vec![0u8; W as usize * 4];
     let n = (rows.end - rows.start) as u64;
@@ -144,4 +174,10 @@ fn row_cost_of_each_primitive() {
     rows_us("8 stroke icons 24px ANIMATED", 120..144, |c| {
         paint_row_picked_indexed(c, &icons, &pick, &idx, &[], &ianim)
     });
+    for (look, label) in
+        [(0, "fill"), (1, "+ hairline border"), (2, "+ shadow1"), (3, "+ edge highlight")]
+    {
+        let keys = keypad(look);
+        rows_us(&format!("20 capsule keys 72x60 {label}"), 116..464, |c| paint_row(c, &keys));
+    }
 }

@@ -135,44 +135,42 @@ impl super::DslApp {
     /// layer: it rests in front), a subtree that composes apart on its base (anything on the
     /// desktop's clear base; on a window's frost what lies over it), that is not another layer's,
     /// room in the bound and the store. The same node entering again restarts its motion; a node
-    /// the base painted until now (`in_base`) leaves its rows there to paint again. `false`: the
-    /// app animates it (Tier 2).
+    /// the base painted until now (`in_base`) leaves its rows there to paint again. `Err(why)`:
+    /// the app animates it (Tier 2).
     pub(super) fn start_motion_layer(
         &mut self,
         node_id: usize,
         token: MotionToken,
         in_base: bool,
-    ) -> bool {
+    ) -> Result<(), &'static str> {
         let front = self.front_overlay(node_id);
         let ms = tokens_for(self.theme_mode).motion_ms(token.duration());
-        let Some(from) = enter_from(token).filter(|_| ms > 0 || front) else { return false };
+        let from = enter_from(token).filter(|_| ms > 0 || front).ok_or("effect")?;
         let duration_ms = ms.min(u32::from(lw::MAX_MOTION_MS)) as u16;
         self.motion_seq = self.motion_seq.wrapping_add(1).max(1);
         let (id, now) = (self.motion_seq, nsec_now());
         if let Some(k) =
             self.motion_layers.iter().position(|m| m.is_some_and(|m| m.root == node_id))
         {
-            let Some(m) = self.motion_layers[k] else { return false };
+            let m = self.motion_layers[k].ok_or("slot")?;
             let from = self.from_anchor(token, from, (m.root, m.end), m.rect, m.backdrop.is_some());
-            let Some(m) = self.motion_layers[k].as_mut() else { return false };
+            let m = self.motion_layers[k].as_mut().ok_or("slot")?;
             (m.id, m.declared_ns, m.token, m.duration_ms, m.from) =
                 (id, now, token.id(), duration_ms, from);
             self.tree_dirty = true;
-            return m.store.is_some();
+            return m.store.map(|_| ()).ok_or("store");
         }
-        let Some((first, end)) = subtree_span(self.view.scene(), node_id) else { return false };
+        let (first, end) = subtree_span(self.view.scene(), node_id).ok_or("subtree")?;
         // On a base that is not clear (a window's frost) only what lies over it composes apart.
         if self.page_base_alpha() != 0 && !composes_apart(&self.layout.boxes, (first, end)) {
-            return false;
+            return Err("resets");
         }
         let in_band = self.layout.boxes.iter().any(|b| b.node_id == node_id && self.in_band(b));
         let nested = self.motion_layers.iter().flatten().any(|m| m.nests((first, end)));
-        let Some(slot) =
-            self.motion_layers.iter().position(Option::is_none).filter(|_| !in_band && !nested)
-        else {
-            return false;
-        };
-        let Some((rect, backdrop)) = self.layer_shape((first, end), slot) else { return false };
+        let free = self.motion_layers.iter().position(Option::is_none);
+        let taken = [(in_band, "band"), (nested, "nested")].iter().find(|t| t.0).map(|t| t.1);
+        let slot = free.filter(|_| taken.is_none()).ok_or(taken.unwrap_or("slots"))?;
+        let (rect, backdrop) = self.layer_shape((first, end), slot).ok_or("empty")?;
         let from = self.from_anchor(token, from, (first, end), rect, backdrop.is_some());
         self.motion_layers[slot] = Some(MotionLayer {
             root: first,
@@ -204,7 +202,7 @@ impl super::DslApp {
             }
         }
         self.store_replan |= self.outgrows(plan);
-        placed
+        placed.then_some(()).ok_or("store")
     }
 
     /// Where the enter `from` of `token` starts for the layer of `[first, end)` resting at
