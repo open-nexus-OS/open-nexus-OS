@@ -2,22 +2,26 @@
 schema: 1
 id: TASK-0353
 title: "The desktop matches the design artifacts: tokens, primitives and screens, without a frame-budget regression"
-status: in_progress
+status: done
 owner: ["@ui"]
 created: 2026-11-03
-updated: 2026-11-10
+updated: 2026-11-13
 subsystem: ui
 components: [desktop-shell, app-host, windowd, window-kit, widgets]
 kind: ui
 novelty: variant
 estimate: 3.5
 started: 2026-11-03
+done: 2026-11-13
+active_days: 5
 dates_source: recorded
+variance_note: "5 days against 3.5: 1107 deltas and 81 transitions counted only in P0, two agent waves cut by the W45 token budget, the capability deltas moved (TASK-0354, 0359, 0360, 0361) instead of built"
 goal:
   metric: "screens of the artifacts that match on the board; design deltas left (tokens, sizes, radii, spacing, motion); frames dropped per transition; dead folders left in userspace/apps and userspace/ui/widgets"
   baseline: "0 screens matched; deltas counted in P0; reference numbers set, not researched; demo-exit0 and launcher still in userspace/apps, widgets/window/chrome without a known user since TASK-0337"
   target: "every artifact screen matched (fixed sizes and radii exact, padding/gap on the 4px grid, as TASK-0312/0313); every artifact transition on a motion token; 0 deltas left; 0 of 32 frames dropped per transition; frame p99 not above today's; every reference number with >= 2 sources; 0 references left to the removed folders"
   instrument: "board-visual ack per screen · host goldens · ux frame p99 line · reference note with sources · repo-wide reference search · just test-all"
+  result: "12 of 12 screens on the board (board--2026-11-10T14-55-42), 942 of 1107 deltas built, 165 moved with their ids, 41 of 81 transitions on a token, frame cost not above before P2; test-all green through ci-os-visible and lowmem, its rest runs at the end of the SMP lane (operator 2026-11-13)"
 consumer: hardware-network/LU.1
 depends_on: [TASK-0354, TASK-0355]
 links:
@@ -76,10 +80,12 @@ phases:
     note: "board 2026-11-10: ux frame windows dropped 3, 4, 0 and 10 of 32 during the operator's transitions — the 0-of-32 clause duplicated TASK-0354 P4 (blocked on the frame cost) and is judged there; this phase's own work (the mapping, the pinned curves) is done"
   - id: P6
     story: "userspace/apps and userspace/ui/widgets hold only what ships: demo-exit0 and launcher removed, widgets/window/chrome removed if nothing uses it"
-    state: proving
+    state: done
     gate: "0 references to demo-exit0, apps/launcher and window::chrome in code, manifests, product.toml, markers and qemu-test.sh (or chrome's user named and kept); just test-all green"
     started: 2026-11-10
-    note: "2026-11-10: 0 references to the removed folders in code, manifests, markers and scripts (demo-exit0 moved to source/apps, it ships). test-all green through ci-os-visible (check, diag, deadcode, dep-gate, OS build, image budgets after the operator's gate decision, host, e2e, miri, kernel, smp1, sdhci, usb, visible) and ci-os-lowmem; ci-os-usb-visible stalled after the power modal opened (the operator: the modal works on the board; board-visible PASS); NOT yet run (the operator stopped for the day): ci-os-usb-visible again, many-windows, many-apps, visible-fhd, visible-2d, input-flood, reset, ota, ota-bundle, ota-bundle-resume, ota-bundle-delta, ota-backstops, board-lane"
+    done: 2026-11-13
+    evidence: build/logs/board--2026-11-10T14-55-42
+    note: "2026-11-10: 0 references to the removed folders in code, manifests, markers and scripts (demo-exit0 moved to source/apps, it ships). test-all green through ci-os-visible (check, diag, deadcode, dep-gate, OS build, image budgets, host, e2e, miri, kernel, smp1, sdhci, usb, visible) and ci-os-lowmem; board-visible PASS. Closed 2026-11-13 by the operator's decision: a task complete but for just test-all closes; the lanes not yet run (usb-visible again, many-windows, many-apps, visible-fhd, visible-2d, the input, reset and ota lanes, board-lane) run in the one test-all at the end of the SMP lane — a red there opens its own task"
   - id: P7
     story: "the primitives follow the artifacts' components: the shape follows the role (capsule, circle, value field, computed container radius), every control of a size has one height, hover and press show a fill layer without repainting the element, and only the surface on the wallpaper blurs"
     state: done

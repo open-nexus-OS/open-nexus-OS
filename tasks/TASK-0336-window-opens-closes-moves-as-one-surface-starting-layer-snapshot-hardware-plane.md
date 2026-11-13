@@ -6,6 +6,7 @@ status: in_progress
 status_note: "P0–P3 built 2026-10-21, board cycles 52–53 read; the frame throttle cycle 53 found is TASK-0338's; P4 at its measurement"
 owner: ["@ui", "@gpu"]
 created: 2026-10-21
+updated: 2026-11-13
 subsystem: ui
 started: 2026-10-21
 dates_source: git-reconstructed
@@ -27,6 +28,39 @@ links:
     target: "the non-parking compositor (ADR-0075)"
   - label: follow-up
     target: "6c the launch without a copy"
+phases:
+  - id: P0
+    story: "why each glass is written and where a launch's time goes are named: write causes per window, every one-second window with a present, the launch's stages"
+    state: done
+    gate: "board: gpud: glass writes (band= backdrop= moved= new= full=), windowd: loop for every window with a present, apphost: ux launch with its stages (cycle 52)"
+    started: 2026-10-21
+    done: 2026-10-21
+    evidence: docs/board/measurements/2026-10-21-gpu-vendor-per-pixel/README.md
+  - id: P1
+    story: "a launch shows one opaque starting surface at the tap and the app takes it over in one present"
+    state: done
+    gate: "host: tests/frame_motion.rs; board cycle 52: every launch shows its starting surface at its intent"
+    started: 2026-10-21
+    done: 2026-10-21
+    evidence: docs/board/measurements/2026-10-21-gpu-vendor-per-pixel/README.md
+  - id: P2
+    story: "a closing window is one solid surface the exit spring moves; the slot closes at convergence"
+    state: done
+    gate: "host: frame_motion, frame_occlusion (the solid patch); board cycles 52-53 read"
+    started: 2026-10-21
+    done: 2026-10-21
+    evidence: docs/board/measurements/2026-10-21-gpu-vendor-per-pixel/README.md
+  - id: P3
+    story: "a glass is not blurred while its window moves: a moving or dragged window keeps its rows and is written once at rest, a drag rides as the layer's transform"
+    state: done
+    gate: "host: tests/frame_motion.rs (causes, blur at rest, the transform in the present); board cycles 52-53 read"
+    started: 2026-10-21
+    done: 2026-10-21
+    evidence: docs/board/measurements/2026-10-21-gpu-vendor-per-pixel/README.md
+  - id: P4
+    story: "a dragged window rides a display-controller plane: the scene under it is not redrawn during the drag (the stock driver's overlay-plane register sequence measured first)"
+    state: planned
+    gate: "board: gpud: gpu work slot_px near 0 in a drag window; a drag window and an open/close window read gpud: ux frame ok"
 ---
 
 ## Context (cycle 51, read line by line)

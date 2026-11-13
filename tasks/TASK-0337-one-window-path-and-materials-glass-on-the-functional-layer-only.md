@@ -2,12 +2,15 @@
 schema: 1
 id: TASK-0337
 title: "One window path and the materials — every app on window-kit, windowd's title bar retired, glass only on the functional layer, the content pane opaque, controls tinted, state as a layer's opacity, reduce-transparency"
-status: in_progress
-status_note: "P1, P2 built 2026-10-21, board cycles 52–53 read; P3 read against cycle 54, after TASK-0338 freed the frame clock"
+status: done
+status_note: "one window path and the materials built 2026-10-21 (cycles 52-53); state as a layer's opacity delivered by TASK-0341; closed 2026-11-13"
 owner: ["@ui"]
 created: 2026-10-21
+updated: 2026-11-13
 subsystem: ui
 started: 2026-10-21
+done: 2026-11-13
+active_days: 2
 dates_source: git-reconstructed
 depends_on: [TASK-0336]
 follow_ups: [TASK-0335]
@@ -22,6 +25,35 @@ links:
     target: "userspace/apps/window-kit/ui/components/WinAppWindow.nx, userspace/dsl/runtime/src/registry.rs (materials), source/services/app-host/src/probe/layers.rs (material → glass level), source/services/app-host/src/hover_wash.rs (the paint-time hover), source/services/windowd/src/compositor/runtime/app_window.rs (`has_chrome`, the legacy title bar)"
   - label: follow-up
     target: "the programs (rounded/blur shaders)"
+phases:
+  - id: P0
+    story: "the window paths and the glass layers per window are counted on the board"
+    state: done
+    gate: "board cycle 51: three window paths named (titlebar for calculator and chat, plain with the window kit for settings and stash), the glass layers per window"
+    started: 2026-10-21
+    done: 2026-10-21
+    evidence: docs/board/measurements/2026-10-21-gpu-vendor-per-pixel/README.md
+  - id: P1
+    story: "every app draws the window kit's chrome on one path; windowd composes no title bar for any style"
+    state: done
+    gate: "host: test_reject_a_title_bar_from_windowd; board cycle 53: every window on one path"
+    started: 2026-10-21
+    done: 2026-10-21
+    evidence: docs/board/measurements/2026-10-21-gpu-vendor-per-pixel/README.md
+  - id: P2
+    story: "the content pane is opaque, the window's body the one glass, cards and rows tint; reduce transparency is a theme variant"
+    state: done
+    gate: "host: window-kit goldens, MATERIAL_OPAQUE to LAYER_OPAQUE; board cycles 52-53 read"
+    started: 2026-10-21
+    done: 2026-10-21
+    evidence: docs/board/measurements/2026-10-21-gpu-vendor-per-pixel/README.md
+  - id: P3
+    story: "a hover or press is a wash layer's opacity the compositor composes: no app raster, no present per hover; a scroll container is the viewport's rows on a scroll layer (the chat's band)"
+    state: done
+    gate: "delivered by TASK-0341 (surface layers: every hover a wash layer, every .scroll a scroll layer), board cycles 57-59; milestone step LU.0's gate: hover and scroll without an app raster"
+    started: 2026-10-22
+    done: 2026-10-22
+    evidence: docs/board/measurements/2026-10-21-gpu-vendor-per-pixel/README.md
 ---
 
 ## Context (cycle 51)

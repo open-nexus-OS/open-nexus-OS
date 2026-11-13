@@ -317,8 +317,13 @@ folding rules) and `tests/dsl_apps_conformance/tests/calculator_pixels.rs`
 (`nothing_rests_invisible_over_the_display` — the app-level invariant).
 
 The token argument is validated against the curated motion set (`snappy, smooth, emphasized,
-fade, slideUp, fadeScale, wiggle, pulse, slideDown, pushInline`). A `.transition` runs on the
-compositor: app-host rasters the subtree once and windowd moves the layer (ADR-0097). An
+fade, slideUp, fadeScale, wiggle, pulse, slideDown, pushInline, menuIn`). A `.transition` runs
+on the compositor: app-host rasters the subtree once and windowd moves the layer (ADR-0097).
+`menuIn` is a menu's entrance: it grows from 0.92 out of the corner it hangs on — on each axis
+the edge of what the subtree paints that is nearer the edge of the node carrying the
+`.transition` (a menu laid out at the top leading corner of its overlay grows from that corner,
+one in the middle from its centre); the layout states the anchor, no argument does — the
+same corner whether the compositor moves the layer or app-host paints the enter itself. An
 `.animate` or `.effect` intent is interpolated by app-host's animation driver on the frame pulse
 and painted per node. See `docs/dev/ui/foundations/animation.md` (token→physics mapping, scope).
 

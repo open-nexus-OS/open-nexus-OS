@@ -21,9 +21,14 @@ impl super::super::DslApp {
         let (x0, x1, y0, y1) = match self.layout.boxes.iter().find(|b| b.node_id == node_id) {
             Some(b) => {
                 let (x, y, w, h) = (b.rect.x.0, b.rect.y.0, b.rect.width.0, b.rect.height.0);
+                // About the point the painter scales it (`expand_node_anims`): its centre, or
+                // the corner a menu grows from.
                 let (nx, ny, nw, nh) = match self.anim.anims.iter().find(|a| a.node_id == node_id) {
-                    Some(a) => a.transform_rect(x, y, w, h),
-                    None => (x, y, w, h),
+                    Some(a) if !a.is_identity() => match self.enter_anchor(node_id) {
+                        Some((cx, cy)) => a.anchored_at(cx, cy).transform_rect(x, y, w, h),
+                        None => a.transform_rect(x, y, w, h),
+                    },
+                    _ => (x, y, w, h),
                 };
                 (nx - 1, nx + nw + 1, ny - 1, ny + nh + 1)
             }

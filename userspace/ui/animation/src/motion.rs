@@ -63,11 +63,25 @@ pub enum MotionToken {
     /// Enter from the leading edge: a surface pushed in from the side it is anchored to (the
     /// system toast at the left edge — design artifacts: system toast).
     PushInline = 9,
+    /// A menu opens: it fades in while it grows from 0.92, on the spring in the `quick` step,
+    /// from the corner it hangs on (design artifacts: menu entrance) — see [`MotionOrigin`].
+    MenuIn = 10,
+}
+
+/// The point a token's scale grows from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MotionOrigin {
+    /// The moved surface's own centre.
+    Centre,
+    /// The corner the surface hangs on: on each axis the edge of the surface nearer its
+    /// container's edge (the centre on an axis it is centred on) — a menu under its button
+    /// grows out of that button's corner, in either writing direction.
+    Anchor,
 }
 
 impl MotionToken {
     /// Every token, in id order (checker + docs iterate this).
-    pub const ALL: [MotionToken; 10] = [
+    pub const ALL: [MotionToken; 11] = [
         MotionToken::Snappy,
         MotionToken::Smooth,
         MotionToken::Emphasized,
@@ -78,6 +92,7 @@ impl MotionToken {
         MotionToken::Pulse,
         MotionToken::SlideDown,
         MotionToken::PushInline,
+        MotionToken::MenuIn,
     ];
 
     /// Canonical `.nx` token name.
@@ -94,6 +109,7 @@ impl MotionToken {
             MotionToken::Pulse => "pulse",
             MotionToken::SlideDown => "slideDown",
             MotionToken::PushInline => "pushInline",
+            MotionToken::MenuIn => "menuIn",
         }
     }
 
@@ -126,7 +142,8 @@ impl MotionToken {
             | MotionToken::SlideUp
             | MotionToken::SlideDown
             | MotionToken::FadeScale
-            | MotionToken::PushInline => MotionCategory::Transition,
+            | MotionToken::PushInline
+            | MotionToken::MenuIn => MotionCategory::Transition,
             MotionToken::Wiggle | MotionToken::Pulse => MotionCategory::Effect,
         }
     }
@@ -134,7 +151,7 @@ impl MotionToken {
     /// The theme duration step this token eases over (0 ms under a
     /// reduced-motion theme ⇒ the driver jumps to the final frame) — the design
     /// artifacts' timings: the panels and the launcher enter in `quick` (their
-    /// 0.28–0.30 s), a dialog and the system toast in `slow` (0.5 s, a spring).
+    /// 0.28–0.30 s) and so does a menu, a dialog and the system toast in `slow` (0.5 s, a spring).
     #[must_use]
     pub const fn duration(self) -> MotionDurationToken {
         match self {
@@ -142,7 +159,8 @@ impl MotionToken {
             MotionToken::Pulse
             | MotionToken::Fade
             | MotionToken::SlideUp
-            | MotionToken::SlideDown => MotionDurationToken::Quick,
+            | MotionToken::SlideDown
+            | MotionToken::MenuIn => MotionDurationToken::Quick,
             MotionToken::Smooth | MotionToken::Wiggle => MotionDurationToken::Base,
             MotionToken::Emphasized | MotionToken::FadeScale | MotionToken::PushInline => {
                 MotionDurationToken::Slow
@@ -156,9 +174,10 @@ impl MotionToken {
     pub const fn curve(self) -> MotionCurveToken {
         match self {
             MotionToken::Snappy => MotionCurveToken::SpringSoft,
-            MotionToken::Emphasized | MotionToken::FadeScale | MotionToken::PushInline => {
-                MotionCurveToken::Spring
-            }
+            MotionToken::Emphasized
+            | MotionToken::FadeScale
+            | MotionToken::PushInline
+            | MotionToken::MenuIn => MotionCurveToken::Spring,
             MotionToken::SlideUp | MotionToken::SlideDown => MotionCurveToken::Enter,
             MotionToken::Smooth | MotionToken::Fade | MotionToken::Wiggle | MotionToken::Pulse => {
                 MotionCurveToken::Smooth
@@ -201,8 +220,18 @@ impl MotionToken {
             MotionToken::FadeScale
             | MotionToken::SlideUp
             | MotionToken::SlideDown
-            | MotionToken::PushInline => Some(AnimProp::ScaleX),
+            | MotionToken::PushInline
+            | MotionToken::MenuIn => Some(AnimProp::ScaleX),
             _ => None,
+        }
+    }
+
+    /// The point the token's scale grows from.
+    #[must_use]
+    pub const fn origin(self) -> MotionOrigin {
+        match self {
+            MotionToken::MenuIn => MotionOrigin::Anchor,
+            _ => MotionOrigin::Centre,
         }
     }
 
@@ -253,6 +282,7 @@ impl MotionToken {
                 MotionToken::FadeScale => FADE_SCALE_FROM,
                 MotionToken::SlideUp => SLIDE_UP_SCALE,
                 MotionToken::SlideDown | MotionToken::PushInline => SLIDE_DOWN_SCALE,
+                MotionToken::MenuIn => MENU_IN_FROM,
                 _ => 1.0,
             },
             _ => prop.identity(),
@@ -277,6 +307,8 @@ pub const FADE_SCALE_FROM: f32 = 0.94;
 pub const SLIDE_UP_SCALE: f32 = 0.97;
 /// SlideDown's and the toast's absent-state scale.
 pub const SLIDE_DOWN_SCALE: f32 = 0.96;
+/// A menu's absent-state scale: it grows in from 0.92.
+pub const MENU_IN_FROM: f32 = 0.92;
 
 #[cfg(test)]
 mod tests {
@@ -361,6 +393,7 @@ mod tests {
         for (t, want) in [(0.1, 0.3781), (0.25, 0.7914), (0.5, 1.0465), (0.75, 1.0279)] {
             assert!(close(at(MotionToken::FadeScale, t), want), "fadeScale at {t}");
             assert!(close(at(MotionToken::PushInline, t), want), "pushInline at {t}");
+            assert!(close(at(MotionToken::MenuIn, t), want), "menuIn at {t}");
         }
         for (t, want) in [(0.1, 0.0259), (0.25, 0.2366), (0.5, 0.7756), (0.75, 0.9594)] {
             assert!(close(at(MotionToken::Fade, t), want), "fade at {t}");
@@ -392,11 +425,21 @@ mod tests {
             (-16.0, 0.96)
         );
         assert_eq!(MotionToken::PushInline.primary_prop(), TranslateX);
+        // A menu only fades and grows, from 0.92, out of the corner it hangs on.
+        assert_eq!(MotionToken::MenuIn.primary_prop(), AnimProp::Opacity);
+        assert_eq!(from(MotionToken::MenuIn, ScaleX), 0.92);
+        assert_eq!(MotionToken::MenuIn.origin(), MotionOrigin::Anchor);
+        assert_eq!(MotionToken::MenuIn.duration(), MotionDurationToken::Quick);
+        assert_eq!(MotionToken::MenuIn.curve(), MotionCurveToken::Spring);
+        for t in MotionToken::ALL.into_iter().filter(|t| *t != MotionToken::MenuIn) {
+            assert_eq!(t.origin(), MotionOrigin::Centre, "{t:?}");
+        }
         for t in [
             MotionToken::SlideUp,
             MotionToken::SlideDown,
             MotionToken::FadeScale,
             MotionToken::PushInline,
+            MotionToken::MenuIn,
         ] {
             assert_eq!(t.secondary_prop(), Some(ScaleX), "{t:?} grows in while it travels");
             assert_eq!(t.resting(TranslateY, true) + t.resting(TranslateX, true), 0.0);

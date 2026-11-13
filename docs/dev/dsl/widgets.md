@@ -440,7 +440,7 @@ text, not solid fills. `tint` without a `variant` paints a solid fill in that ro
 ### `Skeleton`
 
 A loading placeholder: a block in the control fill with a shimmer band the host sweeps across
-it. Use it in place of content that has not arrived.
+it (one crossing in 1.4 s, ease-in-out). Use it in place of content that has not arrived.
 
 ```nx-view
 Stack {
@@ -857,7 +857,8 @@ is static.
 
 ### `ProgressBar`
 
-A linear progress indicator: a track with a fill at a percentage, or an indeterminate pip.
+A linear progress indicator: a track with a fill at a percentage, or an indeterminate pip (the
+host moves it across the track, one crossing in 1.1 s on the smooth curve).
 
 ```nx-view
 ProgressBar { value: 64, label: "Download", showValue: true }

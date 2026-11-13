@@ -5,7 +5,7 @@ title: "Compositor motion: a transition stated once, moved by windowd for every 
 status: in_progress
 owner: ["@ui"]
 created: 2026-11-03
-updated: 2026-11-10
+updated: 2026-11-13
 subsystem: ui
 components: [windowd, app-host, animation]
 kind: ui
@@ -99,9 +99,10 @@ phases:
     note: "moved from TASK-0353 (2026-11-10, the operator's \"move them, then close\"; ids of the design spec and the P5 transition inventory): primitives-core CHK-8 RAD-6 SEG-4 SLD-3 SLD-10 PIN-3 PRG-4; P5 transitions M39 M40 M41 M42 M43 M12 M13 M14 M51 M52 M62 M63 M64 M69"
   - id: P11
     story: "a menu opens from its anchor's corner (a menu-in token: 92 %, a quick spring), children enter staggered (the island's bars 80 ms, the floating button's minis 40 ms), a press scales by category (95 % buttons, 96 % tiles, 94 % keys held, 92 % icons, 88 % window buttons) and the loops keep the design's timing (progress pip 1.1 s smooth, shimmer 1.4 s ease-in-out)"
-    state: planned
+    state: proving
     gate: "host: samples; the TASK-0353 P5 inventory's nearest rows become exact; board: 0 of 32 frames dropped"
-    note: "moved from TASK-0353 (2026-11-10, the operator's \"move them, then close\"; ids of the design spec and the P5 transition inventory): primitives-core PRG-5 SKL-5; primitives-window WM-19; shell-bars IS-06; shell-panels PN-ENTER; launcher-lock L29; P5 transitions M24 M44 M66 M68 M49"
+    started: 2026-11-13
+    note: "built 2026-11-13, first cut: menuIn (token 10: opacity + scale from 0.92, quick, spring) grows from the corner the menu hangs on — the body's edge nearer its transition node's edge. On a compositor layer no origin crosses the wire (scale about a point = scale about the centre + an offset on the same curve; the corner rests within 1 px, host-tested); an enter app-host paints itself scales about the same corner (anchor_point: the node's anchor and its damage). WinAppMenuLayer, WinAppMenuOverlay and Stash's SelectionMenu use it. Loops on a time grid (loop_math): pip 1.1 s smooth, shimmer 1.4 s ease-in-out (LOOP_SHIMMER), no spring. Board 2026-11-13 (board--2026-11-13T12-18-30): a menu in a window runs in the app's path (its frosted base carries no layer, P7) — seven menuIn episodes, 21-58 ms median paint a frame; the first cycle (T11-54-25) showed the corner missing on that path, built in before the second. Left: staggered children (island bars 80 ms, FAB minis 40 ms), press by declared role (a key 94 %, a tile 96 % — shape cannot tell them apart: needs a role, a DSL change), the pip and band entering from outside their track (needs a rounded clip in the row painter, with P10's translate in percent), the lock field's shake (500 ms)"
   - id: P12
     story: "state-bound transforms: sliding indicators, the rail, the page control's capsule, sheet detents with a rubber band, a list row's swipe, the paged track and the launcher's page turn, the calendar's month slide, the island's morph"
     state: planned

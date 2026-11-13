@@ -2,7 +2,7 @@
 schema: 1
 id: TASK-0362
 title: "Hardware floating point and vectors: the kernel keeps each thread's FP and vector state, and every userspace program is built for one hard-float target"
-status: in_progress
+status: done
 owner: ["@kernel-team", "@runtime"]
 created: 2026-11-10
 updated: 2026-11-13
@@ -11,13 +11,17 @@ kind: service
 novelty: first
 estimate: 3
 started: 2026-11-12
+done: 2026-11-13
+active_days: 2
 dates_source: recorded
+variance_note: "estimated 3 days, built in 2 with a fifth phase added on the way (P4, the first vector kernels in the painter, the operator's rule that a mechanism is built in where it is used); what took the time was not the state switch but two findings on the emulator: the kernel has to run with the units off and with one vector configuration, or eight emulated harts retranslate the kernel's paths per configuration and the lock budget goes red"
 goal:
   metric: "soft-float userspace programs in the image; FP and vector registers kept across preemption and migration"
   baseline: "every program is built for riscv64imac (soft float) although the board's harts carry F, D and the vector extension; the kernel saves neither register set; the row painter costs 100-355 ns per row pixel (board--2026-11-10T14-55-42, apphost: hops motion paint_us over rows at 1920 px)"
   target: "0 soft-float userspace programs in the image; FP and vector registers intact over 10 000 preemptions with migrations on QEMU and the board; the SVG golden digest and every host golden unchanged"
   instrument: "the build-truth gate's target list; SELFTEST: fpsoak ok / vsoak ok; pinched svg digest; apphost: hops motion paint_us before and after"
-consumer: TASK-0367/P4
+  result: "0 soft-float userspace programs (36 hard float, 0 soft); FP and vector registers intact over 10 000 hand-overs with migrations on QEMU (1, 2, 8 harts) and the board (fpsoak ok, vsoak ok, 8 harts, 2 clusters, 32-byte vector registers); SVG golden digest and host goldens unchanged; the row painter on the board 100-355 -> about 16-72 ns per row pixel for the same motion layers (402x240: 123 662 -> 18 506 us on hard float -> 17 232 with vector kernels; 343x122: about 23 600 -> 3 760 -> 3 060); span scenes on the stock system: fill 3.2 -> 0.6 ns per pixel, translucent 53.5 -> 15.5"
+consumer: TASK-0367
 phases:
   - id: P0
     story: "what the harts offer and what soft float costs is measured: the ISA line of the tree on QEMU and the board, and the row painter and the SVG raster built soft, hard and with vectors on the stock system"
@@ -53,9 +57,10 @@ phases:
     note: "proven 2026-11-13: 36 images hard float, 0 soft float; QEMU 1/2/8 harts green; board--2026-11-13T09-35-00: motion layer 402x240 123 662 -> 18 506 us (6.7x), 391x548 310 679 -> 45 992 (6.8x), 343x122 23 6xx -> 3 76x (6.3x), 41-row motion pass 74.3 -> 9.1 ms, ux launch render_ms 362-1142 -> 99-442 (2 of 6 inside the 300 ms budget, 0 before); the SVG icon raster has no line of its own in the board log (its share is in render_ms) — the earlier gate's 3x on it is not measured on the OS; a hart without F and D is no CPU, a boot hart without them ends the boot (nexus-fdt Topology::read requires, Error::Lacks); waits for the commit"
   - id: P4
     story: "the frames are painted with the vector unit: the painter's flat fills and source-over blends — what apps, motion layers and animations are drawn with — run a vector kernel on a hart that has one, chosen at run time from what the kernel reports, the scalar path stays the reference"
-    state: proving
+    state: done
     gate: "QEMU (16-byte registers) and board (32): SELFTEST: paint kernels ok (every vector kernel byte-equal to its scalar reference over random spans, digest printed, the same digest on both); apphost: paint kernels (vector=1 width=16 | 32); the measurement program with the kernels chosen at run time, on the board's stock system: scene fill <= 1 ns per pixel and scene cards <= 25 (3.2 and 46.9 hard-float scalar, 0.5 and 21.3 compiler-vectorised, P0), its seven painter digests equal P0's; our system: apphost: hops motion paint_us per row pixel named before and after; host goldens byte-equal"
     started: 2026-11-13
+    done: 2026-11-13
     evidence: build/logs/board--2026-11-13T10-38-20
     note: "proven 2026-11-13 on QEMU and the board, waits for the commit. Built: crate nexus-paint-kernels (reference.rs the scalar form, riscv.rs the vector forms in assembly taking their step from vsetvli, proof.rs the run every machine does, choose() once per program, spans below 64 bytes stay scalar); nexus-scene-raster blend_span and set_span and app-host's three row grounds call it, app-host chooses at start from sched::offers(). QEMU 1, 2, 8 harts (smp1--2026-11-13T10-12-08, smp--2026-11-13T10-15-43, smp--2026-11-13T10-27-13, smp--2026-11-13T10-30-06; eight harts bkl budget 2 of 3, the red smp--2026-11-13T10-18-11 waited 12-22 ms already in early kernel boot before any user program - the host): SELFTEST: paint kernels ok (vector=1 width=16 spans=8192 digest=0x287e0815b292fd61) = the host's digest. Board board--2026-11-13T10-38-20 (image dev-1d8bead9): paint kernels ok (vector=1 width=32, the same digest), apphost: paint kernels (vector=1 width=32) six times, ladder 118 rungs, bkl budget ok max_wait=3595us. Stock system, the measurement program with kernels chosen at run time: fill 3.2 -> 0.6 ns per pixel (gate 1), cards 53.5 -> 15.5 (gate 25), seven scene digests equal P0's; one 1920-pixel blend 35.8 -> 1.1 ns per pixel. Our system, the same motion layers before -> after: 343x122 3 760 -> 3 060 us, 391x548 45 992 -> 38 054, 393x687 60 414 -> 50 587 (7-23 % less); launches inside 300 ms 3 of 6 (2 before). Findings (docs/board/measurements/2026-11-13-paint-kernels): a real layer's row is mostly per-pixel work the two kernels do not touch (TASK-0367 P0 measures the split); the scalar reference's blend is 14 % slower than the loop it replaced (cards 53.5 against 46.9; it paints spans under 16 pixels and machines without the unit) and the vector blend already wins at 16 pixels - both at TASK-0367 P4; open and not looked at: gpud ux frame FAIL 24 (20 before), windowd ux input FAIL 11 (12)."
 ---

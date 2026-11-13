@@ -39,14 +39,17 @@ pub enum AnimKind {
 /// contract — update together):
 /// Whole-node opacity breathe (the generic resting pulse).
 pub const LOOP_BREATHE: i32 = 0;
-/// TranslateX sawtooth on the sole child (`root+1`): the Skeleton shimmer
-/// band / the indeterminate ProgressBar pip sweeping across the track.
+/// TranslateX sawtooth on the sole child (`root+1`): the indeterminate ProgressBar pip crossing
+/// its track (the design's 1.1 s on the smooth curve).
 pub const LOOP_SWEEP: i32 = 1;
 /// Stepped opacity rotation across the 12 spoke children (`root+1..=root+12`):
 /// the Spinner. Pure paint-time stepping on a time grid — no springs.
 pub const LOOP_CAROUSEL: i32 = 2;
 /// Spoke count the carousel rotates over (the Spinner builder's SPOKES len).
 pub const LOOP_CAROUSEL_SPOKES: usize = 12;
+/// TranslateX sawtooth on the sole child (`root+1`): the Skeleton's shimmer band crossing its
+/// block (the design's 1.4 s, ease-in-out).
+pub const LOOP_SHIMMER: i32 = 3;
 
 /// One animation stamped on a node. `Copy`/`Eq` so the host can diff intents
 /// across re-emits with zero allocation (steady-state alloc-bounded contract).

@@ -72,7 +72,14 @@ contribution, and the honest reason this track is gated (see G1).
 - **G3 — hmv2 SMP direction decided.** The slice-table model conflicts with
   per-hart EDT + affinity-respecting steal (ADR-0052) and dynamic consumer-UI
   frame loads. Before any mechanism work, decide the open design question below
-  for the hmv2 SMP implementation. Status: RED — not designed.
+  for the hmv2 SMP implementation. Status: **answered 2026-11-13 by RFC-0120** (TASK-0363 P1):
+  a dynamic contingent — a share derived as a subset, a reservation admitted per hart under
+  earliest deadline first; a reservation moves whole, the target admits it, the source stays
+  reserved until the migrant's deadline, and a migrant never arrives denser than its share.
+  Conservation holds through 10 000 random derive, revoke, bind, migrate and charge steps of
+  the host model (`source/libs/nexus-sched/tests/time_right.rs`). What the static table gave
+  and this waives is stated there. G1 stays RED until the kernel lock is deleted; G2 closes
+  with the metering of TASK-0363 P3.
 
 ## Open design question (record, do not decide here)
 

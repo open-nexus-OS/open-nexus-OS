@@ -6,6 +6,7 @@ status: in_progress
 status_note: "P4's first cuts board-proven in cycle 62; the rest — the band's clean, the blur's dual filter — parked to layer 8's closing by the operator 2026-10-22"
 owner: ["@gpu", "@ui"]
 created: 2026-10-20
+updated: 2026-11-13
 subsystem: ui
 started: 2026-10-21
 dates_source: git-reconstructed
@@ -27,6 +28,50 @@ links:
     target: "the non-parking compositor (ADR-0075)"
   - label: follow-up
     target: "6c the launch without a copy"
+phases:
+  - id: P0
+    story: "a frame's textured pixels are counted per pass kind with the GPU's wait per pixel"
+    state: done
+    gate: "board: gpud: gpu work (slot_px= scene_px= blur_px= ns_per_px=) per 32-frame window names the dominant kind (cycle 50: the slot pass, 1.7-3.6 Mpx)"
+    started: 2026-10-20
+    done: 2026-10-20
+    evidence: docs/board/measurements/2026-10-21-gpu-vendor-per-pixel/README.md
+  - id: P1
+    story: "a change under a cached glass re-blurs the band it touched, not the glass"
+    state: done
+    gate: "host: a_glass_written_for_a_band_blurs_the_band_alone; board cycle 50 read"
+    started: 2026-10-20
+    done: 2026-10-20
+    evidence: docs/board/measurements/2026-10-21-gpu-vendor-per-pixel/README.md
+  - id: P2
+    story: "what lies under an opaque window is not drawn: the wallpaper, lower layers and their shadows are cut to the pieces around it, opaque parts on the opaque program"
+    state: done
+    gate: "host: tests/frame_occlusion.rs; board cycle 52: layers a frame 3.7-5.8 (was 8.3), frames 19-37 ms (was 33-81)"
+    started: 2026-10-21
+    done: 2026-10-21
+    evidence: docs/board/measurements/2026-10-21-gpu-vendor-per-pixel/README.md
+  - id: P3
+    story: "the glasses written in one frame share one scene pass and two blur passes"
+    state: done
+    gate: "host: two_glasses_written_apart_share_one_scene_and_two_blur_passes; board cycle 51: 3.4-4.7 passes a frame where the writes may share"
+    started: 2026-10-21
+    done: 2026-10-21
+    evidence: docs/board/measurements/2026-10-21-gpu-vendor-per-pixel/README.md
+  - id: P4
+    story: "a scroll frame computes no rounded corner and no shadow: a glass's back is its cross and four corner squares, a shadow its ring, the executor emits only the draws in the pass's area"
+    state: done
+    gate: "board cycle 62: rounded_px=0 shadow_px=0 in the nine scroll windows, GPU wait 6.5-8.1 ms (was 16.4-17.1), gpud: ux frame ok (dropped=0 of=32) in all nine"
+    started: 2026-10-22
+    done: 2026-10-22
+    evidence: docs/board/measurements/2026-10-22-frame-pace/README.md
+  - id: P5
+    story: "a scroll frame with an upload keeps the rows it already cleaned: only the rows the upload wrote are forgotten"
+    state: planned
+    gate: "board: the CPU's clean in the chat's scroll windows below 1 ms a frame (was 2.3-2.6 ms in six of nine, cycle 62)"
+  - id: P6
+    story: "the blur runs the dual filter (a down/up chain at half and quarter resolution) where it is cheaper than the separable gaussian, priced first by gpud: gpu work"
+    state: planned
+    gate: "board: blur ns per glass write below the gaussian's on the operator's series; gpud: ux frame FAIL leaves config/fail-marker-allow-board.txt"
 ---
 
 ## Context

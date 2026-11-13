@@ -6,7 +6,7 @@ status: in_progress
 status_note: "Phase 1 delivered 2026-08-25 as OTA-lane package 1; Phases 2+ open behind TASK-0197"
 owner: ["@security"]
 created: 2025-12-27
-updated: 2026-09-03
+updated: 2026-11-13
 subsystem: updates
 started: 2025-12-27
 dates_source: git-reconstructed
@@ -25,6 +25,19 @@ links:
     target: "tasks/TASK-0179-updated-v2-offline-feed-delta-health-rollback.md, tasks/TASK-0130-packages-v1b-bundlemgrd-install-upgrade-uninstall-trust.md"
   - label: "Testing contract"
     target: scripts/qemu-test.sh
+phases:
+  - id: P1
+    story: "an update is accepted only from a publisher the device's baked trust anchor names, and the verifier's verdict is final: an invalid signature is never overruled locally"
+    state: done
+    gate: "host: test_reject_untrusted_publisher, trust_parse (5), verify_policy (3); QEMU: updated: stage rejected (untrusted publisher) + SELFTEST: updates trust reject ok on every proof boot; just test-all green"
+    started: 2026-08-25
+    done: 2026-08-25
+    evidence: "build/logs/reset--2026-08-25T13-44-37 (pruned; recorded in the task body, just test-all EXIT=0)"
+  - id: P2
+    story: "the device enforces the signature chain, the transparency log's inclusion and the provenance of what it installs, and a rotation record extends the baked publishers"
+    state: blocked
+    gate: "host core from TASK-0197 first; QEMU: SELFTEST markers for a reject of a bundle without inclusion proof and of an unrotated key (test_reject_*), named with TASK-0197's contract"
+    note: "behind TASK-0197 (draft, the host core: sigchain, translog, SBOM, provenance)"
 ---
 
 ## Phase 1 DELIVERED 2026-08-25 (test-all green; lane package 1)

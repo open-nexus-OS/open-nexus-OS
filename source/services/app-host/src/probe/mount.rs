@@ -171,6 +171,7 @@ impl DslApp {
             hop_input: nexus_ux_budgets::Hop::new(),
             hover_window: (0, 0),
             motion_hops: nexus_ux_budgets::chains::MotionHops::new(),
+            split_done: false,
             input_session: nexus_ux_budgets::session::InputSession::new(),
             taps_are_keystrokes: false,
             tap_present_owed: false,

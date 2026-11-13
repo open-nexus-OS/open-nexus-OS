@@ -2,12 +2,14 @@
 schema: 1
 id: TASK-0313
 title: "Launcher design handoff — Startmenü, Docks, Arbeitsfläche, Minimize 1:1"
-status: in_progress
-status_note: "(2026-07-30) — Track A + Track B B0-B4 done & boot-proven (357 host tests, `just check` green); OPEN: marker-contract entries"
+status: done
+status_note: "closed 2026-11-13: superseded by TASK-0353 — launcher, docks and desktop were rebuilt from the design artifacts, board-confirmed"
 owner: ["@ui"]
 created: 2026-07-30
+updated: 2026-11-13
 subsystem: ui
 started: 2026-07-30
+done: 2026-11-13
 dates_source: git-reconstructed
 implements: [RFC-0086]
 links:

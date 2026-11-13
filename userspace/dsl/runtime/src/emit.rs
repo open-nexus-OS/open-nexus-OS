@@ -449,7 +449,7 @@ fn emit_widget<'p>(
 /// indeterminate exactly when it has no Int `value` prop.
 fn loop_subkind(kind: &str, props: &[(String, Value)]) -> Option<i32> {
     match kind {
-        "Skeleton" => Some(crate::anim::LOOP_SWEEP),
+        "Skeleton" => Some(crate::anim::LOOP_SHIMMER),
         "Spinner" => Some(crate::anim::LOOP_CAROUSEL),
         "ProgressBar" if !props.iter().any(|(n, v)| n == "value" && matches!(v, Value::Int(_))) => {
             Some(crate::anim::LOOP_SWEEP)

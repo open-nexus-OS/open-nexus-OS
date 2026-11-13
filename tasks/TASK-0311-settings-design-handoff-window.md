@@ -2,12 +2,14 @@
 schema: 1
 id: TASK-0311
 title: "Settings design handoff — full information architecture on WinAppWindow"
-status: in_progress
-status_note: "(2026-07-29) — Phase 0+1 + repair round boot-proven end-to-end (landing, taps, menus, appearance live-accent, fullscreen)"
+status: done
+status_note: "closed 2026-11-13: superseded by TASK-0353 — Settings was rebuilt from the design artifacts on WinAppWindow, board-confirmed"
 owner: ["@ui"]
 created: 2026-07-29
+updated: 2026-11-13
 subsystem: ui
 started: 2026-07-29
+done: 2026-11-13
 dates_source: git-reconstructed
 links:
   - label: "Design contract"

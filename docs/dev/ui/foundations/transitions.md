@@ -51,6 +51,7 @@ Recommended small starter set:
 - `slideDown`
 - `fadeScale`
 - `pushInline`
+- `menuIn` (a menu, out of the corner it hangs on)
 
 The token set should stay small and reusable across apps/SystemUI.
 

@@ -24,6 +24,7 @@
 //! the per-frame tick is allocation-free (`tick_into` into a stack buffer).
 
 use super::*;
+use crate::loop_math::sweep_of;
 use animation::{
     AnimProp, AnimationDriver, Easing, LayerId, MotionToken, SceneUpdate, SpringConfig,
 };
@@ -32,7 +33,9 @@ mod damage;
 mod interaction;
 pub(super) use interaction::HeldPress;
 use nexus_dsl_runtime::theme_tokens::Tokens;
-use nexus_dsl_runtime::{AnimIntent, AnimKind, LOOP_CAROUSEL, LOOP_CAROUSEL_SPOKES, LOOP_SWEEP};
+use nexus_dsl_runtime::{
+    AnimIntent, AnimKind, LOOP_CAROUSEL, LOOP_CAROUSEL_SPOKES, LOOP_SHIMMER, LOOP_SWEEP,
+};
 use nexus_scene_raster::NodeAnim;
 
 /// Max concurrent DSL node transforms (mirrors the engine's active-animation
@@ -59,12 +62,6 @@ const BREATHE_BRIGHT: f32 = 1.0;
 const BREATHE_DIM: f32 = 0.15;
 const BREATHE_MID: f32 = 0.55;
 
-/// Sweep loop spring (`LOOP_SWEEP`: shimmer band / indeterminate pip): an
-/// overdamped ~1s glide across the track; the sawtooth RESETS to 0 on
-/// convergence and re-fires. Springs only — a `keyframe_to` per cycle would
-/// alloc a waypoint Vec every cycle, for as long as the widget lives.
-const SWEEP_SPRING: SpringConfig =
-    SpringConfig { stiffness: 16.0, damping: 9.0, mass: 1.0, initial_velocity: 0.0 };
 /// Carousel step interval (`LOOP_CAROUSEL`): one revolution in exactly 1 s over the 12 spokes
 /// (the design artifacts' activity ring, 83.3 ms a spoke).
 const SPINNER_STEP_NS: u64 = 1_000_000_000 / LOOP_CAROUSEL_SPOKES as u64;
@@ -100,8 +97,8 @@ pub(super) struct AnimState {
     /// entries that converge back to identity are pruned. Bounded by the cap.
     anims: alloc::vec::Vec<NodeAnim>,
     /// CONTINUOUS widget loops (`AnimKind::Loop`, inherently-animated kit
-    /// widgets), keyed by root node + sub-kind. Sweep springs re-fire on each
-    /// convergence; the carousel steps on a time grid. These keep the frame
+    /// widgets), keyed by root node + sub-kind. The sweeps and the carousel are positions
+    /// on a time grid (`loop_math`); the breathe spring re-fires. These keep the frame
     /// pulse armed while the widget is on screen. Bounded by the cap.
     loops: alloc::vec::Vec<LoopEnt>,
     /// Last physics tick (ns) for dt integration (diagnostics/telemetry).
@@ -361,22 +358,20 @@ impl AnimState {
         (w_of(node_id) - w_of(node_id + 1)).max(0) as f32
     }
 
-    /// (Re)start a sweep half…full cycle: the band/pip child springs from the
-    /// track's left edge to the right end of its travel. Alloc-free.
-    fn start_sweep(&mut self, node_id: usize, boxes: &[nexus_layout::LayoutBox]) {
-        let travel = Self::sweep_travel(node_id, boxes);
-        if travel < 1.0 {
-            return; // no room (or boxes mid-relayout) — retried next tick
-        }
-        let child = node_id + 1;
-        self.set_prop(child, AnimProp::TranslateX, 0.0);
-        self.driver.spring_to(
-            LayerId(child as u64),
-            AnimProp::TranslateX,
-            0.0,
-            travel,
-            SWEEP_SPRING,
-        );
+    /// Write a sweep's place at `now_ns` (the pip's or the shimmer band's, on its time grid)
+    /// into the part's transform; whether it moved. Alloc-free.
+    fn write_sweep(
+        &mut self,
+        ent: LoopEnt,
+        now_ns: u64,
+        boxes: &[nexus_layout::LayoutBox],
+    ) -> bool {
+        let Some(sweep) = sweep_of(ent.sub) else { return false };
+        let x = sweep.at(now_ns, Self::sweep_travel(ent.node_id, boxes) as i32);
+        let part = self.node_mut(ent.node_id + 1);
+        let moved = part.dx != x;
+        part.dx = x;
+        moved
     }
 
     /// Write the carousel's stepped spoke opacities: the leading spoke is opaque, the one `d`
@@ -394,9 +389,8 @@ impl AnimState {
     /// springs and reset the touched nodes to identity so nothing stays faded.
     fn forget_loop(&mut self, ent: LoopEnt) {
         match ent.sub {
-            LOOP_SWEEP => {
+            LOOP_SWEEP | LOOP_SHIMMER => {
                 let child = ent.node_id + 1;
-                self.driver.cancel(LayerId(child as u64), AnimProp::TranslateX);
                 self.set_prop(child, AnimProp::TranslateX, 0.0);
                 self.prune_identity(child);
             }
@@ -418,7 +412,7 @@ impl AnimState {
     /// Reconcile the continuous-loop set with the freshly-emitted `Loop`
     /// intents: forget loops gone from the tree and start each newly-seen
     /// looping widget's motion (sub-kind from the intent value).
-    fn sync_loops(&mut self, present: &[(usize, AnimIntent)], boxes: &[nexus_layout::LayoutBox]) {
+    fn sync_loops(&mut self, present: &[(usize, AnimIntent)]) {
         let is_present = |e: &LoopEnt| {
             present
                 .iter()
@@ -444,20 +438,17 @@ impl AnimState {
             // step 0xFF = "not painted yet": the first tick always writes.
             self.loops.push(LoopEnt { node_id, sub: intent.value, step: 0xFF });
             match intent.value {
-                LOOP_SWEEP => self.start_sweep(node_id, boxes),
-                // Carousel paints on the first tick's time grid.
-                LOOP_CAROUSEL => {}
+                // The sweeps and the carousel paint on the first tick's time grid.
+                LOOP_SWEEP | LOOP_SHIMMER | LOOP_CAROUSEL => {}
                 _ => self.start_breathe(node_id),
             }
         }
     }
 
-    /// Keep every loop alive: a converged sweep resets to the left edge and
-    /// re-fires (sawtooth), a converged breathe springs to the opposite
-    /// endpoint, and the carousel advances its leading spoke on the time
-    /// grid. Returns the union ROW SPAN of loop-driven paint changes the
-    /// driver's own updates do NOT cover (the sawtooth jump-back + the
-    /// carousel steps). Alloc-free.
+    /// Keep every loop alive: a sweep's part moves to its place on the time grid, the carousel
+    /// advances its leading spoke on its own, and a converged breathe springs to the opposite
+    /// endpoint. Returns the union ROW SPAN of loop-driven paint changes the driver's own
+    /// updates do NOT cover (the sweeps and the carousel steps). Alloc-free.
     fn tick_loops(&mut self, now_ns: u64, boxes: &[nexus_layout::LayoutBox]) -> Option<(i32, i32)> {
         let mut span: Option<(i32, i32)> = None;
         let grow =
@@ -473,11 +464,8 @@ impl AnimState {
         for idx in 0..self.loops.len() {
             let ent = self.loops[idx];
             match ent.sub {
-                LOOP_SWEEP => {
-                    let child = ent.node_id + 1;
-                    if !self.driver.is_active(LayerId(child as u64), AnimProp::TranslateX) {
-                        // Sawtooth: jump back to the left edge, glide again.
-                        self.start_sweep(ent.node_id, boxes);
+                LOOP_SWEEP | LOOP_SHIMMER => {
+                    if self.write_sweep(ent, now_ns, boxes) {
                         grow(boxes, ent.node_id, &mut span);
                     }
                 }
@@ -581,7 +569,7 @@ impl super::DslApp {
                 // carry no driver spring at every instant — keep them so a
                 // re-emit mid-cycle doesn't flash the widget to identity.
                 || loops.iter().any(|e| match e.sub {
-                    LOOP_SWEEP => a.node_id == e.node_id + 1,
+                    LOOP_SWEEP | LOOP_SHIMMER => a.node_id == e.node_id + 1,
                     LOOP_CAROUSEL => {
                         a.node_id > e.node_id
                             && a.node_id <= e.node_id + LOOP_CAROUSEL_SPOKES
@@ -590,7 +578,7 @@ impl super::DslApp {
                 })
         });
         // Continuous loops (inherently-animated widgets): start new, drop gone.
-        self.anim.sync_loops(present, &self.layout.boxes);
+        self.anim.sync_loops(present);
         // Arm the clock on the idle→active edge (see `was_idle` above).
         if was_idle && self.anim.driver.active_count() > 0 {
             self.anim.driver.reset_clock(nsec_now());
@@ -669,7 +657,10 @@ impl super::DslApp {
             };
             let (ox, oy, ow, oh) =
                 (owner.rect.x.0, owner.rect.y.0, owner.rect.width.0, owner.rect.height.0);
-            let (cx, cy) = (ox + ow / 2, oy + oh / 2);
+            // A token that grows from the corner it hangs on (a menu) scales about that corner.
+            let centre = (ox + ow / 2, oy + oh / 2);
+            let (cx, cy) =
+                self.enter_anchor(a.node_id).filter(|_| !a.is_identity()).unwrap_or(centre);
             out[n] = a.anchored_at(cx, cy);
             n += 1;
             if a.is_identity() {

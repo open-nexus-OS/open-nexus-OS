@@ -100,6 +100,11 @@ Check a chain group against any log: `just check-markers build/logs/<run>/uart.l
 - **Explicit absence** — a lane without a device prints why, e.g. `init: usb plane none (no host
   controller)`; the ladder requires the honest absence line, not silence.
 - **Measurement** — numbers without a verdict (e.g. `KSELFTEST: ipc stats (`); the ladder pins the prefix only.
+  `apphost: raster split (rows= px= boxes= runs= pick_us= ground_us= boxes_us= text_us= alpha_us=
+  clock_ns=)` is one per app-host process (TASK-0367 P0): its first full surface painted with a
+  clock read between a row's stages — the ground fill, the boxes, the text runs, the straight-alpha
+  conversion — each sum stated with the clock reads taken off (`clock_ns` a read, one per row and
+  stage). No rung names it.
 - **Chain hops** — `<svc>: chain <X><n> …`, once per boot per hop, in groups the contract names
   (`input-route` I5–I6, `input-live` I1–I2, `input-chord` K1–K4: a keyboard chord from hidrawd
   through inputd to windowd on the key channel). A `hops` line times a hop with numbers only, e.g.

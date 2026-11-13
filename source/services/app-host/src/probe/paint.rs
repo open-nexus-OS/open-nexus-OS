@@ -15,10 +15,14 @@ use super::*;
 use crate::straight_alpha::{premultiplied, unpremultiply};
 
 mod collect;
+mod split;
 pub(in crate::probe) use collect::caret_input;
 pub(super) use collect::collect_texts;
 pub(super) use collect::dump_text_runs as collect_dump_text_runs;
 use collect::{paint_selection_row, CaretPaint};
+
+/// The scroll views a pass places covered content at.
+type Views<'a> = &'a [nexus_scene_raster::ScrollView];
 
 /// What a pass's rows read beside the picked boxes, resolved once per pass: the animated nodes'
 /// transforms and the focused field's caret.
@@ -155,6 +159,9 @@ impl super::DslApp {
         self.overlay_sync();
         let base = self.page_base();
         let (y0, y1) = (y0.max(0), y1.min(self.h as i32));
+        if !self.split_done && y0 == 0 && y1 == self.h as i32 {
+            return self.render_rows_split(mem); // once: where a row's time goes (TASK-0367 P0)
+        }
         let t0 = nsec_now();
         let mut views = core::mem::take(&mut self.view_scratch);
         self.base_views(&mut views);
@@ -363,26 +370,28 @@ impl super::DslApp {
     /// Paints row `y` (surface row of the base; layout row of a band) over what `row` holds:
     /// the picked boxes' fills by the shared painter, then their glyph runs. `shift` moves the
     /// canvas (a horizontal band's run of columns); `views` place a covered layer's content.
-    fn paint_row(
-        &self,
-        row: &mut [u8],
-        y: i32,
-        shift: i32,
-        views: &[nexus_scene_raster::ScrollView],
-    ) {
+    fn paint_row(&self, row: &mut [u8], y: i32, shift: i32, views: Views<'_>) {
+        self.paint_row_boxes(row, y, shift, views);
+        self.paint_row_text(row, y, shift, views);
+    }
+
+    /// Row `y`'s picked boxes, by the shared painter.
+    fn paint_row_boxes(&self, row: &mut [u8], y: i32, shift: i32, views: Views<'_>) {
+        let mut canvas = nexus_scene_raster::RowCanvas::new(row, y, self.w as i32);
+        canvas.shift_x = shift;
+        nexus_scene_raster::paint_row_picked_indexed(
+            &mut canvas,
+            &self.layout.boxes,
+            &self.vis_pick,
+            &self.vis_anim,
+            views,
+            self.pass_ctx.anims(),
+        );
+    }
+
+    /// Row `y`'s picked text runs over its boxes.
+    fn paint_row_text(&self, row: &mut [u8], y: i32, shift: i32, views: Views<'_>) {
         let anims = self.pass_ctx.anims();
-        {
-            let mut canvas = nexus_scene_raster::RowCanvas::new(row, y, self.w as i32);
-            canvas.shift_x = shift;
-            nexus_scene_raster::paint_row_picked_indexed(
-                &mut canvas,
-                &self.layout.boxes,
-                &self.vis_pick,
-                &self.vis_anim,
-                views,
-                anims,
-            );
-        }
         // The focused field's selection highlight (TASK-0067B); its caret is the compositor's
         // layer (RFC-0113 §5, `interaction/text_caret.rs`), never painted here.
         let caret = self.pass_ctx.caret;

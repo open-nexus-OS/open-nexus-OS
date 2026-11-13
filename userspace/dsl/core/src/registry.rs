@@ -288,6 +288,7 @@ pub const MOTION_TOKENS: &[&str] = &[
     "pulse",
     "slideDown",
     "pushInline",
+    "menuIn",
 ];
 
 /// Whether `name` is a valid motion token.

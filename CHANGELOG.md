@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-11-13 (a menu opens from its corner, loops keep the design's time, a row's time is split, time as a right is modelled — TASK-0354 P11, TASK-0367 P0, TASK-0363 P1)
+
+- **`menuIn`** (motion token 10, design artifacts: menu entrance): a menu fades in while it
+  grows from 0.92 on the spring in the quick step, out of the corner it hangs on — on each
+  axis the edge of what it paints (its shadows' reach aside) nearer the edge of the node
+  carrying the `.transition`. No origin crosses the wire: app-host adds the offset that turns
+  the compositor's scale about the centre into a scale about that corner
+  (`motion_math::anchor_shift`); the corner rests within a pixel through the whole motion. An
+  enter app-host paints itself (a menu in a window — the board ran this path) scales about the
+  same corner (`motion_math::anchor_point`, the node's anchor and its damage). The window kit's
+  two menus and Stash's selection menu use it (they dropped in on `slideDown`).
+- **Loops on a time grid** (`app-host/src/loop_math.rs`): the indeterminate progress pip crosses
+  its track in 1.1 s on the smooth curve, a skeleton's shimmer band its block in 1.4 s
+  ease-in-out (`LOOP_SHIMMER`, new) — a position is a function of the clock, no spring
+  re-fires, every loop of a kind is in phase. Both shared one overdamped spring (~1 s).
+- **`apphost: raster split (…)`** (TASK-0367 P0): once per app-host process, its first full
+  surface is painted with a clock read between a row's stages — ground, boxes, text runs,
+  straight-alpha conversion — and the sums are printed with the clock reads' cost stated and
+  taken off. Numbers, no rung.
+- **RFC-0120 (seed) and `nexus_sched::time_right`**: time as a right, decided on a host model
+  before kernel code — a share of the harts' time derived only as a subset, a reservation (a
+  budget per period, earliest deadline first) admitted against its hart's capacity, a revoke in
+  one step by generation, and a steal or migration that moves a reservation whole, is admitted
+  on the target, keeps the source reserved until the migrant's deadline and never lets the
+  migrant arrive denser than its share. 13 host tests, among them conservation over 10 000
+  random steps; answers gate G3 of `TRACK-TIME-AS-RESOURCE`. No kernel code yet.
+
 ### Added - 2026-11-13 (the frames are painted with the vector unit — TASK-0362 P4, ADR-0099 rule 4)
 
 - **`nexus-paint-kernels`** (`userspace/ui/paint-kernels`): the two loops a frame spends its

@@ -84,6 +84,10 @@ mod band_ground;
 // extent, where its enter starts. Same one-cfg shape: the raster is in `probe/motion_layers.rs`.
 #[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
 mod motion_math;
+// The kit's sweep loops on a time grid (TASK-0354 P11): where a pip or a shimmer band is at a
+// given time. Same one-cfg shape: `probe/anim.rs` writes the position on the frame pulse.
+#[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
+mod loop_math;
 // Where the paint-time hover wash goes. Same one-cfg shape as `file_filter`:
 // `probe/` is RISC-V-only, so a pure decision that belongs to it lives here
 // instead, where host tests can actually reach it.
@@ -100,6 +104,10 @@ mod layout_diff;
 mod modal_edge;
 #[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
 mod press_kind;
+// Where a painted row's time goes (TASK-0367 P0): one staged pass's sums and its line. Same
+// one-cfg shape: `probe/paint/split.rs` runs the pass.
+#[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
+mod raster_split;
 // The pixel format the compositor reads (RFC-0109: straight alpha) — every row the painter
 // blends premultiplied is divided out once before it leaves. Same one-cfg shape: the rows are
 // written in `probe/paint.rs`.

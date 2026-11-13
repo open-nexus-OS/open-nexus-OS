@@ -2,17 +2,18 @@
 schema: 1
 id: TASK-0352
 title: "The memory model used: no fixed process tables, an owner's footprint includes its surfaces, limits per app"
-status: in_progress
+status: done
 status_note: "package 2 started 2026-11-03: P0 measure, kernel stories P5-P7 first, then the service tables P1-P3, app heap P8, board P4, address space P9"
 owner: ["@kernel-team", "@runtime"]
 created: 2026-11-03
-updated: 2026-11-10
+updated: 2026-11-13
 subsystem: kernel
 components: [execd, abilitymgr, memd, gpud]
 kind: service
 novelty: variant
 estimate: 5
 started: 2026-11-03
+done: 2026-11-13
 active_days: 1
 dates_source: recorded
 variance_note: "estimate 5d, built in 1 active day: the kernel stories reused TASK-0347's bound rule (ENOMEM never a panic) and kheap::admits; the lanes (headless, many-apps) and one board cycle proved everything the same day; left open by rule 11 until the consumer TASK-0351/P4 starts (package 3)"

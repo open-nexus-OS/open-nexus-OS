@@ -25,10 +25,14 @@ use super::surface_mem::SurfaceMem;
 use super::*;
 use crate::band_math::PresentDamage;
 use crate::layout_diff::TextRun;
-use crate::motion_math::{backdrop_of, enter_from, paint_extent, subtree_span, Span};
+use crate::motion_math::{
+    anchor_point, anchor_shift, backdrop_of, body_extent, enter_from, paint_extent, subtree_span,
+    Span,
+};
 use animation::MotionToken;
 use nexus_display_proto::surface_layers as lw;
 use nexus_dsl_runtime::overlay::OverlayKind;
+use nexus_dsl_runtime::AnimKind;
 use nexus_layout::LayoutBox;
 use nexus_layout_types::Rgba8;
 
@@ -148,7 +152,12 @@ impl super::DslApp {
         let duration_ms = ms.min(u32::from(lw::MAX_MOTION_MS)) as u16;
         self.motion_seq = self.motion_seq.wrapping_add(1).max(1);
         let (id, now) = (self.motion_seq, nsec_now());
-        if let Some(m) = self.motion_layers.iter_mut().flatten().find(|m| m.root == node_id) {
+        if let Some(k) =
+            self.motion_layers.iter().position(|m| m.is_some_and(|m| m.root == node_id))
+        {
+            let Some(m) = self.motion_layers[k] else { return false };
+            let from = self.from_anchor(token, from, (m.root, m.end), m.rect, m.backdrop.is_some());
+            let Some(m) = self.motion_layers[k].as_mut() else { return false };
             (m.id, m.declared_ns, m.token, m.duration_ms, m.from) =
                 (id, now, token.id(), duration_ms, from);
             self.tree_dirty = true;
@@ -163,6 +172,7 @@ impl super::DslApp {
             return false;
         };
         let Some((rect, backdrop)) = self.layer_shape((first, end), slot) else { return false };
+        let from = self.from_anchor(token, from, (first, end), rect, backdrop.is_some());
         self.motion_layers[slot] = Some(MotionLayer {
             root: first,
             end,
@@ -194,6 +204,59 @@ impl super::DslApp {
         }
         self.store_replan |= self.outgrows(plan);
         placed
+    }
+
+    /// Where the enter `from` of `token` starts for the layer of `[first, end)` resting at
+    /// `rect`: a token that grows from the corner its surface hangs on (`MotionOrigin::Anchor`,
+    /// a menu) starts shifted towards that corner — the body's (the subtree without its scrim and
+    /// its shadows' reach), on the side nearer the edge of the transition node's box.
+    fn from_anchor(
+        &self,
+        token: MotionToken,
+        from: (i16, i16, u8, u16),
+        (first, end): (usize, usize),
+        rect: Span,
+        scrim: bool,
+    ) -> (i16, i16, u8, u16) {
+        if token.origin() != animation::MotionOrigin::Anchor {
+            return from;
+        }
+        let Some((body, within)) = self.anchor_spans((first, end), scrim) else { return from };
+        let (dx, dy) = anchor_shift(from.3, rect, body, within);
+        (from.0.saturating_add(dx), from.1.saturating_add(dy), from.2, from.3)
+    }
+
+    /// What a corner is judged by for the subtree `[first, end)`: its body (without a scrim
+    /// root and without its shadows' reach) and the box of the node that carries the transition.
+    fn anchor_spans(&self, (first, end): (usize, usize), scrim: bool) -> Option<(Span, Span)> {
+        let size = (self.w as i32, self.h as i32);
+        let span = if scrim { (first + 1, end) } else { (first, end) };
+        let r = &self.layout.boxes.iter().find(|b| b.node_id == first)?.rect;
+        let within = (r.x.0, r.y.0, r.x.0 + r.width.0, r.y.0 + r.height.0);
+        let body = body_extent(&self.layout.boxes, span, size, |id| self.has_text(id))?;
+        Some((body, within))
+    }
+
+    /// The point an enter of `node_id` the app paints itself scales about (a window's frosted
+    /// base carries no motion layer): the corner a token that grows from its anchor hangs on —
+    /// the same corner the compositor's layer keeps. `None`: the node's centre, as every other
+    /// token.
+    pub(super) fn enter_anchor(&self, node_id: usize) -> Option<(i32, i32)> {
+        let (_, intent) = self
+            .view
+            .animations()
+            .iter()
+            .find(|(id, i)| *id == node_id && i.kind == AnimKind::Transition)?;
+        let token = MotionToken::from_id(intent.token)?;
+        if token.origin() != animation::MotionOrigin::Anchor {
+            return None;
+        }
+        let span = subtree_span(self.view.scene(), node_id)?;
+        let size = (self.w as i32, self.h as i32);
+        let root = self.layout.boxes.iter().find(|b| b.node_id == span.0)?;
+        let scrim = backdrop_of(root, size, self.has_text(span.0)).is_some();
+        let (body, within) = self.anchor_spans(span, scrim)?;
+        Some(anchor_point(body, within))
     }
 
     /// Whether `node_id` is a modal's or a toast's layer (`.overlay(modal|transient)`): in front.

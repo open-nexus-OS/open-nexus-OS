@@ -107,8 +107,29 @@ fn paints(b: &LayoutBox, has_text: bool) -> bool {
 pub(crate) fn paint_extent(
     boxes: &[LayoutBox],
     span: (usize, usize),
+    size: (i32, i32),
+    has_text: impl Fn(usize) -> bool,
+) -> Option<Span> {
+    extent(boxes, span, size, has_text, true)
+}
+
+/// The same boxes without their reach: the body a shadow is cast by — the rectangle whose
+/// corner a menu grows from.
+pub(crate) fn body_extent(
+    boxes: &[LayoutBox],
+    span: (usize, usize),
+    size: (i32, i32),
+    has_text: impl Fn(usize) -> bool,
+) -> Option<Span> {
+    extent(boxes, span, size, has_text, false)
+}
+
+fn extent(
+    boxes: &[LayoutBox],
+    span: (usize, usize),
     (w, h): (i32, i32),
     has_text: impl Fn(usize) -> bool,
+    reaching: bool,
 ) -> Option<Span> {
     let mut acc: Option<Span> = None;
     for b in boxes {
@@ -122,7 +143,7 @@ pub(crate) fn paint_extent(
         {
             continue;
         }
-        let (l, t, r, bo) = reach(b);
+        let (l, t, r, bo) = if reaching { reach(b) } else { (0, 0, 0, 0) };
         let mut e = (x - l, y - t, x + bw + r, y + bh + bo);
         // A clipped box paints inside its clip (a card's `.overflow(hidden)`): its reach too.
         if let Some(c) = b.clip_rect {
@@ -180,6 +201,46 @@ pub(crate) fn enter_from(token: MotionToken) -> Option<(i16, i16, u8, u16)> {
         AnimProp::TranslateX => Some((at as i16, 0, 0, scale)),
         _ => None,
     }
+}
+
+/// On one axis, the edge of the body `[b_lo, b_hi)` a corner sits on: the one nearer the edge of
+/// `[w_lo, w_hi)`; `None`: the body is centred there (within a pixel) and keeps its centre.
+fn hung_edge(b_lo: i32, b_hi: i32, w_lo: i32, w_hi: i32) -> Option<i32> {
+    let (lead, trail) = (b_lo - w_lo, w_hi - b_hi);
+    ((lead - trail).abs() > 1).then_some(if lead < trail { b_lo } else { b_hi })
+}
+
+/// The point an enter the app paints itself scales about when its token grows from the corner
+/// it hangs on: the same corner [`anchor_shift`] keeps at rest for a compositor layer — `body`'s
+/// edge nearer the edge of `within` on each axis, the body's centre on an axis it is centred on.
+pub(crate) fn anchor_point(body: Span, within: Span) -> (i32, i32) {
+    let axis = |b_lo: i32, b_hi: i32, w_lo: i32, w_hi: i32| {
+        hung_edge(b_lo, b_hi, w_lo, w_hi).unwrap_or((b_lo + b_hi) / 2)
+    };
+    (axis(body.0, body.2, within.0, within.2), axis(body.1, body.3, within.1, within.3))
+}
+
+/// How far an enter that grows from `scale` (1/10000) is shifted at its start so that the layer
+/// resting at `layer` grows out of the corner it hangs on instead of its centre — `(dx, dy)` to
+/// add to the enter's offset. The corner is `body`'s (the layer without its shadow's reach): on
+/// each axis the edge nearer the edge of `within`, the box of the node that carries the
+/// transition; an axis the body is centred on (within a pixel) keeps the centre. Scaling by `s`
+/// about a point `o` is scaling by `s` about the centre `c` and moving by `(1 − s)(o − c)`; the
+/// compositor evaluates a layer's offset and scale on one curve, so the corner rests where the
+/// app laid it out through the whole motion and no origin crosses the wire.
+pub(crate) fn anchor_shift(scale: u16, layer: Span, body: Span, within: Span) -> (i16, i16) {
+    let gain = 10_000 - i32::from(scale);
+    let axis = |lo: i32, hi: i32, b_lo: i32, b_hi: i32, w_lo: i32, w_hi: i32| -> i16 {
+        let Some(edge) = hung_edge(b_lo, b_hi, w_lo, w_hi) else { return 0 };
+        // Twice the distance from the layer's centre to the corner's edge (half pixels).
+        let twice = 2 * edge - (lo + hi);
+        let shift = gain * twice;
+        ((shift + shift.signum() * 10_000) / 20_000).clamp(-512, 512) as i16
+    };
+    (
+        axis(layer.0, layer.2, body.0, body.2, within.0, within.2),
+        axis(layer.1, layer.3, body.1, body.3, within.1, within.3),
+    )
 }
 
 #[cfg(test)]
@@ -307,5 +368,59 @@ mod tests {
         assert_eq!(enter_from(MotionToken::Pulse), None, "an effect: the app plays it");
         assert_eq!(enter_from(MotionToken::Wiggle), None);
         assert_eq!(enter_from(MotionToken::Snappy), Some((0, 0, 0, 10_000)), "enters as a fade");
+        assert_eq!(enter_from(MotionToken::MenuIn), Some((0, 0, 0, 9_200)), "a menu grows in");
+    }
+
+    /// TASK-0354 P11: a menu grows out of the corner it hangs on. A 240×300 panel under the
+    /// window's top-left (12 px in), its shadow reaching 20 px: at 0.92 the layer starts shifted
+    /// so that the panel's top-left corner is where it rests — and stays there at every scale.
+    #[test]
+    fn a_menu_grows_from_the_corner_it_hangs_on() {
+        let within = (0, 0, 900, 600);
+        let body = (12, 40, 252, 340);
+        let layer = (0, 20, 272, 360);
+        let (dx, dy) = anchor_shift(9_200, layer, body, within);
+        assert_eq!((dx, dy), (-10, -12));
+        // The corner's place at scale s with the offset scaled along: c + s(o − c) + d(1 − e),
+        // where s = s0 + (1 − s0)e — within a pixel of its rest at every step.
+        let (cx, cy) = ((layer.0 + layer.2) as f32 / 2.0, (layer.1 + layer.3) as f32 / 2.0);
+        for step in 0..=10 {
+            let e = step as f32 / 10.0;
+            let s = 0.92 + 0.08 * e;
+            let x = cx + s * (body.0 as f32 - cx) + f32::from(dx) * (1.0 - e);
+            let y = cy + s * (body.1 as f32 - cy) + f32::from(dy) * (1.0 - e);
+            assert!((x - body.0 as f32).abs() < 1.0 && (y - body.1 as f32).abs() < 1.0, "{e}");
+        }
+        // Hung on the trailing side (the app menu, 145 px from the right edge): the other corner.
+        let trailing = (515, 40, 755, 340);
+        let (dx, _) = anchor_shift(9_200, (495, 20, 775, 360), trailing, within);
+        assert_eq!(dx, 10);
+        // Centred on both axes (a context menu in the middle): it grows from its centre.
+        assert_eq!(anchor_shift(9_200, (310, 130, 590, 470), (330, 150, 570, 450), within), (0, 0));
+        // The app's own enter scales about the very corner the layer's shift keeps at rest.
+        assert_eq!(anchor_point(body, within), (12, 40));
+        assert_eq!(anchor_point(trailing, within), (755, 40));
+        assert_eq!(anchor_point((330, 150, 570, 450), within), (450, 300));
+        // An unscaled enter has no corner to keep.
+        assert_eq!(anchor_shift(10_000, layer, body, within), (0, 0));
+    }
+
+    /// The body is the layer without its shadow's reach.
+    #[test]
+    fn the_body_leaves_the_shadow_out() {
+        let mut panel = boxed(2, (12, 40, 240, 300));
+        panel.visual.background = Some(Rgba8::new(255, 255, 255, 255));
+        panel.visual.shadow = Some(BoxShadow {
+            offset_x: FxPx::new(0),
+            offset_y: FxPx::new(8),
+            blur_radius: FxPx::new(24),
+            spread: FxPx::new(0),
+            ..BoxShadow::default()
+        });
+        let boxes = [boxed(1, (0, 0, 900, 600)), panel];
+        let body = body_extent(&boxes, (1, 3), (900, 600), |_| false);
+        assert_eq!(body, Some((12, 40, 252, 340)));
+        let layer = paint_extent(&boxes, (1, 3), (900, 600), |_| false).unwrap();
+        assert!(layer.0 < 12 && layer.3 > 340, "the layer reaches past the body: {layer:?}");
     }
 }

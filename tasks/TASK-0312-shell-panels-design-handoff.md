@@ -2,12 +2,14 @@
 schema: 1
 id: TASK-0312
 title: "Shell panels design handoff — topbar + six drop-downs 1:1"
-status: in_progress
-status_note: "(2026-07-30) — Phase 0-5 + repair rounds 1-2 done (`just check`, `just test-host`, OS build green; 13 panel proofs); OPEN: re-boot to confirm"
+status: done
+status_note: "closed 2026-11-13: superseded by TASK-0353 — bar and panels were rebuilt from the design artifacts, board-confirmed"
 owner: ["@ui"]
 created: 2026-07-30
+updated: 2026-11-13
 subsystem: ui
 started: 2026-07-30
+done: 2026-11-13
 dates_source: git-reconstructed
 links:
   - label: "Design contract"

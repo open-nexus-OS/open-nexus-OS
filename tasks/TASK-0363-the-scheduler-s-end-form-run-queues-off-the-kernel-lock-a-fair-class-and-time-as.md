@@ -5,7 +5,7 @@ title: "The scheduler's end form: run queues off the kernel lock, a fair class, 
 status: in_progress
 owner: ["@kernel-team"]
 created: 2026-11-10
-updated: 2026-11-12
+updated: 2026-11-13
 subsystem: kernel
 kind: service
 novelty: first
@@ -21,8 +21,10 @@ consumer: TASK-0365/P1
 phases:
   - id: P1
     story: "the contract is decided on a host model before kernel code: a time right is a capability holding a budget per period, it is delegated only as a subset, revoked in bounded time, admitted against the harts' capacity, and what a steal and a migration do to it is stated"
-    state: planned
+    state: proving
     gate: "the scheduler RFC seeded with its three lenses; host model: test_reject_delegate_beyond_held, test_reject_admit_beyond_capacity, test_reject_run_after_revoke, conservation over 10 000 random steps; TRACK-TIME-AS-RESOURCE gate G3 answered in the RFC"
+    started: 2026-11-13
+    note: "built 2026-11-13: RFC-0120 seeded (the contract, the three rules for a steal and a migration = the track's gate G3, revoke in one step, G1 and G2 stated); the pure core nexus-sched::time_right (no allocation, no lock) with 13 host tests green: test_reject_delegate_beyond_held, test_reject_admit_beyond_capacity, test_reject_run_after_revoke, test_reject_migrate_beyond_the_targets_capacity, conservation over 10 000 random steps (every operation exercised both ways; audit after each; no reservation above share x time + one budget). Open for P3: capacity (80 % in the tests), table sizes, the syscall surface"
   - id: P2
     story: "each hart schedules under its own lock: a wake, a steal and a switch on one hart never wait for a syscall on another"
     state: planned
@@ -43,10 +45,11 @@ phases:
     note: "found 2026-11-12 (TASK-0362 P1, fpsoak): a pin places a thread only at its next wake. set_affinity re-clamps home_cpu; a thread that yields or is preempted is requeued on the hart it is on (yield_current -> try_enqueue), only wake/resume route to the home hart. A thread that never blocks keeps running on a hart outside its new set (two-hart run smp--2026-11-12T14-07-44: 20 pins, loads=2 — neither thread moved). The placement of this phase must hold at every requeue, not only at a wake; test: test_reject_run_outside_the_set_after_a_pin."
   - id: P0
     story: "what the scheduler is rebuilt from is known: an interactive wake's wait for a hart is attributed (behind a peer of its class on the hart it is pinned to, behind a lower class it did not preempt, or a hart asleep), and the task that yields 70 000 times a second is named"
-    state: proving
+    state: done
     gate: "board: KINIT: ready latency class=interactive carries the three causes as counts (their sum = the dispatches above 1 ms; were 2 967 of 5 380, mean 1 513 us, build/logs/board--2026-11-11T09-05-45) and KINIT: yield top names the three tasks with the most yields; a missed preemption counted above 0 is fixed before P2; the yield loop is replaced by a wait or stated as the lane's own"
     started: 2026-11-11
-    evidence: build/logs/board--2026-11-11T11-05-00
+    done: 2026-11-13
+    evidence: build/logs/board--2026-11-13T10-38-20
     note: "gate met on the board (closes in the ledger when P1 starts, rule 8): ten windows with the desktop in use, 273 295 interactive dispatches, 519 above 1 ms = 508 behind a peer on the pinned hart, 9 a hart asleep, 2 a lower class not preempted (examined before P2); yield top total=0 in use — the network owner's loop removed at its cause, the harness's ladder is the lane's own yielder; ADR-0098"
   - id: P6
     story: "a wait that carries a deadline ends at its deadline on an idle system: a waitset wait and a fence wait are woken by the timer like a receive and a send, by one deadline walk instead of three copies (two of which know only IPC), and the idle hart does not walk every task under the kernel lock on each turn"
@@ -60,22 +63,51 @@ phases:
 
 ## The ask
 
-Who asked, in their words, and the outcome they want.
+The operator, 2026-11-10: finish SMP first — every hart, the kernel lock deleted — as the end
+form, piece by piece, nothing rebuilt later; and take `TRACK-TIME-AS-RESOURCE` into the lane,
+because a scheduler built on class labels would be rebuilt for it. The outcome: a thread that
+holds a time right runs within its budget every period on a loaded 8-hart board, and no
+run-queue operation waits for the kernel lock.
 
 ## Measured before the cut
 
-What the code and the system do today — numbers, log paths, the measurement folder. A plan
-that names no measurement is a guess.
+- `build/logs/board--2026-11-13T10-38-20` (the desktop in use, ten windows): 273 295 interactive
+  dispatches, 519 later than 1 ms — 508 behind a peer of the same class on the hart both are
+  pinned to, 9 behind a hart asleep, 2 behind a lower class. A class cannot order its own
+  members; that is what a deadline is for.
+- Every run queue lives inside the kernel lock (`core/trap/runtime.rs`); strict classes, a 10 ms
+  tick, steal one task per millisecond (`sched/mod.rs`); `sched/tests.rs` runs nowhere.
+- `build/logs/board--2026-11-11T11-05-00`: 911 709 takes of the kernel lock by idle harts per
+  10 s window (the deadline walk under the lock, P6).
 
 ## Three lenses
 
-- **Scope** — in: … · out: … (with where each "out" goes).
-- **Invariant** — what must hold, and the `test_reject_*` that proves it.
-- **Contract** — the RFC/ADR this implements or seeds.
+- **Scope** — in: the time right's contract and its pure core (`nexus-sched::time_right`, P1),
+  run queues under a lock per hart (P2), the fair class and reservations with metering (P3), no
+  periodic tick (P4), placement (P5), one deadline walk (P6) · out: the syscall surface and the
+  capability kind (seeded in P3, appended to RFC-0120), a call lending the caller's reservation
+  (TASK-0330, the IPC package), who is given which share (TASK-0365 P1), the supervision path's
+  reservation and exhaustion as an event (after the lock is deleted, the track's candidates
+  010 and 030).
+- **Invariant** — every share of the root is held exactly once, no hart is reserved past its
+  capacity, nothing of a revoked right runs, a reservation runs at most `share × time + one
+  budget` through any steal or migration: `test_reject_delegate_beyond_held`,
+  `test_reject_admit_beyond_capacity`, `test_reject_run_after_revoke`,
+  `test_reject_migrate_beyond_the_targets_capacity`, `conservation_over_10_000_random_steps`
+  (`source/libs/nexus-sched/tests/time_right.rs`).
+- **Contract** — RFC-0120 (seeded here; answers the track's gate G3, states G1 and G2);
+  ADR-0052 (per-hart earliest deadline, steal by affinity) stays; ADR-0098 gives the order the
+  kernel lock is split in.
 
 ## Not doing here
 
-The scope firewall: what is deliberately left out, and which task or milestone step takes it.
+- No guarantee marker before the kernel lock is deleted (gate G1): until then the mechanism's
+  lines are measurements — the address-space package of TASK-0330 closes it.
+- No slice table, no global deadline queue (RFC-0120, alternatives).
+- No frequency or thermal control (the seam is the per-hart utilisation line of P5; the
+  regulation is its own task).
+- The exact release time of a hart a reservation left (its zero-lag point instead of its
+  deadline): measured in P5 only if moves prove frequent.
 
 ## Definition of Done
 

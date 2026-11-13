@@ -93,17 +93,30 @@ Token → physics mapping (SSOT `userspace/ui/animation/src/motion.rs` +
 | `pulse` | effect | scale | — | Quick (280ms) | linear (osc.) |
 | `slideDown` | transition | translateY −10 | scale 0.96 (+opacity) | Quick (280ms) | enter |
 | `pushInline` | transition | translateX −16 | scale 0.96 (+opacity) | Slow (500ms) | spring |
+| `menuIn` | transition | opacity | scale 0.92, from the anchor's corner | Quick (280ms) | spring |
 
 The values are the design artifacts' (the SSOT, TASK-0353): the panels' and the
 launcher's entrance (`slideUp`/`slideDown`, from 0.97/0.96), the dialogs'
 overlay entrance (`fadeScale`: rising 10px from 0.94 on the spring, the scrim
 fading in quicker), the system toast's entrance from the leading edge
-(`pushInline`). Every driver evaluates the token's curve EXACTLY
+(`pushInline`), a menu's entrance out of the corner it hangs on (`menuIn`). Every driver evaluates the token's curve EXACTLY
 (`Easing::Curve`, a `cubic-bezier` solver in `animation::keyframe`) — the app's
 keyframe track and the compositor's motion layers (TASK-0354 P3) answer one time
 with one value, a spring's overshoot included. A motion layer scales about its
 own centre (`Command::LayerTransform` carries a 1/10000 scale and an origin,
 RFC-0101 §8).
+
+`menuIn` grows from a corner instead (`MotionOrigin::Anchor`, TASK-0354 P11): on each axis the
+edge of the subtree's body (what it paints, without its shadows' reach) that is nearer the edge
+of the node carrying the `.transition`; an axis the body is centred on keeps the centre. No
+origin crosses the wire: scaling by `s` about a point `o` is scaling by `s` about the centre `c`
+and moving by `(1 − s)(o − c)`, and windowd evaluates a layer's offset and its scale on one
+curve — app-host adds that offset to the enter's start (`motion_math::anchor_shift`), and the
+corner rests within a pixel of its place through the whole motion.
+An enter app-host paints itself (a menu in a window: its frosted base carries no motion layer)
+scales about the same corner — `motion_math::anchor_point` is the anchor of the node's transform
+and of its damage (`probe/motion_layers.rs::enter_anchor`), so a menu looks the same on both
+paths.
 
 `slideUp` and `slideDown` differ in the side they travel FROM: absent, `slideUp`
 sits 16px BELOW its resting place, `slideDown` 10px ABOVE it. Anchor decides — a
@@ -179,12 +192,13 @@ node whose **value carries the loop sub-kind** (`loop_subkind`, `emit.rs`;
 widget's fixed builder structure at paint time
 (`AnimState::{sync_loops,tick_loops}`):
 
-- **`LOOP_SWEEP`** — `Skeleton` shimmer band + indeterminate `ProgressBar` pip:
-  the sole child (`root+1`) rides a TranslateX **sawtooth** — an overdamped
-  spring glides it across the track (travel = parent − child width, read from
-  the live layout each cycle), resets to the left edge on convergence, and
-  re-fires. Springs only: a `keyframe_to` per cycle would alloc a waypoint
-  `Vec` on the non-freeing heap forever.
+- **`LOOP_SWEEP`** (the indeterminate `ProgressBar` pip) and **`LOOP_SHIMMER`** (the
+  `Skeleton`'s band): the sole child (`root+1`) rides a TranslateX **sawtooth** whose
+  place is a function of the clock (`app-host/src/loop_math.rs`) — the pip crosses its
+  track in 1.1 s on the smooth curve, the band its block in 1.4 s ease-in-out (the design
+  artifacts' timings), each starting again at the leading edge (travel = parent − child
+  width, read from the live layout). No spring, no keyframe track, nothing allocated;
+  every loop of a kind is in phase and one time gives one pixel on every run.
 - **`LOOP_CAROUSEL`** — `Spinner`: the 12 spoke children (`root+1..=root+12`)
   get a stepped per-spoke opacity fade (leading spoke opaque, tail fading)
   advanced on a ~80 ms time grid — a rotation with **no springs and no
@@ -195,7 +209,7 @@ widget's fixed builder structure at paint time
   toward the opposite endpoint on each convergence) stays available for
   future resting-frame widgets.
 
-All three are allocation-free per tick, damage only the widget's rows, keep the
+All four are allocation-free per tick, damage only the widget's rows, keep the
 frame pulse armed while the widget is on screen (compositor visibility gating
 parks hidden windows), and stop the instant the node leaves the tree. The
 widgets' `.phase()` builders remain the deterministic CPU resting-frame API
@@ -385,6 +399,7 @@ with a curated token set such as:
 - `pulse`
 - `slideDown`
 - `pushInline`
+- `menuIn`
 
 Anything beyond that should justify itself as a concrete product need rather than arriving as an abstract animation
 system.

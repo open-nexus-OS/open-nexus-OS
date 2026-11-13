@@ -2,12 +2,14 @@
 schema: 1
 id: TASK-0333
 title: "Memory, the efficient one + the app lifecycle — Block 4 layer 6 (RFC-0100): what dies is freed, unified memory with the GPU committed on touch, shared code, freeze/kill like a phone, restore, pressure, compression before swap"
-status: in_progress
-status_note: "6a ✅ 2026-10-20, 6b ✅ 2026-10-23"
+status: done
+status_note: "closed 2026-11-13: 6a-6f done (board cycles 64-77); 6g was TASK-0347 and TASK-0348"
 owner: ["@kernel-team", "@runtime", "@ui", "@gpu"]
 created: 2026-10-19
+updated: 2026-11-13
 subsystem: kernel
 started: 2026-10-20
+done: 2026-11-13
 dates_source: git-reconstructed
 depends_on: [TASK-0286, TASK-0215]
 implements: [RFC-0100]

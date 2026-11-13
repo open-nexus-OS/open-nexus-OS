@@ -4,7 +4,7 @@
 // The ⋮ app menu in the kit's place (design artifacts: AppWindow): while `appMenuOpen` the
 // `appMenu` slot (the app's `WinMenu` and its submenus) hangs under the chrome's ⋮ — its right
 // edge on the button's, 145 px from the window's right edge — over a backdrop that closes it
-// (`WinMenu("")`).
+// (`WinMenu("")`). It opens on `menuIn`: out of the corner it hangs on, top trailing.
 Component WinAppMenuOverlay {
     props: {
         appMenuOpen: Bool,
@@ -27,7 +27,7 @@ Component WinAppMenuOverlay {
             .align(start)
         }
         .overlay()
-        .transition(slideDown)
+        .transition(menuIn)
         on Tap -> dispatch(WinMenu(""))
     } else {
         Stack { }

@@ -3,8 +3,9 @@
 //
 // The window menu's layer (design artifacts: WindowMenu): while the app chip's menu is open
 // (`menu == "app"`) the `WinAppMenu` hangs under the chip, 12 px from the window's edge, on an
-// out-of-flow layer that slides down; a tap beside the menu closes it (`WinMenu("")`). The
-// labels are the app's copy, passed through from `WinAppWindow`.
+// out-of-flow layer; it opens as the design's menus do (`menuIn`: growing from 0.92 out of the
+// corner it hangs on — here the chip's, top leading). A tap beside the menu closes it
+// (`WinMenu("")`). The labels are the app's copy, passed through from `WinAppWindow`.
 
 Component WinAppMenuLayer {
     props: {
@@ -35,7 +36,7 @@ Component WinAppMenuLayer {
             .paddingLeading(12)
         }
         .overlay()
-        .transition(slideDown)
+        .transition(menuIn)
         on Tap -> dispatch(WinMenu(""))
     } else {
         Stack { }

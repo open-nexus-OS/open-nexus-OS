@@ -6,6 +6,7 @@ status: in_progress
 status_note: "board cycle 62 2026-10-22"
 owner: ["@ui", "@gpu"]
 created: 2026-10-22
+updated: 2026-11-13
 subsystem: ui
 started: 2026-10-22
 dates_source: git-reconstructed
@@ -22,6 +23,53 @@ links:
     target: "docs/board/measurements/2026-10-22-frame-chain/README.md (cycle 61)"
   - label: follow-up
     target: "RFC-0110 Phase 1 (the frame budget judges a paced frame against its cadence's step); TASK-0335 P4's rest (the blur's dual filter); layer 8 (planes for what moves); the input's own stamp from the device (RFC-0108 Phase 1); the legacy proof cards' scene (`systemui_shell` hover/click/keyboard cards — nothing shows them where the GPU composes; the windowd clean-up map's MOVE)"
+phases:
+  - id: P1
+    story: "a frame's landing is timed at the frame boundary its flip was taken at, and the present's ack carries that time with the period and the cadence"
+    state: done
+    gate: "host: nexus-display-proto frame_time; board: every present ack carries a shown time (cycle 62)"
+    started: 2026-10-22
+    done: 2026-10-22
+    evidence: docs/board/measurements/2026-10-22-frame-pace/README.md
+  - id: P2
+    story: "the driver holds the cadence its draws fit: the fewest periods the second longest of the last eight draws fits with 2 ms to spare, a frame drawn early is held for its slot"
+    state: done
+    gate: "host: gpud frame_pace; board: gpud: dc flips cadence=1 while scrolling and gpud: ux frame ok (dropped=0 of=32) in every scroll window"
+    started: 2026-10-22
+    done: 2026-10-22
+    evidence: docs/board/measurements/2026-10-22-frame-pace/README.md
+  - id: P3
+    story: "windowd predicts when its next present is shown and its transitions and the frame pulse step to that time"
+    state: done
+    gate: "host: windowd frame_clock; QEMU headless and visible: windowd: frame pace printed"
+    started: 2026-10-22
+    done: 2026-10-22
+    evidence: docs/board/measurements/2026-10-22-frame-pace/README.md
+  - id: P4
+    story: "on a timed pulse the scroll layers and the DSL animations advance to the frame's shown time, never back"
+    state: done
+    gate: "host: app-host; board: the scroll is followed with the eye (operator, cycle 62)"
+    started: 2026-10-22
+    done: 2026-10-22
+    evidence: docs/board/measurements/2026-10-22-frame-pace/README.md
+  - id: P5
+    story: "typing's frames carry no pixels of a spring: the click and keyboard proof cards take none"
+    state: done
+    gate: "board: typing's windows show frames(blit=0) (was 10-21 in cycle 61)"
+    started: 2026-10-22
+    done: 2026-10-22
+    evidence: docs/board/measurements/2026-10-22-frame-pace/README.md
+  - id: P6
+    story: "an underflow of the display controller is timed: when, on which line, with which flip"
+    state: done
+    gate: "board: gpud: dc underflow (n= at_ms= line= taken= flips=) for the first 16; 2 underflows in cycle 62 (was 8)"
+    started: 2026-10-22
+    done: 2026-10-22
+    evidence: docs/board/measurements/2026-10-22-frame-pace/README.md
+  - id: P7
+    story: "windowd's prediction of a present's landing holds while scrolling: a present in flight whose landing the driver already reported is not counted twice"
+    state: planned
+    gate: "board: windowd: frame pace on_time >= 90 % of the presents in the scroll windows and early = 0 (was 62-72 % on time, the misses mostly early, cycle 62; the cause measured first)"
 ---
 
 > Status (migrated 2026-11-02): In Progress (board cycle 62 2026-10-22 — the operator follows the scroll, typing's frames carry pixels, the underflows timed; open: the prediction lands early — 62–72 % on time while scrolling against the 90 % line; parked to layer 8's closing by the operator 2026-10-22)

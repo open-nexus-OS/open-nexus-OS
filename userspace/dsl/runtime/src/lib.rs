@@ -40,7 +40,8 @@ pub mod svc;
 pub mod view;
 
 pub use anim::{
-    AnimIntent, AnimKind, LOOP_BREATHE, LOOP_CAROUSEL, LOOP_CAROUSEL_SPOKES, LOOP_SWEEP,
+    AnimIntent, AnimKind, LOOP_BREATHE, LOOP_CAROUSEL, LOOP_CAROUSEL_SPOKES, LOOP_SHIMMER,
+    LOOP_SWEEP,
 };
 pub use bind::{next_value, Interaction};
 pub use emit::{Damage, Dep};

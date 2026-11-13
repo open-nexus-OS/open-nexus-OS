@@ -2,12 +2,14 @@
 schema: 1
 id: TASK-0305
 title: "Greeter design handoff — type ramp v2, on-glass tokens, glass paint primitives"
-status: in_progress
-status_note: "(2026-07-26) — host + visible-boot proven (dark); light theme + error state not visually proven"
+status: done
+status_note: "closed 2026-11-13: superseded by TASK-0353 — the greeter was rebuilt from the design artifacts and confirmed on the board"
 owner: ["@ui"]
 created: 2026-07-26
+updated: 2026-11-13
 subsystem: ui
 started: 2026-07-26
+done: 2026-11-13
 dates_source: git-reconstructed
 implements: [RFC-0082]
 links:

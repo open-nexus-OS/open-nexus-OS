@@ -2,12 +2,14 @@
 schema: 1
 id: TASK-0308
 title: "DSL slots + WinAppWindow scaffold + Stash design parity"
-status: in_progress
-status_note: "(2026-07-28) — Phases 0-7 + 9 done; Phase 8 (docs/tooling parity) open"
+status: done
+status_note: "closed 2026-11-13: phases 0-7 and 9 done; the docs rest is covered by TASK-0349's sweep and the DSL docs rule; Stash parity by TASK-0353"
 owner: ["@ui", "@runtime"]
 created: 2026-07-27
+updated: 2026-11-13
 subsystem: app-platform
 started: 2026-07-29
+done: 2026-11-13
 dates_source: git-reconstructed
 implements: [RFC-0084]
 links:

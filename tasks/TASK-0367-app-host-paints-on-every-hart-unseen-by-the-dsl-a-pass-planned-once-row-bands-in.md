@@ -2,7 +2,7 @@
 schema: 1
 id: TASK-0367
 title: "app-host paints on every hart, unseen by the DSL: a pass planned once, row bands in parallel, damage as rectangles, vector kernels, a UI thread that never waits"
-status: draft
+status: in_progress
 owner: ["@ui", "@runtime"]
 created: 2026-11-10
 updated: 2026-11-13
@@ -10,6 +10,8 @@ subsystem: ui
 kind: ui
 novelty: variant
 estimate: 4
+started: 2026-11-13
+dates_source: recorded
 goal:
   metric: "raster cost per painted pixel and app warm launch on the board"
   baseline: "100-355 ns per row pixel on one hart; a full window 218-501 ms for 1.2-1.4 Mpx; ux launch first_frame 570-2023 ms against 300 (board--2026-11-10T14-55-42)"
@@ -19,9 +21,10 @@ consumer: hardware-network/LU.1
 phases:
   - id: P0
     story: "where a row's time goes is measured: the fixed cost per row, fills, blends, glyphs, the alpha conversion, the share of float"
-    state: planned
+    state: proving
     gate: "a host bench and the board line apphost: raster split; the numbers in the ledger"
-    note: "from TASK-0362 P0 (docs/board/measurements/2026-11-12-float-and-vectors, the board's stock system, hard float): a flat span 3.2 ns per pixel (0.5 vectorised), translucent cards 47 (21), a drop shadow 157, line icons 115, a page 226; an SVG app icon 2 305 ns per pixel against the logo's 54, all in the raster stage (603 ms of 604 at 512 px) — the split inside a row and the SVG raster's cost per shape and row are measured here"
+    started: 2026-11-13
+    note: "built 2026-11-13: apphost: raster split (rows= px= boxes= runs= pick_us= ground_us= boxes_us= text_us= alpha_us= clock_ns=) — the process's first full surface painted with a clock read between a row's stages, the reads' cost stated and taken off (raster_split.rs, host-tested; probe/paint/split.rs). Board 2026-11-13, two cycles (board--2026-11-13T11-54-25 and T12-18-30; 8 harts, one painting; clock read 0.7-1.0 us), seven processes each, first full surface 45-169 ms: the boxes are the largest stage in most (38-93 % of the pass; 14-38 ns per surface pixel on the large windows, 263-290 ns on the small surfaces with 97 and 137 boxes = 0.6-1.2 ms a box), the ground 6-22 ns/px (8-27 ms a surface, varying between cycles), the straight-alpha conversion 2-11 ns/px and 30 ns/px (62 of 92-94 ms) on the 1920x1080 surface with 12 boxes, text at most 5 ms, picking a row's boxes 0.03-0.32 ms. So: the plan and the bands (P1, P2) divide every stage; the box painter's cost per box and the alpha conversion are the two kernels P4 takes first. The share of float is the P0 measurement of TASK-0362 (soft against hard per scene); the host bench is its paint-kernel bench (docs/graphics-ui/paint-kernels.md)"
   - id: P1
     story: "a pass is planned once into an immutable plan and any band of its rows is painted from it by any thread, byte-equal to today's painter"
     state: planned

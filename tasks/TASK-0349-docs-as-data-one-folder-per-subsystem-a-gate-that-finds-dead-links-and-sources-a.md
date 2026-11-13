@@ -2,16 +2,17 @@
 schema: 1
 id: TASK-0349
 title: "Docs as data: one folder per subsystem, a gate that finds dead links and sources, and a drift report"
-status: in_progress
+status: done
 status_note: "built 2026-11-02; closes when its consumer TASK-0347/P4 runs the docs sweep with nx ledger stale"
 owner: ["@tools-team"]
 created: 2026-11-02
-updated: 2026-11-02
+updated: 2026-11-13
 subsystem: devx
 kind: docs
 novelty: variant
 estimate: 2
 started: 2026-11-02
+done: 2026-11-13
 active_days: 1
 dates_source: recorded
 variance_note: "estimate 2d, built in 1: the frontmatter/lint machinery of RFC-0115 was reused, the rewrite ran as 8 parallel passes"

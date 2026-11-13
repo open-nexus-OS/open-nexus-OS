@@ -230,6 +230,12 @@ steps:
     state: active
     tasks: [TASK-0335, TASK-0336, TASK-0337, TASK-0343, TASK-0345, TASK-0353, TASK-0354, TASK-0355, TASK-0357, TASK-0359]
     gate: "frame p99 <= 16.7 ms on the board; 0 of 32 frames dropped per shell transition; tap to frame <= 50 ms on the top bar and the launcher"
+  - key: CU.1
+    section: L
+    story: "close-ups: the rests of the tasks cut from the old format into phases, closed beside the running lanes — the band's clean and the blur's dual filter (TASK-0335 P5, P6), the dragged window on a display plane (TASK-0336 P4), the frame pace's prediction (TASK-0343 P7), the supply chain enforced on the device (TASK-0198 P2, behind TASK-0197); layer 8 (TASK-0351, step L8.2) closes inside the SMP lane, whose harts and vector kernels carry its frame numbers"
+    state: active
+    tasks: [TASK-0335, TASK-0336, TASK-0343, TASK-0198]
+    gate: "every listed task done: each open phase green on the board or dropped with its reason; no task in progress without phases"
   - key: L6a
     section: L
     story: "what dies is freed: every kernel object dies with its last capability"
@@ -312,7 +318,7 @@ steps:
   - key: L9.1
     section: L
     story: "the runtime and app-host use every hart, unseen by the DSL: threads, a scaling allocator, the workpool, row bands in parallel"
-    state: planned
+    state: active
     tasks: [TASK-0366, TASK-0367]
     gate: "board: <= 10 ns per painted pixel at 8 harts; apphost: ux launch ok (<= 300 ms) for every system app"
   - key: L9.2

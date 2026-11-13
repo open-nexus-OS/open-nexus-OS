@@ -2,16 +2,17 @@
 schema: 1
 id: TASK-0348
 title: "Zero-copy surfaces, a compositor without fixed tables, and its restart"
-status: in_progress
+status: done
 status_note: "P0-P5, P7, P8 done (board cycle 82); P6 board half, P9/P10 ghosts, P11-P17 next"
 owner: ["@ui", "@runtime", "@kernel-team"]
 created: 2026-10-31
-updated: 2026-11-03
+updated: 2026-11-13
 subsystem: ui
 components: [windowd, gpud, app-host, neuron]
 kind: service
 novelty: first
 started: 2026-10-31
+done: 2026-11-13
 dates_source: git-reconstructed
 goal:
   metric: "windowd copy per compositor pass on the board; windows open at once"
