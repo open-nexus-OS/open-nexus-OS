@@ -100,6 +100,10 @@ ladder_headless=(
   "SELFTEST: hw probe ok ("
   "KSELFTEST: vector state lazy ok ("
   "KSELFTEST: vector state moved ok ("
+  # TASK-0362 P4 (ADR-0099 rule 4): the painter's fill and blend on the unit the kernel's
+  # answer names leave the bytes of their scalar reference, and app-host chose its kernels.
+  "SELFTEST: paint kernels ok ("
+  "apphost: paint kernels ("
   # TASK-0330 S2a: the console's serial time is off the kernel lock (the board's layer-0
   # longest holders were the two console syscalls).
   "KSELFTEST: console off lock ok ("

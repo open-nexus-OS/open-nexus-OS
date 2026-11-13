@@ -5,7 +5,7 @@ role: guide
 subsystem: ui
 sources: [source/drivers/gpud/src/backend, source/drivers/gpud/src/service.rs, source/drivers/gpud/src/present_chain.rs, source/services/windowd/src/compositor, source/libs/nexus-display-proto/src]
 contracts: [RFC-0093, RFC-0098, RFC-0101, RFC-0110, RFC-0114, ADR-0038, ADR-0078, ADR-0092]
-verified: 2026-11-12
+verified: 2026-11-13
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->

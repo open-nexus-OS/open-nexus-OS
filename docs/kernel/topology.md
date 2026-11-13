@@ -5,7 +5,7 @@ role: reference
 subsystem: kernel
 sources: [source/kernel/neuron/src/core/smp/topology.rs, source/kernel/neuron/src/core/smp/hart_state.rs, source/kernel/neuron/src/core/smp/bringup.rs, source/kernel/neuron/src/sync/hart_table.rs, source/kernel/neuron/src/core/irq.rs, source/kernel/neuron/src/core/irq_route.rs, source/kernel/neuron/src/hal/plic.rs, source/libs/nexus-fdt/src/topology.rs, source/libs/nexus-sched/src, source/libs/nexus-abi/src/syscall/sched.rs, source/init/nexus-init/src/affinity.rs]
 contracts: [RFC-0118, ADR-0049]
-verified: 2026-11-12
+verified: 2026-11-13
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->

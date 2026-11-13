@@ -5,7 +5,7 @@ role: guide
 subsystem: kernel
 sources: [source/kernel/neuron/src/sync, source/kernel/neuron/src/core/trap/runtime.rs, source/kernel/neuron/src/core/trap/budgets.rs, source/kernel/neuron/src/core/smp, source/libs/nexus-sync]
 contracts: [RFC-0021, ADR-0049]
-verified: 2026-11-12
+verified: 2026-11-13
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->

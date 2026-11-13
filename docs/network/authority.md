@@ -5,7 +5,7 @@ role: guide
 subsystem: networking
 sources: [source/services/netstackd, source/services/dsoftbusd, source/services/ingressd, source/apps/selftest-client/proof-manifest/profiles/harness.toml, tools/os2vm.sh]
 contracts: [RFC-0006, RFC-0007, RFC-0092, ADR-0025, ADR-0026]
-verified: 2026-11-12
+verified: 2026-11-13
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->

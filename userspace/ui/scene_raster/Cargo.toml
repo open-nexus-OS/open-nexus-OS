@@ -11,5 +11,7 @@ path = "src/lib.rs"
 [dependencies]
 nexus-layout = { path = "../layout" }
 nexus-layout-types = { path = "../layout-types" }
+# The span loops (a fill, a source-over blend): scalar reference and vector form (ADR-0099).
+nexus-paint-kernels = { path = "../paint-kernels" }
 # The text shadow's blur reach (`blur_reach`) — the glyph painter's kernel is its SSOT.
 nexus-text-baked = { path = "../text-baked", default-features = false }

@@ -3445,6 +3445,19 @@ if [[ "$(count_lines "SELFTEST: hw probe FAIL (")" -gt 0 ]]; then
   echo "[error] hardware probe failed: $(grep -aF "SELFTEST: hw probe FAIL (" "$UART_LOG" | head -n1)" >&2
   exit 1
 fi
+# TASK-0362 P4 (ADR-0099 rule 4): the painter's kernels equal their scalar reference on this
+# machine, and a program that paints chose the unit the kernel's answer names — an app-host
+# painting scalar where the answer named the vector unit is the mechanism unused.
+if [[ "$(count_lines "SELFTEST: paint kernels FAIL (")" -gt 0 ]]; then
+  echo "[error] paint kernels differ from their reference: $(grep -aF "SELFTEST: paint kernels FAIL (" "$UART_LOG" | head -n1)" >&2
+  exit 1
+fi
+if [[ "$(count_lines "SELFTEST: hw probe ok (float=1 vector=1 ")" -gt 0 ]]; then
+  if [[ "$(count_lines "SELFTEST: paint kernels ok (vector=0 ")" -gt 0 || "$(count_lines "apphost: paint kernels (vector=0 ")" -gt 0 ]]; then
+    echo "[error] a program paints scalar although the kernel offers the vector unit: $(grep -aE "(SELFTEST|apphost): paint kernels (ok )?\(vector=0 " "$UART_LOG" | head -n1)" >&2
+    exit 1
+  fi
+fi
 
 # TASK-0244 P3 (RFC-0098): the platform comes from the device tree, in EVERY profile.
 # The kernel must have parsed the tree it was handed and printed the values it read;

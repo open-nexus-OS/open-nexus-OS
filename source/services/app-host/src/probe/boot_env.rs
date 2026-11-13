@@ -47,6 +47,23 @@ pub(super) fn map_atlas_base() {
     raw_marker("APPHOST: atlas mapped");
 }
 
+/// The kernels every row is painted with (ADR-0099 rule 4): the vector forms when the kernel
+/// reports the vector unit for this program's harts, else the scalar reference — which also
+/// stays when the kernel gives no answer. `apphost: paint kernels (vector= width=)` names what
+/// runs and the registers' width the kernel stated (`width=0`: scalar).
+pub(super) fn choose_paint_kernels() {
+    use nexus_paint_kernels::Unit;
+    let width = nexus_abi::sched::offers().ok().and_then(|o| o.vector_bytes());
+    let runs =
+        nexus_paint_kernels::choose(if width.is_some() { Unit::Vector } else { Unit::Scalar });
+    let vector = runs == Unit::Vector;
+    raw_marker(&alloc::format!(
+        "apphost: paint kernels (vector={} width={})",
+        u8::from(vector),
+        width.filter(|_| vector).unwrap_or(0)
+    ));
+}
+
 /// The launch clock starts: the process's first instruction, named on one clock with
 /// windowd's `launch request` and `surface presented` (TASK-0333 6a's stages).
 pub(super) fn mark_start() -> u64 {

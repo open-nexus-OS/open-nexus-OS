@@ -78,11 +78,16 @@ name = "nexus-layout-types"
 version = "0.1.0"
 
 [[package]]
+name = "nexus-paint-kernels"
+version = "0.1.0"
+
+[[package]]
 name = "nexus-scene-raster"
 version = "0.1.0"
 dependencies = [
  "nexus-layout",
  "nexus-layout-types",
+ "nexus-paint-kernels",
  "nexus-text-baked",
 ]
 
@@ -110,6 +115,7 @@ version = "0.1.0"
 dependencies = [
  "nexus-layout",
  "nexus-layout-types",
+ "nexus-paint-kernels",
  "nexus-scene-raster",
  "nexus-svg",
 ]

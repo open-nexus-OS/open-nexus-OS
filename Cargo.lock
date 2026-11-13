@@ -195,6 +195,7 @@ dependencies = [
  "nexus-layout",
  "nexus-layout-types",
  "nexus-mime-icons",
+ "nexus-paint-kernels",
  "nexus-query",
  "nexus-scene-raster",
  "nexus-sdk-routes",
@@ -2405,6 +2406,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexus-paint-kernels"
+version = "0.1.0"
+
+[[package]]
 name = "nexus-pci"
 version = "0.1.0"
 dependencies = [
@@ -2436,6 +2441,7 @@ version = "0.1.0"
 dependencies = [
  "nexus-layout",
  "nexus-layout-types",
+ "nexus-paint-kernels",
  "nexus-text-baked",
 ]
 
@@ -4206,6 +4212,7 @@ dependencies = [
  "nexus-net",
  "nexus-net-os",
  "nexus-noise-xk",
+ "nexus-paint-kernels",
  "nexus-proof-manifest",
  "nexus-service-entry",
  "nexus-service-topology",

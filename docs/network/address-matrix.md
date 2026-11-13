@@ -5,7 +5,7 @@ role: reference
 subsystem: networking
 sources: [source/services/netstackd/src/os/entry_pure.rs, source/services/netstackd/src/os/bootstrap.rs, source/services/dsoftbusd/src/os/entry_pure.rs, source/services/dsoftbusd/src/os/session/cross_vm.rs, tools/os2vm.sh]
 contracts: [ADR-0026, ADR-0025]
-verified: 2026-11-11
+verified: 2026-11-13
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->

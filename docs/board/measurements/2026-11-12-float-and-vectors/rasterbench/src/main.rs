@@ -20,6 +20,15 @@
 //! builds, or the build changed the picture. An SVG workload adds
 //! `rasterbench build=… scene=… stages parse_ns=… plan_ns=… raster_ns=…` (its fastest run), and
 //! the vector build starts with `rasterbench build=hardv vlenb=…` (the registers' width in bytes).
+//!
+//! `rasterbench-hard kernels` (TASK-0362 P4) runs the same workloads with the painter's vector
+//! kernels chosen at run time (`nexus-paint-kernels`, ADR-0099 rule 4 — the build carries no
+//! vector flag), after two lines of its own:
+//! `rasterbench kernels equal spans=… digest=…` — every vector kernel against its scalar
+//! reference over random spans (any length, any byte offset, every alpha), or the first span
+//! that differs and exit code 4;
+//! `rasterbench kernel=fill|blend px=… scalar_ns=… vector_ns=…` — one span of that length, the
+//! fastest of 2 000 calls of each form.
 
 #![no_std]
 #![no_main]
@@ -45,6 +54,7 @@ global_asm!(
     ".section .text._start,\"ax\",@progbits",
     ".globl _start",
     "_start:",
+    "mv a0, sp",
     "andi sp, sp, -16",
     "call {main}",
     main = sym bench_main,
@@ -425,13 +435,91 @@ fn vector_bytes() -> usize {
     bytes
 }
 
-extern "C" fn bench_main() -> ! {
+// ——— the painter's kernels (TASK-0362 P4) ———
+
+/// Every vector kernel against its scalar reference — the crate's own proof, the one
+/// `SELFTEST: paint kernels ok` runs on our kernel; its digest is the host's.
+fn kernels_equal() {
+    use nexus_paint_kernels::proof;
+    match proof::run() {
+        Ok(digest) if digest == proof::DIGEST => {
+            let _ = writeln!(
+                Out,
+                "rasterbench kernels equal spans={} digest={digest:016x}",
+                proof::SPANS
+            );
+        }
+        Ok(digest) => {
+            let _ = writeln!(
+                Out,
+                "rasterbench kernels DIFFER digest={digest:016x} reference={:016x}",
+                proof::DIGEST
+            );
+            exit(4);
+        }
+        Err(d) => {
+            let _ = writeln!(Out, "rasterbench kernels DIFFER {d:?}");
+            exit(4);
+        }
+    }
+}
+
+/// One span of `px` pixels, each form: the fastest of `CALLS` calls.
+fn kernel_by_length() {
+    use nexus_paint_kernels::{choose, Unit};
+    const CALLS: usize = 2_000;
+    let mut row = vec![0x55u8; 1920 * 4];
+    let fastest = |f: &mut dyn FnMut()| {
+        let mut min = u64::MAX;
+        for _ in 0..CALLS {
+            let t0 = now_ns();
+            f();
+            min = min.min(now_ns() - t0);
+        }
+        min
+    };
+    for px in [16usize, 24, 32, 64, 128, 512, 1920] {
+        for (name, colour) in [("fill", [10u8, 20, 30, 255]), ("blend", [10u8, 20, 30, 128])] {
+            let span = &mut row[..px * 4];
+            choose(Unit::Scalar);
+            let scalar_ns = fastest(&mut || nexus_paint_kernels::blend(span, colour));
+            choose(Unit::Vector);
+            let vector_ns = fastest(&mut || nexus_paint_kernels::blend(span, colour));
+            let _ = writeln!(
+                Out,
+                "rasterbench kernel={name} px={px} scalar_ns={scalar_ns} vector_ns={vector_ns}"
+            );
+        }
+    }
+}
+
+/// Whether the program was started with the argument `kernels`.
+fn asked_for_kernels(stack: *const usize) -> bool {
+    // SAFETY: the stock kernel starts a program with `argc` at the stack pointer and `argc`
+    // pointers to NUL-terminated strings after it; only that much is read.
+    unsafe {
+        if *stack < 2 {
+            return false;
+        }
+        let arg = *stack.add(2) as *const u8;
+        b"kernels\0".iter().enumerate().all(|(i, &b)| *arg.add(i) == b)
+    }
+}
+
+extern "C" fn bench_main(stack: *const usize) -> ! {
     // One CPU for the whole run: the numbers of two builds are compared, not two harts.
     let mask: u64 = 1;
     syscall3(SYS_SCHED_SETAFFINITY, 0, 8, &mask as *const u64 as usize);
 
     #[cfg(target_feature = "v")]
     let _ = writeln!(Out, "rasterbench build={} vlenb={}", build_name(), vector_bytes());
+
+    if asked_for_kernels(stack) {
+        let runs = nexus_paint_kernels::choose(nexus_paint_kernels::Unit::Vector);
+        let _ = writeln!(Out, "rasterbench build={} kernels={runs:?}", build_name());
+        kernels_equal();
+        kernel_by_length();
+    }
 
     let mut surface = vec![0u8; (WIDTH * ROWS) as usize * 4];
     paint_scene("fill", &[ground()], &mut surface);

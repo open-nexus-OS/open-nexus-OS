@@ -65,6 +65,8 @@ pub(super) fn run() -> Result<(), &'static str> {
     let start_ns = boot_env::mark_start();
     // RFC-0080: install the shared atlas BEFORE any text renders.
     map_atlas_base();
+    // ADR-0099: before the first row, the kernels a row is painted with are chosen.
+    boot_env::choose_paint_kernels();
 
     // 1. windowd client + the app's DEDICATED event channel come up FIRST:
     //    the geometry handshake's content-rect reply (and later acks/input)

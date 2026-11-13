@@ -75,6 +75,7 @@ a commit after their `verified` day; `just brief` counts them. After moving a pa
 | [display-chain.md](graphics-ui/display-chain.md) | guide | Display chain |
 | [gpud-ring.md](graphics-ui/gpud-ring.md) | reference | gpud command ring and pipelined present |
 | [nexus-gfx.md](graphics-ui/nexus-gfx.md) | reference | nexus-gfx crate |
+| [paint-kernels.md](graphics-ui/paint-kernels.md) | guide | The painter's kernels |
 
 **kernel/**
 

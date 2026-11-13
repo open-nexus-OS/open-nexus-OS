@@ -136,21 +136,8 @@ impl RowCanvas<'_> {
             return;
         }
         let Some((b0, b1)) = self.span_bytes(x0, x1) else { return };
-        let span = &mut self.buf[b0..b1];
-        if c.a == 255 {
-            for px in span.chunks_exact_mut(4) {
-                px.copy_from_slice(&[c.b, c.g, c.r, 255]);
-            }
-            return;
-        }
-        let (a, inv) = (c.a as u32, 255 - c.a as u32);
-        let (sb, sg, sr) = (c.b as u32 * a, c.g as u32 * a, c.r as u32 * a);
-        for px in span.chunks_exact_mut(4) {
-            px[0] = ((px[0] as u32 * inv + sb) / 255) as u8;
-            px[1] = ((px[1] as u32 * inv + sg) / 255) as u8;
-            px[2] = ((px[2] as u32 * inv + sr) / 255) as u8;
-            px[3] = (a + px[3] as u32 * inv / 255) as u8;
-        }
+        // The kernel: scalar, or the vector unit where the kernel reported one (ADR-0099).
+        nexus_paint_kernels::blend(&mut self.buf[b0..b1], [c.b, c.g, c.r, c.a]);
     }
 
     /// `blend_covered` with one coverage over span `[x0, x1)`.
@@ -172,9 +159,7 @@ impl RowCanvas<'_> {
             (c.r as u32 * a / 255) as u8,
             c.a,
         ];
-        for dst in self.buf[b0..b1].chunks_exact_mut(4) {
-            dst.copy_from_slice(&px);
-        }
+        nexus_paint_kernels::fill(&mut self.buf[b0..b1], px);
     }
 
     /// REPLACE the fraction `coverage` of one pixel with `c` (premultiplied, alpha included) and

@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-11-13 (the frames are painted with the vector unit — TASK-0362 P4, ADR-0099 rule 4)
+
+- **`nexus-paint-kernels`** (`userspace/ui/paint-kernels`): the two loops a frame spends its
+  flat pixels in — a span set to one pixel (`fill`) and one colour laid over a span, source
+  over (`blend`) — each as a scalar reference and as a vector form in assembly that leaves the
+  same bytes. The vector form takes its step from `vsetvli`, so it names no register width
+  (16 bytes on the emulator, 32 on the board), and moves bytes, so a row needs no alignment.
+  No program is built with the vector extension.
+- **Used where the frames are painted:** the row painter's spans (`nexus-scene-raster`
+  `blend_span`, `set_span`) and app-host's row grounds call the kernels — apps, motion layers
+  and animations without a source change. app-host chooses once at start from the kernel's
+  answer: `apphost: paint kernels (vector= width=)`. A span below sixteen pixels stays scalar,
+  so a thread that paints nothing longer never gets vector registers kept for it.
+- **Proof:** one run for every machine (`proof::run`, 8 192 spans of any length, byte offset
+  and alpha against the reference, digest pinned from the reference on the host):
+  `SELFTEST: paint kernels ok (vector= width= spans= digest=)` on every lane and the board;
+  the measurement program under the user-mode emulator at 16, 32, 64 and 128-byte registers
+  prints the same digest, and the painter's seven scene digests are unchanged. A run in which
+  the kernel offered the unit and a program paints scalar fails (`scripts/qemu-test.sh`).
+- **Measured on the board** (`docs/board/measurements/2026-11-13-paint-kernels/`): on the stock
+  system the fill scene 3.2 → 0.6 ns per pixel and the translucent scene 53.5 → 15.5 (the
+  compiler's own vectorisation of the whole program reached 0.5 and 21.3), a 1920-pixel blend
+  35.8 → 1.1 ns per pixel. On our system (`board--2026-11-13T10-38-20`) the same motion layers
+  cost 7–23 % less (343×122: 3 760 → 3 060 µs; 391×548: 45 992 → 38 054) and three of six
+  launches are inside the 300 ms budget (two before): a real layer's row is mostly per-pixel
+  work the kernels do not touch yet (TASK-0367).
+- **Docs:** `docs/graphics-ui/paint-kernels.md` (what a kernel is, how a program chooses, what
+  proves a vector form, how the next one is added).
+
 ### Changed - 2026-11-12 (every userspace program is built for one hard-float target — TASK-0362 P3, ADR-0099)
 
 - **Build:** userspace is `riscv64gc-unknown-none-elf` (F and D, arguments in the float

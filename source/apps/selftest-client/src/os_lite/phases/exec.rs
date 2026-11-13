@@ -71,6 +71,10 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     // `KSELFTEST: fp state lazy ok`, `KSELFTEST: vector state lazy ok`, `… moved ok`).
     probes::unitsoak::unit_soaks_proof();
 
+    // ADR-0099 rule 4 (TASK-0362 P4): the painter's kernels, chosen from the same answer the
+    // way app-host chooses them, leave the bytes of their scalar reference on this machine.
+    probes::paintkernels::paint_kernels_proof();
+
     // Phase C3 (SMP track): THE process workpool — deterministic parallel
     // compute with fence coordination; result must equal the sequential
     // reference (workers=1 ≡ workers=N contract, TASK-0276).

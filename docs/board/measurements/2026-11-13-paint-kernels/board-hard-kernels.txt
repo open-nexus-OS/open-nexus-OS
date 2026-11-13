@@ -1,0 +1,31 @@
+rasterbench build=hard kernels=Vector
+rasterbench kernels equal spans=8192 digest=287e0815b292fd61
+rasterbench kernel=fill px=16 scalar_ns=541 vector_ns=500
+rasterbench kernel=blend px=16 scalar_ns=1041 vector_ns=541
+rasterbench kernel=fill px=24 scalar_ns=541 vector_ns=500
+rasterbench kernel=blend px=24 scalar_ns=1333 vector_ns=541
+rasterbench kernel=fill px=32 scalar_ns=583 vector_ns=500
+rasterbench kernel=blend px=32 scalar_ns=1625 vector_ns=541
+rasterbench kernel=fill px=64 scalar_ns=666 vector_ns=500
+rasterbench kernel=blend px=64 scalar_ns=2791 vector_ns=583
+rasterbench kernel=fill px=128 scalar_ns=875 vector_ns=541
+rasterbench kernel=blend px=128 scalar_ns=5083 vector_ns=625
+rasterbench kernel=fill px=512 scalar_ns=2083 vector_ns=583
+rasterbench kernel=blend px=512 scalar_ns=18791 vector_ns=1041
+rasterbench kernel=fill px=1920 scalar_ns=6500 vector_ns=875
+rasterbench kernel=blend px=1920 scalar_ns=69208 vector_ns=2541
+rasterbench build=hard scene=fill px=460800 min_ns=286625 ns_per_px=0.6 first_ns=417875 digest=b1cbc9f3b8eaa325
+rasterbench build=hard scene=cards px=460800 min_ns=7172208 ns_per_px=15.5 first_ns=7191083 digest=4303b247540b2465
+rasterbench build=hard scene=shadow px=460800 min_ns=72293875 ns_per_px=156.8 first_ns=72395333 digest=33362f18d26ca595
+rasterbench build=hard scene=circles px=460800 min_ns=29192750 ns_per_px=63.3 first_ns=29711750 digest=c8f7de22ed47b385
+rasterbench build=hard scene=strokes px=460800 min_ns=52763334 ns_per_px=114.5 first_ns=54667875 digest=00bc0187353c8585
+rasterbench build=hard scene=filled px=460800 min_ns=11876417 ns_per_px=25.7 first_ns=11761333 digest=523bad3b1b26f94e
+rasterbench build=hard scene=page px=460800 min_ns=104556541 ns_per_px=226.9 first_ns=105687375 digest=d75351079323010b
+rasterbench build=hard scene=svg-logo-256 px=65536 min_ns=6370000 ns_per_px=97.1 first_ns=6944750 digest=1d915840361fb87d
+rasterbench build=hard scene=svg-logo-256 stages parse_ns=519084 plan_ns=264875 raster_ns=5586041
+rasterbench build=hard scene=svg-logo-1024 px=1048576 min_ns=57752333 ns_per_px=55.0 first_ns=63153875 digest=ab43ec2dffcc34c1
+rasterbench build=hard scene=svg-logo-1024 stages parse_ns=762708 plan_ns=524333 raster_ns=56465292
+rasterbench build=hard scene=svg-icon-64 px=4096 min_ns=17530751 ns_per_px=4279.9 first_ns=17852500 digest=b6cf0e3a171e5b56
+rasterbench build=hard scene=svg-icon-64 stages parse_ns=220000 plan_ns=506042 raster_ns=16804709
+rasterbench build=hard scene=svg-icon-512 px=262144 min_ns=611673500 ns_per_px=2333.3 first_ns=614159208 digest=94daecdabb0d720d
+rasterbench build=hard scene=svg-icon-512 stages parse_ns=245333 plan_ns=530417 raster_ns=610897750

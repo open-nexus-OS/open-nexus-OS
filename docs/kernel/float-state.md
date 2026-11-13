@@ -5,7 +5,7 @@ role: guide
 subsystem: kernel
 sources: [source/kernel/neuron/src/core/trap/fp.rs, source/kernel/neuron/src/core/trap/fp_rule.rs, source/kernel/neuron/src/core/trap/fp_inst.rs, source/kernel/neuron/src/core/trap/fp_regs.rs, source/kernel/neuron/src/arch/riscv/trap.S, source/libs/nexus-sched/src/offers.rs, source/apps/selftest-client/src/os_lite/probes/unitsoak.rs]
 contracts: [RFC-0119, ADR-0099, ADR-0048]
-verified: 2026-11-12
+verified: 2026-11-13
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->

@@ -5,7 +5,7 @@ role: reference
 subsystem: devx
 sources: [source/apps/selftest-client/proof-manifest/markers, source/apps/selftest-client/proof-manifest/phases.toml, tools/nx/chains/markers.txt, scripts/qemu-test.sh, scripts/check-chain-markers.sh, config/fail-marker-allow.txt, config/fail-marker-allow-mttcg.txt]
 contracts: [RFC-0013, RFC-0014, RFC-0038, RFC-0108]
-verified: 2026-11-12
+verified: 2026-11-13
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -35,7 +35,7 @@ verified: 2026-11-12
 <!-- gen:markers -->
 | # | phase | markers | declared in |
 |---|---|---|---|
-| 1 | `bringup` | 599 | board.toml, bringup.toml, ota.toml, ui.toml, usb.toml |
+| 1 | `bringup` | 601 | board.toml, bringup.toml, ota.toml, ui.toml, usb.toml |
 | 2 | `ipc_kernel` | 27 | ipc_kernel.toml |
 | 3 | `mmio` | 17 | mmio.toml |
 | 4 | `routing` | 53 | routing.toml |
@@ -46,9 +46,9 @@ verified: 2026-11-12
 | 9 | `vfs` | 29 | vfs.toml |
 | 10 | `net` | 80 | net.toml |
 | 11 | `remote` | 21 | remote.toml |
-| 12 | `end` | 191 | board.toml, end.toml, ui.toml, usb.toml |
+| 12 | `end` | 192 | board.toml, end.toml, ui.toml, usb.toml |
 
-1271 markers in 15 files.
+1274 markers in 15 files.
 <!-- /gen:markers -->
 
 ## Declaring a marker

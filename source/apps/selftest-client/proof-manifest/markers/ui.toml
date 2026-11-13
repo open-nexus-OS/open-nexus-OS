@@ -409,6 +409,14 @@ proves = "the compositor heard the level and told every live app window (windows
 phase = "end"
 proves = "an app window heard the level through the compositor; handled= says whether its program declared the MemoryPressure event"
 
+# TASK-0362 P4 (ADR-0099 rule 4): every app-host states at start which form of the painter's
+# kernels its rows are painted with — chosen from the kernel's answer (`sched::offers`), never
+# assumed. `scripts/qemu-test.sh` and the board's judge fail a run in which the kernel offered
+# the vector unit and a program paints scalar.
+[marker."apphost: paint kernels ("]
+phase = "end"
+proves = "an app-host chose the form of the painter's fill and blend kernels from the kernel's answer before its first row (vector= says which runs, width= the vector registers' width the kernel stated)"
+
 # TASK-0333 6f-1 (ADR-0087): at the first freeze, before the thaw, the drill at `critical` — memd
 # squeezes the frozen app before any kill: the order to abilitymgr (a suspended instance alone),
 # abilitymgr's to execd, execd's batches; the totals travel back up, the thaw brings the pages back.

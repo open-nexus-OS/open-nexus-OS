@@ -5,7 +5,7 @@ title: "app-host paints on every hart, unseen by the DSL: a pass planned once, r
 status: draft
 owner: ["@ui", "@runtime"]
 created: 2026-11-10
-updated: 2026-11-12
+updated: 2026-11-13
 subsystem: ui
 kind: ui
 novelty: variant
@@ -38,7 +38,7 @@ phases:
     story: "fills, blends and glyph blits run on the vector unit where the hart has one, the scalar path stays the reference"
     state: planned
     gate: "host and QEMU: byte equality of every vector kernel with its scalar reference; board: <= 10 ns per painted pixel at 8 harts"
-    note: "fills and source-over blends arrive with TASK-0362 P4 (operator 2026-11-12: a mechanism is built in where it is used, at once); this phase keeps the glyph blits and the number at 8 harts."
+    note: "fills and source-over blends arrived with TASK-0362 P4 (nexus-paint-kernels; operator 2026-11-12: a mechanism is built in where it is used, at once); this phase keeps the glyph blits and the number at 8 harts. From TASK-0362 P4's board run (docs/board/measurements/2026-11-13-paint-kernels): (1) the scalar reference's blend is 14 % slower than the inline loop it replaced (cards 53.5 against 46.9 ns per pixel) - it paints every span under 16 pixels; (2) the vector blend costs half the scalar one at 16 pixels, so its threshold (SHORT) lies too high - measure the crossover with calls timed in batches (one call is below the stock clock's 500 ns floor) and set a threshold per kernel; (3) the straight-alpha conversion every row leaves through (app-host straight_alpha.rs) is a kernel candidate once P0 names its share."
   - id: P5
     story: "the UI thread never waits for a service: effects, file reads and decodes complete as events"
     state: planned

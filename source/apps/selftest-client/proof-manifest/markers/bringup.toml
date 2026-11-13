@@ -407,6 +407,13 @@ phase = "bringup"
 emit_when = { profile = "headless" }
 proves = "the kernel's answer to what every CPU offers a program held when acted on: the soak of each unit it names passed, and this thread's own vector registers have the width it states (float= vector= vector_bytes= own_bytes= word=; the answer's other bits are proven by their first consumer)"
 
+# ADR-0099 rule 4 (TASK-0362 P4): a vector kernel is a function with a scalar reference it
+# equals byte for byte — proven on the machine, with the unit the kernel's answer names.
+[marker."SELFTEST: paint kernels ok ("]
+phase = "bringup"
+emit_when = { profile = "headless" }
+proves = "the painter's fill and source-over blend, on the unit chosen from the kernel's answer, left over 8 192 random spans (any length, any byte offset, every alpha) the bytes of their scalar reference, and the digest is the one the reference yields on the host (vector= width= spans= digest=)"
+
 [marker."KSELFTEST: vector state lazy ok ("]
 phase = "bringup"
 proves = "the kernel wrote 10 000 vector states only for threads that changed their registers, and the unit was never on for a thread without a state (threads= saves= loads= kept= refused=0; unordered presence check)"
@@ -1393,6 +1400,9 @@ phase = "bringup"
 phase = "bringup"
 
 [marker."SELFTEST: hw probe FAIL ("]
+phase = "bringup"
+
+[marker."SELFTEST: paint kernels FAIL ("]
 phase = "bringup"
 
 [marker."KSELFTEST: vector state FAIL ("]

@@ -5,7 +5,7 @@ role: guide
 subsystem: distributed
 sources: [userspace/dsoftbus, source/services/dsoftbusd, source/libs/nexus-noise-xk, source/libs/nexus-discovery-packet, tools/os2vm.sh]
 contracts: [ADR-0005, RFC-0007, RFC-0008, RFC-0037, RFC-0060, RFC-0028, RFC-0030]
-verified: 2026-11-02
+verified: 2026-11-13
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->

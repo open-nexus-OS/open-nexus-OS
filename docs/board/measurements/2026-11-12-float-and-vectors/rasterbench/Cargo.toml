@@ -18,6 +18,7 @@ publish = false
 [dependencies]
 nexus-layout = { path = "../../../../../userspace/ui/layout" }
 nexus-layout-types = { path = "../../../../../userspace/ui/layout-types" }
+nexus-paint-kernels = { path = "../../../../../userspace/ui/paint-kernels" }
 nexus-scene-raster = { path = "../../../../../userspace/ui/scene_raster", default-features = false }
 nexus-svg = { path = "../../../../../userspace/ui/svg", default-features = false }
 

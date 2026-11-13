@@ -167,9 +167,7 @@ impl super::DslApp {
                 ok = false;
                 break;
             };
-            for px in row.chunks_exact_mut(4) {
-                px.copy_from_slice(&base);
-            }
+            nexus_paint_kernels::fill(row, base);
             self.paint_row(row, y, 0, &views);
             // The compositor reads the base as straight alpha (RFC-0109), like every row.
             unpremultiply(row);
@@ -203,9 +201,7 @@ impl super::DslApp {
         let span = (rect.2 - rect.0).max(0) as usize * 4;
         let mut ok = true;
         for y in y0.max(rect.1)..y1.min(rect.3) {
-            for px in row[..row_bytes].chunks_exact_mut(4) {
-                px.copy_from_slice(&base);
-            }
+            nexus_paint_kernels::fill(&mut row[..row_bytes], base);
             self.paint_row(&mut row[..row_bytes], y, rect.0, &views);
             unpremultiply(&mut row[..span]);
             let at = u32::from(sy) + (y - rect.1) as u32;
@@ -244,9 +240,7 @@ impl super::DslApp {
         match ground {
             Some(c) => {
                 let ground = premultiplied(c, c.a);
-                for px in row[..row_bytes].chunks_exact_mut(4) {
-                    px.copy_from_slice(&ground);
-                }
+                nexus_paint_kernels::fill(&mut row[..row_bytes], ground);
             }
             None => row[..row_bytes].fill(0),
         }

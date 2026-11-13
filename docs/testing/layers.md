@@ -5,7 +5,7 @@ role: reference
 subsystem: devx
 sources: [userspace, source/services, source/kernel/neuron/src/lib.rs, tests, scripts/qemu-test.sh, tools/os2vm.sh]
 contracts: [RFC-0014, ADR-0025]
-verified: 2026-11-12
+verified: 2026-11-13
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->

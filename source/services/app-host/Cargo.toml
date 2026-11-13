@@ -77,6 +77,8 @@ nexus-textedit = { path = "../../../userspace/ui/textedit_core" }
 nexus-app-icons = { path = "../../../userspace/ui/app-icons", default-features = false }
 nexus-mime-icons = { path = "../../../userspace/ui/mime-icons", default-features = false }
 nexus-scene-raster = { path = "../../../userspace/ui/scene_raster", default-features = false }
+# The fill and blend kernels of a row (ADR-0099): chosen at start from what the kernel reports.
+nexus-paint-kernels = { path = "../../../userspace/ui/paint-kernels" }
 nexus-layout = { path = "../../../userspace/ui/layout" }
 nexus-layout-types = { path = "../../../userspace/ui/layout-types" }
 nexus-theme-tokens = { path = "../../../userspace/ui/theme-tokens" }

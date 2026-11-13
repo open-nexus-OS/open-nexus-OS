@@ -5,7 +5,7 @@ role: guide
 subsystem: ui
 sources: [source/services/windowd, source/drivers/gpud, source/services/app-host, userspace/apps/window-kit, source/services/imed, source/services/memd]
 contracts: [RFC-0067, RFC-0108, RFC-0109, RFC-0110, RFC-0113, RFC-0114, ADR-0068, ADR-0069, ADR-0071, ADR-0072, ADR-0075, ADR-0076, ADR-0078, ADR-0083, ADR-0086, ADR-0090, ADR-0092]
-verified: 2026-11-12
+verified: 2026-11-13
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -17,7 +17,7 @@ verified: 2026-11-12
 > **Owns** — `source/services/windowd/`, `source/drivers/gpud/`, `source/services/app-host/`, `userspace/apps/window-kit/`, `source/services/imed/`, `source/services/memd/`
 > **Contracts** — [RFC-0067](../rfcs/RFC-0067-windowd-compositor-service-boundary-rasterizer-app-ui-extraction.md), [RFC-0114](../rfcs/RFC-0114-surfaces-are-shared-buffers-the-app-draws-where-the-gpu-reads-the-compositor-composes-by-reference.md), [ADR-0092](../adr/0092-a-surface-is-a-buffer-the-app-draws-and-the-gpu-reads-gpud-allocates-it-for-its-owner-windowd-composes-by-reference.md), [ADR-0075](../adr/0075-the-compositor-never-waits-on-a-client.md) — full list below
 > **Invariants** — windowd is a compositor service and draws no UI: chrome and controls are widgets (`window-kit`, DSL apps). windowd never waits on a client. gpud and imed take identity from the kernel's `sender_service_id` and serve privileged ops to windowd alone.
-> **Read next** — [display-chain.md](display-chain.md), [gpud-ring.md](gpud-ring.md), [nexus-gfx.md](nexus-gfx.md), [animation-stack.md](animation-stack.md), [../dev/ui/overview.md](../dev/ui/overview.md), [../dev/dsl/overview.md](../dev/dsl/overview.md)
+> **Read next** — [display-chain.md](display-chain.md), [gpud-ring.md](gpud-ring.md), [nexus-gfx.md](nexus-gfx.md), [animation-stack.md](animation-stack.md), [paint-kernels.md](paint-kernels.md), [../dev/ui/overview.md](../dev/ui/overview.md), [../dev/dsl/overview.md](../dev/dsl/overview.md)
 
 ## The stack at a glance
 
