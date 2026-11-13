@@ -54,7 +54,10 @@
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-TARGET=${TARGET:-riscv64imac-unknown-none-elf}
+# ADR-0099: userspace is built for TARGET (hard float), the kernel and the loader for
+# KERNEL_TARGET (integer only); the boot payload lies beside the kernel.
+TARGET=${TARGET:-riscv64gc-unknown-none-elf}
+KERNEL_TARGET=${KERNEL_TARGET:-riscv64imac-unknown-none-elf}
 
 # --- Build (unless skipped) ---
 NEXUS_SKIP_BUILD=${NEXUS_SKIP_BUILD:-0}
@@ -72,12 +75,12 @@ fi
 
 # --- Paths ---
 TARGET_ROOT=${CARGO_TARGET_DIR:-"$ROOT/target"}
-KERNEL_ELF=$TARGET_ROOT/$TARGET/release/neuron-boot
+KERNEL_ELF=$TARGET_ROOT/$KERNEL_TARGET/release/neuron-boot
 # ADR-0081: the signed slot image is the boot payload (kernel + bootfs), packed by build.sh.
-BOOT_PAYLOAD=$TARGET_ROOT/$TARGET/release/boot-payload.bin
+BOOT_PAYLOAD=$TARGET_ROOT/$KERNEL_TARGET/release/boot-payload.bin
 INIT_ELF=$TARGET_ROOT/$TARGET/release/init-lite
-NXBOOT_ELF=$TARGET_ROOT/$TARGET/release/nxboot
-NXBOOT_BIN=$TARGET_ROOT/$TARGET/release/nxboot.bin
+NXBOOT_ELF=$TARGET_ROOT/$KERNEL_TARGET/release/nxboot
+NXBOOT_BIN=$TARGET_ROOT/$KERNEL_TARGET/release/nxboot.bin
 
 # --- Defaults ---
 RUN_TIMEOUT=${RUN_TIMEOUT:-90s}
@@ -204,7 +207,7 @@ prepare_boot_payload() {
 prepare_nxboot_bin() {
   if [[ ! -f "$NXBOOT_ELF" ]]; then
     echo "[info] building nxboot (first-stage loader)" >&2
-    (cd "$ROOT" && cargo build -p nxboot --target "$TARGET" --release >/dev/null)
+    (cd "$ROOT" && cargo build -p nxboot --target "$KERNEL_TARGET" --release >/dev/null)
   fi
   objcopy_flat "$NXBOOT_ELF" "$NXBOOT_BIN"
 }

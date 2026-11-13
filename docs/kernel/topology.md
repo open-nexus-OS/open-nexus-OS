@@ -95,7 +95,8 @@ line disabled, and the driver's successor binds a line that can fire.
 Operation 7 of the sched syscall answers in registers, to any task (the answer carries no
 authority): the CPUs the kernel runs, the online set, the clusters, a cluster's set, a CPU's
 hart id. `nexus_abi::sched::topology()` reads the whole picture and refuses answers that
-describe no machine; `online()` is the one-query form.
+describe no machine; `online()` is the one-query form; `offers()` is what every CPU offers a
+program ([float-state.md](float-state.md)).
 
 Placement is a role, not a mask (`nexus_sched::Placement`): `Display` = CPU 0 when online,
 `Background` = the other online CPUs (all of them on one hart), `Any` = the online set. init

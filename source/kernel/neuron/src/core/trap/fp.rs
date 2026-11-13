@@ -1,197 +1,242 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: a thread's floating-point registers on the target (RFC-0119): the state a task
-//! owns, the two places every path passes — the trap entry and the return to user mode
-//! (`arch/riscv/trap.S`, the idle loop's staged resume) — and the first use (`illegal.rs`).
-//! The decisions are `crate::fp_rule`'s (pure, host-tested); this file moves the registers.
-//! A thread without a state runs with the unit off and costs two tests per trap.
+//! CONTEXT: a thread's floating-point and vector registers on the target (RFC-0119): the
+//! states a task owns, the two places every path passes — the trap entry and the return to
+//! user mode (`arch/riscv/trap.S`, the idle loop's staged resume) — the first use
+//! (`illegal.rs`), and what the machine offers a program (the topology query `Offers`).
+//! The decisions are `crate::fp_rule`'s (pure, host-tested), made once per unit; the
+//! registers move in `fp_regs`. A thread without a state runs with both units off and costs
+//! one test per trap.
 //! OWNERS: @kernel-team
 //! STATUS: Functional
 //! API_STABILITY: Internal
 //! TEST_COVERAGE: the rules on the host (`crate::fp_rule`); QEMU and board:
-//!   `SELFTEST: fpsoak ok`, `KSELFTEST: fp state lazy ok`, `KSELFTEST: fp state moved ok`
-//!   (lanes with more than one hart)
-//! INVARIANTS: a hart's current state is the state of the task current on it
+//!   `SELFTEST: fpsoak ok`, `SELFTEST: vsoak ok`, `KSELFTEST: fp state lazy ok`,
+//!   `KSELFTEST: vector state lazy ok`, and on lanes with more than one hart
+//!   `KSELFTEST: fp state moved ok`, `KSELFTEST: vector state moved ok`
+//! INVARIANTS: a hart's current state of a unit is the state of the task current on it
 //!   (`TaskTable::set_current`, `first_use`) or 0, and is forgotten before a state is freed;
-//!   only the hart running a task touches its state's registers; the kernel has no
-//!   floating-point instruction outside `__fp_store` and `__fp_load`, and the unit is off
-//!   while the kernel runs outside them (`hart_starts`, `trap.S`; checked at every return)
+//!   only the hart running a task touches its states' registers; the kernel has no
+//!   floating-point or vector instruction outside `fp_regs`, and both units are off while the
+//!   kernel runs outside it (`hart_starts`, `trap.S`; checked at every return), and a hart's
+//!   vector length, type and start are the reset ones while the kernel runs (`rests`); the vector
+//!   unit is offered only when every hart's registers have one width the kernel keeps
 //! RFC: docs/rfcs/RFC-0119-a-thread-s-floating-point-and-vector-registers-are-its-own-kept-from-first-use.md
 //! ADR: docs/adr/0099-every-userspace-program-is-built-for-one-hard-float-target-vectors-are-asked-for-at-run-time.md
 
+use alloc::boxed::Box;
 use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
-use super::{KernelGuard, TrapFrame};
-use crate::fp_rule::{is_unit_instruction, HartUnit, Step, Unit};
+use super::{fp_regs, KernelGuard, TrapFrame};
+use crate::fp_rule::{asks_for, keeps_vector_bytes, HartUnit, Kind, Step, Unit};
 use crate::sync::hart_table::{HartTable, SizeError};
 
 const STATUS_FROM_SUPERVISOR: usize = 1 << 8;
-/// The lazy line is printed once this many saves happened without a refusal.
+/// A unit's lazy line is printed once this many saves happened without a refusal.
 const SAVES_FOR_THE_LINE: u64 = 10_000;
-/// `f0`–`f31` and the control register.
-const REGISTERS: usize = 33;
+/// A new vector state's type: no setting yet, as the hardware has it after reset.
+const VECTOR_TYPE_UNSET: u64 = 1 << 63;
+/// The word of a vector state that holds its type.
+const VECTOR_TYPE_WORD: usize = 3;
 
-/// A thread's saved registers.
-#[repr(C)]
+/// A thread's saved registers of one unit.
 pub struct State {
-    /// New after every write of `regs`; a hart holding this token holds these registers.
+    kind: Kind,
+    /// New after every write of `words`; a hart holding this token holds these registers.
     token: AtomicU64,
-    regs: UnsafeCell<[u64; REGISTERS]>,
+    words: UnsafeCell<Box<[u64]>>,
 }
 
-// SAFETY: `regs` is read and written only by the hart its task is current on (the two hooks
+// SAFETY: `words` is read and written only by the hart its task is current on (the two hooks
 // below), never by two harts at once — a task runs on one hart at a time.
 unsafe impl Sync for State {}
 
-impl Drop for State {
-    fn drop(&mut self) {
-        STATES.fetch_sub(1, Ordering::Relaxed);
-        // No hart keeps naming a state that is gone (its task died while current there).
-        let gone = core::ptr::from_ref::<Self>(self) as usize;
-        HARTS.iter().for_each(|hart| hart.forget(gone));
+impl State {
+    /// # Safety
+    /// The caller is the hart this state's task is current on.
+    unsafe fn store(&self) {
+        // SAFETY: the words are this state's, sized for its unit (`first_use`); see above.
+        unsafe {
+            let words = (*self.words.get()).as_mut_ptr();
+            match self.kind {
+                Kind::Float => fp_regs::__fp_store(words),
+                Kind::Vector => fp_regs::__vector_store(words),
+            }
+        }
+    }
+
+    /// # Safety
+    /// As [`Self::store`].
+    unsafe fn load(&self) {
+        // SAFETY: as in `store`.
+        unsafe {
+            let words = (*self.words.get()).as_ptr();
+            match self.kind {
+                Kind::Float => fp_regs::__fp_load(words),
+                Kind::Vector => fp_regs::__vector_load(words),
+            }
+        }
+    }
+
+    /// The thread continues on registers the hart still holds: what the kernel set to its
+    /// own at the trap entry ([`rests`]) is the thread's again.
+    ///
+    /// # Safety
+    /// As [`Self::store`], and the state's words are what the thread had at its trap.
+    unsafe fn resume(&self) {
+        if self.kind == Kind::Vector {
+            // SAFETY: as in `store`; reads the state's first four words.
+            unsafe { fp_regs::__vector_resume((*self.words.get()).as_ptr()) };
+        }
     }
 }
 
-static HARTS: HartTable<HartUnit> = HartTable::new(HartUnit::new(0));
-/// States alive — the threads that ever used the unit and still exist.
-static STATES: AtomicUsize = AtomicUsize::new(0);
-/// Whether every hart carries F and D (the device tree, read at boot).
-static OFFERED: AtomicBool = AtomicBool::new(false);
-static REFUSED: AtomicU64 = AtomicU64::new(0);
-static LAZY_SAID: AtomicBool = AtomicBool::new(false);
-static MOVED_SAID: AtomicBool = AtomicBool::new(false);
-static FAIL_SAID: AtomicBool = AtomicBool::new(false);
-
-core::arch::global_asm!(
-    ".option push",
-    ".option arch, +f, +d",
-    // __fp_store(a0 = registers of a state): the hart's registers into the state.
-    ".globl __fp_store",
-    ".type __fp_store, @function",
-    "__fp_store:",
-    "li t0, 0x6000",
-    "csrs sstatus, t0",
-    "fsd f0, 0(a0)",
-    "fsd f1, 8(a0)",
-    "fsd f2, 16(a0)",
-    "fsd f3, 24(a0)",
-    "fsd f4, 32(a0)",
-    "fsd f5, 40(a0)",
-    "fsd f6, 48(a0)",
-    "fsd f7, 56(a0)",
-    "fsd f8, 64(a0)",
-    "fsd f9, 72(a0)",
-    "fsd f10, 80(a0)",
-    "fsd f11, 88(a0)",
-    "fsd f12, 96(a0)",
-    "fsd f13, 104(a0)",
-    "fsd f14, 112(a0)",
-    "fsd f15, 120(a0)",
-    "fsd f16, 128(a0)",
-    "fsd f17, 136(a0)",
-    "fsd f18, 144(a0)",
-    "fsd f19, 152(a0)",
-    "fsd f20, 160(a0)",
-    "fsd f21, 168(a0)",
-    "fsd f22, 176(a0)",
-    "fsd f23, 184(a0)",
-    "fsd f24, 192(a0)",
-    "fsd f25, 200(a0)",
-    "fsd f26, 208(a0)",
-    "fsd f27, 216(a0)",
-    "fsd f28, 224(a0)",
-    "fsd f29, 232(a0)",
-    "fsd f30, 240(a0)",
-    "fsd f31, 248(a0)",
-    "frcsr t0",
-    "sd t0, 256(a0)",
-    // Off again: the kernel never runs with the unit on outside these two routines.
-    "li t0, 0x6000",
-    "csrc sstatus, t0",
-    "ret",
-    // __fp_load(a0 = registers of a state): the state into the hart's registers.
-    ".globl __fp_load",
-    ".type __fp_load, @function",
-    "__fp_load:",
-    "li t0, 0x6000",
-    "csrs sstatus, t0",
-    "ld t0, 256(a0)",
-    "fscsr t0",
-    "fld f0, 0(a0)",
-    "fld f1, 8(a0)",
-    "fld f2, 16(a0)",
-    "fld f3, 24(a0)",
-    "fld f4, 32(a0)",
-    "fld f5, 40(a0)",
-    "fld f6, 48(a0)",
-    "fld f7, 56(a0)",
-    "fld f8, 64(a0)",
-    "fld f9, 72(a0)",
-    "fld f10, 80(a0)",
-    "fld f11, 88(a0)",
-    "fld f12, 96(a0)",
-    "fld f13, 104(a0)",
-    "fld f14, 112(a0)",
-    "fld f15, 120(a0)",
-    "fld f16, 128(a0)",
-    "fld f17, 136(a0)",
-    "fld f18, 144(a0)",
-    "fld f19, 152(a0)",
-    "fld f20, 160(a0)",
-    "fld f21, 168(a0)",
-    "fld f22, 176(a0)",
-    "fld f23, 184(a0)",
-    "fld f24, 192(a0)",
-    "fld f25, 200(a0)",
-    "fld f26, 208(a0)",
-    "fld f27, 216(a0)",
-    "fld f28, 224(a0)",
-    "fld f29, 232(a0)",
-    "fld f30, 240(a0)",
-    "fld f31, 248(a0)",
-    // Off until the status word of the frame is written back at the return to user mode.
-    "li t0, 0x6000",
-    "csrc sstatus, t0",
-    "ret",
-    ".option pop",
-);
-
-extern "C" {
-    /// Turns the unit on in the live status word, then stores `f0`–`f31` and `fcsr`.
-    fn __fp_store(registers: *mut u64);
-    /// Turns the unit on in the live status word, then loads `fcsr` and `f0`–`f31`.
-    fn __fp_load(registers: *const u64);
+/// The kernel runs under one configuration of a unit, not under the one the trapped thread
+/// set: a hart's vector length, type and start index are as after reset from every trap
+/// entry of a thread that has the unit — its own are in its state by then (`trapped`).
+/// The float unit has no such configuration.
+///
+/// # Safety
+/// For [`Kind::Vector`], this hart's node states the vector extension.
+unsafe fn rests(kind: Kind) {
+    if kind == Kind::Vector {
+        // SAFETY: the caller's.
+        unsafe { fp_regs::__vector_rest() };
+    }
 }
 
-/// States what the machine's harts carry: the unit is offered when all of them have F and D.
-pub fn offer(every_hart_has_f_and_d: bool) {
-    OFFERED.store(every_hart_has_f_and_d, Ordering::Release);
+impl Drop for State {
+    fn drop(&mut self) {
+        STATES[self.kind as usize].fetch_sub(1, Ordering::Relaxed);
+        // No hart keeps naming a state that is gone (its task died while current there).
+        let gone = core::ptr::from_ref::<Self>(self) as usize;
+        HARTS[self.kind as usize].iter().for_each(|hart| hart.forget(gone));
+    }
+}
+
+/// The states a task owns: one per unit it ever used. Dropped with the task.
+#[derive(Default)]
+pub struct Held([Option<Box<State>>; 2]);
+
+impl Held {
+    fn of(&self, kind: Kind) -> Option<&State> {
+        self.0[kind as usize].as_deref()
+    }
+}
+
+static HARTS: [HartTable<HartUnit>; 2] =
+    [HartTable::new(HartUnit::new(0)), HartTable::new(HartUnit::new(0))];
+/// States alive per unit — the threads that ever used it and still exist.
+static STATES: [AtomicUsize; 2] = [AtomicUsize::new(0), AtomicUsize::new(0)];
+/// Whether a thread is given a state of the unit at its first use.
+static OFFERED: [AtomicBool; 2] = [AtomicBool::new(false), AtomicBool::new(false)];
+/// The width of every hart's vector registers in bytes; 0 while the unit is not offered.
+static VECTOR_BYTES: AtomicUsize = AtomicUsize::new(0);
+/// The extensions every hart's node states (bit = `nexus_sched::Extension`).
+static STATED: AtomicUsize = AtomicUsize::new(0);
+static REFUSED: AtomicU64 = AtomicU64::new(0);
+static LAZY_SAID: [AtomicBool; 2] = [AtomicBool::new(false), AtomicBool::new(false)];
+static MOVED_SAID: [AtomicBool; 2] = [AtomicBool::new(false), AtomicBool::new(false)];
+static FAIL_SAID: AtomicBool = AtomicBool::new(false);
+
+/// What every hart's node states (the device tree, read on the boot hart before any other
+/// hart starts and before any thread runs). The float unit is offered when every hart
+/// carries F and D; the vector unit when every hart carries V as well and the registers'
+/// width is one the kernel keeps — the boot hart's here, each other hart's at its start.
+pub fn offer(stated: impl Fn(nexus_sched::Extension) -> bool) {
+    use nexus_sched::Extension;
+    let bits = Extension::ALL.iter().fold(0, |bits, &e| bits | (usize::from(stated(e)) << e as u8));
+    STATED.store(bits, Ordering::Release);
+    let float = stated(Extension::Float);
+    let bytes = if float && stated(Extension::Vector) {
+        // SAFETY: this hart's node states the vector extension.
+        unsafe {
+            rests(Kind::Vector);
+            fp_regs::__vector_bytes()
+        }
+    } else {
+        0
+    };
+    let vector = keeps_vector_bytes(bytes);
+    VECTOR_BYTES.store(if vector { bytes } else { 0 }, Ordering::Release);
+    OFFERED[Kind::Float as usize].store(float, Ordering::Release);
+    OFFERED[Kind::Vector as usize].store(vector, Ordering::Release);
+    log_info!(
+        target: "fp",
+        "KINIT: units offered (float={} vector={} vector_bytes={})",
+        u8::from(float),
+        u8::from(vector),
+        bytes
+    );
+}
+
+/// What every CPU offers a program — the answer to the topology query `Offers`.
+#[must_use]
+pub fn offers() -> nexus_sched::Offers {
+    let stated = STATED.load(Ordering::Acquire);
+    let vector = OFFERED[Kind::Vector as usize].load(Ordering::Acquire);
+    nexus_sched::Offers::of_machine(
+        |e| stated & (1 << e as u8) != 0,
+        OFFERED[Kind::Float as usize].load(Ordering::Acquire),
+        vector.then(|| VECTOR_BYTES.load(Ordering::Acquire)),
+    )
 }
 
 /// Sizes the harts' views for a machine of `harts` CPUs.
 pub fn size(harts: usize) -> Result<(), SizeError> {
-    let mut cpu = 0;
-    HARTS.size(harts, || {
-        cpu += 1;
-        HartUnit::new(cpu)
+    HARTS.iter().try_for_each(|table| {
+        let mut cpu = 0;
+        table.size(harts, || {
+            cpu += 1;
+            HartUnit::new(cpu)
+        })
     })
 }
 
-fn this_hart() -> Option<(usize, &'static HartUnit)> {
-    let cpu = crate::smp::cpu_current_id().as_index();
-    HARTS.get(cpu).map(|hart| (cpu, hart))
-}
-
-/// The task current on this hart changed (`TaskTable::set_current`): `state` is its state.
-pub fn now_runs(state: Option<&State>) {
-    if let Some((_, hart)) = this_hart() {
-        hart.runs(state.map_or(0, |state| core::ptr::from_ref(state) as usize));
+/// A hart's kernel runs with both units off: from its bring-up — whatever the firmware left
+/// in the status word — and from every trap entry on (`trap.S`). The kernel is built without
+/// their instructions; with the units off, one that got in traps instead of changing the
+/// registers of whichever thread the hart holds.
+/// A hart whose vector registers have another width than the boot hart's ends the offer: a
+/// thread could not move between them. Harts start before the first thread runs.
+pub fn hart_starts() {
+    // SAFETY: this hart's status register; no thread's registers are on it yet.
+    unsafe { fp_regs::__units_off() };
+    if OFFERED[Kind::Vector as usize].load(Ordering::Acquire) {
+        // SAFETY: offered means every hart's node states the vector extension.
+        let bytes = unsafe {
+            rests(Kind::Vector);
+            fp_regs::__vector_bytes()
+        };
+        let agreed = VECTOR_BYTES.load(Ordering::Acquire);
+        if bytes != agreed {
+            OFFERED[Kind::Vector as usize].store(false, Ordering::Release);
+            VECTOR_BYTES.store(0, Ordering::Release);
+            log_error!(
+                target: "fp",
+                "KINIT: vector unit not offered (cpu={} vector_bytes={} boot hart {})",
+                crate::smp::cpu_current_id().as_index(),
+                bytes,
+                agreed
+            );
+        }
     }
 }
 
-/// The state of the task current on this hart.
+/// The task current on this hart changed (`TaskTable::set_current`): `held` are its states.
+pub fn now_runs(held: Option<&Held>) {
+    let cpu = crate::smp::cpu_current_id().as_index();
+    for kind in Kind::ALL {
+        if let Some(hart) = HARTS[kind as usize].get(cpu) {
+            let state = held.and_then(|held| held.of(kind));
+            hart.runs(state.map_or(0, |state| core::ptr::from_ref(state) as usize));
+        }
+    }
+}
+
+/// The state of `hart`'s unit of the task current on it.
 fn current(hart: &HartUnit) -> Option<&'static State> {
     // SAFETY: the address is 0 or the state of the task current on this hart — given by
     // `set_current` and `first_use` on this hart, and forgotten (`Drop`) before the state is
@@ -199,49 +244,40 @@ fn current(hart: &HartUnit) -> Option<&'static State> {
     unsafe { (hart.current() as *const State).as_ref() }
 }
 
-fn refused(cpu: usize, unit: Unit, what: &str) {
+fn refused(cpu: usize, kind: Kind, unit: Unit, what: &str) {
     REFUSED.fetch_add(1, Ordering::Relaxed);
     if !FAIL_SAID.swap(true, Ordering::AcqRel) {
-        log_error!(target: "fp", "KSELFTEST: fp state FAIL (cpu={} unit={:?} {})", cpu, unit, what);
+        log_error!(
+            target: "fp",
+            "KSELFTEST: {} state FAIL (cpu={} unit={:?} {})",
+            kind.name(),
+            cpu,
+            unit,
+            what
+        );
     }
 }
 
-/// A hart's kernel runs with the unit off: from its bring-up — whatever the firmware left in
-/// the status word — and from every trap entry on (`trap.S`). The kernel is built without
-/// floating-point instructions; with the unit off, one that got in traps instead of changing
-/// the registers of whichever thread the hart holds.
-pub fn hart_starts() {
-    // SAFETY: this hart's status register; no thread's registers are on it yet.
-    unsafe { riscv::register::sstatus::set_fs(riscv::register::sstatus::FS::Off) };
-}
-
-/// The unit as the kernel has it on this hart now (not a frame's).
-fn kernels_unit() -> Unit {
-    match riscv::register::sstatus::read().fs() {
-        riscv::register::sstatus::FS::Off => Unit::Off,
-        riscv::register::sstatus::FS::Initial => Unit::Initial,
-        riscv::register::sstatus::FS::Clean => Unit::Clean,
-        riscv::register::sstatus::FS::Dirty => Unit::Dirty,
-    }
-}
-
-/// The lazy line: enough saves happened, and the unit was never on without a state.
-fn say_lazy(hart: &HartUnit) {
-    if hart.counts().0 % 256 != 0 || LAZY_SAID.load(Ordering::Relaxed) {
+/// A unit's lazy line: enough saves happened, and no unit was ever on without a state or in
+/// the kernel.
+fn say_lazy(kind: Kind, hart: &HartUnit) {
+    let said = &LAZY_SAID[kind as usize];
+    if hart.counts().0 % 256 != 0 || said.load(Ordering::Relaxed) {
         return;
     }
     let (mut saves, mut loads, mut kept) = (0, 0, 0);
-    for (s, l, k) in HARTS.iter().map(HartUnit::counts) {
+    for (s, l, k) in HARTS[kind as usize].iter().map(HartUnit::counts) {
         (saves, loads, kept) = (saves + s, loads + l, kept + k);
     }
     if saves < SAVES_FOR_THE_LINE || REFUSED.load(Ordering::Relaxed) != 0 {
         return;
     }
-    if !LAZY_SAID.swap(true, Ordering::AcqRel) {
+    if !said.swap(true, Ordering::AcqRel) {
         log_info!(
             target: "fp",
-            "KSELFTEST: fp state lazy ok (threads={} saves={} loads={} kept={} refused=0)",
-            STATES.load(Ordering::Relaxed),
+            "KSELFTEST: {} state lazy ok (threads={} saves={} loads={} kept={} refused=0)",
+            kind.name(),
+            STATES[kind as usize].load(Ordering::Relaxed),
             saves,
             loads,
             kept
@@ -249,95 +285,128 @@ fn say_lazy(hart: &HartUnit) {
     }
 }
 
-/// Trap entry (`trap.S`, before the handler): a thread that changed its registers has them
-/// written to its state — here, before anything can run it on another hart.
+/// Trap entry (`trap.S`, before the handler): a thread that changed a unit's registers has
+/// them written to its state — here, before anything can run it on another hart.
 #[no_mangle]
 extern "C" fn __fp_trap_enter(frame: &mut TrapFrame) {
-    let unit = Unit::of(frame.sstatus);
-    if unit == Unit::Off || frame.sstatus & STATUS_FROM_SUPERVISOR != 0 {
+    if frame.sstatus & Kind::SWITCHES == 0 || frame.sstatus & STATUS_FROM_SUPERVISOR != 0 {
         return;
     }
-    let Some((cpu, hart)) = this_hart() else { return };
-    let state = current(hart);
-    let (unit_now, step) = hart.trapped(unit, state.map(|s| &s.token));
-    match (step, state) {
-        (Step::Save, Some(state)) => {
-            // SAFETY: the state is this hart's current task's, touched by no other hart while
-            // the task is here; the routine turns the unit on before it stores.
-            unsafe { __fp_store(state.regs.get().cast()) };
-            say_lazy(hart);
+    let cpu = crate::smp::cpu_current_id().as_index();
+    for kind in Kind::ALL {
+        let unit = Unit::of(kind, frame.sstatus);
+        let Some(hart) = HARTS[kind as usize].get(cpu).filter(|_| unit != Unit::Off) else {
+            continue;
+        };
+        let state = current(hart);
+        let (unit_now, step) = hart.trapped(unit, state.map(|s| &s.token));
+        match (step, state) {
+            (Step::Save, Some(state)) => {
+                // SAFETY: the state is this hart's current task's, touched by no other hart
+                // while the task is here.
+                unsafe { state.store() };
+                say_lazy(kind, hart);
+            }
+            (Step::Refuse, _) => refused(cpu, kind, unit, "without a state"),
+            _ => {}
         }
-        (Step::Refuse, _) => refused(cpu, unit, "without a state"),
-        _ => {}
+        // SAFETY: the unit was on in user mode, so this hart has it.
+        unsafe { rests(kind) };
+        frame.sstatus = unit_now.set_in(kind, frame.sstatus);
     }
-    frame.sstatus = unit_now.set_in(frame.sstatus);
 }
 
 /// Return to user mode (`trap.S` after the handler, the idle loop's staged resume): the
-/// hart's registers become the thread's unless they are, and the frame's switch is set from
-/// whether the task has a state — never from what the frame said.
+/// hart's registers become the thread's unless they are, and the frame's switches are set
+/// from whether the task has a state — never from what the frame said.
 #[no_mangle]
 pub(crate) extern "C" fn __fp_user_return(frame: &mut TrapFrame) {
-    // The handler ran since the trap entry turned the unit off: it is still off.
-    let kernels = kernels_unit();
-    if kernels != Unit::Off {
-        refused(crate::smp::cpu_current_id().as_index(), kernels, "on in the kernel");
-        hart_starts();
+    let cpu = crate::smp::cpu_current_id().as_index();
+    // The handler ran since the trap entry turned the units off: they are still off.
+    // SAFETY: reads this hart's status register.
+    let kernels = unsafe { fp_regs::__units_status() };
+    if kernels & Kind::SWITCHES != 0 {
+        for kind in Kind::ALL.into_iter().filter(|&kind| Unit::of(kind, kernels) != Unit::Off) {
+            refused(cpu, kind, Unit::of(kind, kernels), "on in the kernel");
+        }
+        // SAFETY: this hart's status register.
+        unsafe { fp_regs::__units_off() };
     }
     if frame.sstatus & STATUS_FROM_SUPERVISOR != 0 {
         return;
     }
-    let Some((cpu, hart)) = this_hart() else {
-        frame.sstatus = Unit::Off.set_in(frame.sstatus);
-        return;
-    };
-    let state = current(hart);
-    let (unit, step) = hart.resumes(Unit::of(frame.sstatus), state.map(|s| &s.token));
-    if let (Step::Load { from }, Some(state)) = (step, state) {
-        // SAFETY: as in `__fp_trap_enter`; the routine turns the unit on before it loads, and
-        // the status word the return path writes afterwards is the frame's.
-        unsafe { __fp_load(state.regs.get().cast()) };
-        if from != cpu && !MOVED_SAID.swap(true, Ordering::AcqRel) {
-            log_info!(
-                target: "fp",
-                "KSELFTEST: fp state moved ok (from=cpu{} to=cpu{})",
-                from,
-                cpu
-            );
+    for kind in Kind::ALL {
+        let Some(hart) = HARTS[kind as usize].get(cpu) else {
+            frame.sstatus = Unit::Off.set_in(kind, frame.sstatus);
+            continue;
+        };
+        let state = current(hart);
+        let (unit, step) = hart.resumes(Unit::of(kind, frame.sstatus), state.map(|s| &s.token));
+        match (step, state) {
+            (Step::Load { from }, Some(state)) => {
+                // SAFETY: as in `__fp_trap_enter`; the status word the return path writes
+                // afterwards is the frame's.
+                unsafe { state.load() };
+                if from != cpu && !MOVED_SAID[kind as usize].swap(true, Ordering::AcqRel) {
+                    log_info!(
+                        target: "fp",
+                        "KSELFTEST: {} state moved ok (from=cpu{} to=cpu{})",
+                        kind.name(),
+                        from,
+                        cpu
+                    );
+                }
+            }
+            // SAFETY: as above; no save happened since the thread's trap, so the state's
+            // words are what it had there.
+            (_, Some(state)) => unsafe { state.resume() },
+            _ => {}
         }
+        frame.sstatus = unit.set_in(kind, frame.sstatus);
     }
-    frame.sstatus = unit.set_in(frame.sstatus);
 }
 
 /// A user-mode illegal instruction (`stval` = its bits when the hart reports them, else 0):
-/// `true` = the thread was given a state of zeros and the instruction runs again.
+/// `true` = the thread was given a state of zeros of the unit the instruction needs, and the
+/// instruction runs again.
 pub(super) fn first_use(frame: &mut TrapFrame, stval: usize) -> bool {
-    if !OFFERED.load(Ordering::Acquire)
-        || Unit::of(frame.sstatus) != Unit::Off
-        || (stval != 0 && !is_unit_instruction(stval as u32))
-    {
-        return false;
-    }
-    let Some((_, hart)) = this_hart() else { return false };
+    let offered = [
+        OFFERED[Kind::Float as usize].load(Ordering::Acquire),
+        OFFERED[Kind::Vector as usize].load(Ordering::Acquire),
+    ];
+    let Some(kind) = asks_for(stval as u32, frame.sstatus, offered) else { return false };
+    let cpu = crate::smp::cpu_current_id().as_index();
+    let Some(hart) = HARTS[kind as usize].get(cpu) else { return false };
     // U-mode trap → this hart holds no kernel lock (as `cache_right::try_grant`).
     let Ok(mut kernel) = KernelGuard::acquire_as(crate::lock_share::FAULT) else { return false };
     let (_, tasks, ..) = kernel.parts();
     let pid = tasks.current_pid();
     let task = tasks.current_task_mut();
-    if task.fp.is_some() {
+    if task.fp.0[kind as usize].is_some() {
         return false;
     }
-    if !crate::kheap::admits(core::mem::size_of::<State>()) {
-        log_error!(target: "fp", "KINIT: fp state refused (pid={} no memory)", pid.as_raw());
+    let words = kind.state_words(VECTOR_BYTES.load(Ordering::Acquire));
+    if !crate::kheap::admits(core::mem::size_of::<State>() + words * 8) {
+        log_error!(
+            target: "fp",
+            "KINIT: {} state refused (pid={} no memory)",
+            kind.name(),
+            pid.as_raw()
+        );
         return false;
     }
-    let state = alloc::boxed::Box::new(State {
+    let mut zeros = alloc::vec![0u64; words].into_boxed_slice();
+    if kind == Kind::Vector {
+        zeros[VECTOR_TYPE_WORD] = VECTOR_TYPE_UNSET;
+    }
+    let state = Box::new(State {
+        kind,
         token: AtomicU64::new(hart.fresh()),
-        regs: UnsafeCell::new([0; REGISTERS]),
+        words: UnsafeCell::new(zeros),
     });
-    STATES.fetch_add(1, Ordering::Relaxed);
+    STATES[kind as usize].fetch_add(1, Ordering::Relaxed);
     hart.runs(core::ptr::from_ref::<State>(&state) as usize);
-    task.fp = Some(state);
-    frame.sstatus = Unit::Initial.set_in(frame.sstatus);
+    task.fp.0[kind as usize] = Some(state);
+    frame.sstatus = Unit::Initial.set_in(kind, frame.sstatus);
     true
 }

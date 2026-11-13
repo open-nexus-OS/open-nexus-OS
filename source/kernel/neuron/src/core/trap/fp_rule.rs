@@ -1,12 +1,12 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: the pure rules of a thread's floating-point registers (RFC-0119) — the unit's
-//! switch in a status word, what a hart does when a thread traps and when it returns to user
-//! mode, and which instruction is the unit's. NOT target-gated (`mod trap` is riscv/none-only),
-//! so the rules run on host against a model of harts and threads; `trap::fp` executes the
-//! steps on the target.
-//! A thread has no state until its first floating-point instruction. From then on its
+//! CONTEXT: the pure rules of a thread's floating-point and vector registers (RFC-0119) — a
+//! unit's switch in a status word, what a hart does when a thread traps and when it returns
+//! to user mode, and which unit an instruction needs. NOT target-gated (`mod trap` is
+//! riscv/none-only), so the rules run on host against a model of harts and threads;
+//! `trap::fp` executes the steps on the target, once per unit.
+//! A thread has no state of a unit until its first instruction of that unit. From then on its
 //! registers are written to its state when it traps having changed them, and loaded before it
 //! runs unless the hart still holds exactly that state: a state carries a token that is new
 //! after every write, a hart remembers the token its registers hold.
@@ -21,10 +21,66 @@
 
 use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
-const UNIT_SHIFT: usize = 13;
-const UNIT_MASK: usize = 3 << UNIT_SHIFT;
+/// The two register sets a thread may own beyond the integer ones; each has a switch of its
+/// own in the status word and a state of its own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kind {
+    /// `f0`–`f31` and the control register (`sstatus.FS`).
+    Float = 0,
+    /// `v0`–`v31`, the length, the type and the control registers (`sstatus.VS`).
+    Vector = 1,
+}
 
-/// The floating-point unit's switch in a thread's status word (`sstatus.FS`).
+/// The widest vector register the kernel keeps per thread, in bytes: a state is 32 of them.
+/// A machine with wider registers is not offered the vector unit.
+pub const MAX_VECTOR_BYTES: usize = 256;
+
+impl Kind {
+    /// Both kinds, in the order of their index.
+    pub const ALL: [Self; 2] = [Self::Float, Self::Vector];
+    /// The switches of both units in a status word.
+    pub const SWITCHES: usize = Self::Float.mask() | Self::Vector.mask();
+
+    const fn shift(self) -> usize {
+        match self {
+            Self::Float => 13,
+            Self::Vector => 9,
+        }
+    }
+
+    const fn mask(self) -> usize {
+        3 << self.shift()
+    }
+
+    /// The name the kernel's lines use.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Float => "fp",
+            Self::Vector => "vector",
+        }
+    }
+
+    /// The 64-bit words of a state: the float registers and their control register; or the
+    /// start index, the control register, the length and the type, then 32 registers of
+    /// `vector_bytes`.
+    #[must_use]
+    pub const fn state_words(self, vector_bytes: usize) -> usize {
+        match self {
+            Self::Float => 33,
+            Self::Vector => 4 + 32 * vector_bytes / 8,
+        }
+    }
+}
+
+/// Whether the kernel keeps vector registers of this width: a power of two from the
+/// extension's minimum up to [`MAX_VECTOR_BYTES`].
+#[must_use]
+pub const fn keeps_vector_bytes(bytes: usize) -> bool {
+    bytes >= 16 && bytes <= MAX_VECTOR_BYTES && bytes.is_power_of_two()
+}
+
+/// A unit's switch in a thread's status word.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Unit {
     /// An instruction of the unit traps.
@@ -38,10 +94,10 @@ pub enum Unit {
 }
 
 impl Unit {
-    /// The switch a status word carries.
+    /// The switch of `kind` a status word carries.
     #[must_use]
-    pub const fn of(status: usize) -> Self {
-        match (status & UNIT_MASK) >> UNIT_SHIFT {
+    pub const fn of(kind: Kind, status: usize) -> Self {
+        match (status & kind.mask()) >> kind.shift() {
             0 => Self::Off,
             1 => Self::Initial,
             2 => Self::Clean,
@@ -49,10 +105,10 @@ impl Unit {
         }
     }
 
-    /// `status` with this switch.
+    /// `status` with this switch of `kind`.
     #[must_use]
-    pub const fn set_in(self, status: usize) -> usize {
-        (status & !UNIT_MASK) | ((self as usize) << UNIT_SHIFT)
+    pub const fn set_in(self, kind: Kind, status: usize) -> usize {
+        (status & !kind.mask()) | ((self as usize) << kind.shift())
     }
 }
 
@@ -170,26 +226,9 @@ impl HartUnit {
     }
 }
 
-/// Whether `inst` (the trapped instruction's bits, a compressed one in the low half) belongs
-/// to the floating-point unit: its loads and stores, its arithmetic, its control register.
-#[must_use]
-pub const fn is_unit_instruction(inst: u32) -> bool {
-    if inst & 3 != 3 {
-        // Compressed: `c.fld`, `c.fsd` and their stack-pointer forms (64-bit harts).
-        let (quadrant, funct3) = (inst & 3, (inst >> 13) & 7);
-        return matches!(quadrant, 0 | 2) && matches!(funct3, 1 | 5);
-    }
-    let funct3 = (inst >> 12) & 7;
-    match inst & 0x7f {
-        // Loads and stores: the widths 1–4 are the unit's, the others the vector unit's.
-        0x07 | 0x27 => matches!(funct3, 1..=4),
-        // Fused multiply-adds and every other operation.
-        0x43 | 0x47 | 0x4b | 0x4f | 0x53 => true,
-        // A control-register instruction naming `fflags`, `frm` or `fcsr`.
-        0x73 => funct3 != 0 && funct3 != 4 && matches!(inst >> 20, 1..=3),
-        _ => false,
-    }
-}
+#[path = "fp_inst.rs"]
+mod inst;
+pub use inst::{asks_for, needs};
 
 #[cfg(test)]
 mod tests {
@@ -263,10 +302,28 @@ mod tests {
     #[test]
     fn the_switch_round_trips_through_a_status_word() {
         let status = 0x8000_0002_0004_0122usize;
-        for unit in [Unit::Off, Unit::Initial, Unit::Clean, Unit::Dirty] {
-            let with = unit.set_in(status);
-            assert_eq!(Unit::of(with), unit);
-            assert_eq!(with & !UNIT_MASK, status & !UNIT_MASK, "no other bit moves");
+        for kind in Kind::ALL {
+            let other = Kind::ALL[1 - kind as usize];
+            for unit in [Unit::Off, Unit::Initial, Unit::Clean, Unit::Dirty] {
+                let with = unit.set_in(kind, status);
+                assert_eq!(Unit::of(kind, with), unit);
+                assert_eq!(Unit::of(other, with), Unit::of(other, status), "the other unit's");
+                assert_eq!(with & !Kind::SWITCHES, status & !Kind::SWITCHES, "no other bit moves");
+            }
+        }
+        assert_eq!(Kind::SWITCHES, 0x6600);
+    }
+
+    #[test]
+    fn a_state_holds_every_register_of_its_width() {
+        assert_eq!(Kind::Float.state_words(0), 33);
+        assert_eq!(Kind::Vector.state_words(16), 4 + 64);
+        assert_eq!(Kind::Vector.state_words(32), 4 + 128);
+        for bytes in [16, 32, 64, 128, 256] {
+            assert!(keeps_vector_bytes(bytes));
+        }
+        for bytes in [0, 8, 24, 512, 0x8000] {
+            assert!(!keeps_vector_bytes(bytes), "{bytes}");
         }
     }
 
@@ -376,21 +433,6 @@ mod tests {
         a.forget(0x2000);
         b.forget(0x2000);
         assert_eq!((a.current(), b.current()), (0x1000, 0));
-    }
-
-    #[test]
-    fn test_reject_first_use_by_another_instruction() {
-        // The unit's own: fld, fsd, fadd.d, fmadd.d, a read of fcsr, c.fld, c.fsdsp.
-        for inst in [0x0005_3007u32, 0x00a5_3027, 0x02a5_7553, 0x6aa5_7543, 0x0030_2573] {
-            assert!(is_unit_instruction(inst), "{inst:#010x}");
-        }
-        assert!(is_unit_instruction(0x2000) && is_unit_instruction(0xa002));
-        // Not the unit's: an integer add, a vector load (width 0), a vector operation, a read
-        // of the cycle counter, a cache-block instruction, c.ld, an all-zero word.
-        for inst in [0x00b5_0533u32, 0x0205_0007, 0x02b5_0557, 0xc000_2573, 0x0015_200f] {
-            assert!(!is_unit_instruction(inst), "{inst:#010x}");
-        }
-        assert!(!is_unit_instruction(0x6000) && !is_unit_instruction(0));
     }
 
     #[test]

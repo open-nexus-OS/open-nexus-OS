@@ -38,6 +38,7 @@ phases:
     story: "fills, blends and glyph blits run on the vector unit where the hart has one, the scalar path stays the reference"
     state: planned
     gate: "host and QEMU: byte equality of every vector kernel with its scalar reference; board: <= 10 ns per painted pixel at 8 harts"
+    note: "fills and source-over blends arrive with TASK-0362 P4 (operator 2026-11-12: a mechanism is built in where it is used, at once); this phase keeps the glyph blits and the number at 8 harts."
   - id: P5
     story: "the UI thread never waits for a service: effects, file reads and decodes complete as events"
     state: planned

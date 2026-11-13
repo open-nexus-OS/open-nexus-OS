@@ -108,8 +108,8 @@ the CLA bot. The full ladder (`test-all`) runs locally; CI is the authority for 
 ## Environment
 
 `make initial-setup` provisions the host; `make doctor` (`scripts/check-deps.sh`) checks it and
-names each fix. The toolchain is pinned in `rust-toolchain.toml` (target
-`riscv64imac-unknown-none-elf`, `miri` for `test-all`). Headless lanes need no display stack;
+names each fix. The toolchain is pinned in `rust-toolchain.toml` (targets
+`riscv64gc-unknown-none-elf` for userspace and `riscv64imac-unknown-none-elf` for the kernel, `miri` for `test-all`). Headless lanes need no display stack;
 `just start` and the virgl lanes need QEMU with GTK/EGL. Add a host package to
 `scripts/install-deps.sh` and `podman/Containerfile` together.
 

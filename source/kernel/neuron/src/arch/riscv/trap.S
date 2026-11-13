@@ -97,22 +97,22 @@ __trap_vector:
     csrr  t0, stval
     sd    t0, {OFF_STVAL}(sp)
 
-    /* A thread that changed its floating-point registers has them written to its state
-     * before the handler can hand it to another hart (RFC-0119, core/trap/fp.rs). */
+    /* A thread that changed its floating-point or vector registers has them written to its
+     * state before the handler can hand it to another hart (RFC-0119, core/trap/fp.rs). */
     mv    a0, sp
     call  __fp_trap_enter
-    /* The kernel computes with integers only: the unit is off while it runs, so a
-     * floating-point instruction in the kernel traps instead of changing a thread's
-     * registers. The thread's own switch is in the frame's status word. */
-    li    t0, 0x6000
+    /* The kernel computes with integers only: both units are off while it runs, so a
+     * floating-point or vector instruction in the kernel traps instead of changing a
+     * thread's registers. The thread's own switches are in the frame's status word. */
+    li    t0, 0x6600
     csrc  sstatus, t0
 
     /* call Rust handler: a0 = &mut TrapFrame */
     mv    a0, sp
     call  __trap_rust
 
-    /* The frame returns to whichever task is current now: its floating-point registers
-     * and its unit switch (RFC-0119). Before the status word is written back. */
+    /* The frame returns to whichever task is current now: its floating-point and vector
+     * registers and its unit switches (RFC-0119). Before the status word is written back. */
     mv    a0, sp
     call  __fp_user_return
 

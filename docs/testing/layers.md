@@ -53,7 +53,7 @@ verified: 2026-11-12
 - Example: `source/services/policyd/tests/lite_protocol_inprocess.rs` — policyd's frame protocol
   over an in-process transport, `cargo test -p policyd`.
 - OS cross-build check for one service:
-  `cargo +nightly-2025-01-15 check -p <svc> --target riscv64imac-unknown-none-elf --no-default-features --features os-lite`.
+  `cargo +nightly-2025-01-15 check -p <svc> --target riscv64gc-unknown-none-elf --no-default-features --features os-lite`.
   The OS target's flags come from `.cargo/config.toml`; never override `RUSTFLAGS` for it.
 
 ## Kernel (`source/kernel/neuron/`)

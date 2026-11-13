@@ -148,7 +148,7 @@ jobs:
         uses: dtolnay/rust-toolchain@nightly
         with:
           toolchain: nightly-2025-01-15
-          targets: riscv64imac-unknown-none-elf
+          targets: riscv64gc-unknown-none-elf, riscv64imac-unknown-none-elf
           components: rust-src, clippy
       - name: Cargo cache
         uses: actions/cache@v4
@@ -190,7 +190,7 @@ jobs:
         uses: dtolnay/rust-toolchain@nightly
         with:
           toolchain: nightly-2025-01-15
-          targets: riscv64imac-unknown-none-elf
+          targets: riscv64gc-unknown-none-elf, riscv64imac-unknown-none-elf
           components: llvm-tools-preview, rust-src
       - name: Cargo cache
         uses: actions/cache@v4

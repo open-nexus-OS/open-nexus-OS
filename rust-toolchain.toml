@@ -7,4 +7,5 @@ components = [
   "rust-src",
   "llvm-tools-preview",
 ]
-targets = ["riscv64imac-unknown-none-elf"]
+# Userspace is hard float, the kernel and the loader are integer-only (ADR-0099).
+targets = ["riscv64gc-unknown-none-elf", "riscv64imac-unknown-none-elf"]

@@ -81,7 +81,7 @@ a commit after their `verified` day; `just brief` counts them. After moving a pa
 | page | role | what |
 |---|---|---|
 | [README.md](kernel/README.md) | guide | NEURON kernel |
-| [float-state.md](kernel/float-state.md) | guide | A thread's floating-point registers |
+| [float-state.md](kernel/float-state.md) | guide | A thread's floating-point and vector registers |
 | [hart-spaces.md](kernel/hart-spaces.md) | reference | The address space a hart runs on |
 | [smp.md](kernel/smp.md) | guide | SMP and IPIs |
 | [topology.md](kernel/topology.md) | reference | The machine's CPUs: topology, CPU sets, per-hart state |

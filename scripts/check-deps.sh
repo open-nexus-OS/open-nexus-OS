@@ -35,7 +35,8 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
 NIGHTLY="nightly-2025-01-15"     # keep in sync with rust-toolchain.toml
-RV_TARGET="riscv64imac-unknown-none-elf"
+# Userspace (hard float) and the kernel + loader (integer only), ADR-0099.
+RV_TARGETS="riscv64gc-unknown-none-elf riscv64imac-unknown-none-elf"
 WANT_GUI="${GUI:-1}"
 WANT_PODMAN="${PODMAN:-1}"
 WANT_BOARD="${BOARD:-1}"
@@ -176,11 +177,13 @@ else
     *) bad "toolchain $NIGHTLY missing" "rustup toolchain install $NIGHTLY --profile minimal" ;;
   esac
 
-  if rustup target list --installed --toolchain "$NIGHTLY" 2>/dev/null | grep -qx "$RV_TARGET"; then
-    ok "target $RV_TARGET ($NIGHTLY)"
-  else
-    bad "target $RV_TARGET missing for $NIGHTLY" "rustup target add $RV_TARGET --toolchain $NIGHTLY"
-  fi
+  for rv_target in $RV_TARGETS; do
+    if rustup target list --installed --toolchain "$NIGHTLY" 2>/dev/null | grep -qx "$rv_target"; then
+      ok "target $rv_target ($NIGHTLY)"
+    else
+      bad "target $rv_target missing for $NIGHTLY" "rustup target add $rv_target --toolchain $NIGHTLY"
+    fi
+  done
 
   comps="$(rustup component list --installed --toolchain "$NIGHTLY" 2>/dev/null)"
   for c in clippy rustfmt rust-src llvm-tools miri; do

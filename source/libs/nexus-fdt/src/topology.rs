@@ -3,7 +3,9 @@
 
 //! CONTEXT: the logical CPUs a kernel runs, as the tree states them (RFC-0118): CPU 0 is the
 //! boot hart whatever its hart id, the others follow in the tree's order of enabled
-//! `/cpus/cpu@*` nodes whose hart has an MMU; each carries its hart id, its cluster
+//! `/cpus/cpu@*` nodes whose hart has an MMU and states every extension the caller requires
+//! (what the system's programs are built for — a hart that cannot run them is no CPU of
+//! it); each carries its hart id, its cluster
 //! (`/cpus/cpu-map`, one cluster when the tree names none) and the PLIC context of its
 //! supervisor external interrupt (the controller's `interrupts-extended`, never
 //! `2·hart + 1`). A value of fixed capacity `N` — the reader has no heap; a tree naming more
@@ -53,10 +55,12 @@ impl<const N: usize> Topology<N> {
     }
 
     /// Reads the topology with `boot_hart` as CPU 0. A logical CPU is an enabled cpu node
-    /// whose hart has an MMU (`Cpu::has_mmu`). Refused when the tree has no `/cpus` or does
-    /// not name the boot hart among those (`Error::NotFound`): a tree that does not describe
-    /// the hart it was handed over on is not this machine's.
-    pub fn read(fdt: &Fdt<'_>, boot_hart: u64) -> Result<Self, Error> {
+    /// whose hart has an MMU (`Cpu::has_mmu`) and states every extension in `requires`
+    /// (`Cpu::has_extension`; empty = none required). Refused when the tree has no `/cpus`
+    /// or does not name the boot hart among the harts with an MMU (`Error::NotFound`): a tree
+    /// that does not describe the hart it was handed over on is not this machine's. Refused
+    /// with `Error::Lacks` when the boot hart is there but lacks a required extension.
+    pub fn read(fdt: &Fdt<'_>, boot_hart: u64, requires: &[&str]) -> Result<Self, Error> {
         let tree = fdt.cpus()?;
         let map = tree.cpu_map();
         let plic = fdt.plic();
@@ -70,8 +74,13 @@ impl<const N: usize> Topology<N> {
                 .and_then(|p| p.plic_s_contexts().find(|(hart, _)| *hart == cpu.hart))
                 .map(|(_, context)| context),
         };
-        let runs = || tree.harts().filter(|c| c.has_mmu());
-        let boot = runs().find(|c| c.hart == boot_hart).ok_or(Error::NotFound)?;
+        let fit = |c: &crate::platform::Cpu<'_>| requires.iter().all(|name| c.has_extension(name));
+        let paged = || tree.harts().filter(|c| c.has_mmu());
+        let runs = || paged().filter(fit);
+        let boot = paged().find(|c| c.hart == boot_hart).ok_or(Error::NotFound)?;
+        if !fit(&boot) {
+            return Err(Error::Lacks);
+        }
         let mut cpus = [Self::NONE; N];
         let mut count = 0;
         let rest = runs().filter(|c| c.hart != boot_hart);
@@ -96,8 +105,9 @@ impl<const N: usize> Topology<N> {
         self.named
     }
 
-    /// The number of those with an MMU — above [`Self::count`] when the tree names more than
-    /// `N`, below [`Self::named`] when it names harts an OS cannot schedule on.
+    /// The number of those with an MMU and every required extension — above [`Self::count`]
+    /// when the tree names more than `N`, below [`Self::named`] when it names harts this
+    /// system cannot schedule on.
     #[must_use]
     pub fn runnable(&self) -> usize {
         self.runnable

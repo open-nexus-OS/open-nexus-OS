@@ -3,7 +3,8 @@
 
 //! CONTEXT: the sched syscall's operations (B, TASK-0042) — a task's CPU set and shares
 //! (target 0 = self, cross-task requires the QoS-admin capability), the machine's topology
-//! (RFC-0118), and the kernel's budget and baseline reports. A CPU set is a [`CpuSet`] on
+//! (RFC-0118), what its CPUs offer a program (RFC-0119), and the kernel's budget and
+//! baseline reports. A CPU set is a [`CpuSet`] on
 //! both sides of the syscall; a program asks the kernel for the machine and derives its sets
 //! from the answer — it never assumes a count and never writes a mask.
 //! (Split out of `task.rs` under the structure ratchet; syscall ID and operations unchanged.)
@@ -16,7 +17,7 @@
 //! RFC: docs/rfcs/RFC-0118-n-harts-from-the-device-tree-a-64-bit-cpu-set-the-topology-exported.md
 
 use super::*;
-pub use nexus_sched::{CpuSet, Placement, Topology};
+pub use nexus_sched::{CpuSet, Extension, Offers, Placement, Topology};
 use nexus_sched::{TopologyQuery, TOPOLOGY_OP};
 
 const SYSCALL_SCHED: usize = 48;
@@ -56,6 +57,15 @@ pub fn online() -> SysResult<CpuSet> {
 #[must_use = "hart lookup result must be handled"]
 pub fn hart_of(cpu: usize) -> SysResult<u64> {
     ask(TopologyQuery::HartOf, cpu).map(|hart| hart as u64)
+}
+
+/// What every CPU offers this program (RFC-0119): the extensions a thread may use on
+/// whichever CPU it runs, and the vector registers' width. A program chooses its code path
+/// from this — it never assumes an extension and never executes one to find out. A word that
+/// contradicts itself is refused like no answer.
+#[must_use = "what the CPUs offer is what a code path is chosen from"]
+pub fn offers() -> SysResult<Offers> {
+    ask(TopologyQuery::Offers, 0).and_then(|raw| Offers::from_raw(raw).ok_or(AbiError::Unsupported))
 }
 
 /// Returns the caller's CPU set (bit N = may run on logical CPU N).

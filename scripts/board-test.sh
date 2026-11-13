@@ -93,6 +93,13 @@ ladder_headless=(
   "SELFTEST: fpsoak ok"
   "KSELFTEST: fp state lazy ok ("
   "KSELFTEST: fp state moved ok ("
+  # TASK-0362 P2 (RFC-0119): the same for the vector registers (every byte of v0–v31, the
+  # length, the type and the control register), and the kernel's answer to what every CPU
+  # offers a program held when the soaks acted on it.
+  "SELFTEST: vsoak ok"
+  "SELFTEST: hw probe ok ("
+  "KSELFTEST: vector state lazy ok ("
+  "KSELFTEST: vector state moved ok ("
   # TASK-0330 S2a: the console's serial time is off the kernel lock (the board's layer-0
   # longest holders were the two console syscalls).
   "KSELFTEST: console off lock ok ("

@@ -7,6 +7,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-11-12 (every userspace program is built for one hard-float target — TASK-0362 P3, ADR-0099)
+
+- **Build:** userspace is `riscv64gc-unknown-none-elf` (F and D, arguments in the float
+  registers); the kernel and the first-stage loader stay `riscv64imac-unknown-none-elf`.
+  There is no second userspace target: `.cargo/config.toml` carries one flags block per
+  target, the justfile `os_target` / `kernel_target`, the scripts `TARGET` / `KERNEL_TARGET`;
+  the boot payload lies beside the kernel. Container, CI and the host checks install both.
+- **Gate:** `scripts/check-image-budgets.sh` reads every service image's float ABI from its
+  ELF header and fails on a soft-float one — `float ABI 36 hard float, 0 soft float`.
+- **What the image needs is checked, not assumed:** a hart whose node does not state F and D
+  is no logical CPU (`nexus_fdt::Topology::read(…, requires)`, by either binding of the tree;
+  `rv64gc` counts), and a boot hart without them ends the boot with one line that names what
+  is missing (`topology::PROGRAMS_NEED`, `Source::BootHartUnfit`). Tests on a synthetic tree
+  with an integer-only hart: `a_hart_that_cannot_run_the_systems_programs_is_no_cpu`,
+  `test_reject_a_boot_hart_without_what_the_systems_programs_need`,
+  `test_reject_a_boot_hart_that_cannot_run_the_images_programs`.
+- **Determinism held:** the SVG golden digest (`SELFTEST: svg local determinism ok`,
+  `SELFTEST: pinched svg ok`) is unchanged under hardware floats; no flag relaxes float math.
+- **Detector:** the float soak takes the registers a caller keeps across a call aside and
+  gives them back, since the program's own code may now hold values there.
+- **Measured on the board** (same apps, `board--2026-11-12T15-31-27` soft float →
+  `board--2026-11-13T09-35-00` hard float): motion layer 402×240 123 662 → 18 506 µs,
+  391×548 310 679 → 45 992 µs, 343×122 23 6xx → 3 76x µs (6.3× to 6.8×); a 41-row motion
+  pass 74.3 → 9.1 ms; app launch `render_ms` 362–1142 → 99–442 (two of six launches inside
+  the 300 ms budget, none before; no `ux launch FAIL`, one before). The SVG icon raster has
+  no line of its own in the board log — its share is inside `render_ms`.
+
+### Added - 2026-11-12 (a thread's vector registers are its own, and a program asks what every CPU offers — TASK-0362 P2, RFC-0119)
+
+- **Kernel:** the vector unit follows the float unit's rule with its own switch and its own
+  state (4 control words and 32 registers of the machine's width, allocated at a thread's
+  first vector instruction; zeros, no type set). The rules are one, applied per unit
+  (`fp_rule::Kind`); the instruction decode that picks the unit is its own pure module
+  (`fp_inst.rs`), every register routine sits in `fp_regs.rs`. Vector registers are kept
+  across syscalls. The width is read from each hart's own register; the unit is offered only
+  when every hart states V and reads the same width (16 to 256 bytes) — a hart that differs
+  withdraws the offer before any thread runs.
+- **The kernel runs under one vector configuration** (length, type and start as after reset,
+  from every trap entry of a vector thread; the thread's own come back at its return). Found
+  by measurement: the emulator translates code per vector configuration, so with a thread's
+  setting left on the hart the lock budget on eight harts was red in 2 of 2 runs (waits up to
+  96.7 ms, one `spawn` holding 95 ms); with the rule, green in 3 of 3 (waits 5.7–10.1 ms).
+- **ABI — what the machine offers:** topology query `OFFERS` (5) of the sched syscall, one
+  word (`nexus_sched::Offers`, `nexus_abi::sched::offers()`): floats, vectors, Zba, Zbb, Zbs,
+  Zfh, Zvfh, and the vector register width in bytes. A bit is set only when every CPU carries
+  the extension and, for a unit, the kernel keeps its state; a reader refuses a word that
+  contradicts itself (`test_reject_a_word_that_contradicts_itself`,
+  `test_reject_a_width_no_register_has`).
+- **Standing detectors:** one soak harness (`unitsoak`) for both register sets, run for the
+  units the answer names. `vsoak` compares every byte of `v0`–`v31`, the length, the type and
+  the control register of two threads with different settings after each of 10 000
+  hand-overs. Markers: `SELFTEST: vsoak ok`, `SELFTEST: hw probe ok (` (only after the soaks
+  the answer started passed and the thread's own registers have the stated width),
+  `KSELFTEST: vector state lazy ok (`, and with more than one hart
+  `KSELFTEST: vector state moved ok (`; the FAIL forms are errors in every profile. QEMU green
+  with 1, 2 and 8 harts (16-byte registers); the board with 8 harts in two clusters
+  (32-byte registers: `hw probe ok (float=1 vector=1 vector_bytes=32 own_bytes=32
+  word=0x200000001f)`, ladder 116 rungs).
+
 ### Added - 2026-11-12 (a thread's floating-point registers are its own, kept from first use — TASK-0362 P1, RFC-0119)
 
 - **Kernel:** a thread has no floating-point state until its first floating-point instruction

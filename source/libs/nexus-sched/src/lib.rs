@@ -3,10 +3,12 @@
 
 #![cfg_attr(not(test), no_std)]
 //! CONTEXT: The scheduling vocabulary the kernel and userspace share — `CpuSet`, the set of
-//! logical CPUs a task may run on, and the topology a program asks the kernel for (RFC-0118;
-//! one definition on both sides of the ABI) — and a deadline helper for userspace services.
+//! logical CPUs a task may run on, the topology a program asks the kernel for (RFC-0118) and
+//! what every CPU offers a program (RFC-0119; one definition on both sides of the ABI) — and
+//! a deadline helper for userspace services.
 //! OWNERS: @kernel-team @runtime
-//! PUBLIC API: CpuSet, CpuSetError, Topology, TopologyQuery, TOPOLOGY_OP, Placement, Deadline
+//! PUBLIC API: CpuSet, CpuSetError, Topology, TopologyQuery, TOPOLOGY_OP, Placement, Offers,
+//!   Extension, Deadline
 //! DEPENDS_ON: core
 //! INVARIANTS: Pure calculations, no allocation, no unsafe; unit-tested
 //! ADR: docs/adr/0016-kernel-libs-architecture.md
@@ -14,9 +16,11 @@
 #![forbid(unsafe_code)]
 
 mod cpu_set;
+mod offers;
 mod topology;
 
 pub use cpu_set::{CpuSet, CpuSetError};
+pub use offers::{Extension, Offers};
 pub use topology::{Placement, Topology, TopologyQuery, TOPOLOGY_OP};
 
 /// Simple scheduler timeline helper for user space services.

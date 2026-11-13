@@ -9,7 +9,8 @@
 #
 # Environment:
 #   NEXUS_SKIP_BUILD   – when "1", skip cargo build; artifacts MUST pre-exist
-#   TARGET             – Rust target triple (default: riscv64imac-unknown-none-elf)
+#   TARGET             – userspace target triple (default: riscv64gc-unknown-none-elf, hard float)
+#   KERNEL_TARGET      – kernel + loader target triple (default: riscv64imac-unknown-none-elf)
 #   TARGET_ROOT        – cargo target directory (default: $ROOT/target)
 #   INIT_LITE_SERVICE_LIST – comma-separated service names to cross-compile
 #   BUILD_TMPDIR_DEFAULT – fallback for TMPDIR (default: $ROOT/.tmp/build)
@@ -20,7 +21,10 @@
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-TARGET=${TARGET:-riscv64imac-unknown-none-elf}
+# ADR-0099: every userspace program is built for ONE hard-float target; the kernel and the
+# first-stage loader stay integer-only. There is no second userspace target.
+TARGET=${TARGET:-riscv64gc-unknown-none-elf}
+KERNEL_TARGET=${KERNEL_TARGET:-riscv64imac-unknown-none-elf}
 
 # ---------------------------------------------------------------------------
 # TASK-0325 / ADR-0063: derived output says so, in the standard way.
@@ -55,20 +59,21 @@ else
 fi
 export CARGO_TARGET_DIR="$TARGET_ROOT"
 
-KERNEL_ELF=$TARGET_ROOT/$TARGET/release/neuron-boot
+KERNEL_ELF=$TARGET_ROOT/$KERNEL_TARGET/release/neuron-boot
 # ADR-0081: the boot image is ONE container — the flat kernel and the bootfs (init, every
 # core service, app-host, the recv-wake probe) under one digest and one signature. `nx image
 # payload` packs it from the kernel ELF and this manifest; every disk assembler takes it.
-BOOT_PAYLOAD=$TARGET_ROOT/$TARGET/release/boot-payload.bin
+# It lies beside the kernel and the loader.
+BOOT_PAYLOAD=$TARGET_ROOT/$KERNEL_TARGET/release/boot-payload.bin
 BOOTFS_MANIFEST=$ROOT/build/bootfs-manifest.json
 # The bootfs files after init, in boot order: "name:path:stack_pages".
 BOOTFS_FILES=()
 INIT_ELF=$TARGET_ROOT/$TARGET/release/init-lite
 # TASK-0289 A4: the VMM -kernel payload is the first-stage loader; the
 # kernel image travels inside the GPT disk (boot-a slot, NXBD-signed).
-NXBOOT_ELF=$TARGET_ROOT/$TARGET/release/nxboot
-# The OS target's flags live in ONE place: `.cargo/config.toml`
-# `[target.riscv64imac-unknown-none-elf] rustflags` (nexus_env="os", +zbb, share-generics).
+NXBOOT_ELF=$TARGET_ROOT/$KERNEL_TARGET/release/nxboot
+# The two OS targets' flags live in ONE place: `.cargo/config.toml`
+# `[target.<triple>] rustflags` (nexus_env="os", +zbb, share-generics).
 # RUSTFLAGS from the caller would REPLACE that list (cargo takes the first source it finds),
 # so the build never sees it — the shipped image is built with the flags the lints check.
 unset RUSTFLAGS CARGO_ENCODED_RUSTFLAGS
@@ -439,7 +444,7 @@ EOF_TOML
 build_kernel_and_init() {
   require_or_build "$INIT_ELF" "init-lite" -- cargo build -p init-lite --target "$TARGET" --release
 
-  local -a kernel_args=(build -p neuron-boot --target "$TARGET" --release)
+  local -a kernel_args=(build -p neuron-boot --target "$KERNEL_TARGET" --release)
   if [[ -n "${NEURON_BOOT_FEATURES:-}" ]]; then
     kernel_args+=(--features "$NEURON_BOOT_FEATURES")
   fi
@@ -447,7 +452,7 @@ build_kernel_and_init() {
 
   # TASK-0289 A4: first-stage loader (verifies the slot before any OS code
   # runs; its linker script hard-asserts the 256 KiB budget, ADR-0059).
-  require_or_build "$NXBOOT_ELF" "boot:nxboot" -- cargo build -p nxboot --target "$TARGET" --release
+  require_or_build "$NXBOOT_ELF" "boot:nxboot" -- cargo build -p nxboot --target "$KERNEL_TARGET" --release
   # The boot payload is an artifact of THIS build, not of the next QEMU lane:
   # `nx image` (the board's disk included) reads it.
   pack_boot_payload

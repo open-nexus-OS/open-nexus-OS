@@ -326,8 +326,8 @@ pub struct Task {
     pending: Option<process::Pending>,
     /// ADR-0082: how many threads this leader's exit took (the reap's proof line).
     threads_taken: u8,
-    /// RFC-0119: its floating-point registers, from its first use of them to its death.
-    pub(crate) fp: Option<alloc::boxed::Box<crate::trap::fp::State>>,
+    /// RFC-0119: its floating-point and vector registers, from first use to its death.
+    pub(crate) fp: crate::trap::fp::Held,
 }
 
 /// Minimal guard metadata used by the trap handler to attribute user page faults.
@@ -389,7 +389,7 @@ impl Task {
             frozen_at: 0,
             pending: None,
             threads_taken: 0,
-            fp: None,
+            fp: Default::default(),
         }
     }
 
@@ -612,7 +612,7 @@ impl TaskTable {
             process::note_frozen_ran(pid);
         }
         self.current[Self::current_cpu_index()] = pid;
-        crate::trap::fp::now_runs(self.tasks.get(pid.as_index()).and_then(|t| t.fp.as_deref()));
+        crate::trap::fp::now_runs(self.tasks.get(pid.as_index()).map(|t| &t.fp));
     }
 
     /// Selftest helper: create a minimal task entry without allocating a new address space or stack.
@@ -668,7 +668,7 @@ impl TaskTable {
             frozen_at: 0,
             pending: None,
             threads_taken: 0,
-            fp: None,
+            fp: Default::default(),
         };
         // B: the round-robin placement must respect the inherited mask.
         let clamped =
@@ -908,7 +908,7 @@ impl TaskTable {
             frozen_at: 0,
             pending: None,
             threads_taken: 0,
-            fp: None,
+            fp: Default::default(),
         };
         if let Some(block) = stack_block {
             task.image_allocs.push(block);
@@ -1036,7 +1036,7 @@ impl TaskTable {
         task.caps = CapTable::default();
         task.bootstrap_slot = None;
         task.frame = TrapFrame::default();
-        task.fp = None;
+        task.fp = Default::default();
         task.children.clear();
         task.image_allocs.take()
     }

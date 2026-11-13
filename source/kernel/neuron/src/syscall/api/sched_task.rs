@@ -278,7 +278,14 @@ pub(super) fn sys_sched(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> 
         let answer = nexus_sched::TopologyQuery::from_raw(args.get(1))
             .zip(crate::topology::machine())
             .and_then(|(what, machine)| {
-                crate::topology::answer(machine, crate::smp::cpu_online(), what, args.get(2))
+                let offers = crate::trap::fp::offers();
+                crate::topology::answer(
+                    machine,
+                    crate::smp::cpu_online(),
+                    offers,
+                    what,
+                    args.get(2),
+                )
             });
         return answer.ok_or(AddressSpaceError::InvalidArgs.into());
     }

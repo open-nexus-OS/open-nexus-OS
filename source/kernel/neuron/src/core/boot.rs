@@ -62,6 +62,16 @@ pub fn early_boot_init(hartid: usize, dtb: usize) -> usize {
         log_info!(target: "boot", "boot: platform from fdt FAILED ({:?})", e);
         return 0;
     }
+    // ADR-0099: what the image's programs are built for is checked, not assumed.
+    if machine == crate::topology::Source::BootHartUnfit {
+        log_info!(
+            target: "boot",
+            "boot: hart {} FAILED (the tree does not state {:?} for it — no program of this image runs here)",
+            hartid,
+            crate::topology::PROGRAMS_NEED
+        );
+        return 0;
+    }
     // TASK-0260B P3: the boot LED's ladder, milestone 1 — the platform came from the tree.
     crate::hal::boot_led::init(crate::boot_fdt::bytes());
     crate::hal::boot_led::milestone(1);

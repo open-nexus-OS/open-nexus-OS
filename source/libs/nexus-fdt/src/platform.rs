@@ -176,16 +176,19 @@ impl<'a> Cpu<'a> {
         self.node.prop_strs("riscv,isa-extensions")
     }
 
-    /// True when `name` is in `riscv,isa-extensions` or appears as a `_name`
-    /// suffix of the legacy `riscv,isa` string.
+    /// True when the hart states `name` by either binding: an entry of
+    /// `riscv,isa-extensions`, or in the legacy `riscv,isa` string a `_name` part or — for a
+    /// single letter — a letter after the base (`rv64imafdc`; `g` stands for `imafd`).
     pub fn has_extension(&self, name: &str) -> bool {
         if self.isa_extensions().any(|e| e == name) {
             return true;
         }
-        match self.node.prop_str("riscv,isa") {
-            Some(isa) => isa.split('_').any(|part| part == name),
-            None => false,
-        }
+        let Some(isa) = self.node.prop_str("riscv,isa") else { return false };
+        let mut parts = isa.split('_');
+        let letters = parts.next().and_then(|base| base.get(4..)).unwrap_or("");
+        let by_letter = name.len() == 1
+            && (letters.contains(name) || (letters.contains('g') && "imafd".contains(name)));
+        by_letter || parts.any(|part| part == name)
     }
 
     /// `mmu-type` (`riscv,sv39` …).

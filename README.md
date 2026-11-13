@@ -38,7 +38,7 @@ system — runs as userspace services under deny-by-default capability policy.
 | --- | --- |
 | **Status** | Early-stage. Boots to a usable desktop; not yet a daily driver. |
 | **Kernel** | `neuron` — a capability microkernel in Rust (`no_std`): scheduling, virtual memory, IPC, capabilities. Drivers and policy stay out of it. |
-| **Architecture** | RISC-V 64-bit (`riscv64imac-unknown-none-elf`), SMP=4 by default |
+| **Architecture** | RISC-V 64-bit — userspace `riscv64gc-unknown-none-elf` (hard float), kernel `riscv64imac-unknown-none-elf`; SMP=4 by default |
 | **Runs on** | `qemu-system-riscv64 virt` (virtio-gpu 2D, virgl 3D) and one RISC-V single-board computer (eMMC boot, HDMI 1080p60, USB input) |
 | **Security model** | Capability-based, deny-by-default; identity is the kernel-provided `sender_service_id`, never payload strings |
 | **Desktop / GUI** | `windowd` compositor service + `gpud` GPU backend + a declarative `.nx` app platform |

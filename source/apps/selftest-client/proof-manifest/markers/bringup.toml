@@ -395,6 +395,27 @@ phase = "bringup"
 emit_when = { profile = "smp" }
 proves = "a thread's floating-point state written on one CPU was loaded on another before the thread ran there (from= to=; unordered presence check)"
 
+# RFC-0119 (TASK-0362 P2): the same for the vector registers, and the answer that tells a
+# program which units every CPU carries. The soaks run for the units that answer names.
+[marker."SELFTEST: vsoak ok"]
+phase = "bringup"
+emit_when = { profile = "headless" }
+proves = "two threads each keep every byte of their own v0-v31, their vector length and type and the control register across 10 000 hand-overs of the hart (two syscalls each), hops over the CPUs and preemption mid-use (RFC-0119)"
+
+[marker."SELFTEST: hw probe ok ("]
+phase = "bringup"
+emit_when = { profile = "headless" }
+proves = "the kernel's answer to what every CPU offers a program held when acted on: the soak of each unit it names passed, and this thread's own vector registers have the width it states (float= vector= vector_bytes= own_bytes= word=; the answer's other bits are proven by their first consumer)"
+
+[marker."KSELFTEST: vector state lazy ok ("]
+phase = "bringup"
+proves = "the kernel wrote 10 000 vector states only for threads that changed their registers, and the unit was never on for a thread without a state (threads= saves= loads= kept= refused=0; unordered presence check)"
+
+[marker."KSELFTEST: vector state moved ok ("]
+phase = "bringup"
+emit_when = { profile = "smp" }
+proves = "a thread's vector state written on one CPU was loaded on another before the thread ran there (from= to=; unordered presence check)"
+
 [marker."SELFTEST: svg local determinism ok"]
 phase = "bringup"
 emit_when = { profile = "headless" }
@@ -1360,6 +1381,21 @@ phase = "bringup"
 phase = "bringup"
 
 [marker."KSELFTEST: fp state FAIL ("]
+phase = "bringup"
+
+[marker."SELFTEST: vsoak FAIL (registers)"]
+phase = "bringup"
+
+[marker."SELFTEST: vsoak FAIL (partner)"]
+phase = "bringup"
+
+[marker."SELFTEST: vsoak FAIL (spawn)"]
+phase = "bringup"
+
+[marker."SELFTEST: hw probe FAIL ("]
+phase = "bringup"
+
+[marker."KSELFTEST: vector state FAIL ("]
 phase = "bringup"
 
 [marker."SELFTEST: thread spawn FAIL"]

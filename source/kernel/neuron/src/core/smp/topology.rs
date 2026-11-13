@@ -33,15 +33,25 @@ pub enum Source {
     Tree,
     /// The tree has no readable `/cpus` or does not name the boot hart: the boot hart alone.
     BootHartAlone,
+    /// The tree names the boot hart without what every program needs ([`PROGRAMS_NEED`]):
+    /// no program of this image can run here.
+    BootHartUnfit,
 }
+
+/// The extensions every userspace program of this image is built for (ADR-0099: one
+/// hard-float target). A hart that does not state them is no logical CPU — a thread may run
+/// on any CPU, and would die there on its first float instruction.
+pub const PROGRAMS_NEED: [&str; 2] = ["f", "d"];
 
 /// Reads the machine from `tree` with `boot_hart` as CPU 0.
 #[must_use]
 pub fn read(tree: Option<&[u8]>, boot_hart: u64) -> (Machine, Source) {
-    let read =
-        tree.and_then(|bytes| Fdt::new(bytes).ok()).map(|fdt| Machine::read(&fdt, boot_hart));
+    let read = tree
+        .and_then(|bytes| Fdt::new(bytes).ok())
+        .map(|fdt| Machine::read(&fdt, boot_hart, &PROGRAMS_NEED));
     match read {
         Some(Ok(machine)) => (machine, Source::Tree),
+        Some(Err(nexus_fdt::Error::Lacks)) => (Machine::single(boot_hart), Source::BootHartUnfit),
         _ => (Machine::single(boot_hart), Source::BootHartAlone),
     }
 }
@@ -113,11 +123,13 @@ pub fn plic_context(cpu: usize) -> Option<u32> {
 pub fn answer(
     machine: &Machine,
     online: CpuSet,
+    offers: nexus_sched::Offers,
     what: nexus_sched::TopologyQuery,
     index: usize,
 ) -> Option<usize> {
     use nexus_sched::TopologyQuery as Query;
     match what {
+        Query::Offers => (index == 0).then_some(offers.raw()),
         Query::Cpus => Some(machine.count()),
         Query::Online => Some(online.bits() as usize),
         Query::Clusters => Some(machine.clusters()),
@@ -208,12 +220,27 @@ mod tests {
 
     #[test]
     fn sparse_hart_ids_take_one_call_per_window() {
-        // CPUs: 0 = hart 0x200, 1 = 0x100, 2 = 0x101, 3 = 0x1_0000_0000.
-        let (forms, _) = read(Some(FORMS), 0x200);
+        // Every paged hart of the tree — CPUs: 0 = hart 0x200, 1 = 0x100, 2 = 0x101,
+        // 3 = 0x1_0000_0000.
+        let forms = Machine::read(&Fdt::new(FORMS).unwrap(), 0x200, &[]).unwrap();
         assert_eq!(
             sends(&forms, CpuSet::first(4)),
             [(0b11, 0x100), (1, 0x200), (1, 0x1_0000_0000)]
         );
+        // The machine this kernel runs: hart 0x101 states no floats and is no CPU.
+        let (forms, _) = read(Some(FORMS), 0x200);
+        assert_eq!(sends(&forms, CpuSet::first(3)), [(1, 0x100), (1, 0x200), (1, 0x1_0000_0000)]);
+    }
+
+    #[test]
+    fn test_reject_a_boot_hart_that_cannot_run_the_images_programs() {
+        // Hart 0x101 is in the tree, enabled and paged, but states neither F nor D.
+        let (machine, source) = read(Some(FORMS), 0x101);
+        assert_eq!(source, Source::BootHartUnfit);
+        assert_eq!(machine.count(), 1);
+        // A hart of the same tree that states them is CPU 0 of three.
+        let (machine, source) = read(Some(FORMS), 0x100);
+        assert_eq!((source, machine.count(), machine.cpu_of(0x101)), (Source::Tree, 3, None));
     }
 
     #[test]
@@ -222,7 +249,9 @@ mod tests {
         // The reader a program uses, fed by the kernel's answers: the board with CPU 6 lost.
         let (board, _) = read(Some(BOARD), 0);
         let online = CpuSet::from_bits(0xbf);
-        let seen = Topology::from_queries(|what, index| answer(&board, online, what, index));
+        let seen = Topology::from_queries(|what, index| {
+            answer(&board, online, nexus_sched::Offers::NONE, what, index)
+        });
         let seen = seen.unwrap();
         assert_eq!((seen.cpus(), seen.clusters(), seen.online()), (8, 2, online));
         assert_eq!(seen.cluster_set(0).map(CpuSet::bits), Some(0x0f));
@@ -231,10 +260,16 @@ mod tests {
         // A machine of forms neither reference uses reads by the same rules.
         let (forms, _) = read(Some(FORMS), 0x200);
         let all = CpuSet::first(forms.count());
-        let seen = Topology::from_queries(|what, index| answer(&forms, all, what, index)).unwrap();
+        let seen = Topology::from_queries(|what, index| {
+            answer(&forms, all, nexus_sched::Offers::NONE, what, index)
+        })
+        .unwrap();
         assert_eq!((seen.cpus(), seen.clusters()), (forms.count(), forms.clusters()));
         // The hart id is a diagnostic: CPU 0 is the boot hart whatever its id.
-        assert_eq!(answer(&forms, all, nexus_sched::TopologyQuery::HartOf, 0), Some(0x200));
+        assert_eq!(
+            answer(&forms, all, nexus_sched::Offers::NONE, nexus_sched::TopologyQuery::HartOf, 0),
+            Some(0x200)
+        );
     }
 
     #[test]
@@ -242,10 +277,17 @@ mod tests {
         use nexus_sched::TopologyQuery as Query;
         let (virt, _) = read(Some(VIRT), 0);
         let online = CpuSet::first(4);
-        assert_eq!(answer(&virt, online, Query::ClusterSet, 1), None);
-        assert_eq!(answer(&virt, online, Query::HartOf, 4), None);
-        assert_eq!(answer(&virt, online, Query::HartOf, usize::MAX), None);
-        assert_eq!(answer(&virt, online, Query::HartOf, 3), Some(3));
+        assert_eq!(answer(&virt, online, nexus_sched::Offers::NONE, Query::ClusterSet, 1), None);
+        assert_eq!(answer(&virt, online, nexus_sched::Offers::NONE, Query::HartOf, 4), None);
+        assert_eq!(
+            answer(&virt, online, nexus_sched::Offers::NONE, Query::HartOf, usize::MAX),
+            None
+        );
+        assert_eq!(answer(&virt, online, nexus_sched::Offers::NONE, Query::HartOf, 3), Some(3));
+        // What the CPUs offer is one word; it has no second one.
+        let offers = nexus_sched::Offers::of_machine(|_| true, true, Some(16));
+        assert_eq!(answer(&virt, online, offers, Query::Offers, 0), Some(offers.raw()));
+        assert_eq!(answer(&virt, online, offers, Query::Offers, 1), None);
     }
 
     #[test]

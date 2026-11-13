@@ -300,7 +300,7 @@ pub fn start_secondary_harts() -> CpuSet {
         if let Some(machine) = crate::topology::machine().filter(|m| m.named() > m.runnable()) {
             log_info!(
                 target: "smp",
-                "KINIT: {} of the tree's {} harts are not started (disabled or without an mmu)",
+                "KINIT: {} of the tree's {} harts are not started (no mmu, or without what the image's programs need)",
                 machine.named() - machine.runnable(),
                 machine.named()
             );

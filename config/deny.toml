@@ -29,7 +29,7 @@ ignore = [
     "RUSTSEC-2023-0089",
 
     # --- HOST-ONLY advisories (2026 batch). Verified NOT in the OS/QEMU target
-    # graph (cargo tree -i <crate> --target riscv64imac-unknown-none-elf
+    # graph (cargo tree -i <crate> --target riscv64gc-unknown-none-elf
     # --no-default-features): every path reaches only host test/tooling/font
     # crates, never a shipped OS service. The OS graph is independently guarded
     # by `just dep-gate` (RFC-0009). Tracked in

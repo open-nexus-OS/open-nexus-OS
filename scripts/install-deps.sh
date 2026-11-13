@@ -36,7 +36,8 @@
 set -euo pipefail
 
 NIGHTLY="nightly-2025-01-15"     # keep in sync with rust-toolchain.toml
-RV_TARGET="riscv64imac-unknown-none-elf"
+# Userspace (hard float) and the kernel + loader (integer only), ADR-0099.
+RV_TARGETS="riscv64gc-unknown-none-elf riscv64imac-unknown-none-elf"
 CARGO_DENY_VERSION="0.18.9"      # keep in sync with podman/Containerfile + ci.yml
 
 ASSUME_YES=0
@@ -415,11 +416,13 @@ rustup toolchain install "$NIGHTLY" --profile minimal
 # supplies the llvm-objcopy that scripts/qemu-launcher.sh looks for.
 rustup component add clippy rustfmt rust-src llvm-tools-preview miri --toolchain "$NIGHTLY"
 
-log "installing RISC-V cross-compilation target ($RV_TARGET)"
-rustup target add "$RV_TARGET" --toolchain "$NIGHTLY"
+log "installing RISC-V cross-compilation targets ($RV_TARGETS)"
+# shellcheck disable=SC2086  # a word-split list of triples
+rustup target add $RV_TARGETS --toolchain "$NIGHTLY"
 # The Makefile's container spur builds under `rustup default stable`, so the
-# default toolchain needs the target too.
-rustup target add "$RV_TARGET" || warn "could not add $RV_TARGET to the default toolchain"
+# default toolchain needs the targets too.
+# shellcheck disable=SC2086
+rustup target add $RV_TARGETS || warn "could not add $RV_TARGETS to the default toolchain"
 
 # --------- post-install: cargo-installed tools ------------------------------
 # Universal fallback for anything the distro did not ship. `cargo install`

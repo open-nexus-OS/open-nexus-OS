@@ -23,7 +23,10 @@
 # number has to move.
 set -euo pipefail
 
-TARGET_DIR="target/riscv64imac-unknown-none-elf/release"
+# ADR-0099: every userspace image is built for the one hard-float target; the first-stage
+# loader (and the kernel) for the integer-only one.
+TARGET_DIR="target/riscv64gc-unknown-none-elf/release"
+KERNEL_TARGET_DIR="target/riscv64imac-unknown-none-elf/release"
 KERNEL_MM="source/kernel/neuron/src/mm/mod.rs"
 
 # ── Budgets (bytes). Measured size + headroom, rounded to a clean number. ────
@@ -121,6 +124,8 @@ if [[ ! -d "$TARGET_DIR" ]]; then
 fi
 
 shopt -s nullglob
+hard_float=0
+soft_float=0
 for elf in "$TARGET_DIR"/*; do
     [[ -f "$elf" && -x "$elf" ]] || continue
     name=$(basename "$elf")
@@ -129,7 +134,18 @@ for elf in "$TARGET_DIR"/*; do
     [[ -n "${NOT_A_SERVICE[$name]:-}" ]] && continue
     budget=${BUDGETS[$name]:-$OTHER_BUDGET}
     check_one "$name" "$elf" "$budget"
+    # ADR-0099: one userspace target. The ELF header's flags word (offset 48, bits 1-2) names
+    # the float ABI the image was built for: 2 = double — arguments in the float registers.
+    abi=$(( (0x$(od -An -tx4 -j48 -N4 "$elf" | tr -d ' ') >> 1) & 3 ))
+    if ((abi == 2)); then
+        hard_float=$((hard_float + 1))
+    else
+        soft_float=$((soft_float + 1))
+        echo "check-image-budgets: FAIL — $name is not built for the hard-float target (float ABI $abi)" >&2
+        fail=1
+    fi
 done
+printf '%-14s %10d hard float, %d soft float\n' "float ABI" "$hard_float" "$soft_float"
 
 for name in "${!NOT_A_SERVICE[@]}"; do
     printf '%-14s %10s %10s %6s  (%s)\n' "$name" "-" "-" "n/a" "${NOT_A_SERVICE[$name]}"
@@ -139,7 +155,7 @@ done
 # 256 KiB of LOADABLE bytes (text+data; bss/stack are RAM-only). The linker
 # script asserts the same bound at link time; this re-check keeps the trend
 # visible next to the service table.
-NXBOOT_ELF="$TARGET_DIR/nxboot"
+NXBOOT_ELF="$KERNEL_TARGET_DIR/nxboot"
 NXBOOT_BUDGET=$((256 * 1024))
 if [[ -f "$NXBOOT_ELF" ]]; then
     read -r ntext ndata < <(size "$NXBOOT_ELF" | awk 'NR==2 {print $1, $2}')

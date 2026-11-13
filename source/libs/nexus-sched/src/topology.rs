@@ -36,6 +36,8 @@ pub enum TopologyQuery {
     ClusterSet = 3,
     /// The hart id of CPU `index` (for diagnostics and logs); refused beyond the count.
     HartOf = 4,
+    /// What every CPU offers a program (RFC-0119): an [`crate::Offers`] word; `index` is 0.
+    Offers = 5,
 }
 
 impl TopologyQuery {
@@ -48,6 +50,7 @@ impl TopologyQuery {
             2 => Self::Clusters,
             3 => Self::ClusterSet,
             4 => Self::HartOf,
+            5 => Self::Offers,
             _ => return None,
         })
     }
@@ -162,6 +165,7 @@ mod tests {
             TopologyQuery::Clusters => Some(clusters.len()),
             TopologyQuery::ClusterSet => clusters.get(index).map(|&set| set as usize),
             TopologyQuery::HartOf => (index < cpus).then_some(index),
+            TopologyQuery::Offers => (index == 0).then_some(crate::Offers::NONE.raw()),
         }
     }
 
@@ -178,7 +182,8 @@ mod tests {
         let machine = Topology::from_queries(kernel(4, 0xf, &[0xf])).unwrap();
         assert_eq!(machine.cluster_set(1), None);
         assert_eq!(machine.cluster_set(usize::MAX), None);
-        assert_eq!(TopologyQuery::from_raw(5), None);
+        assert_eq!(TopologyQuery::from_raw(5), Some(TopologyQuery::Offers));
+        assert_eq!(TopologyQuery::from_raw(6), None);
     }
 
     #[test]

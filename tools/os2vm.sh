@@ -141,7 +141,9 @@ if [[ "${RUN_OS2VM:-0}" != "1" ]]; then
   exit 2
 fi
 
-TARGET=${TARGET:-riscv64imac-unknown-none-elf}
+# ADR-0099: userspace is hard float, the kernel and the loader are integer-only.
+TARGET=${TARGET:-riscv64gc-unknown-none-elf}
+KERNEL_TARGET=${KERNEL_TARGET:-riscv64imac-unknown-none-elf}
 BUILD_TARGET_DIR=${OS2VM_TARGET_DIR:-"$ROOT/target-os2vm"}
 RUN_TIMEOUT=${RUN_TIMEOUT:-180s}
 AGENT_RUN_ID=${AGENT_RUN_ID:-os2vm--$(date +%Y-%m-%dT%H-%M-%S)}
@@ -1090,13 +1092,13 @@ build_os_once() {
   printf ']}\n' >>"$manifest"
 
   (cd "$ROOT" && cargo build -p init-lite --target "$TARGET" --release)
-  (cd "$ROOT" && cargo build -p neuron-boot --target "$TARGET" --release)
+  (cd "$ROOT" && cargo build -p neuron-boot --target "$KERNEL_TARGET" --release)
   # The loader: the only way into the kernel (it places the bootfs and tells the kernel where).
-  (cd "$ROOT" && cargo build -p nxboot --target "$TARGET" --release)
+  (cd "$ROOT" && cargo build -p nxboot --target "$KERNEL_TARGET" --release)
 
-  local KERNEL_ELF="$BUILD_TARGET_DIR/$TARGET/release/neuron-boot"
-  local NXBOOT_ELF="$BUILD_TARGET_DIR/$TARGET/release/nxboot"
-  local NXBOOT_BIN="$BUILD_TARGET_DIR/$TARGET/release/nxboot.bin"
+  local KERNEL_ELF="$BUILD_TARGET_DIR/$KERNEL_TARGET/release/neuron-boot"
+  local NXBOOT_ELF="$BUILD_TARGET_DIR/$KERNEL_TARGET/release/nxboot"
+  local NXBOOT_BIN="$BUILD_TARGET_DIR/$KERNEL_TARGET/release/nxboot.bin"
   if [[ ! -f "$NXBOOT_BIN" || "$NXBOOT_BIN" -ot "$NXBOOT_ELF" ]]; then
     local OBJCOPY
     OBJCOPY=$(find ~/.rustup/toolchains -name llvm-objcopy -type f 2>/dev/null | head -1)
@@ -1110,7 +1112,7 @@ build_os_once() {
   # The HOST nx packs the payload and builds each node's disk (RUSTFLAGS already unset above).
   (cd "$ROOT" && cargo build --release -p nx >/dev/null)
   "$BUILD_TARGET_DIR/release/nx" image payload --kernel-elf "$KERNEL_ELF" \
-    --manifest "$manifest" --out "$BUILD_TARGET_DIR/$TARGET/release/boot-payload.bin" >&2
+    --manifest "$manifest" --out "$BUILD_TARGET_DIR/$KERNEL_TARGET/release/boot-payload.bin" >&2
 }
 
 launch_qemu() {
@@ -1123,8 +1125,8 @@ launch_qemu() {
 
   # ADR-0081: each node boots the loader, which verifies the signed slot image (the boot
   # payload: kernel + bootfs) on its own GPT disk — as the single-VM launcher boots.
-  local NXBOOT_BIN="$BUILD_TARGET_DIR/$TARGET/release/nxboot.bin"
-  local payload="$BUILD_TARGET_DIR/$TARGET/release/boot-payload.bin"
+  local NXBOOT_BIN="$BUILD_TARGET_DIR/$KERNEL_TARGET/release/nxboot.bin"
+  local payload="$BUILD_TARGET_DIR/$KERNEL_TARGET/release/boot-payload.bin"
   local blk_img="$LOG_DIR/blk-${name}.img"
   # Always recreate to avoid stale lock contention between runs.
   rm -f "$blk_img"
@@ -1190,9 +1192,9 @@ verify_required_artifacts() {
     "$BUILD_TARGET_DIR/$TARGET/release/dsoftbusd"
     "$BUILD_TARGET_DIR/$TARGET/release/selftest-client"
     "$BUILD_TARGET_DIR/$TARGET/release/init-lite"
-    "$BUILD_TARGET_DIR/$TARGET/release/neuron-boot"
-    "$BUILD_TARGET_DIR/$TARGET/release/nxboot.bin"
-    "$BUILD_TARGET_DIR/$TARGET/release/boot-payload.bin"
+    "$BUILD_TARGET_DIR/$KERNEL_TARGET/release/neuron-boot"
+    "$BUILD_TARGET_DIR/$KERNEL_TARGET/release/nxboot.bin"
+    "$BUILD_TARGET_DIR/$KERNEL_TARGET/release/boot-payload.bin"
     "$BUILD_TARGET_DIR/release/nx"
   )
   local missing=0

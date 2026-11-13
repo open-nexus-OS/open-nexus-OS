@@ -8,13 +8,18 @@ cargo_target_dir := env_var_or_default("NEXUS_CARGO_TARGET_DIR", justfile_direct
 
 # Common flags (suppress unexpected_cfgs and set nexus_env)
 host_rustflags := "--check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"host\""
-# The OS target's flags live in ONE place: `.cargo/config.toml`
-# `[target.riscv64imac-unknown-none-elf] rustflags`. An OS-target cargo call never sets
-# RUSTFLAGS (it would replace that list, not extend it); a lint recipe APPENDS through
-# `--config` (cargo joins the arrays).
+# The OS image has two targets (ADR-0099): every userspace program is built for `os_target`
+# (hard float), the kernel and the first-stage loader for `kernel_target` (integer only).
+# Their flags live in ONE place: `.cargo/config.toml` `[target.<triple>] rustflags`. An
+# OS-target cargo call never sets RUSTFLAGS (it would replace that list, not extend it); a
+# lint recipe APPENDS through `--config` (cargo joins the arrays).
+os_target     := "riscv64gc-unknown-none-elf"
+kernel_target := "riscv64imac-unknown-none-elf"
 os_cargo     := "env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS cargo +" + toolchain
-os_lint_warn := "--config 'target.riscv64imac-unknown-none-elf.rustflags=[\"-W\",\"unexpected_cfgs\",\"-W\",\"dead_code\"]'"
-os_lint_deny := "--config 'target.riscv64imac-unknown-none-elf.rustflags=[\"-D\",\"warnings\"" + (if env_var_or_default("NEXUS_ALLOW_WARN","") == "1" { ",\"--cap-lints=warn\"" } else { "" }) + "]'"
+lint_deny_flags := "[\"-D\",\"warnings\"" + (if env_var_or_default("NEXUS_ALLOW_WARN","") == "1" { ",\"--cap-lints=warn\"" } else { "" }) + "]"
+os_lint_warn := "--config 'target." + os_target + ".rustflags=[\"-W\",\"unexpected_cfgs\",\"-W\",\"dead_code\"]'"
+os_lint_deny := "--config 'target." + os_target + ".rustflags=" + lint_deny_flags + "'"
+kernel_lint_deny := "--config 'target." + kernel_target + ".rustflags=" + lint_deny_flags + "'"
 
 export CARGO_TARGET_DIR := cargo_target_dir
 
@@ -207,19 +212,19 @@ inputs:
 
 # Build the bootable NEURON binary crate
 build-kernel:
-    {{os_cargo}} build -p neuron-boot --target riscv64imac-unknown-none-elf --release
+    {{os_cargo}} build -p neuron-boot --target {{kernel_target}} --release
 
 # Cross-compile the shared logging shim with the OS sink
 build-nexus-log-os:
-    @{{os_cargo}} build -p nexus-log --features sink-userspace --target riscv64imac-unknown-none-elf --release
+    @{{os_cargo}} build -p nexus-log --features sink-userspace --target {{os_target}} --release
 
 # Cross-compile the os-lite init payload
 build-init-lite-os:
-    @{{os_cargo}} build -p init-lite --target riscv64imac-unknown-none-elf --release
+    @{{os_cargo}} build -p init-lite --target {{os_target}} --release
 
 # Build only the kernel library with its own panic handler (no binary)
 build-kernel-lib:
-    {{os_cargo}} build -p neuron --lib --features panic_handler --target riscv64imac-unknown-none-elf
+    {{os_cargo}} build -p neuron --lib --features panic_handler --target {{kernel_target}}
 
 
 qemu *args:
@@ -829,7 +834,7 @@ ci-verify *recipes='check':
 lint-kernel:
     {{os_cargo}} clippy \
         -Z build-std=core,alloc -Z build-std-features=panic_immediate_abort \
-        --target riscv64imac-unknown-none-elf -p neuron -- -D warnings
+        --target {{kernel_target}} -p neuron -- -D warnings
 
 # Dead-code scan against the time-boxed allowlist (config/deadcode.allow).
 deadcode:
@@ -901,21 +906,21 @@ diag-host: inputs
 # Note: OS builds are a *slice* (kernel + init-lite + OS services). Do not use --all-targets on bare-metal
 # as it pulls in cfg(test) paths and host-only crates which is not representative.
 diag-os: inputs
-    @echo "==> diag-os (toolchain={{toolchain}}, target=riscv64imac-unknown-none-elf, nexus_env=os)"
+    @echo "==> diag-os (toolchain={{toolchain}}, targets={{os_target}} + {{kernel_target}}, nexus_env=os)"
     @rustc +{{toolchain}} -V
     @cargo +{{toolchain}} -V
     @echo "==> kernel libs (neuron)"
-    @{{os_cargo}} check -p neuron --target riscv64imac-unknown-none-elf --message-format=short
+    @{{os_cargo}} check -p neuron --target {{kernel_target}} --message-format=short
     @echo "==> userspace payload (init-lite)"
-    @{{os_cargo}} check {{os_lint_warn}} -p init-lite --target riscv64imac-unknown-none-elf --message-format=short
+    @{{os_cargo}} check {{os_lint_warn}} -p init-lite --target {{os_target}} --message-format=short
     @echo "==> OS services (os-lite feature set; list = config/os-services.txt)"
-    @{{os_cargo}} check {{os_lint_warn}} $(grep -v '^#' config/os-services.txt | sed 's/^/-p /' | tr '\n' ' ') --target riscv64imac-unknown-none-elf --no-default-features --features os-lite --message-format=short
+    @{{os_cargo}} check {{os_lint_warn}} $(grep -v '^#' config/os-services.txt | sed 's/^/-p /' | tr '\n' ' ') --target {{os_target}} --no-default-features --features os-lite --message-format=short
     @echo "==> os slice: resolved feature sets beyond os-lite (build-truth SSOT: discover-services.sh)"
-    @{{os_cargo}} check {{os_lint_warn}} -p gpud --target riscv64imac-unknown-none-elf --no-default-features --features "$(GPU_MODE=virgl scripts/discover-services.sh --cargo-features gpud)" --message-format=short
+    @{{os_cargo}} check {{os_lint_warn}} -p gpud --target {{os_target}} --no-default-features --features "$(GPU_MODE=virgl scripts/discover-services.sh --cargo-features gpud)" --message-format=short
 
 # Kernel-only: quickest way to see unused/dead_code in neuron.
 diag-kernel:
-    {{os_cargo}} check -p neuron --target riscv64imac-unknown-none-elf --message-format=short
+    {{os_cargo}} check -p neuron --target {{kernel_target}} --message-format=short
 
 # -----------------------------------------------------------------------------
 # Warning gate — the hard version of the diag-* surfacers. Any warning
@@ -932,13 +937,13 @@ diag-host-strict: inputs
 
 diag-os-strict: inputs
     @echo "==> diag (os slice, deny warnings)"
-    @{{os_cargo}} check {{os_lint_deny}} -p init-lite --target riscv64imac-unknown-none-elf --message-format=short
-    @{{os_cargo}} check {{os_lint_deny}} $(grep -v '^#' config/os-services.txt | sed 's/^/-p /' | tr '\n' ' ') --target riscv64imac-unknown-none-elf --no-default-features --features os-lite --message-format=short
-    @{{os_cargo}} check {{os_lint_deny}} -p gpud --target riscv64imac-unknown-none-elf --no-default-features --features "$(GPU_MODE=virgl scripts/discover-services.sh --cargo-features gpud)" --message-format=short
+    @{{os_cargo}} check {{os_lint_deny}} -p init-lite --target {{os_target}} --message-format=short
+    @{{os_cargo}} check {{os_lint_deny}} $(grep -v '^#' config/os-services.txt | sed 's/^/-p /' | tr '\n' ' ') --target {{os_target}} --no-default-features --features os-lite --message-format=short
+    @{{os_cargo}} check {{os_lint_deny}} -p gpud --target {{os_target}} --no-default-features --features "$(GPU_MODE=virgl scripts/discover-services.sh --cargo-features gpud)" --message-format=short
 
 diag-kernel-strict:
     @echo "==> diag (kernel, deny warnings)"
-    @{{os_cargo}} check {{os_lint_deny}} -p neuron --target riscv64imac-unknown-none-elf --message-format=short
+    @{{os_cargo}} check {{kernel_lint_deny}} -p neuron --target {{kernel_target}} --message-format=short
 
 # -----------------------------------------------------------------------------
 # License & Advisory Check (cargo-deny)
@@ -974,7 +979,7 @@ dep-gate: arch-gate
     set -euo pipefail
     echo "==> RFC-0009 Dependency Hygiene Gate"
     echo "    Forbidden crates: {{forbidden_crates}}"
-    echo "    Target: riscv64imac-unknown-none-elf (OS/QEMU slice)"
+    echo "    Target: {{os_target}} (OS/QEMU slice)"
     echo ""
     # OS services to check — SSOT list shared with diag-os and `make dep-gate`.
     services=$(grep -v '^#' config/os-services.txt | tr '\n' ' ')
@@ -983,7 +988,7 @@ dep-gate: arch-gate
         echo "--- Checking $svc ---"
         # Get dependency tree for this service with os-lite features
         feats=$(GPU_MODE=virgl QEMU_SESSION_MODE=proof scripts/discover-services.sh --cargo-features "$svc" 2>/dev/null || echo os-lite)
-        tree_output=$(cargo +{{toolchain}} tree -p "$svc" --target riscv64imac-unknown-none-elf --no-default-features --features "$feats" 2>&1 || true)
+        tree_output=$(cargo +{{toolchain}} tree -p "$svc" --target {{os_target}} --no-default-features --features "$feats" 2>&1 || true)
         for forbidden in {{forbidden_crates}}; do
             if echo "$tree_output" | grep -qE "^[│├└ ]*$forbidden "; then
                 echo "[FAIL] Found forbidden crate '$forbidden' in $svc dependency graph!"

@@ -26,7 +26,8 @@ MODE="${1:---list}"
 SVC_ARG="${2:-}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/target}"
-RV_TARGET="riscv64imac-unknown-none-elf"
+# ADR-0099: every service is built for the one hard-float userspace target.
+RV_TARGET="riscv64gc-unknown-none-elf"
 
 # Run cargo metadata, extract packages with nexus-service metadata
 SERVICES=$(cargo metadata --format-version=1 --manifest-path "$ROOT/Cargo.toml" 2>/dev/null |   python3 -c "

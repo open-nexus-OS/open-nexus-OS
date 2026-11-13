@@ -32,7 +32,7 @@ way.
 packages (a C toolchain, capnproto, ripgrep, just, QEMU for RISC-V incl. its
 GTK/OpenGL display backends, podman, ...), the pinned Rust toolchains
 (stable + `nightly-2025-01-15`, from `rust-toolchain.toml` and the justfile),
-the `riscv64imac-unknown-none-elf` target, the required components (including
+the two RISC-V targets (`riscv64gc-unknown-none-elf` for userspace, `riscv64imac-unknown-none-elf` for the kernel), the required components (including
 `miri`, which `just test-all` needs), `cargo-deny` and `cargo-nextest`; fetches
 the declared build inputs (`scripts/fetch-inputs.sh`: three submodules + pinned
 Noto fonts); and wires `scripts/fmt-clippy-deny.sh` as your `pre-commit` hook —

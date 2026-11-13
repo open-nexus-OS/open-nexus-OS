@@ -181,3 +181,15 @@ ux_frames = 1216
 ux_max_us = 177106
 q16_us = 464
 area16_us = 469
+
+[[cycle]]
+id = "2026-11-13T09-35-00"
+cold_us = 37922
+pipelined_us = 32275
+hover_us = 2863
+ns_per_px = 3
+ux_dropped = 293
+ux_frames = 1536
+ux_max_us = 116204
+q16_us = 459
+area16_us = 491

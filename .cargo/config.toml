@@ -7,11 +7,16 @@ rustflags = [
 ]
 rustdocflags = ["--cfg", "nexus_env=\"host\""]
 
-# RISC-V OS target (userspace + kernel tools use this triple) — the ONE place the OS
-# image's flags live. No recipe sets RUSTFLAGS for this target (it would replace this
-# list); a lint recipe appends through `--config` (justfile `os_lint_*`). +zbb: both
-# targets have it (the board's X60 lists zba/zbb/zbs; QEMU runs `-cpu max`).
-[target.riscv64imac-unknown-none-elf]
+# The OS image has two targets, and this file is the ONE place their flags live. No recipe
+# sets RUSTFLAGS for them (it would replace these lists); a lint recipe appends through
+# `--config` (justfile `os_lint_*`, `kernel_lint_*`). +zbb: both machines have it (the
+# board's cores list zba/zbb/zbs; QEMU runs `-cpu max`).
+#
+# Userspace — every program a process runs (ADR-0099): hard float, arguments in the
+# floating-point registers. The kernel keeps a thread's registers (RFC-0119). The vector
+# extension is no flag here: a vector kernel is chosen at run time from what the kernel
+# reports.
+[target.riscv64gc-unknown-none-elf]
 rustflags = [
     "--check-cfg=cfg(nexus_env, values(\"host\",\"os\"))",
     "--cfg", "nexus_env=\"os\"",
@@ -21,5 +26,17 @@ rustflags = [
     # ADR-0080: every PT_LOAD on its own file page, so a process's text and rodata can be
     # mapped from its sealed image's frames (shared) and its data copied — the kernel refuses an
     # image whose segments share a file page or sit off the page grid.
+    "-C", "link-arg=-zseparate-loadable-segments",
+]
+
+# The kernel and the first-stage loader: integer only (ADR-0099). The kernel has no
+# floating-point or vector state of its own, so a trap saves none.
+[target.riscv64imac-unknown-none-elf]
+rustflags = [
+    "--check-cfg=cfg(nexus_env, values(\"host\",\"os\"))",
+    "--cfg", "nexus_env=\"os\"",
+    "-C", "relocation-model=static",
+    "-C", "target-feature=+zbb",
+    "-Z", "share-generics=y",
     "-C", "link-arg=-zseparate-loadable-segments",
 ]

@@ -98,7 +98,7 @@ Transitive leaks count: `rand = "0.8"` pulls `getrandom` through its defaults â€
 |---|---|
 | `just dep-gate` | forbidden crates in the OS graph of every crate in `config/os-services.txt` (runs `arch-gate` first) |
 | `just deny-check` | licenses and advisories (`cargo deny`, `config/deny.toml`) |
-| `just diag-os` | every OS service checks for `riscv64imac-unknown-none-elf` with `os-lite` |
+| `just diag-os` | every OS service checks for `riscv64gc-unknown-none-elf` (the one userspace target, ADR-0099) with `os-lite` |
 | `just diag-host` / `just diag-kernel` | host and kernel builds |
 | `just diag` | all three with warnings denied â€” the hard warning gate |
 | `just build-os-workspace` | the real OS cross-build (`scripts/build.sh` under `NEXUS_WARN_GATE=1`) |
@@ -108,7 +108,7 @@ Transitive leaks count: `rand = "0.8"` pulls `getrandom` through its defaults â€
 When `dep-gate` fails, find the path:
 
 ```bash
-cargo tree --target riscv64imac-unknown-none-elf -p dsoftbusd -i parking_lot
+cargo tree --target riscv64gc-unknown-none-elf -p dsoftbusd -i parking_lot
 ```
 
 ## House rules

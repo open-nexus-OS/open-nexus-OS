@@ -124,24 +124,22 @@ fn report_isa(cpus: &nexus_fdt::Cpus<'_>) {
         "f", "d", "v", "zfh", "zvfh", "zba", "zbb", "zbs", "zicbom", "zicboz", "svpbmt", "sscofpmf",
     ];
     let mut last: Option<(&str, u16)> = None;
-    // RFC-0119: a thread gets floating-point registers only when every hart carries F and D.
-    let mut every_hart_floats: Option<bool> = None;
+    // RFC-0119: a program is offered only what every hart states.
+    let mut every_hart: Option<u16> = None;
     for cpu in cpus.harts() {
         let node = cpu.node();
         let base = node
             .prop_str("riscv,isa-base")
             .or_else(|| node.prop_str("riscv,isa").and_then(|isa| isa.split('_').next()))
             .unwrap_or("-");
-        // A single letter is an entry of the modern list or a letter of the legacy base.
-        let stated = |name: &str| {
-            cpu.has_extension(name)
-                || (name.len() == 1 && base.get(4..).is_some_and(|letters| letters.contains(name)))
-        };
         let mut bits = 0u16;
         for (i, name) in NAMES.iter().enumerate() {
-            bits |= u16::from(stated(name)) << i;
+            bits |= u16::from(cpu.has_extension(name)) << i;
         }
-        every_hart_floats = Some(every_hart_floats.unwrap_or(true) && bits & 0b11 == 0b11);
+        // Only a hart that is a logical CPU runs threads (`topology::PROGRAMS_NEED`).
+        if crate::topology::machine().is_some_and(|m| m.cpu_of(cpu.hart).is_some()) {
+            every_hart = Some(every_hart.unwrap_or(u16::MAX) & bits);
+        }
         if last == Some((base, bits)) {
             continue;
         }
@@ -151,7 +149,21 @@ fn report_isa(cpus: &nexus_fdt::Cpus<'_>) {
             "KINIT: isa from hart={} base={} f={} d={} v={} zfh={} zvfh={} zba={} zbb={} zbs={} zicbom={} zicboz={} svpbmt={} sscofpmf={}",
             cpu.hart, base, b(0), b(1), b(2), b(3), b(4), b(5), b(6), b(7), b(8), b(9), b(10), b(11));
     }
-    crate::trap::fp::offer(every_hart_floats == Some(true));
+    // The positions in `NAMES`; a program's floating point is F and D together.
+    let every_hart = every_hart.unwrap_or(0);
+    crate::trap::fp::offer(|extension| {
+        use nexus_sched::Extension;
+        let names: u16 = match extension {
+            Extension::Float => 0b11,
+            Extension::Vector => 1 << 2,
+            Extension::Zfh => 1 << 3,
+            Extension::Zvfh => 1 << 4,
+            Extension::Zba => 1 << 5,
+            Extension::Zbb => 1 << 6,
+            Extension::Zbs => 1 << 7,
+        };
+        every_hart & names == names
+    });
 }
 
 /// Parse the tree and print the platform values it carries, or why it could not

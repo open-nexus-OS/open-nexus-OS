@@ -18,6 +18,8 @@
 //!   * `ipc_kernel`    — kernel-IPC plumbing / security / soak probes (RFC-0005).
 //!   * `pinched`       — compute-broker job round-trip (SMP track Phase D).
 //!   * `soaks`         — ADR-0048 standing integrity detectors (exec phase).
+//!   * `unitsoak`      — a thread's floating-point and vector registers are its own
+//!     (RFC-0119; `fpsoak` and `vsoak` are its two register sets); owns its markers.
 //!
 //! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 
@@ -25,7 +27,7 @@ pub(crate) mod blkgate;
 pub(crate) mod core_service;
 pub(crate) mod device_key;
 pub(crate) mod elf;
-pub(crate) mod fpsoak;
+mod fpsoak;
 pub(crate) mod ipc_kernel;
 pub(crate) mod nxra;
 pub(crate) mod otafallback;
@@ -37,3 +39,5 @@ pub(crate) mod rng;
 pub(crate) mod sched_applied;
 pub(crate) mod soaks;
 pub(crate) mod soc;
+pub(crate) mod unitsoak;
+mod vsoak;

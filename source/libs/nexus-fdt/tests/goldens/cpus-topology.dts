@@ -8,7 +8,10 @@
 //   - an enabled monitor core without an MMU, a cpu with `mmu-type = "riscv,none"`, a
 //     disabled cpu — none of them a hart an OS schedules on;
 //   - a `cpu-map` with sockets, a cluster inside a cluster, a core with two threads;
-//   - a PLIC whose `interrupts-extended` is in the controller's order, not the harts'.
+//   - a PLIC whose `interrupts-extended` is in the controller's order, not the harts';
+//   - harts that differ in what they carry (RFC-0119, ADR-0099): `cpu@100` and `cpu@200`
+//     state F and D in the list, `cpu@100000000` in the legacy string (`rv64gc`), `cpu@101`
+//     is integer-only — no CPU of a system whose programs need floats.
 // Compiled with
 //   dtc -I dts -O dtb -o cpus-topology.dtb cpus-topology.dts
 /dts-v1/;
@@ -43,7 +46,7 @@
 			timebase-frequency = <10000000>;
 			mmu-type = "riscv,sv39";
 			riscv,isa-base = "rv64i";
-			riscv,isa-extensions = "i", "m", "a", "c", "sstc";
+			riscv,isa-extensions = "i", "m", "a", "f", "d", "c", "sstc";
 			intc_t0: interrupt-controller {
 				compatible = "riscv,cpu-intc";
 				#interrupt-cells = <1>;
@@ -73,7 +76,7 @@
 			timebase-frequency = <10000000>;
 			mmu-type = "riscv,sv48";
 			riscv,isa-base = "rv64i";
-			riscv,isa-extensions = "i", "m", "a", "c", "sstc";
+			riscv,isa-extensions = "i", "m", "a", "f", "d", "c", "sstc";
 			intc_big: interrupt-controller {
 				compatible = "riscv,cpu-intc";
 				#interrupt-cells = <1>;
@@ -102,8 +105,7 @@
 			reg = <0x1 0x0>;
 			timebase-frequency = <10000000>;
 			mmu-type = "riscv,sv39";
-			riscv,isa-base = "rv64i";
-			riscv,isa-extensions = "i", "m", "a", "c", "sstc";
+			riscv,isa = "rv64gc_sstc";
 			intc_far: interrupt-controller {
 				compatible = "riscv,cpu-intc";
 				#interrupt-cells = <1>;

@@ -1918,8 +1918,8 @@ set +e
 # #region agent log (H2: build artifact presence/freshness before run)
 target_root="${CARGO_TARGET_DIR:-$ROOT/target}"
 kernel_elf_path="$target_root/riscv64imac-unknown-none-elf/release/neuron-boot"
-init_elf_path="$target_root/riscv64imac-unknown-none-elf/release/init-lite"
-netstackd_elf_path="$target_root/riscv64imac-unknown-none-elf/release/netstackd"
+init_elf_path="$target_root/riscv64gc-unknown-none-elf/release/init-lite"
+netstackd_elf_path="$target_root/riscv64gc-unknown-none-elf/release/netstackd"
 kernel_exists=false
 init_exists=false
 netstackd_exists=false
@@ -3412,6 +3412,11 @@ if [[ "$REQUIRE_SMP" == "1" ]]; then
     echo "[error] floating-point proof missing: KSELFTEST: fp state moved ok ( — no state was loaded on another CPU than the one that wrote it" >&2
     exit 1
   fi
+  # TASK-0362 P2 (RFC-0119): the same for a vector state.
+  if [[ "$(count_lines "SELFTEST: vsoak ok")" -gt 0 && "$(count_lines "KSELFTEST: vector state moved ok (")" -lt 1 ]]; then
+    echo "[error] vector proof missing: KSELFTEST: vector state moved ok ( — no state was loaded on another CPU than the one that wrote it" >&2
+    exit 1
+  fi
 fi
 
 # TASK-0362 P1 (RFC-0119): a thread's floating-point registers are its own, in EVERY profile
@@ -3423,6 +3428,21 @@ if [[ "$(count_lines "KSELFTEST: fp state FAIL (")" -gt 0 ]]; then
 fi
 if [[ "$(count_lines "SELFTEST: fpsoak ok")" -gt 0 && "$(count_lines "KSELFTEST: fp state lazy ok (")" -lt 1 ]]; then
   echo "[error] floating-point proof missing: KSELFTEST: fp state lazy ok ( — the soak passed but the kernel reports no 10 000 saves" >&2
+  exit 1
+fi
+# TASK-0362 P2 (RFC-0119): the same for the vector registers, and the answer that names the
+# units is proven by the soaks it started — a soak that passed without that verdict, or a
+# verdict against the answer, is a failure.
+if [[ "$(count_lines "KSELFTEST: vector state FAIL (")" -gt 0 ]]; then
+  echo "[error] vector proof failed: $(grep -aF "KSELFTEST: vector state FAIL (" "$UART_LOG" | head -n1)" >&2
+  exit 1
+fi
+if [[ "$(count_lines "SELFTEST: vsoak ok")" -gt 0 && "$(count_lines "KSELFTEST: vector state lazy ok (")" -lt 1 ]]; then
+  echo "[error] vector proof missing: KSELFTEST: vector state lazy ok ( — the soak passed but the kernel reports no 10 000 saves" >&2
+  exit 1
+fi
+if [[ "$(count_lines "SELFTEST: hw probe FAIL (")" -gt 0 ]]; then
+  echo "[error] hardware probe failed: $(grep -aF "SELFTEST: hw probe FAIL (" "$UART_LOG" | head -n1)" >&2
   exit 1
 fi
 

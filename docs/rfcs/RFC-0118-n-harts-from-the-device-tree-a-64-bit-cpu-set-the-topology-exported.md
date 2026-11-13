@@ -87,6 +87,7 @@ of the sched syscall, registers only (no user memory is read or written):
 | `CLUSTERS` | — | the number of clusters (`/cpus/cpu-map`; 1 when the tree names none) |
 | `CLUSTER_SET` | cluster index | the `CpuSet` of that cluster; `EINVAL` beyond the count |
 | `HART_OF` | CPU index | the hart id (for diagnostics and logs); `EINVAL` beyond the count |
+| `OFFERS` | 0 | what every CPU offers a program — the extensions and the vector width, one word (RFC-0119) |
 
 Any task may ask: the answer carries no authority. Changing another task's set stays the right
 of the QoS administrators (ADR-0049). `nexus_abi::sched::topology()` returns the whole picture

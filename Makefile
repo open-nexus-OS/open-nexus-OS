@@ -14,9 +14,12 @@ export PATH := $(HOME)/.cargo/bin:$(PATH)
 
 # Canonical artifact paths that `make build` must produce and that
 # `make test` / `make run` consume via NEXUS_SKIP_BUILD=1.
-RV_TARGET := riscv64imac-unknown-none-elf
+# ADR-0099: userspace is built for one hard-float target, the kernel and the loader for the
+# integer-only one.
+RV_TARGET := riscv64gc-unknown-none-elf
+KERNEL_RV_TARGET := riscv64imac-unknown-none-elf
 INIT_ELF := $(TARGET_DIR)/$(RV_TARGET)/release/init-lite
-KERNEL_ELF := $(TARGET_DIR)/$(RV_TARGET)/release/neuron-boot
+KERNEL_ELF := $(TARGET_DIR)/$(KERNEL_RV_TARGET)/release/neuron-boot
 UID := $(shell id -u)
 GID := $(shell id -g)
 SELINUX_LABEL := $(shell command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled && echo ":Z" || true)
@@ -158,7 +161,7 @@ dep-gate:
 	found=0; \
 	for svc in $$services; do \
 	  feats=$$(GPU_MODE=virgl QEMU_SESSION_MODE=proof scripts/discover-services.sh --cargo-features "$$svc" 2>/dev/null || echo os-lite); \
-	  tree_output=$$(cargo +$(NIGHTLY) tree -p "$$svc" --target riscv64imac-unknown-none-elf --no-default-features --features "$$feats" 2>&1 || true); \
+	  tree_output=$$(cargo +$(NIGHTLY) tree -p "$$svc" --target $(RV_TARGET) --no-default-features --features "$$feats" 2>&1 || true); \
 	  for f in $$forbidden; do \
 	    echo "$$tree_output" | grep -qE "^[│├└ ]*$$f " && echo "[FAIL] $$svc pulled forbidden crate $$f" && found=1; \
 	  done; \
