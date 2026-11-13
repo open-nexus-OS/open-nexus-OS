@@ -22,8 +22,8 @@ verified: 2026-11-13
 ## The model in one paragraph
 
 The kernel is a **measured, budgeted big kernel lock** with three declarative escape classes
-(lock-free, phased, cpu0 right of way; ADR-0049). Per-CPU run queues live inside the locked
-aggregate; leaf state (online mask, resched flags, TLB mailboxes, counters) is atomics. It is not a
+(lock-free, phased, cpu0 right of way; ADR-0049). Each hart's run queues sit behind that hart's own
+lock, below the BKL (TASK-0363 P2; their callers still hold the BKL); leaf state (online mask, resched flags, TLB mailboxes, counters) is atomics. It is not a
 lock-free kernel: IPC, present and timer arming run under the BKL, and splitting the lock is not
 done. Hold and wait times are budgeted in `source/kernel/neuron/src/core/trap/budgets.rs` and
 enforced by the boot gate (`KSELFTEST: bkl budget ok`). Every take names its holder and the
@@ -48,8 +48,8 @@ lock's end — classes with one rank order, no global lock — is RFC-0102.
 
 | tier | lock | guards |
 |---|---|---|
-| 1 | `KERNEL_LOCK` (BKL, a `SpinIrqLock`) via `KernelGuard` | tasks, scheduler and run queues, IPC router, address spaces and ASIDs, timers, waitsets, fences |
-| 2 | per-CPU run-queue locks, ascending CPU index | reserved; empty while run queues live inside tier 1 |
+| 1 | `KERNEL_LOCK` (BKL, a `SpinIrqLock`) via `KernelGuard` | tasks, the order of scheduling steps, IPC router, address spaces and ASIDs, timers, waitsets, fences |
+| 2 | one hart's run-queue lock (`sched::RUN_QUEUES`), held for one queue operation; a second hart's only by try-lock (a steal, its park) | that hart's queue per class and its running task (`sched/run_queue.rs`, host-tested) |
 | 3 | leaf atomics and `SpinIrqLock` leaves (console line, console ring, device lines `irq::LINES`) | masks, counters, mailboxes, console bytes, each line's controller context and its enable writes |
 
 Rules:

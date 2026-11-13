@@ -1,86 +1,32 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Minimal scheduler used during NEURON bring-up
+//! CONTEXT: the scheduler as the kernel calls it — every hart's run queues behind that hart's
+//! own lock (TASK-0363 P2 S1). The rules live in `run_queue` (pure, host-tested); this file
+//! names the executing hart, takes the lock of the hart an operation touches, stamps the
+//! clock and feeds the wait statistics.
 //! OWNERS: @kernel-sched-team
 //! STATUS: Functional
 //! API_STABILITY: Stable
-//! TEST_COVERAGE: QEMU selftests + boot markers
+//! TEST_COVERAGE: `sched/run_queue_tests.rs` (host) + QEMU selftests + boot markers
 //! PUBLIC API: Scheduler (new/enqueue/try_enqueue/schedule_next), QosClass, TaskId, EnqueueOutcome
-//! DEPENDS_ON: uart (boot logs), determinism (timeslice)
-//! INVARIANTS: Bounded queue capacity + deterministic reject on saturation; timeslice deterministic; RR per QoS
+//! DEPENDS_ON: run_queue (the rules), sync (HartTable, SpinIrqLock), determinism (timeslice)
+//! INVARIANTS: Bounded queue capacity + deterministic reject on saturation; timeslice
+//!   deterministic; RR per QoS; a hart's queue lock is a leaf — held for one queue operation,
+//!   never while the kernel lock or a second hart's queues are waited for
 //! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
-extern crate alloc;
-
-use alloc::collections::VecDeque;
 use core::marker::PhantomData;
 
-// use crate::determinism; // not needed after inlined guarded access
+use crate::run_queue::{self, HartQueues, Harts, Stolen, Task, CLASS_CAPACITY};
+use crate::sync::hart_table::{HartTable, SizeError};
+use crate::sync::spin_irq::{IrqOffGuard, SpinIrqLock};
 use crate::types::{CpuId, Pid};
+
+pub use crate::run_queue::QosClass;
 
 /// Task identifier handed out by the scheduler.
 pub type TaskId = Pid;
-
-/// Quality-of-service hints used for prioritisation.
-///
-/// **ABI STABILITY (TASK-0013)**: This enum's discriminant values are part of the stable
-/// userspace ABI once `sys_task_set_qos(qos: u8)` is exposed. Reordering or renumbering
-/// variants is a breaking change. New variants must be appended.
-///
-/// Current discriminants (repr(u8)):
-/// - Idle = 0
-/// - Normal = 1
-/// - Interactive = 2
-/// - PerfBurst = 3
-#[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum QosClass {
-    Idle = 0,
-    Normal = 1,
-    Interactive = 2,
-    PerfBurst = 3,
-}
-
-impl QosClass {
-    /// Decodes a stable QoS wire value into a typed class.
-    pub const fn from_u8(raw: u8) -> Option<Self> {
-        match raw {
-            0 => Some(Self::Idle),
-            1 => Some(Self::Normal),
-            2 => Some(Self::Interactive),
-            3 => Some(Self::PerfBurst),
-            _ => None,
-        }
-    }
-}
-
-/// Metadata maintained per task.
-#[derive(Debug, Clone)]
-struct Task {
-    id: TaskId,
-    qos: QosClass,
-    /// The tick it entered a run queue at and what its hart ran then (`ready_stats`).
-    ready_at: u64,
-    behind: crate::ready_stats::Behind,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(transparent)]
-struct QueueCapacity(usize);
-
-impl QueueCapacity {
-    const fn new(raw: usize) -> Self {
-        Self(raw)
-    }
-
-    const fn raw(self) -> usize {
-        self.0
-    }
-}
-
-const RUNTIME_QOS_QUEUE_CAPACITY: QueueCapacity = QueueCapacity::new(64);
-const SELFTEST_QOS_QUEUE_CAPACITY: QueueCapacity = QueueCapacity::new(64);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EnqueueRejectReason {
@@ -103,52 +49,59 @@ pub enum SetQosOutcome {
     QueueFull,
 }
 
-struct CpuRunQueues {
-    queues: [VecDeque<Task>; 4],
-    current: Option<Task>,
+/// Every hart's run queues, each behind its own lock: the boot hart's from the first
+/// instruction, the others' sized with the machine (`smp::size_for_machine`).
+static RUN_QUEUES: HartTable<SpinIrqLock<HartQueues>> =
+    HartTable::new(SpinIrqLock::new(HartQueues::new()));
+
+/// Sizes the run queues for a machine of `harts` CPUs (`smp::size_for_machine`).
+pub fn size(harts: usize) -> Result<(), SizeError> {
+    RUN_QUEUES.size(harts, || SpinIrqLock::new(HartQueues::new()))
 }
 
-impl CpuRunQueues {
-    fn new() -> Self {
-        Self {
-            queues: [
-                VecDeque::with_capacity(SELFTEST_QOS_QUEUE_CAPACITY.raw()),
-                VecDeque::with_capacity(SELFTEST_QOS_QUEUE_CAPACITY.raw()),
-                VecDeque::with_capacity(SELFTEST_QOS_QUEUE_CAPACITY.raw()),
-                VecDeque::with_capacity(SELFTEST_QOS_QUEUE_CAPACITY.raw()),
-            ],
-            current: None,
-        }
+/// Runs `f` on hart `cpu`'s queues under their lock. `None`: the machine has no such hart.
+fn with<R>(cpu: usize, f: impl FnOnce(&mut HartQueues) -> R) -> Option<R> {
+    RUN_QUEUES.get(cpu).map(|queues| f(&mut queues.lock()))
+}
+
+/// The machine's harts as a thief sees them: a hart's queues only if they are free.
+struct Machine;
+
+impl Harts for Machine {
+    fn count(&self) -> usize {
+        RUN_QUEUES.len()
     }
 
-    fn queue_mut(&mut self, qos: QosClass) -> &mut VecDeque<Task> {
-        match qos {
-            QosClass::Idle => &mut self.queues[0],
-            QosClass::Normal => &mut self.queues[1],
-            QosClass::Interactive => &mut self.queues[2],
-            QosClass::PerfBurst => &mut self.queues[3],
-        }
+    fn online(&self, cpu: usize) -> bool {
+        let online = crate::smp::cpu_online();
+        online.is_empty() || online.contains(cpu)
     }
+
+    fn try_with<R>(&self, cpu: usize, f: impl FnOnce(&mut HartQueues) -> R) -> Option<R> {
+        RUN_QUEUES.get(cpu)?.try_lock().map(|mut queues| f(&mut queues))
+    }
+}
+
+fn rejected_full(qos: QosClass) -> EnqueueOutcome {
+    EnqueueOutcome::Rejected(EnqueueRejectReason::QueueFull { qos, capacity: CLASS_CAPACITY })
 }
 
 /// Per-CPU round-robin scheduler with simple QoS based ordering.
 ///
-/// ## SMP model (A3, TASK-0012 close-out)
+/// ## SMP model (TASK-0363 P2 S1)
 ///
-/// One `CpuRunQueues` per CPU is THE runtime state; every public method uses
-/// implicit current-CPU addressing (tp-derived identity), so each hart
-/// schedules from its own queue set with unchanged call sites. The scheduler
-/// lives inside the BKL aggregate (`trap::KernelGuard`) — cross-CPU
-/// operations (wake-to-home-CPU, stealing, purge) are serialized by that
-/// lock, which is why the type itself stays `!Send`/`!Sync`. The historical
-/// `selftest_*` APIs are thin wrappers over the same state so the RFC-0021
-/// markers keep their meaning. SMP=1: everything lands on CPU 0 with
+/// One [`HartQueues`] per CPU is THE runtime state, each behind its own lock in a table the
+/// machine sizes. Every method without a CPU argument addresses the executing CPU (tp-derived
+/// identity), so each hart schedules from its own queues with unchanged call sites; an
+/// operation on another hart's queues (a wake to the home CPU, a steal, a purge) takes that
+/// hart's lock for the one operation. The value itself still lives in the kernel lock's
+/// aggregate — its callers are the kernel lock's — and stays `!Send`/`!Sync`: what it
+/// guards is no longer the queues but the order of the callers' own steps (S2 and S3 take
+/// those off the kernel lock). The `selftest_*` APIs are thin wrappers over the same state so
+/// the RFC-0021 markers keep their meaning. SMP=1: everything lands on CPU 0 with
 /// byte-identical scheduling order to the pre-SMP scheduler.
 pub struct Scheduler {
-    /// One entry per logical CPU of the machine (RFC-0118), built once at boot.
-    cpus: alloc::boxed::Box<[CpuRunQueues]>,
     timeslice_ns: u64,
-    // Access is serialized by the BKL; the type must not cross harts on its own.
     _not_send_sync: PhantomData<*mut ()>,
 }
 static_assertions::assert_not_impl_any!(Scheduler: Send, Sync);
@@ -160,48 +113,11 @@ impl Scheduler {
     #[inline]
     fn current_cpu_index() -> usize {
         let idx = crate::smp::cpu_current_id().as_index();
-        idx * (idx < crate::topology::hart_count()) as usize
+        idx * (idx < RUN_QUEUES.len()) as usize
     }
 
-    #[inline]
-    const fn runtime_queue_capacity_for(_qos: QosClass) -> QueueCapacity {
-        // v1b hardening contract: explicit bounded queue behavior in hot path.
-        RUNTIME_QOS_QUEUE_CAPACITY
-    }
-
-    #[inline]
-    const fn selftest_queue_capacity_for(_qos: QosClass) -> QueueCapacity {
-        SELFTEST_QOS_QUEUE_CAPACITY
-    }
-
-    #[inline]
-    fn bounded_push(
-        queue: &mut VecDeque<Task>,
-        task: Task,
-        qos: QosClass,
-        capacity: QueueCapacity,
-    ) -> EnqueueOutcome {
-        if queue.len() >= capacity.raw() {
-            return EnqueueOutcome::Rejected(EnqueueRejectReason::QueueFull {
-                qos,
-                capacity: capacity.raw(),
-            });
-        }
-        queue.push_back(task);
-        EnqueueOutcome::Enqueued
-    }
-
-    /// Creates an empty scheduler.
+    /// Creates the scheduler: the machine's queues start empty.
     pub fn new() -> Self {
-        #[cfg(all(target_arch = "riscv64", target_os = "none", debug_assertions))]
-        {
-            use core::fmt::Write as _;
-            if !crate::log::kfold(crate::log::KGroup::Sched, crate::log::Level::Info) {
-                let mut u = crate::uart::raw_writer();
-                let _ = writeln!(u, "SCHED: new enter");
-            }
-        }
-        // Read deterministic timeslice guarded and fall back to constant if needed
         let ts = crate::determinism::fixed_tick_ns();
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]
         {
@@ -211,20 +127,7 @@ impl Scheduler {
                 let _ = writeln!(u, "SCHED: timeslice={}", ts);
             }
         }
-        let s = Self {
-            cpus: (0..crate::topology::hart_count()).map(|_| CpuRunQueues::new()).collect(),
-            timeslice_ns: ts,
-            _not_send_sync: PhantomData,
-        };
-        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-        {
-            use core::fmt::Write as _;
-            if !crate::log::kfold(crate::log::KGroup::Sched, crate::log::Level::Info) {
-                let mut u = crate::uart::raw_writer();
-                let _ = writeln!(u, "SCHED: new exit");
-            }
-        }
-        s
+        Self { timeslice_ns: ts, _not_send_sync: PhantomData }
     }
 
     /// Enqueues a task with the provided QoS class.
@@ -234,7 +137,7 @@ impl Scheduler {
 
     /// Returns the currently running task id, if any.
     pub fn current_task_id(&self) -> Option<TaskId> {
-        self.cpus[Self::current_cpu_index()].current.as_ref().map(|task| task.id)
+        with(Self::current_cpu_index(), |q| q.current()).flatten().map(|t| Pid::from_raw(t.id))
     }
 
     /// Updates the scheduler-visible QoS for `id` in current/queued state.
@@ -242,48 +145,20 @@ impl Scheduler {
     /// If the task is currently running, this updates the in-place current entry.
     /// If the task is queued, it moves the queue entry to the target QoS bucket.
     pub fn set_task_qos(&mut self, id: TaskId, qos: QosClass) -> SetQosOutcome {
+        let harts = 0..RUN_QUEUES.len();
         // Running anywhere: update in place (any hart's current slot).
-        for cpu in &mut self.cpus {
-            if let Some(current) = cpu.current.as_mut() {
-                if current.id == id {
-                    current.qos = qos;
-                    return SetQosOutcome::Updated;
-                }
-            }
+        if harts
+            .clone()
+            .any(|cpu| with(cpu, |q| q.set_qos_if_current(id.as_raw(), qos)) == Some(true))
+        {
+            return SetQosOutcome::Updated;
         }
-
         // Queued: move within the CPU it is queued on (no migration here).
-        let mut found: Option<(usize, usize, usize, Task)> = None;
-        'search: for (cpu_idx, cpu) in self.cpus.iter_mut().enumerate() {
-            for (queue_idx, queue) in cpu.queues.iter_mut().enumerate() {
-                if let Some(pos) = queue.iter().position(|task| task.id == id) {
-                    if let Some(task) = queue.remove(pos) {
-                        found = Some((cpu_idx, queue_idx, pos, task));
-                    }
-                    break 'search;
-                }
-            }
+        match harts.filter_map(|cpu| with(cpu, |q| q.requeue(id.as_raw(), qos)).flatten()).next() {
+            Some(Ok(())) => SetQosOutcome::Updated,
+            Some(Err(run_queue::Full)) => SetQosOutcome::QueueFull,
+            None => SetQosOutcome::NotFound,
         }
-
-        let Some((cpu_idx, source_idx, source_pos, mut task)) = found else {
-            return SetQosOutcome::NotFound;
-        };
-        let old_qos = task.qos;
-        task.qos = qos;
-        let target_idx = match qos {
-            QosClass::Idle => 0,
-            QosClass::Normal => 1,
-            QosClass::Interactive => 2,
-            QosClass::PerfBurst => 3,
-        };
-        let target_cap = Self::runtime_queue_capacity_for(qos).raw();
-        if self.cpus[cpu_idx].queues[target_idx].len() >= target_cap {
-            task.qos = old_qos;
-            self.cpus[cpu_idx].queues[source_idx].insert(source_pos, task);
-            return SetQosOutcome::QueueFull;
-        }
-        self.cpus[cpu_idx].queues[target_idx].push_back(task);
-        SetQosOutcome::Updated
     }
 
     /// Attempts to enqueue a task and returns explicit bounded-backpressure status.
@@ -304,158 +179,104 @@ impl Scheduler {
                 let _ = writeln!(u, "[DEBUG sched] enqueue: pid={} qos={:?}", id.as_raw(), qos);
             }
         }
+        Self::push(Self::current_cpu_index(), id, qos)
+    }
 
-        let cur = Self::current_cpu_index();
-        let task = Task::ready(id, qos, self.cpus[cur].current.as_ref());
-        Self::bounded_push(
-            self.cpus[cur].queue_mut(qos),
-            task,
-            qos,
-            Self::runtime_queue_capacity_for(qos),
-        )
+    /// Queues `id` on hart `cpu`: one operation under that hart's lock.
+    fn push(cpu: usize, id: TaskId, qos: QosClass) -> EnqueueOutcome {
+        let now = ready::now_ticks();
+        match with(cpu, |q| q.push_back(id.as_raw(), qos, now)) {
+            Some(Ok(())) => EnqueueOutcome::Enqueued,
+            Some(Err(run_queue::Full)) => rejected_full(qos),
+            None => EnqueueOutcome::Rejected(EnqueueRejectReason::InvalidCpu {
+                cpu: CpuId::from_raw(cpu as u16),
+            }),
+        }
     }
 
     /// Picks the next runnable task.
     pub fn schedule_next(&mut self) -> Option<TaskId> {
         crate::liveness::bump();
-
-        // Debug: log queue sizes for the first few iterations only
-        let mut u: Option<crate::uart::RawUart> = None;
+        let cur = Self::current_cpu_index();
+        let picked = with(cur, HartQueues::pick).flatten();
+        // Debug: the first few picks only (off by default; `NEXUS_LOG=sched=debug`), written
+        // after the queue lock is dropped.
         #[cfg(all(target_arch = "riscv64", target_os = "none", debug_assertions))]
         {
             const LOG_LIMIT: usize = 256;
             static NEXT_COUNT: core::sync::atomic::AtomicUsize =
                 core::sync::atomic::AtomicUsize::new(0);
             let count = NEXT_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-            // Runtime-gated like the enqueue trace above (off by default; `NEXUS_LOG=sched=debug`).
             if count < LOG_LIMIT && crate::log::would_log(crate::log::Level::Debug, "sched") {
-                u = Some(crate::uart::raw_writer());
+                use core::fmt::Write as _;
+                let mut u = crate::uart::raw_writer();
+                let _ = match picked {
+                    Some(task) => {
+                        writeln!(
+                            u,
+                            "[DEBUG sched] cpu{} picked: pid={} qos={:?}",
+                            cur, task.id, task.qos
+                        )
+                    }
+                    None => writeln!(u, "[DEBUG sched] cpu{} no task to schedule", cur),
+                };
             }
         }
-        let cur = Self::current_cpu_index();
-        if let Some(ref mut w) = u {
-            use core::fmt::Write as _;
-            let _ = writeln!(
-                w,
-                "[DEBUG sched] schedule_next cpu{}: queues=[PerfBurst:{}, Interactive:{}, Normal:{}, Idle:{}]",
-                cur,
-                self.cpus[cur].queues[3].len(),
-                self.cpus[cur].queues[2].len(),
-                self.cpus[cur].queues[1].len(),
-                self.cpus[cur].queues[0].len()
-            );
-        }
-
-        for class in [QosClass::PerfBurst, QosClass::Interactive, QosClass::Normal, QosClass::Idle]
-        {
-            if let Some(task) = self.cpus[cur].queue_mut(class).pop_front() {
-                if let Some(ref mut w) = u {
-                    use core::fmt::Write as _;
-                    let _ = writeln!(
-                        w,
-                        "[DEBUG sched] picked: pid={} qos={:?}",
-                        task.id.as_raw(),
-                        task.qos
-                    );
-                }
-                task.dispatched();
-                self.cpus[cur].current = Some(task.clone());
-                return Some(task.id);
-            }
-        }
-        self.cpus[cur].current = None;
-        if let Some(mut w) = u {
-            use core::fmt::Write as _;
-            let _ = writeln!(w, "[DEBUG sched] no task to schedule");
-        }
-        None
+        let task = picked?;
+        ready::dispatched(&task);
+        Some(Pid::from_raw(task.id))
     }
 
     /// Re-enqueue the currently running task (call on timeslice/yield).
     pub fn yield_current(&mut self) {
-        let cur = Self::current_cpu_index();
-        if let Some(task) = self.cpus[cur].current.clone() {
-            // Queued while still its hart's current: it waits behind its peers, not behind an
-            // idle hart (`ready_stats`). Deterministic fail-closed behavior for queue
-            // saturation: a rejected task stays current so it is not silently dropped.
-            if matches!(self.try_enqueue(task.id, task.qos), EnqueueOutcome::Enqueued) {
-                self.cpus[cur].current = None;
-            }
-        }
+        // Queued while still its hart's current: it waits behind its peers, not behind an
+        // idle hart (`ready_stats`). Deterministic fail-closed behavior for queue
+        // saturation: a rejected task stays current so it is not silently dropped.
+        let now = ready::now_ticks();
+        let _ = with(Self::current_cpu_index(), |q| q.yield_current(now));
     }
 
     /// Marks the current task as finished without re-enqueuing it.
     pub fn finish_current(&mut self) {
-        self.cpus[Self::current_cpu_index()].current = None;
+        let _ = with(Self::current_cpu_index(), |q| q.set_current(None));
     }
 
     /// The CPU `id` is the current task of, if any (ADR-0082: an order for a task running on
     /// another hart is left as a pending mark and delivered by a resched IPI).
     pub fn running_on(&self, id: TaskId) -> Option<CpuId> {
-        self.cpus
-            .iter()
-            .position(|cpu| cpu.current.as_ref().is_some_and(|t| t.id == id))
+        (0..RUN_QUEUES.len())
+            .find(|&cpu| with(cpu, |q| q.current()).flatten().is_some_and(|t| t.id == id.as_raw()))
             .map(|index| CpuId::from_raw(index as u16))
     }
 
     /// Removes all queued references to `id` and clears it if currently running.
     pub fn purge(&mut self, id: TaskId) {
-        for cpu in &mut self.cpus {
-            for q in &mut cpu.queues {
-                q.retain(|t| t.id != id);
-            }
-            if cpu.current.as_ref().is_some_and(|t| t.id == id) {
-                cpu.current = None;
-            }
+        for cpu in 0..RUN_QUEUES.len() {
+            let _ = with(cpu, |q| q.purge(id.as_raw()));
         }
     }
 
-    fn selftest_queue_for(&mut self, cpu_idx: usize, qos: QosClass) -> &mut VecDeque<Task> {
-        self.cpus[cpu_idx].queue_mut(qos)
-    }
-
-    fn selftest_try_steal(&mut self, local_cpu: usize, max_qos: QosClass) -> Option<Task> {
-        const STEAL_CLASSES_PERF: [QosClass; 4] =
-            [QosClass::PerfBurst, QosClass::Interactive, QosClass::Normal, QosClass::Idle];
-        const STEAL_CLASSES_INTERACTIVE: [QosClass; 3] =
-            [QosClass::Interactive, QosClass::Normal, QosClass::Idle];
-        const STEAL_CLASSES_NORMAL: [QosClass; 2] = [QosClass::Normal, QosClass::Idle];
-        const STEAL_CLASSES_IDLE: [QosClass; 1] = [QosClass::Idle];
-
-        let steal_classes: &[QosClass] = match max_qos {
-            QosClass::PerfBurst => &STEAL_CLASSES_PERF,
-            QosClass::Interactive => &STEAL_CLASSES_INTERACTIVE,
-            QosClass::Normal => &STEAL_CLASSES_NORMAL,
-            QosClass::Idle => &STEAL_CLASSES_IDLE,
-        };
-        let online = crate::smp::cpu_online();
-        for class in steal_classes {
-            for victim in 0..self.cpus.len() {
-                if victim == local_cpu {
-                    continue;
-                }
-                // Unit tests run without a real CPU-online set contract.
-                if !cfg!(test) && !online.is_empty() && !online.contains(victim) {
-                    continue;
-                }
-                if let Some(task) = self.selftest_queue_for(victim, *class).pop_front() {
-                    crate::smp::record_work_steal();
-                    return Some(task);
-                }
+    /// One steal for hart `local` (`run_queue::steal`), counted as the pop it replaces was.
+    fn steal_for(
+        local: usize,
+        max_qos: QosClass,
+        allow: impl FnMut(u32) -> bool,
+        home_of: impl FnMut(u32) -> usize,
+    ) -> Option<Task> {
+        match run_queue::steal(&Machine, local, max_qos, allow, home_of)? {
+            Stolen::Taken(task) => {
+                crate::smp::record_work_steal();
+                Some(task)
+            }
+            Stolen::Rejected => {
+                crate::smp::record_work_steal();
+                None
             }
         }
-        None
     }
 
     pub fn selftest_reset_cpu(&mut self, cpu: CpuId) {
-        let cpu_idx = cpu.as_index();
-        if cpu_idx >= self.cpus.len() {
-            return;
-        }
-        for queue in &mut self.cpus[cpu_idx].queues {
-            queue.clear();
-        }
-        self.cpus[cpu_idx].current = None;
+        let _ = with(cpu.as_index(), HartQueues::reset);
     }
 
     /// Enqueues a task on a specific CPU's per-CPU runqueue.
@@ -466,7 +287,7 @@ impl Scheduler {
     /// during IPC wakeups.
     pub fn enqueue_on_cpu(&mut self, cpu: CpuId, id: TaskId, qos: QosClass) -> EnqueueOutcome {
         let cpu_idx = cpu.as_index();
-        if cpu_idx >= self.cpus.len() {
+        if cpu_idx >= RUN_QUEUES.len() {
             return EnqueueOutcome::Rejected(EnqueueRejectReason::InvalidCpu { cpu });
         }
         // Bounded bring-up diagnostic: the first few REMOTE enqueues prove
@@ -479,13 +300,7 @@ impl Scheduler {
                 log_info!(target: "smp", "KINIT: enqueue cpu{} pid={}", cpu_idx, id.as_raw());
             }
         }
-        let task = Task::ready(id, qos, self.cpus[cpu_idx].current.as_ref());
-        Self::bounded_push(
-            self.cpus[cpu_idx].queue_mut(qos),
-            task,
-            qos,
-            Self::runtime_queue_capacity_for(qos),
-        )
+        Self::push(cpu_idx, id, qos)
     }
 
     /// Runtime work stealing (A8): bounded single-task steal for the executing
@@ -493,26 +308,30 @@ impl Scheduler {
     /// this CPU's current and its id is returned; the caller migrates the
     /// task's `home_cpu` (explicit migration). Victims are scanned in
     /// ascending CPU order; the QoS ceiling is respected.
+    ///
+    /// B (TASK-0042) + ADR-0052: a task the thief may not run (`allow`) parks — no loss, no
+    /// reorder — at the FRONT of its HOME CPU's queue (`home_of`); `schedule_next` has no
+    /// affinity check, so a park on the thief would run it there. The task is judged under
+    /// its hart's queue lock and leaves that queue only for a place that took it.
     pub fn steal_into_current(
         &mut self,
         max_qos: QosClass,
         mut allow: impl FnMut(TaskId) -> bool,
         mut home_of: impl FnMut(TaskId) -> usize,
     ) -> Option<TaskId> {
+        // No trap on this hart between the victim's queue and its own: a stolen task is in
+        // neither while it changes hands.
+        let _irq_off = IrqOffGuard::new();
         let cur = Self::current_cpu_index();
-        let task = self.selftest_try_steal(cur, max_qos)?;
-        // B (TASK-0042) + ADR-0052: an affinity-rejected task parks (no loss, no
-        // reorder) at the FRONT of its HOME CPU's queue — `schedule_next` has no
-        // affinity check, so the old cpu0 park RAN background work on the display hart.
-        if !allow(task.id) {
-            let home = home_of(task.id).min(self.cpus.len() - 1);
-            self.cpus[home].queue_mut(task.qos).push_front(task);
-            return None;
-        }
-        let id = task.id;
-        task.dispatched();
-        self.cpus[cur].current = Some(task);
-        Some(id)
+        let task = Self::steal_for(
+            cur,
+            max_qos,
+            |id| allow(Pid::from_raw(id)),
+            |id| home_of(Pid::from_raw(id)),
+        )?;
+        ready::dispatched(&task);
+        let _ = with(cur, |q| q.set_current(Some(task)));
+        Some(Pid::from_raw(task.id))
     }
 
     pub fn selftest_enqueue_on_cpu(
@@ -521,49 +340,31 @@ impl Scheduler {
         id: TaskId,
         qos: QosClass,
     ) -> EnqueueOutcome {
-        self.selftest_try_enqueue_on_cpu(cpu, id, qos)
-    }
-
-    fn selftest_try_enqueue_on_cpu(
-        &mut self,
-        cpu: CpuId,
-        id: TaskId,
-        qos: QosClass,
-    ) -> EnqueueOutcome {
-        let cpu_idx = cpu.as_index();
-        if cpu_idx >= self.cpus.len() {
-            return EnqueueOutcome::Rejected(EnqueueRejectReason::InvalidCpu { cpu });
+        match with(cpu.as_index(), |q| q.push_back(id.as_raw(), qos, ready::now_ticks())) {
+            Some(Ok(())) => EnqueueOutcome::Enqueued,
+            Some(Err(run_queue::Full)) => rejected_full(qos),
+            None => EnqueueOutcome::Rejected(EnqueueRejectReason::InvalidCpu { cpu }),
         }
-        let task = Task::ready(id, qos, self.cpus[cpu_idx].current.as_ref());
-        Self::bounded_push(
-            self.selftest_queue_for(cpu_idx, qos),
-            task,
-            qos,
-            Self::selftest_queue_capacity_for(qos),
-        )
     }
 
     pub fn selftest_schedule_on_cpu(&mut self, cpu: CpuId) -> Option<TaskId> {
         let cpu_idx = cpu.as_index();
-        if cpu_idx >= self.cpus.len() {
+        if cpu_idx >= RUN_QUEUES.len() {
             return None;
         }
-
-        for class in [QosClass::PerfBurst, QosClass::Interactive, QosClass::Normal, QosClass::Idle]
-        {
-            if let Some(task) = self.selftest_queue_for(cpu_idx, class).pop_front() {
-                self.cpus[cpu_idx].current = Some(task.clone());
-                return Some(task.id);
-            }
-            for _ in 0..Self::SELFTEST_STEAL_MAX_PER_TICK {
-                if let Some(task) = self.selftest_try_steal(cpu_idx, class) {
-                    self.cpus[cpu_idx].current = Some(task.clone());
-                    return Some(task.id);
-                }
+        let _irq_off = IrqOffGuard::new();
+        for class in QosClass::DESCENDING {
+            let own = with(cpu_idx, |q| q.pop_front(class)).flatten();
+            let task = own.or_else(|| {
+                (0..Self::SELFTEST_STEAL_MAX_PER_TICK)
+                    .find_map(|_| Self::steal_for(cpu_idx, class, |_| true, |_| cpu_idx))
+            });
+            if let Some(task) = task {
+                let _ = with(cpu_idx, |q| q.set_current(Some(task)));
+                return Some(Pid::from_raw(task.id));
             }
         }
-
-        self.cpus[cpu_idx].current = None;
+        let _ = with(cpu_idx, |q| q.set_current(None));
         None
     }
 
@@ -573,24 +374,14 @@ impl Scheduler {
         max_qos: QosClass,
     ) -> Option<TaskId> {
         let cpu_idx = local_cpu.as_index();
-        if cpu_idx >= self.cpus.len() {
+        if cpu_idx >= RUN_QUEUES.len() {
             return None;
         }
-        self.selftest_try_steal(cpu_idx, max_qos).map(|task| task.id)
+        Self::steal_for(cpu_idx, max_qos, |_| true, |_| cpu_idx).map(|task| Pid::from_raw(task.id))
     }
 
     pub fn selftest_queue_len(&self, cpu: CpuId, qos: QosClass) -> usize {
-        let cpu_idx = cpu.as_index();
-        if cpu_idx >= self.cpus.len() {
-            return 0;
-        }
-        let queue_idx = match qos {
-            QosClass::Idle => 0,
-            QosClass::Normal => 1,
-            QosClass::Interactive => 2,
-            QosClass::PerfBurst => 3,
-        };
-        self.cpus[cpu_idx].queues[queue_idx].len()
+        with(cpu.as_index(), |q| q.len(qos)).unwrap_or(0)
     }
 
     /// Returns the configured deterministic time slice for each task.
@@ -607,6 +398,3 @@ impl Default for Scheduler {
 
 mod class;
 mod ready;
-
-#[cfg(test)]
-mod tests;

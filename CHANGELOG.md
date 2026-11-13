@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-11-13 (each hart's run queues behind that hart's own lock — TASK-0363 P2, step 1 of 3)
+
+- **The run queues left the kernel lock's aggregate** (`neuron`: `sched/run_queue.rs`,
+  `sched/mod.rs`): one bounded queue per class and the running task, per hart, in fixed storage
+  (a queue operation no longer allocates) behind that hart's own lock in a table the machine
+  sizes. The lock is a leaf: held for one queue operation, and a second hart's queues are
+  reached only by try-lock. `Scheduler` keeps its API and its callers, who still hold the kernel
+  lock — what this step changes is where the queues live, not who waits for whom; the dispatch
+  off the kernel lock is steps 2 and 3, and the phase's board gate is theirs.
+- **A thief judges a task under its hart's queue lock**: a task it may not run leaves that queue
+  only for a place that took it — the front of its home hart's queue — and stays where it is
+  when that queue is full or held. Before, it was popped first and pushed back after.
+- **The scheduler's rules run on the host** (`sched/run_queue_tests.rs`, 22 tests: class order,
+  round-robin, the bounds and every `test_reject_*`, the ring past its wrap, set-qos, purge, the
+  steal by class and affinity, the park, 20 000 random steps without a task lost or doubled).
+  The tests they replace (`sched/tests.rs`) sat in a module only the kernel target compiles and
+  ran nowhere. QEMU with 1, 2 and 8 harts: `KSELFTEST: work stealing ok`, `steal park ok`.
+  Board (`board--2026-11-13T14-35-33`): ladder 118, 8 harts, the same selftests and the same
+  red kinds as the cycle before; an interactive wake waits 17 us in the mean, 1.6 ms at most.
+
 ### Changed - 2026-11-13 (an arc costs the pixels it crosses, a menu's enter repaints the menu — TASK-0367 P4, TASK-0354 P7)
 
 - **A corner asks only the columns its arc crosses** (`nexus-scene-raster`: `shapes::arc_band`,

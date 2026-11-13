@@ -470,8 +470,7 @@ pub mod growth;
 #[path = "mm/pressure.rs"]
 pub mod pressure;
 // RFC-0079 (`ipc_eof` below): the pure last-sender-EOF predicate, host-tested; fed by the recv path.
-/// One console line at a time across harts — the pure owner logic (TASK-0327B P4 H0d),
-/// host-tested; bound to the funnel in `hal::console_line`.
+/// One console line at a time across harts — the pure owner logic (TASK-0327B P4 H0d), host-tested.
 pub mod console_line;
 mod ipc_eof;
 // RFC-0112: the capability-transfer rules (parent-only, REPLACE_DEAD) — pure, host-tested.
@@ -485,18 +484,19 @@ pub mod irq_route;
 // TASK-0330 S0: the kernel lock's wait/hold accounting, host-tested; fed by `trap::budgets`.
 #[path = "core/trap/lock_stats.rs"]
 mod lock_stats;
-// TASK-0330 P0: where the kernel lock's time goes (per holder, in sum) and how long a
-// runnable task waits for a hart (per class) — both NOT target-gated, host-tested. Fed by
-// `trap::runtime::KernelGuard` at release and by the scheduler at dispatch.
+// TASK-0330 P0: where the kernel lock's time goes (per holder, in sum) and how long a runnable
+// task waits for a hart (per class) — host-tested; fed by `KernelGuard` and the dispatch.
 #[path = "core/trap/lock_share.rs"]
 mod lock_share;
 #[path = "sched/ready_stats.rs"]
 mod ready_stats;
+// TASK-0363 P2 S1: a hart's run queues and the steal rule — the scheduler's host-tested core.
+#[path = "sched/run_queue.rs"]
+mod run_queue;
 // TASK-0363 P0: who yields, per task — host-tested; fed by the yield syscall.
 #[path = "sched/yield_stats.rs"]
 mod yield_stats;
-// TASK-0333 6c-1a (ADR-0079): the pure cache-maintenance rule — NOT target-gated, so the
-// decode and the decision run on host. Fed by `trap::cache_right`.
+// TASK-0333 6c-1a (ADR-0079): the pure cache-maintenance rule, host-tested (`trap::cache_right`).
 #[path = "core/trap/cbo_rule.rs"]
 mod cbo_rule;
 // TASK-0330 S2b: the serial line's cursor in the console ring — NOT target-gated, so its order

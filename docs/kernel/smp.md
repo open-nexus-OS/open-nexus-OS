@@ -63,8 +63,8 @@ stay 0.
 | `PerCpu` (`source/kernel/neuron/src/sync/percpu.rs`) | a slot reachable only from its own CPU, IRQs masked; host-tested, not yet used by a subsystem |
 | atomics | online/idle masks, resched flags, TLB mailboxes — leaf level |
 
-Hierarchy (normative): BKL → per-CPU run-queue locks (ascending CPU index) → leaf atomics. Today
-the run queues live inside the BKL aggregate, so the middle tier is empty.
+Hierarchy (normative): BKL → one hart's run-queue lock (`sched::RUN_QUEUES`; a second hart's
+only by try-lock, for a steal) → leaf atomics. The queue rules are `sched/run_queue.rs`, host-tested.
 
 BKL rules from ADR-0049: the lock-free class (only `nsec`; the debug writes went back under the
 BKL so log lines stay whole) takes no lock, phased syscalls drop it for their

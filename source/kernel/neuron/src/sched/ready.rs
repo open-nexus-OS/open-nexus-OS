@@ -15,8 +15,10 @@
 
 use super::*;
 
+/// The clock a task's wait is stamped with where it enters a run queue (`run_queue` takes
+/// it as a number).
 #[inline]
-fn now_ticks() -> u64 {
+pub(super) fn now_ticks() -> u64 {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
         riscv::register::time::read() as u64
@@ -27,24 +29,14 @@ fn now_ticks() -> u64 {
     }
 }
 
-impl Task {
-    /// A task entering a run queue now, on a hart running `current`.
-    #[inline]
-    pub(super) fn ready(id: TaskId, qos: QosClass, current: Option<&Task>) -> Self {
-        let behind =
-            crate::ready_stats::behind(current.map(|task| task.qos as usize), qos as usize);
-        Self { id, qos, ready_at: now_ticks(), behind }
-    }
-
-    /// The task leaves its queue for a hart: its wait is recorded for its class.
-    #[inline]
-    pub(super) fn dispatched(&self) {
-        crate::ready_stats::record(
-            self.qos as usize,
-            self.ready_at,
-            now_ticks(),
-            crate::hal::platform::ticks_per_us(),
-            self.behind,
-        );
-    }
+/// The task leaves its queue for a hart: its wait is recorded for its class.
+#[inline]
+pub(super) fn dispatched(task: &Task) {
+    crate::ready_stats::record(
+        task.qos as usize,
+        task.ready_at,
+        now_ticks(),
+        crate::hal::platform::ticks_per_us(),
+        task.behind,
+    );
 }

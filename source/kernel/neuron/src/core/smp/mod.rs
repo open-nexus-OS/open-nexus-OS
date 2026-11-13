@@ -135,7 +135,8 @@ pub fn size_for_machine() {
         .and_then(|()| crate::hal::console_line::size(harts))
         .and_then(|()| crate::irq::size(harts))
         .and_then(|()| crate::trap::fp::size(harts))
-        .and_then(|()| crate::trap::size_hart_deadlines(harts));
+        .and_then(|()| crate::trap::size_hart_deadlines(harts))
+        .and_then(|()| crate::sched::size(harts));
     if let Err(error) = sized {
         log_error!(target: "smp", "KPANIC: smp slab harts={} ({:?})", harts, error);
         panic!("smp slab: per-hart state not sized");
