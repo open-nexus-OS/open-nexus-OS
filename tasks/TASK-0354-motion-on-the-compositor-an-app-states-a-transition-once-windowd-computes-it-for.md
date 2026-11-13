@@ -81,8 +81,10 @@ phases:
     note: "alert front=1 backdrop=1 at 322x130, toast front=1 below the bar, scrim to 56 %; confirmed by the operator on the board 2026-11-05 (trace incomplete past 300 KB)"
   - id: P7
     story: "a window's frosted base can carry a motion layer: a sheet entering in an app window is moved by windowd like the shell's panels"
-    state: planned
+    state: building
     gate: "board: a window sheet's enter has no apphost hops motion episode; apphost motion layer for it"
+    started: 2026-11-13
+    note: "Board board--2026-11-13T13-12-28 (image dev-ee710942): the rule is built (motion_math::composes_apart, layers painted on a clear ground, host-tested), but no window carried a layer — all 17 layers are the shell's, and the window kit's menus ran three menuIn episodes in app-host's path (37-42 ms a frame over 604-698 rows; before 49-58 ms). Read from the code, not instrumented: WinAppMenu is .material(overlay) under a window root with no material, so it is a blur root that resets its rectangle and composes_apart refuses it. Open decision (ARCH): a window's popover as a layer WITH a backdrop, i.e. the menu frosts the window's content under it and windowd blurs under a window's layer — a look change against painting in place. Also open: the full-window .overlay() stack is the damage of every frame of the enter; the damage should be the popover's rectangle. No refusal reason is logged: the next cut logs it once per refused enter."
   - id: P8
     story: "closing a panel, the launcher or a toast costs no app raster: the layer goes and nothing under it is painted again - the cause of today's close frames named first (an exit motion, a store replan or a scrim), then cut"
     state: planned
@@ -99,15 +101,21 @@ phases:
     note: "moved from TASK-0353 (2026-11-10, the operator's \"move them, then close\"; ids of the design spec and the P5 transition inventory): primitives-core CHK-8 RAD-6 SEG-4 SLD-3 SLD-10 PIN-3 PRG-4; P5 transitions M39 M40 M41 M42 M43 M12 M13 M14 M51 M52 M62 M63 M64 M69"
   - id: P11
     story: "a menu opens from its anchor's corner (a menu-in token: 92 %, a quick spring), children enter staggered (the island's bars 80 ms, the floating button's minis 40 ms), a press scales by category (95 % buttons, 96 % tiles, 94 % keys held, 92 % icons, 88 % window buttons) and the loops keep the design's timing (progress pip 1.1 s smooth, shimmer 1.4 s ease-in-out)"
-    state: proving
+    state: done
     gate: "host: samples; the TASK-0353 P5 inventory's nearest rows become exact; board: 0 of 32 frames dropped"
     started: 2026-11-13
+    done: 2026-11-13
+    evidence: build/logs/board--2026-11-13T12-18-30
     note: "built 2026-11-13, first cut: menuIn (token 10: opacity + scale from 0.92, quick, spring) grows from the corner the menu hangs on — the body's edge nearer its transition node's edge. On a compositor layer no origin crosses the wire (scale about a point = scale about the centre + an offset on the same curve; the corner rests within 1 px, host-tested); an enter app-host paints itself scales about the same corner (anchor_point: the node's anchor and its damage). WinAppMenuLayer, WinAppMenuOverlay and Stash's SelectionMenu use it. Loops on a time grid (loop_math): pip 1.1 s smooth, shimmer 1.4 s ease-in-out (LOOP_SHIMMER), no spring. Board 2026-11-13 (board--2026-11-13T12-18-30): a menu in a window runs in the app's path (its frosted base carries no layer, P7) — seven menuIn episodes, 21-58 ms median paint a frame; the first cycle (T11-54-25) showed the corner missing on that path, built in before the second. Left: staggered children (island bars 80 ms, FAB minis 40 ms), press by declared role (a key 94 %, a tile 96 % — shape cannot tell them apart: needs a role, a DSL change), the pip and band entering from outside their track (needs a rounded clip in the row painter, with P10's translate in percent), the lock field's shake (500 ms)"
   - id: P12
     story: "state-bound transforms: sliding indicators, the rail, the page control's capsule, sheet detents with a rubber band, a list row's swipe, the paged track and the launcher's page turn, the calendar's month slide, the island's morph"
     state: planned
     gate: "host tests per transform; board: 0 of 32 frames dropped per transition"
     note: "moved from TASK-0353 (2026-11-10, the operator's \"move them, then close\"; ids of the design spec and the P5 transition inventory): primitives-window TB-8 AB-7 SHT-1; shell-bars IS-07; shell-panels PN-MONTH; launcher-lock G6; launcher-lock F7; P5 transitions M10 M22 M31 M32 M53 M54 M55 M74 M75 M76"
+  - id: P13
+    story: "what the first cut of P11 left: children enter staggered (the island's bars 80 ms, the floating button's minis 40 ms), a press scales by a declared role (a key 94 %, a tile 96 %), the progress pip and the shimmer band enter from outside their track under a rounded clip, and the lock field shakes for 500 ms on the design's curve"
+    state: planned
+    gate: "host: samples per stagger and per role at named times; the row painter's rounded clip byte-equal to the SDF at the capsule's ends; board: 0 of 32 frames dropped"
 ---
 
 ## The ask

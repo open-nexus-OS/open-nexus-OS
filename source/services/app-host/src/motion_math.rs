@@ -180,6 +180,24 @@ pub(crate) fn backdrop_of(b: &LayoutBox, (w, h): (i32, i32), has_text: bool) -> 
     v.background.filter(|c| flat && c.a > 0)
 }
 
+/// Whether the subtree `[first, end)` painted apart — on a clear ground, in a layer's store —
+/// and drawn over a base that is not clear shows what painting it in place shows (TASK-0354 P7:
+/// a window's frosted base). True when every box of it lies over what is under it (source
+/// over): a box that RESETS its rectangle — a blur root or a pane that is not nested in another
+/// glass, with a fill that is not opaque — takes the compositor's backdrop in place of the base,
+/// and apart it would let the base through.
+pub(crate) fn composes_apart(boxes: &[LayoutBox], (first, end): (usize, usize)) -> bool {
+    let resets = |b: &LayoutBox| {
+        let v = &b.visual;
+        let clear = |c: Rgba8| c.a != 255;
+        v.material.is_some_and(|m| m.blurs() || m.opaque())
+            && !b.glass_nested
+            && (v.background.is_some_and(clear)
+                || v.background_gradient.is_some_and(|(top, bottom)| clear(top) || clear(bottom)))
+    };
+    !boxes.iter().any(|b| b.node_id >= first && b.node_id < end && resets(b))
+}
+
 /// Where a `.transition` enter of `token` starts relative to its rest — `(dx, dy, opacity,
 /// scale)`: the token's absent state, transparent, at its starting scale in 1/10000 (`10000`:
 /// unscaled) — the compositor scales the whole layer about its centre (TASK-0354 P3). An effect
@@ -369,6 +387,37 @@ mod tests {
         assert_eq!(enter_from(MotionToken::Wiggle), None);
         assert_eq!(enter_from(MotionToken::Snappy), Some((0, 0, 0, 10_000)), "enters as a fade");
         assert_eq!(enter_from(MotionToken::MenuIn), Some((0, 0, 0, 9_200)), "a menu grows in");
+    }
+
+    /// A window's frosted base carries a layer whose boxes all lie over the base: a menu's
+    /// opaque sheet, tint cards nested in the window's glass, text. A blur root with a translucent
+    /// tint in the subtree resets its rectangle — apart, the base would show through it.
+    #[test]
+    fn a_subtree_composes_apart_unless_a_box_resets_its_rectangle() {
+        use nexus_layout_types::Material;
+        let boxed = |node_id: usize, material: Option<Material>, a: u8, nested: bool| LayoutBox {
+            node_id,
+            rect: Rect::new(FxPx::new(0), FxPx::new(0), FxPx::new(100), FxPx::new(40)),
+            visual: VisualStyle {
+                background: Some(Rgba8 { r: 20, g: 20, b: 30, a }),
+                material,
+                ..VisualStyle::default()
+            },
+            glass_nested: nested,
+            ..LayoutBox::default()
+        };
+        let menu = [
+            boxed(4, None, 0, true),
+            boxed(5, Some(Material::Overlay), 255, true),
+            boxed(6, Some(Material::Panel), 120, true),
+            boxed(7, None, 90, false),
+        ];
+        assert!(composes_apart(&menu, (4, 8)));
+        // An opaque pane resets to its own pixel either way.
+        assert!(composes_apart(&[boxed(4, Some(Material::Pane), 255, false)], (4, 5)));
+        let reset = [boxed(4, None, 0, false), boxed(5, Some(Material::Panel), 160, false)];
+        assert!(!composes_apart(&reset, (4, 6)), "test_reject: a blur root's tint");
+        assert!(composes_apart(&reset, (4, 5)), "outside the subtree it is the base's");
     }
 
     /// TASK-0354 P11: a menu grows out of the corner it hangs on. A 240×300 panel under the

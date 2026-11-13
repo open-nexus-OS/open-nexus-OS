@@ -161,10 +161,11 @@ impl MotionToken {
             | MotionToken::SlideUp
             | MotionToken::SlideDown
             | MotionToken::MenuIn => MotionDurationToken::Quick,
-            MotionToken::Smooth | MotionToken::Wiggle => MotionDurationToken::Base,
-            MotionToken::Emphasized | MotionToken::FadeScale | MotionToken::PushInline => {
-                MotionDurationToken::Slow
-            }
+            MotionToken::Smooth => MotionDurationToken::Base,
+            MotionToken::Emphasized
+            | MotionToken::FadeScale
+            | MotionToken::PushInline
+            | MotionToken::Wiggle => MotionDurationToken::Slow,
         }
     }
 
@@ -309,6 +310,19 @@ pub const SLIDE_UP_SCALE: f32 = 0.97;
 pub const SLIDE_DOWN_SCALE: f32 = 0.96;
 /// A menu's absent-state scale: it grows in from 0.92.
 pub const MENU_IN_FROM: f32 = 0.92;
+
+/// The attention shake of `wiggle` at progress `t` (`0..=1`), in px to the side (design
+/// artifacts: the lock field's shake, 500 ms): ten equal steps through −1, +3, −6, +6, −6, +6,
+/// −6, +3, −1 back to rest, each step eased on `cubic-bezier(.36, .07, .19, .97)` — as a style
+/// sheet eases every keyframe interval, not the whole run.
+#[must_use]
+pub fn shake_px(t: f32) -> f32 {
+    const STOPS: [f32; 11] = [0.0, -1.0, 3.0, -6.0, 6.0, -6.0, 6.0, -6.0, 3.0, -1.0, 0.0];
+    let steps = t.clamp(0.0, 1.0) * 10.0;
+    let i = (steps as usize).min(9);
+    let eased = crate::keyframe::cubic_bezier([0.36, 0.07, 0.19, 0.97], steps - i as f32);
+    STOPS[i] + (STOPS[i + 1] - STOPS[i]) * eased
+}
 
 #[cfg(test)]
 mod tests {
@@ -459,5 +473,20 @@ mod tests {
         assert_eq!(AnimProp::ScaleX.identity(), 1.0);
         assert_eq!(AnimProp::TranslateX.identity(), 0.0);
         assert_eq!(MotionToken::Fade.resting(AnimProp::BlurRadius, false), 0.0);
+    }
+
+    /// The shake at its keyframes (every tenth of its 500 ms) and between two of them: eased per
+    /// interval — halfway through the step from −6 to +6 it is already past the middle.
+    #[test]
+    fn the_shake_follows_the_designs_keyframes() {
+        let stops = [0.0, -1.0, 3.0, -6.0, 6.0, -6.0, 6.0, -6.0, 3.0, -1.0, 0.0];
+        for (k, stop) in stops.iter().enumerate() {
+            assert!((shake_px(k as f32 / 10.0) - stop).abs() < 0.01, "stop {k}");
+        }
+        let mid = shake_px(0.35);
+        assert!(mid > 3.0 && mid < 6.0, "eased out of -6 towards +6: {mid}");
+        assert_eq!(shake_px(-1.0), 0.0);
+        assert_eq!(shake_px(2.0), 0.0);
+        assert_eq!(MotionToken::Wiggle.duration(), MotionDurationToken::Slow);
     }
 }

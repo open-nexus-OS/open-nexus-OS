@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-11-13 (a window's frost may carry a motion layer, a stroked icon costs its segments, a tint is divided once — TASK-0354 P7, TASK-0367)
+
+- **A window's frosted base may carry a motion layer** (TASK-0354 P7, RFC-0109 amended): a
+  `.transition` enter in an app window is rastered once and moved by windowd like the shell's
+  panels, when every box of its subtree lies over the base (`motion_math::composes_apart`: none
+  resets its rectangle to a translucent tint). A layer's rows are painted on a clear ground (on
+  the page base a window's frost was in the layer twice — the reason windows were refused).
+  **Not yet the window kit's menus** (board `board--2026-11-13T13-12-28`: no window layer, three
+  `menuIn` episodes still in app-host's path at 37-42 ms a frame, before 49-58): their popover
+  is a blur root of its own and resets its rectangle. P7 stays open.
+- **A stroked symbol costs its segments, not its pixels times its segments**
+  (`nexus-scene-raster/src/strokes.rs`, TASK-0367): the segments of a row are walked once and
+  each visits the pixels its own extent reaches; byte-equal to asking every segment at every
+  pixel (400 random cases against the first form). Host: eight 24-px icons 68.7 → 9.6 us a row,
+  four 64-px icons 84.9 → 9.0 — the board's raster split had named the boxes as a first frame's
+  largest stage. Board (`board--2026-11-13T13-12-28` against `T12-18-30`, the same first
+  frames): boxes 32.4 → 26.6, 35.2 → 27.3, 42.9 → 30.6 ms — and 58.4 → 57.9 ms on the 340×600
+  surface of 97 boxes, whose cost is not its strokes.
+- **A tint is divided out once** (`app-host/src/straight_alpha.rs`): four partial pixels equal
+  to the four last converted take their result — a glass tint over a whole surface cost the board
+  30 ns a pixel (62 of a first frame's 92 ms). The four are held and compared as one 128-bit
+  word: a slice compare of 16 bytes is a call on the OS target and ate the gain. Board: the
+  greeter's 1920×1080 surface 61.6 → 22.6 ms (30 → 11 ns a pixel), windows 10.7 → 5.3 and
+  11.8 → 6.1 ms.
+- **`wiggle` is the design's shake** (`animation::shake_px`, TASK-0354 P13): eleven stops over
+  500 ms (0, −1, 3, −6, 6, −6, 6, −6, 3, −1, 0 px), eased between stops on the design's curve —
+  it was a sine of a fixed amplitude over the fast duration.
+
 ### Added - 2026-11-13 (a menu opens from its corner, loops keep the design's time, a row's time is split, time as a right is modelled — TASK-0354 P11, TASK-0367 P0, TASK-0363 P1)
 
 - **`menuIn`** (motion token 10, design artifacts: menu entrance): a menu fades in while it

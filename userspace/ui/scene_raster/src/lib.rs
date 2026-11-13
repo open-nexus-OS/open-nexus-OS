@@ -35,6 +35,7 @@ mod shapes;
 use shapes::sqrt_f32;
 #[cfg(test)]
 mod span_identity;
+mod strokes;
 
 use nexus_layout::LayoutBox;
 use nexus_layout_types::{Material, Rgba8, ShapeKind};

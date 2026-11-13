@@ -32,15 +32,14 @@ ADR-0031 explains the three layers. This page maps them to the code as it runs n
 | `motion.rs` | the closed motion-token catalog the DSL's `.animate` / `.transition` / `.effect` validate against; durations and curves come from `nexus-theme-tokens` |
 | `scroll.rs` | `ScrollMomentum`, the one scroll physics (wheel, fling, paging) |
 
-Tests: `userspace/ui/animation/tests/`.
 
 ## Who ticks it
 
 | runner | what | clock | output |
 |---|---|---|---|
 | windowd (`compositor/runtime/transitions.rs`) | window open (fade + scale), close (fade), minimize (fly to the taskbar) | the display's acks (`source/services/windowd/src/frame_clock.rs`) | one `Command::LayerTransform` per window in the next present; the planner redraws the old and new area. No app re-render. |
-| windowd (`compositor/runtime/surface_motion.rs`, `motion_geometry.rs`) | a `.transition` enter the app declared as a motion layer (RFC-0109 §motion layers): the shell's panels, the launcher, the greeter's content | the display's acks — each frame evaluated for its predicted shown time | one `Command::LayerTransform` per moving layer in the next present; its pixels painted once by the app into its store, its regions, slices, washes and caret moved with it; a moving glass keeps its last blur. No app wake, no raster per frame. |
-| app-host (`probe/anim.rs`) | DSL `.animate` / `.effect`, a press's dip held from TAP to RELEASE (95 % control, 88 % chrome circle, 92 % app icon — `press_kind.rs`), and a `.transition` the compositor cannot draw (effect token, frosted base, full store) | windowd's frame pulse | a per-node transform the CPU painter (`nexus-scene-raster`) applies in the app's own frame |
+| windowd (`compositor/runtime/surface_motion.rs`, `motion_geometry.rs`) | a `.transition` enter the app declared as a motion layer (RFC-0109 §motion layers): the shell's panels, the launcher, the greeter, a window's glass-free subtree | the display's acks — each frame evaluated for its predicted shown time | one `Command::LayerTransform` per moving layer in the next present; its pixels painted once by the app into its store, its regions, slices, washes and caret moved with it; a moving glass keeps its last blur. No app wake, no raster per frame. |
+| app-host (`probe/anim.rs`) | DSL `.animate` / `.effect`, a press's dip held from TAP to RELEASE (95 % control, 88 % chrome circle, 92 % app icon — `press_kind.rs`), and a `.transition` the compositor cannot draw (effect token, a blur root on frost, full store) | windowd's frame pulse | a per-node transform the CPU painter (`nexus-scene-raster`) applies in the app's own frame |
 | app-host (`probe/anim/interaction.rs`, `interaction_layer.rs`) | a control's hover and press layers (RFC-0116: `fillHover` / `fillActive`, the on-fill pair over a tint fill), faded by opacity — hover `swift`, press `instant`; the chrome's grab strip takes neither | the frame pulse, while a layer fades | washes windowd composes (`OP_SURFACE_MOTION`, RFC-0109): the opacity per frame, never a raster; hover never changes a control's size |
 | app-host (`probe/scroll.rs`) | every `.scroll(...)` container | the frame pulse | layer offsets windowd composes (ADR-0076) |
 | windowd (`compositor/runtime/cursor.rs`, `wake_clock.rs`) | the wait ring on the pointer while a launch has not surfaced | the loop's one-shot wake, one sprite every 90 ms (never a present's completion) | one cursor-shape select per step (and the pointer rect presented for a software pointer) |

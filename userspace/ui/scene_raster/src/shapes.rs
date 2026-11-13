@@ -12,7 +12,7 @@
 //! row of every repaint, so it allocates nothing.
 
 use super::RowCanvas;
-use nexus_layout_types::{PathPoint, PathShape, Rgba8};
+use nexus_layout_types::{PathShape, Rgba8};
 
 /// `no_std` floor (core `f32` has none; trunc-and-adjust is exact for the pixel-coordinate range
 /// this painter works in).
@@ -80,17 +80,6 @@ pub(crate) fn ellipse_coverage(px: f32, py: f32, rect: (f32, f32, f32, f32)) -> 
     let (dx, dy) = ((px - (x + rx)) / rx, (py - (y + ry)) / ry);
     let d = (sqrt_f32(dx * dx + dy * dy) - 1.0) * rx.min(ry);
     (0.5 - d).clamp(0.0, 1.0)
-}
-
-/// Squared distance from `(px, py)` to the segment `a..b`.
-#[inline]
-fn segment_distance2(px: f32, py: f32, (ax, ay): (f32, f32), (bx, by): (f32, f32)) -> f32 {
-    let (dx, dy) = (bx - ax, by - ay);
-    let len2 = dx * dx + dy * dy;
-    let t =
-        if len2 > 0.0 { (((px - ax) * dx + (py - ay) * dy) / len2).clamp(0.0, 1.0) } else { 0.0 };
-    let (qx, qy) = (ax + t * dx - px, ay + t * dy - py);
-    qx * qx + qy * qy
 }
 
 /// `c` with its alpha scaled by `coverage` (0..=1).
@@ -411,63 +400,6 @@ impl RowCanvas<'_> {
             c,
         );
     }
-
-    /// This row's slice of stroked polylines (`ShapeKind::Stroke`) mapped into `rect`: every
-    /// pixel within half the stroke width (plus the one-pixel ramp) of the NEAREST segment is
-    /// covered by that distance — round caps and joins by construction, and a pixel two
-    /// segments share is painted once (no seam, no double blend at a join).
-    pub(crate) fn stroke_paths_row(
-        &mut self,
-        paths: &[PathShape],
-        rect: (f32, f32, f32, f32),
-        width_milli: u16,
-        c: Rgba8,
-    ) {
-        let (x, y, w, h) = rect;
-        let (sx, sy) = (w / 1000.0, h / 1000.0);
-        let reach = width_milli as f32 * sx.min(sy) * 0.5 + 0.5;
-        let py = self.y as f32 + 0.5;
-        if py < y - reach || py > y + h + reach {
-            return;
-        }
-        let map = |p: &PathPoint| (x + p.x_milli as f32 * sx, y + p.y_milli as f32 * sy);
-        for xx in floor_i32(x - reach)..ceil_i32(x + w + reach) {
-            let px = xx as f32 + 0.5;
-            let mut best = reach * reach;
-            let mut hit = false;
-            for path in paths {
-                let pts = &path.points;
-                let segments =
-                    pts.len().saturating_sub(1) + usize::from(path.closed && pts.len() > 2);
-                if pts.len() == 1 {
-                    // A lone point is a dot: a capsule of length zero.
-                    let a = map(&pts[0]);
-                    let d2 = segment_distance2(px, py, a, a);
-                    if d2 < best {
-                        best = d2;
-                        hit = true;
-                    }
-                }
-                for s in 0..segments {
-                    let (a, b) = (map(&pts[s]), map(&pts[(s + 1) % pts.len()]));
-                    if a.1.min(b.1) - reach > py || a.1.max(b.1) + reach < py {
-                        continue;
-                    }
-                    if a.0.min(b.0) - reach > px || a.0.max(b.0) + reach < px {
-                        continue;
-                    }
-                    let d2 = segment_distance2(px, py, a, b);
-                    if d2 < best {
-                        best = d2;
-                        hit = true;
-                    }
-                }
-            }
-            if hit {
-                self.blend_covered(xx, c, reach - sqrt_f32(best));
-            }
-        }
-    }
 }
 
 #[cfg(test)]
@@ -482,10 +414,6 @@ mod tests {
         let mut canvas = RowCanvas::new(&mut buf, y, width);
         f(&mut canvas);
         buf.chunks_exact(4).map(|p| p[0]).collect()
-    }
-
-    fn pt(x: u16, y: u16) -> PathPoint {
-        PathPoint::new(x, y)
     }
 
     #[test]
@@ -527,42 +455,6 @@ mod tests {
         assert_eq!(r[2], 255, "inside");
         assert!(r[8] > 0 && r[8] < 255, "the diagonal crosses pixel 8: {r:?}");
         assert_eq!(r[12], 0, "outside");
-    }
-
-    /// A stroke reaches past its end point by half its width (a round cap), is soft at the
-    /// sides, and a pixel two joined segments share is painted ONCE — a translucent colour shows
-    /// no darker seam at the join.
-    #[test]
-    fn a_stroke_has_round_caps_and_paints_a_join_once() {
-        let grey = Rgba8 { r: 200, g: 200, b: 200, a: 128 };
-        // A polyline in a 20x20 box, mapped 1000 → 20 px: (2,10.5) → (10,10.5) → (18,10.5) —
-        // on row 10's pixel centres — 2 px wide.
-        let line =
-            PathShape { points: vec![pt(100, 525), pt(500, 525), pt(900, 525)], closed: false };
-        let r =
-            row(10, 22, |c| c.stroke_paths_row(&[line.clone()], (0.0, 0.0, 20.0, 20.0), 100, grey));
-        let mid = r[6];
-        assert!(mid > 0, "the stroke is painted");
-        assert_eq!(r[10], mid, "the join pixel equals a plain one (no double blend)");
-        assert!(r[1] > 0, "the round cap reaches past the end point");
-        assert_eq!(r[0], 0, "but no further than half the width plus the ramp");
-        // One row above the centre line the stroke is partly covered.
-        let above = row(9, 22, |c| c.stroke_paths_row(&[line], (0.0, 0.0, 20.0, 20.0), 100, grey));
-        assert!(above[6] > 0 && above[6] < mid, "{above:?}");
-    }
-
-    /// Strokes outside the row, empty polylines and a lone point (a dot) are all bounded: only
-    /// the dot paints, and only around itself.
-    #[test]
-    fn test_reject_strokes_beyond_the_row_and_degenerate_polylines() {
-        let far = PathShape { points: vec![pt(0, 0), pt(1000, 0)], closed: false };
-        let empty = PathShape { points: vec![], closed: true };
-        let r =
-            row(19, 20, |c| c.stroke_paths_row(&[far, empty], (0.0, 0.0, 20.0, 20.0), 100, WHITE));
-        assert!(r.iter().all(|&v| v == 0), "{r:?}");
-        let dot = PathShape { points: vec![pt(500, 500)], closed: false };
-        let r = row(10, 20, |c| c.stroke_paths_row(&[dot], (0.0, 0.0, 20.0, 20.0), 100, WHITE));
-        assert!(r[10] > 0 && r[3] == 0 && r[17] == 0, "{r:?}");
     }
 
     /// The glass reset at an anti-aliased corner takes the tint over the covered fraction only.

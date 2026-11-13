@@ -5,7 +5,7 @@ title: "Layer 8 on the GPU: an occluded window costs nothing, bindings grow, a f
 status: in_progress
 owner: ["@ui", "@gpu"]
 created: 2026-11-03
-updated: 2026-11-05
+updated: 2026-11-13
 subsystem: ui
 components: [gpud, windowd, nexus-gfx, app-host]
 kind: service
@@ -71,6 +71,7 @@ phases:
     story: "the passes a frame runs hold the budget on the board, with glass and while something moves"
     state: planned
     gate: "board: gpud: gpu gate scene ok, frame p99 <= 16.7 ms with glass on the operator series, 0 of 32 frames dropped during a transition"
+    note: "board 2026-11-13 (board--2026-11-13T12-18-30, three windows, no 12/30-window series) against the gates of the phases still proving: P5 sweep q16 462 us and area16 477 us (met), gate scene cold 38.6 ms against 23.3 and hover 2.9 ms (cold not met); P13 sweep drawn 16x16 (met), hover 2877 us against 2000 (not met); P10 emit per draw 14.9 us on average, 73.5 at most, against 15 (not met in every window); P14 straight_px above a third of opaque_px in 84 of 84 windows, ux frame max_us above 40 ms in 17 of 72 (not met); P15 blend body above 600 000 in 21 of 84 windows (not met); P0 and P2 need the 12- and 30-window series"
   - id: P7
     story: "every effect's mathematics lives in nexus-gfx's kernel tables and the executors interpret it (ADR-0094): the blur taps shared by the shaders and the raster, the dual filter harvested from nexus-effects into the table, the crate and the dead crates deleted, no tap weight or coverage formula left in a driver or a shader source"
     state: done

@@ -186,9 +186,10 @@ impl super::DslApp {
     }
 
     /// Rows `[y0, y1)` of motion layer `k` (TASK-0354 P2): its subtree at rest, painted where its
-    /// pixels are in the store — on the page base, as the base would hold it, so the compositor
-    /// drawing the layer over the base shows what painting it in place shows. Picked over the
-    /// layer's whole rest (a shadow's rows lie outside its box).
+    /// pixels are in the store — on a clear ground, so the compositor drawing the layer over the
+    /// base shows what painting it in place shows (P7: on the page base a window's frost was in
+    /// the layer a second time). Picked over the layer's whole rest (a shadow's rows lie outside
+    /// its box).
     pub(super) fn render_motion_rows(
         &mut self,
         mem: &mut SurfaceMem,
@@ -196,7 +197,6 @@ impl super::DslApp {
         (y0, y1): (i32, i32),
     ) -> bool {
         let Some((rect, (sx, sy))) = self.motion_place(k) else { return true };
-        let base = self.page_base();
         let mut views = core::mem::take(&mut self.view_scratch);
         self.base_views(&mut views);
         self.prepare_picks_with(Pass::Motion(k), (rect.1, rect.3), Some((rect.0, rect.2)), &views);
@@ -208,7 +208,7 @@ impl super::DslApp {
         let span = (rect.2 - rect.0).max(0) as usize * 4;
         let mut ok = true;
         for y in y0.max(rect.1)..y1.min(rect.3) {
-            nexus_paint_kernels::fill(&mut row[..row_bytes], base);
+            row[..row_bytes].fill(0);
             self.paint_row(&mut row[..row_bytes], y, rect.0, &views);
             unpremultiply(&mut row[..span]);
             let at = u32::from(sy) + (y - rect.1) as u32;

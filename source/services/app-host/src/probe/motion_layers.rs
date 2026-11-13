@@ -9,8 +9,8 @@
 //! regions, scroll layers and washes it claims, moved and faded. The app is out of the frame
 //! loop: no pulse, no raster per frame. The layer stays while its node is mounted (a change inside
 //! it paints its store rows, never the base's — P5) and is only possible where painting it apart
-//! composes to the same pixels as painting it in place: a transparent page base (the desktop: the
-//! shell, the greeter). A modal's or a toast's layer (`.overlay(modal|transient)`) is drawn in
+//! composes to the same pixels as painting it in place: on the desktop's clear base anything, on
+//! a window's frosted base a subtree whose boxes lie over it (P7, `composes_apart`). A modal's or a toast's layer (`.overlay(modal|transient)`) is drawn in
 //! front of the windows and the shell's chrome; a root that is one flat fill over the surface (a
 //! modal's scrim) is the layer's backdrop — one patch texel windowd spreads and fades, the store
 //! holds only the sheet. A node the compositor cannot draw stays the app's (Tier 2).
@@ -26,8 +26,8 @@ use super::*;
 use crate::band_math::PresentDamage;
 use crate::layout_diff::TextRun;
 use crate::motion_math::{
-    anchor_point, anchor_shift, backdrop_of, body_extent, enter_from, paint_extent, subtree_span,
-    Span,
+    anchor_point, anchor_shift, backdrop_of, body_extent, composes_apart, enter_from, paint_extent,
+    subtree_span, Span,
 };
 use animation::MotionToken;
 use nexus_display_proto::surface_layers as lw;
@@ -131,8 +131,9 @@ fn backdrop_patch(k: usize) -> Option<usize> {
 
 impl super::DslApp {
     /// A `.transition` enter of `token` on `node_id`: a motion layer when the compositor can draw
-    /// it — a transparent page base, a token that moves and fades, a duration (a modal or a toast
-    /// without one is still a layer: it rests in front), a subtree that is not another layer's,
+    /// it — a token that moves and fades, a duration (a modal or a toast without one is still a
+    /// layer: it rests in front), a subtree that composes apart on its base (anything on the
+    /// desktop's clear base; on a window's frost what lies over it), that is not another layer's,
     /// room in the bound and the store. The same node entering again restarts its motion; a node
     /// the base painted until now (`in_base`) leaves its rows there to paint again. `false`: the
     /// app animates it (Tier 2).
@@ -144,11 +145,7 @@ impl super::DslApp {
     ) -> bool {
         let front = self.front_overlay(node_id);
         let ms = tokens_for(self.theme_mode).motion_ms(token.duration());
-        let Some(from) =
-            enter_from(token).filter(|_| self.page_base_alpha() == 0 && (ms > 0 || front))
-        else {
-            return false;
-        };
+        let Some(from) = enter_from(token).filter(|_| ms > 0 || front) else { return false };
         let duration_ms = ms.min(u32::from(lw::MAX_MOTION_MS)) as u16;
         self.motion_seq = self.motion_seq.wrapping_add(1).max(1);
         let (id, now) = (self.motion_seq, nsec_now());
@@ -164,6 +161,10 @@ impl super::DslApp {
             return m.store.is_some();
         }
         let Some((first, end)) = subtree_span(self.view.scene(), node_id) else { return false };
+        // On a base that is not clear (a window's frost) only what lies over it composes apart.
+        if self.page_base_alpha() != 0 && !composes_apart(&self.layout.boxes, (first, end)) {
+            return false;
+        }
         let in_band = self.layout.boxes.iter().any(|b| b.node_id == node_id && self.in_band(b));
         let nested = self.motion_layers.iter().flatten().any(|m| m.nests((first, end)));
         let Some(slot) =

@@ -273,7 +273,10 @@ woken between the motion's start and its end and paints nothing per frame.
   its shadow), not the whole surface: a panel opening is not a full-screen frame. A layer with a
   backdrop changes every pixel when it comes or goes.
 - *The app.* A `.transition` enter is a motion layer when painting it apart composes to the pixels
-  of painting it in place — a transparent page base (the desktop: the shell, the greeter) — and
+  of painting it in place — on a transparent page base (the desktop: the shell, the greeter)
+  anything; on a base that is not clear (a window's frost; amended 2026-11-13, TASK-0354 P7) a
+  subtree whose boxes all lie over the base, none resetting its rectangle to a translucent tint
+  (a blur root not nested in another glass). A layer's pixels are painted on a clear ground — and
   when its token enters (an effect token stays the app's; amended 2026-11-05, P3: an entrance
   that grows in scales the whole layer about its centre — `Command::LayerTransform` carries one
   origin, RFC-0101), its theme duration is not 0 (reduced motion rests at once), its subtree is

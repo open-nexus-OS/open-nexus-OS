@@ -21,14 +21,17 @@ consumer: hardware-network/LU.1
 phases:
   - id: P0
     story: "where a row's time goes is measured: the fixed cost per row, fills, blends, glyphs, the alpha conversion, the share of float"
-    state: proving
+    state: done
     gate: "a host bench and the board line apphost: raster split; the numbers in the ledger"
     started: 2026-11-13
+    done: 2026-11-13
+    evidence: build/logs/board--2026-11-13T12-18-30
     note: "built 2026-11-13: apphost: raster split (rows= px= boxes= runs= pick_us= ground_us= boxes_us= text_us= alpha_us= clock_ns=) — the process's first full surface painted with a clock read between a row's stages, the reads' cost stated and taken off (raster_split.rs, host-tested; probe/paint/split.rs). Board 2026-11-13, two cycles (board--2026-11-13T11-54-25 and T12-18-30; 8 harts, one painting; clock read 0.7-1.0 us), seven processes each, first full surface 45-169 ms: the boxes are the largest stage in most (38-93 % of the pass; 14-38 ns per surface pixel on the large windows, 263-290 ns on the small surfaces with 97 and 137 boxes = 0.6-1.2 ms a box), the ground 6-22 ns/px (8-27 ms a surface, varying between cycles), the straight-alpha conversion 2-11 ns/px and 30 ns/px (62 of 92-94 ms) on the 1920x1080 surface with 12 boxes, text at most 5 ms, picking a row's boxes 0.03-0.32 ms. So: the plan and the bands (P1, P2) divide every stage; the box painter's cost per box and the alpha conversion are the two kernels P4 takes first. The share of float is the P0 measurement of TASK-0362 (soft against hard per scene); the host bench is its paint-kernel bench (docs/graphics-ui/paint-kernels.md)"
   - id: P1
     story: "a pass is planned once into an immutable plan and any band of its rows is painted from it by any thread, byte-equal to today's painter"
     state: planned
     gate: "host: band parity over splits 1..8 and per row against today's goldens (the nexus-svg band_parity pattern)"
+    started: 2026-11-13
   - id: P2
     story: "the bands of a pass are painted on every hart the workpool has, inside the frame's time right, and the DSL sees none of it"
     state: planned
@@ -39,9 +42,10 @@ phases:
     gate: "board: paint_us <= 1 ms for a 3 000 px damage (18.7 ms for 56 full rows today); host: band_math Cols tests"
   - id: P4
     story: "fills, blends and glyph blits run on the vector unit where the hart has one, the scalar path stays the reference"
-    state: planned
+    state: building
     gate: "host and QEMU: byte equality of every vector kernel with its scalar reference; board: <= 10 ns per painted pixel at 8 harts"
-    note: "fills and source-over blends arrived with TASK-0362 P4 (nexus-paint-kernels; operator 2026-11-12: a mechanism is built in where it is used, at once); this phase keeps the glyph blits and the number at 8 harts. From TASK-0362 P4's board run (docs/board/measurements/2026-11-13-paint-kernels): (1) the scalar reference's blend is 14 % slower than the inline loop it replaced (cards 53.5 against 46.9 ns per pixel) - it paints every span under 16 pixels; (2) the vector blend costs half the scalar one at 16 pixels, so its threshold (SHORT) lies too high - measure the crossover with calls timed in batches (one call is below the stock clock's 500 ns floor) and set a threshold per kernel; (3) the straight-alpha conversion every row leaves through (app-host straight_alpha.rs) is a kernel candidate once P0 names its share."
+    started: 2026-11-13
+    note: "First kernels on the board (board--2026-11-13T13-12-28 against T12-18-30, same first frames): the stroke row walk (scene_raster/src/strokes.rs, byte-equal, host 7-9x) takes the boxes stage 32.4->26.6, 35.2->27.3, 42.9->30.6 ms; the 340x600 surface of 97 boxes stays 58.4->57.9 ms (285 ns/px — not strokes; name it with the host bench next). The alpha memo as 128-bit words: greeter 1920x1080 61.6->22.6 ms (30->11 ns/px), windows 10.7->5.3, 11.8->6.1 ms. ground_us 8-24 ms per first frame unchanged (hypothesis first touch, TASK-0330 P3, not measured). Launches: 4 of 7 over 300 ms before, 3 of 7 now (385/308/310 ms). Open: vector forms of the box fills, the 97-box surface, alpha below 5 ns/px."
   - id: P5
     story: "the UI thread never waits for a service: effects, file reads and decodes complete as events"
     state: planned

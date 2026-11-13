@@ -22,7 +22,7 @@ pub mod spring;
 pub mod timeline;
 
 pub use keyframe::{Easing, KeyframeTrack};
-pub use motion::{MotionCategory, MotionOrigin, MotionToken};
+pub use motion::{shake_px, MotionCategory, MotionOrigin, MotionToken};
 pub use property::{AnimProp, LayerId, SceneUpdate};
 pub use scroll::{ScrollConfig, ScrollMomentum};
 pub use spring::{Spring, SpringConfig, SpringSim};

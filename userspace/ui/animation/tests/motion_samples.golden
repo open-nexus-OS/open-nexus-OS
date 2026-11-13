@@ -47,11 +47,11 @@ fadeScale 375 scaleX 1.002
 fadeScale 500 scaleX 1.000
 fadeScale 451 scaleX@settle 1.000
 wiggle 0 translateX 0.000
-wiggle 100 translateX 0.000
-wiggle 200 translateX 0.000
-wiggle 300 translateX 0.000
-wiggle 400 translateX 0.000
-wiggle 398 translateX@settle 0.000
+wiggle 125 translateX 0.000
+wiggle 250 translateX 0.000
+wiggle 375 translateX 0.000
+wiggle 500 translateX 0.000
+wiggle 498 translateX@settle 0.000
 pulse 0 scaleX 1.000
 pulse 70 scaleX 1.000
 pulse 140 scaleX 1.000

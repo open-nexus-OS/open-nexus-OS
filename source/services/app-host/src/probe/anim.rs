@@ -26,7 +26,7 @@
 use super::*;
 use crate::loop_math::sweep_of;
 use animation::{
-    AnimProp, AnimationDriver, Easing, LayerId, MotionToken, SceneUpdate, SpringConfig,
+    shake_px, AnimProp, AnimationDriver, Easing, LayerId, MotionToken, SceneUpdate, SpringConfig,
 };
 
 mod damage;
@@ -49,8 +49,6 @@ pub(super) const MAX_NODE_ANIMS: usize = 32;
 /// may fan out to its contained boxes (tile + glyph + label…).
 pub(super) const MAX_EXPANDED_ANIMS: usize = 48;
 
-/// Wiggle travel (px): the ± attention swing of the `.effect(wiggle)` token.
-const WIGGLE_PX: f32 = 6.0;
 /// Pulse peak scale (fraction over 1.0) of the `.effect(pulse)` token.
 const PULSE_PEAK: f32 = 0.12;
 
@@ -226,17 +224,11 @@ impl AnimState {
         let layer = LayerId(node_id as u64);
         let dur = Self::dur_ns(token, tokens);
         match token {
+            // The design's shake, a track through its eased steps (five points a step).
             MotionToken::Wiggle => self.driver.keyframe_to(
                 layer,
                 AnimProp::TranslateX,
-                alloc::vec![
-                    (0.0, 0.0),
-                    (0.2, WIGGLE_PX),
-                    (0.4, -WIGGLE_PX),
-                    (0.6, WIGGLE_PX * 0.5),
-                    (0.8, -WIGGLE_PX * 0.3),
-                    (1.0, 0.0),
-                ],
+                (0..=50u8).map(|k| f32::from(k) / 50.0).map(|t| (t, shake_px(t))).collect(),
                 dur,
                 Easing::Linear,
             ),

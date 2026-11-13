@@ -89,7 +89,7 @@ Token → physics mapping (SSOT `userspace/ui/animation/src/motion.rs` +
 | `fade` | transition | opacity | — | Quick (280ms) | smooth |
 | `slideUp` | transition | translateY +16 | scale 0.97 (+opacity) | Quick (280ms) | enter `(0.16, 1, 0.3, 1)` |
 | `fadeScale` | transition | translateY +10 | scale 0.94 (+opacity) | Slow (500ms) | spring |
-| `wiggle` | effect | translateX | — | Base (400ms) | linear (osc.) |
+| `wiggle` | effect | translateX | the design's shake: −1 +3 −6 +6 −6 +6 −6 +3 −1 px | Slow (500ms) | each step on `cubic-bezier(.36, .07, .19, .97)` (`animation::shake_px`) |
 | `pulse` | effect | scale | — | Quick (280ms) | linear (osc.) |
 | `slideDown` | transition | translateY −10 | scale 0.96 (+opacity) | Quick (280ms) | enter |
 | `pushInline` | transition | translateX −16 | scale 0.96 (+opacity) | Slow (500ms) | spring |
@@ -113,7 +113,10 @@ origin crosses the wire: scaling by `s` about a point `o` is scaling by `s` abou
 and moving by `(1 − s)(o − c)`, and windowd evaluates a layer's offset and its scale on one
 curve — app-host adds that offset to the enter's start (`motion_math::anchor_shift`), and the
 corner rests within a pixel of its place through the whole motion.
-An enter app-host paints itself (a menu in a window: its frosted base carries no motion layer)
+A window's frosted base carries a motion layer whose boxes all lie over it
+(`motion_math::composes_apart`; a layer is painted on a clear ground). The window kit's menus do
+not: their popover is a blur root of its own (`.material(overlay)`), which takes the compositor's
+backdrop in place of the window's frost. Such an enter app-host paints itself (also: a full store) and
 scales about the same corner — `motion_math::anchor_point` is the anchor of the node's transform
 and of its damage (`probe/motion_layers.rs::enter_anchor`), so a menu looks the same on both
 paths.

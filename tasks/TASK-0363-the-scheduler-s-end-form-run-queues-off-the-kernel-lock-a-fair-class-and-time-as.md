@@ -21,15 +21,18 @@ consumer: TASK-0365/P1
 phases:
   - id: P1
     story: "the contract is decided on a host model before kernel code: a time right is a capability holding a budget per period, it is delegated only as a subset, revoked in bounded time, admitted against the harts' capacity, and what a steal and a migration do to it is stated"
-    state: proving
+    state: done
     gate: "the scheduler RFC seeded with its three lenses; host model: test_reject_delegate_beyond_held, test_reject_admit_beyond_capacity, test_reject_run_after_revoke, conservation over 10 000 random steps; TRACK-TIME-AS-RESOURCE gate G3 answered in the RFC"
     started: 2026-11-13
+    done: 2026-11-13
+    evidence: "source/libs/nexus-sched/tests/time_right.rs (13 host tests green, commit be98f9ed); docs/rfcs/RFC-0120"
     note: "built 2026-11-13: RFC-0120 seeded (the contract, the three rules for a steal and a migration = the track's gate G3, revoke in one step, G1 and G2 stated); the pure core nexus-sched::time_right (no allocation, no lock) with 13 host tests green: test_reject_delegate_beyond_held, test_reject_admit_beyond_capacity, test_reject_run_after_revoke, test_reject_migrate_beyond_the_targets_capacity, conservation over 10 000 random steps (every operation exercised both ways; audit after each; no reservation above share x time + one budget). Open for P3: capacity (80 % in the tests), table sizes, the syscall surface"
   - id: P2
     story: "each hart schedules under its own lock: a wake, a steal and a switch on one hart never wait for a syscall on another"
-    state: planned
+    state: building
     gate: "the sched tests run on the host (today they run nowhere); QEMU smp lane green; board: no run-queue operation among the kernel lock's holders"
-    note: "from P0 (ADR-0098): the idle loop takes the kernel lock 91 000 times a second (39 % of wall time on 4 harts) — an idle hart reads only its own run queue; 2 missed preemptions in 273 295 interactive dispatches are examined first"
+    started: 2026-11-13
+    note: "opened 2026-11-13 after P1's commit (be98f9ed). Read: the Scheduler (per-CPU CpuRunQueues, !Send) lives in the kernel lock's aggregate (KernelGuard::parts); the idle loop (cpu_main, holder IDLE), the timer trap (TIMER), the IPI and every syscall take the whole lock to pick, steal or enqueue; the picked task's frame is staged into HartLocal and the guard dropped before sret. The cut, three boot-proven steps: S1 the run queues leave the aggregate — one lock per hart's queues in the boot slab (a leaf: never held while the kernel lock is taken), enqueue/pop/steal (try-lock on the victim)/set-qos take only it, callers unchanged; the sched tests run on the host (the current hart passed in, not read from tp). S2 a task queued on a hart or running there is that hart's: its frame and scheduling record are touched only by the hart that dequeued it, a waker sets ready and enqueues under the target's queue lock. S3 the dispatch (idle pick, timer preempt, yield) takes no kernel lock: pick under the own queue lock, the frame from the owned record, the space's root from the activation TASK-0330 P6 already counts. The phase's board gate (no run-queue operation among the kernel lock's holders) is S3's. Not built in the 2026-11-13 run (kernel edits need the operator at each change)"
   - id: P3
     story: "a holder of a time right runs within its budget every period, everything else shares the rest fairly by weight, and every thread's run time is metered"
     state: planned

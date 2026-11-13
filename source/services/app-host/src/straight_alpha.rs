@@ -11,7 +11,7 @@
 //! STATUS: Functional
 //! API_STABILITY: Internal
 //! TEST_COVERAGE: the unit tests below (the painter's pixel, the round trip, the reciprocal, the
-//! untouched ends, a base that never outshines its alpha).
+//! untouched ends, runs against pixels one by one, a base that never outshines its alpha).
 
 /// `255 · 2¹⁶ / a`, rounded, for every alpha: a channel is divided out by one multiply — the
 /// board's divide costs tens of cycles, and a glass tint makes every pixel of a bar partial.
@@ -27,17 +27,29 @@ const RECIP: [u32; 256] = {
 
 /// Turns a span of premultiplied BGRA pixels into straight alpha, in place. An opaque or a
 /// transparent pixel is its own straight form and stays as it is; four of them in a row — a
-/// pane, the desktop's clear ground — are passed by one test.
+/// pane, the desktop's clear ground — are passed by one test. Four partial pixels equal to the
+/// four last divided take their result (TASK-0367: a glass tint is one pixel over a whole
+/// surface, and dividing each cost the board 30 ns a pixel — 62 of a first frame's 92 ms).
 pub(crate) fn unpremultiply(span: &mut [u8]) {
+    // The last quad divided and its result, as words: an equal quad is two compares and two
+    // stores (a slice compare is a call per quad on the OS target).
+    let (mut seen, mut straight, mut known) = (0u128, 0u128, false);
     let mut quads = span.chunks_exact_mut(16);
     for q in &mut quads {
+        let Ok(q) = <&mut [u8; 16]>::try_from(q) else { continue };
         let (a0, a1, a2, a3) = (q[3], q[7], q[11], q[15]);
         if a0 & a1 & a2 & a3 == 255 || a0 | a1 | a2 | a3 == 0 {
+            continue;
+        }
+        let word = u128::from_ne_bytes(*q);
+        if known && word == seen {
+            *q = straight.to_ne_bytes();
             continue;
         }
         for px in q.chunks_exact_mut(4) {
             divide(px);
         }
+        (seen, straight, known) = (word, u128::from_ne_bytes(*q), true);
     }
     for px in quads.into_remainder().chunks_exact_mut(4) {
         divide(px);
@@ -158,6 +170,42 @@ mod tests {
         // An opaque colour is its own premultiplication; a translucent one is scaled.
         assert_eq!(premultiplied(glass_window, 255), [254, 252, 252, 255]);
         assert_eq!(premultiplied(glass_window, 128), [127, 126, 126, 128]);
+    }
+
+    /// A span of runs — a tint, a second tint, opaque and clear stretches, single odd pixels
+    /// between them, a length that is no multiple of four — converts like its pixels one by
+    /// one: the remembered quad changes no byte.
+    #[test]
+    fn a_run_of_equal_pixels_converts_like_each_pixel_alone() {
+        let mut seed = 0x2545_f491_4f6c_dd1du64;
+        let mut next = move |n: u64| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed % n
+        };
+        for _ in 0..200 {
+            let mut span = Vec::new();
+            while span.len() < 4 * 300 {
+                let a = match next(4) {
+                    0 => 0,
+                    1 => 255,
+                    _ => 1 + next(254) as u8,
+                };
+                let c = |n: u64| (n % (u64::from(a) + 1)) as u8;
+                let px = [c(next(256)), c(next(256)), c(next(256)), a];
+                for _ in 0..1 + next(3) * next(20) {
+                    span.extend_from_slice(&px);
+                }
+            }
+            span.truncate(4 * (280 + next(20) as usize));
+            let mut one_by_one = span.clone();
+            for px in one_by_one.chunks_exact_mut(4) {
+                unpremultiply(px);
+            }
+            unpremultiply(&mut span);
+            assert_eq!(span, one_by_one);
+        }
     }
 
     #[test]
