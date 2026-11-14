@@ -55,6 +55,9 @@ CLICK_TOLERANCE_PX = 6
 MISS_SETTLE_S = 1.5
 TAP_KEY = "apphost: tap ("
 MISS_KEY = "apphost: input tap miss at ("
+# A press on a modal's backdrop hits no handler (`hit=None`) and closes the modal: the dismiss is
+# its acknowledgement. Pressing again would land on what lay under the modal.
+BACKDROP_DISMISS_KEY = "apphost: modal dismiss (reason=backdrop)"
 SESSION_SHELL_MARKER = "windowd: session shell visible"
 
 
@@ -174,7 +177,8 @@ class ScenarioRunner(InputDriver):
         """Travel and press until app-host reports a HIT on the point (`apphost: tap (x,y)
         hit=Some(…)`). A miss there (`input tap miss at`, `hit=None`) means the surface under the
         point is not laid out yet — the session shell 5 s after its login (2026-10-29): wait and
-        press again; only a hit acknowledges the click."""
+        press again; only a hit acknowledges the click, or a modal's dismiss by that press (its
+        backdrop holds no handler: a second press closed the panel under the modal, 2026-11-13)."""
         tx, ty = target
         self.travel(tx, ty)
         for attempt in range(CLICK_ATTEMPTS):
@@ -193,6 +197,8 @@ class ScenarioRunner(InputDriver):
                 return True
             if on_point:
                 time.sleep(MISS_SETTLE_S)
+                if BACKDROP_DISMISS_KEY in self.uart_tail(since):
+                    return True
                 continue
             # Off the point: re-anchor on what the guest saw and travel the rest.
             self.pointer_at = [x, y]

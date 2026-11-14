@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed - 2026-11-13 (a modal that enters as a motion layer is modal at once; test-all green)
+
+- **The modal edge on every present** (`app-host`: `probe/band.rs::present_frame`): the app told
+  windowd a modal opened (`modal.on`, `apphost: modal open`) only when base rows painted. A modal
+  that enters as a motion layer (the shell's power alert since the motion layers, TASK-0354 P2)
+  changes no base row, so windowd held the window non-modal until the next paint — the clock's
+  minute, 40 s on the usb-visible lane, which went red on it. Now it is modal with the first
+  present after the tap. Board (`board--2026-11-14T12-29-26`): four alerts, each `win modal on`
+  right after its tap; a backdrop press closed the alert alone.
+- **A backdrop press is acknowledged by its dismiss** (`tools/qmp_scenario.py`): the harness took a
+  press on a modal's backdrop (no handler, `hit=None`) for a miss and pressed again — the second
+  press closed the panel under the modal. `apphost: modal dismiss (reason=backdrop)` now ends it.
+- **The kernel lint** (`clippy::collapsible_if` in `trap/budgets.rs`) that kept CI's kernel job red
+  since the S1 push is fixed (`b4cab405`). `just test-all`: every host gate and the 17 QEMU lanes
+  green (smp1 … ota-backstops); the board lane is the operator's.
+
 ### Changed - 2026-11-13 (each hart's run queues behind that hart's own lock — TASK-0363 P2, step 1 of 3)
 
 - **The run queues left the kernel lock's aggregate** (`neuron`: `sched/run_queue.rs`,

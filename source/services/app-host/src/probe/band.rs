@@ -236,6 +236,10 @@ impl super::DslApp {
         seq: &mut u32,
         change: Option<Option<(i32, i32)>>,
     ) -> Result<bool, &'static str> {
+        // The modal edge on every present, not only when base rows paint: a modal that enters
+        // as a motion layer changes no base row, and its `modal.on` and `apphost: modal open`
+        // waited for the next paint — the clock's minute, 40 s on the usb-visible lane.
+        self.overlay_sync();
         let mut damage = PresentDamage::default();
         // A store re-created at the same size kept what it drew (`SurfaceMem::carry_from`): all
         // of it, named once — the other slot takes it from this present.

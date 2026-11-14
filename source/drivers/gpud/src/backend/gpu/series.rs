@@ -22,12 +22,12 @@ pub(super) struct Last {
 pub(super) const MARGIN_PERCENT: u64 = 10;
 
 pub(super) const LAST: Option<Last> = Some(Last {
-    cycle: "2026-11-13T14-35-33",
-    cold_us: 38493,
-    pipelined_us: 31791,
-    hover_us: 2873,
+    cycle: "2026-11-14T12-29-26",
+    cold_us: 38756,
+    pipelined_us: 32181,
+    hover_us: 2919,
     ns_per_px: 4,
-    ux_max_us: 114923,
-    q16_us: 464,
-    area16_us: 458,
+    ux_max_us: 94116,
+    q16_us: 463,
+    area16_us: 456,
 });
