@@ -16,7 +16,7 @@
 //! ADR: docs/rfcs/RFC-0021-kernel-smp-v1-percpu-runqueues-ipi-contract.md,
 //!   docs/adr/0100-a-queued-task-is-the-hart-s-that-takes-it-the-dispatch-takes-no-kernel-lock.md
 
-use crate::{sched::QosClass, task::Pid, types::CpuId};
+use crate::{sched::QosClass, types::CpuId};
 
 // How a picked task starts: the unlocked dispatch (TASK-0363 P2 S3) and the context switch.
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
@@ -184,8 +184,18 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
             .then(crate::sched::Scheduler::pick_here)
             .flatten()
             .map(|pid| dispatch_unlocked(cpu, pid).ok_or(pid));
+        // A8 steal, rate-gated per hart — decided before the lock, so a hart whose gate is
+        // closed does not take the lock to find that out (TASK-0363 P6).
+        let steal_allowed = fast.is_none()
+            && crate::smp::cpu_online().count() > 1
+            && crate::smp::steal_rate_gate(cpu, now_ns(), STEAL_MIN_INTERVAL_NS);
         let attempt = if let Some(Ok(staged)) = fast {
             Attempt::Switch(staged)
+        } else if fast.is_none() && !steal_allowed && !idle_lock_due(cpu) {
+            // TASK-0363 P6/P4: nothing picked, no steal look, nothing due — no deadline, no
+            // timer cap, no stashed line (and on the boot hart no pressure, no heartbeat) — so
+            // no kernel lock: sleep.
+            Attempt::Idle
         } else {
             let pre_picked = fast.and_then(Result::err);
             // The idle loop's holds by what they are for (`KINIT: bkl idle split`).
@@ -199,7 +209,7 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
                 core::hint::spin_loop();
                 continue;
             };
-            let (scheduler, tasks, router, spaces, timer, hart_timers, _waitsets, _fences) =
+            let (scheduler, tasks, router, spaces, timer, hart_timers, waitsets, fences) =
                 kernel.parts();
 
             // Primary liveness watchdog (~10ms): we hold the guard, so name the
@@ -216,9 +226,7 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
             // The task the unlocked path picked, else the own queue, then a bounded, rate-gated
             // steal (A8).
             let picked = pre_picked.or_else(|| scheduler.schedule_next()).or_else(|| {
-                if crate::smp::cpu_online().count() > 1
-                    && crate::smp::steal_rate_gate(cpu, timer.now(), STEAL_MIN_INTERVAL_NS)
-                {
+                if steal_allowed {
                     let stolen = scheduler.steal_into_current(
                         QosClass::PerfBurst,
                         // B: never steal a task whose affinity excludes us.
@@ -349,48 +357,29 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
                 // otherwise be missed here — the async handlers only act on
                 // U-mode interrupts. v1: boot-hart-owned (PLIC contexts and
                 // timer-cap delivery move per-hart in A6/A7).
+                // TASK-0363 P6: the one gated deadline walk first (every kind, skipped while
+                // nothing is due), then the events — whose re-arm reads the walk's exact gate.
+                let now = timer.now();
+                LAST_IDLE_DELIVERY_NS.store(now, core::sync::atomic::Ordering::Relaxed);
+                let t_walk = riscv::register::time::read() as u64;
+                crate::syscall::api::expire_deadlines(
+                    now, tasks, router, scheduler, waitsets, fences,
+                );
                 let t_events = riscv::register::time::read() as u64;
+                crate::lock_share::record_deliver(
+                    crate::lock_share::DeliverPart::DeadlineWalk,
+                    t_walk,
+                    t_events.saturating_sub(t_walk),
+                );
                 crate::trap::process_expired_timers(timer, hart_timers, router, tasks, scheduler);
                 crate::irq::dispatch_external(router, tasks, scheduler);
                 if crate::mm::pressure_endpoint::pending() {
                     crate::mm::pressure_endpoint::dispatch(router, tasks, scheduler);
                 }
-                let t_walk = riscv::register::time::read() as u64;
                 crate::lock_share::record_deliver(
                     crate::lock_share::DeliverPart::Events,
                     t_events,
-                    t_walk.saturating_sub(t_events),
-                );
-                let now = timer.now();
-                let len = tasks.len();
-                for pid_usize in 0..len {
-                    let pid = Pid::from_raw(pid_usize as u32);
-                    let Some(t) = tasks.task(pid) else {
-                        continue;
-                    };
-                    if !t.is_blocked() {
-                        continue;
-                    }
-                    match t.block_reason() {
-                        Some(crate::task::BlockReason::IpcRecv { endpoint, deadline_ns })
-                            if deadline_ns != 0 && now >= deadline_ns =>
-                        {
-                            let _ = router.remove_recv_waiter(endpoint, pid.as_raw());
-                            let _ = tasks.wake(pid, scheduler);
-                        }
-                        Some(crate::task::BlockReason::IpcSend { endpoint, deadline_ns })
-                            if deadline_ns != 0 && now >= deadline_ns =>
-                        {
-                            let _ = router.remove_send_waiter(endpoint, pid.as_raw());
-                            let _ = tasks.wake(pid, scheduler);
-                        }
-                        _ => {}
-                    }
-                }
-                crate::lock_share::record_deliver(
-                    crate::lock_share::DeliverPart::DeadlineWalk,
-                    t_walk,
-                    (riscv::register::time::read() as u64).saturating_sub(t_walk),
+                    (riscv::register::time::read() as u64).saturating_sub(t_events),
                 );
                 // TASK-0324 P5-a liveness witness (ADR-0062): the watchdog above measures the
                 // PROGRESS EPOCH, which every trap bumps — a timer tick included — so it cannot
@@ -399,12 +388,27 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
                 // one task blocked. Once per boot, FAIL-shaped so the harness gate fails the lane.
                 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
                 crate::liveness::quiet_stall_witness(cpu, tasks, now);
-                Attempt::Idle
+                // Look again before sleeping (TASK-0363 P4): a delivery that woke a task homed
+                // here — the display and input drivers live on this hart — sends no IPI, and a
+                // hart that slept on it ran it at its next heartbeat (late_idle 2 -> 859, board
+                // 2026-11-16T14-46-46). The look finds nothing due and sleeps when nothing woke.
+                Attempt::Retry
             } else if crate::irq::has_stash(cpu) {
                 // RFC-0118: a line this hart claimed while it was idle (its driver is homed
                 // here) is delivered under the lock held now; the driver it woke is on this
                 // hart's queue, so look again instead of sleeping.
                 crate::irq::dispatch_external(router, tasks, scheduler);
+                Attempt::Retry
+            } else if timed_due(timer.now()) {
+                // TASK-0363 P6: a deadline or a timer cap is due — typically one a task that
+                // blocked or armed here set this hart's timer for (windowd's pacer, a driver's
+                // poll): this hart delivers it, the boot hart may be asleep. Then look again:
+                // the woken task may be this hart's.
+                let now = timer.now();
+                crate::syscall::api::expire_deadlines(
+                    now, tasks, router, scheduler, waitsets, fences,
+                );
+                crate::trap::process_expired_timers(timer, hart_timers, router, tasks, scheduler);
                 Attempt::Retry
             } else {
                 Attempt::Idle
@@ -432,20 +436,15 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
             Attempt::Idle => {
                 crate::smp::tlb::note_activity(cpu, crate::smp::tlb::ACT_IDLE_LOOP, 0);
                 if cpu.is_boot() {
-                    // Boot hart keeps its short spin so backstop delivery and
-                    // the liveness watchdog stay responsive.
-                    // The boot hart is a shootdown target while it spins here (it never
-                    // marks itself idle), and a doorbell consumed by another wake leaves
-                    // its ack to the next lock miss — which never comes while the
-                    // requester runs with the lock dropped (phase B). A hart holding no
-                    // kernel state keeps acking: poll the mailbox each turn
-                    // (`tlb shootdown ack timeout hart=0 … activity=class4`, the smp lane
-                    // after the MMIO-deny fixture's kill, 2026-10-20).
-                    let _ = crate::smp::tlb::poll_mailbox(cpu);
-                    for _ in 0..1000 {
-                        core::hint::spin_loop();
-                    }
-                } else {
+                    // TASK-0363 P4: the boot hart sleeps like the others (it spun, taking the
+                    // kernel lock every turn to poll its deliveries). Its timer is armed for the
+                    // earliest of what the delivery serves — a deadline, a timer cap, the
+                    // heartbeat — and a wake on its queue, a device line or a shootdown doorbell
+                    // wakes it as they wake every other hart; marked idle, a shootdown skips it
+                    // and it flushes before its next dispatch.
+                    arm_boot_idle_wakeup();
+                }
+                {
                     // Secondary WFI idle: mask SIE, sleep unless a wake hint
                     // arrived, unmask. The hint (not RESCHED_PENDING, which
                     // the S_SOFT ack path consumes) closes the lost-wakeup
@@ -472,6 +471,60 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
             }
         }
     }
+}
+
+/// TASK-0363 P6/P4: the boot hart's idle delivery runs at least this often even when nothing is
+/// due — the liveness witness samples, a steal looks, a line nobody stashed is drained.
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+const IDLE_HEARTBEAT_NS: u64 = 10_000_000;
+
+/// When the boot hart last ran its idle delivery (ns).
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+static LAST_IDLE_DELIVERY_NS: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+
+/// The monotonic clock, read without the kernel lock (the platform timer is stateless).
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+fn now_ns() -> u64 {
+    use crate::hal::Timer as _;
+    crate::hal::platform::PlatformTimer.now()
+}
+
+/// Whether a blocked task's deadline or a timer cap is reached at `now` (both gates are lower
+/// bounds: one too low costs a locked look, never a lost expiry).
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+fn timed_due(now: u64) -> bool {
+    now >= crate::trap::budgets::NEXT_DEADLINE_NS.load(core::sync::atomic::Ordering::Relaxed)
+        || now >= crate::timer::next_cap_ns()
+}
+
+/// Whether this hart's idle path needs the kernel lock now — read without it (TASK-0363 P6): a
+/// deadline or a timer cap reached, or a line stashed; on the boot hart also memory pressure, the
+/// heartbeat, and a stall the watchdog must name under the lock.
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+fn idle_lock_due(cpu: CpuId) -> bool {
+    use core::sync::atomic::Ordering;
+    let now = now_ns();
+    timed_due(now)
+        || crate::irq::has_stash(cpu)
+        || (cpu.is_boot()
+            && (crate::mm::pressure_endpoint::pending()
+                || now.saturating_sub(LAST_IDLE_DELIVERY_NS.load(Ordering::Relaxed))
+                    >= IDLE_HEARTBEAT_NS
+                || crate::liveness::is_stalled(crate::trap::default_tick_cycles() * 3)))
+}
+
+/// Arms the boot hart's timer for the earliest thing its idle delivery serves: a deadline, a
+/// timer cap, the heartbeat (through the earliest-deadline arming of ADR-0052, so an earlier
+/// armed wakeup stays armed).
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+fn arm_boot_idle_wakeup() {
+    use core::sync::atomic::Ordering;
+    let heartbeat = LAST_IDLE_DELIVERY_NS.load(Ordering::Relaxed).saturating_add(IDLE_HEARTBEAT_NS);
+    let next = crate::trap::budgets::NEXT_DEADLINE_NS
+        .load(Ordering::Relaxed)
+        .min(crate::timer::next_cap_ns())
+        .min(heartbeat);
+    crate::trap::arm_wakeup(&crate::hal::platform::PlatformTimer, next.max(1));
 }
 
 /// A secondary's first Rust: `cpu` is the logical CPU of the entry record the firmware handed

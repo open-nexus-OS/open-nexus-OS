@@ -5,7 +5,7 @@ role: guide
 subsystem: kernel
 sources: [source/kernel/neuron/src/core/trap/fp.rs, source/kernel/neuron/src/core/trap/fp_rule.rs, source/kernel/neuron/src/core/trap/fp_inst.rs, source/kernel/neuron/src/core/trap/fp_regs.rs, source/kernel/neuron/src/arch/riscv/trap.S, source/libs/nexus-sched/src/offers.rs, source/apps/selftest-client/src/os_lite/probes/unitsoak.rs]
 contracts: [RFC-0119, ADR-0099, ADR-0048]
-verified: 2026-11-13
+verified: 2026-11-16
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -31,7 +31,8 @@ its own and kept lazily; the rule is one, applied once per unit (`fp_rule::Kind`
 - **Two hooks every path passes.** `trap.S` calls `__fp_trap_enter` before the handler — a
   unit's registers are written to the state only when the hardware says they changed — and
   `__fp_user_return` after it; the idle loop's staged resume calls the same return hook.
-  `TaskTable::set_current` tells the hart whose states are current.
+  The states live in the task's scheduling record, held like its frame (ADR-0100); the dispatch
+  and `TaskTable::set_current` tell the hart whose states are current.
 - **Loaded only when needed.** A state carries a token that is new after every write; a hart
   remembers the token it holds. Equal tokens: nothing is loaded. A thread that comes back to
   another hart, or after another thread used the unit, is loaded.

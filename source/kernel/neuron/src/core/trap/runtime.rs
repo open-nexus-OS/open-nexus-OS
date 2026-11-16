@@ -453,34 +453,14 @@ pub(crate) fn selftest_edt_probe(timer: &dyn Timer) -> bool {
     after_base == base && after_later == base && after_earlier == earlier
 }
 
-/// Earliest STILL-PENDING deadline among blocked tasks (IPC recv/send,
-/// waitset, fence) — the sources that arm via `arm_wakeup` and that the
-/// timer-IRQ re-arm previously dropped (it considered only timer caps).
-/// Already-elapsed deadlines are skipped: their tasks are woken by the expiry
-/// walks in this same handler pass, and arming a past deadline would fire a
-/// spurious immediate IRQ.
-fn earliest_blocked_deadline(tasks: &task::TaskTable, now: u64) -> Option<u64> {
-    let mut earliest: Option<u64> = None;
-    for pid_usize in 0..tasks.len() {
-        let pid = task::Pid::from_raw(pid_usize as u32);
-        let Some(t) = tasks.task(pid) else {
-            continue;
-        };
-        if !t.is_blocked() {
-            continue;
-        }
-        let d = match t.block_reason() {
-            Some(task::BlockReason::IpcRecv { deadline_ns, .. })
-            | Some(task::BlockReason::IpcSend { deadline_ns, .. })
-            | Some(task::BlockReason::Waitset { deadline_ns, .. })
-            | Some(task::BlockReason::Fence { deadline_ns, .. }) => deadline_ns,
-            _ => 0,
-        };
-        if d > now {
-            earliest = Some(earliest.map_or(d, |e| e.min(d)));
-        }
-    }
-    earliest
+/// Earliest STILL-PENDING deadline among blocked tasks (IPC recv/send, waitset, fence) — the
+/// deadline walk's gate (`budgets::NEXT_DEADLINE_NS`), exact right after a walk (TASK-0363 P6:
+/// before, every re-arm walked every task for it). The callers walk first
+/// (`syscall::api::expire_deadlines`), so an elapsed gate is a woken task's, and arming a past
+/// deadline would fire a spurious immediate IRQ.
+fn earliest_blocked_deadline(now: u64) -> Option<u64> {
+    let gate = super::budgets::NEXT_DEADLINE_NS.load(core::sync::atomic::Ordering::Relaxed);
+    (gate != u64::MAX && gate > now).then_some(gate)
 }
 
 pub(crate) fn process_expired_timers(
@@ -522,50 +502,9 @@ pub(crate) fn process_expired_timers(
     // fallback tick. The fallback heartbeat stays the safety net.
     armed_slot().store(0, core::sync::atomic::Ordering::Relaxed);
     let mut next = hart_timers.earliest_deadline();
-    if let Some(d) = earliest_blocked_deadline(tasks, now) {
+    if let Some(d) = earliest_blocked_deadline(now) {
         next = Some(next.map_or(d, |n| n.min(d)));
     }
     let fallback_ns = now.saturating_add(default_tick_cycles().saturating_mul(100));
     arm_wakeup(timer, next.unwrap_or(fallback_ns));
-}
-
-/// Wake every task whose IPC recv/send deadline has elapsed. A timed recv/send
-/// (`Wait::Timeout`) arms the supervisor timer to its deadline via `set_wakeup`,
-/// so the timer IRQ honors it here — making timed IPC waits reactive without
-/// busy-polling (windowd's 120Hz pacer, gpud's spin-blur re-present). Without
-/// this the timer handler only delivered timer caps + device IRQs, so a peer
-/// blocked purely on an IPC deadline was never woken by the IRQ. Caller must hold
-/// no aliasing borrows (the timer handler calls this only on a U-mode interrupt).
-pub(crate) fn wake_expired_ipc_deadlines(
-    timer: &dyn Timer,
-    router: &mut ipc::Router,
-    tasks: &mut task::TaskTable,
-    scheduler: &mut Scheduler,
-) {
-    let now = timer.now();
-    let len = tasks.len();
-    for pid_usize in 0..len {
-        let pid = task::Pid::from_raw(pid_usize as u32);
-        let Some(t) = tasks.task(pid) else {
-            continue;
-        };
-        if !t.is_blocked() {
-            continue;
-        }
-        match t.block_reason() {
-            Some(task::BlockReason::IpcRecv { endpoint, deadline_ns })
-                if deadline_ns != 0 && now >= deadline_ns =>
-            {
-                let _ = router.remove_recv_waiter(endpoint, pid.as_raw());
-                let _ = tasks.wake(pid, scheduler);
-            }
-            Some(task::BlockReason::IpcSend { endpoint, deadline_ns })
-                if deadline_ns != 0 && now >= deadline_ns =>
-            {
-                let _ = router.remove_send_waiter(endpoint, pid.as_raw());
-                let _ = tasks.wake(pid, scheduler);
-            }
-            _ => {}
-        }
-    }
 }

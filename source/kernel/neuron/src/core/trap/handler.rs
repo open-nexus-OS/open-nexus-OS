@@ -342,9 +342,14 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                     if super::pending::run_pending_guarded(frame, &mut kernel) {
                         return;
                     }
-                    let (scheduler, tasks, router, spaces, timer, hart_timers, _waitsets, _fences) =
+                    let (scheduler, tasks, router, spaces, timer, hart_timers, waitsets, fences) =
                         kernel.parts();
-                    // Reactive: deliver fired timer caps + re-arm the next deadline.
+                    // TASK-0363 P6: the one gated deadline walk (receive, send, waitset, fence),
+                    // then the fired timer caps, whose re-arm reads the walk's exact gate.
+                    let now = timer.now();
+                    crate::syscall::api::expire_deadlines(
+                        now, tasks, router, scheduler, waitsets, fences,
+                    );
                     process_expired_timers(timer, hart_timers, router, tasks, scheduler);
                     // Backstop for device IRQs: the S_EXT handler delivers them
                     // immediately while a task runs, but if one asserted during an
@@ -357,11 +362,6 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                     if crate::mm::pressure_endpoint::pending() {
                         crate::mm::pressure_endpoint::dispatch(router, tasks, scheduler);
                     }
-                    // Reactive IPC deadlines: wake any task whose timed recv/send
-                    // (set_wakeup-armed) has elapsed — windowd's pacer, gpud's spin
-                    // re-present. Makes the timer IRQ the single wake source for ALL
-                    // deadlines (caps + IPC), like a production microkernel.
-                    wake_expired_ipc_deadlines(timer, router, tasks, scheduler);
                     // Preemptive: rotate the running user task so no service can
                     // monopolise the cooperative scheduler (anti-starvation).
                     // B (TASK-0042): shares grant whole extra ticks within the

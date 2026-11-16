@@ -251,6 +251,21 @@ fn park_hart_or_self_wake(
 /// deadlines still pending, so the gate re-arms itself.
 fn wake_expired_blocked(ctx: &mut Context<'_>) {
     let now = ctx.timer.now();
+    expire_deadlines(now, ctx.tasks, ctx.router, ctx.scheduler, ctx.waitsets, ctx.fences);
+}
+
+/// THE deadline walk (TASK-0363 P6): every blocked task whose receive, send, waitset or fence
+/// deadline has passed is taken out of its wait and woken — from a scheduling syscall, the timer
+/// interrupt and the idle hart alike (before: three copies, two of which knew only IPC, and the
+/// idle hart walked every task on every turn). Skipped while `now` is before the gate.
+pub(crate) fn expire_deadlines(
+    now: u64,
+    tasks: &mut task::TaskTable,
+    router: &mut ipc::Router,
+    scheduler: &mut Scheduler,
+    waitsets: &mut crate::waitset::WaitsetTable,
+    fences: &mut crate::fence::FenceTable,
+) {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     if crate::trap::budgets::sweep_can_skip(now) {
         crate::trap::budgets::record_sweep_skipped();
@@ -258,7 +273,7 @@ fn wake_expired_blocked(ctx: &mut Context<'_>) {
     }
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     let sweep_t0 = riscv::register::time::read() as u64;
-    let len = ctx.tasks.len();
+    let len = tasks.len();
     // Wake-half attribution (see `budgets::SWEEP_MAX_WAKES`): counted only on
     // tasks that actually expired, so a quiet sweep pays nothing for it.
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
@@ -268,7 +283,7 @@ fn wake_expired_blocked(ctx: &mut Context<'_>) {
     let mut next_min = u64::MAX;
     for pid_usize in 0..len {
         let pid = task::Pid::from_raw(pid_usize as u32);
-        let Some(t) = ctx.tasks.task(pid) else {
+        let Some(t) = tasks.task(pid) else {
             continue;
         };
         if !t.is_blocked() {
@@ -290,14 +305,14 @@ fn wake_expired_blocked(ctx: &mut Context<'_>) {
             Some(BlockReason::IpcRecv { endpoint, deadline_ns })
                 if deadline_ns != 0 && now >= deadline_ns =>
             {
-                let _ = ctx.router.remove_recv_waiter(endpoint, pid.as_raw());
-                observe_wake_outcome(ctx.tasks.wake(pid, ctx.scheduler));
+                let _ = router.remove_recv_waiter(endpoint, pid.as_raw());
+                observe_wake_outcome(tasks.wake(pid, scheduler));
             }
             Some(BlockReason::IpcSend { endpoint, deadline_ns })
                 if deadline_ns != 0 && now >= deadline_ns =>
             {
-                let _ = ctx.router.remove_send_waiter(endpoint, pid.as_raw());
-                observe_wake_outcome(ctx.tasks.wake(pid, ctx.scheduler));
+                let _ = router.remove_send_waiter(endpoint, pid.as_raw());
+                observe_wake_outcome(tasks.wake(pid, scheduler));
             }
             Some(BlockReason::Waitset { ws_id, deadline_ns })
                 if deadline_ns != 0 && now >= deadline_ns =>
@@ -306,23 +321,22 @@ fn wake_expired_blocked(ctx: &mut Context<'_>) {
                 // sender's), then wake it (it returns `TimedOut` on re-entry). Snapshot members
                 // to a stack buffer so the `waitsets` and `router` borrows stay disjoint.
                 let mut buf = [0u32; crate::waitset::MAX_WAITSET_MEMBERS];
-                let n = ctx
-                    .waitsets
+                let n = waitsets
                     .members(crate::waitset::WaitsetId(ws_id))
                     .map(|m| {
                         buf[..m.len()].copy_from_slice(m);
                         m.len()
                     })
                     .unwrap_or(0);
-                sync_objects::deregister_members(ctx.router, &buf[..n], pid.as_raw());
-                observe_wake_outcome(ctx.tasks.wake(pid, ctx.scheduler));
+                sync_objects::deregister_members(router, &buf[..n], pid.as_raw());
+                observe_wake_outcome(tasks.wake(pid, scheduler));
             }
             Some(BlockReason::Fence { fence_id, deadline_ns, .. })
                 if deadline_ns != 0 && now >= deadline_ns =>
             {
                 // Deregister the timed-out waiter, then wake it (returns TimedOut on re-entry).
-                ctx.fences.remove_waiter(crate::fence::FenceId(fence_id), pid.as_raw());
-                observe_wake_outcome(ctx.tasks.wake(pid, ctx.scheduler));
+                fences.remove_waiter(crate::fence::FenceId(fence_id), pid.as_raw());
+                observe_wake_outcome(tasks.wake(pid, scheduler));
             }
             _ => {}
         }

@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-11-16 (one deadline walk, an idle hart takes the kernel lock only when something is due, the boot hart sleeps — TASK-0363 P6, P4)
+
+- **One deadline walk** (`syscall::api::expire_deadlines`): receive, send, waitset and fence
+  deadlines, gated by `NEXT_DEADLINE_NS`, for the scheduling syscalls, the timer interrupt and
+  the idle harts. Before: three copies (the timer's and the idle hart's knew only IPC — a waitset
+  or fence timeout waited for someone's syscall), and the timer re-arm walked every task a fourth
+  time; it reads the gate now.
+- **An idle hart takes the kernel lock only when something is due**, read without it: a deadline,
+  a timer cap (`timer::next_cap_ns`, a new lower bound), a stashed line, its steal gate (decided
+  before the lock), and on the boot hart memory pressure and a 10 ms heartbeat. Every idle hart
+  delivers a due deadline or timer cap itself (the timer that woke it was armed there).
+- **The boot hart sleeps** (WFI) instead of spinning: its timer armed for the earliest deadline,
+  timer cap or heartbeat through the earliest-deadline arming (ADR-0052).
+- QEMU: the idle group's takes per window 211 088 -> 946 (one hart), its time 1.85 s -> 10 ms;
+  8 harts, usb-visible (all 28 fast keys) and visible green; no breach of the owner rule.
+- **After a delivery the boot hart looks again** before it sleeps: a driver homed on it that the
+  delivery woke gets no IPI (the first board cycle ran such a wake at the next heartbeat: 1-10 ms
+  waits 4x as often, `late_idle` 859).
+- Board (`board--2026-11-16T15-13-23`): the idle group's takes 15 798 a window (about 540 000
+  before), its lock time 91 ms (3 974); the interactive wake as before (98.37 % within 100 us,
+  `late_idle` 2); `ipc call budget` 28 us, the lock's longest wait 505 us.
+
 ### Changed - 2026-11-16 (a hart starts a task from its own queue without the kernel lock — TASK-0363 P2, step 3 of 3)
 
 - **The idle loop picks from its own queue and starts the task without the kernel lock**

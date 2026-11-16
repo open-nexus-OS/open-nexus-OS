@@ -25,6 +25,17 @@ use core::fmt;
 /// Maximum number of concurrent timers per hart.
 pub(crate) const MAX_TIMERS: usize = 64;
 
+/// The earliest armed timer-cap deadline (ns; `u64::MAX`: none) — a lower bound read without
+/// the kernel lock by the idle hart deciding whether its delivery is due (TASK-0363 P6/P4).
+/// Lowered by every arm, set exactly by every expiry pass; a bound too low costs one locked
+/// look, a bound too high would lose an expiry, which these two rules prevent.
+static NEXT_CAP_NS: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(u64::MAX);
+
+/// The earliest armed timer-cap deadline, or `u64::MAX` (see [`NEXT_CAP_NS`]).
+pub(crate) fn next_cap_ns() -> u64 {
+    NEXT_CAP_NS.load(core::sync::atomic::Ordering::Acquire)
+}
+
 /// Unique timer identifier within a hart.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct TimerId(pub(crate) u32);
@@ -118,6 +129,7 @@ impl HartTimers {
         t.deadline_ns = deadline_ns;
         t.armed = true;
         self.queue.entry(deadline_ns).or_default().push(timer_id);
+        NEXT_CAP_NS.fetch_min(deadline_ns, core::sync::atomic::Ordering::AcqRel);
         Ok(())
     }
 
@@ -180,6 +192,10 @@ impl HartTimers {
                 }
             }
         }
+        NEXT_CAP_NS.store(
+            self.earliest_deadline().unwrap_or(u64::MAX),
+            core::sync::atomic::Ordering::Release,
+        );
         expired
     }
 

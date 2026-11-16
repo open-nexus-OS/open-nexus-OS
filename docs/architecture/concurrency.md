@@ -103,11 +103,11 @@ first time the trap lands while it is held.
 ### 4. O(tasks) under the BKL on a per-transition path
 
 The BKL is global, so work that is cheap per call becomes the machine's ceiling when it runs on every
-scheduling transition. The deadline sweep (`wake_expired_blocked` in
-`source/kernel/neuron/src/syscall/api/mod.rs`) once held the BKL for seconds per boot. The fix is
-the shape to copy: an O(1) gate (`NEXT_DEADLINE_NS` in `budgets.rs`, the earliest armed deadline,
-lowered when a task blocks and recomputed by each scan that runs) in front of the scan. When adding
-a per-transition hook, publish a bound that lets it be skipped.
+scheduling transition. The deadline walk (`expire_deadlines` in
+`source/kernel/neuron/src/syscall/api/mod.rs`, the one walk of syscalls, timer interrupt and idle
+harts) once held the BKL for seconds per 10 s. The fix is the shape to copy: an O(1) gate
+(`NEXT_DEADLINE_NS`, lowered when a task blocks, recomputed by each walk; `timer::next_cap_ns`
+alike) read without the lock: an idle hart takes it only when something is due. Publish such a bound.
 
 ### 5. A deadline on the path it bounds
 
