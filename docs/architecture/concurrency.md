@@ -49,7 +49,7 @@ lock's end — classes with one rank order, no global lock — is RFC-0102.
 | tier | lock | guards |
 |---|---|---|
 | 1 | `KERNEL_LOCK` (BKL, a `SpinIrqLock`) via `KernelGuard` | tasks, the order of scheduling steps, IPC router, address spaces and ASIDs, timers, waitsets, fences |
-| 2 | one hart's run-queue lock (`sched::RUN_QUEUES`), held for one queue operation; a second hart's only by try-lock (a steal, its park) | that hart's queue per class and its running task (`sched/run_queue.rs`, host-tested) |
+| 2 | one hart's run-queue lock (`sched::RUN_QUEUES`), held for one queue operation; a second hart's only by try-lock (a steal, its park) | that hart's queue per class and its running task (`sched/run_queue.rs`, host-tested), and the owner word of each task's scheduling record (`sched/record.rs`: its frame, touched only by its running hart or, while free, under tier 1) |
 | 3 | leaf atomics and `SpinIrqLock` leaves (console line, console ring, device lines `irq::LINES`) | masks, counters, mailboxes, console bytes, each line's controller context and its enable writes |
 
 Rules:

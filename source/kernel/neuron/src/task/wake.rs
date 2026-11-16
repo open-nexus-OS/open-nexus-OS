@@ -58,7 +58,7 @@ impl TaskTable {
         // Selftest dummy tasks intentionally carry a zero frame and no AS.
         // Waking them should validate unblock bookkeeping, but must not
         // make them runnable for the real scheduler path.
-        if task.address_space.is_none() && task.frame.sepc == 0 {
+        if task.address_space.is_none() && task.frame().sepc == 0 {
             if let Some(task) = self.task_mut(pid) {
                 task.clear_blocked();
             }

@@ -1687,10 +1687,8 @@ fn spawn_init_process(ctx: &mut Context<'_>) {
     log_info!(target: "selftest", "KSELFTEST: spawn ok pid={}", init_pid_typed.as_raw());
     // Boot LED milestone 10: init exists as a task.
     crate::hal::boot_led::milestone(10);
-    // Init-lite must run immediately (it's the OS entry point, not a service).
-    // (init-lite QoS stays Normal until boot P1 raises the display path to Interactive.)
-    let _ = sys_ctx.tasks.resume_task(init_pid_typed, sys_ctx.scheduler);
-
+    // The init frame is read while init is still free — once resumed it is queued, and its frame
+    // is the hart's that takes it (TASK-0363 P2 S2).
     if let Some(task) = sys_ctx.tasks.task(init_pid_typed) {
         use core::fmt::Write as _;
         let frame = task.frame();
@@ -1714,6 +1712,9 @@ fn spawn_init_process(ctx: &mut Context<'_>) {
     } else {
         log_info!(target: "selftest", "KSELFTEST: WARNING task lookup failed!");
     }
+    // Init-lite must run immediately (it's the OS entry point, not a service).
+    // (init-lite QoS stays Normal until boot P1 raises the display path to Interactive.)
+    let _ = sys_ctx.tasks.resume_task(init_pid_typed, sys_ctx.scheduler);
 
     log_info!(target: "selftest", "KSELFTEST: init spawned successfully");
     log_info!(target: "selftest", "KSELFTEST: returning to idle loop for scheduling");

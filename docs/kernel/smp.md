@@ -26,8 +26,8 @@ verified: 2026-11-13
   `just ci-os-smp` run several harts under MTTCG. With `SMP=1` everything lands on CPU 0 in the
   same order as a single-CPU scheduler.
 - Every hart runs `cpu_main` (`source/kernel/neuron/src/core/cpu_main.rs`) and schedules from its
-  own run-queue set inside the one `Scheduler`. Secondaries park in WFI until `runtime_ready()`
-  (set after kernel selftests and the init spawn).
+  own run queues. Secondaries park in WFI until `runtime_ready()` (after the kernel selftests and
+  the init spawn).
 
 ## Bring-up
 
@@ -36,14 +36,13 @@ each to settle, re-issues the start for a hart that did not come online (bounded
 the gate ([topology.md](topology.md)):
 
 - `KINIT: cpuN online` and `KGATE: smp cpuN hart=… online= asm= stage= hsm=` per CPU;
-- `KGATE: smp bringup ok mask=0x…`, or `KGATE: smp bringup DEGRADED expected=… got=…` — a lost hart
-  degrades the boot loudly instead of killing it;
+- `KGATE: smp bringup ok mask=0x…`, or `KGATE: smp bringup DEGRADED expected=… got=…` (a lost hart
+  degrades the boot loudly);
 - `KSELFTEST: smp online ok harts= clusters=`;
 - `KINIT: isa from hart=… base= f= d= v= …` — what the tree states the harts offer, one line per
   run of harts stating the same (`source/kernel/neuron/src/core/boot_fdt.rs`);
-- `KINIT: cpuN speed (loop_us= iters= left=)` — the time of one fixed two-instruction loop when
-  the hart first enters its scheduling loop; the same loop runs on the stock system for the
-  comparison of the clocks (`docs/board/measurements/2026-11-10-smp-baseline/hartspeed.rs`).
+- `KINIT: cpuN speed (loop_us= iters= left=)` — one fixed two-instruction loop at the hart's first
+  scheduling turn, compared with the stock system (`docs/board/measurements/2026-11-10-smp-baseline/hartspeed.rs`).
 
 ## CPU identity
 
@@ -64,7 +63,9 @@ stay 0.
 | atomics | online/idle masks, resched flags, TLB mailboxes — leaf level |
 
 Hierarchy (normative): BKL → one hart's run-queue lock (`sched::RUN_QUEUES`; a second hart's
-only by try-lock, for a steal) → leaf atomics. The queue rules are `sched/run_queue.rs`, host-tested.
+only by try-lock, for a steal) → leaf atomics; the queue rules: `sched/run_queue.rs`.
+A task's frame is its scheduling record's (`sched/record.rs`, fixed address): written before its
+enqueue, read after its pick, by nobody between (a breach: `KINIT: FAIL frame owner`).
 
 BKL rules from ADR-0049: the lock-free class (only `nsec`; the debug writes went back under the
 BKL so log lines stay whole) takes no lock, phased syscalls drop it for their

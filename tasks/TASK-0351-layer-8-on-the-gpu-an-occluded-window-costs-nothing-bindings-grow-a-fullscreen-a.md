@@ -5,7 +5,7 @@ title: "Layer 8 on the GPU: an occluded window costs nothing, bindings grow, a f
 status: in_progress
 owner: ["@ui", "@gpu"]
 created: 2026-11-03
-updated: 2026-11-13
+updated: 2026-11-16
 subsystem: ui
 components: [gpud, windowd, nexus-gfx, app-host]
 kind: service
@@ -135,6 +135,11 @@ phases:
     story: "a display without a vertical blank completes a present no sooner than its mode's refresh: on QEMU's virtio GPU windowd's transitions, motion layers and frame pulses run at the display's cadence instead of spinning on completions that return in microseconds"
     state: planned
     gate: "QEMU usb-visible: windowd loop hz below 70 during a window's open transition (was 346, moved=331, usb-visible--2026-11-05T13-08-48); board unchanged (vblank-paced)"
+  - id: P18
+    story: "a window never flickers: Settings with its sidebar as an overlay (a narrow window) and Settings fullscreen show the same pixels frame after frame at their bottom, as every other window does"
+    state: planned
+    gate: "board: the operator sees no flicker at the bottom of a narrow and of a fullscreen Settings window (board-visual ack); the cause named in the note (which surface, which slot, which damage) before the fix"
+    note: "reported by the operator on 2026-11-16 after board--2026-11-16T09-14-28: in Settings, with the left sidebar when the window is narrow, the bottom of the window flickers, and fullscreen too; present before that image (not TASK-0367 P3's column painting). Not read from the log yet: the sidebar becomes an overlay pane (sidebarOverlay, paneL) with its own scroll layer (the section list) between a header and the account footer; the content's scroll layer is then covered and flattened into the base. Candidates to measure first: a slot that differs from the other at the bottom (damage that names fewer rows or columns than changed), the sidebar band's fill at the viewport's end, a scroll layer re-declared per frame"
 ---
 
 ## The ask

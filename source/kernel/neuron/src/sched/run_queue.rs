@@ -276,6 +276,51 @@ impl Default for HartQueues {
     }
 }
 
+/// Who holds a task's scheduling record — its saved frame (TASK-0363 P2 S2): nobody, a hart's
+/// queue, or the hart that runs it. Changed only where the task's queue state changes, under that
+/// hart's queue lock: an enqueue makes it `Queued(h)`, a pick or a steal `Running(h)`, a park
+/// `Queued(home)`, a switch away without a requeue (a block, an exit) `Free`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Owner {
+    /// Neither queued nor running: blocked, new, exited — its frame is the kernel lock's.
+    Free,
+    Queued(u16),
+    Running(u16),
+}
+
+impl Owner {
+    /// The record's word: the state in the high half, the hart in the low.
+    pub const fn encode(self) -> u32 {
+        match self {
+            Self::Free => 0,
+            Self::Queued(h) => (1 << 16) | h as u32,
+            Self::Running(h) => (2 << 16) | h as u32,
+        }
+    }
+
+    /// The state a record's word holds; `None` for a word no `encode` wrote.
+    pub const fn decode(raw: u32) -> Option<Self> {
+        let h = (raw & 0xffff) as u16;
+        match raw >> 16 {
+            0 if h == 0 => Some(Self::Free),
+            1 => Some(Self::Queued(h)),
+            2 => Some(Self::Running(h)),
+            _ => None,
+        }
+    }
+
+    /// Whether hart `hart` may read or write the frame: a free task's (no hart holds it), or the
+    /// one this hart runs. A queued task's frame is its queue's hart's to take — written before
+    /// the enqueue, read after the pick, by nobody in between.
+    pub const fn may_touch(self, hart: u16) -> bool {
+        match self {
+            Self::Free => true,
+            Self::Running(h) => h == hart,
+            Self::Queued(_) => false,
+        }
+    }
+}
+
 /// The harts of a machine, each one's queues reached without waiting.
 pub trait Harts {
     /// The machine's harts.

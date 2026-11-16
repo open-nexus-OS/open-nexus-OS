@@ -114,6 +114,10 @@ pub struct Context<'a> {
     pub waitsets: &'a mut crate::waitset::WaitsetTable,
     pub fences: &'a mut crate::fence::FenceTable,
     pub last_message: Option<ipc::Message>,
+    /// The syscall asks to give up the hart (`yield`): the trap exit requeues the caller AFTER
+    /// its return value is in its frame (TASK-0363 P2 S2 — a requeued task's frame is the hart's
+    /// that takes it next, and must be complete when it is queued).
+    pub yield_after: bool,
 }
 
 impl<'a> Context<'a> {
@@ -138,6 +142,7 @@ impl<'a> Context<'a> {
             waitsets,
             fences,
             last_message: None,
+            yield_after: false,
         }
     }
 

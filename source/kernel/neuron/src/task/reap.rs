@@ -159,7 +159,7 @@ impl TaskTable {
             task.parent = None;
             task.caps = CapTable::default();
             task.bootstrap_slot = None;
-            task.frame = TrapFrame::default();
+            *task.frame_mut() = TrapFrame::default();
             task.children.clear();
             threads_taken = task.threads_taken;
             orphans = core::mem::take(&mut task.orphan_vmos);

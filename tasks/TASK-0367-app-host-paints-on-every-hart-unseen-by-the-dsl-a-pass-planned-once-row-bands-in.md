@@ -29,9 +29,11 @@ phases:
     note: "built 2026-11-13: apphost: raster split (rows= px= boxes= runs= pick_us= ground_us= boxes_us= text_us= alpha_us= clock_ns=) — the process's first full surface painted with a clock read between a row's stages, the reads' cost stated and taken off (raster_split.rs, host-tested; probe/paint/split.rs). Board 2026-11-13, two cycles (board--2026-11-13T11-54-25 and T12-18-30; 8 harts, one painting; clock read 0.7-1.0 us), seven processes each, first full surface 45-169 ms: the boxes are the largest stage in most (38-93 % of the pass; 14-38 ns per surface pixel on the large windows, 263-290 ns on the small surfaces with 97 and 137 boxes = 0.6-1.2 ms a box), the ground 6-22 ns/px (8-27 ms a surface, varying between cycles), the straight-alpha conversion 2-11 ns/px and 30 ns/px (62 of 92-94 ms) on the 1920x1080 surface with 12 boxes, text at most 5 ms, picking a row's boxes 0.03-0.32 ms. So: the plan and the bands (P1, P2) divide every stage; the box painter's cost per box and the alpha conversion are the two kernels P4 takes first. The share of float is the P0 measurement of TASK-0362 (soft against hard per scene); the host bench is its paint-kernel bench (docs/graphics-ui/paint-kernels.md)"
   - id: P1
     story: "a pass is planned once into an immutable plan and any band of its rows is painted from it by any thread, byte-equal to today's painter"
-    state: proving
+    state: done
     gate: "host: band parity over splits 1..8 and per row against today's goldens (the nexus-svg band_parity pattern)"
     started: 2026-11-13
+    done: 2026-11-16
+    evidence: build/logs/board--2026-11-16T09-14-28
     note: "built 2026-11-16: PassPlan (app-host src/pass_plan.rs, NOT target-gated, Sync): borrowed boxes, picks, animation slots, text runs, scroll views; anim snapshot, caret, width; the row painter moved verbatim out of probe/paint.rs; paint_ground_row (the base row) and paint_ground_band (test-gated until P2's worker calls it). Host pass_plan_tests.rs: 1..8 bands on threads, reverse over garbage, every row alone, byte-equal; the glyph pass draws (embedded atlas as dev-dependency). QEMU visible and usb-visible green (32/32 steps). Board build/logs/board--2026-11-16T09-14-28: ladder 118, 8 harts, red kinds as before, first frames unchanged (calculator boxes 22.3-23.3 ms). Closes with the commit (rule 8)"
   - id: P2
     story: "the bands of a pass are painted on every hart the workpool has, inside the frame's time right, and the DSL sees none of it"

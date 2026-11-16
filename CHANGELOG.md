@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-11-16 (a queued task's frame is the hart's that takes it — TASK-0363 P2, step 2 of 3)
+
+- **A task's saved frame lives in its scheduling record** (`neuron`: `sched/record.rs`): at a
+  fixed address for the life of the kernel (a static block for pids 0-63, then blocks of 64 that
+  are never moved or freed), outside the task table that moves when it grows — so the hart that
+  takes a task off its queue reaches its frame without the table or the kernel lock (step 3).
+  `Task::frame()`/`frame_mut()` keep their signatures.
+- **Who holds the record is stated** (`run_queue::Owner`: free, queued on a hart, running on a
+  hart), handed on by the scheduler under the queue lock at every enqueue, pick, steal, block and
+  exit. A frame may be touched by its running hart or, while the task is free, by the kernel lock's
+  holder — never while it is queued. Every access checks it and names the call site that breaks it
+  (`KINIT: FAIL frame owner`).
+- **Two breaches it found, fixed**: the timer preemption saved the interrupted task's registers
+  after requeueing it, and `yield` requeued its caller before the trap exit wrote its return value
+  and pc — both harmless under the kernel lock, both a stale frame for a thief once the lock goes.
+  The preemption saves first; `yield` asks (`Context::yield_after`) and the trap exit requeues the
+  caller once its frame is complete. QEMU 1, 2 and 8 harts and the usb-visible desktop: no breach.
+  The checks cost about 3 us of a call's round trip in QEMU (54 -> 56-57 us). Board
+  (`board--2026-11-16T11-07-28`): no breach, 8 harts, the kernel lock's longest wait 557 us; the
+  `ipc call budget` was red (68 us against 64) as on one boot of five before this step — the
+  round trip is bimodal per boot, followed up in TASK-0363 P5.
+
 ### Changed - 2026-11-16 (a pass planned once, painted by bands; a row costs its damaged columns — TASK-0367 P1, P3)
 
 - **A paint pass is planned once** (`app-host`: `pass_plan.rs`, TASK-0367 P1): the boxes, their

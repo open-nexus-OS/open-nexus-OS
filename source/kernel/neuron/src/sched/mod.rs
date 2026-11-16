@@ -18,7 +18,7 @@
 
 use core::marker::PhantomData;
 
-use crate::run_queue::{self, HartQueues, Harts, Stolen, Task, CLASS_CAPACITY};
+use crate::run_queue::{self, HartQueues, Harts, Owner, Stolen, Task, CLASS_CAPACITY};
 use crate::sync::hart_table::{HartTable, SizeError};
 use crate::sync::spin_irq::{IrqOffGuard, SpinIrqLock};
 use crate::types::{CpuId, Pid};
@@ -79,6 +79,21 @@ impl Harts for Machine {
 
     fn try_with<R>(&self, cpu: usize, f: impl FnOnce(&mut HartQueues) -> R) -> Option<R> {
         RUN_QUEUES.get(cpu)?.try_lock().map(|mut queues| f(&mut queues))
+    }
+}
+
+/// Hands task `id`'s record to `owner` (a probe id without a record is left be).
+fn hand(id: u32, owner: Owner) {
+    if let Some(record) = record::get(Pid::from_raw(id)) {
+        record.set_owner(owner);
+    }
+}
+
+/// The task hart `cpu` ran leaves it without a requeue (it blocked, it exited): its record is
+/// free — if the hart still held it (a requeued task's is its queue's).
+fn leave(id: u32, cpu: usize) {
+    if let Some(record) = record::get(Pid::from_raw(id)) {
+        record.pass(Owner::Running(cpu as u16), Owner::Free);
     }
 }
 
@@ -185,7 +200,11 @@ impl Scheduler {
     /// Queues `id` on hart `cpu`: one operation under that hart's lock.
     fn push(cpu: usize, id: TaskId, qos: QosClass) -> EnqueueOutcome {
         let now = ready::now_ticks();
-        match with(cpu, |q| q.push_back(id.as_raw(), qos, now)) {
+        let queued = with(cpu, |q| {
+            q.push_back(id.as_raw(), qos, now)
+                .map(|()| hand(id.as_raw(), Owner::Queued(cpu as u16)))
+        });
+        match queued {
             Some(Ok(())) => EnqueueOutcome::Enqueued,
             Some(Err(run_queue::Full)) => rejected_full(qos),
             None => EnqueueOutcome::Rejected(EnqueueRejectReason::InvalidCpu {
@@ -198,7 +217,20 @@ impl Scheduler {
     pub fn schedule_next(&mut self) -> Option<TaskId> {
         crate::liveness::bump();
         let cur = Self::current_cpu_index();
-        let picked = with(cur, HartQueues::pick).flatten();
+        // The record passes with the pick, under the queue lock: the task the hart ran and did
+        // not requeue (it blocked) is free, the picked one is this hart's.
+        let picked = with(cur, |q| {
+            let old = q.current();
+            let new = q.pick();
+            if let Some(old) = old.filter(|o| new.is_none_or(|n| n.id != o.id)) {
+                leave(old.id, cur);
+            }
+            if let Some(new) = new {
+                hand(new.id, Owner::Running(cur as u16));
+            }
+            new
+        })
+        .flatten();
         // Debug: the first few picks only (off by default; `NEXUS_LOG=sched=debug`), written
         // after the queue lock is dropped.
         #[cfg(all(target_arch = "riscv64", target_os = "none", debug_assertions))]
@@ -233,12 +265,24 @@ impl Scheduler {
         // idle hart (`ready_stats`). Deterministic fail-closed behavior for queue
         // saturation: a rejected task stays current so it is not silently dropped.
         let now = ready::now_ticks();
-        let _ = with(Self::current_cpu_index(), |q| q.yield_current(now));
+        let cur = Self::current_cpu_index();
+        let _ = with(cur, |q| {
+            let id = q.current().map(|t| t.id);
+            if q.yield_current(now) {
+                id.into_iter().for_each(|id| hand(id, Owner::Queued(cur as u16)));
+            }
+        });
     }
 
     /// Marks the current task as finished without re-enqueuing it.
     pub fn finish_current(&mut self) {
-        let _ = with(Self::current_cpu_index(), |q| q.set_current(None));
+        let cur = Self::current_cpu_index();
+        let _ = with(cur, |q| {
+            if let Some(task) = q.current() {
+                leave(task.id, cur);
+            }
+            q.set_current(None);
+        });
     }
 
     /// The CPU `id` is the current task of, if any (ADR-0082: an order for a task running on
@@ -253,6 +297,9 @@ impl Scheduler {
     pub fn purge(&mut self, id: TaskId) {
         for cpu in 0..RUN_QUEUES.len() {
             let _ = with(cpu, |q| q.purge(id.as_raw()));
+        }
+        if let Some(record) = record::get(id) {
+            record.set_owner(Owner::Free);
         }
     }
 
@@ -330,7 +377,10 @@ impl Scheduler {
             |id| home_of(Pid::from_raw(id)),
         )?;
         ready::dispatched(&task);
-        let _ = with(cur, |q| q.set_current(Some(task)));
+        let _ = with(cur, |q| {
+            q.set_current(Some(task));
+            hand(task.id, Owner::Running(cur as u16));
+        });
         Some(Pid::from_raw(task.id))
     }
 
@@ -398,3 +448,4 @@ impl Default for Scheduler {
 
 mod class;
 mod ready;
+pub mod record;

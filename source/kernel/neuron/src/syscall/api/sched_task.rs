@@ -352,23 +352,10 @@ pub(super) fn sys_yield(ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize>
     // 120Hz pacer, gpud's spin-blur re-present) is never woken at its deadline —
     // the cooperative analogue of a missed timer IRQ.
     wake_expired_blocked(ctx);
-    ctx.scheduler.yield_current();
-    if let Some(next) = ctx.scheduler.schedule_next() {
-        ctx.tasks.set_current(next);
-        if let Some(task) = ctx.tasks.task(next) {
-            #[cfg(feature = "debug_uart")]
-            {
-                use core::fmt::Write as _;
-                let mut w = crate::uart::raw_writer();
-                let _ = write!(w, "YIELD-I: next pid={} sepc=0x{:x}\n", next, task.frame().sepc);
-            }
-            #[cfg(not(feature = "debug_uart"))]
-            let _ = task; // silence unused when debug UART is disabled
-        }
-        Ok(next.as_index())
-    } else {
-        Ok(ctx.tasks.current_pid().as_index())
-    }
+    // The hart is given up at the trap exit, once the return value is in the caller's frame
+    // (`trap::pending::stage_yield`): a requeued task is another hart's to take at once.
+    ctx.yield_after = true;
+    Ok(0)
 }
 
 pub(super) fn sys_exit(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {

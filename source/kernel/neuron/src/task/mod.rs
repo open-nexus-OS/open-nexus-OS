@@ -273,7 +273,8 @@ pub struct Task {
     /// Exit code + ADR-0056 reason — present exactly while the task is a
     /// reapable zombie, so the reason can never outlive or predate the code.
     exit_code: Option<(i32, ExitReason)>,
-    frame: TrapFrame,
+    /// The saved frame and its holder (TASK-0363 P2 S2): a fixed address outside this table.
+    rec: &'static crate::sched::record::Record,
     caps: CapTable,
     trap_domain: TrapDomainId,
     qos: QosClass,
@@ -351,20 +352,15 @@ impl Task {
         const SSTATUS_SPIE: usize = 1 << 5;
         const SSTATUS_SPP: usize = 1 << 8;
         const SSTATUS_SUM: usize = 1 << 18;
-        let zero_frame = TrapFrame {
-            x: [0; 32],
-            sepc: 0,
-            sstatus: SSTATUS_SPP | SSTATUS_SPIE | SSTATUS_SUM,
-            scause: 0,
-            stval: 0,
-        };
+        let zero_frame =
+            TrapFrame { sstatus: SSTATUS_SPP | SSTATUS_SPIE | SSTATUS_SUM, ..TrapFrame::EMPTY };
 
         Self {
             pid: Pid::KERNEL,
             parent: None,
             state: TaskState::Running,
             exit_code: None,
-            frame: zero_frame,
+            rec: crate::sched::record::bootstrap(zero_frame),
             caps,
             trap_domain: TrapDomainId::default(),
             qos: QosClass::PerfBurst,
@@ -418,14 +414,16 @@ impl Task {
         self.pending
     }
 
-    /// Returns the saved trap frame.
+    /// The saved frame, held by the caller (`run_queue::Owner`; breach: `KINIT: FAIL frame owner`).
+    #[track_caller]
     pub fn frame(&self) -> &TrapFrame {
-        &self.frame
+        self.rec.frame()
     }
 
-    /// Returns a mutable view of the trap frame.
+    /// Returns a mutable view of the trap frame (held as for [`Self::frame`]).
+    #[track_caller]
     pub fn frame_mut(&mut self) -> &mut TrapFrame {
-        &mut self.frame
+        self.rec.frame_mut()
     }
 
     /// Returns a mutable reference to the capability table.
@@ -636,7 +634,7 @@ impl TaskTable {
             parent: Some(parent),
             state: TaskState::Running,
             exit_code: None,
-            frame: TrapFrame::default(),
+            rec: crate::sched::record::claim(pid, TrapFrame::default()).expect("dummy record"),
             caps: CapTable::new_for(pid.as_raw()),
             trap_domain: parent_domain,
             qos: QosClass::PerfBurst,
@@ -811,6 +809,8 @@ impl TaskTable {
         }
 
         let pid = Pid::from_raw(self.tasks.len() as u32);
+        // TASK-0363 P2 S2: the record first; a later failure leaves it to this pid's next spawn.
+        let rec = crate::sched::record::claim(pid, TrapFrame::default())?;
         let mut child_caps = CapTable::new_for(pid.as_raw());
         child_caps.set(slot, parent_task.caps.dup(slot, bootstrap_cap.rights)?)?;
 
@@ -873,12 +873,13 @@ impl TaskTable {
             .get(parent_index)
             .map(|p| (p.affinity, p.shares))
             .unwrap_or((crate::topology::runs(), DEFAULT_SHARES));
+        *rec.frame_mut() = frame;
         let mut task = Task {
             pid,
             parent: Some(parent),
             state: TaskState::Suspended,
             exit_code: None,
-            frame,
+            rec,
             caps: child_caps,
             trap_domain: parent_domain,
             qos: QosClass::Normal,
@@ -1035,7 +1036,7 @@ impl TaskTable {
         task.caps.vmo_ids(&mut task.orphan_vmos);
         task.caps = CapTable::default();
         task.bootstrap_slot = None;
-        task.frame = TrapFrame::default();
+        *task.frame_mut() = TrapFrame::default();
         task.fp = Default::default();
         task.children.clear();
         task.image_allocs.take()

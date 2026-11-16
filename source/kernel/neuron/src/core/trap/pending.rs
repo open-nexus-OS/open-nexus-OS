@@ -48,7 +48,20 @@ pub(crate) fn run_pending_guarded(frame: &mut TrapFrame, kernel: &mut KernelGuar
 /// epilogue's load does the rest. A caller the syscall blocked or switched away from is no
 /// longer current and is left be.
 pub(crate) fn stage_wake(ctx: &mut crate::syscall::api::Context<'_>, old_pid: crate::types::Pid) {
+    stage_yield(ctx, old_pid);
     if ctx.tasks.current_pid() == old_pid && ctx.scheduler.ready_above_current() {
+        ctx.scheduler.yield_current();
+        if let Some(next) = ctx.scheduler.schedule_next() {
+            ctx.tasks.set_current(next);
+        }
+    }
+}
+
+/// The syscall exit's yield (TASK-0363 P2 S2): the caller asked to give up the hart, and its
+/// frame now holds its return value and its advanced pc — requeued behind its class only now, so
+/// the hart that takes it next (a thief included) finds the frame complete.
+fn stage_yield(ctx: &mut crate::syscall::api::Context<'_>, old_pid: crate::types::Pid) {
+    if core::mem::take(&mut ctx.yield_after) && ctx.tasks.current_pid() == old_pid {
         ctx.scheduler.yield_current();
         if let Some(next) = ctx.scheduler.schedule_next() {
             ctx.tasks.set_current(next);
@@ -96,6 +109,11 @@ pub(crate) fn preempt_current_user_task(
     spaces: &mut AddressSpaceManager,
 ) {
     let old_pid = tasks.current_pid();
+    // The interrupted task's live registers first, while this hart still holds its record
+    // (TASK-0363 P2 S2): once it is requeued another hart may take it, and must find them.
+    if let Some(task) = tasks.task_mut(old_pid) {
+        *task.frame_mut() = *frame;
+    }
     // Re-enqueue the running task at the back of its class, then pick the next. If
     // round-robin hands back the same task, nothing else is runnable — resume it
     // with its registers untouched (cheap fast path for a single busy task).
@@ -106,12 +124,8 @@ pub(crate) fn preempt_current_user_task(
     if next == old_pid {
         return;
     }
-    // Commit the switch, mirroring the syscall path: persist the interrupted task's
-    // live registers, retarget the task table, swap the address space, then load the
-    // next task's saved frame for the trap epilogue to restore.
-    if let Some(task) = tasks.task_mut(old_pid) {
-        *task.frame_mut() = *frame;
-    }
+    // Commit the switch, mirroring the syscall path: retarget the task table, swap the
+    // address space, then load the next task's saved frame for the trap epilogue to restore.
     tasks.set_current(next);
     #[cfg(not(feature = "selftest_no_satp"))]
     if let Some(handle) = tasks.task(next).and_then(|t| t.address_space()) {

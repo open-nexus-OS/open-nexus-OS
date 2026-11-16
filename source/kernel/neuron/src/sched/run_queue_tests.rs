@@ -84,6 +84,30 @@ fn qos_ordering() {
 }
 
 #[test]
+fn an_owner_word_round_trips_and_names_who_may_touch_the_frame() {
+    for owner in
+        [Owner::Free, Owner::Queued(0), Owner::Queued(7), Owner::Running(0), Owner::Running(65_535)]
+    {
+        assert_eq!(Owner::decode(owner.encode()), Some(owner));
+    }
+    assert!(Owner::Free.may_touch(3), "a free task's frame is the kernel lock's");
+    assert!(Owner::Running(3).may_touch(3), "the hart that runs it");
+    assert!(!Owner::Running(3).may_touch(4), "another hart never");
+}
+
+#[test]
+fn test_reject_a_queued_frame_and_a_word_no_owner_wrote() {
+    // Queued on a hart: written before the enqueue, read after the pick — by nobody between,
+    // not even the hart whose queue holds it (a thief may take it at any moment).
+    for hart in [0, 1, 7] {
+        assert!(!Owner::Queued(1).may_touch(hart));
+    }
+    for raw in [3 << 16, 0xffff_0000, 0x0000_0005, u32::MAX] {
+        assert_eq!(Owner::decode(raw), None, "{raw:#x}");
+    }
+}
+
+#[test]
 fn test_reject_a_qos_wire_value_beyond_the_classes() {
     for class in QosClass::DESCENDING {
         assert_eq!(QosClass::from_u8(class as u8), Some(class), "the wire value is the class");
