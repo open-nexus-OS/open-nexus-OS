@@ -34,6 +34,11 @@ background (cpu1-3) work could run on cpu0 and steal display-chain time.
    elapsed shadow must never read as "earlier" — the first implementation
    without this check silenced the hart's timer entirely (boot-time windowd
    present-NACK storms).
+   **The preemption tick obeys the same rule** (TASK-0363 P7): `timer_arm` — the tick at every
+   user dispatch and the S-mode re-arm — programs `now + tick` only when no pending armed
+   deadline is earlier. Before, the tick overwrote the compare register while the shadow still
+   read "armed", so a later arm of that deadline was a no-op and it fired with the tick: every
+   kernel deadline up to 10 ms late (a 5 ms fence timeout at 10.4 ms; `SELFTEST: wait deadline`).
 2. **Re-arm across ALL deadline sources.** `process_expired_timers` clears the
    shadow, delivers expiries, then re-arms to the true earliest of: timer-cap
    deadlines AND every blocked task's IPC/waitset/fence deadline (a bounded

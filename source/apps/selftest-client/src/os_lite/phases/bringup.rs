@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Phase 1 of 12 — bringup (keystored, qos, timed-coalesce, rng,
+//! CONTEXT: Phase 1 of 12 — bringup (keystored, qos, timed-coalesce, wait deadline, rng,
 //!   device-key, statefs CRUD/persist, reply slot announce, dsoftbus
 //!   readiness gate, samgrd v1 register/lookup/unknown/malformed).
 //! OWNERS: @runtime
@@ -114,6 +114,21 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     } else {
         emit_line(crate::markers::M_SELFTEST_TIMED_COALESCE_FAIL);
     }
+    // TASK-0363 P7: a waitset's and a fence's deadline end their wait in time.
+    let (ok, (ws_ns, fence_ns)) = match timed::wait_deadline_probe() {
+        Ok(took) => (true, took),
+        Err(took) => (false, took),
+    };
+    emit_bytes(b"selftest: wait deadline (waitset_us=");
+    crate::markers::emit_u64(ws_ns / 1_000);
+    emit_bytes(b" fence_us=");
+    crate::markers::emit_u64(fence_ns / 1_000);
+    emit_bytes(b")\n");
+    emit_line(if ok {
+        crate::markers::M_SELFTEST_WAIT_DEADLINE_OK
+    } else {
+        crate::markers::M_SELFTEST_WAIT_DEADLINE_FAIL
+    });
     // RFC-0075 identity gate: a foreign OP_KEY must be DENIED by imed.
     if imed::imed_reject_foreign_probe().is_ok() {
         emit_line(crate::markers::M_SELFTEST_IMED_REJECT_FOREIGN_OK);

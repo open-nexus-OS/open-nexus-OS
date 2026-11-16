@@ -6,15 +6,15 @@
 //! ceiling, and a blocking reason is its own concept — every scheduler sweep,
 //! every deadline scan and every wake path reads exactly this enum.
 //!
-//! Three places match it for a DEADLINE (`task/mod.rs`, `syscall/api/mod.rs`,
-//! `core/trap/runtime.rs`); each has a wildcard arm, which is why a variant
-//! that carries no deadline — like `IpcCall`, clockless by ABI (RFC-0093 §7) —
-//! slots in without touching them.
+//! A DEADLINE is read in one place, [`BlockReason::deadline_ns`] (an exhaustive match: a new
+//! kind is decided at compile time), and decided by `deadline_rule` (host-tested) for the one
+//! deadline walk (`syscall::api::expire_deadlines`, TASK-0363 P6/P7). A variant that carries no
+//! deadline — like `IpcCall`, clockless by ABI (RFC-0093 §7) — is untimed.
 //!
 //! OWNERS: @kernel-team
 //! STATUS: Functional
 //! API_STABILITY: Internal
-//! TEST_COVERAGE: the scheduler/IPC ladders in QEMU
+//! TEST_COVERAGE: the deadline decision in `deadline_rule` (host); the scheduler/IPC ladders in QEMU
 
 use super::Pid;
 use crate::ipc;
@@ -61,4 +61,17 @@ pub enum BlockReason {
     PageIn {
         token: u64,
     },
+}
+
+impl BlockReason {
+    /// The deadline this wait carries (`None`: none by kind; `Some(0)`: none asked for).
+    pub(crate) const fn deadline_ns(self) -> Option<u64> {
+        match self {
+            Self::IpcRecv { deadline_ns, .. }
+            | Self::IpcSend { deadline_ns, .. }
+            | Self::Waitset { deadline_ns, .. }
+            | Self::Fence { deadline_ns, .. } => Some(deadline_ns),
+            Self::WaitChild { .. } | Self::IpcCall { .. } | Self::PageIn { .. } => None,
+        }
+    }
 }

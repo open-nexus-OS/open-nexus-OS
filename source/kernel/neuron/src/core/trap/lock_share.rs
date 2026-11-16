@@ -102,7 +102,7 @@ pub fn record(holder: usize, t0: u64, ticks: u64) {
 pub enum DeliverPart {
     /// Expired timers, interrupts and memory pressure.
     Events = 0,
-    /// The walk over every task for an expired IPC deadline.
+    /// The one deadline walk (receive, send, waitset, fence; `syscall::api::expire_deadlines`).
     DeadlineWalk = 1,
 }
 

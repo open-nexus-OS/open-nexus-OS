@@ -402,18 +402,18 @@ mod selftest;
 #[cfg(target_os = "none")]
 #[path = "core/smp/mod.rs"]
 mod smp;
-// TASK-0283/TASK-0277: SMP sync primitives (PerCpu, SpinIrqLock). Intentionally
-// NOT target-gated — like `waitset`/`fence`, the pure logic is host-unit-tested
-// via `cargo test -p neuron`; only the SIE CSR access is target-specific inside.
+// TASK-0283/TASK-0277: SMP sync primitives (PerCpu, SpinIrqLock) — host-tested; only the SIE CSR is target-specific.
 pub mod sync;
 #[cfg(target_os = "none")]
 mod syscall;
 #[cfg(target_os = "none")]
 mod task;
+// TASK-0363 P7: the deadline walk's decision — pure, host-tested; `pub` like `fp_rule`.
+#[path = "task/deadline_rule.rs"]
+pub mod deadline_rule;
 #[cfg(target_os = "none")]
 mod timer;
-// RFC-0033: the waitset table is NOT target-gated: its pure logic (membership, bounds,
-// readiness aggregation) is host-tested; only its `EndpointId`/`Pid` mapping is gated.
+// RFC-0033: the waitset table — its pure logic host-tested; only its id mapping is gated.
 mod waitset;
 // TASK-0362 P1 (RFC-0119): a thread's floating-point registers — the pure rules, host-tested.
 #[path = "core/trap/fp_rule.rs"]

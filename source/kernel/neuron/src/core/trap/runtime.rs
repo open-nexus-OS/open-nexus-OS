@@ -307,13 +307,22 @@ pub fn default_tick_cycles() -> u64 {
     crate::hal::platform::default_tick_cycles()
 }
 
-/// Arm S-mode timer via SBI for `now + delta_cycles`.
+/// Arm the preemption tick for `now + delta_cycles` — unless a deadline armed through
+/// [`arm_wakeup`] is still pending and earlier: the compare register is one per hart, and the
+/// tick written over it pushed that deadline out to the tick (ADR-0052 earliest-wins; a 5 ms fence
+/// or timer-cap deadline ended at ~10.4 ms, `SELFTEST: wait deadline`, TASK-0363 P7), while the
+/// shadow still read "armed", so a later `arm_wakeup` of the same deadline was a no-op.
 #[inline]
 #[allow(dead_code)]
 #[cfg(all(target_arch = "riscv64", target_os = "none", feature = "timer_irq"))]
 pub fn timer_arm(delta_cycles: u64) {
+    use core::sync::atomic::Ordering;
     let now = riscv::register::time::read() as u64;
-    crate::hal::platform::arm_timer_ticks(now.wrapping_add(delta_cycles));
+    let tick = now.wrapping_add(delta_cycles);
+    let armed = armed_slot().load(Ordering::Relaxed);
+    let pending = (armed != 0).then(|| crate::hal::platform::ns_to_ticks(armed));
+    let at = pending.filter(|&d| d > now && d < tick).unwrap_or(tick);
+    crate::hal::platform::arm_timer_ticks(at);
 }
 
 #[allow(dead_code)]

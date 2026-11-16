@@ -304,3 +304,53 @@ pub(crate) fn walltime_probe() -> core::result::Result<(), ()> {
     }
     Ok(())
 }
+
+/// TASK-0363 P7: a bounded wait ends at its bound although nothing else will wake it, each at
+/// 5 ms and back within 10 ms of the call: a waitset whose only member is the harness's kernel
+/// timer (the one bound a service may put on a waitset, `nexus_ipc::timer` — no raw deadline,
+/// `check-wait-not-poll.sh` rule 4), and a fence nobody signals with a deadline (`TimedOut`).
+/// The fired timer caps and the one deadline walk run from the timer interrupt and the idle
+/// harts too (before TASK-0363 P6 those walks knew only IPC, and a fence's timeout waited for
+/// someone's syscall). Returns how long each wait took (ns); `Err` when one ended otherwise or
+/// late.
+pub(crate) fn wait_deadline_probe() -> Result<(u64, u64), (u64, u64)> {
+    use nexus_ipc::timer::{NotifyTimer, Waitset};
+    const BOUND_NS: u64 = 5_000_000;
+    const LATE_NS: u64 = 10_000_000;
+    let fail = (u64::MAX, u64::MAX);
+    let mut timer = NotifyTimer::bind(nexus_service_topology::slots::selftest_client::TIMER)
+        .map_err(|_| fail)?;
+    let ws = Waitset::over(&[timer.recv_slot()]).map_err(|_| fail)?;
+    let t0 = nexus_abi::nsec().map_err(|_| fail)?;
+    timer.arm_at(t0 + BOUND_NS);
+    // The timer member wakes on a fire, or once on the kernel's EOF latch (spurious: `drain`
+    // says which) — bounded, so a timer that never fires is a FAIL, not a hang.
+    let mut fired = false;
+    for _ in 0..4 {
+        if ws.wait().is_err() {
+            break;
+        }
+        if timer.drain() {
+            fired = true;
+            break;
+        }
+    }
+    let waitset = nexus_abi::nsec().map_err(|_| fail)?.saturating_sub(t0);
+    timer.close();
+    ws.close();
+    let fence = nexus_abi::fence_create().map_err(|_| fail)?;
+    let t0 = nexus_abi::nsec().map_err(|_| fail)?;
+    let timed_out = matches!(
+        nexus_abi::fence_wait(fence, 1, t0 + BOUND_NS),
+        Err(nexus_abi::AbiError::TimedOut)
+    );
+    let fenced = nexus_abi::nsec().map_err(|_| fail)?.saturating_sub(t0);
+    let _ = nexus_abi::cap_close(fence);
+    let took = (if fired { waitset } else { u64::MAX }, if timed_out { fenced } else { u64::MAX });
+    let in_time = |ns: u64| (BOUND_NS..=LATE_NS).contains(&ns);
+    if in_time(took.0) && in_time(took.1) {
+        Ok(took)
+    } else {
+        Err(took)
+    }
+}

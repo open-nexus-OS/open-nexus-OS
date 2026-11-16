@@ -26,6 +26,10 @@ proves = "kernel ipc qos pass-through"
 [marker."SELFTEST: timed coalesce ok"]
 phase = "routing"
 
+[marker."SELFTEST: wait deadline ok"]
+phase = "routing"
+proves = "a waitset whose only member is a 5 ms kernel timer, and a fence nobody signals with a 5 ms deadline, end their wait within 10 ms: timer caps and the one deadline walk run from the timer interrupt and the idle harts too (TASK-0363 P7)"
+
 [marker."SELFTEST: imed reject foreign ok"]
 phase = "routing"
 proves = "imed denies OP_KEY from non-inputd senders (RFC-0075 identity gate)"

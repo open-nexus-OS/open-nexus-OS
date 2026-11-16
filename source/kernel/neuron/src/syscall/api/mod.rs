@@ -26,6 +26,7 @@ use crate::{
 };
 use core::slice;
 
+use crate::deadline_rule::{deadline_verdict, next_gate, DeadlineVerdict};
 use crate::task::BlockReason;
 
 // Mechanical split of the former single-file api.rs (TASK: god-file split).
@@ -289,37 +290,27 @@ pub(crate) fn expire_deadlines(
         if !t.is_blocked() {
             continue;
         }
-        if let Some(d) = t.block_reason().and_then(block_reason_deadline) {
-            if d != 0 && d > now && d < next_min {
-                next_min = d;
-            }
+        // The decision is `deadline_rule` (host-tested); this loop only acts on it.
+        let reason = t.block_reason();
+        let verdict = deadline_verdict(reason.and_then(BlockReason::deadline_ns), now);
+        next_min = next_gate(next_min, verdict);
+        if verdict != DeadlineVerdict::Expired {
+            continue;
         }
-        // Does an arm below actually fire for this task? Computed up front so
-        // the wake half can be timed without duplicating every arm's guard.
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-        let expired =
-            t.block_reason().and_then(block_reason_deadline).is_some_and(|d| d != 0 && now >= d);
-        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-        let arm_t0 = if expired { riscv::register::time::read() as u64 } else { 0 };
-        match t.block_reason() {
-            Some(BlockReason::IpcRecv { endpoint, deadline_ns })
-                if deadline_ns != 0 && now >= deadline_ns =>
-            {
+        let arm_t0 = riscv::register::time::read() as u64;
+        // Take the timed-out waiter out of what it waits on, then wake it (it returns
+        // `TimedOut` on re-entry).
+        match reason {
+            Some(BlockReason::IpcRecv { endpoint, .. }) => {
                 let _ = router.remove_recv_waiter(endpoint, pid.as_raw());
-                observe_wake_outcome(tasks.wake(pid, scheduler));
             }
-            Some(BlockReason::IpcSend { endpoint, deadline_ns })
-                if deadline_ns != 0 && now >= deadline_ns =>
-            {
+            Some(BlockReason::IpcSend { endpoint, .. }) => {
                 let _ = router.remove_send_waiter(endpoint, pid.as_raw());
-                observe_wake_outcome(tasks.wake(pid, scheduler));
             }
-            Some(BlockReason::Waitset { ws_id, deadline_ns })
-                if deadline_ns != 0 && now >= deadline_ns =>
-            {
-                // Deregister the timed-out waiter from every member (a receiver's and a
-                // sender's), then wake it (it returns `TimedOut` on re-entry). Snapshot members
-                // to a stack buffer so the `waitsets` and `router` borrows stay disjoint.
+            Some(BlockReason::Waitset { ws_id, .. }) => {
+                // Every member lists it (a receiver's and a sender's). Snapshot the members to
+                // a stack buffer so the `waitsets` and `router` borrows stay disjoint.
                 let mut buf = [0u32; crate::waitset::MAX_WAITSET_MEMBERS];
                 let n = waitsets
                     .members(crate::waitset::WaitsetId(ws_id))
@@ -329,19 +320,15 @@ pub(crate) fn expire_deadlines(
                     })
                     .unwrap_or(0);
                 sync_objects::deregister_members(router, &buf[..n], pid.as_raw());
-                observe_wake_outcome(tasks.wake(pid, scheduler));
             }
-            Some(BlockReason::Fence { fence_id, deadline_ns, .. })
-                if deadline_ns != 0 && now >= deadline_ns =>
-            {
-                // Deregister the timed-out waiter, then wake it (returns TimedOut on re-entry).
+            Some(BlockReason::Fence { fence_id, .. }) => {
                 fences.remove_waiter(crate::fence::FenceId(fence_id), pid.as_raw());
-                observe_wake_outcome(tasks.wake(pid, scheduler));
             }
             _ => {}
         }
+        observe_wake_outcome(tasks.wake(pid, scheduler));
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-        if expired {
+        {
             wakes += 1;
             wake_ticks += (riscv::register::time::read() as u64).saturating_sub(arm_t0);
         }
@@ -358,17 +345,6 @@ pub(crate) fn expire_deadlines(
     }
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
     let _ = next_min;
-}
-
-/// The deadline a block reason carries, if any (0 / none = no deadline).
-fn block_reason_deadline(reason: BlockReason) -> Option<u64> {
-    match reason {
-        BlockReason::IpcRecv { deadline_ns, .. }
-        | BlockReason::IpcSend { deadline_ns, .. }
-        | BlockReason::Waitset { deadline_ns, .. }
-        | BlockReason::Fence { deadline_ns, .. } => Some(deadline_ns),
-        _ => None,
-    }
 }
 
 /// Registers the default set of syscall handlers.

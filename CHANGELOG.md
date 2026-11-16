@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed - 2026-11-16 (a kernel deadline fires at its time, not at the next tick — TASK-0363 P7)
+
+- **The preemption tick keeps an earlier deadline** (ADR-0052): `timer_arm` — the tick at every
+  user dispatch and the idle hart's S-mode re-arm — wrote the per-hart compare register past a
+  pending earlier deadline while the earliest-wins shadow still read "armed", so re-arming that
+  deadline was a no-op. Every kernel deadline (fence and IPC timeouts, timer caps: pacing,
+  watchdogs) fired up to 10 ms late — a 5 ms fence timeout at 10.4 ms, a 5 ms timer cap at
+  5.6-12.5 ms. Board: 5.03 ms for both.
+- **The deadline walk's decision is host-tested** (`task/deadline_rule.rs`: expired at the
+  deadline, pending before, untimed for 0 or a clockless kind, the gate = the earliest pending);
+  the deadline per kind is read by one exhaustive match (`BlockReason::deadline_ns`).
+- New marker `SELFTEST: wait deadline ok`: a waitset over a 5 ms kernel timer and a fence with a
+  5 ms deadline end their wait within 10 ms.
+
 ### Changed - 2026-11-16 (a window's frosted popover moves on the compositor — TASK-0354 P7)
 
 - **The window kit's menus are motion layers** on a window's frost: a blur root

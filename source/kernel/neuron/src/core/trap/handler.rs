@@ -386,12 +386,9 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
             // re-arm the heartbeat and resume the interrupted context untouched.
             #[cfg(all(target_arch = "riscv64", target_os = "none", feature = "timer_irq"))]
             {
-                // TASK-0260B P3: ONE arming mechanism — `stimecmp` when the tree lists
-                // Sstc, SBI otherwise (`hal::platform::arm_timer_ticks`). This re-arm went
-                // through SBI regardless: a firmware that does not fold `set_timer` onto
-                // `stimecmp` then leaves the pending compare in the past.
-                let next = riscv::register::time::read() as u64 + default_tick_cycles();
-                crate::hal::platform::arm_timer_ticks(next);
+                // TASK-0260B P3: ONE arming mechanism (`stimecmp` with Sstc, SBI otherwise);
+                // TASK-0363 P7: through `timer_arm`, which keeps a pending earlier deadline.
+                timer_arm(default_tick_cycles());
             }
         }
         const S_EXT_INT: usize = 9;
