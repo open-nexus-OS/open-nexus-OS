@@ -218,16 +218,19 @@ pub(crate) fn backdrop_of(b: &LayoutBox, (w, h): (i32, i32), has_text: bool) -> 
 }
 
 /// Whether the subtree `[first, end)` painted apart — on a clear ground, in a layer's store —
-/// and drawn over a base that is not clear shows what painting it in place shows (TASK-0354 P7:
-/// a window's frosted base). True when every box of it lies over what is under it (source
-/// over): a box that RESETS its rectangle — a blur root or a pane that is not nested in another
-/// glass, with a fill that is not opaque — takes the compositor's backdrop in place of the base,
-/// and apart it would let the base through.
+/// and drawn over a base that is not clear shows what it should (TASK-0354 P7: a window's frosted
+/// base). A box that lies over what is under it (source over) shows the same either way. A
+/// blur root that is not nested in another glass resets its rectangle to its tint — and declares
+/// a glass region, which a motion layer carries: windowd draws the region's blur under the moving
+/// layer, of what lies below it in the window (the design's frosted popover over the window's
+/// content; in place its tint replaced that content and the blur saw only itself). What cannot
+/// compose apart is an opaque surface faded below full opacity: it resets its rectangle and
+/// declares no region, so apart the base would show through it.
 pub(crate) fn composes_apart(boxes: &[LayoutBox], (first, end): (usize, usize)) -> bool {
     let resets = |b: &LayoutBox| {
         let v = &b.visual;
         let clear = |c: Rgba8| c.a != 255;
-        v.material.is_some_and(|m| m.blurs() || m.opaque())
+        v.material.is_some_and(|m| m.opaque() && !m.blurs())
             && !b.glass_nested
             && (v.background.is_some_and(clear)
                 || v.background_gradient.is_some_and(|(top, bottom)| clear(top) || clear(bottom)))
@@ -469,8 +472,9 @@ mod tests {
     }
 
     /// A window's frosted base carries a layer whose boxes all lie over the base: a menu's
-    /// opaque sheet, tint cards nested in the window's glass, text. A blur root with a translucent
-    /// tint in the subtree resets its rectangle — apart, the base would show through it.
+    /// opaque sheet, tint cards nested in the window's glass, text — and a blur root, whose
+    /// region the layer carries (windowd blurs under it). A faded opaque pane resets its
+    /// rectangle and declares no region: apart, the base would show through it.
     #[test]
     fn a_subtree_composes_apart_unless_a_box_resets_its_rectangle() {
         use nexus_layout_types::Material;
@@ -494,9 +498,13 @@ mod tests {
         assert!(composes_apart(&menu, (4, 8)));
         // An opaque pane resets to its own pixel either way.
         assert!(composes_apart(&[boxed(4, Some(Material::Pane), 255, false)], (4, 5)));
-        let reset = [boxed(4, None, 0, false), boxed(5, Some(Material::Panel), 160, false)];
-        assert!(!composes_apart(&reset, (4, 6)), "test_reject: a blur root's tint");
-        assert!(composes_apart(&reset, (4, 5)), "outside the subtree it is the base's");
+        // A blur root with its translucent tint (the window kit's popover, `.material(overlay)`):
+        // its glass region moves with the layer.
+        let popover = [boxed(4, None, 0, false), boxed(5, Some(Material::Overlay), 160, false)];
+        assert!(composes_apart(&popover, (4, 6)), "a blur root's region is the layer's");
+        let faded = [boxed(4, None, 0, false), boxed(5, Some(Material::Pane), 160, false)];
+        assert!(!composes_apart(&faded, (4, 6)), "test_reject: a faded opaque pane, no region");
+        assert!(composes_apart(&faded, (4, 5)), "outside the subtree it is the base's");
     }
 
     /// TASK-0354 P11: a menu grows out of the corner it hangs on. A 240×300 panel under the

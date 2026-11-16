@@ -113,11 +113,12 @@ origin crosses the wire: scaling by `s` about a point `o` is scaling by `s` abou
 and moving by `(1 − s)(o − c)`, and windowd evaluates a layer's offset and its scale on one
 curve — app-host adds that offset to the enter's start (`motion_math::anchor_shift`), and the
 corner rests within a pixel of its place through the whole motion.
-A window's frosted base carries a motion layer whose boxes all lie over it
-(`motion_math::composes_apart`; a layer is painted on a clear ground). The window kit's menus do
-not: their popover is a blur root of its own (`.material(overlay)`), which takes the compositor's
-backdrop in place of the window's frost. Such an enter app-host paints itself (also: a full store) and
-scales about the same corner — `motion_math::anchor_point` is the anchor of the node's transform
+A window's frosted base carries a motion layer whose boxes compose apart
+(`motion_math::composes_apart`; a layer is painted on a clear ground): boxes that lie over what is
+under them, and a blur root such as the window kit's popover (`.material(overlay)`), whose glass
+region the layer claims — windowd blurs what lies below it in the window, under the moving layer
+(TASK-0354 P7). A faded opaque pane does not (it resets its rectangle and declares no region).
+Such an enter app-host paints itself (also: a full store) and scales about the same corner — `motion_math::anchor_point` is the anchor of the node's transform
 and of its damage (`probe/motion_layers.rs::enter_anchor`), so a menu looks the same on both
 paths. The damage of an enter the app paints is what moves and paints
 (`motion_math::moved_extent`: the popover and its shadow, not the window-wide layer that holds

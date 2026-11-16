@@ -5,7 +5,7 @@ title: "Compositor motion: a transition stated once, moved by windowd for every 
 status: in_progress
 owner: ["@ui"]
 created: 2026-11-03
-updated: 2026-11-13
+updated: 2026-11-16
 subsystem: ui
 components: [windowd, app-host, animation]
 kind: ui
@@ -81,10 +81,10 @@ phases:
     note: "alert front=1 backdrop=1 at 322x130, toast front=1 below the bar, scrim to 56 %; confirmed by the operator on the board 2026-11-05 (trace incomplete past 300 KB)"
   - id: P7
     story: "a window's frosted base can carry a motion layer: a sheet entering in an app window is moved by windowd like the shell's panels"
-    state: building
+    state: proving
     gate: "board: a window sheet's enter has no apphost hops motion episode; apphost motion layer for it"
     started: 2026-11-13
-    note: "Board board--2026-11-13T13-50-14 (image dev-1e3cb775): the log names the refusal — apphost: motion in app (token=10 why=resets) x6 for the window kit's menus and (token=3 why=resets) x7 for a window's fades: a blur root on the window's frost resets its rectangle (motion_math::composes_apart), so no window carries a layer yet (all 20 layers are the shell's). The app's own path got cheaper: its damage is what moves and paints (motion_math::moved_extent) — a menu's enter repaints 136-259 rows at 8-15 ms a frame (median; max 14-32), before 604-698 rows at 37-42 ms. A window's page fade still repaints 464-988 rows at 22-59 ms. Open decision (ARCH, the operator's): a window's popover as a layer WITH a backdrop — windowd blurs under a window's layer and the menu frosts the window's content, a look change against painting in place; the same for a faded page that holds a pane."
+    note: "Board board--2026-11-13T13-50-14 (image dev-1e3cb775): the log names the refusal — apphost: motion in app (token=10 why=resets) x6 for the window kit's menus and (token=3 why=resets) x7 for a window's fades: a blur root on the window's frost resets its rectangle (motion_math::composes_apart), so no window carries a layer yet (all 20 layers are the shell's). The app's own path got cheaper: its damage is what moves and paints (motion_math::moved_extent) — a menu's enter repaints 136-259 rows at 8-15 ms a frame (median; max 14-32), before 604-698 rows at 37-42 ms. A window's page fade still repaints 464-988 rows at 22-59 ms. Open decision (ARCH, the operator's): a window's popover as a layer WITH a backdrop — windowd blurs under a window's layer and the menu frosts the window's content, a look change against painting in place; the same for a faded page that holds a pane. 2026-11-16: the window kit's popover (a blur root, .material(overlay)) was refused on a window's frost (why=resets, 4-7 per board cycle, board--2026-11-16T15-13-23) — composes_apart now lets a blur root through: the layer claims its glass region and windowd blurs under the moving layer what lies below it in the window (the design's frosted popover); only a faded opaque pane resets. Board pending: no why=resets, the menus' enter without a tokens=menuIn hops episode BOARD build/logs/board--2026-11-16T15-53-32: gate met — no why=resets (were 4), no tokens=menuIn hops episode; the window menu is a layer windowd moves (apphost: motion layer token=10 w=383 h=353 paint_us=11587 once; windowd: owner=4 ms=280 scale=9200 dx=-14 dy=-12); frames 51/22, inputs 102/9, launches 6/0 as before. Closes with the commit (rule 8)"
   - id: P8
     story: "closing a panel, the launcher or a toast costs no app raster: the layer goes and nothing under it is painted again - the cause of today's close frames named first (an exit motion, a store replan or a scrim), then cut"
     state: planned

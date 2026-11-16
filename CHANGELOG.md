@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-11-16 (a window's frosted popover moves on the compositor — TASK-0354 P7)
+
+- **The window kit's menus are motion layers** on a window's frost: a blur root
+  (`.material(overlay)`) composes apart (`motion_math::composes_apart`) — the layer claims its
+  glass region, and windowd blurs what lies below it in the window under the moving layer. Only a
+  faded opaque pane still resets its rectangle and stays the app's.
+- Board (`board--2026-11-16T15-53-32`): no `why=resets` (4 per cycle before), no app-painted
+  `menuIn` episode; the menu is painted once (11.6 ms) and windowd grows it from its corner over
+  280 ms.
+
 ### Changed - 2026-11-16 (one deadline walk, an idle hart takes the kernel lock only when something is due, the boot hart sleeps — TASK-0363 P6, P4)
 
 - **One deadline walk** (`syscall::api::expire_deadlines`): receive, send, waitset and fence
