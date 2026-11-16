@@ -43,6 +43,7 @@ impl DslApp {
             split.add(stage, now.saturating_sub(at));
             at = now;
         };
+        let plan = self.plan(&views);
         for y in 0..h {
             let Some(row) = mem.row_mut(y as u32).and_then(|r| r.get_mut(..row_bytes)) else {
                 ok = false;
@@ -50,9 +51,9 @@ impl DslApp {
             };
             nexus_paint_kernels::fill(row, base);
             lap(&mut split, Stage::Ground);
-            self.paint_row_boxes(row, y, 0, &views);
+            plan.paint_row_boxes(row, y, 0, None);
             lap(&mut split, Stage::Boxes);
-            self.paint_row_text(row, y, 0, &views);
+            plan.paint_row_text(row, y, 0, None);
             lap(&mut split, Stage::Text);
             unpremultiply(row);
             lap(&mut split, Stage::Alpha);

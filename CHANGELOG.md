@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-11-16 (a pass planned once, painted by bands; a row costs its damaged columns — TASK-0367 P1, P3)
+
+- **A paint pass is planned once** (`app-host`: `pass_plan.rs`, TASK-0367 P1): the boxes, their
+  animation slots and text runs a pass picks, its animation snapshot, caret and scroll views
+  form an immutable `PassPlan` that the row painter only reads. Any band of a pass's rows is
+  painted from it by any thread, byte-equal to painting the rows in order (host: 1 to 8 bands on
+  threads, bands in reverse over garbage, every row alone; glass, capsule keys, a stroked icon,
+  an animated box, a scroll view, text with halo, clip, ellipsis and a selection). The bands go
+  to every hart once the runtime's workpool can carry them (TASK-0366, behind TASK-0364's
+  threads).
+- **A row costs its damaged columns** (TASK-0367 P3): a frame whose damage names columns
+  (TASK-0351 P15) paints only those — the pass picks the boxes whose pixels, shadow, text halo or
+  a stroke's round cap may reach them (`pass_plan::meets_cols`), the ground and the straight-alpha
+  conversion touch only them. Host: 56 column windows swept across the scene, every one equal to
+  the whole row there, nothing written outside (a mutation that drops the overhang margin fails
+  at the icon's cap). A motion layer that goes widens its frame to full rows. Board
+  (`board--2026-11-16T09-14-28` against `T12-29-26` of 2026-11-14): a 17-row damage of about 300
+  px paints in 93-194 us a frame (913-986 before), 42 rows of about 1 800 px in 0.9-1.3 ms (3.8),
+  a menu's enter in 3.6-9.3 ms (13.1). A tall narrow damage still costs its rows (3 541 px over
+  187 rows: 5.7 ms) — the per-row cost of the boxes that cross it is the next cut.
+
 ### Fixed - 2026-11-13 (a modal that enters as a motion layer is modal at once; test-all green)
 
 - **The modal edge on every present** (`app-host`: `probe/band.rs::present_frame`): the app told

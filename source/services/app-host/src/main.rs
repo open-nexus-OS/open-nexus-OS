@@ -113,6 +113,10 @@ mod raster_split;
 // written in `probe/paint.rs`.
 #[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
 mod straight_alpha;
+// TASK-0367 P1: a paint pass planned once — the row painter reads only the plan, so any band of
+// a pass's rows paints from it on any thread. Same one-cfg shape: band parity is host-tested.
+#[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
+mod pass_plan;
 // The surface's buffer, the pure part (RFC-0114): a slot's rows, the copy-forward, the clean
 // spans. Same one-cfg shape as `band_math`: the mapping is in `probe/surface_mem.rs`.
 #[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]

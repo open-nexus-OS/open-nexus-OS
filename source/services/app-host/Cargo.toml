@@ -89,5 +89,10 @@ nexus-style = { path = "../../../userspace/ui/style" }
 # measurement + row-based glyph rendering for the DSL frame.
 nexus-text-baked = { path = "../../../userspace/ui/text-baked", default-features = false, features = ["layout"] }
 
+# Host tests only (resolver 2: never in the OS image, which maps the shared atlas): the glyph
+# pass of `pass_plan_tests.rs` paints real glyphs from the embedded atlas.
+[dev-dependencies]
+nexus-text-baked = { path = "../../../userspace/ui/text-baked", default-features = false, features = ["layout", "embedded-atlas"] }
+
 [build-dependencies]
 nexus-dsl-core = { path = "../../../userspace/dsl/core" }

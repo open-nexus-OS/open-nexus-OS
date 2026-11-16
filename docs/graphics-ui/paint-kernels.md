@@ -3,7 +3,7 @@ schema: 1
 title: "The painter's kernels"
 role: guide
 subsystem: ui
-sources: [userspace/ui/paint-kernels, userspace/ui/scene_raster/src/shapes.rs, source/services/app-host/src/probe/boot_env.rs, source/services/app-host/src/probe/paint.rs, source/apps/selftest-client/src/os_lite/probes/paintkernels.rs]
+sources: [userspace/ui/paint-kernels, userspace/ui/scene_raster/src/shapes.rs, source/services/app-host/src/probe/boot_env.rs, source/services/app-host/src/probe/paint.rs, source/services/app-host/src/pass_plan.rs, source/apps/selftest-client/src/os_lite/probes/paintkernels.rs]
 contracts: [ADR-0099, RFC-0119]
 verified: 2026-11-13
 ---

@@ -205,10 +205,12 @@ the scroll layer under the pointer; the band filled ahead of the viewport within
 per frame pulse, nearest content first, never blocking the physics tick; motion sent on every
 tick that moved; the structure and the presented store rows sent together. The hover decision
 stays the DSL runtime's hit-test, answered with a wash. A present's damage is what changed, not
-the rows it was painted in (TASK-0351 P15): the row painter repaints whole rows, but a frame whose
-rows changed only inside the animated nodes' rectangles names those columns; a contributor that
-knows only rows (a layout diff, a drag, a text edit, a widget loop) widens the frame to full
-width — narrowing is claimed, never assumed.
+the rows it was painted in (TASK-0351 P15): a frame whose rows changed only inside the animated
+nodes' rectangles names those columns, and the row painter paints only them (TASK-0367 P3: the
+pass is planned over the columns, a box picked where its pixels, shadow, halo or a stroke's cap
+may reach them; the rest of each row is the slot's, carried forward); a contributor that knows
+only rows (a layout diff, a drag, a text edit, a widget loop, a motion layer that went) widens
+the frame to full width — narrowing is claimed, never assumed.
 
 **Motion layers (amendment 2026-11-04, TASK-0354 P2).** A **motion layer** is a part of the
 surface the compositor moves: the app paints a subtree once, at rest, into the store (the base is

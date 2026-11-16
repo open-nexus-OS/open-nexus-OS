@@ -184,9 +184,11 @@ impl super::DslApp {
         };
         let (b0, b1) = (y0.max(0), y1.min(h));
         if b1 > b0 {
-            // TASK-0351 P15: the rows are painted whole, the damage names what changed in them.
+            // TASK-0351 P15 / TASK-0367 P3: the damage names what changed in the rows, and only
+            // those columns are painted.
             let rect = core::mem::take(&mut self.damage_cols).rect(w, (b0 as u32, b1 as u32));
-            if !self.render_rows(mem, b0, b1) {
+            let cols = (rect.0 as i32, (rect.0 + rect.2) as i32);
+            if !self.render_rows(mem, (b0, b1), Some(cols)) {
                 return false;
             }
             self.motion_hops.damaged(u64::from(rect.2) * u64::from(rect.3));
@@ -246,7 +248,11 @@ impl super::DslApp {
         if let Some(rows) = self.carried.take() {
             damage.add((0, 0, self.w, rows));
         }
-        // A motion layer that went, or lost its place: its rows paint in the base again.
+        // A motion layer that went, or lost its place: its rows paint in the base again — whole
+        // (it names no columns, and P3 paints only the columns the damage names).
+        if self.motion_repaint.is_some() {
+            self.damage_cols.full();
+        }
         let change = match (change, self.motion_repaint.take()) {
             (Some(Some((a, b))), Some((c, d))) => Some(Some((a.min(c), b.max(d)))),
             (None, Some(r)) => Some(Some(r)),

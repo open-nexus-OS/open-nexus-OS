@@ -152,48 +152,6 @@ pub(in crate::probe) fn caret_input<'a>(
     }
 }
 
-/// The focused field's selection for the row painters (TASK-0067B): the text node it belongs
-/// to, the selection's x span (relative to the run's origin) and its highlight (accent,
-/// translucent). The caret is the compositor's (RFC-0113 §5).
-#[derive(Clone, Copy)]
-pub(in crate::probe) struct CaretPaint {
-    pub(in crate::probe) nid: usize,
-    pub(in crate::probe) selection: Option<(i32, i32)>,
-    pub(in crate::probe) highlight: [u8; 4],
-    /// The field's horizontal text offset (TASK-0346 P2: its caret stays in view).
-    pub(in crate::probe) scroll: i32,
-}
-
-/// Blends the selection highlight over `[bx + x0, bx + x1)` of one row inside the field's
-/// box — drawn BEFORE the glyphs so the text stays on top.
-#[allow(clippy::too_many_arguments)]
-pub(in crate::probe) fn paint_selection_row(
-    row: &mut [u8],
-    y: i32,
-    by: i32,
-    bh: i32,
-    bx: i32,
-    selection: Option<(i32, i32)>,
-    right: u32,
-    color: [u8; 4],
-) {
-    let Some((x0, x1)) = selection else { return };
-    if y < by + 2 || y >= by + bh - 2 || x1 <= x0 {
-        return;
-    }
-    let a = u32::from(color[3]);
-    for px in (bx + x0).max(0)..(bx + x1 + 1).max(0) {
-        let o = px as usize * 4;
-        if px as u32 >= right || o + 4 > row.len() {
-            break;
-        }
-        for c in 0..3 {
-            row[o + c] =
-                ((u32::from(row[o + c]) * (255 - a) + u32::from(color[c]) * a) / 255) as u8;
-        }
-    }
-}
-
 /// One-shot, bounded dump of the TEXT runs and the face each will actually be
 /// painted with — the counterpart of `dump_handler_boxes`.
 ///

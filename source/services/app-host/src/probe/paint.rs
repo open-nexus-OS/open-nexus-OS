@@ -12,6 +12,7 @@
 
 use super::surface_mem::SurfaceMem;
 use super::*;
+use crate::pass_plan::{CaretPaint, PassPlan};
 use crate::straight_alpha::{premultiplied, unpremultiply};
 
 mod collect;
@@ -19,7 +20,6 @@ mod split;
 pub(in crate::probe) use collect::caret_input;
 pub(super) use collect::collect_texts;
 pub(super) use collect::dump_text_runs as collect_dump_text_runs;
-use collect::{paint_selection_row, CaretPaint};
 
 /// The scroll views a pass places covered content at.
 type Views<'a> = &'a [nexus_scene_raster::ScrollView];
@@ -149,35 +149,44 @@ impl super::DslApp {
         // Every dispatch path presents through here: mirror the modal depth to
         // windowd and keep the transient timer honest BEFORE the pixels (TASK-0074).
         self.overlay_sync();
-        self.render_rows(mem, 0, self.h as i32)
+        self.render_rows(mem, (0, self.h as i32), None)
     }
 
     /// Renders base rows `[y0, y1)` straight into the slot being drawn (RFC-0114) — the
-    /// damage-limited path. The page base is [`Self::page_base`]; the scene's own boxes are
-    /// specified against it.
-    pub(super) fn render_rows(&mut self, mem: &mut SurfaceMem, y0: i32, y1: i32) -> bool {
+    /// damage-limited path; with `cols`, only the columns `[c0, c1)` of them (TASK-0367 P3: the
+    /// frame's damage rectangle — the rest of each row is the slot's, carried forward). The page
+    /// base is [`Self::page_base`]; the scene's own boxes are specified against it.
+    pub(super) fn render_rows(
+        &mut self,
+        mem: &mut SurfaceMem,
+        (y0, y1): (i32, i32),
+        cols: Option<(i32, i32)>,
+    ) -> bool {
         self.overlay_sync();
         let base = self.page_base();
         let (y0, y1) = (y0.max(0), y1.min(self.h as i32));
-        if !self.split_done && y0 == 0 && y1 == self.h as i32 {
+        let cols = cols.filter(|&(c0, c1)| c0 > 0 || c1 < self.w as i32);
+        if !self.split_done && y0 == 0 && y1 == self.h as i32 && cols.is_none() {
             return self.render_rows_split(mem); // once: where a row's time goes (TASK-0367 P0)
         }
         let t0 = nsec_now();
         let mut views = core::mem::take(&mut self.view_scratch);
         self.base_views(&mut views);
-        self.prepare_picks_with(Pass::Base, (y0, y1), None, &views);
+        self.prepare_picks_with(Pass::Base, (y0, y1), cols, &views);
         let row_bytes = self.w as usize * 4;
         let mut ok = true;
+        let plan = self.plan(&views);
         for y in y0..y1 {
-            // The row in the buffer itself: painted where the GPU reads it, no copy.
+            // The row in the buffer itself: painted where the GPU reads it, no copy; left in the
+            // straight alpha the compositor reads (RFC-0109), like every row.
             let Some(row) = mem.row_mut(y as u32).and_then(|r| r.get_mut(..row_bytes)) else {
                 ok = false;
                 break;
             };
-            nexus_paint_kernels::fill(row, base);
-            self.paint_row(row, y, 0, &views);
-            // The compositor reads the base as straight alpha (RFC-0109), like every row.
-            unpremultiply(row);
+            match cols {
+                Some(cols) => plan.paint_ground_cols(row, y, base, cols),
+                None => plan.paint_ground_row(row, y, base),
+            }
         }
         self.view_scratch = views;
         // A motion episode's raster cost (`apphost: hops motion paint_us= rows=`).
@@ -293,7 +302,7 @@ impl super::DslApp {
                 continue;
             }
             // Its painted extent: the box and the rows its own shadow reaches.
-            let (sl, st, sr, sb) = nexus_scene_raster::shadow_reach(b);
+            let (_, st, _, sb) = nexus_scene_raster::shadow_reach(b);
             let (by, bh) = (b.rect.y.0 - st, b.rect.height.0 + st + sb);
             let (row0, row1) = match pass {
                 Pass::Band(root) => {
@@ -325,8 +334,12 @@ impl super::DslApp {
             if by >= row1 || by + bh <= row0 {
                 continue;
             }
-            if let Some((c0, c1)) = cols {
-                if b.rect.x.0 - sl >= c1 || b.rect.x.0 + b.rect.width.0 + sr <= c0 {
+            if let Some(cols) = cols {
+                // TASK-0367 P3: the pass paints only these columns — picked by what may write
+                // there (`pass_plan::meets_cols`, host-tested with the painter).
+                let dx = b.scroll_root.and_then(|r| views.iter().find(|v| v.root == r));
+                let animated = anims.iter().any(|a| a.node_id == b.node_id && !a.is_identity());
+                if !crate::pass_plan::meets_cols(b, dx.map_or(0, |v| v.dx), animated, cols) {
                     continue;
                 }
             }
@@ -367,184 +380,25 @@ impl super::DslApp {
         self.pass_ctx = ctx;
     }
 
-    /// Paints row `y` (surface row of the base; layout row of a band) over what `row` holds:
-    /// the picked boxes' fills by the shared painter, then their glyph runs. `shift` moves the
-    /// canvas (a horizontal band's run of columns); `views` place a covered layer's content.
-    fn paint_row(&self, row: &mut [u8], y: i32, shift: i32, views: Views<'_>) {
-        self.paint_row_boxes(row, y, shift, views);
-        self.paint_row_text(row, y, shift, views);
-    }
-
-    /// Row `y`'s picked boxes, by the shared painter.
-    fn paint_row_boxes(&self, row: &mut [u8], y: i32, shift: i32, views: Views<'_>) {
-        let mut canvas = nexus_scene_raster::RowCanvas::new(row, y, self.w as i32);
-        canvas.shift_x = shift;
-        nexus_scene_raster::paint_row_picked_indexed(
-            &mut canvas,
-            &self.layout.boxes,
-            &self.vis_pick,
-            &self.vis_anim,
+    /// The pass `prepare_picks_with` planned, as the row painter reads it (TASK-0367 P1): any
+    /// band of its rows paints from it, on any thread (`pass_plan.rs`).
+    pub(super) fn plan<'a>(&'a self, views: Views<'a>) -> PassPlan<'a> {
+        PassPlan {
+            width: self.w as i32,
+            boxes: &self.layout.boxes,
+            picks: &self.vis_pick,
+            pick_anims: &self.vis_anim,
+            runs: &self.vis_text,
+            texts: &self.texts,
+            anims: self.pass_ctx.anims(),
+            caret: self.pass_ctx.caret,
             views,
-            self.pass_ctx.anims(),
-        );
+        }
     }
 
-    /// Row `y`'s picked text runs over its boxes.
-    fn paint_row_text(&self, row: &mut [u8], y: i32, shift: i32, views: Views<'_>) {
-        let anims = self.pass_ctx.anims();
-        // The focused field's selection highlight (TASK-0067B); its caret is the compositor's
-        // layer (RFC-0113 §5, `interaction/text_caret.rs`), never painted here.
-        let caret = self.pass_ctx.caret;
-        let row_px = (row.len() / 4) as i32;
-        for &(bi, ti) in &self.vis_text {
-            let b = &self.layout.boxes[bi as usize];
-            let (bx, by, bw, bh) = (b.rect.x.0, b.rect.y.0, b.rect.width.0, b.rect.height.0);
-            if bw <= 0 || bh <= 0 {
-                continue;
-            }
-            // Where this run is sampled and shifted: a scroll view's content at its view, inside
-            // its viewport; the rest at the row itself.
-            let view = b.scroll_root.and_then(|r| views.iter().find(|v| v.root == r));
-            let (y_eff, dx, mut left, mut right) = match view {
-                Some(v) => {
-                    if y < v.clip.1 || y >= v.clip.3 {
-                        continue;
-                    }
-                    (y + v.dy, shift + v.dx, v.clip.0, v.clip.2)
-                }
-                None => (y, shift, 0, row_px),
-            };
-            // The rows its text shadows reach (the halo's blur) are its rows too.
-            let (above, below) = b.visual.text_shadows.iter().flatten().fold((0, 0), |r, s| {
-                let reach = nexus_text_baked::blur_reach(u32::from(s.blur_radius)) as i32;
-                let oy = i32::from(s.offset_y);
-                (r.0.max(reach - oy), r.1.max(reach + oy))
-            });
-            if y_eff < by - above || y_eff >= by + bh + below {
-                continue;
-            }
-            // The box's own clip (its content's clips), in its space.
-            if let Some(c) = b.clip_rect {
-                if y_eff < c.y.0 || y_eff >= c.y.0 + c.height.0 {
-                    continue;
-                }
-                left = left.max(c.x.0 - dx);
-                right = right.min(c.x.0 + c.width.0 - dx);
-            }
-            // The run paints into the row from `left` on — cut there as at `right`.
-            let (left, right) = (left.clamp(0, row_px), right.min(row_px));
-            if right <= left {
-                continue;
-            }
-            let row = &mut row[left as usize * 4..];
-            let (bx, right) = (bx - left, (right - left) as u32);
-            let t = &self.texts[ti as usize];
-            let (content, color, tracking) = (&t.content, &t.color, t.tracking);
-            // `.textFit`: the LAYOUT chose this run's size from its container's box, so it wins
-            // over the style's — re-resolved with the REQUESTED weight, its line box scaled alike.
-            let (font, line) = match b.text_px {
-                Some(px) => (
-                    nexus_text_baked::FontSize::nearest(
-                        px.0,
-                        nexus_text_baked::measure_text::BakedTextMeasure::weight(t.weight),
-                    ),
-                    nexus_text_baked::line_height(nexus_text_baked::FontSize::nearest(
-                        px.0,
-                        nexus_text_baked::measure_text::BakedTextMeasure::weight(t.weight),
-                    )) as i32,
-                ),
-                None => (t.font, t.line),
-            };
-            let font = &font;
-            // RFC-0116: the face's own band sits in the style's line box with half-leading
-            // (`body` is a 17 px band in a 20 px line).
-            let by = by + (line - nexus_text_baked::line_height(*font) as i32) / 2;
-            // Animated text node: fade its glyphs by the node opacity and shift them by the
-            // horizontal translate (vertical translate + scale on TEXT are the fill path's).
-            let (mut color, bx_glyph) =
-                match anims.iter().find(|a| a.node_id == b.node_id && !a.is_identity()) {
-                    Some(a) => {
-                        let mut c = *color;
-                        c[3] = (c[3] as u32 * a.opacity as u32 / 255) as u8;
-                        (c, bx - dx - a.dx)
-                    }
-                    None => (*color, bx - dx),
-                };
-            // A faded box (its own and its ancestors' opacity — a disabled control) fades its text.
-            color[3] = (u32::from(color[3]) * u32::from(b.opacity) / 255) as u8;
-            // The focused field shows its WHOLE text, scrolled so its caret stays in view
-            // (TASK-0346 P2) and clipped to its box; any other run wider than its box is CUT —
-            // marked, so a truncated label reads as truncated instead of as a shorter label.
-            let focused = caret.filter(|c| c.nid == b.node_id);
-            let (row, bx_glyph, right) = match focused {
-                Some(c) => {
-                    let box_l = (bx - dx).max(0) as usize;
-                    if box_l * 4 >= row.len() {
-                        continue;
-                    }
-                    let box_r = ((bx - dx + bw).max(0) as u32).min(right);
-                    let shifted = bx_glyph - c.scroll - box_l as i32;
-                    (&mut row[box_l * 4..], shifted, box_r.saturating_sub(box_l as u32))
-                }
-                None => (row, bx_glyph, right),
-            };
-            let (cut, ell) = match focused {
-                Some(_) => (content.chars().count(), false),
-                None => nexus_text_baked::ellipsis_cut(content, *font, tracking, bw.max(0) as u32),
-            };
-            let run = || {
-                content
-                    .chars()
-                    .take(cut)
-                    .chain(core::iter::once(nexus_text_baked::ELLIPSIS).take(ell as usize))
-            };
-            // `.textAlign`: a run narrower than its box sits at the box's centre or right edge (the
-            // focused field keeps its scroll origin).
-            let bx_glyph = match (focused, t.align) {
-                (
-                    None,
-                    nexus_layout_types::TextAlign::Center | nexus_layout_types::TextAlign::Right,
-                ) => {
-                    let w = nexus_text_baked::measure(run(), *font, tracking) as i32;
-                    let slack = (bw - w).max(0);
-                    let right = t.align == nexus_layout_types::TextAlign::Right;
-                    bx_glyph + if right { slack } else { slack / 2 }
-                }
-                _ => bx_glyph,
-            };
-            // TASK-0067B: the selection BEHIND the run.
-            if let Some(c) = focused {
-                paint_selection_row(row, y_eff, by, bh, bx_glyph, c.selection, right, c.highlight);
-            }
-            // The text shadows (the label halo, `.shadow(halo)` in `labelShadow`), back to front,
-            // blurred as the design draws them and faded with the text.
-            for sh in b.visual.text_shadows.iter().rev().flatten().filter(|s| s.color.a > 0) {
-                let sc = sh.color;
-                nexus_text_baked::draw_text_blur_row(
-                    row,
-                    y_eff as u32,
-                    by + i32::from(sh.offset_y),
-                    bx_glyph + i32::from(sh.offset_x),
-                    right,
-                    run(),
-                    *font,
-                    tracking,
-                    [sc.b, sc.g, sc.r, (u32::from(sc.a) * u32::from(color[3]) / 255) as u8],
-                    u32::from(sh.blur_radius),
-                );
-            }
-            nexus_text_baked::draw_text_row(
-                row,
-                y_eff as u32,
-                by,
-                bx_glyph,
-                right,
-                run(),
-                *font,
-                tracking,
-                color,
-            );
-        }
+    /// Row `y` of the planned pass over what `row` holds (`PassPlan::paint_row`).
+    fn paint_row(&self, row: &mut [u8], y: i32, shift: i32, views: Views<'_>) {
+        self.plan(views).paint_row(row, y, shift);
     }
 
     /// Caret geometry for the row painters: `(node_id, content_width_px,
