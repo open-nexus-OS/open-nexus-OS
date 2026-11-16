@@ -146,6 +146,21 @@ impl AddressSpace {
     /// checked the right — a non-coherent device's capability).
     pub fn grant_cache_maintenance(&mut self) {
         self.cache_maintenance = true;
+        // Every owner's dispatch switches to the space with the right from now on.
+        for pid in &self.owners {
+            if let Some(record) = crate::sched::record::get(*pid) {
+                record.grant_cache();
+            }
+        }
+    }
+
+    /// This space as a dispatch switches to it, under its handle `handle`.
+    pub fn view(&self, handle: AsHandle) -> crate::sched::record::SpaceView {
+        crate::sched::record::SpaceView {
+            raw: handle.to_raw(),
+            satp: self.satp_value(),
+            cache: self.cache_maintenance,
+        }
     }
 
     /// Returns the hardware ASID backing this address space.
@@ -200,11 +215,32 @@ impl AddressSpace {
     }
 }
 
+/// Switches this hart to the space `view` names: its `satp`, the machine's table of which hart is
+/// on which space, and user-mode cache maintenance exactly when the space holds it (ADR-0079).
+/// The one switch: the manager's `activate` under the kernel lock and the dispatch that takes no
+/// lock (TASK-0363 P2 S3) both take it.
+pub fn enter_space(view: crate::sched::record::SpaceView) {
+    // CRITICAL: a separate function, so every log and temporary drops BEFORE the switch.
+    #[cfg(all(target_arch = "riscv64", target_os = "none", not(feature = "selftest_no_satp")))]
+    crate::hart_spaces::switch_satp(view.satp);
+    if let Some(harts) = crate::hart_spaces::installed() {
+        harts.enter(crate::smp::cpu_current_id().as_index(), view.raw);
+    }
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    crate::hal::platform::apply_user_cache_maintenance(view.cache);
+    #[cfg(all(target_arch = "riscv64", target_os = "none", feature = "selftest_no_satp"))]
+    {
+        // Skip SATP switch for bring-up; emit post-switch marker directly
+        fence_i();
+        log_debug!(target: "vm", "post-satp OK");
+    }
+}
+
 /// Manages the collection of user address spaces and allocates ASIDs.
 pub struct AddressSpaceManager {
     pub(super) spaces: Vec<Option<AddressSpace>>,
     asids: AsidAllocator,
-    harts: crate::hart_spaces::HartSpaces,
+    harts: &'static crate::hart_spaces::HartSpaces,
     // Pre-SMP contract: AS manager is owned by single kernel execution context.
     _not_send_sync: PhantomData<*mut ()>,
 }
@@ -213,7 +249,7 @@ static_assertions::assert_not_impl_any!(AddressSpaceManager: Send, Sync);
 impl AddressSpaceManager {
     /// Creates an empty manager.
     pub fn new() -> Self {
-        let harts = crate::hart_spaces::HartSpaces::new(crate::topology::hart_count());
+        let harts = crate::hart_spaces::HartSpaces::new(crate::topology::hart_count()).install();
         Self { spaces: Vec::new(), asids: AsidAllocator::new(), harts, _not_send_sync: PhantomData }
     }
 
@@ -291,23 +327,7 @@ impl AddressSpaceManager {
     /// Switches the currently running hardware context to `handle`.
     pub fn activate(&self, handle: AsHandle) -> Result<(), AddressSpaceError> {
         let space = self.get(handle)?;
-        #[cfg(feature = "selftest_no_satp")]
-        let _ = &space; // silence unused when SATP switching is disabled
-        #[cfg(all(target_arch = "riscv64", target_os = "none", not(feature = "selftest_no_satp")))]
-        {
-            // CRITICAL: Separate function to ensure all logs/temporaries drop BEFORE AS switch
-            crate::hart_spaces::switch_satp(space.satp_value());
-        }
-        self.harts.enter(crate::smp::cpu_current_id().as_index(), handle.to_raw());
-        // ADR-0079: user mode runs with cache maintenance exactly when this space holds it.
-        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-        crate::hal::platform::apply_user_cache_maintenance(space.cache_maintenance);
-        #[cfg(all(target_arch = "riscv64", target_os = "none", feature = "selftest_no_satp"))]
-        {
-            // Skip SATP switch for bring-up; emit post-switch marker directly
-            fence_i();
-            log_debug!(target: "vm", "post-satp OK");
-        }
+        enter_space(space.view(handle));
         #[cfg(debug_assertions)]
         {
             // Best-effort verify the active page table in debug builds.
@@ -334,10 +354,15 @@ impl AddressSpaceManager {
         Ok(())
     }
 
-    /// Records that `pid` references the provided address space.
+    /// Records that `pid` references the provided address space — and gives its scheduling
+    /// record the space as its dispatch switches to it (TASK-0363 P2 S3).
     pub fn attach(&mut self, handle: AsHandle, pid: Pid) -> Result<(), AddressSpaceError> {
         let space = self.get_mut(handle)?;
         space.attach(pid);
+        let view = space.view(handle);
+        if let Some(record) = crate::sched::record::get(pid) {
+            record.set_space(view);
+        }
         Ok(())
     }
 
@@ -345,6 +370,9 @@ impl AddressSpaceManager {
     pub fn detach(&mut self, handle: AsHandle, pid: Pid) -> Result<(), AddressSpaceError> {
         let space = self.get_mut(handle)?;
         space.detach(pid);
+        if let Some(record) = crate::sched::record::get(pid) {
+            record.clear_space(handle.to_raw());
+        }
         Ok(())
     }
 

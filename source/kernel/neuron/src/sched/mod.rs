@@ -17,6 +17,7 @@
 //! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 use core::marker::PhantomData;
+use core::sync::atomic::{AtomicU32, Ordering};
 
 use crate::run_queue::{self, HartQueues, Harts, Owner, Stolen, Task, CLASS_CAPACITY};
 use crate::sync::hart_table::{HartTable, SizeError};
@@ -41,6 +42,18 @@ pub enum EnqueueOutcome {
     Rejected(EnqueueRejectReason),
 }
 
+/// What [`Scheduler::withdraw`] did.
+#[must_use = "a running task is left to its own hart"]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Withdrawn {
+    /// It runs on that hart: it stays there; its order goes as a pending mark.
+    Running(CpuId),
+    /// It was queued and is not any more.
+    Removed,
+    /// Neither queued nor running.
+    Absent,
+}
+
 #[must_use = "set-qos outcomes must be handled"]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SetQosOutcome {
@@ -54,9 +67,29 @@ pub enum SetQosOutcome {
 static RUN_QUEUES: HartTable<SpinIrqLock<HartQueues>> =
     HartTable::new(SpinIrqLock::new(HartQueues::new()));
 
+/// The task each hart runs (its trap context: a user task, or PID 0 while the hart has none) —
+/// written by that hart only, at a dispatch that may hold no kernel lock (TASK-0363 P2 S3).
+static RUNS: HartTable<AtomicU32> = HartTable::new(AtomicU32::new(0));
+
 /// Sizes the run queues for a machine of `harts` CPUs (`smp::size_for_machine`).
 pub fn size(harts: usize) -> Result<(), SizeError> {
-    RUN_QUEUES.size(harts, || SpinIrqLock::new(HartQueues::new()))
+    RUN_QUEUES
+        .size(harts, || SpinIrqLock::new(HartQueues::new()))
+        .and_then(|()| RUNS.size(harts, || AtomicU32::new(0)))
+}
+
+/// The task this hart runs (PID 0 before its first dispatch).
+pub fn runs_here() -> TaskId {
+    let cpu = crate::smp::cpu_current_id().as_index();
+    Pid::from_raw(RUNS.get(cpu).map_or(0, |slot| slot.load(Ordering::Acquire)))
+}
+
+/// This hart now runs `pid`.
+pub fn set_runs_here(pid: TaskId) {
+    let cpu = crate::smp::cpu_current_id().as_index();
+    if let Some(slot) = RUNS.get(cpu) {
+        slot.store(pid.as_raw(), Ordering::Release);
+    }
 }
 
 /// Runs `f` on hart `cpu`'s queues under their lock. `None`: the machine has no such hart.
@@ -215,6 +248,12 @@ impl Scheduler {
 
     /// Picks the next runnable task.
     pub fn schedule_next(&mut self) -> Option<TaskId> {
+        Self::pick_here()
+    }
+
+    /// Picks this hart's next runnable task: its own queues under its own lock, nothing else —
+    /// so the dispatch calls it without the kernel lock (TASK-0363 P2 S3; `cpu_main`).
+    pub fn pick_here() -> Option<TaskId> {
         crate::liveness::bump();
         let cur = Self::current_cpu_index();
         // The record passes with the pick, under the queue lock: the task the hart ran and did
@@ -291,6 +330,26 @@ impl Scheduler {
         (0..RUN_QUEUES.len())
             .find(|&cpu| with(cpu, |q| q.current()).flatten().is_some_and(|t| t.id == id.as_raw()))
             .map(|index| CpuId::from_raw(index as u16))
+    }
+
+    /// Takes `id` off the hart it is queued on, or names the hart that runs it — decided under
+    /// that hart's queue lock, so a dispatch without the kernel lock never starts a task that is
+    /// being killed or frozen (TASK-0363 P2 S3). The kernel lock the caller holds keeps a
+    /// queued task on its hart meanwhile (a steal and a wake take it too).
+    pub fn withdraw(&mut self, id: TaskId) -> Withdrawn {
+        for cpu in 0..RUN_QUEUES.len() {
+            match with(cpu, |q| q.withdraw(id.as_raw())) {
+                Some(run_queue::Withdraw::Running) => {
+                    return Withdrawn::Running(CpuId::from_raw(cpu as u16));
+                }
+                Some(run_queue::Withdraw::Removed) => {
+                    hand(id.as_raw(), Owner::Free);
+                    return Withdrawn::Removed;
+                }
+                _ => {}
+            }
+        }
+        Withdrawn::Absent
     }
 
     /// Removes all queued references to `id` and clears it if currently running.

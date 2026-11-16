@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-11-16 (a hart starts a task from its own queue without the kernel lock — TASK-0363 P2, step 3 of 3)
+
+- **The idle loop picks from its own queue and starts the task without the kernel lock**
+  (`neuron`: `core/dispatch.rs`, ADR-0100): the task's frame, its floating-point states and its
+  address space (`satp`, cache-maintenance right) come from its scheduling record, which this
+  hart holds from the pick on; the current task per hart moved out of the task table
+  (`sched::runs_here`), the table of which hart is on which space is atomic, and one switch
+  (`enter_space`) serves the locked and the unlocked path. A task the record cannot start goes to
+  the locked path already picked; the steal and the idle hart's deliveries keep the lock.
+- **A kill and a freeze withdraw** (`Scheduler::withdraw`): under the queue lock of the hart that
+  holds the task they take it off its queue or find it running there and leave a pending order —
+  one decision, so a hart never starts a task another hart is reaping (before: two lock takes).
+- **The floating-point states moved into the record**, held like the frame; the address-space
+  manager keeps the record's view of a task's space where it records the task as an owner.
+- QEMU 1, 2 and 8 harts and the usb-visible desktop (32/32 steps): no breach of the owner rule.
+- **The idle loop's lock time is split** (`KINIT: bkl idle split`: the dispatch's fallback, the
+  secondaries' steal, the boot hart's delivery with its events and its deadline walk). Board
+  (`board--2026-11-16T12-40-08`): the dispatch holds the lock 0 us; the idle group's 3.4-4.7 s a
+  window are the boot hart's delivery (events 1.6-2.2 s, the walk over every task 1.4-2.0 s),
+  next for TASK-0363 P6 and P4. The lock's longest wait: 399 us (5-6 ms before step 2).
+
 ### Changed - 2026-11-16 (a queued task's frame is the hart's that takes it — TASK-0363 P2, step 2 of 3)
 
 - **A task's saved frame lives in its scheduling record** (`neuron`: `sched/record.rs`): at a

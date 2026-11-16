@@ -19,9 +19,10 @@
 
 use core::cell::UnsafeCell;
 use core::ptr::null_mut;
-use core::sync::atomic::{AtomicPtr, AtomicU32, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicUsize, Ordering};
 
 use crate::run_queue::Owner;
+use crate::trap::fp::Held;
 use crate::trap::TrapFrame;
 use crate::types::Pid;
 
@@ -34,16 +35,97 @@ const BLOCKS: usize = 1024;
 pub struct Record {
     owner: AtomicU32,
     frame: UnsafeCell<TrapFrame>,
+    /// The floating-point and vector states the task owns (TASK-0362) — held like the frame.
+    fp: UnsafeCell<Held>,
+    /// The task's address space as its dispatch needs it (S3: the switch without the kernel
+    /// lock): the raw handle (0 = none), its `satp` and its cache-maintenance right. Written by
+    /// the address-space manager where it records the task as the space's owner, read by the
+    /// hart that dispatches the task.
+    space: AtomicU32,
+    satp: AtomicUsize,
+    cache: AtomicBool,
 }
 
-// SAFETY: the frame is reached only through `frame`/`frame_mut`, whose callers hold it by the
-// owner protocol: the kernel lock for a free task's, the running hart for its own — never two
-// harts at once (`Owner::may_touch`, checked on every access).
+// SAFETY: the frame and the floating-point states are reached only through their accessors,
+// whose callers hold them by the owner protocol: the kernel lock for a free task's, the running
+// hart for its own — never two harts at once (`Owner::may_touch`, checked on every access). The
+// rest are atomics.
 unsafe impl Sync for Record {}
+
+/// A task's address space as a dispatch switches to it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SpaceView {
+    pub raw: u32,
+    pub satp: usize,
+    pub cache: bool,
+}
 
 impl Record {
     const fn new() -> Self {
-        Self { owner: AtomicU32::new(0), frame: UnsafeCell::new(TrapFrame::EMPTY) }
+        Self {
+            owner: AtomicU32::new(0),
+            frame: UnsafeCell::new(TrapFrame::EMPTY),
+            fp: UnsafeCell::new(Held::NONE),
+            space: AtomicU32::new(0),
+            satp: AtomicUsize::new(0),
+            cache: AtomicBool::new(false),
+        }
+    }
+
+    /// The task now owns space `view` (the manager's `attach`, under the kernel lock).
+    pub fn set_space(&self, view: SpaceView) {
+        self.satp.store(view.satp, Ordering::Relaxed);
+        self.cache.store(view.cache, Ordering::Relaxed);
+        self.space.store(view.raw, Ordering::Release);
+    }
+
+    /// The task no longer owns space `raw` (the manager's `detach`).
+    pub fn clear_space(&self, raw: u32) {
+        let _ = self.space.compare_exchange(raw, 0, Ordering::AcqRel, Ordering::Acquire);
+    }
+
+    /// The task's space was granted cache maintenance (ADR-0079).
+    pub fn grant_cache(&self) {
+        self.cache.store(true, Ordering::Release);
+    }
+
+    /// The task's space as its dispatch switches to it; `None` without one.
+    pub fn space(&self) -> Option<SpaceView> {
+        let raw = self.space.load(Ordering::Acquire);
+        (raw != 0).then(|| SpaceView {
+            raw,
+            satp: self.satp.load(Ordering::Relaxed),
+            cache: self.cache.load(Ordering::Acquire),
+        })
+    }
+
+    /// The task's floating-point states (held as the frame is).
+    #[track_caller]
+    pub fn fp(&self) -> &Held {
+        self.check(false);
+        // SAFETY: the holder rule, as for `frame`.
+        unsafe { &*self.fp.get() }
+    }
+
+    /// The task's floating-point states if this hart holds the record, `None` otherwise — for
+    /// `TaskTable::set_current`, which a dispatch calls with the task it picked and the kernel
+    /// selftests call to act as a task that is still queued (they run none of its code, so it
+    /// has no floating-point context there; the frame rule still names a real breach).
+    pub fn fp_if_held(&self) -> Option<&Held> {
+        let hart = crate::smp::cpu_current_id().as_index() as u16;
+        let held = Owner::decode(self.owner.load(Ordering::Acquire))
+            .is_some_and(|owner| owner.may_touch(hart));
+        // SAFETY: the holder rule, as for `frame` — checked just above.
+        held.then(|| unsafe { &*self.fp.get() })
+    }
+
+    /// The task's floating-point states, to change (held as the frame is).
+    #[track_caller]
+    #[allow(clippy::mut_from_ref)]
+    pub fn fp_mut(&self) -> &mut Held {
+        self.check(true);
+        // SAFETY: the holder rule, as for `frame_mut`.
+        unsafe { &mut *self.fp.get() }
     }
 
     /// The scheduler hands the record on (under the queue lock of the hart concerned).

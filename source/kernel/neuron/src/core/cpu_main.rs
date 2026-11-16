@@ -1,20 +1,29 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Per-CPU scheduler main loop + context-switch primitives (A3)
+//! CONTEXT: Per-CPU scheduler main loop (A3); how a picked task starts — the dispatch without
+//! the kernel lock (TASK-0363 P2 S3) and the context switch — is `dispatch.rs`
 //! OWNERS: @kernel-team
 //! STATUS: Functional
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: QEMU SMP proofs (smp exec cpuN ok, per-hart ticks, KGATE)
 //! PUBLIC API: cpu_main(), kmain_secondary(), stage_idle_reentry_frame()
 //! DEPENDS_ON: trap::KernelGuard (BKL), smp::HartLocal (resume staging), sched
-//! INVARIANTS: no lock is ever held across a context switch (A2b: schedule
-//!   decision stages the frame into HartLocal under the BKL, guard drops,
-//!   then the sret path reads only hart-local state); secondaries park in
-//!   WFI until smp::runtime_ready().
-//! ADR: docs/rfcs/RFC-0021-kernel-smp-v1-percpu-runqueues-ipi-contract.md
+//! INVARIANTS: no lock is ever held across a context switch (A2b: the frame is staged into
+//!   HartLocal — from the task's record without the BKL for a task picked from the own queue,
+//!   under the BKL otherwise — then the sret path reads only hart-local state); secondaries park
+//!   in WFI until smp::runtime_ready().
+//! ADR: docs/rfcs/RFC-0021-kernel-smp-v1-percpu-runqueues-ipi-contract.md,
+//!   docs/adr/0100-a-queued-task-is-the-hart-s-that-takes-it-the-dispatch-takes-no-kernel-lock.md
 
 use crate::{sched::QosClass, task::Pid, types::CpuId};
+
+// How a picked task starts: the unlocked dispatch (TASK-0363 P2 S3) and the context switch.
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+#[path = "dispatch.rs"]
+mod dispatch;
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+use dispatch::{context_switch_to_task, dispatch_unlocked, note_first_user_dispatch};
 
 /// Fresh re-entry into this hart's scheduler loop (target of the idle
 /// re-entry frame staged by `stage_idle_reentry_frame`).
@@ -167,9 +176,25 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
             log_debug!(target: "kmain", "KMAIN: idle_loop iteration {}", count);
         }
 
-        let attempt = {
-            let Ok(mut kernel) = crate::trap::KernelGuard::acquire_as(crate::lock_share::IDLE)
-            else {
+        // TASK-0363 P2 S3: this hart's own queue first, without the kernel lock — the picked
+        // task's frame, floating-point states and space come from its scheduling record, which
+        // this hart holds from the pick on. A task the record cannot dispatch goes to the locked
+        // path below, already picked (nothing is lost, nothing is picked twice).
+        let fast = crate::trap::runtime_installed()
+            .then(crate::sched::Scheduler::pick_here)
+            .flatten()
+            .map(|pid| dispatch_unlocked(cpu, pid).ok_or(pid));
+        let attempt = if let Some(Ok(staged)) = fast {
+            Attempt::Switch(staged)
+        } else {
+            let pre_picked = fast.and_then(Result::err);
+            // The idle loop's holds by what they are for (`KINIT: bkl idle split`).
+            let holder = match (pre_picked, cpu.is_boot()) {
+                (Some(_), _) => crate::lock_share::IDLE,
+                (None, true) => crate::lock_share::IDLE_DELIVER,
+                (None, false) => crate::lock_share::IDLE_STEAL,
+            };
+            let Ok(mut kernel) = crate::trap::KernelGuard::acquire_as(holder) else {
                 // Runtime not installed yet — nothing to schedule.
                 core::hint::spin_loop();
                 continue;
@@ -188,8 +213,9 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
                 panic!("watchdog: no progress");
             }
 
-            // Own queue first, then a bounded, rate-gated steal (A8).
-            let picked = scheduler.schedule_next().or_else(|| {
+            // The task the unlocked path picked, else the own queue, then a bounded, rate-gated
+            // steal (A8).
+            let picked = pre_picked.or_else(|| scheduler.schedule_next()).or_else(|| {
                 if crate::smp::cpu_online().count() > 1
                     && crate::smp::steal_rate_gate(cpu, timer.now(), STEAL_MIN_INTERVAL_NS)
                 {
@@ -290,23 +316,7 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
                                     Attempt::Retry
                                 } else {
                                     crate::smp::record_user_dispatch(cpu);
-                                    // A3 proof: emitted by the secondary hart
-                                    // itself on its FIRST user dispatch (event-
-                                    // anchored; a boot-hart poll can miss the
-                                    // harness window).
-                                    if !cpu.is_boot()
-                                        && crate::smp::hart_state::of(cpu).is_some_and(|hart| {
-                                            hart.exec_proof_emitted
-                                                .swap(1, core::sync::atomic::Ordering::AcqRel)
-                                                == 0
-                                        })
-                                    {
-                                        log_info!(
-                                            target: "smp",
-                                            "KSELFTEST: smp exec cpu{} ok",
-                                            cpu.as_index()
-                                        );
-                                    }
+                                    note_first_user_dispatch(cpu);
                                     Attempt::Switch(staged)
                                 }
                             }
@@ -339,11 +349,18 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
                 // otherwise be missed here — the async handlers only act on
                 // U-mode interrupts. v1: boot-hart-owned (PLIC contexts and
                 // timer-cap delivery move per-hart in A6/A7).
+                let t_events = riscv::register::time::read() as u64;
                 crate::trap::process_expired_timers(timer, hart_timers, router, tasks, scheduler);
                 crate::irq::dispatch_external(router, tasks, scheduler);
                 if crate::mm::pressure_endpoint::pending() {
                     crate::mm::pressure_endpoint::dispatch(router, tasks, scheduler);
                 }
+                let t_walk = riscv::register::time::read() as u64;
+                crate::lock_share::record_deliver(
+                    crate::lock_share::DeliverPart::Events,
+                    t_events,
+                    t_walk.saturating_sub(t_events),
+                );
                 let now = timer.now();
                 let len = tasks.len();
                 for pid_usize in 0..len {
@@ -370,6 +387,11 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
                         _ => {}
                     }
                 }
+                crate::lock_share::record_deliver(
+                    crate::lock_share::DeliverPart::DeadlineWalk,
+                    t_walk,
+                    (riscv::register::time::read() as u64).saturating_sub(t_walk),
+                );
                 // TASK-0324 P5-a liveness witness (ADR-0062): the watchdog above measures the
                 // PROGRESS EPOCH, which every trap bumps — a timer tick included — so it cannot
                 // tell a wedged fleet from one that waits quietly. This check names the wedge:
@@ -449,80 +471,6 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
                 }
             }
         }
-    }
-}
-
-/// Pure assembly context switch - loads TrapFrame and executes sret.
-/// This function never returns - it jumps to the task's saved PC.
-/// CRITICAL: #[inline(always)] ensures the asm! block is inlined directly into the caller.
-///
-/// No trap may land between `csrw sepc` and `sret`: the scheduler loop runs with supervisor
-/// interrupts ON, and a trap taken in that window writes ITS pc into `sepc` — the task then
-/// returns to a kernel address in U-mode (QEMU 2026-10-23: netstackd, `INST @ sepc=` this very
-/// asm, pid 0x31, killed with EFAULT). So the first instruction masks SIE, and the frame's
-/// `sstatus` is written with SIE still clear; `sret` enables the task's interrupts from SPIE.
-#[cfg(all(target_arch = "riscv64", target_os = "none"))]
-#[inline(always)]
-unsafe fn context_switch_to_task(frame: &crate::trap::TrapFrame) -> ! {
-    // CRITICAL: This function is inline(always), so it's inserted directly after activate()
-    // NO Rust code here - only raw pointer conversion and direct assembly jump
-    let frame_ptr = frame as *const crate::trap::TrapFrame;
-
-    // Direct jump to assembly - no logs, no temporaries, no cleanup code possible
-    unsafe {
-        core::arch::asm!(
-        // Mask supervisor interrupts until the sret (SIE is bit 1).
-        "csrci sstatus, 2",
-        // Set up CSRs (sepc, sstatus — SIE kept clear; sret takes it from SPIE)
-        "ld t0, {off_sepc}(t3)",
-        "csrw sepc, t0",
-        "ld t1, {off_sstatus}(t3)",
-        "andi t1, t1, -3",
-        "csrw sstatus, t1",
-
-        // Load GPRs from frame (skip x0)
-        "ld ra,   1*8(t3)",
-        "ld gp,   3*8(t3)",
-        "ld tp,   4*8(t3)",
-        "ld t0,   5*8(t3)",
-        "ld t1,   6*8(t3)",
-        "ld t2,   7*8(t3)",
-        "ld s0,   8*8(t3)",
-        "ld s1,   9*8(t3)",
-        "ld a0,  10*8(t3)",
-        "ld a1,  11*8(t3)",
-        "ld a2,  12*8(t3)",
-        "ld a3,  13*8(t3)",
-        "ld a4,  14*8(t3)",
-        "ld a5,  15*8(t3)",
-        "ld a6,  16*8(t3)",
-        "ld a7,  17*8(t3)",
-        "ld s2,  18*8(t3)",
-        "ld s3,  19*8(t3)",
-        "ld s4,  20*8(t3)",
-        "ld s5,  21*8(t3)",
-        "ld s6,  22*8(t3)",
-        "ld s7,  23*8(t3)",
-        "ld s8,  24*8(t3)",
-        "ld s9,  25*8(t3)",
-        "ld s10, 26*8(t3)",
-        "ld s11, 27*8(t3)",
-        "ld t4,  29*8(t3)",
-        "ld t5,  30*8(t3)",
-        "ld t6,  31*8(t3)",
-        // Load sp before restoring pointer register
-        "ld sp,   2*8(t3)",
-        // Restore pointer register itself LAST to avoid clobbering base early
-        "ld t3,  28*8(t3)",
-
-        // Return to task via sret
-        "sret",
-
-        in("t3") frame_ptr,
-        off_sepc = const core::mem::offset_of!(crate::trap::TrapFrame, sepc),
-        off_sstatus = const core::mem::offset_of!(crate::trap::TrapFrame, sstatus),
-        options(noreturn)
-        );
     }
 }
 

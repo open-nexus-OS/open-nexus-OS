@@ -327,8 +327,6 @@ pub struct Task {
     pending: Option<process::Pending>,
     /// ADR-0082: how many threads this leader's exit took (the reap's proof line).
     threads_taken: u8,
-    /// RFC-0119: its floating-point and vector registers, from first use to its death.
-    pub(crate) fp: crate::trap::fp::Held,
 }
 
 /// Minimal guard metadata used by the trap handler to attribute user page faults.
@@ -385,7 +383,6 @@ impl Task {
             frozen_at: 0,
             pending: None,
             threads_taken: 0,
-            fp: Default::default(),
         }
     }
 
@@ -424,6 +421,13 @@ impl Task {
     #[track_caller]
     pub fn frame_mut(&mut self) -> &mut TrapFrame {
         self.rec.frame_mut()
+    }
+
+    /// RFC-0119: its floating-point and vector states, from first use to its death (in its
+    /// record, held as the frame is).
+    #[track_caller]
+    pub(crate) fn fp_mut(&mut self) -> &mut crate::trap::fp::Held {
+        self.rec.fp_mut()
     }
 
     /// Returns a mutable reference to the capability table.
@@ -573,10 +577,6 @@ impl Task {
 /// Kernel task table managing task control blocks.
 pub struct TaskTable {
     tasks: Vec<Task>,
-    /// A3: per-CPU current task with implicit current-CPU addressing — each
-    /// hart's syscall path sees ITS running task, not the last one any hart
-    /// dispatched. Access is serialized by the BKL (`trap::KernelGuard`).
-    current: alloc::boxed::Box<[Pid]>,
     _not_send_sync: PhantomData<*mut ()>,
 }
 static_assertions::assert_not_impl_any!(TaskTable: Send, Sync);
@@ -585,22 +585,14 @@ impl TaskTable {
     /// Creates a new table seeded with the bootstrap task (PID 0).
     pub fn new() -> Self {
         let tasks_vec: Vec<Task> = alloc::vec![Task::bootstrap()];
-        Self {
-            tasks: tasks_vec,
-            current: alloc::vec![Pid::KERNEL; crate::topology::hart_count()].into_boxed_slice(),
-            _not_send_sync: PhantomData,
-        }
+        Self { tasks: tasks_vec, _not_send_sync: PhantomData }
     }
 
-    #[inline]
-    fn current_cpu_index() -> usize {
-        let idx = crate::smp::cpu_current_id().as_index();
-        idx * (idx < crate::topology::hart_count()) as usize
-    }
-
-    /// Returns the PID of the task currently running on THIS hart.
+    /// Returns the PID of the task currently running on THIS hart (A3: each hart's syscall path
+    /// sees ITS task; per hart in `sched`, outside this table, so the dispatch sets it without
+    /// the kernel lock — TASK-0363 P2 S3).
     pub fn current_pid(&self) -> Pid {
-        self.current[Self::current_cpu_index()]
+        crate::sched::runs_here()
     }
 
     /// Changes the task currently running on THIS hart.
@@ -609,8 +601,8 @@ impl TaskTable {
         if self.tasks.get(pid.as_index()).is_some_and(|t| t.frozen) {
             process::note_frozen_ran(pid);
         }
-        self.current[Self::current_cpu_index()] = pid;
-        crate::trap::fp::now_runs(self.tasks.get(pid.as_index()).map(|t| &t.fp));
+        crate::sched::set_runs_here(pid);
+        crate::trap::fp::now_runs(self.tasks.get(pid.as_index()).and_then(|t| t.rec.fp_if_held()));
     }
 
     /// Selftest helper: create a minimal task entry without allocating a new address space or stack.
@@ -666,7 +658,6 @@ impl TaskTable {
             frozen_at: 0,
             pending: None,
             threads_taken: 0,
-            fp: Default::default(),
         };
         // B: the round-robin placement must respect the inherited mask.
         let clamped =
@@ -909,7 +900,6 @@ impl TaskTable {
             frozen_at: 0,
             pending: None,
             threads_taken: 0,
-            fp: Default::default(),
         };
         if let Some(block) = stack_block {
             task.image_allocs.push(block);
@@ -1037,7 +1027,7 @@ impl TaskTable {
         task.caps = CapTable::default();
         task.bootstrap_slot = None;
         *task.frame_mut() = TrapFrame::default();
-        task.fp = Default::default();
+        *task.rec.fp_mut() = crate::trap::fp::Held::NONE;
         task.children.clear();
         task.image_allocs.take()
     }

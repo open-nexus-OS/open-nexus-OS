@@ -246,6 +246,28 @@ impl HartQueues {
         Some(self.queues[qos as usize].push_back(Task { qos, ..task }))
     }
 
+    /// Takes task `id` off this hart's queues — unless it is the task this hart runs, which only
+    /// its own hart may take off (TASK-0363 P2 S3: a kill or a freeze decides under this lock
+    /// whether the task is queued here or running here, so a dispatch that takes no kernel lock
+    /// never starts a task another hart is reaping).
+    pub fn withdraw(&mut self, id: u32) -> Withdraw {
+        if self.current.is_some_and(|task| task.id == id) {
+            return Withdraw::Running;
+        }
+        let mut removed = false;
+        for queue in &mut self.queues {
+            while let Some(at) = queue.position(id) {
+                queue.remove(at);
+                removed = true;
+            }
+        }
+        if removed {
+            Withdraw::Removed
+        } else {
+            Withdraw::Absent
+        }
+    }
+
     /// Forgets task `id`: out of every queue, and no longer the running one.
     pub fn purge(&mut self, id: u32) {
         for queue in &mut self.queues {
@@ -274,6 +296,17 @@ impl Default for HartQueues {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// What [`HartQueues::withdraw`] found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Withdraw {
+    /// The hart runs it: it stays, its own hart takes it off (a pending order).
+    Running,
+    /// It was queued here and is not any more.
+    Removed,
+    /// Not on this hart.
+    Absent,
 }
 
 /// Who holds a task's scheduling record — its saved frame (TASK-0363 P2 S2): nobody, a hart's

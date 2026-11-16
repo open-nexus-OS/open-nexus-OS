@@ -171,9 +171,15 @@ impl TaskTable {
         scheduler.purge(pid);
     }
 
-    /// The hart `pid` is running on right now, other than this one.
-    fn running_elsewhere(&self, pid: Pid, scheduler: &Scheduler) -> Option<crate::types::CpuId> {
-        scheduler.running_on(pid).filter(|cpu| *cpu != crate::smp::cpu_current_id())
+    /// The hart `pid` is running on right now, other than this one — or, if none, `pid` is off
+    /// its queue already: one decision under that hart's queue lock (TASK-0363 P2 S3).
+    fn running_elsewhere(pid: Pid, scheduler: &mut Scheduler) -> Option<crate::types::CpuId> {
+        match scheduler.withdraw(pid) {
+            crate::sched::Withdrawn::Running(cpu) => {
+                Some(cpu).filter(|cpu| *cpu != crate::smp::cpu_current_id())
+            }
+            _ => None,
+        }
     }
 
     /// Freezes the process `leader` belongs to: the leader and every thread. A task running on
@@ -201,7 +207,7 @@ impl TaskTable {
             if task.frozen {
                 continue;
             }
-            if let Some(cpu) = self.running_elsewhere(pid, scheduler) {
+            if let Some(cpu) = Self::running_elsewhere(pid, scheduler) {
                 self.mark_pending(pid, Pending::Freeze);
                 let _ = crate::smp::request_resched(cpu);
                 out.deferred += 1;

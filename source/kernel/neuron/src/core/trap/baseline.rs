@@ -57,6 +57,23 @@ pub fn log_smp_baseline() {
         n(Group::Fault),
         n(Group::Idle)
     );
+    // TASK-0363 P2 S3: the idle loop's holds by what they are for, and the boot hart's delivery
+    // by its two parts (a step that does not move its holder's share is reverted — ADR-0098).
+    let held = |id| lock_share::holder(id, tpu);
+    let (dispatch, steal, deliver) =
+        (held(lock_share::IDLE), held(lock_share::IDLE_STEAL), held(lock_share::IDLE_DELIVER));
+    log_info!(
+        target: "smp",
+        "KINIT: bkl idle split (dispatch={}us/{} steal={}us/{} deliver={}us/{} events_us={} walk_us={})",
+        dispatch.0,
+        dispatch.1,
+        steal.0,
+        steal.1,
+        deliver.0,
+        deliver.1,
+        lock_share::deliver_us(lock_share::DeliverPart::Events, tpu),
+        lock_share::deliver_us(lock_share::DeliverPart::DeadlineWalk, tpu)
+    );
     let top = lock_share::top(tpu);
     log_info!(
         target: "smp",

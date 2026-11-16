@@ -108,6 +108,32 @@ fn test_reject_a_queued_frame_and_a_word_no_owner_wrote() {
 }
 
 #[test]
+fn withdraw_takes_a_queued_task_and_names_a_running_one() {
+    let mut q = HartQueues::new();
+    push(&mut q, 1, NORMAL).unwrap();
+    push(&mut q, 2, QosClass::Interactive).unwrap();
+    push(&mut q, 2, NORMAL).unwrap();
+    assert_eq!(pick(&mut q), Some(2));
+    // Running here: it stays, current and queued alike — its hart takes it off.
+    assert_eq!(q.withdraw(2), Withdraw::Running);
+    assert_eq!(q.current().map(|t| t.id), Some(2));
+    assert_eq!(q.len(NORMAL), 2, "a second entry of the running task stays too");
+    // Queued only: out of every class.
+    assert_eq!(q.withdraw(1), Withdraw::Removed);
+    assert_eq!(q.len(NORMAL), 1);
+    assert_eq!(q.withdraw(1), Withdraw::Absent);
+}
+
+#[test]
+fn test_reject_a_withdraw_of_a_task_this_hart_does_not_hold() {
+    let mut q = HartQueues::new();
+    push(&mut q, 5, NORMAL).unwrap();
+    assert_eq!(q.withdraw(6), Withdraw::Absent);
+    assert_eq!(q.len(NORMAL), 1, "nothing else moved");
+    assert_eq!(pick(&mut q), Some(5));
+}
+
+#[test]
 fn test_reject_a_qos_wire_value_beyond_the_classes() {
     for class in QosClass::DESCENDING {
         assert_eq!(QosClass::from_u8(class as u8), Some(class), "the wire value is the class");

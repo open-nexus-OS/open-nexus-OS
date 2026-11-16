@@ -28,11 +28,17 @@ pub const IPI: usize = SYSCALLS + 1;
 pub const EXTERNAL: usize = SYSCALLS + 2;
 /// A page fault (commit on touch, swap-in, the fault's verdict).
 pub const FAULT: usize = SYSCALLS + 3;
-/// A hart's scheduling loop picking its next task.
+/// A hart's scheduling loop dispatching a task it picked that the unlocked path could not start
+/// (TASK-0363 P2 S3).
 pub const IDLE: usize = SYSCALLS + 4;
 /// Every other taker (a phased syscall's re-take, a pending order, a cache right).
 pub const OTHER: usize = SYSCALLS + 5;
-const HOLDERS: usize = SYSCALLS + 6;
+/// A secondary hart's scheduling loop with nothing of its own: the steal and a stashed line.
+pub const IDLE_STEAL: usize = SYSCALLS + 6;
+/// The boot hart's scheduling loop with nothing of its own: the steal and the deliveries
+/// (expired timers, interrupts, memory pressure, the deadline walk).
+pub const IDLE_DELIVER: usize = SYSCALLS + 7;
+const HOLDERS: usize = SYSCALLS + 8;
 
 /// The subsystems the lock's time is split by — the candidates of its decomposition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -71,7 +77,7 @@ pub const fn group_of(id: usize) -> Group {
         IPI => Group::Ipi,
         EXTERNAL => Group::External,
         FAULT => Group::Fault,
-        IDLE => Group::Idle,
+        IDLE | IDLE_STEAL | IDLE_DELIVER => Group::Idle,
         _ => Group::Misc,
     }
 }
@@ -91,6 +97,25 @@ pub fn record(holder: usize, t0: u64, ticks: u64) {
     COUNT[slot].fetch_add(1, Ordering::Relaxed);
 }
 
+/// The parts of the boot hart's idle delivery, timed inside its hold (`IDLE_DELIVER`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DeliverPart {
+    /// Expired timers, interrupts and memory pressure.
+    Events = 0,
+    /// The walk over every task for an expired IPC deadline.
+    DeadlineWalk = 1,
+}
+
+static DELIVER_TICKS: [AtomicU64; 2] = [const { AtomicU64::new(0) }; 2];
+
+/// `ticks` of the idle delivery went to `part` (in the window it began in, as `record`).
+#[inline]
+pub fn record_deliver(part: DeliverPart, t0: u64, ticks: u64) {
+    if t0 >= WINDOW_START_TICKS.load(Ordering::Relaxed) {
+        DELIVER_TICKS[part as usize].fetch_add(ticks, Ordering::Relaxed);
+    }
+}
+
 /// Begins a new window at tick `now`.
 pub fn reset(now: u64) {
     WINDOW_START_TICKS.store(now, Ordering::Relaxed);
@@ -98,6 +123,21 @@ pub fn reset(now: u64) {
         sum.store(0, Ordering::Relaxed);
         count.store(0, Ordering::Relaxed);
     }
+    DELIVER_TICKS.iter().for_each(|ticks| ticks.store(0, Ordering::Relaxed));
+}
+
+/// Holder `id`'s microseconds and takes in this window (`IDLE`, `IDLE_STEAL`, …).
+pub fn holder(id: usize, ticks_per_us: u64) -> (u64, usize) {
+    let slot = if id < HOLDERS { id } else { OTHER };
+    (
+        SUM_TICKS[slot].load(Ordering::Relaxed) / ticks_per_us.max(1),
+        COUNT[slot].load(Ordering::Relaxed),
+    )
+}
+
+/// Microseconds of the idle delivery's `part` in this window.
+pub fn deliver_us(part: DeliverPart, ticks_per_us: u64) -> u64 {
+    DELIVER_TICKS[part as usize].load(Ordering::Relaxed) / ticks_per_us.max(1)
 }
 
 /// The window's start tick (the report divides the held time by the window's length).
@@ -146,6 +186,8 @@ mod tests {
         assert_eq!(group_of(44), Group::Misc, "console write");
         assert_eq!(group_of(FAULT), Group::Fault);
         assert_eq!(group_of(IDLE), Group::Idle);
+        assert_eq!(group_of(IDLE_STEAL), Group::Idle, "the idle loop's parts stay one group");
+        assert_eq!(group_of(IDLE_DELIVER), Group::Idle);
         assert_eq!(group_of(OTHER), Group::Misc);
         assert_eq!(group_of(usize::MAX), Group::Misc);
     }
@@ -172,8 +214,19 @@ mod tests {
         // 24 ticks per microsecond (the board): sums are divided, takes are not.
         assert_eq!(by_group(24).0[Group::Fault as usize], 29);
 
+        // The idle loop's parts: per holder, one group; the delivery's parts by their own clock.
+        record(IDLE_DELIVER, 1_500, 30);
+        record(IDLE_STEAL, 1_600, 5);
+        assert_eq!(holder(IDLE_DELIVER, 1), (30, 1));
+        assert_eq!(by_group(1).0[Group::Idle as usize], 35);
+        record_deliver(DeliverPart::DeadlineWalk, 1_500, 20);
+        record_deliver(DeliverPart::Events, 900, 99); // began before the window
+        assert_eq!(deliver_us(DeliverPart::DeadlineWalk, 1), 20);
+        assert_eq!(deliver_us(DeliverPart::Events, 1), 0);
+
         reset(2_000);
         assert_eq!(by_group(1), ([0; GROUPS], [0; GROUPS]));
+        assert_eq!(deliver_us(DeliverPart::DeadlineWalk, 1), 0);
         assert_eq!(window_start(), 2_000);
     }
 }

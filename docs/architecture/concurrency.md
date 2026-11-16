@@ -57,9 +57,9 @@ Rules:
 - Acquire strictly downward. Never take the BKL while holding a lock below it.
 - `SpinIrqLock` (`source/kernel/neuron/src/sync/spin_irq.rs`) is the only lock allowed on a
   trap-reachable path: SIE is cleared before the spin, so a trap on the holding hart cannot re-enter.
-- No guard is held across a context switch. The schedule decision stages the next frame into
-  `HartLocal.resume_frame` under the BKL, drops the guard, then switches (`cpu_main`,
-  `source/kernel/neuron/src/core/cpu_main.rs`).
+- No guard is held across a context switch. A task picked from the hart's own queue is staged
+  from its scheduling record without the BKL (ADR-0100, `core/dispatch.rs`); any other decision
+  stages under the BKL, drops the guard, then switches (`core/cpu_main.rs`).
 - Fault diagnostics on the way to `panic!` read handles lock-free
   (`runtime_kernel_handles_diagnostic`) and never mutate — a fault inside a syscall already holds
   the BKL.

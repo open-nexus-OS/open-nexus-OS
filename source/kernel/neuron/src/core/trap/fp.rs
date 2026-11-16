@@ -121,6 +121,9 @@ impl Drop for State {
 pub struct Held([Option<Box<State>>; 2]);
 
 impl Held {
+    /// No state of either unit (a task that never used one, or one reset by its reap).
+    pub const NONE: Held = Held([None, None]);
+
     fn of(&self, kind: Kind) -> Option<&State> {
         self.0[kind as usize].as_deref()
     }
@@ -382,7 +385,7 @@ pub(super) fn first_use(frame: &mut TrapFrame, stval: usize) -> bool {
     let (_, tasks, ..) = kernel.parts();
     let pid = tasks.current_pid();
     let task = tasks.current_task_mut();
-    if task.fp.0[kind as usize].is_some() {
+    if task.fp_mut().0[kind as usize].is_some() {
         return false;
     }
     let words = kind.state_words(VECTOR_BYTES.load(Ordering::Acquire));
@@ -406,7 +409,7 @@ pub(super) fn first_use(frame: &mut TrapFrame, stval: usize) -> bool {
     });
     STATES[kind as usize].fetch_add(1, Ordering::Relaxed);
     hart.runs(core::ptr::from_ref::<State>(&state) as usize);
-    task.fp.0[kind as usize] = Some(state);
+    task.fp_mut().0[kind as usize] = Some(state);
     frame.sstatus = Unit::Initial.set_in(kind, frame.sstatus);
     true
 }

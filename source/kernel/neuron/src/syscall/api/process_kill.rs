@@ -15,6 +15,7 @@
 //!   (`SELFTEST: task kill ok`); `tests_process.rs` (the refusals)
 
 use super::*;
+use crate::sched::Withdrawn;
 use crate::task::{ExitReason, Pending, Pid, TaskTable};
 
 /// Where a kill order went.
@@ -42,10 +43,14 @@ pub(crate) fn kill_task(
     if task.state() == crate::task::TaskState::Zombie || target == tasks.current_pid() {
         return KillOutcome::Gone;
     }
-    if let Some(cpu) = scheduler.running_on(target).filter(|c| *c != crate::smp::cpu_current_id()) {
-        tasks.mark_pending(target, Pending::Kill);
-        let _ = crate::smp::request_resched(cpu);
-        return KillOutcome::Deferred;
+    // Off its queue, or left to the hart that runs it — one decision under that hart's queue
+    // lock (TASK-0363 P2 S3: a dispatch without the kernel lock never starts a task reaped here).
+    if let Withdrawn::Running(cpu) = scheduler.withdraw(target) {
+        if cpu != crate::smp::cpu_current_id() {
+            tasks.mark_pending(target, Pending::Kill);
+            let _ = crate::smp::request_resched(cpu);
+            return KillOutcome::Deferred;
+        }
     }
     // Not running anywhere: out of its block and its queue, then the funnel.
     tasks.detach_blocked(target, tables.fences);

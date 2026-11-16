@@ -17,43 +17,61 @@
 //! TEST_COVERAGE: `tests` below (host); `KSELFTEST: address space held by hart ok` at every
 //!   boot (the manager refuses, then frees); a refused free in a running system prints
 //!   `KSELFTEST: address space free FAIL`
-//! INVARIANTS: a hart writes only its own entry, under the kernel lock that also covers
-//!   `destroy`; an entry names a live space or none
+//! INVARIANTS: a hart writes only its own entry; `destroy` reads them under the kernel lock and
+//!   a space's last task is withdrawn from every hart before its reap; an entry names a live
+//!   space or none
 //! ADR: docs/adr/0082-a-process-is-its-address-space-the-parent-orders-it-whole-freeze-thaw-kill-and-a-frozen-receiver-refuses-the-park.md
 
-use core::cell::Cell;
+use core::sync::atomic::{AtomicPtr, AtomicU32, Ordering};
 
 /// The space each logical CPU runs on, as the raw handle (never 0 for a space; 0: the boot
 /// table, before the hart's first switch) — one entry per CPU of the machine (RFC-0118), built
-/// once. Interior mutability because a switch does not change the set of spaces
-/// (`AddressSpaceManager::activate` takes `&self`); the manager is `!Sync` under the kernel
-/// lock.
-pub struct HartSpaces(alloc::boxed::Box<[Cell<u32>]>);
+/// once. Atomic entries: a hart enters a space at its dispatch, which takes no kernel lock
+/// (TASK-0363 P2 S3); `destroy` reads them under the lock, and a hart's own entry is written only
+/// by that hart.
+pub struct HartSpaces(alloc::boxed::Box<[AtomicU32]>);
 
 impl HartSpaces {
     /// A machine of `harts` CPUs, none on a space yet.
     pub fn new(harts: usize) -> Self {
-        Self((0..harts).map(|_| Cell::new(0)).collect())
+        Self((0..harts).map(|_| AtomicU32::new(0)).collect())
     }
 
     /// Hart `cpu`'s `satp` now names the space `raw`.
     pub fn enter(&self, cpu: usize, raw: u32) {
         if let Some(slot) = self.0.get(cpu) {
-            slot.set(raw);
+            slot.store(raw, Ordering::Release);
         }
     }
 
     /// Whether hart `cpu`'s `satp` names the space `raw`.
     #[must_use]
     pub fn is_on(&self, cpu: usize, raw: u32) -> bool {
-        self.0.get(cpu).is_some_and(|slot| slot.get() == raw)
+        self.0.get(cpu).is_some_and(|slot| slot.load(Ordering::Acquire) == raw)
     }
 
     /// A hart whose `satp` names the space `raw`, if any.
     #[must_use]
     pub fn hart_on(&self, raw: u32) -> Option<usize> {
-        self.0.iter().position(|slot| slot.get() == raw)
+        self.0.iter().position(|slot| slot.load(Ordering::Acquire) == raw)
     }
+
+    /// Makes this table the machine's (the address-space manager's, once at boot): the dispatch
+    /// that takes no kernel lock enters a space through it (`installed`).
+    pub fn install(self) -> &'static HartSpaces {
+        let table: &'static HartSpaces = alloc::boxed::Box::leak(alloc::boxed::Box::new(self));
+        INSTALLED.store(core::ptr::from_ref(table).cast_mut(), Ordering::Release);
+        table
+    }
+}
+
+/// The machine's table, once the address-space manager exists.
+static INSTALLED: AtomicPtr<HartSpaces> = AtomicPtr::new(core::ptr::null_mut());
+
+/// The machine's table (`HartSpaces::install`); `None` before the manager exists.
+pub fn installed() -> Option<&'static HartSpaces> {
+    // SAFETY: a non-null pointer is the leaked, never-freed table `install` published.
+    unsafe { INSTALLED.load(Ordering::Acquire).as_ref() }
 }
 
 /// Writes this hart's `satp` (through the island: everything after it runs in the new space).

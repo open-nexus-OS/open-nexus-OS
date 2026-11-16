@@ -4,8 +4,8 @@ title: "The address space a hart runs on"
 role: reference
 subsystem: kernel
 sources: [source/kernel/neuron/src/mm/hart_spaces.rs, source/kernel/neuron/src/mm/address_space.rs, source/kernel/neuron/src/core/trap/pending.rs, source/kernel/neuron/src/core/trap/fault.rs, source/kernel/neuron/src/task/reap.rs]
-contracts: [ADR-0082, RFC-0021]
-verified: 2026-11-12
+contracts: [ADR-0082, ADR-0100, RFC-0021]
+verified: 2026-11-16
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -23,10 +23,11 @@ verified: 2026-11-12
 
 | | |
 |---|---|
-| who records it | the hart itself, in `AddressSpaceManager::activate`, under the lock that also covers `destroy` (`HartSpaces`, one entry per hart, the raw handle) |
-| who writes `satp` | one function, `hart_spaces::switch_satp`, called from `activate` only |
+| who records it | the hart itself, in `address_space::enter_space` — from `AddressSpaceManager::activate` under the kernel lock, or from the dispatch that takes none (ADR-0100) (`HartSpaces`: one atomic entry per hart, the raw handle; `destroy` reads them under the lock) |
+| who writes `satp` | one function, `hart_spaces::switch_satp`, called from `enter_space` only |
 | a hart left without a task | enters the kernel's space in the same lock hold |
 | a free while a hart's entry names the space | refused: `AddressSpaceError::HeldByHart`, `EBUSY` at the ABI |
+| a hart starting a task whose space is being freed | cannot happen: a kill or a freeze withdraws the task under the queue lock of the hart that holds it (`Scheduler::withdraw`), and a task picked there is left to that hart (ADR-0100) |
 
 ## Where a hart is left without a task
 
