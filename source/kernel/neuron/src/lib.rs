@@ -493,6 +493,9 @@ mod ready_stats;
 // TASK-0363 P2 S1: a hart's run queues and the steal rule — the scheduler's host-tested core.
 #[path = "sched/run_queue.rs"]
 mod run_queue;
+// TASK-0363 P5: where a woken task runs — pure, host-tested; `pub` like `deadline_rule`.
+#[path = "sched/placement.rs"]
+pub mod placement;
 // TASK-0363 P0: who yields, per task — host-tested; fed by the yield syscall.
 #[path = "sched/yield_stats.rs"]
 mod yield_stats;
@@ -502,13 +505,9 @@ mod cbo_rule;
 // TASK-0330 S2b: the serial line's cursor in the console ring — NOT target-gated, so its order
 // and lap rule run on host. Owned by `hal::console_queue` on the target.
 mod console_tx;
-// TASK-0054C P3b (RFC-0096): the payload tiers and the two ABI bounds — NOT
-// target-gated, for the same reason and with the same shape as `ipc_stats`:
-// `mod ipc` is riscv/none-only, so anything under it can never be host-tested.
+// TASK-0054C P3b (RFC-0096): the payload tiers and the two ABI bounds — host-tested like `ipc_stats`.
 #[path = "ipc/payload.rs"]
 mod ipc_payload;
-// RFC-0080: the pure read-only-VMO map policy — NOT target-gated so its
-// anti-corruption invariant runs on host. Fed by `sys_map`'s VmoRo arm.
 #[cfg(target_os = "none")]
 #[path = "core/trap/mod.rs"]
 mod trap;
@@ -523,6 +522,7 @@ mod uart;
 pub mod va_space;
 #[cfg(test)]
 mod va_space_tests;
+// RFC-0080: the pure read-only-VMO map policy, host-tested; fed by `sys_map`'s VmoRo arm.
 mod vmo_ro;
 
 #[cfg(target_os = "none")]

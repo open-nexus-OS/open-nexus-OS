@@ -25,10 +25,10 @@ A hart without a task sleeps in WFI (`core/idle.rs`, TASK-0363 P4). It wakes for
 
 - **its own deadline** — of a task that blocked on it (a timed receive, send, waitset or fence
   wait) or of a timer cap armed on it (TASK-0363 P8);
-- **a task on its queue** — the wake hint and IPI of `request_resched`;
+- **a task on its queue** — the wake hint and IPI of `request_resched`; a wake that would queue
+  a task behind a peer at its home places it on a free hart instead (`placement`, TASK-0363 P5:
+  [smp.md](smp.md)) — a sleeping hart does not poll for work;
 - **a device line** — the external interrupt, a stashed line;
-- **work to steal** — a wake that queues a task behind a busy home hart kicks the lowest idle hart
-  its affinity allows (`task::wake::kick_idle_thief`); a sleeping hart does not poll for it;
 - **the safety net** — `IDLE_SAFETY_NS` (500 ms) after it fell asleep, for a wake nobody sent.
 
 The boot hart sleeps too; its net is the 500 ms heartbeat of its idle delivery. Memory pressure

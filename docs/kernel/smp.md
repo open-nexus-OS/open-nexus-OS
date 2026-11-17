@@ -72,8 +72,7 @@ expensive middle, cpu0 (display and input) gets right of way while it waits, and
 the BKL keeps servicing TLB shootdown requests. Hold and wait times are budgeted in
 `source/kernel/neuron/src/core/trap/budgets.rs`; a breach fails the boot gate.
 
-Every take names its holder (`KernelGuard::acquire_as`: a syscall number, or the timer, an
-IPI, an external interrupt, a fault, the scheduling loop), and the boot-end fence prints where
+Every take names its holder (`KernelGuard::acquire_as`), and the boot-end fence prints where
 the lock's time went in the steady window (`source/kernel/neuron/src/core/trap/lock_share.rs`,
 `baseline.rs`): `KINIT: bkl held us (sched= ipc= mm= task= caps= misc= timer= ipi= ext= fault=
 idle=)`, `KINIT: bkl takes (…)`, `KINIT: bkl top sum` for the three largest holders and
@@ -84,10 +83,9 @@ what the task's hart ran when the task became runnable — `late_idle` (no task:
 reach the hart in time), `late_lower` (a lower class it did not preempt), `late_peer` (its own
 class or a higher one: placement). `KINIT: yield top total= pid=<pid>:<service id>:<yields> …`
 names the three tasks that called `yield` most (`sched/yield_stats.rs`). The proof harness's
-observer prints the same lines again in 10 s windows from `SELFTEST: input window open` on (telemetry op 6, `nexus_abi::sched::baseline_window`:
-the window ending now, then a new one). The lines are read in
-`docs/board/measurements/2026-11-10-smp-baseline/`. The lock's end is RFC-0102: classes with one
-rank order, a budget per class, no global lock.
+observer prints the same lines again in 10 s windows from `SELFTEST: input window open` on
+(telemetry op 6). The lines are read in `docs/board/measurements/2026-11-10-smp-baseline/`. The
+lock's end: RFC-0102.
 
 ## Rescheduling
 
@@ -96,11 +94,14 @@ rank order, a budget per class, no global lock.
 consumer rescans the whole queue. The S_SOFT trap consumes the flag and acks. Proof chain:
 request accepted → `send_ipi` ok → S_SOFT trap → ack, plus a forced-failure counterfactual.
 
-Work stealing (`Scheduler::steal_into_current`) takes at most one task per attempt, never above
-the thief's QoS class and never against a task's affinity (ADR-0052), at most once per
-millisecond per CPU (`steal_rate_gate`). Idle harts, without a tick: [idle.md](idle.md). Markers: `KSELFTEST: work stealing ok`,
-`KSELFTEST: steal park ok`, `KSELFTEST: test_reject_steal_above_bound ok`,
-`KSELFTEST: test_reject_steal_higher_qos ok`.
+A wake places its task where it runs soonest (`sched/placement.rs`, TASK-0363 P5): at home
+when home takes it at once (asleep, the waker's own, or running a lower class), else on a free
+hart its affinity allows, home's cluster first. `KINIT: hart busy pm` prints each window's busy
+share and the placed wakes; marker `KSELFTEST: sched spread ok`. Work stealing
+(`Scheduler::steal_into_current`) takes at most one task per attempt, never above the thief's
+class nor against affinity (ADR-0052), once per millisecond per CPU. Idle harts:
+[idle.md](idle.md). Markers: `KSELFTEST: work stealing ok`, `steal park ok`,
+`test_reject_steal_above_bound ok`, `test_reject_steal_higher_qos ok`.
 
 ## The space a hart runs on
 

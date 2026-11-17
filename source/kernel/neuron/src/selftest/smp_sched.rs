@@ -16,7 +16,44 @@ use crate::task::Pid;
 use crate::types::CpuId;
 use crate::{log_error, log_info};
 
+/// TASK-0363 P5: the placement rule (`placement::place`) on this machine's topology — as many
+/// tasks as there are harts, woken in a row by the boot hart and homed there, are placed on as
+/// many harts at their wake (the first waits for the handoff at home, each next one takes a free
+/// hart, its home's cluster first): no task waits for a steal's next look.
+fn run_spread_selftest(boot: CpuId) {
+    use nexus_sched::CpuSet;
+    let harts = crate::topology::hart_count();
+    let all = crate::topology::runs();
+    let me = CpuSet::single(boot.as_index()).unwrap_or(CpuSet::from_bits(0));
+    let (mut free, mut placed) = (all.without(me), CpuSet::from_bits(0));
+    for n in 0..harts {
+        let wake = crate::placement::Wake {
+            home: boot.as_index(),
+            waker: boot.as_index(),
+            allowed: all,
+            free,
+            near: crate::topology::cluster_of(boot.as_index()),
+            backlog: n > 0,
+            home_runs_lower: false,
+        };
+        let one = CpuSet::single(crate::placement::place(&wake)).unwrap_or(me);
+        placed = placed.union(one);
+        free = free.without(one);
+    }
+    if placed.count() == harts {
+        log_info!(target: "selftest", "KSELFTEST: sched spread ok (harts={} placed={})", harts, harts);
+    } else {
+        log_error!(
+            target: "selftest",
+            "KSELFTEST: sched spread FAIL harts={} placed={}",
+            harts,
+            placed.count()
+        );
+    }
+}
+
 pub(super) fn run_steal_selftests(ctx: &mut Context<'_>, boot: CpuId, target: CpuId) {
+    run_spread_selftest(boot);
     // Deterministic work-stealing probe:
     // - put one runnable task only on CPU1
     // - run CPU0 pick path and require a steal event + expected PID

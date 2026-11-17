@@ -84,6 +84,18 @@ pub fn runs_here() -> TaskId {
     Pid::from_raw(RUNS.get(cpu).map_or(0, |slot| slot.load(Ordering::Acquire)))
 }
 
+/// The task hart `cpu` runs (PID 0: none) — a placement's look, read without its lock.
+pub fn runs_on(cpu: usize) -> TaskId {
+    Pid::from_raw(RUNS.get(cpu).map_or(0, |slot| slot.load(Ordering::Acquire)))
+}
+
+/// Whether hart `cpu` has a task of class `qos` or above queued (TASK-0363 P5: a task woken
+/// there would wait behind it).
+pub fn queued_at_or_above(cpu: usize, qos: QosClass) -> bool {
+    with(cpu, |q| QosClass::DESCENDING.iter().any(|&c| c as u8 >= qos as u8 && q.len(c) > 0))
+        .unwrap_or(false)
+}
+
 /// This hart now runs `pid`.
 pub fn set_runs_here(pid: TaskId) {
     let cpu = crate::smp::cpu_current_id().as_index();

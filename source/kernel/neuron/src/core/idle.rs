@@ -92,6 +92,8 @@ pub(crate) fn sleep(cpu: CpuId) {
         crate::trap::idle_arm(now, own, crate::deadline_rule::sleep_arm(now, own, net));
         if !crate::smp::take_wake_hint(cpu) {
             core::arch::asm!("wfi", options(nomem, nostack, preserves_flags));
+            // The hart's busy share (TASK-0363 P5: `KINIT: hart busy`).
+            crate::smp::record_idle_sleep(cpu, now_ns().saturating_sub(now));
         }
         riscv::register::sstatus::set_sie();
     }

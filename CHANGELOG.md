@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-11-17 (a woken thread runs where it runs soonest — TASK-0363 P5)
+
+- **Placement at the wake** (`sched/placement.rs`, host-tested): a woken task stays home when home
+  takes it at once (asleep, the waker itself, or running a lower class) and nothing waits there;
+  else it goes to a free hart in its affinity, home's cluster first, and that hart becomes its
+  home. A hart a wake chose a moment ago is not free until it looks (its wake hint), so a burst
+  of wakes spreads. The idle thief kick is gone; steals remain for work queued before a hart fell
+  asleep. `KSELFTEST: sched spread ok (harts=8 placed=8)`: eight wakes occupy eight harts.
+- `KINIT: hart busy pm` per window: each hart's busy share (from its time asleep) and the wakes
+  placed away from home. Board (`board--2026-11-17T14-48-03`): interactive waits over 10 ms
+  1.4/s (1.7/s at P8), behind a peer 4.8/s (5.6/s), max one slice (11.8 ms); bkl max_wait
+  624 us. The busiest hart is cpu0 in every window — the display chain pinned there by its fixed
+  masks, which TASK-0365 deletes.
+
 ### Changed - 2026-11-17 (each hart wakes for its own deadlines only — TASK-0363 P8)
 
 - **A deadline belongs to the hart it was armed on** (`trap/own_deadlines.rs`): a floor per hart

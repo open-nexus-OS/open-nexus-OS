@@ -110,6 +110,12 @@ pub fn cluster_set(cluster: usize) -> Option<CpuSet> {
     }
 }
 
+/// The CPUs of `cpu`'s cluster (every CPU the kernel runs on a tree that names none).
+#[must_use]
+pub fn cluster_of(cpu: usize) -> CpuSet {
+    (0..clusters()).filter_map(cluster_set).find(|set| set.contains(cpu)).unwrap_or_else(runs)
+}
+
 /// The interrupt controller's context for logical CPU `cpu`'s supervisor external interrupt.
 #[must_use]
 pub fn plic_context(cpu: usize) -> Option<u32> {

@@ -1809,6 +1809,7 @@ if [[ "$REQUIRE_SMP" == "1" ]]; then
     "KSELFTEST: test_reject_offline_cpu_resched ok"
     "KSELFTEST: runtime ipi budget ok"
     "KSELFTEST: runtime stress ok"
+    "KSELFTEST: sched spread ok"
     "KSELFTEST: work stealing ok"
     "KSELFTEST: test_reject_steal_above_bound ok"
     "KSELFTEST: test_reject_steal_higher_qos ok"

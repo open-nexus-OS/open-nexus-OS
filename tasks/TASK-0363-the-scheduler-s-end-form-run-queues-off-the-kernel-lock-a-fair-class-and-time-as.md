@@ -49,9 +49,10 @@ phases:
     note: "Committed 9ad729e0. Gate's idle clause met: an idle system's harts wake only for the 500 ms net, 20 per hart in 10 s = 2/s (100/s before), board--2026-11-17T11-06-45. The empty wakes under use (17-29 per busiest hart, all stale) go to P8 (per-hart deadline sets); the time-right clause (wake-to-run p99 <= 200 us) moved to P3, where time rights exist."
   - id: P5
     story: "a woken thread runs where it runs soonest: placement by load, by its last hart and by cluster, and an idle hart pulls work"
-    state: planned
+    state: proving
     gate: "QEMU -smp 8: 8 runnable compute threads occupy 8 harts within 2 ms (KSELFTEST: sched spread ok); board: the per-hart utilisation line; test_reject_steal_against_affinity kept"
-    note: "Baseline from P8 (board--2026-11-17T12-09-56): interactive waits above 10 ms 191 per ~100 s, all near one slice (max 11.5 ms), late_peer 23-160 per window — a woken interactive task queued behind a same-class peer on its hart for the peer's full 10 ms slice; placement (run where it runs soonest) is the fix."
+    started: 2026-11-17
+    note: "BUILT 2026-11-17: sched/placement.rs (pure place(): home when it takes the task at once — free, the waker's own, or running a lower class — and no same-or-higher backlog; else a free hart in affinity, home's cluster first; host: 4 tests incl. test_reject_place_outside_affinity, eight_wakes_occupy_eight_harts), task::wake places + migrates (set_home_cpu), smp::free_harts (idle minus pending wake hint), kick_idle_thief deleted; KSELFTEST: sched spread ok (the rule on the machine's topology — not timed threads: the 2 ms clause is read on the board from placed= and the busy line); KINIT: hart busy pm (busy share per hart, placed wakes). QEMU smp8 green but the known MTTCG bkl flip; smp1 green; just check green. Image dev-f49c8ba1."
   - id: P0
     story: "what the scheduler is rebuilt from is known: an interactive wake's wait for a hart is attributed (behind a peer of its class on the hart it is pinned to, behind a lower class it did not preempt, or a hart asleep), and the task that yields 70 000 times a second is named"
     state: done
@@ -78,10 +79,12 @@ phases:
     note: "split from P6 on 2026-11-16: P6's board clause is met (board--2026-11-16T15-13-23: idle takes 15 798 a window, under 100 000; were ~540 000), its host and selftest clauses are this phase. The walk is syscall::api::expire_deadlines (target-gated today): its per-task decision moves into a pure, host-tested function BUILT 2026-11-16: task/deadline_rule.rs (3 host tests) decides the walk; BlockReason::deadline_ns one exhaustive match; SELFTEST: wait deadline ok uses a waitset over the harness's kernel timer (no raw waitset deadline: check-wait-not-poll rule 4) and a fence deadline. The marker found a kernel bug: the preemption tick (timer_arm, on every dispatch and the S-mode re-arm) wrote the compare register past a pending earlier deadline while the ADR-0052 shadow still read armed — every kernel deadline up to 10 ms late (fence 10.4 ms, timer cap 5.6-12.5 ms for 5 ms). Fixed: the tick keeps a pending earlier deadline. QEMU 1/8 harts + usb-visible: 5.1-6.3 ms. BOARD build/logs/board--2026-11-16T17-31-43: waitset 5 025 us, fence 5 033 us; wake le100us 98.38 %, 1-10 ms 0.048 % (0.070), gt10ms 11.8 per 100k (8-12 before), timer takes 44 -> 808 a window (deadlines now fire), ipc call 44 us; frames 66/23, inputs 133/10, launches 6/0. Closes with the commit (rule 8)"
   - id: P8
     story: "each hart owns the deadlines of the tasks blocked on it: a deadline already served or no longer waited for never wakes a hart, and no hart arms another's deadline as a backstop"
-    state: proving
+    state: done
     gate: "board: KINIT: idle timer wakes max_empty <= 20 per 10 s window under use (17-29 at P4, all stale, build/logs/board--2026-11-17T11-06-45); stale= near 0; SELFTEST: wait deadline ok kept; late_idle=0 kept"
     started: 2026-11-17
-    note: "BOARD build/logs/board--2026-11-17T12-09-56 (dev-0638a9e9 = commit): max_empty 15-20 per hart in 10 s under use (gate <=20 met; P4 17-29), stale 0-11 over 8 harts, dry 0; late_idle=0, wait deadline 5.03 ms, bkl 293 us, inputs 104/20/8, launches 3/3. Interactive ready max 11.5 ms per window (P8a 25 ms, P4 up to 161 ms); gt10ms 191 over the run (P4 ~30): the old global re-arm rotated faster than the 10 ms slice by accident, now a same-class wait ends at the slice — P5's input. Ladder: one xhcid FAIL (step=control cc=4) during the receiver's setup, a controller transaction error (first in 20 cycles), HID worked; not allow-listed. Docs: kernel/idle.md, ADR-0052, concurrency.md, CHANGELOG."
+    done: 2026-11-17
+    evidence: build/logs/board--2026-11-17T12-09-56
+    note: "Committed 221b7682."
 ---
 
 <!-- `nx ledger new task` copies everything below this line; the frontmatter above shows the

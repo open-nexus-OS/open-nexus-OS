@@ -79,7 +79,7 @@ pub fn log_smp_baseline() {
     // hart's empty wakes (<= 2 a second); `max_stray` the most on one hart that were not its net
     // (a tick into the idle loop, a deadline another hart served).
     // With them the window's steals: an idle hart that no longer ticks takes work when a wake
-    // queues it behind a busy hart (`task::wake::kick_idle_thief`).
+    // finds it queued behind a busy hart (since P5 a wake places such a task outright).
     static LAST_STEALS: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
     let w = crate::smp::take_idle_timer_window();
     let steals = crate::smp::work_steal_count();
@@ -97,6 +97,24 @@ pub fn log_smp_baseline() {
         w.at,
         w.max_stray,
         steals.saturating_sub(last)
+    );
+    // TASK-0363 P5: each hart's busy share (permille of the window), and the wakes placed on a
+    // free hart instead of behind a peer at home.
+    static LAST_PLACED: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+    let (busy_ns, min, at_min, max, at_max, mean) =
+        crate::smp::take_busy_window(crate::hal::platform::ticks_to_ns(now));
+    let placed = crate::smp::wake_placement_count();
+    let last = LAST_PLACED.swap(placed, core::sync::atomic::Ordering::Relaxed);
+    log_info!(
+        target: "smp",
+        "KINIT: hart busy pm (window_ms={} min={} at=cpu{} max={} at=cpu{} mean={} placed={})",
+        busy_ns / 1_000_000,
+        min,
+        at_min,
+        max,
+        at_max,
+        mean,
+        placed.saturating_sub(last)
     );
     let top = lock_share::top(tpu);
     log_info!(

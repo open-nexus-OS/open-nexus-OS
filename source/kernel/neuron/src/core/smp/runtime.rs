@@ -12,7 +12,7 @@
 //!   hart's cpu_main; bounded, no allocation.
 //! ADR: docs/rfcs/RFC-0021-kernel-smp-v1-percpu-runqueues-ipi-contract.md
 
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 use crate::types::CpuId;
 
@@ -163,6 +163,64 @@ pub fn set_wake_hint(cpu: CpuId) {
     if let Some(hart) = hart_state::of(cpu) {
         hart.wake_hint.store(1, Ordering::Release);
     }
+}
+
+/// TASK-0363 P5: the harts asleep with no wake already sent to them — where a woken task runs at
+/// once. A hart a placement chose a moment ago carries its wake hint until it looks, so two wakes
+/// in a row do not both pick it.
+pub fn free_harts() -> nexus_sched::CpuSet {
+    let mut free = super::cpu_idle();
+    for (cpu, hart) in hart_state::all() {
+        let woken = hart.wake_hint.load(Ordering::Acquire) != 0;
+        if let Some(one) = nexus_sched::CpuSet::single(cpu).filter(|_| woken) {
+            free = free.without(one);
+        }
+    }
+    free
+}
+
+/// TASK-0363 P5: wakes placed on another hart than the task's home (`task::wake`).
+static WAKE_PLACEMENTS: AtomicUsize = AtomicUsize::new(0);
+
+/// A wake placed its task away from its home.
+#[inline]
+pub fn record_wake_placement() {
+    WAKE_PLACEMENTS.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Wakes placed away from their home since boot.
+pub fn wake_placement_count() -> usize {
+    WAKE_PLACEMENTS.load(Ordering::Relaxed)
+}
+
+/// TASK-0363 P5: each hart's time asleep (ns, `cpu_main::idle::sleep`).
+pub fn record_idle_sleep(cpu: CpuId, ns: u64) {
+    if let Some(hart) = hart_state::of(cpu) {
+        hart.idle_sleep_ns.fetch_add(ns, Ordering::Relaxed);
+    }
+}
+
+/// When the busy window started (ns; 0: at boot, where the sleep counts start too).
+static BUSY_WINDOW_NS: AtomicU64 = AtomicU64::new(0);
+
+/// The busy share per hart in permille since the last call, which ended at `now_ns` (the sleep
+/// counts start again): `(window_ns, min, at_min, max, at_max, mean)`.
+pub fn take_busy_window(now_ns: u64) -> (u64, u64, usize, u64, usize, u64) {
+    let window_ns = now_ns.saturating_sub(BUSY_WINDOW_NS.swap(now_ns, Ordering::Relaxed));
+    let (mut min, mut at_min, mut max, mut at_max, mut sum, mut n) = (u64::MAX, 0, 0, 0, 0, 0);
+    for (cpu, hart) in hart_state::all() {
+        let slept = hart.idle_sleep_ns.swap(0, Ordering::Relaxed).min(window_ns);
+        let busy = (window_ns - slept).saturating_mul(1000) / window_ns.max(1);
+        if busy < min {
+            (min, at_min) = (busy, cpu);
+        }
+        if busy >= max {
+            (max, at_max) = (busy, cpu);
+        }
+        sum += busy;
+        n += 1;
+    }
+    (window_ns, min.min(max), at_min, max, at_max, sum / n.max(1))
 }
 
 /// Deterministic round-robin cursor for initial task placement (A4).

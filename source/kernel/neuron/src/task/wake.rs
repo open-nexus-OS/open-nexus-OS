@@ -64,52 +64,65 @@ impl TaskTable {
             }
             return WakeOutcome::WokenNoopSelftest;
         }
-        let (qos, affinity) = (task.qos, task.affinity);
-        // A4/B: route to the task's home CPU, clamped into its affinity mask
-        // and the online set.
-        let home_cpu =
-            clamp_home_to_affinity(task.affinity, task.home_cpu, crate::smp::cpu_online());
+        let qos = task.qos;
+        // A4/B: the task's home CPU, clamped into its affinity mask and the online set; then
+        // TASK-0363 P5: the hart where it runs soonest (`placement`).
+        let online = crate::smp::cpu_online();
+        let home_cpu = clamp_home_to_affinity(task.affinity, task.home_cpu, online);
+        let target = self.placement(home_cpu, task.affinity.intersection(online), qos);
         // No duplicates, then enqueue with the stored QoS. MEASURED: the runqueue half of a
         // wake, what D3's handoff would have removed (TASK-0054C P4c-2).
         if crate::trap::budgets::timed_wake_enqueue(|| {
             scheduler.purge(pid);
-            matches!(scheduler.enqueue_on_cpu(home_cpu, pid, qos), EnqueueOutcome::Rejected(_))
+            matches!(scheduler.enqueue_on_cpu(target, pid, qos), EnqueueOutcome::Rejected(_))
         }) {
             return WakeOutcome::EnqueueRejected;
         }
+        if target != home_cpu {
+            // An explicit migration, as a steal's: its home and its device lines follow.
+            self.set_home_cpu(pid, target);
+            crate::smp::record_wake_placement();
+        }
         if let Some(task) = self.task_mut(pid) {
             task.clear_blocked();
-            // Cross-core wake: kick the home CPU out of WFI/user so the task
+            // Cross-core wake: kick the target CPU out of WFI/user so the task
             // runs promptly (best-effort IPI; the evidence chain records it).
-            if home_cpu != crate::smp::cpu_current_id() {
+            if target != crate::smp::cpu_current_id() {
                 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
                 let ipi_t0 = riscv::register::time::read() as u64;
-                let _ = crate::smp::request_resched(home_cpu);
+                let _ = crate::smp::request_resched(target);
                 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
                 crate::trap::budgets::record_wake_ipi(
                     (riscv::register::time::read() as u64).saturating_sub(ipi_t0),
                 );
-                kick_idle_thief(affinity, home_cpu);
             }
             return WakeOutcome::Woken;
         }
         WakeOutcome::TaskNotFound
     }
-}
 
-/// TASK-0363 P4: an idle hart no longer ticks to look for work, so a task queued behind a busy
-/// hart — not the waker's own: a call's server is woken there and runs once the caller blocks —
-/// wakes ONE idle hart its affinity allows, which steals it (the steal's rules and rate gate
-/// still decide; P5 places such a task outright). A task pinned to its hart wakes nobody.
-fn kick_idle_thief(affinity: nexus_sched::CpuSet, home: crate::types::CpuId) {
-    let idle = crate::smp::cpu_idle();
-    if idle.contains(home.as_index()) {
-        return;
-    }
-    let me = crate::smp::cpu_current_id().as_index();
-    let thieves = affinity.intersection(idle).intersection(crate::smp::cpu_online());
-    let me_set = nexus_sched::CpuSet::single(me).unwrap_or(nexus_sched::CpuSet::from_bits(0));
-    if let Some(thief) = thieves.without(me_set).lowest() {
-        let _ = crate::smp::request_resched(crate::types::CpuId::from_raw(thief as u16));
+    /// TASK-0363 P5: where a task homed on `home`, allowed on `allowed`, of class `qos` runs
+    /// soonest — the rule is `placement::place` (host-tested), fed here with what the machine
+    /// shows now: the free harts, the home's cluster, its queue and the class it runs.
+    fn placement(
+        &self,
+        home: crate::types::CpuId,
+        allowed: nexus_sched::CpuSet,
+        qos: crate::sched::QosClass,
+    ) -> crate::types::CpuId {
+        let h = home.as_index();
+        let running = crate::sched::runs_on(h);
+        let home_runs_lower = running.as_raw() != 0
+            && self.task(running).is_some_and(|t| (t.qos as u8) < (qos as u8));
+        let wake = crate::placement::Wake {
+            home: h,
+            waker: crate::smp::cpu_current_id().as_index(),
+            allowed,
+            free: crate::smp::free_harts(),
+            near: crate::topology::cluster_of(h),
+            backlog: crate::sched::queued_at_or_above(h, qos),
+            home_runs_lower,
+        };
+        crate::types::CpuId::from_raw(crate::placement::place(&wake) as u16)
     }
 }

@@ -894,6 +894,11 @@ phase = "bringup"
 emit_when = { profile = "smp" }
 proves = "boot-homed task with cpu1-only mask is clamped to cpu1 (affinity home routing)"
 
+[marker."KSELFTEST: sched spread ok"]
+phase = "bringup"
+emit_when = { profile = "smp" }
+proves = "the wake placement rule (TASK-0363 P5) puts as many tasks woken in a row as there are harts on as many harts at their wake, on this machine's topology"
+
 [marker."KSELFTEST: tlb shootdown skipped (smp=1)"]
 phase = "bringup"
 emit_when = { profile = "headless" }
