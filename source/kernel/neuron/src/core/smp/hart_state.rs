@@ -42,6 +42,16 @@ pub(crate) struct HartState {
     pub(super) user_dispatches: AtomicUsize,
     /// Supervisor timer ticks this CPU took.
     pub(super) timer_ticks: AtomicUsize,
+    /// TASK-0363 P4: timer interrupts that woke this CPU in the kernel (idle), in the window, and
+    /// of those the ones that found nothing due (a tick, not a deadline).
+    pub(super) idle_timer_wakes: AtomicUsize,
+    pub(super) idle_timer_empty: AtomicUsize,
+    /// Of the empty ones those that were this CPU's safety net (by design, at most two a second),
+    /// and when the net it armed falls due (ns; 0 = the compare register holds a deadline).
+    pub(super) idle_timer_net: AtomicUsize,
+    pub(super) idle_net_at_ns: AtomicU64,
+    /// Of the stray ones those at a passed deadline (`record_idle_timer`).
+    pub(super) idle_timer_stale: AtomicUsize,
     /// The last work-steal attempt (rate gate).
     pub(super) last_steal_ns: AtomicU64,
     /// TLB mailbox: the epoch this CPU must flush up to.
@@ -68,6 +78,11 @@ impl HartState {
             wake_hint: AtomicUsize::new(0),
             user_dispatches: AtomicUsize::new(0),
             timer_ticks: AtomicUsize::new(0),
+            idle_timer_wakes: AtomicUsize::new(0),
+            idle_timer_empty: AtomicUsize::new(0),
+            idle_timer_net: AtomicUsize::new(0),
+            idle_net_at_ns: AtomicU64::new(0),
+            idle_timer_stale: AtomicUsize::new(0),
             last_steal_ns: AtomicU64::new(0),
             tlb_requested: AtomicU64::new(0),
             tlb_acked: AtomicU64::new(0),

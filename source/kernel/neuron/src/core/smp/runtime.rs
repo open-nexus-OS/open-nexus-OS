@@ -61,6 +61,77 @@ pub fn record_timer_tick(cpu: CpuId) -> usize {
     hart_state::of(cpu).map_or(0, |hart| hart.timer_ticks.fetch_add(1, Ordering::AcqRel))
 }
 
+/// TASK-0363 P4: a timer interrupt woke `cpu` in the kernel (idle) at `now_ns`; `empty` when
+/// nothing was due. An empty wake at or after the net `cpu` armed is its safety net; one before
+/// is stray: `deadline_fired` when the hart's armed deadline had passed (a deadline nobody waited
+/// for any more — its waiter woken by an event, or served by another hart), else blind (the
+/// compare register held neither — a tick that slipped into the idle loop). The handler re-arms
+/// the net after it: `next_net_ns`.
+#[inline]
+pub fn record_idle_timer(
+    cpu: CpuId,
+    now_ns: u64,
+    empty: bool,
+    deadline_fired: bool,
+    next_net_ns: u64,
+) {
+    if let Some(hart) = hart_state::of(cpu) {
+        hart.idle_timer_wakes.fetch_add(1, Ordering::Relaxed);
+        if empty {
+            hart.idle_timer_empty.fetch_add(1, Ordering::Relaxed);
+            let net_at = hart.idle_net_at_ns.load(Ordering::Relaxed);
+            if net_at != 0 && now_ns >= net_at {
+                hart.idle_timer_net.fetch_add(1, Ordering::Relaxed);
+            } else if deadline_fired {
+                hart.idle_timer_stale.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+        hart.idle_net_at_ns.store(next_net_ns, Ordering::Relaxed);
+    }
+}
+
+/// TASK-0363 P4: `cpu` goes to sleep with its compare register at its safety net due `at_ns`
+/// (0: at a deadline) — what [`record_idle_timer`] tells a net from a stray wake by.
+#[inline]
+pub fn note_idle_net(cpu: CpuId, at_ns: u64) {
+    if let Some(hart) = hart_state::of(cpu) {
+        hart.idle_net_at_ns.store(at_ns, Ordering::Relaxed);
+    }
+}
+
+/// The window's idle timer wakes, summed over the harts; the empty ones and of them the safety
+/// nets; the hart with the most empty ones, and the most stray ones on any hart (empty, not the
+/// net); the counts start again.
+pub fn take_idle_timer_window() -> IdleTimerWindow {
+    let mut w = IdleTimerWindow::default();
+    for (cpu, hart) in hart_state::all() {
+        w.wakes += hart.idle_timer_wakes.swap(0, Ordering::Relaxed);
+        let e = hart.idle_timer_empty.swap(0, Ordering::Relaxed);
+        let n = hart.idle_timer_net.swap(0, Ordering::Relaxed);
+        w.stale += hart.idle_timer_stale.swap(0, Ordering::Relaxed);
+        w.empty += e;
+        w.net += n;
+        if e > w.max_empty {
+            (w.max_empty, w.at) = (e, cpu);
+        }
+        w.max_stray = w.max_stray.max(e.saturating_sub(n));
+    }
+    w
+}
+
+/// One window of [`take_idle_timer_window`].
+#[derive(Clone, Copy, Default)]
+pub struct IdleTimerWindow {
+    pub wakes: usize,
+    pub empty: usize,
+    pub net: usize,
+    /// Stray wakes at a passed deadline (the rest of `empty - net` is blind).
+    pub stale: usize,
+    pub max_empty: usize,
+    pub at: usize,
+    pub max_stray: usize,
+}
+
 /// Consumes this hart's wake hint; `cpu_main` skips WFI when it was set.
 ///
 /// WFI wake hints (A4) are set by `request_resched` and consumed ONLY by the target's

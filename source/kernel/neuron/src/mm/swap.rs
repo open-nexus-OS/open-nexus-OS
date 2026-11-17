@@ -253,6 +253,7 @@ pub fn ask(token: u64, slot: u32) -> bool {
     if !notices.requests.iter().any(|r| r.token == token) {
         notices.requests.push(Request { token, slot, sent: false });
         PENDING.store(true, Ordering::Release);
+        super::pressure_endpoint::kick();
     }
     PARKED.fetch_add(1, Ordering::Relaxed);
     true
@@ -280,6 +281,7 @@ pub fn dropped(id: u32, slots: &[u32]) {
     drops.extend_from_slice(slots);
     if !slots.is_empty() || wake.len() != before {
         PENDING.store(true, Ordering::Release);
+        super::pressure_endpoint::kick();
     }
 }
 

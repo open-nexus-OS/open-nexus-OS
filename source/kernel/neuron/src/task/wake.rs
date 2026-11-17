@@ -64,7 +64,7 @@ impl TaskTable {
             }
             return WakeOutcome::WokenNoopSelftest;
         }
-        let qos = task.qos;
+        let (qos, affinity) = (task.qos, task.affinity);
         // A4/B: route to the task's home CPU, clamped into its affinity mask
         // and the online set.
         let home_cpu =
@@ -89,9 +89,27 @@ impl TaskTable {
                 crate::trap::budgets::record_wake_ipi(
                     (riscv::register::time::read() as u64).saturating_sub(ipi_t0),
                 );
+                kick_idle_thief(affinity, home_cpu);
             }
             return WakeOutcome::Woken;
         }
         WakeOutcome::TaskNotFound
+    }
+}
+
+/// TASK-0363 P4: an idle hart no longer ticks to look for work, so a task queued behind a busy
+/// hart — not the waker's own: a call's server is woken there and runs once the caller blocks —
+/// wakes ONE idle hart its affinity allows, which steals it (the steal's rules and rate gate
+/// still decide; P5 places such a task outright). A task pinned to its hart wakes nobody.
+fn kick_idle_thief(affinity: nexus_sched::CpuSet, home: crate::types::CpuId) {
+    let idle = crate::smp::cpu_idle();
+    if idle.contains(home.as_index()) {
+        return;
+    }
+    let me = crate::smp::cpu_current_id().as_index();
+    let thieves = affinity.intersection(idle).intersection(crate::smp::cpu_online());
+    let me_set = nexus_sched::CpuSet::single(me).unwrap_or(nexus_sched::CpuSet::from_bits(0));
+    if let Some(thief) = thieves.without(me_set).lowest() {
+        let _ = crate::smp::request_resched(crate::types::CpuId::from_raw(thief as u16));
     }
 }

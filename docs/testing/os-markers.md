@@ -5,7 +5,7 @@ role: reference
 subsystem: devx
 sources: [source/apps/selftest-client/proof-manifest/markers, source/apps/selftest-client/proof-manifest/phases.toml, tools/nx/chains/markers.txt, scripts/qemu-test.sh, scripts/check-chain-markers.sh, config/fail-marker-allow.txt, config/fail-marker-allow-mttcg.txt]
 contracts: [RFC-0013, RFC-0014, RFC-0038, RFC-0108]
-verified: 2026-11-13
+verified: 2026-11-17
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->

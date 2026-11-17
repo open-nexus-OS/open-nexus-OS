@@ -62,6 +62,17 @@ pub fn observe(free: u64) {
     let Some(tracker) = guard.as_mut() else { return };
     if let Some(level) = tracker.observe(free) {
         PENDING.store(level as u8 + 1, Ordering::Release);
+        kick();
+    }
+}
+
+/// A level or a swap notice now waits: wake the boot hart, which delivers it — it sleeps until
+/// an event instead of polling every 10 ms (TASK-0363 P4). Rare (a level change, a swap request
+/// or drop), so the IPI is cheap; on the boot hart itself its idle loop finds it before sleeping.
+pub fn kick() {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    if !crate::smp::cpu_current_id().is_boot() {
+        let _ = crate::smp::request_resched(crate::types::CpuId::BOOT);
     }
 }
 
@@ -81,6 +92,7 @@ pub fn bind(endpoint: EndpointId, pid: task::Pid) -> Result<(), BindError> {
     BINDER.store(pid.as_raw() + 1, Ordering::Release);
     let level = state().map_or(Level::Normal, |(level, _)| level);
     PENDING.store(level as u8 + 1, Ordering::Release);
+    kick();
     Ok(())
 }
 

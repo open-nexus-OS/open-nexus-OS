@@ -74,6 +74,29 @@ pub fn log_smp_baseline() {
         lock_share::deliver_us(lock_share::DeliverPart::Events, tpu),
         lock_share::deliver_us(lock_share::DeliverPart::DeadlineWalk, tpu)
     );
+    // TASK-0363 P4: timer interrupts that woke an idle hart, those that found nothing due, and of
+    // those the safety nets (the boot hart's heartbeat among them); the gate is the busiest
+    // hart's empty wakes (<= 2 a second); `max_stray` the most on one hart that were not its net
+    // (a tick into the idle loop, a deadline another hart served).
+    // With them the window's steals: an idle hart that no longer ticks takes work when a wake
+    // queues it behind a busy hart (`task::wake::kick_idle_thief`).
+    static LAST_STEALS: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+    let w = crate::smp::take_idle_timer_window();
+    let steals = crate::smp::work_steal_count();
+    let last = LAST_STEALS.swap(steals, core::sync::atomic::Ordering::Relaxed);
+    log_info!(
+        target: "smp",
+        "KINIT: idle timer wakes (window_ms={} total={} empty={} net={} stale={} max_empty={} at=cpu{} max_stray={} steals={})",
+        window_ms,
+        w.wakes,
+        w.empty,
+        w.net,
+        w.stale,
+        w.max_empty,
+        w.at,
+        w.max_stray,
+        steals.saturating_sub(last)
+    );
     let top = lock_share::top(tpu);
     log_info!(
         target: "smp",

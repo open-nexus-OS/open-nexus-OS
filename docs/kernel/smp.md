@@ -5,7 +5,7 @@ role: guide
 subsystem: kernel
 sources: [source/kernel/neuron/src/core/smp, source/kernel/neuron/src/sync, source/kernel/neuron/src/core/cpu_main.rs, source/kernel/neuron/src/core/trap/runtime.rs]
 contracts: [RFC-0021, RFC-0118, ADR-0049, ADR-0052]
-verified: 2026-11-16
+verified: 2026-11-17
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -17,7 +17,7 @@ verified: 2026-11-16
 > **Owns** — `source/kernel/neuron/src/core/smp/`, `source/kernel/neuron/src/sync/`
 > **Contracts** — [RFC-0021](../rfcs/RFC-0021-kernel-smp-v1-percpu-runqueues-ipi-contract.md), [ADR-0049](../adr/0049-bkl-lockclass-and-softrt-cpu-placement.md), [ADR-0052](../adr/0052-per-hart-earliest-deadline-timer-and-affinity-respecting-steal.md)
 > **Invariants** — a correctness IPI is never dropped. No lock is held across a context switch. Never take the BKL while holding a lock below it. A hart without a task runs on the kernel's own space; a space a hart runs on is never freed.
-> **Read next** — [README.md](README.md), [topology.md](topology.md), [hart-spaces.md](hart-spaces.md), [../architecture/concurrency.md](../architecture/concurrency.md)
+> **Read next** — [README.md](README.md), [topology.md](topology.md), [idle.md](idle.md), [hart-spaces.md](hart-spaces.md), [../architecture/concurrency.md](../architecture/concurrency.md)
 
 ## Shape
 
@@ -67,8 +67,7 @@ only by try-lock, for a steal) → leaf atomics; the queue rules: `sched/run_que
 A task's frame is its scheduling record's (`sched/record.rs`, fixed address): written before its
 enqueue, read after its pick, by nobody between (a breach: `KINIT: FAIL frame owner`).
 
-BKL rules from ADR-0049: the lock-free class (only `nsec`; the debug writes went back under the
-BKL so log lines stay whole) takes no lock, phased syscalls drop it for their
+BKL rules from ADR-0049: the lock-free class (only `nsec`) takes no lock, phased syscalls drop it for their
 expensive middle, cpu0 (display and input) gets right of way while it waits, and a hart spinning on
 the BKL keeps servicing TLB shootdown requests. Hold and wait times are budgeted in
 `source/kernel/neuron/src/core/trap/budgets.rs`; a breach fails the boot gate.
@@ -99,7 +98,7 @@ request accepted → `send_ipi` ok → S_SOFT trap → ack, plus a forced-failur
 
 Work stealing (`Scheduler::steal_into_current`) takes at most one task per attempt, never above
 the thief's QoS class and never against a task's affinity (ADR-0052), at most once per
-millisecond per CPU (`steal_rate_gate`). Markers: `KSELFTEST: work stealing ok`,
+millisecond per CPU (`steal_rate_gate`). Idle harts, without a tick: [idle.md](idle.md). Markers: `KSELFTEST: work stealing ok`,
 `KSELFTEST: steal park ok`, `KSELFTEST: test_reject_steal_above_bound ok`,
 `KSELFTEST: test_reject_steal_higher_qos ok`.
 

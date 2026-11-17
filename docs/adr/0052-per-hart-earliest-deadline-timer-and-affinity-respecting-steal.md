@@ -45,6 +45,11 @@ background (cpu1-3) work could run on cpu0 and steal display-chain time.
    read-only scan of the task table — the same table the expiry wakers already
    iterate), falling back to the 10 ms heartbeat only when nothing is pending.
    The fallback stays armed at all times (missed-wakeup safety net unchanged).
+   **An idle hart arms what it waits for** (TASK-0363 P4): before WFI, `trap::idle_arm` writes
+   the compare register to the hart's pending shadow, else a 500 ms safety net — the preemption
+   tick of the last task no longer fires into the idle loop; a shadow below the deadline gates
+   (its waiter woken by an event) is dropped; the net is never written to the shadow, so a later
+   arm still replaces it.
 3. **Steal park respects affinity homes.** A steal-rejected task is parked at
    the front of its **home CPU's** queue (home resolved by the caller, which
    owns the `TaskTable`), not cpu0's — closing the placement leak without

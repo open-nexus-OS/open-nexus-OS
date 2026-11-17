@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-11-17 (an idle hart has no tick — TASK-0363 P4)
+
+- **No periodic tick in the idle loop**: a hart without a task sleeps until a deadline of its own,
+  a wake on its queue, a device line, or a 500 ms safety net (`trap::idle_arm`); the preemption
+  tick of the last task no longer fires into the idle loop, a shadow deadline nobody waits for is
+  dropped. The boot hart sleeps too: memory pressure and swap notices wake it as events
+  (`pressure_endpoint::kick`), its heartbeat is the 500 ms net.
+- **Work is stolen on an event, not by polling**: a wake that queues a task behind a busy home
+  hart kicks an idle hart its affinity allows (`task::wake::kick_idle_thief`).
+- New line `KINIT: idle timer wakes (… empty= net= stale= max_empty= max_stray= steals=)`. Board
+  (`board--2026-11-17T11-06-45`): idle system 20 wakes per hart in 10 s, all the net; under use
+  98-113 empty wakes over 8 harts in 10 s (332-487 before), no slipped tick; wake latency, inputs
+  and launches unchanged (`late_idle=0`, deadline 5.03 ms).
+
 ### Fixed - 2026-11-16 (a kernel deadline fires at its time, not at the next tick — TASK-0363 P7)
 
 - **The preemption tick keeps an earlier deadline** (ADR-0052): `timer_arm` — the tick at every

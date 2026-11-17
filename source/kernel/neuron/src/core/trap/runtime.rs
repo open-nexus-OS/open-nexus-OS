@@ -307,6 +307,10 @@ pub fn default_tick_cycles() -> u64 {
     crate::hal::platform::default_tick_cycles()
 }
 
+/// TASK-0363 P4: an idle hart's timer when nothing is armed — no periodic tick, a safety net
+/// (two wakes a second) for a wake nobody sent; the boot hart's idle heartbeat alike.
+pub const IDLE_SAFETY_NS: u64 = 500_000_000;
+
 /// Arm the preemption tick for `now + delta_cycles` — unless a deadline armed through
 /// [`arm_wakeup`] is still pending and earlier: the compare register is one per hart, and the
 /// tick written over it pushed that deadline out to the tick (ADR-0052 earliest-wins; a 5 ms fence
@@ -328,6 +332,40 @@ pub fn timer_arm(delta_cycles: u64) {
 #[allow(dead_code)]
 #[cfg(not(all(target_arch = "riscv64", target_os = "none", feature = "timer_irq")))]
 pub fn timer_arm(_delta_cycles: u64) {}
+
+/// TASK-0363 P4: this hart goes to sleep — its compare register gets its own pending deadline
+/// ([`arm_wakeup`]'s shadow), else `fallback_ns` (the safety net; the boot hart's earliest
+/// delivery). Never the preemption tick of the task it last ran: that tick fired into the idle
+/// loop once per run burst, an empty wake (board: up to 169 per hart in 10 s against the gate's
+/// 20), and an `arm_wakeup` of a later deadline left it in place. The fallback is not written to
+/// the shadow, so a deadline armed later still replaces it; an elapsed shadow is cleared (its
+/// deadline is the walk's — the caller passes `now` as the fallback when a look is due). Caller:
+/// the idle loop with this hart's interrupts masked (no trap interleaves the read and the write
+/// of its own slot).
+/// `fallback_is_net`: the fallback is the safety net or the boot hart's heartbeat, not a deadline
+/// (the window's count tells the net's wakes from stray ones, `KINIT: idle timer wakes`).
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+pub fn idle_arm(now_ns: u64, fallback_ns: u64, fallback_is_net: bool) {
+    use core::sync::atomic::Ordering;
+    let slot = armed_slot();
+    let armed = slot.load(Ordering::Relaxed);
+    // Nothing waits at a shadow below both gates: they are lower bounds of every pending blocked
+    // deadline and every armed timer cap — lowered under the kernel lock before the arm that
+    // wrote the shadow, set exact by a walk under it — so a shadow below them is a deadline whose
+    // waiter an event woke first (board: the rest of the empty wakes, up to 33 per hart in 10 s).
+    let floor =
+        super::budgets::NEXT_DEADLINE_NS.load(Ordering::Relaxed).min(crate::timer::next_cap_ns());
+    let (at, net) = if armed > now_ns && armed < fallback_ns && armed >= floor {
+        (armed, false)
+    } else {
+        if armed != 0 && (armed <= now_ns || armed < floor) {
+            slot.store(0, Ordering::Relaxed);
+        }
+        (fallback_ns, fallback_is_net)
+    };
+    crate::smp::note_idle_net(crate::smp::cpu_current_id(), if net { at } else { 0 });
+    crate::hal::platform::arm_timer_ticks(crate::hal::platform::ns_to_ticks(at));
+}
 
 /// Install trap vector; call once during early boot on the boot hart
 /// (before enabling SIE). Prepares the boot hart's HartLocal block first.
@@ -413,6 +451,12 @@ pub fn size_hart_deadlines(harts: usize) -> Result<(), crate::sync::hart_table::
 fn armed_slot() -> &'static core::sync::atomic::AtomicU64 {
     let cpu = crate::smp::cpu_current_id().as_index();
     ARMED_DEADLINE_NS.get(cpu).unwrap_or(ARMED_DEADLINE_NS.boot())
+}
+
+/// This hart's armed wakeup deadline (ns; 0 = none) — evidence for the idle timer count.
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+pub(crate) fn armed_deadline_ns() -> u64 {
+    armed_slot().load(core::sync::atomic::Ordering::Relaxed)
 }
 
 /// Arm this hart's wakeup for `deadline_ns`, keeping the earliest pending

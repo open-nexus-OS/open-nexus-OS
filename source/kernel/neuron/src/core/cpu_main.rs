@@ -435,15 +435,6 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
             Attempt::Retry => continue,
             Attempt::Idle => {
                 crate::smp::tlb::note_activity(cpu, crate::smp::tlb::ACT_IDLE_LOOP, 0);
-                if cpu.is_boot() {
-                    // TASK-0363 P4: the boot hart sleeps like the others (it spun, taking the
-                    // kernel lock every turn to poll its deliveries). Its timer is armed for the
-                    // earliest of what the delivery serves — a deadline, a timer cap, the
-                    // heartbeat — and a wake on its queue, a device line or a shootdown doorbell
-                    // wakes it as they wake every other hart; marked idle, a shootdown skips it
-                    // and it flushes before its next dispatch.
-                    arm_boot_idle_wakeup();
-                }
                 {
                     // Secondary WFI idle: mask SIE, sleep unless a wake hint
                     // arrived, unmask. The hint (not RESCHED_PENDING, which
@@ -461,6 +452,17 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
                         riscv::register::sie::set_stimer();
                         riscv::register::sie::set_sext();
                         riscv::register::sstatus::clear_sie();
+                        // TASK-0363 P4: the compare register holds what this hart waits for —
+                        // its own deadline, else the safety net — not the last task's tick.
+                        // The boot hart sleeps like the others (it spun, taking the kernel lock
+                        // every turn to poll its deliveries): its net is the earliest of what
+                        // its delivery serves — a deadline, a timer cap, the heartbeat — and a
+                        // wake on its queue, a device line or a shootdown doorbell wakes it as
+                        // they wake every other hart; marked idle, a shootdown skips it and it
+                        // flushes before its next dispatch.
+                        let now = now_ns();
+                        let (fallback, is_net) = idle_fallback_ns(cpu, now);
+                        crate::trap::idle_arm(now, fallback, is_net);
                         if !crate::smp::take_wake_hint(cpu) {
                             core::arch::asm!("wfi", options(nomem, nostack, preserves_flags));
                         }
@@ -474,9 +476,10 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
 }
 
 /// TASK-0363 P6/P4: the boot hart's idle delivery runs at least this often even when nothing is
-/// due — the liveness witness samples, a steal looks, a line nobody stashed is drained.
+/// due — a safety net (the liveness witness samples, a line nobody stashed is drained); what it
+/// serves wakes it as an event (a deadline, a timer cap, a stashed line, memory pressure).
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-const IDLE_HEARTBEAT_NS: u64 = 10_000_000;
+const IDLE_HEARTBEAT_NS: u64 = crate::trap::IDLE_SAFETY_NS;
 
 /// When the boot hart last ran its idle delivery (ns).
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
@@ -484,7 +487,7 @@ static LAST_IDLE_DELIVERY_NS: core::sync::atomic::AtomicU64 = core::sync::atomic
 
 /// The monotonic clock, read without the kernel lock (the platform timer is stateless).
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-fn now_ns() -> u64 {
+pub(crate) fn now_ns() -> u64 {
     use crate::hal::Timer as _;
     crate::hal::platform::PlatformTimer.now()
 }
@@ -492,7 +495,7 @@ fn now_ns() -> u64 {
 /// Whether a blocked task's deadline or a timer cap is reached at `now` (both gates are lower
 /// bounds: one too low costs a locked look, never a lost expiry).
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-fn timed_due(now: u64) -> bool {
+pub(crate) fn timed_due(now: u64) -> bool {
     now >= crate::trap::budgets::NEXT_DEADLINE_NS.load(core::sync::atomic::Ordering::Relaxed)
         || now >= crate::timer::next_cap_ns()
 }
@@ -513,18 +516,29 @@ fn idle_lock_due(cpu: CpuId) -> bool {
                 || crate::liveness::is_stalled(crate::trap::default_tick_cycles() * 3)))
 }
 
-/// Arms the boot hart's timer for the earliest thing its idle delivery serves: a deadline, a
-/// timer cap, the heartbeat (through the earliest-deadline arming of ADR-0052, so an earlier
-/// armed wakeup stays armed).
+/// When a sleeping hart wakes if nothing else wakes it: a secondary after the safety net; the
+/// boot hart at the earliest thing its idle delivery serves — a deadline, a timer cap, the
+/// heartbeat. `now` when a look became due between the idle check and here: writing the compare
+/// register to the future clears a pending timer interrupt, and the deadline would wait for the
+/// net — armed at `now` it fires at once and the loop takes its look. With it whether that time
+/// is the net (or the heartbeat) rather than a deadline.
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-fn arm_boot_idle_wakeup() {
+fn idle_fallback_ns(cpu: CpuId, now: u64) -> (u64, bool) {
     use core::sync::atomic::Ordering;
+    let net = now.saturating_add(crate::trap::IDLE_SAFETY_NS);
+    if !cpu.is_boot() {
+        return if timed_due(now) { (now, false) } else { (net, true) };
+    }
     let heartbeat = LAST_IDLE_DELIVERY_NS.load(Ordering::Relaxed).saturating_add(IDLE_HEARTBEAT_NS);
-    let next = crate::trap::budgets::NEXT_DEADLINE_NS
+    let deadline = crate::trap::budgets::NEXT_DEADLINE_NS
         .load(Ordering::Relaxed)
-        .min(crate::timer::next_cap_ns())
-        .min(heartbeat);
-    crate::trap::arm_wakeup(&crate::hal::platform::PlatformTimer, next.max(1));
+        .min(crate::timer::next_cap_ns());
+    let next = deadline.min(heartbeat).min(net);
+    if next <= now {
+        (now, false)
+    } else {
+        (next, next < deadline)
+    }
 }
 
 /// A secondary's first Rust: `cpu` is the logical CPU of the entry record the firmware handed
