@@ -52,6 +52,8 @@ pub(crate) struct HartState {
     pub(super) idle_net_at_ns: AtomicU64,
     /// Of the stray ones those at a passed deadline (`record_idle_timer`).
     pub(super) idle_timer_stale: AtomicUsize,
+    /// Idle walks that found a deadline due and woke nothing (TASK-0363 P8).
+    pub(super) idle_timer_dry: AtomicUsize,
     /// The last work-steal attempt (rate gate).
     pub(super) last_steal_ns: AtomicU64,
     /// TLB mailbox: the epoch this CPU must flush up to.
@@ -83,6 +85,7 @@ impl HartState {
             idle_timer_net: AtomicUsize::new(0),
             idle_net_at_ns: AtomicU64::new(0),
             idle_timer_stale: AtomicUsize::new(0),
+            idle_timer_dry: AtomicUsize::new(0),
             last_steal_ns: AtomicU64::new(0),
             tlb_requested: AtomicU64::new(0),
             tlb_acked: AtomicU64::new(0),

@@ -47,9 +47,14 @@ background (cpu1-3) work could run on cpu0 and steal display-chain time.
    The fallback stays armed at all times (missed-wakeup safety net unchanged).
    **An idle hart arms what it waits for** (TASK-0363 P4): before WFI, `trap::idle_arm` writes
    the compare register to the hart's pending shadow, else a 500 ms safety net — the preemption
-   tick of the last task no longer fires into the idle loop; a shadow below the deadline gates
-   (its waiter woken by an event) is dropped; the net is never written to the shadow, so a later
-   arm still replaces it.
+   tick of the last task no longer fires into the idle loop; the net is never written to the
+   shadow, so a later arm still replaces it.
+   **A hart arms only its own deadlines** (TASK-0363 P8): those of the tasks that blocked on it
+   and the timer caps armed on it (`trap/own_deadlines.rs`, a floor per hart, exact after every
+   walk and timer pop or cancel). Rule 2's re-arm goes to the hart's own earliest, not the global
+   one, and the boot hart is no backstop: two harts woke for one deadline, the second for nothing.
+   An arm writes the earlier of the deadline and the 10 ms preemption tick, so it never pushes a
+   running task's tick out; the shadow keeps the deadline.
 3. **Steal park respects affinity homes.** A steal-rejected task is parked at
    the front of its **home CPU's** queue (home resolved by the caller, which
    owns the `TaskTable`), not cpu0's — closing the placement leak without

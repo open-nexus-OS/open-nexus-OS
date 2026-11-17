@@ -252,13 +252,14 @@ fn park_hart_or_self_wake(
 /// deadlines still pending, so the gate re-arms itself.
 fn wake_expired_blocked(ctx: &mut Context<'_>) {
     let now = ctx.timer.now();
-    expire_deadlines(now, ctx.tasks, ctx.router, ctx.scheduler, ctx.waitsets, ctx.fences);
+    let _ = expire_deadlines(now, ctx.tasks, ctx.router, ctx.scheduler, ctx.waitsets, ctx.fences);
 }
 
 /// THE deadline walk (TASK-0363 P6): every blocked task whose receive, send, waitset or fence
 /// deadline has passed is taken out of its wait and woken — from a scheduling syscall, the timer
 /// interrupt and the idle hart alike (before: three copies, two of which knew only IPC, and the
-/// idle hart walked every task on every turn). Skipped while `now` is before the gate.
+/// idle hart walked every task on every turn). Skipped while `now` is before the gate. Each
+/// hart's own floor is recomputed with it (TASK-0363 P8). Returns how many tasks it woke.
 pub(crate) fn expire_deadlines(
     now: u64,
     tasks: &mut task::TaskTable,
@@ -266,19 +267,22 @@ pub(crate) fn expire_deadlines(
     scheduler: &mut Scheduler,
     waitsets: &mut crate::waitset::WaitsetTable,
     fences: &mut crate::fence::FenceTable,
-) {
+) -> usize {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     if crate::trap::budgets::sweep_can_skip(now) {
         crate::trap::budgets::record_sweep_skipped();
-        return;
+        return 0;
     }
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     let sweep_t0 = riscv::register::time::read() as u64;
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    crate::trap::own_deadlines::begin(crate::trap::own_deadlines::Kind::Blocked);
     let len = tasks.len();
     // Wake-half attribution (see `budgets::SWEEP_MAX_WAKES`): counted only on
     // tasks that actually expired, so a quiet sweep pays nothing for it.
+    let mut wakes = 0usize;
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-    let (mut wakes, mut wake_ticks) = (0usize, 0u64);
+    let mut wake_ticks = 0u64;
     // Exact minimum of the deadlines that remain pending after this sweep —
     // published at the end so the O(1) gate above is precise, not heuristic.
     let mut next_min = u64::MAX;
@@ -294,6 +298,11 @@ pub(crate) fn expire_deadlines(
         let reason = t.block_reason();
         let verdict = deadline_verdict(reason.and_then(BlockReason::deadline_ns), now);
         next_min = next_gate(next_min, verdict);
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+        if let DeadlineVerdict::Pending(d) = verdict {
+            use crate::trap::own_deadlines as own;
+            own::note(own::Kind::Blocked, t.blocked_on.as_index(), d);
+        }
         if verdict != DeadlineVerdict::Expired {
             continue;
         }
@@ -327,15 +336,16 @@ pub(crate) fn expire_deadlines(
             _ => {}
         }
         observe_wake_outcome(tasks.wake(pid, scheduler));
+        wakes += 1;
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]
         {
-            wakes += 1;
             wake_ticks += (riscv::register::time::read() as u64).saturating_sub(arm_t0);
         }
     }
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
         crate::trap::budgets::set_next_deadline(next_min);
+        crate::trap::own_deadlines::publish(crate::trap::own_deadlines::Kind::Blocked);
         crate::trap::budgets::record_sweep(
             (riscv::register::time::read() as u64).saturating_sub(sweep_t0),
             len,
@@ -345,6 +355,7 @@ pub(crate) fn expire_deadlines(
     }
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
     let _ = next_min;
+    wakes
 }
 
 /// Registers the default set of syscall handlers.

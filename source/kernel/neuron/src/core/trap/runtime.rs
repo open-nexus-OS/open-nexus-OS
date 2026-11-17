@@ -333,38 +333,19 @@ pub fn timer_arm(delta_cycles: u64) {
 #[cfg(not(all(target_arch = "riscv64", target_os = "none", feature = "timer_irq")))]
 pub fn timer_arm(_delta_cycles: u64) {}
 
-/// TASK-0363 P4: this hart goes to sleep — its compare register gets its own pending deadline
-/// ([`arm_wakeup`]'s shadow), else `fallback_ns` (the safety net; the boot hart's earliest
-/// delivery). Never the preemption tick of the task it last ran: that tick fired into the idle
-/// loop once per run burst, an empty wake (board: up to 169 per hart in 10 s against the gate's
-/// 20), and an `arm_wakeup` of a later deadline left it in place. The fallback is not written to
-/// the shadow, so a deadline armed later still replaces it; an elapsed shadow is cleared (its
-/// deadline is the walk's — the caller passes `now` as the fallback when a look is due). Caller:
-/// the idle loop with this hart's interrupts masked (no trap interleaves the read and the write
-/// of its own slot).
-/// `fallback_is_net`: the fallback is the safety net or the boot hart's heartbeat, not a deadline
-/// (the window's count tells the net's wakes from stray ones, `KINIT: idle timer wakes`).
+/// TASK-0363 P4/P8: this hart goes to sleep with its timer at `arm` (`deadline_rule::sleep_arm`
+/// over its own floor `own` and its net) — never the preemption tick of the task it last ran
+/// (that tick fired into the idle loop once per run burst: board, up to 169 a hart in 10 s),
+/// never another hart's deadline. The shadow becomes the own floor (none when it is not ahead),
+/// so a later [`arm_wakeup`] of a later deadline keeps it and the tick honours it; the net is
+/// never the shadow. Caller: the idle loop with this hart's interrupts masked (nothing interleaves
+/// with its own slot).
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-pub fn idle_arm(now_ns: u64, fallback_ns: u64, fallback_is_net: bool) {
-    use core::sync::atomic::Ordering;
-    let slot = armed_slot();
-    let armed = slot.load(Ordering::Relaxed);
-    // Nothing waits at a shadow below both gates: they are lower bounds of every pending blocked
-    // deadline and every armed timer cap — lowered under the kernel lock before the arm that
-    // wrote the shadow, set exact by a walk under it — so a shadow below them is a deadline whose
-    // waiter an event woke first (board: the rest of the empty wakes, up to 33 per hart in 10 s).
-    let floor =
-        super::budgets::NEXT_DEADLINE_NS.load(Ordering::Relaxed).min(crate::timer::next_cap_ns());
-    let (at, net) = if armed > now_ns && armed < fallback_ns && armed >= floor {
-        (armed, false)
-    } else {
-        if armed != 0 && (armed <= now_ns || armed < floor) {
-            slot.store(0, Ordering::Relaxed);
-        }
-        (fallback_ns, fallback_is_net)
-    };
-    crate::smp::note_idle_net(crate::smp::cpu_current_id(), if net { at } else { 0 });
-    crate::hal::platform::arm_timer_ticks(crate::hal::platform::ns_to_ticks(at));
+pub fn idle_arm(now_ns: u64, own: u64, arm: crate::deadline_rule::SleepArm) {
+    let shadow = if own > now_ns && own != u64::MAX { own } else { 0 };
+    armed_slot().store(shadow, core::sync::atomic::Ordering::Relaxed);
+    crate::smp::note_idle_net(crate::smp::cpu_current_id(), if arm.net { arm.at } else { 0 });
+    crate::hal::platform::arm_timer_ticks(crate::hal::platform::ns_to_ticks(arm.at));
 }
 
 /// Install trap vector; call once during early boot on the boot hart
@@ -481,7 +462,12 @@ pub(crate) fn arm_wakeup(timer: &dyn Timer, deadline_ns: u64) {
         return;
     }
     slot.store(deadline_ns, Ordering::Relaxed);
-    timer.set_wakeup(deadline_ns);
+    // The compare register also carries the preemption tick of a running user task: an arm never
+    // pushes it past the tick (TASK-0363 P8 — with the re-arm at the own deadline instead of the
+    // global one, a 1 s fallback left a user task unpreempted and an interactive peer waiting up
+    // to 25 ms; the shadow keeps the deadline). An idle hart rewrites it before it sleeps.
+    let tick = timer.now().saturating_add(crate::hal::platform::PREEMPT_TICK_NS);
+    timer.set_wakeup(deadline_ns.min(tick));
 }
 
 /// Deterministic KSELFTEST probe for the ADR-0052 earliest-wins contract:
@@ -506,25 +492,30 @@ pub(crate) fn selftest_edt_probe(timer: &dyn Timer) -> bool {
     after_base == base && after_later == base && after_earlier == earlier
 }
 
-/// Earliest STILL-PENDING deadline among blocked tasks (IPC recv/send, waitset, fence) — the
-/// deadline walk's gate (`budgets::NEXT_DEADLINE_NS`), exact right after a walk (TASK-0363 P6:
-/// before, every re-arm walked every task for it). The callers walk first
-/// (`syscall::api::expire_deadlines`), so an elapsed gate is a woken task's, and arming a past
-/// deadline would fire a spurious immediate IRQ.
-fn earliest_blocked_deadline(now: u64) -> Option<u64> {
-    let gate = super::budgets::NEXT_DEADLINE_NS.load(core::sync::atomic::Ordering::Relaxed);
-    (gate != u64::MAX && gate > now).then_some(gate)
+/// This hart's own deadlines start here (TASK-0363 P8): its own floor (`own_deadlines`) held
+/// against the global gates — both are lower bounds of its pending deadlines, so the larger is
+/// one too, and it is never due while nothing is due globally (an own floor left low by a
+/// cancelled wait cannot keep a hart waking at once).
+pub(crate) fn own_floor_ns() -> u64 {
+    use core::sync::atomic::Ordering;
+    let global =
+        super::budgets::NEXT_DEADLINE_NS.load(Ordering::Relaxed).min(crate::timer::next_cap_ns());
+    super::own_deadlines::floor(crate::smp::cpu_current_id().as_index()).max(global)
 }
 
+/// Delivers the fired timer caps and re-arms this hart for its own next deadline; returns how
+/// many caps fired.
 pub(crate) fn process_expired_timers(
     timer: &dyn Timer,
     hart_timers: &mut crate::timer::HartTimers,
     router: &mut ipc::Router,
     tasks: &mut task::TaskTable,
     scheduler: &mut Scheduler,
-) {
+) -> usize {
     let now = timer.now();
-    for (timer_id, state) in hart_timers.pop_expired(now) {
+    let expired = hart_timers.pop_expired(now);
+    let fired = expired.len();
+    for (timer_id, state) in expired {
         let mut payload = [0u8; 29];
         payload[0] = OP_TIMER_FIRED;
         payload[1..5].copy_from_slice(&timer_id.0.to_le_bytes());
@@ -547,17 +538,14 @@ pub(crate) fn process_expired_timers(
         }
     }
 
-    // ADR-0052: this hart's armed deadline was consumed (timer IRQ) or is
-    // being re-evaluated (idle loop) — clear the shadow, then re-arm to the
-    // TRUE earliest across every deadline source: timer caps AND blocked-task
-    // IPC/waitset/fence deadlines. Previously only timer caps were considered,
-    // so this re-arm clobbered any armed pacer/IPC deadline to the 10ms
-    // fallback tick. The fallback heartbeat stays the safety net.
+    // ADR-0052: this hart's armed deadline was consumed (timer IRQ) or is being re-evaluated
+    // (idle loop) — clear the shadow, then re-arm to this hart's OWN earliest deadline, timer
+    // caps and blocked tasks alike (TASK-0363 P8: before, the global earliest — another hart's
+    // deadline, which then woke two harts, the second for nothing). The callers walked first, so
+    // the gates are exact; the fallback heartbeat stays the safety net.
     armed_slot().store(0, core::sync::atomic::Ordering::Relaxed);
-    let mut next = hart_timers.earliest_deadline();
-    if let Some(d) = earliest_blocked_deadline(now) {
-        next = Some(next.map_or(d, |n| n.min(d)));
-    }
+    let own = own_floor_ns();
     let fallback_ns = now.saturating_add(default_tick_cycles().saturating_mul(100));
-    arm_wakeup(timer, next.unwrap_or(fallback_ns));
+    arm_wakeup(timer, if own > now && own < fallback_ns { own } else { fallback_ns });
+    fired
 }

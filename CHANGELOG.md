@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-11-17 (each hart wakes for its own deadlines only — TASK-0363 P8)
+
+- **A deadline belongs to the hart it was armed on** (`trap/own_deadlines.rs`): a floor per hart
+  for its blocked tasks and its timer caps, exact after every walk and timer pop or cancel. A hart
+  sleeps until its own floor or the net (`deadline_rule::sleep_arm`, host-tested), re-arms to its
+  own floor after a delivery, and the boot hart is no backstop for the others — two harts no
+  longer wake for one deadline. A cancelled timer cap makes the gates exact at once.
+- **An arm never pushes a running task's preemption tick out** (ADR-0052): the timer is the
+  earlier of the deadline and the 10 ms tick. A same-class wait ends at the slice: board max
+  11.5 ms a window (25 ms before this fix, up to 161 ms at P4).
+- `core/idle.rs` holds the idle hart (from `cpu_main` and the trap handler; the module-size gate
+  P4's commit broke is green again); `KINIT: idle timer wakes` gains `dry=` (idle walks that woke
+  nothing, counted as empty). Board (`board--2026-11-17T12-09-56`): max 15-20 empty wakes a hart
+  in 10 s under use (17-29 before), stale 0-11 over all harts, dry 0; deadline 5.03 ms.
+
 ### Changed - 2026-11-17 (an idle hart has no tick — TASK-0363 P4)
 
 - **No periodic tick in the idle loop**: a hart without a task sleeps until a deadline of its own,

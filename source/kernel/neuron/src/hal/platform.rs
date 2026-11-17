@@ -279,8 +279,11 @@ const fn gcd(mut a: u64, mut b: u64) -> u64 {
 /// The preemption tick in ticks: 10 ms of the platform's timebase (was the
 /// literal `100_000` cycles, which is 10 ms only at 10 MHz).
 pub fn default_tick_cycles() -> u64 {
-    ns_to_ticks(10_000_000)
+    ns_to_ticks(PREEMPT_TICK_NS)
 }
+
+/// The preemption tick while a user task runs (RFC-0098 C3: 10 ms of the tree's timebase).
+pub const PREEMPT_TICK_NS: u64 = 10_000_000;
 
 /// Arm this hart's timer at an absolute tick count.
 pub fn arm_timer_ticks(deadline: u64) {

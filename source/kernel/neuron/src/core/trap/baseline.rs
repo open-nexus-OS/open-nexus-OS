@@ -86,12 +86,13 @@ pub fn log_smp_baseline() {
     let last = LAST_STEALS.swap(steals, core::sync::atomic::Ordering::Relaxed);
     log_info!(
         target: "smp",
-        "KINIT: idle timer wakes (window_ms={} total={} empty={} net={} stale={} max_empty={} at=cpu{} max_stray={} steals={})",
+        "KINIT: idle timer wakes (window_ms={} total={} empty={} net={} stale={} dry={} max_empty={} at=cpu{} max_stray={} steals={})",
         window_ms,
         w.wakes,
         w.empty,
         w.net,
         w.stale,
+        w.dry,
         w.max_empty,
         w.at,
         w.max_stray,

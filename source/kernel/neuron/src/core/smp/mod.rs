@@ -40,9 +40,9 @@ pub use bringup::{
 };
 pub use lock_ping::{lock_ping_participate, selftest_lock_ping};
 pub use runtime::{
-    assign_spawn_cpu, mark_runtime_ready, note_idle_net, record_idle_timer, record_timer_tick,
-    record_user_dispatch, runtime_ready, set_wake_hint, steal_rate_gate, take_idle_timer_window,
-    take_wake_hint, user_dispatch_total,
+    assign_spawn_cpu, mark_runtime_ready, note_idle_net, record_idle_dry, record_idle_timer,
+    record_timer_tick, record_user_dispatch, runtime_ready, set_wake_hint, steal_rate_gate,
+    take_idle_timer_window, take_wake_hint, user_dispatch_total,
 };
 
 /// Per-hart kernel-local block. `sscratch` and (in S-mode) `tp` point at the
@@ -137,6 +137,7 @@ pub fn size_for_machine() {
         .and_then(|()| crate::irq::size(harts))
         .and_then(|()| crate::trap::fp::size(harts))
         .and_then(|()| crate::trap::size_hart_deadlines(harts))
+        .and_then(|()| crate::trap::own_deadlines::size(harts))
         .and_then(|()| crate::sched::size(harts));
     if let Err(error) = sized {
         log_error!(target: "smp", "KPANIC: smp slab harts={} ({:?})", harts, error);

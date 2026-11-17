@@ -293,6 +293,8 @@ pub struct Task {
     /// per-CPU runqueue, avoiding cross-CPU migration during IPC wakeups).
     #[cfg_attr(not(test), allow(dead_code))]
     home_cpu: crate::types::CpuId,
+    /// TASK-0363 P8: the CPU it last blocked on — whose timer its deadline is armed on.
+    pub(crate) blocked_on: crate::types::CpuId,
     /// B (TASK-0042, RFC-0118): the CPUs this task may run on. Default: every CPU
     /// the kernel runs. Enforced at wake/resume (home clamp) and in the steal
     /// predicate; admitted at the syscall boundary (`admit_affinity`).
@@ -369,6 +371,7 @@ impl Task {
             user_guard_info: None,
             service_id: 0,
             home_cpu: crate::types::CpuId::BOOT,
+            blocked_on: crate::types::CpuId::BOOT,
             affinity: crate::topology::runs(),
             shares: DEFAULT_SHARES,
             last_spawn_fail_reason: None,
@@ -642,6 +645,7 @@ impl TaskTable {
             // A4 initial placement: deterministic round-robin across online
             // CPUs (pre-runtime-ready: spawning hart). See smp::assign_spawn_cpu.
             home_cpu: crate::smp::assign_spawn_cpu(),
+            blocked_on: crate::types::CpuId::BOOT,
             // B: inherit scheduling attributes from the parent (reset-on-exec
             // happens naturally: execd spawns fresh children).
             affinity: parent_affinity,
@@ -883,6 +887,7 @@ impl TaskTable {
             // A4 initial placement: deterministic round-robin across online
             // CPUs (pre-runtime-ready: spawning hart). See smp::assign_spawn_cpu.
             home_cpu: crate::smp::assign_spawn_cpu(),
+            blocked_on: crate::types::CpuId::BOOT,
             // B: inherit scheduling attributes from the parent (reset-on-exec
             // happens naturally: execd spawns fresh children).
             affinity: parent_affinity,
@@ -1034,23 +1039,20 @@ impl TaskTable {
 
     /// Blocks the current task and removes it from the scheduler (not runnable).
     pub fn block_current(&mut self, reason: BlockReason, scheduler: &mut Scheduler) {
-        let pid = self.current_pid();
+        let (pid, cpu) = (self.current_pid(), crate::smp::cpu_current_id());
         // Arm the O(1) deadline-sweep gate BEFORE the task can expire: the
         // sweep skips its O(tasks) scan while `now` is below this bound, so a
         // deadline that never lowered it would be missed
-        // (`trap::budgets::NEXT_DEADLINE_NS`).
+        // (`trap::budgets::NEXT_DEADLINE_NS`) — and this hart's own floor (TASK-0363 P8).
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-        match reason {
-            BlockReason::IpcRecv { deadline_ns, .. }
-            | BlockReason::IpcSend { deadline_ns, .. }
-            | BlockReason::Waitset { deadline_ns, .. }
-            | BlockReason::Fence { deadline_ns, .. } => {
-                crate::trap::budgets::note_block_deadline(deadline_ns);
-            }
-            _ => {}
+        if let Some(deadline_ns) = reason.deadline_ns() {
+            use crate::trap::own_deadlines as own;
+            crate::trap::budgets::note_block_deadline(deadline_ns);
+            own::lower(own::Kind::Blocked, cpu.as_index(), deadline_ns);
         }
         if let Some(task) = self.task_mut(pid) {
             task.set_blocked(reason);
+            task.blocked_on = cpu;
         }
         // Ensure the scheduler does not keep queued references to this PID.
         scheduler.purge(pid);

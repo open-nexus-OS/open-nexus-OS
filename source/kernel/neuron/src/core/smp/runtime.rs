@@ -90,6 +90,15 @@ pub fn record_idle_timer(
     }
 }
 
+/// TASK-0363 P8: an idle walk on `cpu` found a deadline due and woke nothing — a gate left low
+/// by a wait an event ended; counted with the empty timer wakes.
+#[inline]
+pub fn record_idle_dry(cpu: CpuId) {
+    if let Some(hart) = hart_state::of(cpu) {
+        hart.idle_timer_dry.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
 /// TASK-0363 P4: `cpu` goes to sleep with its compare register at its safety net due `at_ns`
 /// (0: at a deadline) — what [`record_idle_timer`] tells a net from a stray wake by.
 #[inline]
@@ -100,15 +109,17 @@ pub fn note_idle_net(cpu: CpuId, at_ns: u64) {
 }
 
 /// The window's idle timer wakes, summed over the harts; the empty ones and of them the safety
-/// nets; the hart with the most empty ones, and the most stray ones on any hart (empty, not the
-/// net); the counts start again.
+/// nets; the dry looks; the hart with the most empty ones (dry looks included), and the most
+/// stray ones on any hart (empty or dry, not the net); the counts start again.
 pub fn take_idle_timer_window() -> IdleTimerWindow {
     let mut w = IdleTimerWindow::default();
     for (cpu, hart) in hart_state::all() {
         w.wakes += hart.idle_timer_wakes.swap(0, Ordering::Relaxed);
-        let e = hart.idle_timer_empty.swap(0, Ordering::Relaxed);
+        let d = hart.idle_timer_dry.swap(0, Ordering::Relaxed);
+        let e = hart.idle_timer_empty.swap(0, Ordering::Relaxed) + d;
         let n = hart.idle_timer_net.swap(0, Ordering::Relaxed);
         w.stale += hart.idle_timer_stale.swap(0, Ordering::Relaxed);
+        w.dry += d;
         w.empty += e;
         w.net += n;
         if e > w.max_empty {
@@ -125,8 +136,10 @@ pub struct IdleTimerWindow {
     pub wakes: usize,
     pub empty: usize,
     pub net: usize,
-    /// Stray wakes at a passed deadline (the rest of `empty - net` is blind).
+    /// Stray wakes at a passed deadline.
     pub stale: usize,
+    /// Idle walks that found a deadline due and woke nothing (in `empty`).
+    pub dry: usize,
     pub max_empty: usize,
     pub at: usize,
     pub max_stray: usize,

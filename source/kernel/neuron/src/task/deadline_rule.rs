@@ -6,7 +6,8 @@
 //! host-tested; the walk (`syscall::api::expire_deadlines`) only acts on it. The deadline a wait
 //! carries is read by `task::BlockReason::deadline_ns`, an exhaustive match: receive, send,
 //! waitset and fence carry one, every other kind is untimed, and a new kind is decided there at
-//! compile time.
+//! compile time. With it what a hart going to sleep arms (TASK-0363 P8): its own deadlines,
+//! never another hart's.
 //! OWNERS: @kernel-team
 //! STATUS: Functional
 //! API_STABILITY: Internal
@@ -43,9 +44,57 @@ pub fn next_gate(gate: u64, verdict: DeadlineVerdict) -> u64 {
     }
 }
 
+/// What a hart going to sleep writes into its timer (TASK-0363 P8).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SleepArm {
+    /// When the timer fires (ns).
+    pub at: u64,
+    /// It is the safety net (or the boot hart's heartbeat), not a deadline.
+    pub net: bool,
+}
+
+/// The sleep arm of a hart whose own deadlines start at `own` (the earliest deadline of a task
+/// that blocked on it or a timer cap armed on it — a lower bound, `u64::MAX`: none) and whose
+/// net falls due at `net`: the own deadline when it comes first, else the net; `now` when either
+/// is already due — a look became due between the idle check and here, and writing the timer to
+/// the future would clear the interrupt pending for it. A hart arms only its own deadlines:
+/// another hart's are that hart's (no backstop that wakes two harts for one deadline).
+pub const fn sleep_arm(now: u64, own: u64, net: u64) -> SleepArm {
+    if own <= now || net <= now {
+        SleepArm { at: now, net: false }
+    } else if own < net {
+        SleepArm { at: own, net: false }
+    } else {
+        SleepArm { at: net, net: true }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{deadline_verdict, next_gate, DeadlineVerdict};
+    use super::{deadline_verdict, next_gate, sleep_arm, DeadlineVerdict, SleepArm};
+
+    /// A hart with an own deadline before its net sleeps until that deadline; with none (or one
+    /// after the net) until the net.
+    #[test]
+    fn a_sleeping_hart_wakes_for_its_own_deadline_else_its_net() {
+        let (now, net) = (1_000, 500_001_000);
+        assert_eq!(sleep_arm(now, 9_000, net), SleepArm { at: 9_000, net: false });
+        assert_eq!(sleep_arm(now, u64::MAX, net), SleepArm { at: net, net: true });
+        assert_eq!(sleep_arm(now, net + 1, net), SleepArm { at: net, net: true });
+    }
+
+    /// Never later than a pending own deadline, and never in the future when a deadline (or
+    /// the heartbeat) is already due: the timer written past it would drop its interrupt.
+    #[test]
+    fn test_reject_sleep_past_a_due_or_pending_deadline() {
+        let net = 500_000_000;
+        for own in [1, 2_000, 499_999_999] {
+            assert!(sleep_arm(0, own, net).at <= own);
+        }
+        assert_eq!(sleep_arm(5_000, 5_000, net), SleepArm { at: 5_000, net: false });
+        assert_eq!(sleep_arm(5_000, 4_000, net), SleepArm { at: 5_000, net: false });
+        assert_eq!(sleep_arm(5_000, u64::MAX, 5_000), SleepArm { at: 5_000, net: false });
+    }
 
     /// A timed wait is pending until its deadline and passed at it — whatever its kind.
     #[test]

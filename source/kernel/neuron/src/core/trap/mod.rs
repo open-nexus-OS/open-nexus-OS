@@ -148,6 +148,8 @@ pub mod fp;
 mod fp_regs;
 mod handler;
 mod illegal;
+/// TASK-0363 P8: each hart's own deadlines — what it, and only it, wakes for.
+pub mod own_deadlines;
 /// ADR-0082: the kill / freeze orders a hart executes for its current task at a trap entry.
 mod pending;
 mod phased;

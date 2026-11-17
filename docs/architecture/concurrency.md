@@ -5,7 +5,7 @@ role: guide
 subsystem: kernel
 sources: [source/kernel/neuron/src/sync, source/kernel/neuron/src/core/trap/runtime.rs, source/kernel/neuron/src/core/trap/budgets.rs, source/kernel/neuron/src/core/smp, source/libs/nexus-sync]
 contracts: [RFC-0021, ADR-0049]
-verified: 2026-11-16
+verified: 2026-11-17
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -108,7 +108,7 @@ scheduling transition. The deadline walk (`expire_deadlines` in
 harts; its decision `task/deadline_rule.rs`, host-tested; proof `SELFTEST: wait deadline ok`) once
 held the BKL for seconds per 10 s. The fix: an O(1) gate (`NEXT_DEADLINE_NS`, lowered when a task
 blocks, recomputed by each walk; `timer::next_cap_ns` alike) read without the lock: an idle hart
-takes it only when due. Publish such a bound.
+takes it only when due. Publish such a bound ([idle](../kernel/idle.md)).
 
 ### 5. A deadline on the path it bounds
 

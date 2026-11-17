@@ -70,7 +70,9 @@ pub(super) fn sys_timer_set(ctx: &mut Context<'_>, args: &Args) -> SysResult<usi
     let slot = args.get(0);
     let deadline_ns = args.get(1) as u64;
     let timer_id = timer_id_from_cap(ctx, slot)?;
-    ctx.hart_timers.arm(timer_id, deadline_ns).map_err(map_timer_error)?;
+    // TASK-0363 P8: the timer is this hart's — it arms the wakeup, its own floor carries it.
+    let cpu = crate::smp::cpu_current_id().as_index() as u32;
+    ctx.hart_timers.arm(timer_id, deadline_ns, cpu).map_err(map_timer_error)?;
     crate::trap::arm_wakeup(ctx.timer, deadline_ns);
     Ok(0)
 }

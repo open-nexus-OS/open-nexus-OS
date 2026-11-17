@@ -68,6 +68,8 @@ pub struct TimerState {
     pub missed: u32,
     /// Whether the timer is currently armed.
     pub armed: bool,
+    /// The CPU it was armed on — whose timer wakes for it (TASK-0363 P8).
+    pub arm_cpu: u32,
 }
 
 /// Per-hart timer management.
@@ -115,22 +117,41 @@ impl HartTimers {
                 seq: 0,
                 missed: 0,
                 armed: false,
+                arm_cpu: 0,
             },
         );
         Ok(TimerId(id))
     }
 
-    /// Arm a timer with an absolute deadline.
-    pub fn arm(&mut self, timer_id: TimerId, deadline_ns: u64) -> Result<(), TimerError> {
+    /// Arm a timer with an absolute deadline, on CPU `cpu` (whose timer wakes for it).
+    pub fn arm(&mut self, timer_id: TimerId, deadline_ns: u64, cpu: u32) -> Result<(), TimerError> {
         let t = self.table.get_mut(&timer_id.0).ok_or(TimerError::InvalidHandle)?;
         if t.armed {
             return Err(TimerError::AlreadyArmed);
         }
         t.deadline_ns = deadline_ns;
         t.armed = true;
+        t.arm_cpu = cpu;
         self.queue.entry(deadline_ns).or_default().push(timer_id);
         NEXT_CAP_NS.fetch_min(deadline_ns, core::sync::atomic::Ordering::AcqRel);
+        use crate::trap::own_deadlines as own;
+        own::lower(own::Kind::Cap, cpu as usize, deadline_ns);
         Ok(())
+    }
+
+    /// The gates are exact again: the earliest armed deadline, and each hart's own (TASK-0363
+    /// P8) — set together, so a hart's own floor is never below the global one for long.
+    fn publish_gates(&self) {
+        NEXT_CAP_NS.store(
+            self.earliest_deadline().unwrap_or(u64::MAX),
+            core::sync::atomic::Ordering::Release,
+        );
+        use crate::trap::own_deadlines as own;
+        own::begin(own::Kind::Cap);
+        for (cpu, deadline) in self.armed() {
+            own::note(own::Kind::Cap, cpu as usize, deadline);
+        }
+        own::publish(own::Kind::Cap);
     }
 
     /// Disarm a timer. No event is delivered for a disarmed timer.
@@ -148,6 +169,8 @@ impl HartTimers {
                 self.queue.remove(&deadline);
             }
         }
+        // Exact again: a cancelled pacer timer does not leave a gate that wakes a locked look.
+        self.publish_gates();
         Ok(())
     }
 
@@ -192,16 +215,19 @@ impl HartTimers {
                 }
             }
         }
-        NEXT_CAP_NS.store(
-            self.earliest_deadline().unwrap_or(u64::MAX),
-            core::sync::atomic::Ordering::Release,
-        );
+        self.publish_gates();
         expired
     }
 
     /// Get the earliest deadline in the queue.
     pub fn earliest_deadline(&self) -> Option<u64> {
         self.queue.keys().next().copied()
+    }
+
+    /// Every armed timer as `(cpu it was armed on, deadline)` — each hart's own floor
+    /// (TASK-0363 P8; at most [`MAX_TIMERS`]).
+    pub fn armed(&self) -> impl Iterator<Item = (u32, u64)> + '_ {
+        self.table.values().filter(|t| t.armed).map(|t| (t.arm_cpu, t.deadline_ns))
     }
 
     /// Check whether a timer exists and is owned by the given PID.
@@ -267,7 +293,7 @@ mod tests {
     fn arm_and_pop_expired() {
         let mut ht = new_timers();
         let id = ht.alloc(1, 10, 0).unwrap();
-        ht.arm(id, 100).unwrap();
+        ht.arm(id, 100, 0).unwrap();
         // Not yet expired
         assert!(ht.pop_expired(50).is_empty());
         // Expired
@@ -283,7 +309,7 @@ mod tests {
         let mut ht = new_timers();
         let interval = 1_000_000;
         let id = ht.alloc(1, 10, interval).unwrap();
-        ht.arm(id, 100_000).unwrap();
+        ht.arm(id, 100_000, 0).unwrap();
 
         // First fire at 100_000
         let expired = ht.pop_expired(100_000);
@@ -304,7 +330,7 @@ mod tests {
     fn disarm_removes_from_queue() {
         let mut ht = new_timers();
         let id = ht.alloc(1, 10, 0).unwrap();
-        ht.arm(id, 100).unwrap();
+        ht.arm(id, 100, 0).unwrap();
         ht.disarm(id).unwrap();
         assert!(!ht.get(id).unwrap().armed);
         assert!(ht.pop_expired(200).is_empty());
@@ -322,8 +348,8 @@ mod tests {
     fn already_armed_rejected() {
         let mut ht = new_timers();
         let id = ht.alloc(1, 10, 0).unwrap();
-        ht.arm(id, 100).unwrap();
-        assert_eq!(ht.arm(id, 200), Err(TimerError::AlreadyArmed));
+        ht.arm(id, 100, 0).unwrap();
+        assert_eq!(ht.arm(id, 200, 0), Err(TimerError::AlreadyArmed));
     }
 
     #[test]
@@ -331,8 +357,8 @@ mod tests {
         let mut ht = new_timers();
         let a = ht.alloc(1, 10, 0).unwrap();
         let b = ht.alloc(1, 10, 0).unwrap();
-        ht.arm(a, 500).unwrap();
-        ht.arm(b, 100).unwrap();
+        ht.arm(a, 500, 0).unwrap();
+        ht.arm(b, 100, 0).unwrap();
         assert_eq!(ht.earliest_deadline(), Some(100));
     }
 }

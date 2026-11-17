@@ -383,24 +383,9 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                 }
             }
             // S-mode interrupt (kernel idle/boot) or runtime not yet installed: no tick
-            // (TASK-0363 P4) — this hart's pending deadline, else a safety net; the idle loop
-            // delivers what is due. Counted (`KINIT: idle timer wakes`); resume untouched.
+            // (TASK-0363 P4), counted; resume untouched (`cpu_main::idle`).
             #[cfg(all(target_arch = "riscv64", target_os = "none", feature = "timer_irq"))]
-            {
-                let now = crate::cpu_main::now_ns();
-                let empty = !crate::cpu_main::timed_due(now);
-                let net = now.saturating_add(IDLE_SAFETY_NS);
-                let armed = super::runtime::armed_deadline_ns();
-                let deadline_fired = armed != 0 && armed <= now;
-                crate::smp::record_idle_timer(
-                    crate::smp::cpu_current_id(),
-                    now,
-                    empty,
-                    deadline_fired,
-                    net,
-                );
-                timer_arm(crate::hal::platform::ns_to_ticks(IDLE_SAFETY_NS));
-            }
+            crate::cpu_main::idle::on_timer();
         }
         const S_EXT_INT: usize = 9;
         if code == S_EXT_INT {
