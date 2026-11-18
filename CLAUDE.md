@@ -106,19 +106,24 @@ untrusted input. Security changes need `test_reject_*` tests + hardening markers
 
 <critical id="agent-budget" enforced-by=".claude/hooks/agent-budget.py">
 Tokens are the sprint's scarcest resource (W45 lost two days to parallel agents). The main
-session thinks; agents do specified legwork only: `model: sonnet` (searches: `haiku`),
-`effort: low|medium`, ONE at a time, never `fork`, never `Workflow`. A brief is self-contained
-(the files, the steps, the result file) — the agent writes its result to that file, and a
-resumed session reads the file and never re-spawns for a result that exists. Hook caps:
-2 spawns per 10 min, 8 per 5 h; a strong-model agent asks the user. Architecture, protection
-zones, security and hard bugs never go to an agent. Model switches follow the Model protocol.
+session works; an agent gets a brief, never the conversation — never `fork`, never `Workflow`.
+Legwork: `model: sonnet` (searches, log digests: `haiku`), `effort: low|medium`; two read-only
+searches may run side by side, everything that edits or builds runs alone. Fable runs only as
+`architect` (decides, read-only) and `critical-writer` (one delicate bounded change), each from
+the brief form its definition names (`.claude/agents/`). A brief is self-contained (the files,
+the steps, the result file) — the agent writes its result to that file, a resumed session reads
+the file and never re-spawns for a result that exists, and a follow-up continues the living
+agent. Hook caps per 5 h: 12 legwork (3 per 10 min), 3 architect, 2 critical-writer (one fable
+agent per 10 min); any other strong-model agent asks the user. Architecture, security and hard
+bugs go to the architect, never to sonnet; protection-zone code is written by the main session
+or the critical-writer. Model use follows the Model protocol.
 </critical>
 
 <forbidden>
 <item>Blanket `#[allow(dead_code)]` — cfg-gate under `nexus_env="os"` instead</item>
 <item>`unwrap`/`expect` on untrusted input · logging secrets/keys</item>
 <item>`parking_lot`, `parking_lot_core`, `getrandom` in the OS graph (RFC-0009)</item>
-<item>Agents on the main model, in parallel, forked, or without a result file · `Workflow`</item>
+<item>Agents forked, on a strong model outside `architect`/`critical-writer`, or without a result file · the conversation as a brief · `Workflow`</item>
 <item>Floating `+stable` in any recipe (one pinned nightly) · new cfgs beyond `nexus_env="host"|"os"`</item>
 </forbidden>
 
@@ -172,23 +177,30 @@ English; prefer modular files (~600 LOC) over monoliths.
 
 ## Model protocol — who thinks, who types
 
-A package runs in three blocks so the user switches the model at most twice. A session never
-drifts into the next block on the wrong model: it stops and prints `MODEL → <model>` with the
-reason, the work order's path and the return point.
+The main session stays on opus (`claude --model opus --effort xhigh`) through a whole package;
+the user switches no model. Fable is called as an agent from a written brief — facts with their
+sources, the files to read, the hypothesis marked as a guess, the question — and answers into a
+result file with the decision and what would refute it.
 
-1. **ARCH** (fable/opus, main session): every decision of the package up front — RFC/ADR,
-   plan-package, protection-zone code, security, gates, the hard bug — so the next block never
-   has to decide anything. Ends with the WORK ORDER: the ledger's phases/steps plus a handoff
-   note in the memory dir (`work-order-<task>-<date>.md`: state, files, steps in order with
-   commands and gates, done-marks, open questions, return point). Then `MODEL → sonnet` (or
-   `opus` for judgement-heavy refactors).
-2. **BUILD** (sonnet/opus): executes the work order step by step and ticks the done-marks in
-   the note. An architecture question goes into the note's open questions and the next step
-   continues — never decided here. Agents (sonnet/haiku, sequential, per the agent-budget rule)
-   carry the legwork inside a step. Ends with `MODEL → fable` when the gates are green or the
-   open questions block every remaining step.
-3. **REVIEW** (fable/opus): judges the gates, the board cycle, the docs sweep, the ledger, the
-   commit proposal — and opens the next package's ARCH block.
+1. **ARCH**: the main session orients (ledger, RFC/ADR, plan-package) and briefs the `architect`
+   with every decision of the package up front — design, cuts, gates, the delicate changes. Its
+   result becomes the WORK ORDER: the ledger's phases/steps plus a handoff note in the memory dir
+   (`work-order-<task>-<date>.md`: state, files, steps in order with commands and gates,
+   done-marks, open questions, return point). The architect reads only, so it may decide the next
+   phase while the current one's lane runs.
+2. **BUILD**: the main session executes the work order step by step and ticks the done-marks.
+   Legwork goes to sonnet/haiku agents. A larger problem — a gate red twice for a cause not
+   understood, a question the work order does not answer — goes to the architect with the
+   measurements and the legwork agents' result files (a follow-up continues the same one). A
+   delicate bounded change (the scheduler, a lock, a trap path, a capability check, an ABI
+   boundary) goes to the `critical-writer` with its invariant, files and gates; the main session
+   reads its diff before any lane runs.
+3. **REVIEW**: the main session judges the gates, the board cycle, the docs sweep, the ledger and
+   the commit proposal.
+
+A package that is delicate as a whole (the kernel off its lock, a new ABI) runs with the main
+session on fable instead: the session stops before it starts and prints `MODEL → fable` with the
+reason and the return point.
 
 A resumed session (after a budget cut or compaction) first reads the work order's done-marks
 and the agents' result files, then continues at the first open step.
