@@ -7,7 +7,12 @@ use crate::core::error::GfxError;
 use crate::core::types::{RenderPassDesc, TileRect};
 use alloc::vec::Vec;
 
-pub const MAX_COMMANDS: usize = 1024;
+/// The commands one buffer records: a frame at the compositor's budget of 256 layers, each a
+/// glass with its recipe (four commands), a transform for every layer and window, the damage.
+pub const MAX_COMMANDS: usize = 2048;
+/// A `LayerTransform`'s length on the wire (a layer's is `layer_wire::RECORD_LEN`): what a
+/// sender sizes a frame's bytes by.
+pub const TRANSFORM_RECORD_LEN: usize = super::transform_wire::RECORD_LEN;
 pub const MAX_FRAGMENT_BYTES: usize = 4096;
 pub const MAX_TILE_RECTS: usize = 1024;
 pub const MAX_RENDER_EXTENT: u32 = 8192;
@@ -300,10 +305,11 @@ const TAG_DROP_SHADOW: u8 = 8;
 const TAG_DAMAGE: u8 = 10;
 
 /// Maximum serialized size for a CommittedBuffer (guard against overflow).
-// Sized to fit gpud's 8192-byte present-frame receive buffer (minus the 1-byte
-// opcode prefix and headroom). Frames carry the full scene-graph CB including
-// bitmap-text DrawTiles runs, which exceed the old 2048 cap.
-const MAX_SERIALIZED: usize = 8000;
+/// The most bytes a buffer serializes to — the one bound of a frame's bytes on their whole way:
+/// who carries a buffer (the display wire's `PRESENT_BODY_MAX`) is tied to it by a constant
+/// assert, never by a second number. It was 8000, one IPC frame: a scene of twenty-one windows
+/// was refused here after every table behind it had grown (`board--2026-11-18T13-29-53`).
+pub const MAX_SERIALIZED: usize = 64 * 1024;
 
 impl CommittedBuffer {
     /// Access the commands for backend inspection/execution.
@@ -382,6 +388,10 @@ fn decode_commands_into(buf: &[u8], out: &mut Vec<Command>) -> Result<usize, Gfx
         return Err(GfxError::InvalidArgument);
     }
     let cmd_count = u16::from_le_bytes([buf[0], buf[1]]) as usize;
+    // No recorder holds more: a stream naming more is refused before a command is parsed.
+    if cmd_count > MAX_COMMANDS || buf.len() > MAX_SERIALIZED {
+        return Err(GfxError::InvalidArgument);
+    }
     let mut pos = 2usize;
     for _ in 0..cmd_count {
         if buf.len() <= pos {

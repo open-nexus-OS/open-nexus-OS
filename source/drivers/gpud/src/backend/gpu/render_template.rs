@@ -237,8 +237,9 @@ pub(super) struct Targets {
     pds_free: u32,
 }
 
-/// Targets a context's passes name (the ring's slots, the frame's scratch and cache rows).
-const MAX_TARGETS: usize = 16;
+/// Targets a context's passes name (the ring's slots, the frame's scratches, the glass cache's
+/// planes as it grows): as many as the arenas hold end-of-tile programs for.
+const MAX_TARGETS: usize = ((TARGET_CODE.1 - TARGET_CODE.0) / 64) as usize;
 
 impl Targets {
     pub(super) const fn new() -> Self {

@@ -271,12 +271,10 @@ fn service_requests(
     // RFC-0093 §5: `STATUS_REVEALED` is acked exactly once per windowd instance, after its own
     // `OP_REVEAL` (`reply::Reveal`; a framebuffer request starts an instance, RFC-0112).
     let mut reveal = crate::reply::Reveal::default();
-    // Persistent present buffer: reused (reload_from) for every frame so gpud
-    // does NOT allocate a fresh Vec<Command> per present. When the heap never
-    // freed, a per-frame deserialize Vec leaked and exhausted the 384KB heap
-    // after a few hundred animation frames (`alloc-fail svc=gpud`), which is
-    // exactly what crashed the GPU pipeline mid-animation.
+    // The present's commands, reused for every frame (`reload_from`): no allocation per present.
     let mut scene_cb = CommittedBuffer::with_capacity(32);
+    // RFC-0101 §8e: a present longer than one frame arrives in parts and is served once, whole.
+    let mut parts = crate::present_parts::Parts::default();
     // Present-time telemetry (frame budget for 120Hz = 8333us), alloc-free, one line per window:
     // where the glass/compositor frame cost goes and the present RATE.
     let mut stats = PresentStats::default();
@@ -331,6 +329,7 @@ fn service_requests(
                     drop(moved_cap);
                     continue;
                 }
+                let Some(frame) = parts.take(frame, sender) else { continue };
                 let op = match frame.first().copied() {
                     Some(op) => op,
                     None => {

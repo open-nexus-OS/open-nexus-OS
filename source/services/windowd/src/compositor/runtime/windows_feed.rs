@@ -42,6 +42,9 @@ pub(super) struct FeedState {
     slots: Vec<crate::window_feed::SlotInfo>,
     due: Vec<crate::seen::Due>,
     taken: Vec<crate::seen::Due>,
+    /// Per window slot: the last frame that left for the display left it out, covered whole
+    /// by the windows above it (ADR-0083: such a window is stated hidden).
+    covered: Vec<bool>,
 }
 
 impl FeedState {
@@ -56,6 +59,7 @@ impl FeedState {
             slots: Vec::new(),
             due: Vec::new(),
             taken: Vec::new(),
+            covered: Vec::new(),
         }
     }
 }
@@ -76,6 +80,7 @@ impl DisplayServerRuntime {
                 open: slot.surface_id.is_some() && self.windows.is_visible(id),
                 minimized: self.windows.is_minimized(id),
                 focused: self.windows.is_top(id),
+                covered: self.windows_feed.covered.get(i).copied().unwrap_or(false),
                 zone: slot.zone.code(),
             });
         }
@@ -210,6 +215,15 @@ impl DisplayServerRuntime {
                 let count = frame.get(4).copied().unwrap_or(0);
                 let _ = debug_println(&alloc::format!("windowd: windows push (n={count})"));
             }
+        }
+    }
+
+    /// A frame left for the display: the windows it left out as covered are stated hidden,
+    /// the ones it draws again seen (ADR-0083) — told when the set of them changed.
+    pub(super) fn note_covered(&mut self) {
+        if self.windows_feed.covered != self.scene_scratch.culled {
+            self.windows_feed.covered.clone_from(&self.scene_scratch.culled);
+            self.push_window_set();
         }
     }
 

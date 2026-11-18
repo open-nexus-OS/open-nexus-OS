@@ -5,7 +5,7 @@ role: guide
 subsystem: ui
 sources: [userspace/ui/animation, source/services/windowd/src/compositor/runtime/transitions.rs, source/services/windowd/src/compositor/runtime/frame_pulse.rs, source/services/windowd/src/compositor/runtime/surface_motion.rs, source/services/windowd/src/motion_geometry.rs, source/services/app-host/src/probe/anim.rs, source/services/app-host/src/probe/motion_layers.rs, source/services/app-host/src/probe/scroll.rs, source/services/app-host/src/probe/pulse.rs, userspace/nexus-gfx/src/backend]
 contracts: [ADR-0031, RFC-0059, RFC-0110, ADR-0076, RFC-0109, ADR-0097]
-verified: 2026-11-13
+verified: 2026-11-18
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->

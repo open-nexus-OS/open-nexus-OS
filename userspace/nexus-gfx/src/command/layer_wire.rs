@@ -20,7 +20,7 @@ pub(super) const TAG_COMPOSITE_LAYER: u8 = 9;
 /// Little-endian words after the tag.
 const WORDS: usize = 21;
 /// The record's length on the wire.
-pub(super) const RECORD_LEN: usize = 1 + WORDS * 4;
+pub const RECORD_LEN: usize = 1 + WORDS * 4;
 
 /// `CompositeLayer::flags` bits 8–15: the slot of the surface buffer a layer samples.
 pub const LAYER_SLOT_SHIFT: u32 = 8;

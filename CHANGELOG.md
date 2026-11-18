@@ -7,6 +7,76 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-11-18 (a frame follows its windows: no table of 64, no cache of four — TASK-0351 P6)
+
+Measured first, on the board with the launcher starting an instance per press
+(`board--2026-11-18T10-51-11`, `…T11-44-54`): 12 windows 84 ms a frame, 17–20 windows
+0.3–0.8 s, the launcher's icons gone at 20 and the launcher at 21. No hart above 1.5 % busy and
+3.4 of 4 GiB of RAM free: the limits were tables. A frame held 64 layers (one IPC frame's
+worth), a pass 640 draws (606 reached), the glass cache 1024 rows — four windows' glass, every
+further window drawn without its blur and damaged whole every frame (`glass_off=81` of 32
+frames). And 19 of 20 windows were stated `visible`: none was ever frozen.
+
+- **The glass cache grows** (`nexus-gfx frame/glass.rs`, gpud `backend/gpu/desktop_cache.rs`):
+  a glass keeps its rows while it keeps its height (rows are no longer packed in walk order),
+  the cache is planes of one row space, and a plan short of rows gets a plane in the same
+  frame (`GlassCache::short`, `Frame::place_short`; `gpud: glass cache (planes= rows=
+  short_rows=)`). Up to 17 planes, 68 windows' glass.
+- **The planner follows the scene** (`frame/layers.rs`, `plan.rs`, `glass.rs`, `board.rs`): the
+  retained set, the plan's steps and the cache's slots are tables taken from the heap when a
+  scene first needs them and kept, up to what a present can name (`MAX_LAYERS` =
+  `MAX_COMMANDS`, 2048: a frame at the compositor's budget, every layer a glass with its
+  recipe). The board keeps no table: it finds a write in the plan and works its
+  re-blur geometry out where a pass asks.
+- **A present in parts** (RFC-0101 §8e, `nexus-display-proto` `OP_PRESENT_PART` = 6 and its
+  sender `present_parts.rs`, gpud `present_parts.rs`): a body longer than one IPC frame travels as
+  ordered parts of one sender and one seq, at most 64 KiB, and is served once, whole; a run
+  that is not one is acked malformed (`test_reject_a_part_out_of_order_or_of_another_present`,
+  `test_reject_a_part_of_another_sender`, `test_reject_a_body_past_its_bound_and_a_part_without_a_header`).
+  The compositor sends the parts from where the body lies on its heap (no copy, nothing on
+  its stack); gpud's request queue is 32 frames deep (was 8: a present of nine parts could not
+  have lain in it).
+- **One bound a quantity, tied where it is used** (the third board run froze at the 21st
+  window: the serializer's own 8000 bytes, a fourth copy of "64 layers" —
+  `board--2026-11-18T13-29-53`, 5641 lines `windowd: flush rows fail`). The frame's layer
+  budget is the wire crate's (`nexus_display_proto::FRAME_LAYERS` = 256, shared max-min fair;
+  `ORDER_MAX` = the 64 windows a capture names); a present's body is the serializer's bound
+  (`PRESENT_BODY_MAX` = `MAX_SERIALIZED` = 64 KiB, a constant assert in the compositor and
+  in the driver). A pass of the board's executor emits up to 1536 draws — what its pass
+  memory's four rings hold, computed with the rings themselves (gpud `frame_limits.rs`: the
+  PDS heap's 1807 lines bound a frame, not the three rings that had been grown).
+- **Past a bound a frame is degraded, never refused**: a pass asked for more draws leaves its
+  lowest out (`gpud: gpu pass draws FAIL (kept= left_out=)`); a failed flush is named with its
+  count at the 1st, 2nd, 4th, … time. Both lines and `windowd: layers over the frame bound (`
+  are forbidden in the lanes that draw a desktop.
+- **Proved along the real path, on the host**: sixty-four cascaded windows through the
+  scene's encoder, the serializer, the sender's parts, the driver's gathering, the decoder,
+  the planner and the board's passes (gpud `a_frame_of_sixty_four_windows_goes_the_whole_way`);
+  a frame at the budget with every layer a glass serialized and decoded (windowd
+  `a_frame_at_its_budget_is_a_present_the_display_driver_takes`); and the forty-window lane
+  (`ci-os-many-apps`), which had shown the refused frames since 2026-11-13 and stayed green.
+- **Cost follows what is seen** (`nexus-gfx frame/plan.rs`, `glass.rs`): a glass whose
+  backdrop changed where the layers above hide it is not blurred again — its rows owe the
+  change and the frame that uncovers it pays (`GlassCache::put_off`, `owed`;
+  `gpud: glass writes (… hidden=)`). Twenty cascaded windows: one glass written for a change
+  under them, where every window in reach was (`frame_hidden_glass`; the board blurred three
+  or four glasses a frame, three passes each).
+- **A window covered whole is hidden** (ADR-0083 amended, `windowd seen.rs`): the windows a
+  frame leaves out as covered are stated `Hidden` to the lifecycle authority, which freezes
+  their apps after the grace and thaws them when a pixel shows again.
+- **Two faults of this package's own first images, found on the board and fixed at the
+  cause**: the display driver's frame function held four boards of 14.7 KiB in 63 KiB of stack
+  and overflowed its 128 KiB at the first present (now 11 KiB; the board is under 1 KiB,
+  `the_board_is_small_enough_for_its_executors_stack`); and the cache's new planes were placed
+  at the address the app buffers' window starts at (the context's address map is one
+  host-tested file now, `gpud surface_va.rs`: `no_two_ranges_of_the_context_overlap`).
+- **Insight**: `gpud: glass writes (… band_base=)` — of the band writes, those a change of the
+  desktop's own surface reached; `gpud: gpu glass written (` is named again each time the
+  scene grew by eight layers.
+- Open, named: a damage rectangle's origin is the topmost window it lies within, not the
+  surface that changed (a hover in a panel over a window is counted as that window's); a
+  frame shows at most 64 windows.
+
 ### Changed - 2026-11-18 (no program names a CPU or a count of them — TASK-0365 P2)
 
 - **The workpool sizes itself**: a worker per CPU its process may run on — the set its role

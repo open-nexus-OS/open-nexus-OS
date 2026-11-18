@@ -5,7 +5,7 @@ title: "Layer 8 on the GPU: an occluded window costs nothing, bindings grow, a f
 status: in_progress
 owner: ["@ui", "@gpu"]
 created: 2026-11-03
-updated: 2026-11-16
+updated: 2026-11-18
 subsystem: ui
 components: [gpud, windowd, nexus-gfx, app-host]
 kind: service
@@ -31,7 +31,7 @@ phases:
     state: proving
     gate: "board cycle: frame p99, ns_per_px, layers per frame and bindings in use logged for 12 and 30 windows"
     started: 2026-11-03
-    note: "2026-11-04 cycle 12-28-47: at most 4 windows live at once (windows push n<=4, layers<=21); the 12- and 30-window series is still owed — the next cycle opens the cascade twice."
+    note: "board 2026-11-18T10-51-11 (the launcher starts an instance per press): 12 windows logged — frame avg 84 ms, max 171 ms, 12.9 passes, 381 draws, slot 9.5 Mpx and scene 5.9 Mpx a frame, 5 ns per px, 31 layers, bindings 59 of 128; at 17-20 windows a frame takes 0.3-0.8 s and windowd drops layers at the frame's bound of 64 (the operator's 'hang'). Cause measured: the glass cache held rows for five windows (glass_off=81 of 32 frames) and band writes reach every glass above a change (band=115). 30 windows follow P6's cut."
   - id: P1
     story: "a window hidden behind others costs the frame nothing"
     state: done
@@ -46,7 +46,7 @@ phases:
     gate: "host: a space binds 130 bindings past a reserve of 2 (nexus-driverkit), the surface window reaches the layout's GiB; board: 30 windows with 0 binding failures, gpud: bindings of= grows past 128"
     started: 2026-11-04
     evidence: build/logs/many-windows--2026-11-04T09-45-42
-    note: "2026-11-04 cycle: bindings in_use<=48 of=128 contexts=1, no binding failure with 4 windows; the growth past 128 needs the 30-window scene (P0)."
+    note: "board 2026-11-18T10-51-11: bindings in_use 59 of 128 at 12 windows, no binding failure up to 20 windows; the table's growth past 128 is not reached by 30 windows of this kind (about 1.3 bindings a window) — the host test is its proof, the board's gate is 0 failures at 30"
   - id: P3
     story: "the frame the planner scans out directly is named: an opaque, untransformed, plain window body from a surface of its own covering the display whole (RFC-0101 §8 amended) — the contract and the host-tested decision; the contiguous surface and the flip are P9"
     state: done
@@ -69,9 +69,10 @@ phases:
     note: "board 2026-11-05T13-12-18: q16 915 us and area16 748 us meet the sweep half; gpu gate scene FAIL on cold 44.8 ms against 23.3 (hover 3.3 ms)"
   - id: P6
     story: "the passes a frame runs hold the budget on the board, with glass and while something moves"
-    state: planned
+    state: building
     gate: "board: gpud: gpu gate scene ok, frame p99 <= 16.7 ms with glass on the operator series, 0 of 32 frames dropped during a transition"
-    note: "board 2026-11-13 (board--2026-11-13T12-18-30, three windows, no 12/30-window series) against the gates of the phases still proving: P5 sweep q16 462 us and area16 477 us (met), gate scene cold 38.6 ms against 23.3 and hover 2.9 ms (cold not met); P13 sweep drawn 16x16 (met), hover 2877 us against 2000 (not met); P10 emit per draw 14.9 us on average, 73.5 at most, against 15 (not met in every window); P14 straight_px above a third of opaque_px in 84 of 84 windows, ux frame max_us above 40 ms in 17 of 72 (not met); P15 blend body above 600 000 in 21 of 84 windows (not met); P0 and P2 need the 12- and 30-window series"
+    started: 2026-11-18
+    note: "2026-11-18 fourth board run (board--2026-11-18T14-59-11): 49 windows drawn, 0 refused frames, 0 passes over the draw bound, glass_off=0, cache 11 planes — the freeze is gone. Gate NOT met: 3 windows 28 ms, 7 windows 51 ms, 22 windows 164 ms, 49 windows 341 ms a frame (7-28 passes; 3-9 glass writes a frame, nearly all band_base; hidden glasses put off: up to 22 a frame). Cause read from 'windowd: loop hz … damage(flushed_px=)': the damage that leaves is one to five bounding boxes of 1.3-2.1 Mpx (window opened/closed/presented, merged while a frame is in flight) named origin 0 — every glass in reach blurs again. Next in this phase: damage carries the surface it came from through the queue and the merge (windowd), a change dies under an opaque layer that covers it (planner), then one board run."
   - id: P7
     story: "every effect's mathematics lives in nexus-gfx's kernel tables and the executors interpret it (ADR-0094): the blur taps shared by the shaders and the raster, the dual filter harvested from nexus-effects into the table, the crate and the dead crates deleted, no tap weight or coverage formula left in a driver or a shader source"
     state: done
@@ -92,11 +93,12 @@ phases:
     gate: "board: gpud: gpu direct scanout ok (frames= passes=0) while a fullscreen app presents; test_reject_a_flip_of_a_paged_surface"
   - id: P10
     story: "the emit costs what its draws write: a pass's draws are walked once per frame (the plan's wallpaper pieces and each layer's draws in order) and the emitter indexes a kept list instead of asking the plan per draw"
-    state: proving
+    state: done
     gate: "host: the walked draws equal the indexed walk for the cascade, the glass and the twelve-window scenes (frame_board), and the walk touches each layer once; board: gpud: gpu frame us split emit per draw <= 15 us at 12 windows"
     started: 2026-11-04
-    evidence: build/logs/headless--2026-11-04T13-54-39
-    note: "board 2026-11-05T13-12-18: emit 15.6-27 us per draw at 13-45 draws (no 12-window run)"
+    done: 2026-11-18
+    evidence: build/logs/board--2026-11-18T10-51-11
+    note: "board 2026-11-18T10-51-11: emit 10.4 us per draw at 12 windows (381 draws a frame), 9.0-11.9 us at 10-205 draws"
   - id: P12
     story: "the pass's fixed cost is located by the firmware's own clock: every traced pass prints the firmware's utilisation deltas (idle, active, blocked), the commands it executed and the interrupts it took, and the sweep prints the area and passes each case actually drew — the hover pass and the sweep's q16 against the rung's 0.5 ms through the same firmware"
     state: done
@@ -233,6 +235,52 @@ P1's lane finding (2026-11-04, `many-windows--2026-11-04T08-53-53`): the headles
 on the CPU, where a glass body is blended and hides nothing — the planner's rule counts only a
 GPU-drawn glass back (`back`) — so `windows occluded` is the GPU path's line (virgl, the board);
 the lane keeps the fill and return chords, the host model pins the rule.
+
+## Three lenses (P6, 2026-11-18: many windows)
+
+Measured before (`board--2026-11-18T10-51-11`, the launcher starting an instance per press):
+12 windows 84 ms a frame (12.9 passes, slot 9.5 Mpx, scene 5.9 Mpx), 17–20 windows 0.3–0.8 s;
+no hart above 1.5 % busy. `glass_off=81` of 32 frames: the cache held rows for four windows'
+glass, the others lost their blur and damaged their rectangle every frame. `band=115` of 32
+frames: a change reaches every glass stacked above it.
+
+- **Scope** — in: the glass cache as rows kept per glass in planes the executor adds
+  (`frame/glass.rs`, `gpud backend/gpu/desktop_cache.rs`); the band writes counted by what
+  reached them; the frame's bound of 64 layers gone on the whole way (the planner's tables
+  grow with the scene, the wire crate's budget of 256 layers a frame, a present in parts, the
+  draws a pass's memory holds); a window covered whole stated `hidden` to the lifecycle
+  authority (the second run, `…T11-44-54`: the launcher lost its layers at 20 windows, 19 of
+  20 windows `visible`). The third run (`…T13-29-53`) froze at the 21st window on the
+  serializer's own 8000 bytes — a fourth copy of the same bound — and measured 53 ms a frame
+  at 10 windows and 102 ms at 15 (11–13 passes: three or four glasses blurred again a frame,
+  `band_base` = all of them). In, since then: every bound of the frame's path once and tied
+  by constant asserts, a frame past a bound degraded and named instead of refused, the
+  sixty-four-window run down the real path on the host (gpud `frame_limits`), a refused frame
+  forbidden in the lanes; and a glass whose change is hidden by the layers above is not
+  blurred again (`frame/plan.rs`: its rows owe the change).
+  · out, named: a damage rectangle's origin by the surface that changed (today the topmost
+  window it lies within), two-dimensional packing of the cache (a plane holds four windows;
+  memory, not correctness), more than 64 windows in one frame (the capture reply's bound),
+  continuation renders for a pass past 1536 draws (its lowest draws are left out).
+- **Invariant** — a glass that fits a plane is never shown without its backdrop because the
+  cache is full, and no other glass's rows move when the set changes:
+  `a_glass_keeps_its_rows_while_the_set_around_it_changes`,
+  `a_glass_without_rows_is_off_and_counted_short_until_the_cache_has_a_plane_for_it`,
+  `test_reject_rows_across_a_plane_edge_and_a_glass_taller_than_a_plane` (host);
+  `gpud: gpu frame us … glass_off=0` at 12 and 20 windows (board). A present in parts is one
+  sender's, one seq's, in order and at most its bound, or it is acked malformed — never a
+  present of some of the bytes: `test_reject_a_part_out_of_order_or_of_another_present`,
+  `test_reject_a_part_of_another_sender`,
+  `test_reject_a_body_past_its_bound_and_a_part_without_a_header`. No range of the GPU
+  context overlaps another: `no_two_ranges_of_the_context_overlap`. A frame at the
+  compositor's bounds is never refused on its way: `a_frame_of_sixty_four_windows_goes_the_whole_way`,
+  `a_pass_of_the_most_draws_fits_every_ring`, `a_frame_at_its_budget_is_a_present_the_display_driver_takes`,
+  `test_reject_a_stream_naming_more_commands_than_a_buffer_holds`; `windowd: flush rows fail`
+  forbidden on `ci-os-many-apps` (forty windows). A glass put off is written by the frame
+  that shows it: `a_change_under_the_window_above_is_not_blurred_again_until_it_shows`.
+- **Contract** — RFC-0109 (a slot follows its layer's identity), RFC-0101 §8 (the plan's damage)
+  and §8e (a present in parts), ADR-0078 (the context's private buffers), ADR-0083 amended (a
+  window covered whole is hidden).
 
 ## Not doing here
 

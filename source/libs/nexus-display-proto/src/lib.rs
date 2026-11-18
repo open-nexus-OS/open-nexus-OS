@@ -48,6 +48,7 @@ pub use readback::{OP_READBACK, READBACK_FREEZE};
 /// RFC-0109 §motion layers: a declared layer the compositor moves (TASK-0354 P2).
 pub mod motion_layer;
 /// Screen capture on windowd's surface endpoint + the capture-key push (RFC-0095).
+pub mod present_parts;
 pub mod surface_capture;
 /// RFC-0113 §5: the focused field's caret, drawn and blinked by the compositor.
 pub mod surface_caret;
@@ -131,6 +132,28 @@ pub const OP_REVEAL: u8 = 13;
 /// instance and echoed by the present ack, so an ack can only ever credit the
 /// present it belongs to.
 pub const PRESENT_HEADER_LEN: usize = 5;
+/// windowd → gpud (RFC-0101 §8e): a present whose body does not fit one frame travels in
+/// parts — `[OP_PRESENT_PART, seq: u32 le, index: u8, bytes…]`, indexes `0..` in order, the
+/// last with [`PRESENT_PART_LAST`] set. Only the last is answered, with the present's ack; a
+/// part out of order, of another seq or past [`PRESENT_BODY_MAX`] makes that ack malformed.
+pub const OP_PRESENT_PART: u8 = 6;
+pub const PRESENT_PART_HEADER_LEN: usize = PRESENT_HEADER_LEN + 1;
+/// The index byte's flag of a present's last part; the index is the bits below it.
+pub const PRESENT_PART_LAST: u8 = 0x80;
+/// The longest present body (the serialized `CommittedBuffer`), whole or in parts — the
+/// serializer's own bound (`nexus_gfx::command::buffer::MAX_SERIALIZED`); both ends assert it.
+pub const PRESENT_BODY_MAX: usize = 64 * 1024;
+/// The layers one frame composes: the compositor's budget and what the executor's passes are
+/// sized for. A frame of them and their transforms fits `PRESENT_BODY_MAX`.
+pub const FRAME_LAYERS: usize = 256;
+
+/// Write a part's header (`[OP_PRESENT_PART, seq, index | last]`) in front of its bytes at
+/// `frame[PRESENT_PART_HEADER_LEN..]`.
+pub fn write_present_part_header(frame: &mut [u8], seq: u32, index: u8, last: bool) {
+    frame[0] = OP_PRESENT_PART;
+    frame[1..PRESENT_HEADER_LEN].copy_from_slice(&seq.to_le_bytes());
+    frame[PRESENT_HEADER_LEN] = index | if last { PRESENT_PART_LAST } else { 0 };
+}
 /// Present ack: `[status, seq: u32 le]`.
 pub const PRESENT_ACK_LEN: usize = 5;
 /// Attach ack v2: `[status, handoff_id, seq, mode_w, mode_h, content_x, content_y,

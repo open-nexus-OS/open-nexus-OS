@@ -109,12 +109,19 @@ pub mod cpu_vector;
 /// gpud's frame clock (TASK-0324 P7-d): the one-shot timer pacing the self-presented phases.
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 pub(crate) mod frame_clock;
+/// What a frame may ask of the executor, and a frame of sixty-four windows down the whole
+/// path (host-tested).
+#[cfg(any(test, all(feature = "os-lite", target_os = "none")))]
+pub(crate) mod frame_limits;
 /// The framebuffer grant and the attach that follows it (RFC-0098 C7, RFC-0093 §5).
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 pub(crate) mod framebuffer_grant;
 /// The present chain's hops (validate, execute, damage, scan out, trace).
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 pub(crate) mod present_chain;
+/// A present in parts gathered into the present it is (RFC-0101 §8e) — pure, host-tested.
+#[cfg(any(test, all(feature = "os-lite", target_os = "none")))]
+pub(crate) mod present_parts;
 /// The ONE pixel readback (RFC-0095): the `OP_READBACK` request and the CPU half of the copy
 /// (the 2D virtio path and the board's controller); host-tested.
 #[cfg(any(test, all(feature = "os-lite", target_os = "none")))]

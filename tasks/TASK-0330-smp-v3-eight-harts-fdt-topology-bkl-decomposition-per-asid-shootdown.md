@@ -58,10 +58,10 @@ phases:
     note: "committed ee10ce1a (2026-11-12). QEMU: ci-os-smp1 green (build/logs/smp1--2026-11-11T18-30-48), ci-os-smp green on the final tree (smp--2026-11-11T19-13-04), 10 of 10 boots at -smp 8 with all eight harts online, 0 lost, 0 panics (T18-34-13..T19-02-21; lane 8 green, 2 red on the lock budget at eight emulated harts). Board (build dev-c22532d5): KSELFTEST: smp online ok harts=8 clusters=2, per-hart state ok (harts=8 unsized=0), plic ctx cpu0..7 ok, init: affinity applied n=0x1f fail=0x0 online=0xff, bkl budget ok (max_wait=2476us max_hold=1ms), ipc call budget ok (rt=32us), not one bkl long wait/hold line. Retired-name gate green. Record: docs/board/measurements/2026-11-11-n-harts. The interrupt that follows its driver's home CPU was cut out of this phase on 2026-11-12 (operator): it is P8"
   - id: P2
     story: "an IPC between two services on two harts waits for no third: an endpoint, a waitset and a fence each carry their own lock, a process's capability table its own, and a call lends the caller's time right to the thread that serves it"
-    state: building
+    state: blocked
     gate: "host: lock-rank tests for the IPC objects; QEMU: the -smp 8 stress lane green; board: KSELFTEST: ipc call budget ok (rt <= 64 us) measured on every hart and no IPC syscall among the kernel lock's holders"
     started: 2026-11-18
-    note: "blocked on TASK-0363 P2 and P4 (ADR-0098: the run queues leave the kernel lock first — an IPC's wake ends in a run queue, an endpoint lock taken inside the one lock would remove nothing). 2026-11-11: on a multi-hart QEMU lane 'KSELFTEST: ipc call budget FAIL' (rt 500-662 us: the call crosses to the server's hart through a host thread wake) is a rung, not a verdict (config/fail-marker-allow-mttcg.txt) — the entry leaves that list with this phase's board gate"
+    note: "queued behind the sprint's proving and building phases (operator, 2026-11-18). No longer blocked on TASK-0363 (done 2026-11-18: the run queues are off the kernel lock). On a multi-hart QEMU lane 'KSELFTEST: ipc call budget' fails (rt 821-952 us at 8 harts, smp--2026-11-18)."
   - id: P3
     story: "a page fault and a mapping on one hart wait for no other process: a lock per address space and per memory object, frames from a per-hart magazine, and a shootdown reaches only the harts that ran the address space"
     state: planned

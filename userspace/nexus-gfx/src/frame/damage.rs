@@ -15,8 +15,9 @@
 //! than the history, or of unknown age. Allocation-free.
 
 /// A screen area.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Area {
+    #[default]
     None,
     /// `x0..x1` × `y0..y1` (end exclusive), never empty.
     Rect {

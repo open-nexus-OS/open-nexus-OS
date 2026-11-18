@@ -7,17 +7,16 @@
 //! keeps the set; every frame composes it whole. Moved here from the QEMU path's backend so the
 //! board's executor draws the same set.
 
+use alloc::vec::Vec;
+
 use super::damage::Area;
-use crate::command::buffer::{Command, SCALE_ONE};
+use crate::command::buffer::{Command, MAX_COMMANDS, SCALE_ONE};
 
-/// The set's capacity — the frame's layer budget: every window its body, its regions, its scroll
-/// layers' slices and its washes (RFC-0109), the desktop's base, regions and bar, fair-shared
-/// among the windows on screen (windowd never encodes more: it stops at the bound and says so).
-pub const MAX_LAYERS: usize = 64;
-
-/// The windows' transforms a set holds: at most one per window it draws — at most one per layer.
-/// A transform id is a window's key (RFC-0114 §7: `1..=0xFFFE`, the desktop `0xFFFF`; `0` = none).
-const TRANSFORMS_MAX: usize = MAX_LAYERS;
+/// The most layers a set holds: what one present can name (a layer is a command). The set, the
+/// plan and the glass cache's slots grow with the scene up to it — their tables are taken from
+/// the heap when a scene first needs them and kept (a settled scene allocates nothing). How
+/// many layers a compositor sends is its own budget (windowd's: `layer_quota`), below this.
+pub const MAX_LAYERS: usize = MAX_COMMANDS;
 
 /// One `CompositeLayer` as the frame keeps it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -214,11 +213,11 @@ pub struct Taken {
 
 /// The retained set and the windows' transforms.
 pub struct RetainedLayers {
-    layers: [FrameLayer; MAX_LAYERS],
-    count: usize,
-    /// `(transform id, transform)` of the windows the last presents named.
-    transforms: [(u32, Transform); TRANSFORMS_MAX],
-    transform_count: usize,
+    layers: Vec<FrameLayer>,
+    /// `(transform id, transform)` of the windows the last presents named: at most one per
+    /// window the set draws. A transform id is a window's key (RFC-0114 §7: `1..=0xFFFE`, the
+    /// desktop `0xFFFF`; `0` = none).
+    transforms: Vec<(u32, Transform)>,
     /// The set changed since the frame last decided its atlas upload.
     pub(super) dirty: bool,
     /// The set generation the atlas was last uploaded at (`0` = none yet).
@@ -245,10 +244,8 @@ pub const ORIGIN_ABOVE: u32 = u32::MAX;
 impl RetainedLayers {
     pub const fn new() -> Self {
         Self {
-            layers: [FrameLayer::EMPTY; MAX_LAYERS],
-            count: 0,
-            transforms: [(0, Transform::IDENTITY); TRANSFORMS_MAX],
-            transform_count: 0,
+            layers: Vec::new(),
+            transforms: Vec::new(),
             dirty: true,
             uploaded_epoch: 0,
             buffers_lost: true,
@@ -294,7 +291,7 @@ impl RetainedLayers {
         // The present's transforms first: they hold from this present's layers on (TASK-0336),
         // whether or not the present brings layers.
         if cmds.iter().any(|c| matches!(c, Command::CompositeLayer { .. })) {
-            self.transform_count = 0;
+            self.transforms.clear();
         }
         for c in cmds {
             if let Command::LayerTransform {
@@ -340,35 +337,30 @@ impl RetainedLayers {
         if !replaced {
             return Taken { replaced: false, dropped: 0 };
         }
-        self.count = 0;
+        self.layers.clear();
         self.dirty = true;
-        let mut dropped = 0;
-        for layer in cmds.iter().filter_map(FrameLayer::from_command) {
-            match self.layers.get_mut(self.count) {
-                Some(slot) => {
-                    *slot = layer;
-                    self.count += 1;
-                }
-                None => dropped += 1,
-            }
-        }
-        Taken { replaced: true, dropped }
+        // The set grows to the present, once: a heap that refuses keeps what it held room for.
+        let brought = cmds.iter().filter(|c| matches!(c, Command::CompositeLayer { .. })).count();
+        let _ = self.layers.try_reserve(brought.min(MAX_LAYERS));
+        let room = self.layers.capacity().min(MAX_LAYERS);
+        self.layers.extend(cmds.iter().filter_map(FrameLayer::from_command).take(room));
+        Taken { replaced: true, dropped: brought - self.layers.len() }
     }
 
     /// The set emptied, its transforms with it (an executor's own scene drawn before the
     /// compositor's first — the next present with layers replaces nothing).
     pub fn clear(&mut self) {
-        self.count = 0;
+        self.layers.clear();
         self.dirty = true;
-        self.transform_count = 0;
+        self.transforms.clear();
     }
 
     pub fn len(&self) -> usize {
-        self.count
+        self.layers.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.count == 0
+        self.layers.is_empty()
     }
 
     /// The present's damage, taken: its rectangles with their origins (none when a present named
@@ -388,7 +380,7 @@ impl RetainedLayers {
 
     /// The index of the first layer carrying transform id `layer_id`, if one does.
     pub fn index_of_id(&self, layer_id: u32) -> Option<usize> {
-        self.layers[..self.count].iter().position(|l| l.layer_id == layer_id)
+        self.layers.iter().position(|l| l.layer_id == layer_id)
     }
 
     /// The transform of layer id `layer_id` from now on; `false` for id 0, or when the set holds
@@ -397,25 +389,20 @@ impl RetainedLayers {
         if layer_id == 0 {
             return false;
         }
-        let held = &mut self.transforms[..self.transform_count];
-        if let Some(slot) = held.iter_mut().find(|(id, _)| *id == layer_id) {
+        if let Some(slot) = self.transforms.iter_mut().find(|(id, _)| *id == layer_id) {
             slot.1 = t;
             return true;
         }
-        match self.transforms.get_mut(self.transform_count) {
-            Some(slot) => {
-                *slot = (layer_id, t);
-                self.transform_count += 1;
-                true
-            }
-            None => false,
+        if self.transforms.len() >= MAX_LAYERS || self.transforms.try_reserve(1).is_err() {
+            return false;
         }
+        self.transforms.push((layer_id, t));
+        true
     }
 
     /// The transform of layer id `layer_id`, if a present named one.
     fn transform_of(&self, layer_id: u32) -> Option<Transform> {
-        let held = &self.transforms[..self.transform_count];
-        held.iter().find(|(id, _)| *id == layer_id && layer_id != 0).map(|(_, t)| *t)
+        self.transforms.iter().find(|(id, _)| *id == layer_id && layer_id != 0).map(|(_, t)| *t)
     }
 
     /// The uploaded atlas is no longer trusted (a batch carrying its upload was abandoned): the
@@ -428,7 +415,7 @@ impl RetainedLayers {
 
     /// Layer `i` as the frame draws it: its window's transform applied.
     pub fn effective(&self, i: usize) -> Option<FrameLayer> {
-        let mut l = *self.layers.get(i).filter(|_| i < self.count)?;
+        let mut l = *self.layers.get(i)?;
         if let Some(t) = self.transform_of(l.layer_id) {
             t.apply(&mut l);
         }
@@ -446,7 +433,7 @@ impl RetainedLayers {
 
     /// The highest content generation of the set (`0`: no layer is stamped).
     pub(super) fn set_epoch(&self) -> u32 {
-        let layout = self.layers[..self.count].iter().filter(|l| l.source == 0);
+        let layout = self.layers.iter().filter(|l| l.source == 0);
         layout.map(|l| l.content_epoch).max().unwrap_or(0)
     }
 }

@@ -51,6 +51,9 @@ pub(crate) struct BufferState {
     /// App windows this frame left out, covered by the windows above them (TASK-0351 P1).
     pub(super) frame_occluded: usize,
     windows_occluded: usize,
+    /// The frame being built as it goes to gpud: the present's header and its body. Taken
+    /// from the heap once — a present may be longer than one IPC frame (RFC-0101 §8e).
+    pub(super) frame_wire: Vec<u8>,
     releases: Vec<(u32, u32, u64)>,
     requests: VecDeque<Request>,
     /// The desktop surface its client dropped and its layers, shown until its successor
@@ -66,6 +69,7 @@ impl BufferState {
         Self {
             frame_reads: Vec::new(),
             frame_windows: 0,
+            frame_wire: Vec::new(),
             windows_drawn: 0,
             frame_occluded: 0,
             windows_occluded: 0,
@@ -373,6 +377,7 @@ impl DisplayServerRuntime {
             self.buffers.windows_occluded = occluded;
             let _ = debug_println(&alloc::format!("windowd: windows occluded (n={occluded})"));
         }
+        self.note_covered();
     }
 
     /// The release (RFC-0114 §5): every present whose other slots no frame in flight reads any

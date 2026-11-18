@@ -214,9 +214,9 @@ fn a_glass_the_executor_cannot_blur_takes_no_slot() {
 }
 
 #[test]
-fn rows_pack_in_walk_order_and_an_overflow_blurs_live() {
+fn a_glass_without_rows_is_off_and_counted_short_until_the_cache_has_a_plane_for_it() {
     // Two glass layers of 100 rows (27 quarter-resolution rows each at radius 20) in a cache of
-    // 40 rows.
+    // one plane of 40 rows.
     let mut f = ready_frame(40);
     let a = glass(layer(0, 0, 100, 100), 20);
     let b = glass(layer(0, 200, 100, 100), 20);
@@ -225,11 +225,69 @@ fn rows_pack_in_walk_order_and_an_overflow_blurs_live() {
     assert_eq!(cache_of(&f, 0), Some(CacheStep::Write(0)));
     assert_eq!(cache_of(&f, 1), Some(CacheStep::Off));
     assert_eq!(f.step(1).and_then(|s| s.glass).map(|g| g.rows), Some(27));
-    // Without the executor's cache no glass is planned at all (nor blurred live, as before).
+    assert_eq!(f.glass.short(), 27, "what a further plane is asked for");
+    // The executor adds a plane: the second glass takes its first rows in the same frame, the
+    // first keeps its own.
+    assert_eq!(f.place_short(), 1);
+    assert_eq!(cache_of(&f, 0), Some(CacheStep::Write(0)));
+    assert_eq!(cache_of(&f, 1), Some(CacheStep::Write(40)), "a glass's rows lie in one plane");
+    assert_eq!((f.glass.short(), f.glass.planes()), (0, 2));
+    f.plan(DISPLAY, &every_blur);
+    assert_eq!(cache_of(&f, 0), Some(CacheStep::Read(0)));
+    assert_eq!(cache_of(&f, 1), Some(CacheStep::Read(40)));
+    // Without the executor's cache no glass is planned at all.
     let mut cold = Frame::new(2048);
     cold.layers.take_frame(&[a]);
     cold.plan(DISPLAY, &every_blur);
     assert_eq!(cold.step(0).and_then(|s| s.glass), None);
+}
+
+/// Twelve glass windows and the shell's glass, then a window opened under them and one closed
+/// (TASK-0351, the board at twelve windows: rows for five, the rest without a blur and their
+/// whole rectangle damaged every frame; rows packed in walk order, so a window opened or
+/// closed below blurred every glass behind it again).
+#[test]
+fn a_glass_keeps_its_rows_while_the_set_around_it_changes() {
+    let window = |k: u32| with(glass(layer(40 * k, 30 * k, 1440, 853), 40), |l| l.key = 0x0100 + k);
+    let mut f = ready_frame(1024);
+    let mut set: Vec<_> = (0..12).map(window).collect();
+    // The cache grows as the executor does: a plane while the plan is short of rows — in the
+    // frame that found it short, so no glass is ever shown without its backdrop.
+    f.layers.take_frame(&set);
+    let p = f.plan(DISPLAY, &every_blur);
+    assert_eq!((p.writes.full, f.glass.short()), (4, 8 * 216), "rows for four of twelve");
+    let mut placed = 0;
+    while f.glass.short() != 0 {
+        placed += f.place_short();
+    }
+    assert_eq!((placed, f.glass.planes()), (8, 3), "216 rows a window: four a plane");
+    let rows: Vec<_> = (0..12).map(|i| cache_of(&f, i)).collect();
+    assert!(rows.iter().all(|c| matches!(c, Some(CacheStep::Read(_) | CacheStep::Write(_)))));
+    f.plan(DISPLAY, &every_blur);
+    let settled: Vec<_> = (0..12).map(|i| cache_of(&f, i)).collect();
+    assert!(settled.iter().all(|c| matches!(c, Some(CacheStep::Read(_)))), "{settled:?}");
+    // The third window closes: nothing behind it moves, nothing is written for its rows.
+    // (A named damage: a present without one blurs everything again, named full.)
+    let named = |set: &[Command]| [set, &[damage(0, 0, 1, 1)]].concat();
+    let gone = set.remove(2);
+    f.layers.take_frame(&named(&set));
+    let p = f.plan(DISPLAY, &every_blur);
+    assert_eq!((p.writes.new, p.writes.full), (0, 0), "no glass took new rows");
+    for (i, was) in settled.iter().enumerate().filter(|(i, _)| *i != 2) {
+        let now = cache_of(&f, if i > 2 { i - 1 } else { i });
+        let (Some(CacheStep::Read(a)), Some(CacheStep::Read(b) | CacheStep::Write(b))) =
+            (*was, now)
+        else {
+            panic!("window {i}: {was:?} then {now:?}")
+        };
+        assert_eq!(a, b, "window {i} kept its rows");
+    }
+    // It opens again, on top: it takes the rows it left (the lowest free ones).
+    set.push(gone);
+    f.layers.take_frame(&named(&set));
+    let p = f.plan(DISPLAY, &every_blur);
+    assert_eq!((p.writes.new, f.glass.short()), (1, 0));
+    assert_eq!(cache_of(&f, 11), settled[2].map(|_| CacheStep::Write(2 * 216)));
 }
 
 #[test]
@@ -270,33 +328,53 @@ fn ready_cache() -> GlassCache {
 fn the_same_key_reads_on_the_second_frame() {
     assert_eq!(GlassCache::new(2048).wallpaper_epoch, 0);
     let mut c = ready_cache();
-    assert_eq!(c.step(0, 42, 0, 500, false), CacheStep::Write(0));
-    assert_eq!(c.step(0, 42, 0, 500, false), CacheStep::Read(0));
+    assert_eq!(c.step(0, 42, 500, false), CacheStep::Write(0));
+    assert_eq!(c.step(0, 42, 500, false), CacheStep::Read(0));
 }
 
 #[test]
 fn a_changed_backdrop_writes_again() {
     let mut c = ready_cache();
-    assert_eq!(c.step(0, 42, 0, 500, false), CacheStep::Write(0));
-    assert_eq!(c.step(0, 43, 0, 500, false), CacheStep::Write(0));
-    assert_eq!(c.step(0, 43, 0, 500, false), CacheStep::Read(0));
+    assert_eq!(c.step(0, 42, 500, false), CacheStep::Write(0));
+    assert_eq!(c.step(0, 43, 500, false), CacheStep::Write(0));
+    assert_eq!(c.step(0, 43, 500, false), CacheStep::Read(0));
 }
 
 #[test]
-fn test_reject_reading_rows_at_a_moved_packing_offset() {
+fn a_slot_keeps_its_rows_and_a_new_height_takes_the_lowest_free_ones() {
     let mut c = ready_cache();
-    assert_eq!(c.step(1, 7, 100, 300, false), CacheStep::Write(100));
-    // A glass below vanished: the same key at another offset writes.
-    assert_eq!(c.step(1, 7, 0, 300, false), CacheStep::Write(0));
+    assert_eq!(c.step(0, 1, 300, false), CacheStep::Write(0));
+    assert_eq!(c.step(1, 7, 300, false), CacheStep::Write(300));
+    // The glass below vanished (its slot is carried by nobody): the other keeps its rows.
+    c.carry(&[Some(1)]);
+    assert_eq!(c.step(0, 7, 300, false), CacheStep::Read(300));
+    // A glass of another height: new rows, the lowest that touch no held ones.
+    assert_eq!(c.step(0, 7, 400, false), CacheStep::Write(0));
+    assert_eq!(c.step(1, 9, 200, false), CacheStep::Write(400));
 }
 
 #[test]
-fn an_overflow_or_no_cache_blurs_live_and_keeps_no_stale_slot() {
+fn test_reject_rows_across_a_plane_edge_and_a_glass_taller_than_a_plane() {
     let mut c = ready_cache();
-    assert_eq!(c.step(0, 1, 2048 - 10, 500, false), CacheStep::Off);
-    assert_eq!(c.step(0, 1, 0, 500, false), CacheStep::Write(0));
+    c.add_plane();
+    assert_eq!(c.step(0, 1, 1500, false), CacheStep::Write(0));
+    // 548 rows are free in the first plane: 600 start at the second, never across the edge.
+    assert_eq!(c.step(1, 2, 600, false), CacheStep::Write(2048));
+    assert_eq!(c.step(2, 3, 500, false), CacheStep::Write(1500));
+    // Taller than a plane: off whatever the planes, and never asked for.
+    assert_eq!(c.step(3, 4, 2049, false), CacheStep::Off);
+    assert_eq!(c.short(), 0);
+}
+
+#[test]
+fn an_overflow_or_no_cache_is_off_and_keeps_no_stale_slot() {
+    let mut c = ready_cache();
+    assert_eq!(c.step(0, 1, 1600, false), CacheStep::Write(0));
+    assert_eq!(c.step(1, 2, 500, false), CacheStep::Off);
+    assert_eq!(c.short(), 500);
+    assert_eq!(c.keep(1, 500), None, "nothing held");
     let mut cold = GlassCache::new(2048);
-    assert_eq!(cold.step(0, 1, 0, 100, false), CacheStep::Off);
+    assert_eq!(cold.step(0, 1, 100, false), CacheStep::Off);
 }
 
 #[test]

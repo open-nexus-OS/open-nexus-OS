@@ -22,11 +22,12 @@ use super::emit_fmt;
 use super::series::LAST;
 
 /// Textured pixels by pass kind: the slot's, the glass scenes' (scratch), the blurs' (half and
-/// cache rows); the glass writes by cause (TASK-0336 P0: band, backdrop, moved, new, full); and
-/// the pixels by program (TASK-0335 P4: opaque, straight, rounded, shadow, blur); and the layers
-/// the frames composed (TASK-0351 P0).
+/// cache rows); the glass writes by cause (TASK-0336 P0: band, backdrop, new, full, the band
+/// writes the base's change reached — and the glasses whose rows owed a hidden change,
+/// TASK-0351 P6); and the pixels by program (TASK-0335 P4: opaque, straight, rounded, shadow,
+/// blur); and the layers the frames composed (TASK-0351 P0).
 #[derive(Clone, Copy, Debug, Default)]
-pub(super) struct Work([u64; 3], [u64; 5], [u64; PROGRAM_KINDS], u64, [u64; 8]);
+pub(super) struct Work([u64; 3], [u64; 6], [u64; PROGRAM_KINDS], u64, [u64; 8]);
 
 impl Work {
     /// The slot pass's blended pixels by layer kind (`Board::blended_by_kind`, TASK-0351 P14);
@@ -45,7 +46,7 @@ impl Work {
         let k = match target {
             Target::Slot => 0,
             Target::Scratch => 1,
-            Target::Half | Target::Cache => 2,
+            Target::Half | Target::Cache(_) => 2,
         };
         self.0[k] += px.iter().sum::<u64>();
         for (acc, n) in self.2.iter_mut().zip(px) {
@@ -55,7 +56,9 @@ impl Work {
 
     /// A frame's plan: its glass writes by cause, and the layers it composes.
     pub(super) fn note_plan(&mut self, w: Writes, layers: usize) {
-        for (acc, n) in self.1.iter_mut().zip([w.band, w.backdrop, w.moved, w.new, w.full]) {
+        for (acc, n) in
+            self.1.iter_mut().zip([w.band, w.backdrop, w.new, w.full, w.band_base, w.hidden])
+        {
             *acc += u64::from(n);
         }
         self.3 += layers as u64;
@@ -117,8 +120,8 @@ impl Work {
         // TASK-0336 P0: why the glasses were blurred again — the cause each cut aims at.
         let w = self.1;
         emit_fmt(format_args!(
-            "gpud: glass writes (band={} backdrop={} moved={} new={} full={})",
-            w[0], w[1], w[2], w[3], w[4]
+            "gpud: glass writes (band={} backdrop={} new={} full={} band_base={} hidden={})",
+            w[0], w[1], w[2], w[3], w[4], w[5]
         ));
     }
 }

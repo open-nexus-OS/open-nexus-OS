@@ -116,7 +116,8 @@ fn every_glass_write_names_its_cause() {
     let mut f = ready_frame(2048);
     let base = layer(0, 0, 1920, 1080);
     let window = layer(200, 200, 600, 400);
-    let pane = with(glass(layer(300, 300, 400, 200), 40), |l| l.layer_id = 2);
+    // Keyed as windowd keys its layers: a glass is followed by its key, not its place in the set.
+    let pane = with(glass(layer(300, 300, 400, 200), 40), |l| (l.layer_id, l.key) = (2, 0x2_0100));
     // The first frame is a present without named damage: damage everywhere, named full.
     f.layers.take_frame(&[base.clone(), window.clone(), pane.clone()]);
     let p = f.plan(DISPLAY, &every_blur);
@@ -129,7 +130,7 @@ fn every_glass_write_names_its_cause() {
         damage_from(0, 350, 350, 20, 10),
     ]);
     let p = f.plan(DISPLAY, &every_blur);
-    assert_eq!(p.writes, Writes { band: 1, ..Default::default() });
+    assert_eq!(p.writes, Writes { band: 1, band_base: 1, ..Default::default() });
     // The window below moved: the backdrop.
     f.layers.take_frame(&[
         base.clone(),
@@ -139,9 +140,9 @@ fn every_glass_write_names_its_cause() {
     ]);
     let p = f.plan(DISPLAY, &every_blur);
     assert_eq!(p.writes, Writes { backdrop: 1, ..Default::default() });
-    // A second glass packed before it: new rows for the newcomer, and the pane's key folds it
-    // (a glass below is a backdrop like any layer).
-    let other = with(glass(layer(100, 100, 100, 100), 40), |l| l.layer_id = 3);
+    // A second glass below it, within its reach: new rows for the newcomer, and the pane's key
+    // folds it (a glass below is a backdrop like any layer) — the pane keeps its rows.
+    let other = with(glass(layer(250, 250, 100, 100), 40), |l| (l.layer_id, l.key) = (3, 0x3_0100));
     f.layers.take_frame(&[
         base.clone(),
         layer(210, 200, 600, 400),

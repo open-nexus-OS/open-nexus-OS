@@ -273,7 +273,7 @@ fn a_glass_to_write_draws_its_scene_below_then_blurs_it_into_its_rows() {
     );
     // The vertical pass into the glass's cache rows.
     let rows = b.pass(2).unwrap();
-    assert_eq!((rows.target, rows.area), (Target::Cache, (0, 0, vw - 1, vh - 1)));
+    assert_eq!((rows.target, rows.area), (Target::Cache(0), (0, 0, vw - 1, vh - 1)));
     let hr = HALF_ROWS as f32;
     let down = Quad::blur(
         0.0,
@@ -444,7 +444,7 @@ fn two_glasses_written_apart_share_one_scene_and_two_blur_passes() {
     // The dock's horizontal result lies below the bar's in the half scratch: its rows follow.
     assert!(d1.quad.y >= d0.quad.y + d0.quad.h, "{} {} {}", d0.quad.y, d0.quad.h, d1.quad.y);
     let rows = b.pass(2).unwrap();
-    assert_eq!((rows.target, rows.kind), (Target::Cache, PassKind::Blurs { vertical: true }));
+    assert_eq!((rows.target, rows.kind), (Target::Cache(0), PassKind::Blurs { vertical: true }));
     assert_eq!(b.draws(&rows), 2);
     assert_eq!(b.pass(3).unwrap().target, Target::Slot);
     assert_eq!(b.pass(4), None);
@@ -538,4 +538,13 @@ fn every_layout_texture_is_a_piece_of_the_base_or_of_a_layers_band() {
         }
         assert!(textures > cmds.len(), "the base and every layer drawn ({textures})");
     }
+}
+
+/// The board lies on its executor's stack, moved by its builders: it carries what a frame's
+/// passes are found by, never per-layer geometry (a board of every write's chain was 14.7 KiB,
+/// four of them a 63 KiB frame — the display driver's stack overflowed at the first present,
+/// `board--2026-11-18T11-22-35`).
+#[test]
+fn the_board_is_small_enough_for_its_executors_stack() {
+    assert!(core::mem::size_of::<Board>() <= 1024, "{}", core::mem::size_of::<Board>());
 }

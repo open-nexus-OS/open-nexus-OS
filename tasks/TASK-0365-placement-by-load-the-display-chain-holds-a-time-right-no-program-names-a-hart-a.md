@@ -28,13 +28,17 @@ phases:
     evidence: build/logs/board--2026-11-18T09-41-28
   - id: P2
     story: "no program names a hart: service placement, the sched recipes and the worker counts of the workpool and pinched come from the exported topology and from roles"
-    state: proving
+    state: done
     gate: "retired-name gate for the literal masks and MAX_WORKERS; the one-hart lane green (the same roles on one hart)"
     started: 2026-11-18
+    done: 2026-11-18
+    evidence: build/logs/board--2026-11-18T10-33-10
   - id: P3
     story: "a frame's threads run side by side: the chain on several harts of one cluster, background work on the other"
-    state: planned
+    state: blocked
     gate: "board: >= 3 harts busy with the chain in a frame window (utilisation line); windowd: hops frame owed>sent mean <= 2 ms; gpud: ux frame ok in the idle-desktop windows"
+    started: 2026-11-18
+    note: "queued behind the sprint's open phases (operator, 2026-11-18: first the ones in progress and in testing); nothing built. Starts with a measurement: the IPC round trip per CPU (board 56-57 us since P1, 28-49 before, 62 on the one-hart lane throughout)."
   - id: P4
     story: "the supervision path holds a time right of its own and an exhausted budget is an event its supervisor receives"
     state: planned

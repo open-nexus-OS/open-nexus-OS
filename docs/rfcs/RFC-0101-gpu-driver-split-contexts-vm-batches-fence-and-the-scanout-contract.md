@@ -280,6 +280,42 @@ What the device server owns below §1–§7 on the board's core (one core of the
   below the stock 23.3 ms and `board-visual: gpu-desktop`; 4d a hover frame below 8.3 ms. QEMU
   unchanged.
 
+### §8e A present in parts (TASK-0351 P6)
+
+A present is `[OP_PRESENT_DAMAGE, seq]` and its serialized commands in one IPC frame of 8 KiB —
+about 64 layers. Twenty windows passed it: the compositor dropped layers at that bound and the
+launcher vanished (`board--2026-11-18T11-44-54`). A present whose body is longer travels in
+parts:
+
+- `[OP_PRESENT_PART (6), seq: u32 le, index: u8, bytes…]`, indexes `0..` in order, the last
+  with bit 7 of the index byte set (`PRESENT_PART_LAST`). The body is at most
+  `PRESENT_BODY_MAX` (64 KiB), whole or in parts. A present that fits one frame is sent as
+  before.
+- Only the last part is answered, with the present's ack. gpud gathers the parts of one
+  sender (the kernel's sender id) and one `seq` and serves the present as if it had come
+  whole — one path behind it: validation, the surfaces' admission, the ack.
+- A part out of order, of another `seq`, of another sender or past the bound ends the run;
+  the last part of such a run is acked `STATUS_MALFORMED`, so the sender's window of presents
+  in flight is credited and it sends the frame again. Never a present of some of the bytes.
+- The sender does not park: a part its queue refuses ends the send, the present is not
+  issued, and the next attempt starts at part 0 (which drops what gpud gathered). gpud's
+  request queue is 32 frames deep: two presents in flight at a frame's budget (four parts
+  each) lie in it beside the pointer's traffic.
+- What bounds a frame, each number once: the layer budget (`nexus_display_proto::FRAME_LAYERS`,
+  256, shared by the compositor), the body (`PRESENT_BODY_MAX`, equal to the serializer's
+  `MAX_SERIALIZED` by a constant assert on both ends), `MAX_COMMANDS` (2048: the budget, every
+  layer a glass with its recipe) and the draws a pass of the board's executor holds (1536, by
+  its pass memory's rings — gpud `frame_limits`). Past a bound a frame is degraded and named —
+  the lowest layers or draws left out — never refused. The planner's tables and the glass
+  cache's rows follow the scene (`nexus_gfx::frame`).
+
+Proof: `present_parts` (the wire crate, host: the parts are the body in order, each within a
+frame; gpud, host: order, `test_reject_a_part_out_of_order_or_of_another_present`,
+`test_reject_a_part_of_another_sender`, `test_reject_a_body_past_its_bound_and_a_part_without_a_header`);
+`frame_many_layers` (nexus-gfx: 210 layers planned whole); gpud `frame_limits` (sixty-four
+windows down the real path, the rings at the draw bound); `ci-os-many-apps` (forty windows, a
+refused frame forbidden); the board with twenty and thirty windows.
+
 ## Invariants (security)
 
 - Identity is `sender_service_id`; a context, a buffer and a fence are reachable only by the client that owns them or was handed the capability.

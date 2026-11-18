@@ -11,6 +11,15 @@
 //! API_STABILITY: Internal
 //! TEST_COVERAGE: `mod tests` below
 
+/// The layers one frame composes — the compositor's budget, shared out among its surfaces
+/// below; the wire's number (`nexus_display_proto::FRAME_LAYERS`), which the executor's passes
+/// are sized for. It was 64, one IPC frame's worth: twenty windows lost the launcher to it
+/// (`board--2026-11-18T11-44-54`).
+pub(crate) const FRAME_LAYERS: usize = nexus_display_proto::FRAME_LAYERS;
+// One bound of a frame's bytes: what the scene serializes to is what a present carries.
+const _: () =
+    assert!(nexus_display_proto::PRESENT_BODY_MAX == nexus_gfx::command::buffer::MAX_SERIALIZED);
+
 /// Max-min fair shares of the frame's layers (RFC-0109 failure model): `demand[i]` is what
 /// surface `i` declares, `rest` what the planner's set holds beside the bodies. When everything
 /// fits each surface keeps its demand; otherwise the smaller demands stay whole and the rest is
@@ -85,6 +94,74 @@ impl LayerQuota {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A frame at its budget, serialized by the scene's own encoder — every layer with its
+    /// glass and shadow, a transform for every layer and every window, the damage rectangles
+    /// — is a present the wire carries (the serializer refused twenty-one windows at 8000
+    /// bytes, `board--2026-11-18T13-29-53`), and two of them in flight lie in gpud's request
+    /// queue of 32 frames beside the pointer's traffic.
+    #[test]
+    fn a_frame_at_its_budget_is_a_present_the_display_driver_takes() {
+        let windows = crate::window_scene::ORDER_MAX as u32;
+        let mut cb = nexus_gfx::CommandBuffer::new();
+        let mut enc = cb
+            .try_begin_render_pass(nexus_gfx::RenderPassDesc {
+                color_attachments: alloc::vec![],
+                width: 1920,
+                height: 1080,
+            })
+            .expect("a pass");
+        for i in 0..64u32 {
+            let rect = nexus_gfx::TileRect { x: i, y: i, width: 64, height: 64 };
+            enc.try_damage(rect, 0).expect("damage");
+        }
+        for i in 0..FRAME_LAYERS as u32 + windows {
+            enc.try_layer_transform(i + 1, (3, -4), 200, 9_000, (960, 540)).expect("transform");
+        }
+        // Every layer the longest a layer is: a glass with its recipe and its shadow.
+        for i in 0..FRAME_LAYERS as u32 {
+            let mut glass = nexus_gfx::Layer::opaque(0, 0, 1240, 780, i, i);
+            glass.shadow = Some(nexus_gfx::LayerShadow { blur: 24, offset_y: 8, alpha: 90 });
+            glass.backdrop = Some(nexus_gfx::LayerBackdrop {
+                blur_radius: 40,
+                saturation_percent: 120,
+                restore_halo_pad: 32,
+                retained_src_y_offset: 0,
+                cache: nexus_gfx::BackdropCache::Write {
+                    cache_x: 0,
+                    cache_row_abs: 0,
+                    display_row_offset: 0,
+                },
+            });
+            (glass.layer_id, glass.key) = (i + 1, (i + 1) << 16);
+            enc.composite_layer_full(&glass, (1920, 1080)).expect("a layer of the budget");
+        }
+        enc.end_encoding();
+        let mut body = alloc::vec![0u8; nexus_display_proto::PRESENT_BODY_MAX];
+        let n = cb.serialize_into(&mut body).expect("the frame is a present's body");
+        // One IPC frame (`nexus_abi::IPC_PAYLOAD_MAX`, an OS-only dependency here).
+        let part = 8 * 1024 - nexus_display_proto::PRESENT_PART_HEADER_LEN;
+        assert!(n > 3 * part, "{n}: the budget is past one frame");
+        assert!(2 * n.div_ceil(part) <= 32 / 2, "{}", n.div_ceil(part));
+        // And it is a buffer the driver's validation takes.
+        let (back, used) = nexus_gfx::CommittedBuffer::deserialize_from(&body[..n]).expect("valid");
+        assert_eq!(used, n);
+        assert!(back.commands().len() >= 4 * FRAME_LAYERS);
+    }
+
+    /// The frame's budget holds every window an order lists with its body and three layers of
+    /// its own beside the desktop's — sixty-four windows are not cut to their bodies.
+    #[test]
+    fn the_frames_budget_gives_every_window_of_a_full_order_layers_of_its_own() {
+        let windows = crate::window_scene::ORDER_MAX;
+        let bodies = windows + 2;
+        let mut demand = alloc::vec![6usize; windows + 1];
+        demand[windows] = 12;
+        let mut share = alloc::vec![0usize; windows + 1];
+        fair_shares(FRAME_LAYERS - bodies, &demand, &mut share);
+        assert!(share.iter().all(|s| *s >= 2), "{share:?}");
+        assert!(share.iter().sum::<usize>() + bodies <= FRAME_LAYERS);
+    }
 
     /// A heavy surface beside light ones keeps every layer while the frame holds them all.
     #[test]

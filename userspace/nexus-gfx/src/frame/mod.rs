@@ -42,7 +42,8 @@ pub mod scanout;
 pub mod walk;
 
 pub use board::{
-    drawn_px, Board, DrawSpec, GlassCount, PassKind, PassSpec, Pipe, Target, Tex, PROGRAM_KINDS,
+    drawn_px, Board, DrawSpec, GlassCount, PassKind, PassSpec, Pipe, Target, Tex, MERGE_MAX,
+    PROGRAM_KINDS,
 };
 pub use clip::clip_draw;
 pub use damage::{Area, History, HISTORY};

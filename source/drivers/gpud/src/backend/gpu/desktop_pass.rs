@@ -22,7 +22,7 @@ use nexus_gfx::backend::v2::{
 use nexus_gfx::frame::{clip_draw, Board, DrawSpec, PassSpec, Tex};
 
 use super::desktop::{
-    Pipes, Refusal, CACHE_VA, FRAME_VA, HALF_VA, LAYOUT_VA, MAX_DRAWS, PASS_TIMEOUT_NS, SCRATCH_VA,
+    Pipes, Refusal, FRAME_VA, HALF_VA, LAYOUT_VA, MAX_DRAWS, PASS_TIMEOUT_NS, SCRATCH_VA,
 };
 use super::device_v2::Device;
 use super::emit_fmt;
@@ -60,16 +60,16 @@ pub(super) fn clean_rows(target: &FrameTarget<'_>, (x, row, w, h): (u32, u32, u3
 /// the whole source again cost a scroll frame 2.5 ms of CPU (cycle 61). A new generation (the
 /// CPU wrote rows: the plan's `upload`, windowd's content epoch moved) forgets every range; a
 /// source in other columns or apart from its cleaned rows is cleaned whole.
-pub(super) struct CleanedRows([Option<(u32, u32, u32, u32)>; nexus_gfx::frame::MAX_LAYERS]);
+pub(super) struct CleanedRows(Vec<Option<(u32, u32, u32, u32)>>);
 
 impl CleanedRows {
     pub(super) const fn new() -> Self {
-        Self([None; nexus_gfx::frame::MAX_LAYERS])
+        Self(Vec::new())
     }
 
     /// A new content generation: no row counts as cleaned.
     pub(super) fn forget(&mut self) {
-        *self = Self::new();
+        self.0.clear();
     }
 
     /// Cleans what layer step `i`'s source `(x, row, w, h)` holds beyond the rows cleaned since
@@ -81,6 +81,13 @@ impl CleanedRows {
         (x, row, w, h): (u32, u32, u32, u32),
     ) {
         let end = row.saturating_add(h);
+        // The table grows with the plan's steps (a heap that refuses cleans the source whole).
+        if i >= self.0.len()
+            && i < nexus_gfx::frame::MAX_LAYERS
+            && self.0.try_reserve(i + 1 - self.0.len()).is_ok()
+        {
+            self.0.resize(i + 1, None);
+        }
         let Some(slot) = self.0.get_mut(i) else {
             clean_rows(target, (x, row, w, h));
             return;
@@ -135,7 +142,10 @@ fn descriptor(
         Tex::Layout { x, row, w, h } => (at(LAYOUT_VA, x, row), w, h, WIDTH),
         Tex::Scratch => (SCRATCH_VA, WIDTH, PLANE_ROWS, WIDTH),
         Tex::Half { rows } => (HALF_VA, WIDTH, rows, WIDTH),
-        Tex::Cache { x, row, w, h } => (at(CACHE_VA, x, row), w, h, WIDTH),
+        Tex::Cache { x, row, w, h } => {
+            let va = super::desktop_cache::texel_va(x, row).ok_or("a cache row past the planes")?;
+            (va, w, h, WIDTH)
+        }
         // RFC-0114: an app's buffer at its own address and stride, where the app drew it.
         Tex::Buffer { source, slot, x, row, w, h } => {
             let (address, stride) =
@@ -235,8 +245,10 @@ pub(super) fn run_pass(
 
 /// The emit's refusal when the rings hold no line (retried once after the last pass).
 const NO_ROOM: &str = "the pass's emit: no room in the pass memory";
-/// A pass the plan gives no draw for, or more than the executor holds (`MAX_DRAWS`).
-const NO_DRAWS: &str = "a pass of no draws or more than the executor holds";
+/// A pass the plan gives no draw for.
+const NO_DRAWS: &str = "a pass of no draws";
+/// Passes that left their lowest draws out (`frame_limits::left_out`); named at 1, 2, 4, ….
+static OVER: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
 
 /// The draws a pass keeps (TASK-0351 P10): walked once from the plan (`Board::walk`), each cut
 /// to the pass's area, with its texture's descriptor — the emitter indexes them instead of
@@ -250,22 +262,6 @@ impl Kept {
     pub(super) fn new() -> Self {
         Self { draws: Vec::with_capacity(MAX_DRAWS), tex: Vec::with_capacity(MAX_DRAWS) }
     }
-}
-
-/// Keeps draw `d`: its pipeline checked, its texture's descriptor written.
-fn keep(
-    dev: &mut Device,
-    who: (ClientId, ContextId),
-    (rings, kept): (&mut Rings, &mut Kept),
-    pipes: &Pipes,
-    t: &Template<'_>,
-    (d, buffers): (DrawSpec, &SurfaceBuffers),
-) -> Result<(), Refusal> {
-    pipes.get(d.pipe).ok_or("a pipeline the library lacks")?;
-    let tex = descriptor(dev, who, rings, (d.tex, buffers), t.texture_va)?;
-    kept.tex.push(tex);
-    kept.draws.push(d);
-    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -290,19 +286,29 @@ fn emit_and_wait(
     kept.draws.clear();
     kept.tex.clear();
     let mut last = None;
-    let mut n = 0usize;
     for whole in board.walk(spec) {
-        n += 1;
-        if n > MAX_DRAWS {
-            return Err(NO_DRAWS.into());
-        }
         last = Some(whole);
-        let Some(d) = clip_draw(&whole, spec.area) else { continue };
-        keep(dev, who, (rings, kept), pipes, t, (d, buffers))?;
+        kept.draws.extend(clip_draw(&whole, spec.area));
     }
     if kept.draws.is_empty() {
-        let whole = last.ok_or(NO_DRAWS)?;
-        keep(dev, who, (rings, kept), pipes, t, (whole, buffers))?;
+        kept.draws.push(last.ok_or(NO_DRAWS)?);
+    }
+    // A pass of more draws than its memory holds draws its topmost — what lies lowest is what
+    // the layers above cover most. Named, never a refused frame (TASK-0351 P6).
+    let over = crate::frame_limits::left_out(kept.draws.len());
+    if over > 0 {
+        kept.draws.drain(..over);
+        let n = OVER.fetch_add(1, core::sync::atomic::Ordering::Relaxed) + 1;
+        if n.is_power_of_two() {
+            emit_fmt(format_args!(
+                "gpud: gpu pass draws FAIL (kept={MAX_DRAWS} left_out={over} passes={n}: the lowest draws are not drawn)"
+            ));
+        }
+    }
+    // Each kept draw's pipeline checked, its texture's descriptor written.
+    for d in &kept.draws {
+        pipes.get(d.pipe).ok_or("a pipeline the library lacks")?;
+        kept.tex.push(descriptor(dev, who, rings, (d.tex, buffers), t.texture_va)?);
     }
     let m = kept.draws.len();
     // Every draw was checked above; an empty quad keeps the closure total.

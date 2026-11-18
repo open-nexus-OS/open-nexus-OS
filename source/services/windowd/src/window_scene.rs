@@ -39,11 +39,11 @@ pub enum WindowId {
 
 pub use crate::window_state::{WindowRole, WindowState};
 
-/// The most windows one order lists: a frame composes at most `MAX_LAYERS` layers (a window
-/// takes at least its body), so an order of more windows than that could not be drawn — the
-/// topmost of them are the order, the ones below neither drawn nor hit (RFC-0114 §7: the limit
-/// is the frame's layer budget, never a slot count).
-pub const ORDER_MAX: usize = nexus_gfx::frame::MAX_LAYERS;
+/// The most windows one order lists — what one frame shows and a capture names
+/// (`CAPTURE_WINDOWS_MAX`): the topmost of them are the order, the ones below neither drawn nor
+/// hit (RFC-0114 §7: never a slot count). Each takes its share of the frame's layers
+/// (`layer_quota::FRAME_LAYERS`), at least its body.
+pub const ORDER_MAX: usize = nexus_display_proto::surface_capture::CAPTURE_WINDOWS_MAX;
 
 /// Whether a floating window should be composited this frame: `visible` and the
 /// screen is not frozen for a capture (the frozen frame already shows it).

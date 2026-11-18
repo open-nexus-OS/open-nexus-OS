@@ -4,12 +4,16 @@
 //! A frame's plan (TASK-0215 5c-3 P4): the retained set walked back to front — every layer as
 //! drawn, a glass layer's cache step decided against the destination below it — and whether the
 //! atlas's content must be uploaded first. Executors draw the plan's steps in order: per layer
-//! its glass, its shadow, its content. Nothing is allocated: the plan is the frame's own storage,
-//! reused frame after frame (a frame costs gpud's heap nothing).
+//! its glass, its shadow, its content. The plan is the frame's own storage, reused frame after
+//! frame: its tables grow when a scene has more layers than any before it and are kept, so a
+//! settled scene's frame costs the heap nothing.
+
+use alloc::vec::Vec;
 
 use super::damage::Area;
 use super::glass::{fold_layer, glass_key, glass_rows, seed, CacheStep, GlassCache, WriteCause};
 use super::layers::{FrameLayer, RetainedLayers, MAX_LAYERS, ORIGIN_ABOVE};
+use super::occlude::{self, Px};
 
 /// How far a glass's blur reads beyond its rectangle: the widest blur a layer may ask (64, the
 /// buffer's bound) and the chain's own margin.
@@ -41,6 +45,19 @@ fn extent(l: &FrameLayer) -> Area {
     Area::rect(l.dst_x, l.dst_y, l.width, l.height).grown(pad)
 }
 
+/// The cache rows a glass layer's result takes.
+fn rows_of(l: &FrameLayer) -> u32 {
+    glass_rows(l.height, super::board::blur_scale(super::board::blur_radius(l.backdrop_blur)))
+}
+
+/// An area as a rectangle in pixels; `None` for no area and for the whole screen.
+fn px(a: Area) -> Option<Px> {
+    match a {
+        Area::Rect { x0, y0, x1, y1 } => Some((x0, y0, x1 - x0, y1 - y0)),
+        _ => None,
+    }
+}
+
 /// A glass layer's step.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Glass {
@@ -48,7 +65,7 @@ pub struct Glass {
     /// Half-resolution rows its result takes.
     pub rows: u32,
     /// What a write blurs again (TASK-0335 P1): the damage below the glass within its reach
-    /// when its rows already hold this backdrop — `Full` for a new or reshuffled backdrop.
+    /// when its rows already hold this backdrop — `Full` for a new backdrop or new rows.
     pub band: Area,
 }
 
@@ -83,9 +100,14 @@ pub struct Planned {
 pub struct Writes {
     pub band: u16,
     pub backdrop: u16,
-    pub moved: u16,
     pub new: u16,
     pub full: u16,
+    /// Of the band writes, those a change of the base reached (origin 0: the desktop's own
+    /// surface); the others were reached by a window below the glass.
+    pub band_base: u16,
+    /// Not writes: the glasses whose rows owe a change this frame because it lies under the
+    /// layers above them (TASK-0351 P6) — counted every frame until one shows and pays it.
+    pub hidden: u16,
 }
 
 impl Writes {
@@ -93,7 +115,6 @@ impl Writes {
         let n = match cause {
             WriteCause::Band => &mut self.band,
             WriteCause::Backdrop => &mut self.backdrop,
-            WriteCause::Moved => &mut self.moved,
             WriteCause::New => &mut self.new,
             WriteCause::Full => &mut self.full,
         };
@@ -102,11 +123,7 @@ impl Writes {
 
     /// Every write of the frame.
     pub fn total(self) -> u32 {
-        u32::from(self.band)
-            + u32::from(self.backdrop)
-            + u32::from(self.moved)
-            + u32::from(self.new)
-            + u32::from(self.full)
+        u32::from(self.band) + u32::from(self.backdrop) + u32::from(self.new) + u32::from(self.full)
     }
 }
 
@@ -118,32 +135,43 @@ pub type Ident = (u32, u16);
 pub struct Frame {
     pub layers: RetainedLayers,
     pub glass: GlassCache,
-    steps: [LayerStep; MAX_LAYERS],
-    count: usize,
+    steps: Vec<LayerStep>,
     /// The identity of every step of the last plan.
-    idents: [Ident; MAX_LAYERS],
+    idents: Vec<Ident>,
     /// The last plan's layers as drawn, kept while this plan overwrites its steps.
-    prev: [FrameLayer; MAX_LAYERS],
+    prev: Vec<FrameLayer>,
+    /// A plan's working tables, kept between plans: the set as drawn, its identities, the
+    /// last plan's step each layer carries on from, and the last plan's steps still drawn.
+    drawn: Vec<FrameLayer>,
+    ids: Vec<Ident>,
+    carried: Vec<Option<usize>>,
+    kept: Vec<bool>,
+    /// The opaque rectangles above a glass that touch what its write would change.
+    above: Vec<Px>,
 }
 
-/// The identities of `layers`, in order.
-fn identities(layers: &[FrameLayer], out: &mut [Ident; MAX_LAYERS]) {
-    for (i, l) in layers.iter().enumerate().take(MAX_LAYERS) {
-        let n = layers[..i].iter().filter(|b| b.key == l.key).count();
-        out[i] = (l.key, n.min(usize::from(u16::MAX)) as u16);
-    }
+/// `v` emptied with room for `n` entries; how many it has room for (all of them unless the
+/// heap refused).
+fn room<T>(v: &mut Vec<T>, n: usize) -> usize {
+    v.clear();
+    let _ = v.try_reserve(n);
+    v.capacity().min(n)
 }
 
 impl Frame {
-    /// A frame whose glass cache holds `glass_rows` half-resolution rows.
+    /// A frame whose glass cache has planes of `glass_rows` half-resolution rows.
     pub const fn new(glass_rows: u32) -> Self {
         Self {
             layers: RetainedLayers::new(),
             glass: GlassCache::new(glass_rows),
-            steps: [LayerStep { layer: FrameLayer::EMPTY, glass: None, upload: false }; MAX_LAYERS],
-            count: 0,
-            idents: [(0, 0); MAX_LAYERS],
-            prev: [FrameLayer::EMPTY; MAX_LAYERS],
+            steps: Vec::new(),
+            idents: Vec::new(),
+            prev: Vec::new(),
+            drawn: Vec::new(),
+            ids: Vec::new(),
+            carried: Vec::new(),
+            kept: Vec::new(),
+            above: Vec::new(),
         }
     }
 
@@ -181,31 +209,52 @@ impl Frame {
         };
         // The last plan by identity (RFC-0109): a layer is compared with — and keeps the glass
         // rows of — the layer of its key in the last plan, wherever either stands in its list.
-        let n = self.layers.len().min(MAX_LAYERS);
-        let mut drawn = [FrameLayer::EMPTY; MAX_LAYERS];
-        for (i, slot) in drawn.iter_mut().enumerate().take(n) {
-            *slot = self.layers.effective(i).unwrap_or(FrameLayer::EMPTY);
-        }
-        let mut ids = [(0u32, 0u16); MAX_LAYERS];
-        identities(&drawn[..n], &mut ids);
-        let last = self.count;
-        for j in 0..last {
-            self.prev[j] = self.steps[j].layer;
-        }
-        let mut carried = [None; MAX_LAYERS];
-        let mut kept = [false; MAX_LAYERS];
-        for i in 0..n {
-            if let Some(j) = self.idents[..last].iter().position(|id| *id == ids[i]) {
-                carried[i] = Some(j);
+        let last = self.steps.len();
+        let (mut drawn, mut ids, mut carried, mut kept, mut above) = (
+            core::mem::take(&mut self.drawn),
+            core::mem::take(&mut self.ids),
+            core::mem::take(&mut self.carried),
+            core::mem::take(&mut self.kept),
+            core::mem::take(&mut self.above),
+        );
+        // The plan's tables grow to the set. A heap that refuses them plans no layer and
+        // names the whole screen: nothing of the last plan can be compared.
+        let want = self.layers.len().min(MAX_LAYERS);
+        self.prev.clear();
+        let fits = room(&mut drawn, want) == want
+            && room(&mut ids, want) == want
+            && room(&mut carried, want) == want
+            && room(&mut kept, last) == last
+            && room(&mut above, want) == want
+            && self.prev.try_reserve(last).is_ok()
+            && self.steps.try_reserve(want.saturating_sub(last)).is_ok()
+            && self.idents.try_reserve(want.saturating_sub(last)).is_ok();
+        let n = if fits {
+            self.prev.extend(self.steps.iter().map(|s| s.layer));
+            want
+        } else {
+            damage = Area::Full;
+            0
+        };
+        drawn.extend((0..n).map(|i| self.layers.effective(i).unwrap_or(FrameLayer::EMPTY)));
+        // A layer's identity: its key and its occurrence among the layers of that key before it.
+        ids.extend(drawn.iter().enumerate().map(|(i, l)| {
+            let before = drawn[..i].iter().filter(|b| b.key == l.key).count();
+            (l.key, before.min(usize::from(u16::MAX)) as u16)
+        }));
+        kept.resize(self.prev.len(), false);
+        for id in &ids {
+            let from = self.idents.iter().position(|was| was == id);
+            if let Some(j) = from.filter(|j| *j < kept.len()) {
                 kept[j] = true;
             }
+            carried.push(from);
         }
-        self.glass.carry(&carried[..n]);
+        self.glass.carry(&carried);
+        self.steps.clear();
         let wallpaper = seed(display.0, display.1, self.glass.wallpaper_epoch);
         let mut writes = Writes::default();
-        let mut cursor = 0u32;
-        let mut count = 0;
-        for (i, &layer) in drawn.iter().enumerate().take(n) {
+        for (i, &layer) in drawn.iter().enumerate() {
             let before = carried[i].map(|j| self.prev[j]);
             if before.is_none_or(|b| !same_drawing(&b, &layer)) {
                 damage = damage.union(extent(&layer));
@@ -221,10 +270,7 @@ impl Frame {
             {
                 None
             } else {
-                let rows = glass_rows(
-                    layer.height,
-                    super::board::blur_scale(super::board::blur_radius(layer.backdrop_blur)),
-                );
+                let rows = rows_of(&layer);
                 let rect = Area::rect(layer.dst_x, layer.dst_y, layer.width, layer.height);
                 let reach = rect.grown(GLASS_REACH);
                 // The desktop's own glass regions (id 0: the dock's buttons, the bar's pills)
@@ -235,50 +281,91 @@ impl Frame {
                 // The damage below the glass within its reach: the band it blurs again
                 // (TASK-0335 P1). A full present, a new backdrop (the key) or rows at a new
                 // place blur the whole glass.
+                let reaches = |r: &Area, o: u32| {
+                    origin_below(o, i, layer.layer_id) && r.touches(reach) && !own(r, o)
+                };
                 let band = if full {
                     Area::Full
                 } else {
                     named.iter().fold(Area::None, |a, (r, o)| {
-                        if origin_below(*o, i, layer.layer_id) && r.touches(reach) && !own(r, *o) {
+                        if reaches(r, *o) {
                             a.union(r.intersect(reach))
                         } else {
                             a
                         }
                     })
                 };
+                let by_base = !full && named.iter().any(|(r, o)| *o == 0 && reaches(r, *o));
+                // What the rows still owe — a write put off while nobody could see it — is
+                // part of the band until a write pays it.
+                let (now, owed) = (band != Area::None, self.glass.owed(i));
+                let band = band.union(owed);
                 let touched = band != Area::None;
                 // The backdrop is what lies below the glass within its reach (RFC-0109): a
                 // layer drawn elsewhere — a scroll layer's slice in another window, a hover's
                 // wash across the screen — changes nothing this glass blurs.
-                let below = self.steps[..count]
+                let below = self
+                    .steps
                     .iter()
                     .filter(|s| extent(&s.layer).touches(reach))
                     .fold(wallpaper, |h, s| fold_layer(h, &s.layer));
                 let key = glass_key(below, &layer);
-                let miss = self.glass.miss(i, key, cursor);
+                let miss = self.glass.miss(i, key, rows);
                 let band = if miss == WriteCause::Band { band } else { Area::Full };
                 // Blur at rest (TASK-0336 P3): a glass of a window in motion, or one whose
                 // reach only a moving window touched, keeps its last blur — what nobody can
                 // see sharp is not computed; one write when the motion rests.
                 let moving = self.layers.in_motion(layer.layer_id)
-                    || (touched
+                    || (now
+                        && owed == Area::None
                         && named.iter().all(|(r, o)| {
                             !(origin_below(*o, i, layer.layer_id) && r.touches(reach))
                                 || (*o != 0 && *o != ORIGIN_ABOVE && self.layers.in_motion(*o))
                         }));
-                let cache = match self.glass.keep(i, cursor, rows).filter(|_| moving && !full) {
-                    Some(kept) => kept,
-                    None => self.glass.step(i, key, cursor, rows, touched),
+                // Cost follows what is seen (TASK-0351 P6): a write changes the glass where its
+                // backdrop did, grown by the blur's reach. Where opaque layers above hide all
+                // of that — a window under the windows opened over it — nothing on the screen
+                // would change: the write is put off, the rows owe it, and the frame that
+                // uncovers it pays. Twenty cascaded windows blurred three or four glasses a
+                // frame for a change one of them showed (`board--2026-11-18T13-29-53`).
+                let shows = match band {
+                    Area::Rect { .. } => band.grown(GLASS_REACH).intersect(rect),
+                    _ => rect,
                 };
-                if !matches!(cache, CacheStep::Off) {
-                    cursor = cursor.saturating_add(rows);
-                }
+                let hidden = (touched || miss != WriteCause::Band)
+                    && px(shows).is_some_and(|q| {
+                        above.clear();
+                        for (j, l) in drawn.iter().enumerate().skip(i + 1) {
+                            // A glass above hides with its drawn back: one that holds its rows
+                            // (it reads or writes them this frame, never draws without).
+                            let back = l.backdrop_blur != 0
+                                && blurs(l.backdrop_blur)
+                                && self.glass.keep(j, rows_of(l)).is_some();
+                            let hides = occlude::opaque_rect(l, back);
+                            above.extend(hides.filter(|o| occlude::intersects(*o, q)));
+                        }
+                        occlude::covered(q, &above)
+                    });
+                let put_off = if hidden { self.glass.put_off(i, key, rows, band) } else { None };
+                let cache = match self.glass.keep(i, rows).filter(|_| moving && !full) {
+                    Some(kept) => kept,
+                    None => match put_off {
+                        Some(read) => {
+                            writes.hidden = writes.hidden.saturating_add(1);
+                            read
+                        }
+                        None => self.glass.step(i, key, rows, touched),
+                    },
+                };
                 // What the glass shows changes where its blurred backdrop did: the band grown by
                 // the blur's reach, within the glass (the whole glass when blurred live or anew).
                 match cache {
                     CacheStep::Read(_) => {}
                     CacheStep::Write(_) => {
                         writes.note(if full { WriteCause::Full } else { miss });
+                        if miss == WriteCause::Band && by_base {
+                            writes.band_base = writes.band_base.saturating_add(1);
+                        }
                         damage = damage.union(band.grown(GLASS_REACH).intersect(rect));
                     }
                     CacheStep::Off => damage = damage.union(rect),
@@ -286,15 +373,17 @@ impl Frame {
                 Some(Glass { cache, rows, band })
             };
             let upload = buffer_upload(&layer, before, self.layers.buffers_lost);
-            self.steps[count] = LayerStep { layer, glass, upload };
-            count += 1;
+            self.steps.push(LayerStep { layer, glass, upload });
         }
         // A layer of the last plan no layer of this one carries is gone: where it was changes.
-        for (gone, _) in self.prev[..last].iter().zip(kept.iter()).filter(|(_, k)| !**k) {
+        for (gone, _) in self.prev.iter().zip(kept.iter()).filter(|(_, k)| !**k) {
             damage = damage.union(extent(gone));
         }
-        self.idents[..count].copy_from_slice(&ids[..count]);
-        self.count = count;
+        let count = self.steps.len();
+        self.idents.clear();
+        self.idents.extend_from_slice(&ids);
+        (self.drawn, self.ids, self.carried, self.kept) = (drawn, ids, carried, kept);
+        self.above = above;
         self.layers.dirty = false;
         self.layers.buffers_lost = false;
         if upload && set_epoch != 0 {
@@ -303,8 +392,32 @@ impl Frame {
         Planned { layers: count, writes, upload, damage }
     }
 
+    /// The cache grew by a plane after the last plan found it short (`GlassCache::short`): the
+    /// plan's glasses without rows take theirs and are written whole this frame — their
+    /// rectangles are in the plan's damage already. Returns how many were placed (writes of
+    /// cause `New`); what still finds no rows is short again.
+    pub fn place_short(&mut self) -> u16 {
+        self.glass.add_plane();
+        let mut placed = 0;
+        for (i, step) in self.steps.iter_mut().enumerate() {
+            let Some(g) = step.glass.as_mut().filter(|g| g.cache == CacheStep::Off) else {
+                continue;
+            };
+            if let Some(y) = self.glass.retry(i, g.rows) {
+                (g.cache, g.band) = (CacheStep::Write(y), Area::Full);
+                placed += 1;
+            }
+        }
+        placed
+    }
+
     /// Step `i` of the last plan.
     pub fn step(&self, i: usize) -> Option<LayerStep> {
-        self.steps[..self.count].get(i).copied()
+        self.steps.get(i).copied()
+    }
+
+    /// The cache step of step `i`'s glass, when it is one the executor blurs.
+    pub fn cache_step(&self, i: usize) -> Option<CacheStep> {
+        self.steps.get(i).and_then(|s| s.glass).map(|g| g.cache)
     }
 }

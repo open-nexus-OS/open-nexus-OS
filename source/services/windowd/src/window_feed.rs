@@ -29,6 +29,9 @@ pub struct SlotInfo {
     pub open: bool,
     pub minimized: bool,
     pub focused: bool,
+    /// No pixel of the window is on screen: the windows above it cover it whole (the frame
+    /// left it out, TASK-0351 P1). The feed lists it like any open window.
+    pub covered: bool,
     /// The tile zone code (`zones::CODE_*`, 0 = floating) — RFC-0086 bits 2..=5.
     pub zone: u8,
 }
@@ -66,7 +69,7 @@ mod tests {
     use super::*;
 
     fn slot(owner_sid: u64, open: bool, minimized: bool, focused: bool) -> SlotInfo {
-        SlotInfo { owner_sid, open, minimized, focused, zone: 0 }
+        SlotInfo { owner_sid, open, minimized, focused, covered: false, zone: 0 }
     }
 
     #[test]

@@ -53,7 +53,7 @@ pub(super) struct SceneScratch {
     share: Vec<usize>,
     transforms: Vec<(u32, FrameTransform)>,
     /// Per window slot: left out of this frame, covered by the windows above it (TASK-0351 P1).
-    culled: Vec<bool>,
+    pub(super) culled: Vec<bool>,
     occluders: Vec<nexus_gfx::frame::occlude::Px>,
 }
 
@@ -558,7 +558,7 @@ impl DisplayServerRuntime {
         self.buffers.frame_windows = drawn;
         self.buffers.frame_occluded = occluded;
         crate::compositor::frame_causes::windows(drawn as u32, occluded as u32);
-        self.scene_cb.serialize_into(out).map_err(|_| WindowdError::InvalidDamage)
+        self.scene_cb.serialize_into(out).map_err(|_| WindowdError::BufferLengthMismatch)
     }
 }
 
@@ -594,7 +594,7 @@ fn layer_quotas(
     }
     let desktop_caret = usize::from(caret == Some(None));
     demand[n - 1] = desktop.map_or(0, |l| l.layers.demand() + desktop_caret);
-    fair_shares(nexus_gfx::frame::MAX_LAYERS.saturating_sub(bodies), demand, share);
+    fair_shares(crate::layer_quota::FRAME_LAYERS.saturating_sub(bodies), demand, share);
     quotas.clear();
     quotas.extend(share.iter().map(|s| LayerQuota::new(*s)));
 }

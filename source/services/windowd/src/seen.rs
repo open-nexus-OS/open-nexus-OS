@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: What the compositor STATES about each app window to the lifecycle authority
-//! (TASK-0333 6d, RFC-0111 §4, ADR-0083): focused, visible, hidden or gone — derived from the
+//! (TASK-0333 6d, RFC-0111 §4, ADR-0083): focused, visible, hidden or gone — hidden is a
+//! minimized window and one the windows above it cover whole (TASK-0351 P6: of twenty open
+//! windows nineteen were stated visible and none was ever frozen) — derived from the
 //! same slot facts the shell's window feed is built from, published per window as an
 //! `OP_SEEN` frame keyed by the owning process's kernel service id (`app:<bundle_id>`), and
 //! deduplicated against the last sighting the authority took. The compositor decides nothing
@@ -40,6 +42,10 @@ pub fn seen_of(slot: &SlotInfo) -> Option<Seen> {
         Seen::Hidden
     } else if slot.focused {
         Seen::Focused
+    } else if slot.covered {
+        // Nothing of it is on screen. The focused window is never stated hidden, whatever
+        // lies over it: its app holds the keys.
+        Seen::Hidden
     } else {
         Seen::Visible
     })
@@ -117,7 +123,27 @@ mod tests {
     use super::*;
 
     fn slot(owner_sid: u64, open: bool, minimized: bool, focused: bool) -> SlotInfo {
-        SlotInfo { owner_sid, open, minimized, focused, zone: 0 }
+        SlotInfo { owner_sid, open, minimized, focused, covered: false, zone: 0 }
+    }
+
+    /// A window the windows above it cover whole is hidden like a minimized one, seen again
+    /// when a pixel of it shows — and the focused window is never hidden by what covers it.
+    #[test]
+    fn a_window_covered_whole_is_hidden_until_it_shows_again() {
+        let mut table = SeenTable::default();
+        let mut slots = [slot(1, true, false, false), slot(2, true, false, true)];
+        for d in due_of(&table, &slots) {
+            table.commit(d);
+        }
+        slots[0].covered = true;
+        let due = due_of(&table, &slots);
+        assert_eq!(due, [Due { slot: 0, owner_sid: 1, seen: Seen::Hidden }]);
+        table.commit(due[0]);
+        assert!(due_of(&table, &slots).is_empty(), "stated once");
+        slots[0].covered = false;
+        assert_eq!(due_of(&table, &slots), [Due { slot: 0, owner_sid: 1, seen: Seen::Visible }]);
+        slots[1].covered = true;
+        assert_eq!(seen_of(&slots[1]), Some(Seen::Focused));
     }
 
     fn due_of(table: &SeenTable, slots: &[SlotInfo]) -> Vec<Due> {

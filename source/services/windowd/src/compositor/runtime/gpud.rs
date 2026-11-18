@@ -51,6 +51,24 @@ impl DisplayServerRuntime {
     /// `frame` holds the serialized payload at `PRESENT_HEADER_LEN..`; this writes the
     /// header — opcode + the `seq` the ack will echo (RFC-0093 §5).
     pub(super) fn send_gpud_present(&mut self, frame: &mut [u8]) -> bool {
+        self.send_present(frame, false)
+    }
+
+    /// The scene's present: `wire` is a part header's room and the body behind it. It leaves
+    /// as one frame when it fits one, in parts otherwise (RFC-0101 §8e).
+    pub(super) fn send_gpud_scene(&mut self, wire: &mut [u8]) -> bool {
+        use nexus_display_proto::{PRESENT_HEADER_LEN, PRESENT_PART_HEADER_LEN};
+        let lead = PRESENT_PART_HEADER_LEN - PRESENT_HEADER_LEN;
+        match wire.get_mut(lead..) {
+            Some(whole) if whole.len() <= nexus_abi::IPC_PAYLOAD_MAX => {
+                self.send_present(whole, false)
+            }
+            Some(_) => self.send_present(wire, true),
+            None => false,
+        }
+    }
+
+    fn send_present(&mut self, frame: &mut [u8], in_parts: bool) -> bool {
         if !self.ensure_gpud_client() {
             return false;
         }
@@ -63,12 +81,22 @@ impl DisplayServerRuntime {
         if self.presents.in_flight() >= MAX_IN_FLIGHT {
             return false;
         }
-        nexus_display_proto::write_present_header(frame, self.presents.next_seq());
+        let seq = self.presents.next_seq();
         let send_result = {
             let Some(client) = self.gpud_client.as_ref() else {
                 return false;
             };
-            client.send(frame, Wait::NonBlocking)
+            if in_parts {
+                nexus_display_proto::present_parts::send(
+                    frame,
+                    seq,
+                    nexus_abi::IPC_PAYLOAD_MAX,
+                    |part| client.send(part, Wait::NonBlocking),
+                )
+            } else {
+                nexus_display_proto::write_present_header(frame, seq);
+                client.send(frame, Wait::NonBlocking)
+            }
         };
         match send_result {
             Ok(()) => {

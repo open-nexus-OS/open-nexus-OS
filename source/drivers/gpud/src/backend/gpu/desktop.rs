@@ -27,6 +27,7 @@ use nexus_gfx::backend::v2::{BoId, ClientId, ContextId, DeviceError, GfxDevice, 
 use nexus_gfx::command::buffer::Command;
 use nexus_gfx::frame::{Area, Board, CacheStep, Frame, History, Pipe, Target as To, BLUR_RADII};
 
+use super::desktop_cache::{CachePlanes, CACHE_ROWS};
 use super::desktop_pass::{clean_rows, run_pass, Kept};
 use super::desktop_surface::{bind, buffer};
 use super::device_v2::Device;
@@ -43,31 +44,16 @@ use crate::gpu_context::FrameTarget;
 /// read-write from the ring's, one range each, so no page is mapped twice —, and below it the
 /// scratches, the cache and the frame's own buffer, each on a 2 MiB boundary.
 pub(super) const LAYOUT_VA: u64 = 0x40_0000_0000;
-const PRIVATE_VA: u64 = 0x20_0000_0000;
-pub(super) const SCRATCH_VA: u64 = PRIVATE_VA + 0x0800_0000;
-pub(super) const HALF_VA: u64 = PRIVATE_VA + 0x0A00_0000;
-pub(super) const CACHE_VA: u64 = PRIVATE_VA + 0x0C00_0000;
-pub(super) const FRAME_VA: u64 = PRIVATE_VA + 0x0E00_0000;
+pub(super) use crate::surface_va::{CACHE_VA, FRAME_VA, HALF_VA, SCRATCH_VA};
 const WIDTH: u32 = STRIDE_BYTES / 4;
 const STRIDE: u64 = STRIDE_BYTES as u64;
 /// The half-resolution scratch's rows: the tallest glass's half and the vertical taps' halo.
 pub(crate) const HALF_ROWS: u32 = 600;
-/// The glass cache's half-resolution rows — inside the render target's 1080 (a pass draws only
-/// on the dataset's screen).
-pub(crate) const CACHE_ROWS: u32 = 1024;
-/// The frame's buffer: push constants, PPP blocks and descriptors; the control streams; the
-/// vertices.
-/// A pass of `MAX_DRAWS` takes about 290 bytes of general memory a draw (push constants, the PPP
-/// blocks, the descriptor): 640 draws fit with room for the pass before it.
-const GENERAL_BYTES: u32 = 256 * 1024;
-const STREAM_BYTES: u32 = 32 * 1024;
-const VERTEX_BYTES: u32 = 96 * 1024;
+/// The frame's buffer and the PDS heap's lines its draws take (`frame_limits`, host-tested).
+pub(super) use crate::frame_limits::MAX_DRAWS;
+use crate::frame_limits::{GENERAL_BYTES, PDS_LINES, STREAM_BYTES, VERTEX_BYTES};
 const FRAME_BYTES: u32 = GENERAL_BYTES + STREAM_BYTES + VERTEX_BYTES;
-/// The PDS heap's lines after the targets' pixel event data, to the bundle's PDS arena's end.
-const PDS_END: u32 = 0x2_1000;
-/// The most draws a pass holds: the planner's 64 layers (RFC-0109), each up to nine draws, and
-/// the wallpaper — a plan can never ask for more, so a pass is never refused for its size.
-pub(super) const MAX_DRAWS: usize = 640;
+const _: () = assert!(PDS_LINES.0 == TARGET_PDS.1);
 pub(super) const PASS_TIMEOUT_NS: u64 = 500_000_000;
 /// Frames in a `gpud: gpu frame us` window.
 const WINDOW: u32 = 32;
@@ -191,7 +177,7 @@ pub(crate) struct Desktop {
     slots: [Target; 3],
     scratch: Target,
     half: Target,
-    cache: Target,
+    cache: CachePlanes,
     pipes: Pipes,
     rings: Rings,
     /// The draws the pass being emitted keeps (TASK-0351 P10).
@@ -216,9 +202,9 @@ pub(crate) struct Desktop {
     pub(super) pass_witness: [u64; 3],
     /// What the traced pass's lines are of (`gpu pass trace (of=…)`, TASK-0351 P12).
     pub(super) trace_of: &'static str,
-    /// The glasses blurred again named once (`gpud: gpu glass written (`): the first window
-    /// whose frames wrote glass says which layers.
-    glass_named: bool,
+    /// The glasses blurred again are named (`gpud: gpu glass written (`) by the first frame
+    /// that writes glass with this many layers: once, and again as the scene grows by eight.
+    glass_named: usize,
     /// What the open cost (the bindings walk every page of the layout), for the first line.
     open_us: u64,
 }
@@ -281,7 +267,7 @@ impl Desktop {
         let pipes = Pipes::named(dev, client, ctx)?;
         let rings = Rings::new(
             Arena { base: 0, len: GENERAL_BYTES },
-            Arena { base: TARGET_PDS.1, len: PDS_END - TARGET_PDS.1 },
+            Arena { base: PDS_LINES.0, len: PDS_LINES.1 - PDS_LINES.0 },
             Arena { base: GENERAL_BYTES, len: STREAM_BYTES },
             Arena { base: GENERAL_BYTES + STREAM_BYTES, len: VERTEX_BYTES },
         );
@@ -298,7 +284,7 @@ impl Desktop {
             slots,
             scratch: scratch_t,
             half: half_t,
-            cache: cache_t,
+            cache: CachePlanes::new(cache_t, targets),
             pipes,
             rings,
             kept: Kept::new(),
@@ -313,7 +299,7 @@ impl Desktop {
             gated: false,
             pass_witness: [0; 3],
             trace_of: "hover",
-            glass_named: false,
+            glass_named: 0,
             open_us: now_ns().saturating_sub(t0) / 1000,
         })
     }
@@ -321,6 +307,7 @@ impl Desktop {
     /// The buffers given back, after the context that bound them is gone.
     pub(crate) fn release(mut self, dev: &mut Device) {
         give_back(dev, self.client, &mut self.bos);
+        self.cache.release(dev, self.client);
     }
 
     /// A new compositor runs (RFC-0112): its layers are not the old one's — the set goes and
@@ -380,7 +367,9 @@ impl Desktop {
             self.drawn = [0; 3];
         }
         let p0 = now_ns();
-        let planned = self.frame.plan(self.display, &|_| true);
+        let mut planned = self.frame.plan(self.display, &|_| true);
+        let who = (self.client, self.ctx);
+        self.cache.fill(dev, who, &self.captured, &mut self.frame, &mut planned);
         let plan_ns = now_ns().saturating_sub(p0);
         let mut glass_idx = 0u32;
         for i in 0..planned.layers.min(32) {
@@ -391,8 +380,9 @@ impl Desktop {
         }
         // The glasses blurred again, named once past the first frames (the settled desktop's
         // writes are the question, cycles 35–37: `glass_idx=0x6` every frame while typing).
-        if !quiet && glass_idx != 0 && !self.glass_named && self.stats.frames >= 8 {
-            self.glass_named = true;
+        if !quiet && glass_idx != 0 && planned.layers >= self.glass_named && self.stats.frames >= 8
+        {
+            self.glass_named = planned.layers + 8;
             // The present's damage this frame, with its origins: what touched them.
             let (named, count, full) = self.frame.layers.last_damage();
             let mut line = alloc::string::String::new();
@@ -454,9 +444,9 @@ impl Desktop {
         }
         let enter_us = self.surface.take_spent_us();
         let clean_us = (now_ns().saturating_sub(c0) / 1000).saturating_sub(enter_us);
-        let (display, layout_rows, who) = (self.display, self.layout_rows, (self.client, self.ctx));
-        let (scratch, half, cache) = (self.scratch, self.half, self.cache);
-        let Self { frame, rings, kept, pipes, captured, streams, .. } = self;
+        let (display, layout_rows, scratch, half) =
+            (self.display, self.layout_rows, self.scratch, self.half);
+        let Self { frame, rings, kept, pipes, captured, streams, cache, .. } = self;
         let board = Board::new(frame, planned, display, layout_rows, HALF_ROWS)
             .with_base(target.base_row)
             .with_area(area.unwrap_or((0, 0, 0, 0)));
@@ -480,7 +470,7 @@ impl Desktop {
                 To::Slot => slot,
                 To::Scratch => scratch,
                 To::Half => half,
-                To::Cache => cache,
+                To::Cache(plane) => cache.target(plane).ok_or("a cache plane")?,
             };
             work.note(spec.target, board.work_by_program(&spec));
             work.note_kinds(spec.target, || board.blended_by_kind(&spec));

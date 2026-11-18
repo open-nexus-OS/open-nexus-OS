@@ -343,7 +343,7 @@ where
     // Priority-wire display services early (right after their endpoints exist)
     // so they get scheduled by the existing yield after MMIO grants.
 
-    let gpud_req = mint(gpud_pid, 8)?;
+    let gpud_req = mint(gpud_pid, 32)?; // RFC-0101 §8e: two presents in parts lie in it
     let gpud_rsp = mint(gpud_pid, 8)?;
 
     // logd (optional) service endpoints (request/response).

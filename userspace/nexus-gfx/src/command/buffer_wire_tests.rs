@@ -238,4 +238,53 @@ mod scroll_tag_tests {
         let (out, _) = CommittedBuffer::deserialize_from(&buf[..n]).expect("deserialize");
         assert_eq!(out.commands, cb.commands);
     }
+
+    /// A scene far past one IPC frame crosses the wire whole (TASK-0351 P6: the serializer
+    /// held its own bound of 8000 bytes, and twenty-one windows were refused by it).
+    #[test]
+    fn a_scene_of_hundreds_of_layers_roundtrips_over_the_wire() {
+        let layer = |i: u32| Command::CompositeLayer {
+            src_row_abs: 0,
+            src_x: 0,
+            width: 400,
+            height: 300,
+            dst_x: i,
+            dst_y: i,
+            opacity: 255,
+            corner_radius: 12,
+            shadow_blur: 24,
+            shadow_offset_y: 8,
+            shadow_alpha: 90,
+            backdrop_blur: 40,
+            content_w: 0,
+            content_h: 0,
+            scroll_band_top_abs: 0,
+            scroll_band_h: 0,
+            layer_id: i,
+            content_epoch: 1,
+            flags: 0,
+            key: i << 16,
+            source: 0,
+        };
+        let cb = CommittedBuffer { commands: (0..600).map(layer).collect() };
+        let mut buf = alloc::vec![0u8; super::super::buffer::MAX_SERIALIZED];
+        let n = cb.serialize_into(&mut buf).expect("serialize");
+        assert!(n > 8 * 1024 * 6, "{n}");
+        let (out, used) = CommittedBuffer::deserialize_from(&buf[..n]).expect("deserialize");
+        assert_eq!((out.commands.len(), used), (600, n));
+        assert_eq!(out.commands, cb.commands);
+        // Past the bound the serializer refuses, whatever the buffer holds.
+        let cb = CommittedBuffer { commands: (0..900).map(layer).collect() };
+        let mut big = alloc::vec![0u8; 2 * super::super::buffer::MAX_SERIALIZED];
+        assert!(cb.serialize_into(&mut big).is_err());
+    }
+
+    #[test]
+    fn test_reject_a_stream_naming_more_commands_than_a_buffer_holds() {
+        let mut buf = alloc::vec![0u8; 64];
+        buf[..2].copy_from_slice(&(super::super::buffer::MAX_COMMANDS as u16 + 1).to_le_bytes());
+        assert!(CommittedBuffer::deserialize_from(&buf).is_err());
+        let long = alloc::vec![0u8; super::super::buffer::MAX_SERIALIZED + 1];
+        assert!(CommittedBuffer::deserialize_from(&long).is_err());
+    }
 }

@@ -748,6 +748,30 @@ proves = "TASK-0348 (RFC-0114 §6): a frame left for gpud naming app surfaces by
 phase = "end"
 proves = "TASK-0348 (RFC-0114 §7): a frame left for gpud drawing N app windows, each from its own buffer — more than this boot drew before; no window slot array, event-channel table or feed bound stops the count at a fixed number"
 
+# TASK-0351 P6: a frame the compositor could not build or send. Every pass after it fails the
+# same way and the display stands still. The serializer's own bound of 8000 bytes was hit by the
+# many-apps lane at its 32nd window on 2026-11-13 — the lane stayed green — and by the board at
+# its 21st (`board--2026-11-18T13-29-53`). Forbidden wherever a desktop is drawn; the line
+# carries its count (`(n=`), written at the 1st, 2nd, 4th, … failure.
+[marker."windowd: flush rows fail"]
+phase = "end"
+proves = "a frame was refused on its way to the display driver (the scene's encode, its serialization, a flush's arithmetic) — never expected"
+forbidden_when = { profile = ["usb-visible", "many-windows", "many-apps", "board-visible"] }
+
+# TASK-0351 P6: a surface lost layers to the frame's budget (256 layers, max-min fair). Named
+# once; forbidden where the lanes' windows are few enough to fit.
+[marker."windowd: layers over the frame bound ("]
+phase = "end"
+proves = "the compositor's frame budget was reached and a surface's own last layers were left out (RFC-0109 failure model) — never expected on the lanes' scenes"
+forbidden_when = { profile = ["usb-visible", "many-windows", "many-apps"] }
+
+# TASK-0351 P6: a pass asked more draws of the board's executor than its pass memory holds and
+# drew its topmost — the frame is degraded, not refused. Never expected below about fifty windows.
+[marker."gpud: gpu pass draws FAIL ("]
+phase = "end"
+proves = "a scene pass kept its topmost draws and left its lowest out (gpud `frame_limits`): the frame's draws passed the pass memory's PDS lines"
+forbidden_when = { profile = ["board-visible"] }
+
 # TASK-0351 P1: a window whose body and shadow lie wholly under the opaque bodies of the windows
 # above it is left out of the frame — no body, no layers, no read of its surface. One line per new
 # high of windows one frame left out; the many-windows lane fills the work area with the twelfth.

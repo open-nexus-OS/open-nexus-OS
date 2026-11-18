@@ -29,6 +29,9 @@ pub use super::kernels::{blur_radius, blur_scale, BLUR_RADII};
 /// The program kinds `Board::work_by_program` counts: opaque, straight, rounded, shadow, blur.
 pub const PROGRAM_KINDS: usize = 5;
 
+/// The most glass writes that share their passes in one frame (`merge::mergeable`).
+pub const MERGE_MAX: usize = 32;
+
 /// The pixels of `d`'s quad inside the pass area `area` (inclusive corners): what it shades.
 pub fn drawn_px(d: &DrawSpec, area: (u32, u32, u32, u32)) -> u64 {
     let (ax0, ay0, ax1, ay1) = area;
@@ -102,7 +105,8 @@ pub enum Target {
     Slot,
     Scratch,
     Half,
-    Cache,
+    /// A plane of the glass cache.
+    Cache(u32),
 }
 
 /// A pass's draws.
@@ -148,12 +152,14 @@ pub struct Board<'a> {
     /// The slot's pass area (inclusive corners): the whole display unless the executor limits
     /// it to what the slot lacks.
     area: (u32, u32, u32, u32),
-    /// The glass layers written this frame, in walk order.
-    writes: [u8; MAX_LAYERS],
+    /// Glass layers written this frame (`write_at` finds each in the walk).
     pub(super) write_count: usize,
     pub glass: GlassCount,
-    /// Each write's re-blur geometry, at the half rows the frame packed it to (TASK-0335 P3).
-    chains: [Option<Chain>; MAX_LAYERS],
+    /// The half rows each write's re-blur is packed to when the writes share their passes
+    /// (TASK-0335 P3) — at most `MERGE_MAX` do. The geometry itself (`chain_at`) is worked out
+    /// where a pass asks for it, and the writes are found in the plan: the board lies on its
+    /// executor's stack and holds no table that grows with the scene.
+    half_at: [u32; MERGE_MAX],
     /// The writes share one scene pass, one horizontal and one vertical (`merge::mergeable`,
     /// and every chain fit the half scratch).
     merged: bool,
@@ -179,19 +185,16 @@ impl<'a> Board<'a> {
             half_rows,
             base_row: 0,
             area: (0, 0, display.0.saturating_sub(1), display.1.saturating_sub(1)),
-            writes: [0; MAX_LAYERS],
             write_count: 0,
             glass: GlassCount::default(),
-            chains: [None; MAX_LAYERS],
+            half_at: [0; MERGE_MAX],
             merged: false,
             unions: [(0, 0, 0, 0); 3],
         };
         for j in 0..b.layers {
-            let cache = frame.step(j).and_then(|s| s.glass).map(|g| g.cache);
-            match cache {
+            match frame.cache_step(j) {
                 Some(CacheStep::Write(_)) => {
                     b.glass.writes += 1;
-                    b.writes[b.write_count] = j as u8;
                     b.write_count += 1;
                 }
                 Some(CacheStep::Read(_)) => b.glass.reads += 1,
@@ -241,7 +244,7 @@ impl<'a> Board<'a> {
             });
         }
         if self.merged {
-            let low = usize::from(*self.writes[..self.write_count].first()?);
+            let low = self.write_at(0)?;
             return Some(match p {
                 0 => PassSpec {
                     target: Target::Scratch,
@@ -254,7 +257,7 @@ impl<'a> Board<'a> {
                     kind: PassKind::Blurs { vertical: false },
                 },
                 2 => PassSpec {
-                    target: Target::Cache,
+                    target: Target::Cache(self.chain_at(0)?.plane),
                     area: self.unions[2],
                     kind: PassKind::Blurs { vertical: true },
                 },
@@ -262,7 +265,7 @@ impl<'a> Board<'a> {
             });
         }
         let w = p / 3;
-        let (j, c) = (usize::from(*self.writes[..self.write_count].get(w)?), self.chains[w]?);
+        let (j, c) = (self.write_at(w)?, self.chain_at(w)?);
         Some(match p % 3 {
             0 => PassSpec {
                 target: Target::Scratch,
@@ -275,7 +278,7 @@ impl<'a> Board<'a> {
                 kind: PassKind::One(Self::blur_draw(&c, false, None)),
             },
             _ => PassSpec {
-                target: Target::Cache,
+                target: Target::Cache(c.plane),
                 area: c.rows_area,
                 kind: PassKind::One(Self::blur_draw(&c, true, None)),
             },
@@ -296,7 +299,7 @@ impl<'a> Board<'a> {
         match pass.kind {
             PassKind::One(d) => (i == 0).then_some(d),
             PassKind::Blurs { vertical } => {
-                let c = self.chains.get(i).copied().flatten()?;
+                let c = self.chain_at(i)?;
                 // Each write's quad cut to its own band: one scissor serves them all.
                 let own = if vertical { c.rows_area } else { c.half_area };
                 Some(Self::blur_draw(&c, vertical, Some(own)))
@@ -496,18 +499,42 @@ impl<'a> Board<'a> {
         let (l, cache) = self.layer(j)?;
         let Some(CacheStep::Write(row)) = cache else { return None };
         let band = self.frame.step(j).and_then(|s| s.glass).map_or(Area::Full, |g| g.band);
-        chain(&l, band, row, half_row, self.display, self.half_rows)
+        let rows = (row, self.frame.glass.plane_rows());
+        chain(&l, band, rows, half_row, self.display, self.half_rows)
+    }
+
+    /// The walk's index of write `w`: the `w`-th glass the plan writes.
+    fn write_at(&self, w: usize) -> Option<usize> {
+        let written = |j: &usize| matches!(self.frame.cache_step(*j), Some(CacheStep::Write(_)));
+        (0..self.layers).filter(written).nth(w)
+    }
+
+    /// The re-blur of write `w`, at the half rows the frame packed it to (the scratch's top
+    /// when the writes run one by one).
+    fn chain_at(&self, w: usize) -> Option<Chain> {
+        let half_row = if self.merged { *self.half_at.get(w)? } else { 0 };
+        self.chain_of(self.write_at(w)?, half_row)
     }
 
     /// Lays the writes' chains out (TASK-0335 P3): packed one after another in the half
     /// scratch when they all fit and may share the scene (`merge::mergeable`) — then the frame
     /// runs four passes; otherwise each at half row 0, three passes each, as before.
     fn lay_out_chains(&mut self) {
+        // More writes than `MERGE_MAX` run one by one: so many are windows over one another,
+        // which share no scene (`merge::mergeable`).
+        if self.write_count < 2 || self.write_count > MERGE_MAX {
+            return;
+        }
         let mut cursor = 0u32;
-        let mut written = [Written { index: 0, scene: Area::None, rect: Area::None }; MAX_LAYERS];
-        let mut fits = self.write_count > 1;
-        let writes = self.writes;
-        for (w, j) in writes[..self.write_count].iter().map(|j| usize::from(*j)).enumerate() {
+        let mut written = [Written { index: 0, scene: Area::None, rect: Area::None }; MERGE_MAX];
+        let mut fits = true;
+        // One vertical pass has one target: the writes share it only inside one cache plane.
+        let mut plane = None;
+        let mut unions = [(u32::MAX, u32::MAX, 0, 0); 3];
+        let mut half_at = [0u32; MERGE_MAX];
+        let writes = (0..self.layers)
+            .filter(|j| matches!(self.frame.cache_step(*j), Some(CacheStep::Write(_))));
+        for (w, j) in writes.enumerate().take(MERGE_MAX) {
             let Some(c) = self.chain_of(j, cursor) else {
                 fits = false;
                 break;
@@ -518,7 +545,11 @@ impl<'a> Board<'a> {
                 .map_or(Area::None, |(l, _)| Area::rect(l.dst_x, l.dst_y, l.width, l.height));
             written[w] =
                 Written { index: j, scene: Area::rect(x0, y0, x1 - x0 + 1, y1 - y0 + 1), rect };
-            self.chains[w] = Some(c);
+            fits &= *plane.get_or_insert(c.plane) == c.plane;
+            for (u, a) in unions.iter_mut().zip([c.scene_area, c.half_area, c.rows_area]) {
+                *u = (u.0.min(a.0), u.1.min(a.1), u.2.max(a.2), u.3.max(a.3));
+            }
+            half_at[w] = cursor;
             cursor += c.half_rows_used;
         }
         let top = self.layers;
@@ -532,26 +563,9 @@ impl<'a> Board<'a> {
                 Area::rect(l.dst_x, l.dst_y, l.width, l.height).grown(pad)
             })
         };
-        let low = self.writes.first().map_or(0, |j| usize::from(*j));
+        let low = written[0].index;
         if fits && mergeable(&written[..self.write_count], low, top, extent) {
-            self.merged = true;
-            let union = |pick: &dyn Fn(&Chain) -> PassArea| {
-                self.chains[..self.write_count]
-                    .iter()
-                    .flatten()
-                    .map(pick)
-                    .fold((u32::MAX, u32::MAX, 0, 0), |u, a| {
-                        (u.0.min(a.0), u.1.min(a.1), u.2.max(a.2), u.3.max(a.3))
-                    })
-            };
-            self.unions =
-                [union(&|c| c.scene_area), union(&|c| c.half_area), union(&|c| c.rows_area)];
-        } else {
-            // One by one, each chain at the half scratch's top.
-            for w in 0..self.write_count {
-                let j = usize::from(self.writes[w]);
-                self.chains[w] = self.chain_of(j, 0);
-            }
+            (self.merged, self.unions, self.half_at) = (true, unions, half_at);
         }
     }
 }

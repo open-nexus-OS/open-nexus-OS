@@ -40,7 +40,16 @@ pub(crate) fn cursor_damage_rect(
     Some(DamageRect { x: start_x, y: start_y, width: end_x - start_x, height: end_y - start_y })
 }
 
-pub(crate) fn flush_error_label(err: WindowdError) -> &'static str {
+/// A failed flush's line, at its 1st, 2nd, 4th, … time with the count: a frame that cannot be
+/// built fails every pass, and one board run wrote the bare line 5641 times
+/// (`board--2026-11-18T13-29-53`).
+pub(crate) fn flush_failure(err: WindowdError) -> Option<alloc::string::String> {
+    static FAILED: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+    let n = FAILED.fetch_add(1, core::sync::atomic::Ordering::Relaxed) + 1;
+    n.is_power_of_two().then(|| alloc::format!("{} (n={n})", flush_error_label(err)))
+}
+
+fn flush_error_label(err: WindowdError) -> &'static str {
     match err {
         WindowdError::BufferLengthMismatch => "windowd: flush rows fail buffer-len",
         WindowdError::ArithmeticOverflow => "windowd: flush rows fail arith",

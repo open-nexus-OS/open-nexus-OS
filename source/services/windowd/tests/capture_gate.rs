@@ -182,5 +182,4 @@ fn the_window_list_is_clamped_and_bounded() {
     assert_eq!(capture_windows(twelve).1, 12);
     let many = (0..CAPTURE_WINDOWS_MAX as u32 + 5).map(|i| (i, 0, 0, 100, 100));
     assert_eq!(capture_windows(many).1, CAPTURE_WINDOWS_MAX);
-    assert_eq!(CAPTURE_WINDOWS_MAX, nexus_gfx::frame::MAX_LAYERS, "every window a frame shows");
 }

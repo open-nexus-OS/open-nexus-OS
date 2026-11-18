@@ -28,22 +28,25 @@ pub struct Chain {
     /// Half rows the horizontal result takes (`hh`), and the scratch's rows in all.
     pub half_rows_used: u32,
     pub half_rows_total: u32,
-    /// The vertical pass: into the cache rows at `row`.
+    /// The vertical pass: into the cache plane `plane`, at the glass's rows inside it.
+    pub plane: u32,
     pub rows_quad: Quad,
     pub rows_area: PassArea,
 }
 
-/// The re-blur of `l` whose cache rows start at `row`, placed at half rows `half_row`, for the
-/// backdrop change `band` (`Full` = the whole glass); `None` when the half scratch cannot hold
-/// it at that place.
+/// The re-blur of `l` whose cache rows start at `row` (counted through planes of `plane_rows`
+/// rows: the pass targets the row's plane, at the row inside it), placed at half rows
+/// `half_row`, for the backdrop change `band` (`Full` = the whole glass); `None` when the half
+/// scratch cannot hold it at that place.
 pub fn chain(
     l: &FrameLayer,
     band: Area,
-    row: u32,
+    (row, plane_rows): (u32, u32),
     half_row: u32,
     display: (u32, u32),
     half_rows: u32,
 ) -> Option<Chain> {
+    let (plane, row) = (row / plane_rows.max(1), row % plane_rows.max(1));
     let (dw, dh) = display;
     let r = blur_radius(l.backdrop_blur);
     let s = blur_scale(r);
@@ -106,6 +109,7 @@ pub fn chain(
         half_area,
         half_rows_used: hh,
         half_rows_total: half_rows,
+        plane,
         rows_quad,
         rows_area,
     })

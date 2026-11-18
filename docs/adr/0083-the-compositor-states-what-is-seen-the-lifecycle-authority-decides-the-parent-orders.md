@@ -60,8 +60,15 @@ spinning), or the three services each state what they know and ONE decides.
   `SELFTEST: ability lifecycle ok (fg->hidden->frozen->fg)` (once per boot, on the first full
   cycle); the refusals are host tests (`test_reject_seen_from_anyone_but_the_compositor`,
   `test_reject_order_from_a_stranger_or_for_a_stranger`).
-- **Out of scope here, by decision:** occlusion (a window fully covered by another is
-  `Visible`; the occlusion sighting is a follow-up with its own measurement); the ghost band of a
+- **A window covered whole is hidden (amended 2026-11-18, TASK-0351 P6).** The follow-up's
+  measurement: with twenty windows open on the board nineteen were stated `Visible`, none was
+  ever frozen (`board--2026-11-18T10-51-11`: 19 × `band=visible`, no suspend). A window the
+  frame left out because the windows above it cover it whole (windowd's exact cull, RFC-0101
+  §8) is stated `Hidden` like a minimized one, and `Visible` again with the first frame that
+  draws a pixel of it; the grace is the same, so a window dragged across another is not
+  frozen. The focused window is never stated hidden by what covers it. On a path that culls
+  nothing (the CPU compositor) nothing changes. Host: `a_window_covered_whole_is_hidden_until_it_shows_again`.
+- **Out of scope here, by decision:** the ghost band of a
   system-initiated kill (6e: there is no system kill yet, a crash closes the window as before);
   `OP_KILL` from the authority (the op and execd's side exist; the policy that issues it is
   6e's pressure band); the `background` grant that exempts an app from the freeze (6d-3).
@@ -78,7 +85,7 @@ spinning), or the three services each state what they know and ONE decides.
   exemption that matters, the declared `background` grant); abilitymgr gains a timer pair and a
   waitset — the declared-slot cost every clocked service pays.
 - **Follow-ups**: 6d-3 (the grant at policyd); 6e (the pressure bands that issue `OP_KILL`,
-  the ghost band); occlusion as a sighting; a window-only instance (no process) moves through
+  the ghost band); a window-only instance (no process) moves through
   the same states and orders nothing — it is removed with its placeholder apps.
 
 ## Alternatives considered

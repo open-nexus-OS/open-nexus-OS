@@ -505,7 +505,7 @@ pub fn service_main_loop() -> Result<(), &'static str> {
         if !runtime.is_handoff_pending() {
             runtime.keep_frame_clock_alive();
             if let Err(err) = runtime.flush_pending_damage_if_slot_free() {
-                let _ = debug_println(flush_error_label(err));
+                let _ = flush_failure(err).map(|line| debug_println(&line));
             }
         }
         // Frame pulses AFTER the frame's compose/present work: animating clients tick their

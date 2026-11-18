@@ -21,6 +21,8 @@ pub(super) const TAG_LAYER_TRANSFORM: u8 = 11;
 pub const SCALE_ONE: u32 = 10_000;
 /// The record's payload after its tag: seven words.
 const LEN: usize = 28;
+/// The record's length on the wire, its tag included.
+pub(crate) const RECORD_LEN: usize = 1 + LEN;
 
 /// Writes the transform at `pos` of `buf` (its tag first); the position after it.
 pub(super) fn ser(

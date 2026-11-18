@@ -414,15 +414,29 @@ impl DisplayServerRuntime {
         }
 
         // 4. One scene CB: blit retained→display + GPU glass overlays + cursor.
-        let mut frame_buf = [0u8; 8192];
-        let written = self.build_scene_cb_into(
-            &blits,
-            blit_count,
-            &mut frame_buf[nexus_display_proto::PRESENT_HEADER_LEN..],
-        )?;
-        self.tile_map.clear();
-        let gpud_ok = self
-            .send_gpud_present(&mut frame_buf[..nexus_display_proto::PRESENT_HEADER_LEN + written]);
+        //    Its bytes are the runtime's own: a scene of many windows is longer than one IPC
+        //    frame and leaves in parts (RFC-0101 §8e).
+        const HEAD: usize = nexus_display_proto::PRESENT_PART_HEADER_LEN;
+        let mut wire = core::mem::take(&mut self.buffers.frame_wire);
+        let need = HEAD + nexus_display_proto::PRESENT_BODY_MAX;
+        if wire.len() < need && wire.try_reserve_exact(need - wire.len()).is_ok() {
+            wire.resize(need, 0);
+        }
+        let built = match wire.get_mut(HEAD..) {
+            Some(body) => self.build_scene_cb_into(&blits, blit_count, body),
+            None => Err(WindowdError::InvalidDamage),
+        };
+        let gpud_ok = match built {
+            Ok(written) => {
+                self.tile_map.clear();
+                self.send_gpud_scene(&mut wire[..HEAD + written])
+            }
+            Err(e) => {
+                self.buffers.frame_wire = wire;
+                return Err(e);
+            }
+        };
+        self.buffers.frame_wire = wire;
         if gpud_ok {
             // RFC-0108: the frame that carries the pending input left for gpud — the input's
             // wait in windowd is judged once a window of them is in; the wait is also the frame
