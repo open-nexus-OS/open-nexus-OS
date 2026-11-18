@@ -15,6 +15,7 @@ use super::*;
 use core::cell::RefCell;
 
 const NORMAL: QosClass = QosClass::Normal;
+const INTERACTIVE_W: u32 = weight_of(QosClass::Interactive, 100);
 
 fn push(q: &mut HartQueues, id: u32, qos: QosClass) -> Result<(), Full> {
     q.push_back(id, qos, 0)
@@ -162,15 +163,15 @@ fn a_wake_of_a_class_above_the_running_task_is_ready_above() {
     // ADR-0096: with a Normal task running, an Interactive wake is "above" — the trap exit
     // preempts for it; the next pick is the woken task, after which nothing is above.
     let mut q = HartQueues::new();
-    assert!(!q.ready_above_current(), "nothing runs: nothing is above");
+    assert!(!q.ready_before_current(), "nothing runs: nothing is above");
     push(&mut q, 1, NORMAL).unwrap();
     assert_eq!(pick(&mut q), Some(1));
-    assert!(!q.ready_above_current());
+    assert!(!q.ready_before_current());
     push(&mut q, 4, QosClass::Interactive).unwrap();
-    assert!(q.ready_above_current());
+    assert!(q.ready_before_current());
     assert!(q.yield_current(0));
     assert_eq!(pick(&mut q), Some(4));
-    assert!(!q.ready_above_current(), "the Normal task behind it is not above");
+    assert!(!q.ready_before_current(), "the Normal task behind it is not above");
 }
 
 #[test]
@@ -182,15 +183,15 @@ fn test_reject_a_wake_of_the_same_or_a_lower_class_as_above() {
     assert_eq!(pick(&mut q), Some(1));
     push(&mut q, 2, NORMAL).unwrap();
     push(&mut q, 3, QosClass::Idle).unwrap();
-    assert!(!q.ready_above_current());
+    assert!(!q.ready_before_current());
     // An Interactive task running: a second Interactive wake is its equal, PerfBurst is above.
     push(&mut q, 5, QosClass::Interactive).unwrap();
     assert!(q.yield_current(0));
     assert_eq!(pick(&mut q), Some(5));
     push(&mut q, 6, QosClass::Interactive).unwrap();
-    assert!(!q.ready_above_current());
+    assert!(!q.ready_before_current());
     push(&mut q, 7, QosClass::PerfBurst).unwrap();
-    assert!(q.ready_above_current());
+    assert!(q.ready_before_current());
 }
 
 #[test]
@@ -270,20 +271,22 @@ fn set_qos_moves_a_queued_task_to_the_back_of_its_new_class() {
         push(&mut q, id, NORMAL).unwrap();
     }
     push(&mut q, 9, QosClass::Interactive).unwrap();
-    assert_eq!(q.requeue(2, QosClass::Interactive), Some(Ok(())));
-    assert_eq!(q.requeue(77, QosClass::Interactive), None, "not queued here");
+    assert_eq!(q.requeue(2, QosClass::Interactive, INTERACTIVE_W), Some(Ok(())));
+    assert_eq!(q.requeue(77, QosClass::Interactive, INTERACTIVE_W), None, "not queued here");
     assert_eq!(
         [pick(&mut q), pick(&mut q), pick(&mut q), pick(&mut q)],
         [Some(9), Some(2), Some(1), Some(3)]
     );
     assert_eq!(q.current().map(|task| task.qos), Some(NORMAL));
     // The running task's class is set in place.
-    assert!(q.set_qos_if_current(3, QosClass::PerfBurst));
-    assert!(!q.set_qos_if_current(1, QosClass::PerfBurst), "not the running task");
-    assert_eq!(q.current().map(|task| task.qos), Some(QosClass::PerfBurst));
-    assert!(q.set_current_qos(QosClass::Idle));
+    let burst = weight_of(QosClass::PerfBurst, 100);
+    assert!(q.set_qos_if_current(3, QosClass::PerfBurst, burst));
+    assert!(!q.set_qos_if_current(1, QosClass::PerfBurst, burst), "not the running task");
+    let now = q.current().map(|task| (task.qos, task.weight));
+    assert_eq!(now, Some((QosClass::PerfBurst, burst)), "the class and its weight");
+    assert!(q.set_current_qos(QosClass::Idle, 16));
     q.set_current(None);
-    assert!(!q.set_current_qos(QosClass::Idle), "the hart runs nothing");
+    assert!(!q.set_current_qos(QosClass::Idle, 16), "the hart runs nothing");
 }
 
 #[test]
@@ -294,13 +297,13 @@ fn test_reject_set_task_qos_when_target_queue_full() {
     for i in 0..CLASS_CAPACITY as u32 {
         push(&mut q, 0x4000 + i, QosClass::Interactive).unwrap();
     }
-    assert_eq!(q.requeue(0x1234, QosClass::Interactive), Some(Err(Full)));
+    assert_eq!(q.requeue(0x1234, QosClass::Interactive, INTERACTIVE_W), Some(Err(Full)));
     assert_eq!(q.len(QosClass::Interactive), CLASS_CAPACITY);
     // It kept its class AND its place: still in front of the task queued after it.
     let front = q.front(NORMAL).unwrap();
     assert_eq!((front.id, front.qos), (0x1234, NORMAL));
     // Within its own class a full queue is no obstacle: it goes to the back.
-    assert_eq!(q.requeue(0x4000, QosClass::Interactive), Some(Ok(())));
+    assert_eq!(q.requeue(0x4000, QosClass::Interactive, INTERACTIVE_W), Some(Ok(())));
     assert_eq!(q.front(QosClass::Interactive).map(|task| task.id), Some(0x4001));
 }
 
@@ -461,7 +464,7 @@ fn no_task_is_lost_or_doubled_over_random_steps() {
             4 if !live.is_empty() => {
                 let id = live[rand(live.len() as u32) as usize];
                 let qos = classes[rand(4) as usize];
-                let _ = m.harts[cpu].borrow_mut().requeue(id, qos);
+                let _ = m.harts[cpu].borrow_mut().requeue(id, qos, weight_of(qos, 100));
             }
             5 if !live.is_empty() => {
                 let id = live.swap_remove(rand(live.len() as u32) as usize);
@@ -500,4 +503,75 @@ fn no_task_is_lost_or_doubled_over_random_steps() {
         assert_eq!(held, expect);
     }
     assert!(next > 5_000);
+}
+
+/// Charges `q`'s running task at `now`, then runs `op` — the kernel's metered operation.
+fn metered(q: &mut HartQueues, now: u64, op: impl FnOnce(&mut HartQueues)) -> Option<(u32, u64)> {
+    let charged = q.charge(now).map(|c| (c.id, c.ran));
+    op(q);
+    charged
+}
+
+#[test]
+fn the_meter_charges_the_running_task_the_time_since_its_last_charge() {
+    let mut q = HartQueues::new();
+    push(&mut q, 1, NORMAL).unwrap();
+    push(&mut q, 2, NORMAL).unwrap();
+    assert_eq!(
+        metered(&mut q, 100, |q| {
+            q.pick();
+        }),
+        None,
+        "nothing ran before"
+    );
+    // A yield and a pick are two operations: the task is charged at the yield.
+    assert_eq!(
+        metered(&mut q, 130, |q| {
+            q.yield_current(130);
+        }),
+        Some((1, 30))
+    );
+    assert_eq!(
+        metered(&mut q, 131, |q| {
+            q.pick();
+        }),
+        None,
+        "the hart ran nothing"
+    );
+    // Task 2 is preempted straight into task 1 — one operation, the time since its pick.
+    assert_eq!(
+        metered(&mut q, 151, |q| {
+            q.pick();
+        }),
+        Some((2, 20))
+    );
+    // A task that runs on is charged in parts, never twice: 9 + 11 = its 20.
+    assert_eq!(metered(&mut q, 160, |_| ()), Some((1, 9)));
+    assert_eq!(metered(&mut q, 171, |q| q.set_current(None)), Some((1, 11)));
+}
+
+#[test]
+fn metered_time_adds_up_to_the_time_the_hart_ran_tasks() {
+    let mut q = HartQueues::new();
+    let (mut charged, mut busy, mut now) = (0u64, 0u64, 0u64);
+    for step in 0..1_000u64 {
+        let ran_before = q.current().is_some();
+        now += 1 + step % 7;
+        if ran_before {
+            busy += 1 + step % 7;
+        }
+        let ran = metered(&mut q, now, |q| match step % 4 {
+            0 => drop(push(q, (step % 5) as u32 + 1, NORMAL)),
+            1 => {
+                q.pick();
+            }
+            2 => {
+                q.yield_current(now);
+            }
+            _ => q.set_current(None),
+        });
+        charged += ran.map_or(0, |(_, ns)| ns);
+    }
+    let still = q.charge(now).map_or(0, |c| c.ran);
+    assert_eq!(charged + still, busy, "every tick a task ran is charged once");
 }

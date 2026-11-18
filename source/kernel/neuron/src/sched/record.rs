@@ -19,7 +19,9 @@
 
 use core::cell::UnsafeCell;
 use core::ptr::null_mut;
-use core::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicUsize, Ordering};
+use core::sync::atomic::{
+    AtomicBool, AtomicI64, AtomicPtr, AtomicU32, AtomicU64, AtomicUsize, Ordering,
+};
 
 use crate::run_queue::Owner;
 use crate::trap::fp::Held;
@@ -44,6 +46,18 @@ pub struct Record {
     space: AtomicU32,
     satp: AtomicUsize,
     cache: AtomicBool,
+    /// The time harts ran the task, in ns (TASK-0363 P3: the meter — charged by the hart it
+    /// left whenever a hart's running task changes, `sched::meter`).
+    runtime_ns: AtomicU64,
+    /// Its lag in the fair class as it last left a hart without a requeue (a block): what its
+    /// next wake is placed by (`run_queue::Task::lag`).
+    lag: AtomicI64,
+    /// Its shares (TASK-0042, 1–1000; 100 by default): its weight in the fair class with its
+    /// class (`run_queue::weight_of`). Mirrors the task table's, so a wake without the kernel
+    /// lock reads it.
+    shares: AtomicU32,
+    /// The reservation it runs with (a raw `nexus_sched::ReservationId`; 0: none).
+    reservation: AtomicU64,
 }
 
 // SAFETY: the frame and the floating-point states are reached only through their accessors,
@@ -69,7 +83,51 @@ impl Record {
             space: AtomicU32::new(0),
             satp: AtomicUsize::new(0),
             cache: AtomicBool::new(false),
+            runtime_ns: AtomicU64::new(0),
+            lag: AtomicI64::new(0),
+            shares: AtomicU32::new(100),
+            reservation: AtomicU64::new(0),
         }
+    }
+
+    /// The task ran `ns` more on a hart (`sched::meter`).
+    pub fn add_runtime(&self, ns: u64) {
+        self.runtime_ns.fetch_add(ns, Ordering::Relaxed);
+    }
+
+    /// The time harts ran the task so far (ns).
+    pub fn runtime_ns(&self) -> u64 {
+        self.runtime_ns.load(Ordering::Relaxed)
+    }
+
+    /// Its lag as it left its hart (a block).
+    pub fn set_lag(&self, lag: i64) {
+        self.lag.store(lag, Ordering::Relaxed);
+    }
+
+    /// The lag its next arrival is placed by.
+    pub fn lag(&self) -> i64 {
+        self.lag.load(Ordering::Relaxed)
+    }
+
+    /// Its shares (the task table sets them, at a spawn and by `SCHED_OP_SET_SHARES`).
+    pub fn set_shares(&self, shares: u16) {
+        self.shares.store(u32::from(shares), Ordering::Relaxed);
+    }
+
+    /// Its shares.
+    pub fn shares(&self) -> u16 {
+        self.shares.load(Ordering::Relaxed) as u16
+    }
+
+    /// The reservation it runs with (raw), 0 for none.
+    pub fn reservation(&self) -> u64 {
+        self.reservation.load(Ordering::Acquire)
+    }
+
+    /// It runs with reservation `raw` now (0: none).
+    pub fn set_reservation(&self, raw: u64) {
+        self.reservation.store(raw, Ordering::Release);
     }
 
     /// The task now owns space `view` (the manager's `attach`, under the kernel lock).

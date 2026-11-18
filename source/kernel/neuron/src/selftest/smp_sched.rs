@@ -16,6 +16,8 @@ use crate::task::Pid;
 use crate::types::CpuId;
 use crate::{log_error, log_info};
 
+mod time_right;
+
 /// TASK-0363 P5: the placement rule (`placement::place`) on this machine's topology — as many
 /// tasks as there are harts, woken in a row by the boot hart and homed there, are placed on as
 /// many harts at their wake (the first waits for the handoff at home, each next one takes a free
@@ -52,7 +54,54 @@ fn run_spread_selftest(boot: CpuId) {
     }
 }
 
+/// TASK-0363 P3: the meter on the scheduler's own switch path — a task picked on the boot hart,
+/// held there for a known time and switched away from, is charged at least that time and at
+/// most the time from before its pick to after its switch away, read on the same clock. Exact
+/// bounds, no tolerance: a host that stalls the hart between the steps widens the outer bound
+/// with the charge (a multi-hart QEMU lane under load stalled one by 0.7 ms).
+fn run_meter_selftest(ctx: &mut Context<'_>, boot: CpuId) {
+    use crate::hal::platform::{ticks_per_us, ticks_to_ns};
+    const RUN_US: u64 = 2_000;
+    let clock = || riscv::register::time::read() as u64;
+    let pid = ctx.tasks.selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
+    ctx.scheduler.selftest_reset_cpu(boot);
+    let queued = matches!(
+        ctx.scheduler.selftest_enqueue_on_cpu(boot, pid, QosClass::Normal),
+        EnqueueOutcome::Enqueued
+    );
+    let before = clock();
+    let picked = queued && ctx.scheduler.selftest_schedule_on_cpu(boot) == Some(pid);
+    let (start, run) = (clock(), RUN_US * ticks_per_us());
+    while clock().wrapping_sub(start) < run {
+        core::hint::spin_loop();
+    }
+    ctx.scheduler.selftest_reset_cpu(boot);
+    let (span_us, ran_ns) =
+        (ticks_to_ns(clock().wrapping_sub(before)) / 1_000, crate::sched::meter::runtime_ns(pid));
+    let ran_us = ran_ns / 1_000;
+    if picked && ran_ns >= ticks_to_ns(run) && ran_us <= span_us {
+        log_info!(
+            target: "selftest",
+            "KSELFTEST: sched runtime metered ok (ran_us={} of={} span_us={})",
+            ran_us,
+            RUN_US,
+            span_us
+        );
+    } else {
+        log_error!(
+            target: "selftest",
+            "KSELFTEST: sched runtime metered FAIL (picked={} ran_us={} of={} span_us={})",
+            picked,
+            ran_us,
+            RUN_US,
+            span_us
+        );
+    }
+}
+
 pub(super) fn run_steal_selftests(ctx: &mut Context<'_>, boot: CpuId, target: CpuId) {
+    run_meter_selftest(ctx, boot);
+    time_right::run(ctx, boot);
     run_spread_selftest(boot);
     // Deterministic work-stealing probe:
     // - put one runnable task only on CPU1

@@ -539,9 +539,11 @@ impl Task {
         self.shares
     }
 
-    /// Sets the shares value (clamped to [1, 1000] by the caller).
+    /// Sets the shares value (clamped to [1, 1000] by the caller) — its weight in the fair
+    /// class from its next arrival on a hart (its scheduling record mirrors it: TASK-0363 P3).
     pub fn set_shares(&mut self, shares: u16) {
         self.shares = shares;
+        self.rec.set_shares(shares);
     }
 
     pub fn set_qos(&mut self, qos: QosClass) {
@@ -668,6 +670,7 @@ impl TaskTable {
             clamp_home_to_affinity(task.affinity, task.home_cpu, crate::smp::cpu_online());
         let mut task = task;
         task.home_cpu = clamped;
+        task.rec.set_shares(task.shares);
         self.tasks.push(task);
         if let Some(parent_task) = self.tasks.get_mut(parent_index) {
             parent_task.children.push(pid);
@@ -912,6 +915,7 @@ impl TaskTable {
         // B: the round-robin placement must respect the inherited mask.
         task.home_cpu =
             clamp_home_to_affinity(task.affinity, task.home_cpu, crate::smp::cpu_online());
+        task.rec.set_shares(task.shares);
         self.tasks.push(task);
         if let Err(err) = address_spaces.attach(child_as, pid) {
             self.tasks.pop();

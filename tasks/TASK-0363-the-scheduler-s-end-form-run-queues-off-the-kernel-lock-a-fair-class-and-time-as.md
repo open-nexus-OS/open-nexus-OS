@@ -5,7 +5,7 @@ title: "The scheduler's end form: run queues off the kernel lock, a fair class, 
 status: in_progress
 owner: ["@kernel-team"]
 created: 2026-11-10
-updated: 2026-11-17
+updated: 2026-11-18
 subsystem: kernel
 kind: service
 novelty: first
@@ -37,8 +37,9 @@ phases:
     note: "opened 2026-11-13. S1 (5e3efd33): per-hart run-queue leaf locks, host-tested core. S2 (committed after board cycle 24): a task's frame in its scheduling record at a fixed address, the owner word (Free/Queued/Running) handed on under the queue lock, every frame access checked (KINIT: FAIL frame owner) — it found the preemption's late save and yield's early requeue, both fixed. S3 BUILT 2026-11-16 (ADR-0100, Proposed): the idle loop picks from its own queue and starts the task without the kernel lock (core/dispatch.rs::dispatch_unlocked — frame, floating-point states and space view from the record; set_runs_here outside the task table; enter_space shared with the locked path; HartSpaces atomic and installed); a task the record cannot start goes to the locked path already picked; kill and freeze withdraw under the holding hart's queue lock (Scheduler::withdraw) instead of running_on + purge; the floating-point states moved into the record (fp_if_held for set_current: the kernel selftests act as queued tasks). QEMU 1, 2, 8 harts (8 harts once red by its 90 s budget cutting pinched's third restart, green at 120 s) and usb-visible 32/32: 0 breaches, steal park ok. Gate left (ADR-0098: a step that does not move its holder's share is reverted): board — the idle loop's share of the kernel lock (KINIT: bkl held us idle=, 3.3 s per 10 s window before) falls; no run-queue operation of a dispatch among the lock's holders; ladder 118 BOARD 2026-11-16 (build/logs/board--2026-11-16T12-16-50 S3, build/logs/board--2026-11-16T12-40-08 S3 with KINIT: bkl idle split): ladder 118, 0 breaches, no panic, bkl budget max_wait 399 us (5-6 ms before S2), wake ipi max 44 us. The idle group's lock time did not fall (3.3-3.8 s a window) — the split names why: dispatch 0 us/0 takes (the unlocked path starts every task), steal 0.03-0.14 s, the boot hart's delivery 3.4-4.7 s (events 1.6-2.2 s, the deadline walk over every task 1.4-2.0 s): the boot hart spins and polls under the lock each turn. That is P6's (one deadline walk, no walk per turn) and P4's (the boot hart sleeps until an event) — the phase's board gate (no run-queue operation of a dispatch among the holders) is met; ADR-0098's holder rule applies to the delivery, which this step does not touch"
   - id: P3
     story: "a holder of a time right runs within its budget every period, everything else shares the rest fairly by weight, and every thread's run time is metered"
-    state: planned
+    state: proving
     gate: "the host model green on the kernel's own scheduler core; KSELFTEST: sched time right ok (the budget honoured over 100 periods, the overrun counted), sched fair ok (two weights within 5 % of their ratio), sched runtime metered ok; board: wake-to-run p99 <= 200 us for a time-right holder (moved from P4)"
+    started: 2026-11-17
   - id: P4
     story: "no periodic tick: each hart's timer is armed for its next deadline and an idle hart sleeps until an event"
     state: done
@@ -49,9 +50,11 @@ phases:
     note: "Committed 9ad729e0. Gate's idle clause met: an idle system's harts wake only for the 500 ms net, 20 per hart in 10 s = 2/s (100/s before), board--2026-11-17T11-06-45. The empty wakes under use (17-29 per busiest hart, all stale) go to P8 (per-hart deadline sets); the time-right clause (wake-to-run p99 <= 200 us) moved to P3, where time rights exist."
   - id: P5
     story: "a woken thread runs where it runs soonest: placement by load, by its last hart and by cluster, and an idle hart pulls work"
-    state: proving
+    state: done
     gate: "QEMU -smp 8: 8 runnable compute threads occupy 8 harts within 2 ms (KSELFTEST: sched spread ok); board: the per-hart utilisation line; test_reject_steal_against_affinity kept"
     started: 2026-11-17
+    done: 2026-11-17
+    evidence: build/logs/board--2026-11-17T14-48-03
     note: "BUILT 2026-11-17: sched/placement.rs (pure place(): home when it takes the task at once — free, the waker's own, or running a lower class — and no same-or-higher backlog; else a free hart in affinity, home's cluster first; host: 4 tests incl. test_reject_place_outside_affinity, eight_wakes_occupy_eight_harts), task::wake places + migrates (set_home_cpu), smp::free_harts (idle minus pending wake hint), kick_idle_thief deleted; KSELFTEST: sched spread ok (the rule on the machine's topology — not timed threads: the 2 ms clause is read on the board from placed= and the busy line); KINIT: hart busy pm (busy share per hart, placed wakes). QEMU smp8 green but the known MTTCG bkl flip; smp1 green; just check green. Image dev-f49c8ba1."
   - id: P0
     story: "what the scheduler is rebuilt from is known: an interactive wake's wait for a hart is attributed (behind a peer of its class on the hart it is pinned to, behind a lower class it did not preempt, or a hart asleep), and the task that yields 70 000 times a second is named"

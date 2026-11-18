@@ -39,6 +39,40 @@ fn the_soft_realtime_chain_is_one_list_for_placement_and_class() {
     }
 }
 
+#[test]
+fn the_display_chains_time_is_admitted_on_one_cpu_within_the_contracts_bounds() {
+    use nexus_sched::time_right::{
+        TimeRights, BUDGET_MIN_NS, PERIOD_MAX_NS, PERIOD_MIN_NS, SHARE_MIN_PPM,
+    };
+    // The kernel's capacity of a CPU (four fifths: the fair class keeps the rest).
+    const CAPACITY_PPM: u32 = 800_000;
+    assert!(super::display_time_ppm() <= CAPACITY_PPM, "the chain shares one CPU");
+    for &(name, r) in super::DISPLAY_TIME {
+        // A holder is a member of the chain: placed on the display CPU, where its time is.
+        assert!(super::soft_realtime(name), "{name}");
+        assert_eq!(super::reservation_for(name), Some(r));
+        assert!(r.share_ppm >= SHARE_MIN_PPM, "{name}");
+        assert!((PERIOD_MIN_NS..=PERIOD_MAX_NS).contains(&r.period_ns), "{name}");
+        assert!(u64::from(r.share_ppm) * r.period_ns / 1_000_000 >= BUDGET_MIN_NS, "{name}");
+    }
+    // The contract admits them as init binds them: one right for the chain, each service a
+    // part of it, all on the one CPU the chain is placed on — and nothing is left over.
+    let mut rights = TimeRights::<8, 8, 2>::new(CAPACITY_PPM);
+    let chain = rights.derive(rights.root(), super::display_time_ppm()).expect("the chain's right");
+    for &(name, r) in super::DISPLAY_TIME {
+        assert!(rights.bind(chain, r.share_ppm, r.period_ns, 0, 0).is_ok(), "{name}");
+    }
+    assert_eq!(rights.held(chain), Some((super::display_time_ppm(), 0)));
+    assert!(rights.audit(0));
+}
+
+#[test]
+fn test_reject_a_reservation_for_a_service_outside_the_display_chain() {
+    for s in ["logd", "policyd", "execd", "app-host", "launcher", "nexus-init", "hidrawd"] {
+        assert_eq!(super::reservation_for(s), None, "{s}");
+    }
+}
+
 use super::*;
 
 #[test]

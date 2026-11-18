@@ -129,6 +129,7 @@ pub(crate) fn vm_unmap_clear(ctx: &mut Context<'_>, args: &Args) -> SysResult<()
     let handle =
         ctx.tasks.current_task().address_space().ok_or(AddressSpaceError::InvalidHandle)?;
     let space = ctx.address_spaces.get_mut(handle)?;
+    unmap_stage(1);
     crate::mm::vm_ops::clear_range(space, args.get(0), args.get(1)).map_err(Error::from)?;
     Ok(())
 }
@@ -139,9 +140,17 @@ pub(crate) fn vm_unmap_finish(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
     let handle =
         ctx.tasks.current_task().address_space().ok_or(AddressSpaceError::InvalidHandle)?;
     let space = ctx.address_spaces.get_mut(handle)?;
+    unmap_stage(2);
     let vmo = crate::mm::vm_ops::forget_range(space, args.get(0), args.get(1));
+    unmap_stage(3);
     reclaim_unmapped(ctx, vmo);
     Ok(0)
+}
+
+/// Where an unmap's hold stands, for a stall line (`KINIT: bkl stall`): 1 clear, 2 forget,
+/// 3 the object's reclaim.
+fn unmap_stage(stage: usize) {
+    crate::smp::tlb::note_activity(crate::smp::cpu_current_id(), crate::smp::tlb::ACT_UNMAP, stage);
 }
 
 /// `SYSCALL_MMIO_MAP_AUTO` (55, RFC-0085): device-MMIO window at a

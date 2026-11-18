@@ -48,6 +48,43 @@ pub const fn soft_realtime(name: &str) -> bool {
         || eq(name, "imed")
 }
 
+/// A service's reservation (RFC-0120): `share_ppm` of one CPU every `period_ns`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Reservation {
+    /// The share of one CPU, in parts per million.
+    pub share_ppm: u32,
+    /// The period the share is budgeted over, in nanoseconds.
+    pub period_ns: u64,
+}
+
+/// The display chain's time (TASK-0363 P3; the start of TASK-0365 P1): what init binds, from
+/// the right it derives for the chain, to a service before its wake. A reservation runs before
+/// everything fair, so the chain's guarantee no longer rests on a class: the renderer a third
+/// of a CPU every 10 ms, the compositor a fifth every frame at 120 Hz, the input router a
+/// twentieth every 4 ms. Past its budget a service runs on in the fair class at its class's
+/// weight. The rest of the chain (the device drivers, the input method) keeps the weight only,
+/// until init hands rights down (TASK-0365 P1).
+pub const DISPLAY_TIME: &[(&str, Reservation)] = &[
+    ("gpud", Reservation { share_ppm: 300_000, period_ns: 10_000_000 }),
+    ("windowd", Reservation { share_ppm: 200_000, period_ns: 8_333_333 }),
+    ("inputd", Reservation { share_ppm: 50_000, period_ns: 4_000_000 }),
+];
+
+/// The reservation init binds to service `name`, if it holds one.
+pub fn reservation_for(name: &str) -> Option<Reservation> {
+    DISPLAY_TIME.iter().find(|(svc, _)| *svc == name).map(|&(_, reservation)| reservation)
+}
+
+/// What the display chain's right holds: the sum of its services' shares.
+pub const fn display_time_ppm() -> u32 {
+    let (mut sum, mut i) = (0, 0);
+    while i < DISPLAY_TIME.len() {
+        sum += DISPLAY_TIME[i].1.share_ppm;
+        i += 1;
+    }
+    sum
+}
+
 /// Declarative CPU placement SSOT (SMP soft-realtime plan P1). The display +
 /// input chain runs on the soft-RT CPU (its BKL competitors are only each
 /// other), everything background on the other CPUs, so exec/vmo-heavy

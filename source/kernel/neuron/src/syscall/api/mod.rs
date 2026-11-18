@@ -53,6 +53,7 @@ mod sched_telemetry;
 pub(crate) mod swap;
 mod sync_objects;
 mod task_image;
+mod time_right;
 mod user_copy;
 mod vm_map;
 mod vmo;

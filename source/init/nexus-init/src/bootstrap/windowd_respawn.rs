@@ -127,6 +127,7 @@ pub(crate) fn respawn_windowd(
     wired?;
     crate::bootstrap::resume::apply_affinity("windowd", pid);
     crate::bootstrap::resume::apply_qos("windowd", pid);
+    crate::bootstrap::resume::apply_time_right("windowd", pid);
     if let Some(persist) = persist {
         persist.bump_restart_count(name);
     }

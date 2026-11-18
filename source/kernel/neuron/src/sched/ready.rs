@@ -29,11 +29,13 @@ pub(super) fn now_ticks() -> u64 {
     }
 }
 
-/// The task leaves its queue for a hart: its wait is recorded for its class.
+/// The task leaves its queue for a hart: its wait is recorded for its class — or, dispatched
+/// from its reservation's budget, for the reserved lane (TASK-0363 P3: the time right's gate).
 #[inline]
 pub(super) fn dispatched(task: &Task) {
+    let reserved = task.res.is_some_and(|res| res.runs());
     crate::ready_stats::record(
-        task.qos as usize,
+        if reserved { crate::ready_stats::RESERVED } else { task.qos as usize },
         task.ready_at,
         now_ticks(),
         crate::hal::platform::ticks_per_us(),

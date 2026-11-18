@@ -98,6 +98,13 @@ pub(crate) fn service_id_from_name(name: &[u8]) -> u64 {
     h
 }
 
+/// Whether the caller is init — the one task that divides the machine's time (RFC-0120: the root
+/// time right is claimed by it, once). Kernel identity, never a payload.
+pub(super) fn caller_is_init(ctx: &Context<'_>) -> bool {
+    let sid = ctx.tasks.current_service_id();
+    sid == service_id_from_name(b"nexus-init") || sid == service_id_from_name(b"init-lite")
+}
+
 pub(super) fn caller_has_qos_admin(ctx: &Context<'_>) -> bool {
     // Declarative admin list: execd/policyd (B4 recipes) + init (P1: applies
     // the service_topology::affinity_for placement at resume time).
@@ -269,6 +276,10 @@ pub(super) fn sys_sched(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> 
     if let Some(result) =
         super::sched_telemetry::sched_telemetry_op(args, ctx.address_spaces, ctx.tasks)
     {
+        return result;
+    }
+    // RFC-0120: the time rights carry their own authority (the capability).
+    if let Some(result) = super::time_right::time_right_op(ctx, args) {
         return result;
     }
     let op = args.get(0);

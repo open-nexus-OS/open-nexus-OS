@@ -121,7 +121,9 @@ impl<T> HartTable<T> {
         }
         let mut entries = Vec::new();
         entries.try_reserve_exact(count).map_err(|_| SizeError::NoMemory)?;
-        entries.extend(core::iter::repeat_with(&mut make).take(count));
+        for _ in 0..count {
+            push_built(&mut entries, &mut make);
+        }
         let entries = alloc::boxed::Box::leak(entries.into_boxed_slice());
         // The pointer first: a reader that sees the length sees the entries.
         let claimed = self.rest.compare_exchange(
@@ -136,6 +138,16 @@ impl<T> HartTable<T> {
         self.rest_len.store(count, Ordering::Release);
         Ok(())
     }
+}
+
+/// Builds one entry into `entries` (reserved by the caller) in a frame of its own. An entry can
+/// be tens of kilobytes — a hart's run queues are 20 KiB — and built inline it lives in the
+/// frame of whatever the sizing was inlined into: the boot hart's `kmain`, a frame that never
+/// returns. That frame grew to 61 KiB of the 64 KiB boot stack when the queue entry grew
+/// (TASK-0363 P3), and the first idle turn overflowed into the kernel's statics.
+#[inline(never)]
+fn push_built<T>(entries: &mut Vec<T>, make: &mut impl FnMut() -> T) {
+    entries.push(make());
 }
 
 #[cfg(test)]

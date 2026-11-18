@@ -78,8 +78,84 @@ pub(crate) fn apply_qos(chan_name: &str, pid: u32) {
     }
 }
 
-/// One RFC-0068-style summary line for the whole placement pass, and one for the classes.
+/// RFC-0120: the display chain's time. init claims the machine's root time right once, derives
+/// the chain's right from it (`service_topology::display_time_ppm`) and binds each chain
+/// service its part right before its wake (`reservation_for`) — so a service's first run is
+/// already its reservation's. A respawned service is bound again (its old reservation ended
+/// with it). A refusal is a per-item line and the service runs fair at its class's weight.
+/// Slots are stored plus one (0: not held).
+static ROOT_RIGHT: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+static CHAIN_RIGHT: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+static TIME_BOUND: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+static TIME_FAILED: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+
+/// The display chain's right: claimed and derived at the first ask.
+fn chain_right() -> Option<nexus_abi::Cap> {
+    use core::sync::atomic::Ordering;
+    let held = CHAIN_RIGHT.load(Ordering::Relaxed);
+    if held != 0 {
+        return Some(held - 1);
+    }
+    if ROOT_RIGHT.load(Ordering::Relaxed) == 0 {
+        let root = nexus_abi::time_right::claim_root().ok()?;
+        ROOT_RIGHT.store(root + 1, Ordering::Relaxed);
+    }
+    let root = ROOT_RIGHT.load(Ordering::Relaxed) - 1;
+    let chain =
+        nexus_abi::time_right::derive(root, crate::service_topology::display_time_ppm()).ok()?;
+    CHAIN_RIGHT.store(chain + 1, Ordering::Relaxed);
+    Some(chain)
+}
+
+pub(crate) fn apply_time_right(chan_name: &str, pid: u32) {
+    let Some(r) = crate::service_topology::reservation_for(chan_name) else {
+        return;
+    };
+    let bound = chain_right().is_some_and(|chain| {
+        nexus_abi::time_right::bind_for(chain, pid, r.share_ppm, r.period_ns).is_ok()
+    });
+    if bound {
+        TIME_BOUND.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    } else {
+        TIME_FAILED.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        debug_write_str("init: time right FAIL svc=");
+        debug_write_str(chan_name);
+        debug_write_str(" share_ppm=0x");
+        debug_write_hex(r.share_ppm as usize);
+        debug_write_byte(b'\n');
+    }
+}
+
+/// The time rights as the kernel holds them now, in ppm of one CPU: what the root was given,
+/// what init delegated from it (the chain's right), what of the chain's right is bound.
+fn time_right_summary() {
+    use core::sync::atomic::Ordering;
+    let held = |slot: &core::sync::atomic::AtomicU32| {
+        let slot = slot.load(Ordering::Relaxed);
+        if slot == 0 {
+            return (0, 0);
+        }
+        nexus_abi::time_right::held(slot - 1).unwrap_or((0, 0))
+    };
+    let (root, root_own) = held(&ROOT_RIGHT);
+    let (chain, chain_own) = held(&CHAIN_RIGHT);
+    debug_write_str("init: time rights (root_ppm=0x");
+    debug_write_hex(root as usize);
+    debug_write_str(" delegated_ppm=0x");
+    debug_write_hex(root.saturating_sub(root_own) as usize);
+    debug_write_str(" bound_ppm=0x");
+    debug_write_hex(chain.saturating_sub(chain_own) as usize);
+    debug_write_str(" bound=0x");
+    debug_write_hex(TIME_BOUND.load(Ordering::Relaxed));
+    debug_write_str(" fail=0x");
+    debug_write_hex(TIME_FAILED.load(Ordering::Relaxed));
+    debug_write_str(")\n");
+}
+
+/// One RFC-0068-style summary line for the whole placement pass, one for the classes and one
+/// for the time rights.
 pub(crate) fn affinity_summary() {
+    time_right_summary();
     debug_write_str("init: affinity applied n=0x");
     debug_write_hex(AFFINITY_APPLIED.load(core::sync::atomic::Ordering::Relaxed));
     debug_write_str(" fail=0x");
@@ -203,6 +279,7 @@ fn resume_non_drivers_where(ctrls: &[CtrlChannel], pred: impl Fn(&str) -> bool) 
         }
         apply_affinity(chan.svc_name, chan.pid);
         apply_qos(chan.svc_name, chan.pid);
+        apply_time_right(chan.svc_name, chan.pid);
         match nexus_abi::task_resume(chan.pid) {
             Ok(()) => {}
             Err(e) => {
@@ -235,6 +312,7 @@ pub(crate) fn resume_drivers(
     for chan in ctrls.iter().filter(|c| is_driver(c.svc_name)) {
         apply_affinity(chan.svc_name, chan.pid);
         apply_qos(chan.svc_name, chan.pid);
+        apply_time_right(chan.svc_name, chan.pid);
         match nexus_abi::task_resume(chan.pid) {
             Ok(()) => {
                 if il(init_misc, init_fold, chan.svc_name) {

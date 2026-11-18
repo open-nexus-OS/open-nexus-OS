@@ -18,6 +18,8 @@ pub mod squeeze;
 pub mod swap;
 pub mod task;
 pub mod time;
+#[cfg(nexus_env = "os")]
+pub mod time_right;
 pub mod types;
 
 #[cfg(nexus_env = "os")]

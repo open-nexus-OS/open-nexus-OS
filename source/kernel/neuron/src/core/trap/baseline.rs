@@ -15,7 +15,8 @@
 
 use crate::lock_share::{self, Group};
 
-const CLASS_NAMES: [&str; crate::ready_stats::CLASSES] = ["idle", "normal", "interactive", "burst"];
+const CLASS_NAMES: [&str; crate::ready_stats::LANES] =
+    ["idle", "normal", "interactive", "burst", "reserved"];
 
 /// Logs the window's lock share and ready latency. Called under the lock by the telemetry
 /// syscall: its own hold is not released yet and so is not in the sums it prints.
@@ -99,7 +100,8 @@ pub fn log_smp_baseline() {
         steals.saturating_sub(last)
     );
     // TASK-0363 P5: each hart's busy share (permille of the window), and the wakes placed on a
-    // free hart instead of behind a peer at home.
+    // free hart instead of behind a peer at home. P3: `metered=` the harts' mean share the meter
+    // charged to tasks — the rest of `mean` is the idle loop awake (its walks, steals, deliveries).
     static LAST_PLACED: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
     let (busy_ns, min, at_min, max, at_max, mean) =
         crate::smp::take_busy_window(crate::hal::platform::ticks_to_ns(now));
@@ -107,13 +109,14 @@ pub fn log_smp_baseline() {
     let last = LAST_PLACED.swap(placed, core::sync::atomic::Ordering::Relaxed);
     log_info!(
         target: "smp",
-        "KINIT: hart busy pm (window_ms={} min={} at=cpu{} max={} at=cpu{} mean={} placed={})",
+        "KINIT: hart busy pm (window_ms={} min={} at=cpu{} max={} at=cpu{} mean={} metered={} placed={})",
         busy_ns / 1_000_000,
         min,
         at_min,
         max,
         at_max,
         mean,
+        crate::sched::meter::take_metered_pm(busy_ns),
         placed.saturating_sub(last)
     );
     let top = lock_share::top(tpu);
@@ -137,12 +140,13 @@ pub fn log_smp_baseline() {
         }
         log_info!(
             target: "smp",
-            "KINIT: ready latency class={} n={} mean_us={} max_us={} le100us={} le1ms={} le10ms={} gt10ms={} late_idle={} late_lower={} late_peer={}",
+            "KINIT: ready latency class={} n={} mean_us={} max_us={} le100us={} le200us={} le1ms={} le10ms={} gt10ms={} late_idle={} late_lower={} late_peer={}",
             name,
             r.count,
             r.mean_us,
             r.max_us,
             r.buckets[0],
+            r.le200us,
             r.buckets[1],
             r.buckets[2],
             r.buckets[3],
@@ -151,6 +155,26 @@ pub fn log_smp_baseline() {
             r.late[2]
         );
     }
+    // TASK-0363 P3: the time rights — the most any hart has reserved, and since the last line the
+    // budgets that ran out under their holder (it went on fair) and the periods a runnable holder
+    // did not get its budget in (what a guarantee is judged by: zero — claimed by no marker
+    // before the kernel lock is gone, RFC-0120 G1). The holders' waits: `class=reserved` above.
+    static LAST_COUNTS: [core::sync::atomic::AtomicUsize; 2] =
+        [const { core::sync::atomic::AtomicUsize::new(0) }; 2];
+    let (overruns, misses) = crate::sched::reserve::counts();
+    let (reserved_ppm, at) = crate::sched::reserve::load();
+    let since = |slot: usize, now: usize| {
+        now.saturating_sub(LAST_COUNTS[slot].swap(now, core::sync::atomic::Ordering::Relaxed))
+    };
+    log_info!(
+        target: "smp",
+        "KINIT: time rights (window_ms={} reserved_max_pm={} at=cpu{} overruns={} misses={})",
+        window_ms,
+        reserved_ppm / 1_000,
+        at,
+        since(0, overruns),
+        since(1, misses)
+    );
     // TASK-0363 P0: the three tasks that yield most (pid, the kernel's service id, yields).
     let (y, yields) = crate::yield_stats::top();
     log_info!(

@@ -93,6 +93,18 @@ impl Drop for KernelGuard {
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 static LOCK_TAKES: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
 
+/// Who took the kernel lock last: `(cpu + 1) << 16 | holder` (written under it) — what a waiter
+/// names when a hold stalls (`budgets::watch_stall`).
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+static LOCK_HOLDER: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+
+/// The CPU that took the kernel lock last and what for (`lock_share`'s holder id).
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+pub(super) fn lock_holder() -> (usize, usize) {
+    let raw = LOCK_HOLDER.load(core::sync::atomic::Ordering::Relaxed);
+    ((raw >> 16).saturating_sub(1), raw & 0xffff)
+}
+
 impl KernelGuard {
     /// Takes the lock for `holder` (`lock_share`: a syscall number or a trap kind). Every take
     /// names its holder; there is no unnamed take.
@@ -120,7 +132,14 @@ impl KernelGuard {
                 CPU0_WAITING.store(true, Ordering::Release);
             }
             let mut backoff = 0u32;
+            // A wait names itself in this hart's activity tag from its first miss, and looks
+            // every 1024 turns whether the hold it waits on has become a stall.
+            let (mut turns, mut tag_before) = (0u32, None);
             let guard = loop {
+                turns = turns.wrapping_add(1);
+                if turns & 0x3ff == 0 {
+                    super::budgets::watch_stall(t0);
+                }
                 if !is_cpu0 && CPU0_WAITING.load(Ordering::Acquire) && backoff < 200_000 {
                     backoff += 1;
                     // Same rule as the try_lock spin below: a backed-off hart
@@ -133,6 +152,12 @@ impl KernelGuard {
                 }
                 if let Some(guard) = KERNEL_LOCK.try_lock() {
                     break guard;
+                }
+                if tag_before.is_none() {
+                    tag_before = Some(crate::smp::tlb::swap_activity(
+                        crate::smp::tlb::ACT_LOCK_WAIT,
+                        holder,
+                    ));
                 }
                 // A hart waiting for the BKL holds no kernel state: service a
                 // pending TLB shootdown right here. Acks are otherwise
@@ -148,6 +173,10 @@ impl KernelGuard {
             if is_cpu0 {
                 CPU0_WAITING.store(false, Ordering::Release);
             }
+            if let Some(tag) = tag_before {
+                crate::smp::tlb::restore_activity(tag);
+            }
+            LOCK_HOLDER.store(((me.as_index() + 1) << 16) | (holder & 0xffff), Ordering::Relaxed);
             (guard, backoff)
         };
         #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
@@ -322,11 +351,24 @@ pub const IDLE_SAFETY_NS: u64 = 500_000_000;
 pub fn timer_arm(delta_cycles: u64) {
     use core::sync::atomic::Ordering;
     let now = riscv::register::time::read() as u64;
-    let tick = now.wrapping_add(delta_cycles);
+    // TASK-0363 P3: the running holder's budget ends before the tick — the timer fires there.
+    let tick = now.wrapping_add(delta_cycles).min(budget_end_ticks(now).unwrap_or(u64::MAX));
     let armed = armed_slot().load(Ordering::Relaxed);
     let pending = (armed != 0).then(|| crate::hal::platform::ns_to_ticks(armed));
     let at = pending.filter(|&d| d > now && d < tick).unwrap_or(tick);
+    let before = crate::smp::tlb::swap_activity(crate::smp::tlb::ACT_TIMER_ARM, 0);
     crate::hal::platform::arm_timer_ticks(at);
+    crate::smp::tlb::restore_activity(before);
+}
+
+/// When the reservation this hart runs spends its budget, in timer ticks — if it is still
+/// ahead of `now` (TASK-0363 P3, `sched::reserve`).
+#[cfg(all(target_arch = "riscv64", target_os = "none", feature = "timer_irq"))]
+fn budget_end_ticks(now: u64) -> Option<u64> {
+    let cpu = crate::smp::cpu_current_id().as_index();
+    crate::sched::reserve::budget_end_ns(cpu)
+        .map(crate::hal::platform::ns_to_ticks)
+        .filter(|&end| end > now)
 }
 
 #[allow(dead_code)]
@@ -466,7 +508,14 @@ pub(crate) fn arm_wakeup(timer: &dyn Timer, deadline_ns: u64) {
     // pushes it past the tick (TASK-0363 P8 — with the re-arm at the own deadline instead of the
     // global one, a 1 s fallback left a user task unpreempted and an interactive peer waiting up
     // to 25 ms; the shadow keeps the deadline). An idle hart rewrites it before it sleeps.
-    let tick = timer.now().saturating_add(crate::hal::platform::PREEMPT_TICK_NS);
+    let now = timer.now();
+    let mut tick = now.saturating_add(crate::hal::platform::PREEMPT_TICK_NS);
+    // TASK-0363 P3: nor past the running holder's budget end (`sched::reserve`).
+    if let Some(end) = crate::sched::reserve::budget_end_ns(crate::smp::cpu_current_id().as_index())
+        .filter(|&end| end > now)
+    {
+        tick = tick.min(end);
+    }
     timer.set_wakeup(deadline_ns.min(tick));
 }
 

@@ -362,23 +362,11 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                     if crate::mm::pressure_endpoint::pending() {
                         crate::mm::pressure_endpoint::dispatch(router, tasks, scheduler);
                     }
-                    // Preemptive: rotate the running user task so no service can
-                    // monopolise the cooperative scheduler (anti-starvation).
-                    // B (TASK-0042): shares grant whole extra ticks within the
-                    // QoS class (shares/100, clamped [1,10]); default 100 = one
-                    // tick = pre-B behavior.
-                    let slice_ticks = tasks
-                        .task(tasks.current_pid())
-                        .map(|t| ((t.shares() / 100) as usize).clamp(1, 10))
-                        .unwrap_or(1);
-                    let cpu = crate::smp::cpu_current_id();
-                    // ADR-0096: a task of a class above the running task's that a timer or an
-                    // IPC deadline woke runs now, whatever the rotation says.
-                    if crate::smp::preempt_tick_and_rotate(cpu, slice_ticks)
-                        || scheduler.ready_above_current()
-                    {
-                        super::pending::preempt_current_user_task(frame, tasks, scheduler, spaces);
-                    }
+                    // Preemptive (TASK-0363 P3, ADR-0101): every timer interrupt of a user task
+                    // — its tick, its budget's end, a deadline — puts it back in the order and
+                    // picks; the order hands it back when it is still the one to run. Shares
+                    // (TASK-0042) are weights now, not extra ticks.
+                    super::pending::preempt_current_user_task(frame, tasks, scheduler, spaces);
                     return;
                 }
             }

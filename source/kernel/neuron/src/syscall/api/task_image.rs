@@ -120,6 +120,8 @@ pub fn exit_task_and_release(
     reason: crate::task::ExitReason,
 ) {
     let is_thread = tasks.task(exiting).is_some_and(|t| t.is_thread());
+    // TASK-0363 P3: its reservation's share is its right's again.
+    crate::sched::reserve::release(exiting);
     // Every endpoint the table held a capability to, judged after the drop with one reading of
     // its header each (RFC-0102): the
     // receivers' EOF, the senders' `PeerClosed`, the reclaim.

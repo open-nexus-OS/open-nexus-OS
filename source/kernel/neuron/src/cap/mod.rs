@@ -98,6 +98,12 @@ pub enum CapabilityKind {
     /// CPU affinity for arbitrary tasks. Tasks can always set their own affinity without
     /// this capability (within recipe limits).
     SchedSetAffinity,
+    /// A time right (RFC-0120, TASK-0363 P3): a share of the harts' time in the kernel's table
+    /// (`sched::reserve`). The payload is the right's id (a raw `nexus_sched::RightId`, its
+    /// generation above its slot): a revoked right's id names nothing, so a copy of the
+    /// capability outliving the revoke is refused at its next use. Only the holder derives from
+    /// it, binds it or revokes it (`MANAGE`); its name is never a string.
+    TimeRight(u64),
 }
 
 /// Capability descriptor: what a slot holds, described — kind and rights, a plain value that

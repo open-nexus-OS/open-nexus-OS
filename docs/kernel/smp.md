@@ -94,14 +94,8 @@ lock's end: RFC-0102.
 consumer rescans the whole queue. The S_SOFT trap consumes the flag and acks. Proof chain:
 request accepted → `send_ipi` ok → S_SOFT trap → ack, plus a forced-failure counterfactual.
 
-A wake places its task where it runs soonest (`sched/placement.rs`, TASK-0363 P5): at home
-when home takes it at once (asleep, the waker's own, or running a lower class), else on a free
-hart its affinity allows, home's cluster first. `KINIT: hart busy pm` prints each window's busy
-share and the placed wakes; marker `KSELFTEST: sched spread ok`. Work stealing
-(`Scheduler::steal_into_current`) takes at most one task per attempt, never above the thief's
-class nor against affinity (ADR-0052), once per millisecond per CPU. Idle harts:
-[idle.md](idle.md). Markers: `KSELFTEST: work stealing ok`, `steal park ok`,
-`test_reject_steal_above_bound ok`, `test_reject_steal_higher_qos ok`.
+Where a woken task goes, the steal and the meter: [scheduler.md](scheduler.md). Work stealing
+runs at most once per millisecond per CPU. Idle harts: [idle.md](idle.md).
 
 ## The space a hart runs on
 

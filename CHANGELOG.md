@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-11-17 (a class is a weight, a guarantee is a time right — TASK-0363 P3)
+
+- **The order of a hart** (`sched/run_queue_order.rs`, ADR-0101, host-tested): a reservation with
+  budget left runs first, earliest deadline first; everything else is fair by weight — the
+  earliest eligible virtual deadline. `Idle`, `Normal`, `Interactive`, `PerfBurst` are weights
+  (16, 1024, 4096, 8192, times the shares), no longer priorities: nothing starves. A task's lag
+  crosses a block and a steal, bounded by one slice. The rotation of shares as extra ticks is
+  deleted; every timer interrupt of a user task asks the order.
+- **Time rights in the kernel** (RFC-0120, `sched/reserve.rs`): the contract's table behind its
+  own lock, 64 rights and 64 reservations, a hart reserved to 80 % at most. A budget is enforced
+  to the clock (the timer is capped at its end), a wake applies the constant-bandwidth rule, a
+  holder runs on the hart that admitted it. Capability kind `TimeRight`; sched syscall
+  operation 8 (claim the root — init, once — held, derive, bind, unbind, revoke;
+  `nexus_abi::time_right`).
+- **The meter** (`sched/meter.rs`, the rule `HartQueues::charge`): every operation that changes
+  the task a hart runs charges the running task — its record, its virtual time, its budget, the
+  table's books. RFC-0120's gate G2.
+- **init holds the root** and binds the display chain its time before its wake: the renderer
+  30 % every 10 ms, the compositor 20 % every frame at 120 Hz, the input router 5 % every 4 ms
+  (`affinity.rs` `DISPLAY_TIME`; `init: time rights`).
+- Markers: `KSELFTEST: sched runtime metered ok`, `sched fair ok`, `sched time right ok`, and the
+  syscall's refusals `test_reject_time_right_claim_by_stranger`, `_forged_slot`, `_beyond_held`,
+  `_bind_other_task`, `_after_revoke`. Lines: `KINIT: ready latency class=reserved` (the holders'
+  waits, `le200us`), `KINIT: time rights (… overruns= misses=)`, `metered=` in `hart busy pm`.
+  No marker states a guarantee before the kernel lock is gone (G1).
+- `docs/kernel/scheduler.md`: the scheduler's own page (queues, order, time rights, placement,
+  steal, meter, lines).
+- **The boot stack is checked.** A hart's queues grew to 20 KiB and were built in `kmain`'s
+  frame, which never returns: 61 of the boot stack's 64 KiB, and the first trap of the idle loop
+  wrote into the kernel's statics (a page fault before init ran). `HartTable::size` builds an
+  entry in a frame of its own, the queues are a compile-time value, and the boot hart ends its
+  boot with the number when less than 32 KiB are left at its first idle turn
+  (`KINIT: boot stack (used= left= of=)`).
+- **A stall of the kernel lock names itself while it lasts.** A hart that has waited 50 ms for
+  the lock prints `KINIT: bkl stall <ms>ms holder=cpuN by=<id> idle=0x<mask> act=[…]`: the holder
+  and one tag per hart — the spin lock it waits for (by address), a shootdown's acknowledgement,
+  the kernel lock, or the stage it stands in (idle loop, unmap, timer arm). Decoding in
+  `docs/testing/run-logs.md`.
+- Board (`board--2026-11-18T08-25-01`, 8 harts, the desktop in use): 99.26 % of 163 507 wakes of
+  a holder run within 200 us, none later than 10 ms (max 4.8 ms); no hold of the kernel lock above
+  10 ms; an IPC round trip 36 us (49 us before, budget 64). Interactive waits above 10 ms 12
+  (166 before), the longest 18.4 ms (11.9 ms before — one tick then, a holder's budget ahead now).
+- **Open, named:** the cycle before (`board--2026-11-17T21-09-19`, the same scheduler without the
+  stall line) held the kernel lock four times for 144–369 ms, each right after a large surface
+  was allocated; one holder's wake waited 199 ms. The eight cycles before it show none, this one
+  neither, and reading the code did not find it. The stall line stays in to name the next one.
+
 ### Changed - 2026-11-17 (a woken thread runs where it runs soonest — TASK-0363 P5)
 
 - **Placement at the wake** (`sched/placement.rs`, host-tested): a woken task stays home when home

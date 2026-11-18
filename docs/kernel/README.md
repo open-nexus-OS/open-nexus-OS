@@ -17,7 +17,7 @@ verified: 2026-11-17
 > **Owns** — `source/kernel/neuron/`, `source/kernel/neuron-boot/`
 > **Contracts** — [RFC-0005](../rfcs/RFC-0005-kernel-ipc-capability-model.md), [RFC-0021](../rfcs/RFC-0021-kernel-smp-v1-percpu-runqueues-ipi-contract.md), [RFC-0085](../rfcs/RFC-0085-kernel-owned-va-allocation.md), [RFC-0098](../rfcs/RFC-0098-board-support-contract-fdt-truth-boot-chain.md), [RFC-0100](../rfcs/RFC-0100-memory-object-model-v2-commit-on-touch-unified-gpu-memory-pressure.md)
 > **Invariants** — the kernel holds only scheduling, memory, IPC and capabilities; drivers and policy live in userspace. The device tree is the only hardware truth. Syscall numbers are never reused.
-> **Read next** — [smp.md](smp.md), [idle.md](idle.md), [hart-spaces.md](hart-spaces.md), [float-state.md](float-state.md), [../storage/vmo.md](../storage/vmo.md), [../security/capabilities.md](../security/capabilities.md), [../boot-init/boot.md](../boot-init/boot.md)
+> **Read next** — [smp.md](smp.md), [scheduler.md](scheduler.md), [idle.md](idle.md), [hart-spaces.md](hart-spaces.md), [float-state.md](float-state.md), [../storage/vmo.md](../storage/vmo.md), [../security/capabilities.md](../security/capabilities.md), [../boot-init/boot.md](../boot-init/boot.md)
 
 ## What the kernel owns
 
@@ -141,16 +141,15 @@ retired numbers stay retired.
 
 - **Preemptive.** The `timer_irq` feature is on by default; the tick is 10 ms of the device tree's
   timebase. Per-hart deadlines arm the compare register earliest-first (ADR-0052).
-- **SMP.** The device tree's harts. Every hart runs `cpu_main` on its own run-queue set;
-  cross-CPU operations (wake to home CPU, bounded steal) are serialized by the BKL. Lane defaults
-  and details: [smp.md](smp.md).
-- **QoS.** Four classes per CPU queue — `Idle`, `Normal`, `Interactive`, `PerfBurst` — round-robin
-  within a class, a deterministic reject when a queue is full.
-- **A wake preempts (ADR-0096).** A wake of a class above the running task's switches to it at
-  the trap exit — after an interrupt, a timer or a syscall that woke it
-  (`Scheduler::ready_above_current`). init raises the soft-realtime chain
-  (`service_topology::soft_realtime`) to `Interactive` before its wake; everything else runs
-  `Normal` and may only lower itself.
+- **SMP.** The device tree's harts, each with its own run queues and lock
+  ([scheduler.md](scheduler.md), [smp.md](smp.md)).
+- **Order (ADR-0101).** Per hart, a reservation of a time right with budget left runs first,
+  earliest deadline first (RFC-0120); everything else is fair by weight. The classes `Idle`,
+  `Normal`, `Interactive`, `PerfBurst` are weights, not priorities; a full queue rejects.
+- **A wake goes ahead** at the trap exit when the order says so (`Scheduler::switch_if_ready`).
+  init binds the display chain its reservations and raises the soft-realtime chain
+  (`service_topology::soft_realtime`) to `Interactive`; everything else runs `Normal` and may
+  only lower itself.
 - **Placement.** init places services by role at resume (ADR-0049): the soft-realtime chain
   on CPU 0, the rest on the other online CPUs ([topology.md](topology.md)).
 - **No lock across a context switch.** The schedule decision copies the next frame into the

@@ -74,6 +74,50 @@ pub fn note_long_wait(waited: u64, holder: usize, deferred: u32, passed_over: u6
     }
 }
 
+/// When a stall was last named (timer ticks) and how many lines this boot has spent on stalls.
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+static STALL_NAMED_AT: AtomicU64 = AtomicU64::new(0);
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+static STALL_LINES: AtomicUsize = AtomicUsize::new(0);
+
+/// A hold named while it lasts: a hart that has waited for the kernel lock since `t0` for 50 ms
+/// prints who holds it and every hart's activity tag (`smp::tlb`: what the holder waits for — a
+/// lock by its address, shootdown acks — or the stage it stands in; what the others do), once
+/// per 50 ms of the stall, whoever waits. The long-hold line names a hold only after it ended,
+/// and not what it stood on. 24 lines a boot; the first eight CPUs' tags.
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+pub fn watch_stall(t0: u64) {
+    let now = riscv::register::time::read() as u64;
+    let step = crate::hal::platform::ns_to_ticks(50_000_000);
+    let last = STALL_NAMED_AT.load(Ordering::Relaxed);
+    if now.saturating_sub(t0) < step
+        || now.saturating_sub(last) < step
+        || STALL_LINES.load(Ordering::Relaxed) >= 24
+        || STALL_NAMED_AT.compare_exchange(last, now, Ordering::AcqRel, Ordering::Relaxed).is_err()
+    {
+        return;
+    }
+    STALL_LINES.fetch_add(1, Ordering::Relaxed);
+    let (cpu, by) = super::runtime::lock_holder();
+    let act = crate::smp::tlb::activity_of;
+    log_info!(
+        target: "smp",
+        "KINIT: bkl stall {}ms holder=cpu{} by={} idle=0x{:x} act=[{:x} {:x} {:x} {:x} {:x} {:x} {:x} {:x}]",
+        now.saturating_sub(t0) / (ticks_per_us().max(1) * 1_000),
+        cpu,
+        by,
+        crate::smp::cpu_idle().bits(),
+        act(0),
+        act(1),
+        act(2),
+        act(3),
+        act(4),
+        act(5),
+        act(6),
+        act(7)
+    );
+}
+
 /// A hold of the convoy class names its holder — a syscall or a trap kind; the ecall budget
 /// sees syscalls only (the first few).
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]

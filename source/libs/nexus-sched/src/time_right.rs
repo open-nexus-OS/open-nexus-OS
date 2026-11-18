@@ -30,6 +30,46 @@ pub const BUDGET_MIN_NS: u64 = 50_000;
 /// Shares a hart still holds for reservations that left it, per hart (merged beyond it).
 const LEAVING: usize = 4;
 
+/// The sched syscall's time-right operation (RFC-0120 §Syscall surface): registers
+/// `(TIME_RIGHT_OP, op, a, b, c, d)` in, one register out; `a` is a capability slot holding a
+/// `TimeRight` for every op but [`TimeRightOp::ClaimRoot`].
+pub const TIME_RIGHT_OP: usize = 8;
+
+/// What a time-right call does (the second register).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(usize)]
+pub enum TimeRightOp {
+    /// The root right into a new slot — once, for init. Returns the slot.
+    ClaimRoot = 0,
+    /// What right `a` was given and still holds: `(total << 32) | own`, in ppm.
+    Held = 1,
+    /// A right of `b` ppm derived from right `a` into a new slot. Returns the slot.
+    Derive = 2,
+    /// `c` ppm of right `a` with period `d` ns bound to task `b` (0: the caller). Returns the
+    /// hart it is admitted on.
+    Bind = 3,
+    /// Ends task `b`'s reservation if right `a` bound it.
+    Unbind = 4,
+    /// Revokes right `a` and everything derived from it.
+    Revoke = 5,
+}
+
+impl TimeRightOp {
+    /// The op a register names; `None` for one no op has.
+    #[must_use]
+    pub const fn from_raw(raw: usize) -> Option<Self> {
+        Some(match raw {
+            0 => Self::ClaimRoot,
+            1 => Self::Held,
+            2 => Self::Derive,
+            3 => Self::Bind,
+            4 => Self::Unbind,
+            5 => Self::Revoke,
+            _ => return None,
+        })
+    }
+}
+
 /// A time right: a slot of the tree and the generation it was made in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RightId {
@@ -43,6 +83,28 @@ pub struct ReservationId {
     slot: u16,
     gen: u32,
 }
+
+macro_rules! raw_id {
+    ($ty:ident) => {
+        impl $ty {
+            /// The id as one word (the generation above the slot) — what a capability or a
+            /// scheduling record stores. Never 0: a generation starts at 1.
+            #[must_use]
+            pub const fn to_raw(self) -> u64 {
+                ((self.gen as u64) << 16) | self.slot as u64
+            }
+
+            /// The id a word names. A word no table made names nothing: the generation check of
+            /// every operation refuses it (`Revoked`).
+            #[must_use]
+            pub const fn from_raw(raw: u64) -> Self {
+                Self { slot: (raw & 0xffff) as u16, gen: (raw >> 16) as u32 }
+            }
+        }
+    };
+}
+raw_id!(RightId);
+raw_id!(ReservationId);
 
 /// Why an operation on a time right is refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -121,32 +183,53 @@ const NO_RESERVATION: Reservation = Reservation {
     left_ns: 0,
 };
 
-/// The time rights of a system of `H` harts: `R` rights, `V` reservations.
+/// The time rights of a system of at most `H` harts: `R` rights, `V` reservations.
 pub struct TimeRights<const R: usize, const V: usize, const H: usize> {
     nodes: [Node; R],
     reservations: [Reservation; V],
     harts: [Hart; H],
+    /// The harts the machine has (`<= H`): the root holds their capacity, no other is admitted.
+    online: usize,
     /// What a hart's reservations may sum to (the rest is the fair class's floor).
     capacity: u32,
 }
 
 impl<const R: usize, const V: usize, const H: usize> TimeRights<R, V, H> {
-    /// A system whose every hart gives `capacity_ppm` of its time to reservations; the root
-    /// right holds all of it (`H × capacity_ppm`).
+    /// A table that holds nothing, no root, no hart — a static's value before the machine is
+    /// known ([`Self::reset`]).
+    pub const EMPTY: Self = Self {
+        nodes: [NO_NODE; R],
+        reservations: [NO_RESERVATION; V],
+        harts: [Hart { leaving: [(0, 0); LEAVING] }; H],
+        online: 0,
+        capacity: 0,
+    };
+
+    /// A system of `H` harts whose every hart gives `capacity_ppm` of its time to reservations;
+    /// the root right holds all of it (`H × capacity_ppm`).
     #[must_use]
     pub fn new(capacity_ppm: u32) -> Self {
+        let mut rights = Self::EMPTY;
+        rights.reset(H, capacity_ppm);
+        rights
+    }
+
+    /// Starts the table over, in place, for a machine of `harts` harts (at most `H`) whose every
+    /// hart gives `capacity_ppm` to reservations: the root holds `harts × capacity`, every other
+    /// right and every reservation is gone. The kernel calls it once at boot, when the device
+    /// tree has named the harts — no time is minted after it.
+    pub fn reset(&mut self, harts: usize, capacity_ppm: u32) {
         let capacity = capacity_ppm.min(PPM);
-        let total = capacity.saturating_mul(H as u32);
-        let mut nodes = [NO_NODE; R];
-        if let Some(root) = nodes.first_mut() {
+        let online = harts.min(H);
+        let total = capacity.saturating_mul(online as u32);
+        self.nodes = [NO_NODE; R];
+        if let Some(root) = self.nodes.first_mut() {
             *root = Node { live: true, gen: 1, parent: None, depth: 0, total, own: total };
         }
-        Self {
-            nodes,
-            reservations: [NO_RESERVATION; V],
-            harts: [Hart { leaving: [(0, 0); LEAVING] }; H],
-            capacity,
-        }
+        self.reservations = [NO_RESERVATION; V];
+        self.harts = [Hart { leaving: [(0, 0); LEAVING] }; H];
+        self.online = online;
+        self.capacity = capacity;
     }
 
     /// The root right.
@@ -234,7 +317,7 @@ impl<const R: usize, const V: usize, const H: usize> TimeRights<R, V, H> {
     }
 
     fn admit(&self, hart: usize, share: u32, now: u64) -> Result<(), TimeRightError> {
-        if hart >= H {
+        if hart >= self.online {
             return Err(TimeRightError::Hart);
         }
         if self.load(hart, now).saturating_add(share) > self.capacity {
@@ -446,5 +529,44 @@ impl<const R: usize, const V: usize, const H: usize> TimeRights<R, V, H> {
             });
         let root = self.nodes.first().map_or(0, |n| u64::from(n.total));
         budgets && all == root && (0..H).all(|h| self.load(h, now) <= self.capacity)
+    }
+
+    /// A reservation's thread woke at `now` (the constant-bandwidth rule, as for a migrant):
+    /// past its deadline it starts its next period; and when what is left of its budget, over
+    /// what is left of its period, is denser than its share, it starts a new period at `now` —
+    /// a thread that slept never brings back time it did not run. Returns `(deadline, left)`.
+    pub fn wake(&mut self, id: ReservationId, now: u64) -> Result<(u64, u64), TimeRightError> {
+        let slot = self.standing(id, now)?;
+        let r = &mut self.reservations[slot];
+        let window = r.deadline_ns.saturating_sub(now);
+        if now >= r.deadline_ns
+            || u128::from(r.left_ns) * u128::from(PPM) > u128::from(r.share) * u128::from(window)
+        {
+            r.deadline_ns = now.saturating_add(r.period_ns);
+            r.left_ns = Self::budget(r.share, r.period_ns);
+        }
+        Ok((r.deadline_ns, r.left_ns))
+    }
+
+    /// A reservation's period (while its right stands).
+    #[must_use]
+    pub fn period_of(&self, id: ReservationId) -> Option<u64> {
+        let slot = self.reservation(id).ok()?;
+        let r = &self.reservations[slot];
+        self.alive(r.right).map(|_| r.period_ns)
+    }
+
+    /// The right a reservation was bound from (while it stands).
+    #[must_use]
+    pub fn right_of(&self, id: ReservationId) -> Option<RightId> {
+        let slot = self.reservation(id).ok()?;
+        let right = self.reservations[slot].right;
+        self.alive(right).map(|_| right)
+    }
+
+    /// The harts the table admits on, and what a hart's reservations may sum to.
+    #[must_use]
+    pub fn machine(&self) -> (usize, u32) {
+        (self.online, self.capacity)
     }
 }

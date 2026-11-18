@@ -894,6 +894,46 @@ phase = "bringup"
 emit_when = { profile = "smp" }
 proves = "boot-homed task with cpu1-only mask is clamped to cpu1 (affinity home routing)"
 
+[marker."KSELFTEST: sched runtime metered ok"]
+phase = "bringup"
+emit_when = { profile = "smp" }
+proves = "the meter (TASK-0363 P3, RFC-0120 gate G2) charges a task the time a hart ran it: a task picked on the boot hart and held for 2 ms is charged at least 2 ms and at most the span from before its pick to after its switch away, through the scheduler's switch path"
+
+[marker."KSELFTEST: sched fair ok"]
+phase = "bringup"
+emit_when = { profile = "smp" }
+proves = "the fair class (TASK-0363 P3, ADR-0101) shares a hart by weight on the real clock: two hogs of weights 4:1, driven through the scheduler's pick and preempt for 100 ms, are metered within two of the longest holds of their shares — within 5 % when no hold was stalled"
+
+[marker."KSELFTEST: sched time right ok"]
+phase = "bringup"
+emit_when = { profile = "smp" }
+proves = "a reservation (RFC-0120) is honoured through the kernel's wiring: a holder of a fifth of a hart every 2 ms, against a hog of eight times its weight, runs a hundred budgets in full with every overrun counted, misses no period but those a measured host stall covered, and after unbind and revoke the root holds what it held and the books balance"
+
+[marker."KSELFTEST: test_reject_time_right_claim_by_stranger ok"]
+phase = "bringup"
+emit_when = { profile = "smp" }
+proves = "the root time right is claimed by init only (kernel identity): the claim of another task is refused through the syscall"
+
+[marker."KSELFTEST: test_reject_time_right_forged_slot ok"]
+phase = "bringup"
+emit_when = { profile = "smp" }
+proves = "the time-right syscall takes its authority from a TimeRight capability with MANAGE only: a slot of another kind, one without MANAGE and an empty one are refused"
+
+[marker."KSELFTEST: test_reject_time_right_beyond_held ok"]
+phase = "bringup"
+emit_when = { profile = "smp" }
+proves = "a holder derives and binds no more than its right still holds, and a period out of bounds is refused; a refusal changes nothing (the right holds what it held)"
+
+[marker."KSELFTEST: test_reject_time_right_bind_other_task ok"]
+phase = "bringup"
+emit_when = { profile = "smp" }
+proves = "binding a reservation to another task takes the standing that sets its class: a task without it is refused and the target holds none"
+
+[marker."KSELFTEST: test_reject_time_right_after_revoke ok"]
+phase = "bringup"
+emit_when = { profile = "smp" }
+proves = "a revoke ends a right and everything derived from it in one step: the derived slot binds, reads and unbinds nothing, its holder's reservation is gone, and the root holds what it held"
+
 [marker."KSELFTEST: sched spread ok"]
 phase = "bringup"
 emit_when = { profile = "smp" }

@@ -49,9 +49,8 @@ pub(crate) fn run_pending_guarded(frame: &mut TrapFrame, kernel: &mut KernelGuar
 /// longer current and is left be.
 pub(crate) fn stage_wake(ctx: &mut crate::syscall::api::Context<'_>, old_pid: crate::types::Pid) {
     stage_yield(ctx, old_pid);
-    if ctx.tasks.current_pid() == old_pid && ctx.scheduler.ready_above_current() {
-        ctx.scheduler.yield_current();
-        if let Some(next) = ctx.scheduler.schedule_next() {
+    if ctx.tasks.current_pid() == old_pid {
+        if let Some(next) = ctx.scheduler.switch_if_ready() {
             ctx.tasks.set_current(next);
         }
     }
@@ -62,8 +61,7 @@ pub(crate) fn stage_wake(ctx: &mut crate::syscall::api::Context<'_>, old_pid: cr
 /// the hart that takes it next (a thief included) finds the frame complete.
 fn stage_yield(ctx: &mut crate::syscall::api::Context<'_>, old_pid: crate::types::Pid) {
     if core::mem::take(&mut ctx.yield_after) && ctx.tasks.current_pid() == old_pid {
-        ctx.scheduler.yield_current();
-        if let Some(next) = ctx.scheduler.schedule_next() {
+        if let Some(next) = ctx.scheduler.give_way(true) {
             ctx.tasks.set_current(next);
         }
     }
@@ -81,7 +79,7 @@ pub(crate) fn deliver_external(frame: &mut TrapFrame) -> bool {
     };
     let (scheduler, tasks, router, spaces, _timer, _ht, _ws, _fences) = kernel.parts();
     crate::irq::dispatch_external(router, tasks, scheduler);
-    if scheduler.ready_above_current() {
+    if scheduler.ready_before_current() {
         preempt_current_user_task(frame, tasks, scheduler, spaces);
     }
     true
@@ -114,11 +112,10 @@ pub(crate) fn preempt_current_user_task(
     if let Some(task) = tasks.task_mut(old_pid) {
         *task.frame_mut() = *frame;
     }
-    // Re-enqueue the running task at the back of its class, then pick the next. If
-    // round-robin hands back the same task, nothing else is runnable — resume it
-    // with its registers untouched (cheap fast path for a single busy task).
-    scheduler.yield_current();
-    let Some(next) = scheduler.schedule_next() else {
+    // Requeue the running task as it stands in the order (TASK-0363 P3: its virtual time kept),
+    // then pick the next. If the order hands back the same task, it is still the one to run —
+    // resume it with its registers untouched (cheap fast path for a single busy task).
+    let Some(next) = scheduler.give_way(false) else {
         return;
     };
     if next == old_pid {

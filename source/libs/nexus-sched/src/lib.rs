@@ -9,7 +9,8 @@
 //! hart) — and a deadline helper for userspace services.
 //! OWNERS: @kernel-team @runtime
 //! PUBLIC API: CpuSet, CpuSetError, Topology, TopologyQuery, TOPOLOGY_OP, Placement, Offers,
-//!   Extension, TimeRights, RightId, ReservationId, TimeRightError, Charged, Deadline
+//!   Extension, TimeRights, RightId, ReservationId, TimeRightError, Charged, TIME_RIGHT_OP,
+//!   TimeRightOp, Deadline
 //! DEPENDS_ON: core
 //! INVARIANTS: Pure calculations, no allocation, no unsafe; unit-tested
 //! ADR: docs/adr/0016-kernel-libs-architecture.md
@@ -23,7 +24,9 @@ mod topology;
 
 pub use cpu_set::{CpuSet, CpuSetError};
 pub use offers::{Extension, Offers};
-pub use time_right::{Charged, ReservationId, RightId, TimeRightError, TimeRights};
+pub use time_right::{
+    Charged, ReservationId, RightId, TimeRightError, TimeRightOp, TimeRights, TIME_RIGHT_OP,
+};
 pub use topology::{Placement, Topology, TopologyQuery, TOPOLOGY_OP};
 
 /// Simple scheduler timeline helper for user space services.

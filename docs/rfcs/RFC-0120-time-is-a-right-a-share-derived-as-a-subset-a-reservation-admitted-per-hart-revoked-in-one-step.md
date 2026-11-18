@@ -2,10 +2,10 @@
 schema: 1
 id: RFC-0120
 title: "Time is a right: a share of the harts' time derived as a subset, a reservation admitted per hart, revoked in one step"
-status: draft
+status: in_progress
 owners: ["@kernel-team"]
 created: 2026-11-13
-updated: 2026-11-13
+updated: 2026-11-18
 subsystem: kernel
 tasks: [TASK-0363]
 depends_on: [RFC-0118]
@@ -42,10 +42,11 @@ against an undecided contract.
 - **Owns:** what a time right and a reservation are, the operations on them and their refusals,
   what a steal and a migration do to a reservation, the bound on a revoke, the invariants and
   the model that proves them (`nexus_sched::time_right`).
-- **Does not own:** the syscalls and the capability kind that carry these operations (seeded in
-  P3 with the kernel core, appended to this RFC); the run queues and their locks (P2); the fair
-  class's weights (P3); tickless timers (P4); placement (P5, TASK-0365); a call lending the
-  caller's reservation to the server (the IPC package, TASK-0330); who is given which share
+- **Also owns (appended with the kernel core, P3):** the syscall and the capability kind that
+  carry these operations — "The kernel surface" below.
+- **Does not own:** the run queues and their locks (P2); the order of one hart and the fair
+  class's weights (ADR-0101); tickless timers (P4); placement (P5, TASK-0365); a call lending
+  the caller's reservation to the server (the IPC package, TASK-0330); who is given which share
   (init's recipe, TASK-0365 P1).
 
 ## Contract (normative)
@@ -130,6 +131,69 @@ is free. The revoker's share is back at once; the hart's capacity within one per
   behind the kernel lock: **no marker claims a guarantee before the lock is deleted** (the
   address-space package). Until then the mechanism runs and its lines are measurements.
 
+## The kernel surface (normative, TASK-0363 P3)
+
+### The capability
+
+A time right is held as a capability of kind `TimeRight` with the right `MANAGE`. Its payload is
+the right's id — slot and generation — so a capability that outlives a revoke names nothing. It
+is made only by the kernel: the root's by the claim, a child's by `derive`, into the caller's
+own table.
+
+### The syscall
+
+The operations ride the sched syscall (48) as operation 8: registers `(8, op, a, b, c, d)`, one
+register back. One definition on both sides (`nexus_sched::TimeRightOp`; userspace:
+`nexus_abi::time_right`).
+
+| `op` | Arguments | Returns | Authority |
+|---|---|---|---|
+| 0 `ClaimRoot` | — | the root's slot | init, by kernel identity; once per boot |
+| 1 `Held` | slot | `total << 32 \| own`, ppm | the capability |
+| 2 `Derive` | slot, share | the child's slot | the capability |
+| 3 `Bind` | slot, task (0 = the caller), share, period ns | the hart that admitted it | the capability; another task: the standing that sets its class |
+| 4 `Unbind` | slot, task (0 = the caller) | 0 | the capability that bound it; another task as above |
+| 5 `Revoke` | slot | 0 | the capability |
+
+A slot that is empty, of another kind or without `MANAGE` is refused before anything is read
+from the table. The contract's refusals map to three errors: `Revoked`, `Root` and `BeyondHeld`
+are a denied permission; `BeyondCapacity` and `Full` are no space; `Share`, `Period`, `Hart` and
+`TooDeep` are an invalid argument. A refusal changes nothing; a child whose slot cannot be
+installed is revoked again.
+
+### What the kernel adds to the contract
+
+- **Where a reservation is admitted.** `Bind` tries the task's home hart, then the other online
+  harts its affinity allows, and takes the first that admits it; that hart becomes the task's
+  home. A holder runs there: its wake goes there and it is not stolen. The contract's `migrate`
+  is not called by the kernel yet (placement of holders by load: TASK-0365).
+- **A wake applies the constant-bandwidth rule** like a move does (`wake`): a holder that slept
+  arrives with what is left of its budget only if that is no denser than its share over what is
+  left of its period; else with a new period from its wake. A sleep brings back no time.
+- **One reservation per task.** A bind ends the one the task held. A task's exit ends its
+  reservation; its share is its right's again.
+- **Sizes.** `capacity` is 800 000 ppm of every hart: the fair class keeps a fifth (the board's
+  busiest hart ran 0.3–0.6 of its time with the desktop in use). The kernel holds 64 rights and
+  64 reservations; the share floor (1 000 ppm) bounds what one holder can fill.
+- **A budget is enforced to the clock**, not to the tick: the hart's timer is capped at the
+  running holder's budget end. Past it the holder runs in the fair class (ADR-0101) and the
+  overrun is counted.
+- **What is counted.** `overruns`: budgets that ran out under their holder. `misses`: periods in
+  which a runnable holder did not get its budget — what a guarantee is judged by. Both print in
+  `KINIT: time rights`; the holders' waits in `KINIT: ready latency class=reserved`.
+
+### Security of the surface
+
+- Authority is the capability and, for another task, the caller's kernel identity
+  (`sender_service_id`'s source) — never a name or a number in the payload. `test_reject_*`:
+  a claim by a task that is not init, a forged slot, a derive and a bind beyond what is held,
+  a bind of another task without standing, every use after a revoke.
+- The root is claimed once: a second claim is refused, so a later task cannot obtain it even
+  with init's identity spoofed in a payload — there is no payload.
+- A reservation places its task on a hart and ahead of the fair class; binding *another* task
+  is therefore as privileged as setting its class. Binding oneself takes only the right, which
+  is exactly the time one was given.
+
 ## Invariants
 
 | Invariant | Proof |
@@ -176,8 +240,16 @@ is free. The revoker's share is back at once; the hart's capacity within one per
 cargo test -p nexus-sched --test time_right
 ```
 
-Kernel markers arrive with P3 (`KSELFTEST: sched time right ok`, `sched fair ok`, `sched runtime
-metered ok`) and are added here with the syscall surface.
+Kernel markers (multi-hart lanes and the board; `selftest/smp_sched/time_right.rs`):
+
+- `KSELFTEST: sched runtime metered ok` — the meter (G2).
+- `KSELFTEST: sched fair ok` — two weights share a hart in their ratio on the real clock.
+- `KSELFTEST: sched time right ok` — a hundred budgets run in full, each overrun counted, no
+  period missed, the books balanced after unbind and revoke.
+- `KSELFTEST: test_reject_time_right_claim_by_stranger ok`, `…_forged_slot ok`,
+  `…_beyond_held ok`, `…_bind_other_task ok`, `…_after_revoke ok` — the syscall's refusals.
+
+None of them states a guarantee (G1).
 
 ## Alternatives considered
 
@@ -198,9 +270,10 @@ metered ok`) and are added here with the syscall surface.
 
 ## Open questions
 
-- The value of `capacity` (the model's tests use 80 %): decided in P3 from the fair class's
-  measured need on the board.
-- Table sizes in the kernel against the share floor and the depth (P3).
+- Decided in P3 ("The kernel surface"): `capacity` is 80 % of a hart; the kernel holds 64
+  rights and 64 reservations.
+- Moving a holder by load: the contract's `migrate` is proven on the model and unused by the
+  kernel, which keeps a holder on the hart that admitted it (TASK-0365).
 - A right bound by several threads on several harts is several reservations today; whether a
   thread group shares one budget (a frame's threads, the work interval of TASK-0365) is decided
   there, on this contract.

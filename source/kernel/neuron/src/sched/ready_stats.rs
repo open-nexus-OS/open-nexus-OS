@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: how long a runnable task waits for a hart — the time from entering a run queue
-//! (a wake, a spawn, a yield, a preemption) to being dispatched, per QoS class and per
+//! (a wake, a spawn, a yield, a preemption) to being dispatched, per QoS class — and, in a lane
+//! of their own, for the dispatches from a reservation's budget (TASK-0363 P3) — and per
 //! measurement window: the count, the sum, the longest and a four-bucket histogram. The
 //! number the scheduler's end form is judged by (TASK-0363: wake-to-run p99), measured
 //! before it is built (TASK-0330 P0). Pure atomics and arithmetic, NOT target-gated, so the
@@ -27,6 +28,13 @@ use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 /// QoS classes (the discriminants of `sched::QosClass`: idle, normal, interactive, burst).
 pub const CLASSES: usize = 4;
+/// The lane of a dispatch from a reservation's budget (TASK-0363 P3: a time right's holder —
+/// the lane its wake-to-run gate reads), after the classes'.
+pub const RESERVED: usize = CLASSES;
+/// The lanes waits are counted in: the classes and [`RESERVED`].
+pub const LANES: usize = CLASSES + 1;
+/// The reserved lane's gate: a wait within this is in time (`Report::le200us`).
+const GATE_US: u64 = 200;
 /// Histogram buckets: <=100 µs, <=1 ms, <=10 ms, above.
 pub const BUCKETS: usize = 4;
 /// What a late task waited behind (the variants of [`Behind`]).
@@ -61,6 +69,7 @@ struct Class {
     max_ticks: AtomicU64,
     buckets: [AtomicUsize; BUCKETS],
     late: [AtomicUsize; CAUSES],
+    within_gate: AtomicUsize,
 }
 
 impl Class {
@@ -71,12 +80,13 @@ impl Class {
             max_ticks: AtomicU64::new(0),
             buckets: [const { AtomicUsize::new(0) }; BUCKETS],
             late: [const { AtomicUsize::new(0) }; CAUSES],
+            within_gate: AtomicUsize::new(0),
         }
     }
 }
 
 static WINDOW_START_TICKS: AtomicU64 = AtomicU64::new(0);
-static CLASS: [Class; CLASSES] = [const { Class::new() }; CLASSES];
+static CLASS: [Class; LANES] = [const { Class::new() }; LANES];
 
 /// One class's window: dispatches, mean and longest wait in µs, the histogram, and the late
 /// waits by what they waited behind (indexed by [`Behind`]).
@@ -87,10 +97,12 @@ pub struct Report {
     pub max_us: u64,
     pub buckets: [usize; BUCKETS],
     pub late: [usize; CAUSES],
+    /// Waits within 200 µs (the time right's gate: 99 of 100 of a holder's).
+    pub le200us: usize,
 }
 
-/// A task of `class` that became runnable at tick `ready_at` — its hart running `waited`
-/// then — is dispatched at tick `now`.
+/// A task of lane `class` (its class, or [`RESERVED`]) that became runnable at tick `ready_at`
+/// — its hart running `waited` then — is dispatched at tick `now`.
 #[inline]
 pub fn record(class: usize, ready_at: u64, now: u64, ticks_per_us: u64, waited: Behind) {
     if ready_at < WINDOW_START_TICKS.load(Ordering::Relaxed) {
@@ -109,6 +121,9 @@ pub fn record(class: usize, ready_at: u64, now: u64, ticks_per_us: u64, waited: 
     slot.sum_ticks.fetch_add(ticks, Ordering::Relaxed);
     slot.max_ticks.fetch_max(ticks, Ordering::Relaxed);
     slot.buckets[bucket].fetch_add(1, Ordering::Relaxed);
+    if us <= GATE_US {
+        slot.within_gate.fetch_add(1, Ordering::Relaxed);
+    }
     if us > LATE_US {
         slot.late[waited as usize].fetch_add(1, Ordering::Relaxed);
     }
@@ -121,6 +136,7 @@ pub fn reset(now: u64) {
         slot.count.store(0, Ordering::Relaxed);
         slot.sum_ticks.store(0, Ordering::Relaxed);
         slot.max_ticks.store(0, Ordering::Relaxed);
+        slot.within_gate.store(0, Ordering::Relaxed);
         for counter in slot.buckets.iter().chain(&slot.late) {
             counter.store(0, Ordering::Relaxed);
         }
@@ -137,6 +153,7 @@ pub fn report(class: usize, ticks_per_us: u64) -> Report {
             max_us: 0,
             buckets: [0; BUCKETS],
             late: [0; CAUSES],
+            le200us: 0,
         };
     };
     let count = slot.count.load(Ordering::Relaxed);
@@ -146,6 +163,7 @@ pub fn report(class: usize, ticks_per_us: u64) -> Report {
         max_us: slot.max_ticks.load(Ordering::Relaxed) / per_us,
         buckets: core::array::from_fn(|i| slot.buckets[i].load(Ordering::Relaxed)),
         late: core::array::from_fn(|i| slot.late[i].load(Ordering::Relaxed)),
+        le200us: slot.within_gate.load(Ordering::Relaxed),
     }
 }
 
@@ -172,9 +190,16 @@ mod tests {
                 mean_us: 783,
                 max_us: 2_300,
                 buckets: [2, 0, 1, 0],
-                late: [0, 1, 0]
+                late: [0, 1, 0],
+                le200us: 2
             }
         );
+        // A dispatch from a reservation's budget has its own lane; 200 µs is its gate's edge.
+        record(RESERVED, 1_000, 1_200, 1, Behind::Peer);
+        record(RESERVED, 1_000, 1_201, 1, Behind::Peer);
+        let reserved = report(RESERVED, 1);
+        assert_eq!((reserved.count, reserved.le200us, reserved.buckets), (2, 1, [0, 2, 0, 0]));
+        assert_eq!(report(LANES, 1).count, 0, "no lane past the reserved one");
         assert_eq!(report(1, 1).buckets, [0, 0, 0, 1]);
         assert_eq!(report(1, 1).late, [0, 0, 1]);
         assert_eq!(report(0, 1).count, 0);
@@ -182,7 +207,14 @@ mod tests {
         record(3, 6_000, 8_400, 24, Behind::Peer);
         assert_eq!(
             report(3, 24),
-            Report { count: 1, mean_us: 100, max_us: 100, buckets: [1, 0, 0, 0], late: [0; 3] }
+            Report {
+                count: 1,
+                mean_us: 100,
+                max_us: 100,
+                buckets: [1, 0, 0, 0],
+                late: [0; 3],
+                le200us: 1
+            }
         );
         // Exactly one millisecond is in time; one tick more is late. The late waits of a
         // class sum to its two upper buckets.

@@ -3,7 +3,10 @@
 
 # ADR-0096: A wake preempts — a task of a class above the running task's runs at the trap exit, and the soft-realtime chain is Interactive
 
-- Status: Accepted (2026-11-05, TASK-0351 P5 — board cycle `board--2026-11-05T13-12-18`)
+- Status: Accepted (2026-11-05, TASK-0351 P5 — board cycle `board--2026-11-05T13-12-18`); its
+  strict class order is replaced by `docs/adr/0101-the-fair-class-orders-by-virtual-deadline-a-reservation-runs-first.md`
+  (2026-11-17: a class is a weight, the question is `Scheduler::ready_before_current`) — the wake
+  at the trap exit and the chain's class stay
 - Date: 2026-11-04
 - Links:
   - Tasks: `tasks/TASK-0351-layer-8-on-the-gpu-an-occluded-window-costs-nothing-bindings-grow-a-fullscreen-a.md` (P5: the fixed cost of a pass)

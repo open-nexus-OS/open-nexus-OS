@@ -76,11 +76,47 @@ pub const ACT_IDLE_LOOP: usize = 4;
 /// User-fault kill path stages: 0 dumped, 1 BKL acquired, 2 task released.
 pub const ACT_FAULT_KILL: usize = 5;
 
+/// Spinning for a lock (detail: the lock's address without its top byte) — until the take.
+pub const ACT_SPIN_WAIT: usize = 6;
+/// Waiting for shootdown acks (detail: the epoch) — until every waited hart acked.
+pub const ACT_TLB_WAIT: usize = 7;
+/// Waiting for the kernel lock (detail: what for — `lock_share`'s holder id) — until the take.
+pub const ACT_LOCK_WAIT: usize = 8;
+/// The idle loop under the kernel lock (detail: 1 taken, 2 picked or stolen, 3 dispatch,
+/// 4 deadline walk, 5 events, 6 witness, 7 a stashed line, 8 its own deadline).
+pub const ACT_IDLE_LOCKED: usize = 9;
+/// Arming the timer (the firmware's call where the hart has no `stimecmp`).
+pub const ACT_TIMER_ARM: usize = 10;
+/// An unmap under the kernel lock (detail: 1 clear, 2 forget, 3 the object's reclaim).
+pub const ACT_UNMAP: usize = 11;
+
 #[inline]
 pub fn note_activity(cpu: CpuId, class: usize, detail: usize) {
     if let Some(hart) = hart_state::of(cpu) {
         hart.activity.store((detail << 8) | (class & 0xff), Ordering::Relaxed);
     }
+}
+
+/// This hart's tag for the length of a wait: set here, the tag before handed back for
+/// [`restore_activity`] when the wait ends — so a stall line (`KINIT: bkl stall`) reads what a
+/// hart waits for, and the tag it had is not lost to the wait.
+#[inline]
+pub fn swap_activity(class: usize, detail: usize) -> usize {
+    hart_state::of(cpu_current_id())
+        .map_or(0, |hart| hart.activity.swap((detail << 8) | (class & 0xff), Ordering::Relaxed))
+}
+
+/// Ends a wait tagged by [`swap_activity`].
+#[inline]
+pub fn restore_activity(tag: usize) {
+    if let Some(hart) = hart_state::of(cpu_current_id()) {
+        hart.activity.store(tag, Ordering::Relaxed);
+    }
+}
+
+/// CPU `cpu`'s tag as stored (low byte: class, above: detail); 0 for no such CPU.
+pub fn activity_of(cpu: usize) -> usize {
+    hart_state::at(cpu).map_or(0, |hart| hart.activity.load(Ordering::Relaxed))
 }
 
 /// Chunk size for unlocked phase-B byte moves: 64 KiB is ~100 µs of memset
@@ -197,9 +233,11 @@ pub fn shootdown_all() {
         // keeps a consumed-doorbell class recoverable instead of fatal,
         // and gives TCG vCPU-scheduling jitter more than one 100ms window.
         const RESEND_ROUNDS: u32 = 4;
+        let before = swap_activity(ACT_TLB_WAIT, epoch as usize);
         for _ in 0..RESEND_ROUNDS {
             // Correctness-class IPI: direct send, no rate limiting.
             if not_acked(wait_targets, epoch).is_empty() {
+                restore_activity(before);
                 return;
             }
             // Doorbell to every target (idle ones ack early when it lands).
@@ -208,6 +246,7 @@ pub fn shootdown_all() {
                 (riscv::register::time::read() as u64).saturating_add(ack_budget_ticks());
             while (riscv::register::time::read() as u64) < deadline {
                 if not_acked(wait_targets, epoch).is_empty() {
+                    restore_activity(before);
                     return;
                 }
                 // A waiting initiator is also a responder: with two

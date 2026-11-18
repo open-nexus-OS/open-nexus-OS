@@ -19,7 +19,7 @@
 use core::marker::PhantomData;
 use core::sync::atomic::{AtomicU32, Ordering};
 
-use crate::run_queue::{self, HartQueues, Harts, Owner, Stolen, Task, CLASS_CAPACITY};
+use crate::run_queue::{self, weight_of, HartQueues, Harts, Owner, Stolen, Task, CLASS_CAPACITY};
 use crate::sync::hart_table::{HartTable, SizeError};
 use crate::sync::spin_irq::{IrqOffGuard, SpinIrqLock};
 use crate::types::{CpuId, Pid};
@@ -73,9 +73,37 @@ static RUNS: HartTable<AtomicU32> = HartTable::new(AtomicU32::new(0));
 
 /// Sizes the run queues for a machine of `harts` CPUs (`smp::size_for_machine`).
 pub fn size(harts: usize) -> Result<(), SizeError> {
+    // Built at compile time: a hart's queues are 20 KiB, copied from the image — never built on
+    // the boot stack (`HartTable::size`).
     RUN_QUEUES
-        .size(harts, || SpinIrqLock::new(HartQueues::new()))
+        .size(harts, || const { SpinIrqLock::new(HartQueues::new()) })
         .and_then(|()| RUNS.size(harts, || AtomicU32::new(0)))
+        .and_then(|()| meter::size(harts))
+        .and_then(|()| reserve::size(harts))?;
+    // TASK-0363 P3: a fair task asks for one preemption tick at a time.
+    let slice = crate::hal::platform::ns_to_ticks(crate::hal::platform::PREEMPT_TICK_NS);
+    for cpu in 0..RUN_QUEUES.len() {
+        let _ = with(cpu, |q| q.set_slice(slice));
+    }
+    Ok(())
+}
+
+/// Task `id` of class `qos` as it arrives on a hart at `now`: its weight from its class and
+/// shares, the lag it left its last hart with, its reservation (`reserve::arrive`).
+fn arriving(id: TaskId, qos: QosClass, now: u64) -> Task {
+    let record = record::get(id);
+    let (shares, lag) = record.map_or((100, 0), |r| (r.shares(), r.lag()));
+    Task {
+        weight: weight_of(qos, shares),
+        lag,
+        res: reserve::arrive(id.as_raw(), now),
+        ..Task::new(id.as_raw(), qos)
+    }
+}
+
+/// The weight of task `id` at class `qos` (its record's shares).
+fn weight_for(id: u32, qos: QosClass) -> u32 {
+    weight_of(qos, record::get(Pid::from_raw(id)).map_or(100, |r| r.shares()))
 }
 
 /// The task this hart runs (PID 0 before its first dispatch).
@@ -206,15 +234,18 @@ impl Scheduler {
     /// If the task is queued, it moves the queue entry to the target QoS bucket.
     pub fn set_task_qos(&mut self, id: TaskId, qos: QosClass) -> SetQosOutcome {
         let harts = 0..RUN_QUEUES.len();
+        let weight = weight_for(id.as_raw(), qos);
         // Running anywhere: update in place (any hart's current slot).
         if harts
             .clone()
-            .any(|cpu| with(cpu, |q| q.set_qos_if_current(id.as_raw(), qos)) == Some(true))
+            .any(|cpu| with(cpu, |q| q.set_qos_if_current(id.as_raw(), qos, weight)) == Some(true))
         {
             return SetQosOutcome::Updated;
         }
         // Queued: move within the CPU it is queued on (no migration here).
-        match harts.filter_map(|cpu| with(cpu, |q| q.requeue(id.as_raw(), qos)).flatten()).next() {
+        let mut requeued =
+            harts.filter_map(|cpu| with(cpu, |q| q.requeue(id.as_raw(), qos, weight)).flatten());
+        match requeued.next() {
             Some(Ok(())) => SetQosOutcome::Updated,
             Some(Err(run_queue::Full)) => SetQosOutcome::QueueFull,
             None => SetQosOutcome::NotFound,
@@ -245,10 +276,9 @@ impl Scheduler {
     /// Queues `id` on hart `cpu`: one operation under that hart's lock.
     fn push(cpu: usize, id: TaskId, qos: QosClass) -> EnqueueOutcome {
         let now = ready::now_ticks();
-        let queued = with(cpu, |q| {
-            q.push_back(id.as_raw(), qos, now)
-                .map(|()| hand(id.as_raw(), Owner::Queued(cpu as u16)))
-        });
+        let task = arriving(id, qos, now);
+        let queued =
+            with(cpu, |q| q.push(task, now).map(|()| hand(id.as_raw(), Owner::Queued(cpu as u16))));
         match queued {
             Some(Ok(())) => EnqueueOutcome::Enqueued,
             Some(Err(run_queue::Full)) => rejected_full(qos),
@@ -270,7 +300,7 @@ impl Scheduler {
         let cur = Self::current_cpu_index();
         // The record passes with the pick, under the queue lock: the task the hart ran and did
         // not requeue (it blocked) is free, the picked one is this hart's.
-        let picked = with(cur, |q| {
+        let picked = meter::metered(cur, |q| {
             let old = q.current();
             let new = q.pick();
             if let Some(old) = old.filter(|o| new.is_none_or(|n| n.id != o.id)) {
@@ -310,29 +340,34 @@ impl Scheduler {
         Some(Pid::from_raw(task.id))
     }
 
-    /// Re-enqueue the currently running task (call on timeslice/yield).
-    pub fn yield_current(&mut self) {
+    /// The running task is preempted without a pick (a driver of the order that picks on its
+    /// own — the selftests; a trap uses `give_way`): requeued as it stands in the order, its
+    /// virtual time kept (TASK-0363 P3).
+    pub fn preempt_current(&mut self) {
         // Queued while still its hart's current: it waits behind its peers, not behind an
         // idle hart (`ready_stats`). Deterministic fail-closed behavior for queue
         // saturation: a rejected task stays current so it is not silently dropped.
         let now = ready::now_ticks();
         let cur = Self::current_cpu_index();
-        let _ = with(cur, |q| {
+        let _ = meter::metered(cur, |q| {
             let id = q.current().map(|t| t.id);
-            if q.yield_current(now) {
+            if q.requeue_current(now) {
                 id.into_iter().for_each(|id| hand(id, Owner::Queued(cur as u16)));
             }
         });
     }
 
-    /// Marks the current task as finished without re-enqueuing it.
+    /// Marks the current task as finished without re-enqueuing it; its lag is kept for its
+    /// next wake (its record).
     pub fn finish_current(&mut self) {
         let cur = Self::current_cpu_index();
-        let _ = with(cur, |q| {
-            if let Some(task) = q.current() {
+        let _ = meter::metered(cur, |q| {
+            if let Some(task) = q.take_current() {
                 leave(task.id, cur);
+                if let Some(record) = record::get(Pid::from_raw(task.id)) {
+                    record.set_lag(task.lag);
+                }
             }
-            q.set_current(None);
         });
     }
 
@@ -367,7 +402,7 @@ impl Scheduler {
     /// Removes all queued references to `id` and clears it if currently running.
     pub fn purge(&mut self, id: TaskId) {
         for cpu in 0..RUN_QUEUES.len() {
-            let _ = with(cpu, |q| q.purge(id.as_raw()));
+            let _ = meter::metered(cpu, |q| q.purge(id.as_raw()));
         }
         if let Some(record) = record::get(id) {
             record.set_owner(Owner::Free);
@@ -394,7 +429,7 @@ impl Scheduler {
     }
 
     pub fn selftest_reset_cpu(&mut self, cpu: CpuId) {
-        let _ = with(cpu.as_index(), HartQueues::reset);
+        let _ = meter::metered(cpu.as_index(), HartQueues::reset);
     }
 
     /// Enqueues a task on a specific CPU's per-CPU runqueue.
@@ -441,15 +476,17 @@ impl Scheduler {
         // neither while it changes hands.
         let _irq_off = IrqOffGuard::new();
         let cur = Self::current_cpu_index();
+        // TASK-0363 P3: a reservation's holder runs on the hart it is admitted on — never
+        // stolen (its home is that hart: a refused one parks there).
         let task = Self::steal_for(
             cur,
             max_qos,
-            |id| allow(Pid::from_raw(id)),
+            |id| !reserve::holds(Pid::from_raw(id)) && allow(Pid::from_raw(id)),
             |id| home_of(Pid::from_raw(id)),
         )?;
         ready::dispatched(&task);
-        let _ = with(cur, |q| {
-            q.set_current(Some(task));
+        let _ = meter::metered(cur, |q| {
+            q.adopt(task);
             hand(task.id, Owner::Running(cur as u16));
         });
         Some(Pid::from_raw(task.id))
@@ -481,11 +518,11 @@ impl Scheduler {
                     .find_map(|_| Self::steal_for(cpu_idx, class, |_| true, |_| cpu_idx))
             });
             if let Some(task) = task {
-                let _ = with(cpu_idx, |q| q.set_current(Some(task)));
+                let _ = meter::metered(cpu_idx, |q| q.adopt(task));
                 return Some(Pid::from_raw(task.id));
             }
         }
-        let _ = with(cpu_idx, |q| q.set_current(None));
+        let _ = meter::metered(cpu_idx, |q| q.set_current(None));
         None
     }
 
@@ -518,5 +555,7 @@ impl Default for Scheduler {
 }
 
 mod class;
+pub mod meter;
 mod ready;
 pub mod record;
+pub mod reserve;

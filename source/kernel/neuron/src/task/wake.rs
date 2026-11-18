@@ -69,7 +69,11 @@ impl TaskTable {
         // TASK-0363 P5: the hart where it runs soonest (`placement`).
         let online = crate::smp::cpu_online();
         let home_cpu = clamp_home_to_affinity(task.affinity, task.home_cpu, online);
-        let target = self.placement(home_cpu, task.affinity.intersection(online), qos);
+        // TASK-0363 P3: a reservation's holder runs on the hart its reservation is admitted on.
+        let target = match crate::sched::reserve::hart_of(pid) {
+            Some(hart) => crate::types::CpuId::from_raw(hart as u16),
+            None => self.placement(home_cpu, task.affinity.intersection(online), qos),
+        };
         // No duplicates, then enqueue with the stored QoS. MEASURED: the runqueue half of a
         // wake, what D3's handoff would have removed (TASK-0054C P4c-2).
         if crate::trap::budgets::timed_wake_enqueue(|| {

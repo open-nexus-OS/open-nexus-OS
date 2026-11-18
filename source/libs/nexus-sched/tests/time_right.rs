@@ -291,3 +291,65 @@ fn conservation_over_10_000_random_steps() {
     assert!(done.iter().all(|&n| n > 100), "done {done:?}");
     assert!(refused.iter().all(|&n| n > 0), "refused {refused:?}");
 }
+
+#[test]
+fn a_table_reset_for_fewer_harts_holds_only_their_capacity() {
+    // The kernel's table is sized for the most harts a CPU set names and reset for the machine's.
+    let mut m: TimeRights<8, 8, 16> = TimeRights::EMPTY;
+    assert_eq!(m.held(m.root()), None, "an empty table has no root");
+    m.reset(2, CAPACITY);
+    assert_eq!(m.held(m.root()), Some((2 * CAPACITY, 2 * CAPACITY)));
+    assert_eq!(m.machine(), (2, CAPACITY));
+    assert!(m.audit(0));
+}
+
+#[test]
+fn test_reject_admit_on_a_hart_the_machine_does_not_have() {
+    let mut m: TimeRights<8, 8, 16> = TimeRights::EMPTY;
+    m.reset(2, CAPACITY);
+    assert_eq!(m.bind(m.root(), 100_000, 10 * MS, 2, 0), Err(E::Hart));
+    let r = m.bind(m.root(), 100_000, 10 * MS, 1, 0).unwrap();
+    assert_eq!(m.migrate(r, 5, 0), Err(E::Hart));
+    assert!(m.audit(0));
+}
+
+#[test]
+fn an_id_survives_its_word_and_a_forged_word_names_nothing() {
+    let mut m = model();
+    let right = m.derive(m.root(), 200_000).unwrap();
+    let res = m.bind(right, 100_000, 10 * MS, 0, 0).unwrap();
+    assert_ne!(right.to_raw(), 0);
+    assert_eq!(RightId::from_raw(right.to_raw()), right);
+    assert_eq!(ReservationId::from_raw(res.to_raw()), res);
+    assert_eq!(m.right_of(res), Some(right));
+    // A word of another generation is refused like a revoked right.
+    let forged = RightId::from_raw(right.to_raw() + (1 << 16));
+    assert_eq!(m.derive(forged, SHARE_MIN_PPM), Err(E::Revoked));
+    assert_eq!(m.held(forged), None);
+}
+
+#[test]
+fn a_waking_thread_never_brings_back_time_it_did_not_run() {
+    let mut m = model();
+    let r = m.bind(m.root(), 200_000, 10 * MS, 0, 0).unwrap();
+    // Ran 1 ms of its 2 ms, slept to 9 ms: 1 ms left over 1 ms of period is denser than 20 %.
+    m.charge(r, MS, MS).unwrap();
+    assert_eq!(m.wake(r, 9 * MS), Ok((19 * MS, 2 * MS)), "a new period at the wake");
+    // Woken early with no more than its share left: the period stands.
+    m.charge(r, MS + MS / 2, 10 * MS).unwrap();
+    assert_eq!(m.wake(r, 11 * MS), Ok((19 * MS, MS / 2)));
+    // Woken past its deadline: its next period.
+    assert_eq!(m.wake(r, 25 * MS), Ok((35 * MS, 2 * MS)));
+    assert!(m.audit(25 * MS));
+}
+
+#[test]
+fn test_reject_wake_after_revoke() {
+    let mut m = model();
+    let right = m.derive(m.root(), 200_000).unwrap();
+    let r = m.bind(right, 100_000, 10 * MS, 0, 0).unwrap();
+    m.revoke(right).unwrap();
+    assert_eq!(m.wake(r, MS), Err(E::Revoked));
+    assert_eq!(m.right_of(r), None);
+    assert!(m.audit(MS));
+}

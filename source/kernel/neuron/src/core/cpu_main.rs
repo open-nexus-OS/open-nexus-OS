@@ -107,12 +107,44 @@ pub(crate) fn sched_loop_entered(cpu: CpuId) -> bool {
 }
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+/// What the boot stack must have left where the boot hart enters its first idle turn.
+const BOOT_STACK_FLOOR: usize = 32 * 1024;
+
+/// The boot hart's first idle turn runs on top of `kmain`'s frames — the one time its stack does
+/// not start at the top — and what is left below must hold the idle loop, its traps and their
+/// lines. Nothing guards the stack's end: below it lie the kernel's statics. A `kmain` frame of
+/// 61 KiB once left 608 bytes (TASK-0363 P3: 20 KiB run queues built inline) and the first trap
+/// overwrote them. The depth is a property of the build, so a build that leaves less than the
+/// floor ends its boot here, on every lane, with the number.
+fn check_boot_stack() {
+    extern "C" {
+        static __stack_bottom: u8;
+    }
+    let sp: usize;
+    // SAFETY: reads the stack pointer into a register; nothing is written.
+    unsafe {
+        core::arch::asm!("mv {sp}, sp", sp = out(reg) sp, options(nomem, nostack));
+    }
+    // SAFETY: a linker symbol's address — the boot stack's lowest byte in the kernel image.
+    let bottom = unsafe { &__stack_bottom as *const u8 as usize };
+    let top = crate::smp::linker_boot_stack_top();
+    if !(bottom..=top).contains(&sp) {
+        return;
+    }
+    let left = sp - bottom;
+    log_info!(target: "smp", "KINIT: boot stack (used={} left={} of={})", top - sp, left, top - bottom);
+    assert!(left >= BOOT_STACK_FLOOR, "boot stack: {left} bytes left at the first idle turn");
+}
+
 pub(crate) fn cpu_main(cpu: CpuId) -> ! {
     // Once per hart (idle re-entries repeat silently at debug level): proves
     // the hart reached its scheduler loop with the identity it claims.
     let first_entry = crate::smp::hart_state::of(cpu).is_some_and(|hart| {
         hart.sched_loop_entered.swap(1, core::sync::atomic::Ordering::AcqRel) == 0
     });
+    if first_entry && cpu.is_boot() {
+        check_boot_stack();
+    }
     if first_entry {
         log_info!(target: "smp", "KINIT: cpu{} sched loop", cpu.as_index());
         // TASK-0330 P0: the hart's speed as the time of one fixed loop of two instructions
@@ -215,6 +247,10 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
             };
             let (scheduler, tasks, router, spaces, timer, hart_timers, waitsets, fences) =
                 kernel.parts();
+            // Where this hold stands, for a stall line (`KINIT: bkl stall`, `smp::tlb`'s tags).
+            let stage =
+                |n| crate::smp::tlb::note_activity(cpu, crate::smp::tlb::ACT_IDLE_LOCKED, n);
+            stage(1);
 
             // Primary liveness watchdog (~10ms): we hold the guard, so name the
             // blocked task set (who is parked on which endpoint/waitset/fence)
@@ -247,6 +283,7 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
                     None
                 }
             });
+            stage(2);
 
             // Bounded anomaly probe (A3 bring-up): a non-empty queue that
             // schedule_next does not pick would prove an indexing mismatch.
@@ -318,6 +355,7 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
                                         frame.x[2]
                                     );
                                 }
+                                stage(3);
                                 let staged = crate::smp::hart_local_stage_resume(cpu, frame);
                                 if spaces.activate(handle).is_err() {
                                     log_error!(
@@ -363,6 +401,7 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
                 // timer-cap delivery move per-hart in A6/A7).
                 // TASK-0363 P6: the one gated deadline walk first (every kind, skipped while
                 // nothing is due), then the events — whose re-arm reads the walk's exact gate.
+                stage(4);
                 let now = timer.now();
                 idle::note_delivery(now);
                 let t_walk = riscv::register::time::read() as u64;
@@ -376,6 +415,7 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
                     t_walk,
                     t_events.saturating_sub(t_walk),
                 );
+                stage(5);
                 let fired = crate::trap::process_expired_timers(
                     timer,
                     hart_timers,
@@ -398,6 +438,7 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
                 // tell a wedged fleet from one that waits quietly. This check names the wedge:
                 // no task dispatched since the last sample, every online hart idle, and at least
                 // one task blocked. Once per boot, FAIL-shaped so the harness gate fails the lane.
+                stage(6);
                 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
                 crate::liveness::quiet_stall_witness(cpu, tasks, now);
                 // Look again before sleeping (TASK-0363 P4): a delivery that woke a task homed
@@ -409,6 +450,7 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
                 // RFC-0118: a line this hart claimed while it was idle (its driver is homed
                 // here) is delivered under the lock held now; the driver it woke is on this
                 // hart's queue, so look again instead of sleeping.
+                stage(7);
                 crate::irq::dispatch_external(router, tasks, scheduler);
                 Attempt::Retry
             } else if idle::timed_due(timer.now()) {
@@ -416,6 +458,7 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
                 // blocked or armed here set this hart's timer for (windowd's pacer, a driver's
                 // poll): this hart delivers it, the boot hart may be asleep. Then look again:
                 // the woken task may be this hart's.
+                stage(8);
                 let now = timer.now();
                 let woke = crate::syscall::api::expire_deadlines(
                     now, tasks, router, scheduler, waitsets, fences,

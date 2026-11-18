@@ -122,6 +122,11 @@ impl<T> SpinIrqLock<T> {
     /// (A5 TLB shootdown: the initiator holds the BKL while waiting for
     /// acks; a responder spinning IRQ-off for that same lock would deadlock).
     pub fn lock(&self) -> SpinIrqGuard<'_, T> {
+        // A hart that has to spin names the lock in its activity tag until the take (the first
+        // miss only — the uncontended take pays nothing): a stall line reads it
+        // (`KINIT: bkl stall`), so a kernel-lock holder stuck on a second lock is not a blank.
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+        let mut tag_before: Option<usize> = None;
         loop {
             #[cfg(debug_assertions)]
             {
@@ -136,7 +141,18 @@ impl<T> SpinIrqLock<T> {
             if let Some(guard) = self.inner.try_lock() {
                 #[cfg(debug_assertions)]
                 self.holder.store(current_cpu_index_for_debug() + 1, Ordering::Release);
+                #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+                if let Some(tag) = tag_before {
+                    crate::smp::tlb::restore_activity(tag);
+                }
                 return SpinIrqGuard { lock: self, guard: Some(guard), was_enabled };
+            }
+            #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+            if tag_before.is_none() {
+                tag_before = Some(crate::smp::tlb::swap_activity(
+                    crate::smp::tlb::ACT_SPIN_WAIT,
+                    self as *const Self as usize,
+                ));
             }
             // Not acquired: reopen the interrupt window before retrying.
             irq_restore(was_enabled);
