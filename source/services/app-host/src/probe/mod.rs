@@ -67,6 +67,7 @@ pub(super) fn run() -> Result<(), &'static str> {
     map_atlas_base();
     // ADR-0099: before the first row, the kernels a row is painted with are chosen.
     boot_env::choose_paint_kernels();
+    boot_env::mark_time_right();
 
     // 1. windowd client + the app's DEDICATED event channel come up FIRST:
     //    the geometry handshake's content-rect reply (and later acks/input)

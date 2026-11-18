@@ -23,11 +23,13 @@ use crate::cap::{CapError, Capability, CapabilityKind, Held, Rights};
 use crate::hal::platform::{ns_to_ticks, ticks_per_us, ticks_to_ns};
 use crate::mm::AddressSpaceError;
 use crate::sched::{meter, reserve, EnqueueOutcome, QosClass};
-use crate::syscall::{api, Args, Error as SysError, SyscallTable, SYSCALL_SCHED};
-use crate::task::Pid;
+use crate::syscall::{
+    api, Args, Error as SysError, SyscallTable, SYSCALL_CAP_TRANSFER_TO, SYSCALL_SCHED,
+};
+use crate::task::{Pid, TransferError};
 use crate::types::CpuId;
 use crate::{log_error, log_info};
-use nexus_sched::{TimeRightOp, TIME_RIGHT_OP};
+use nexus_sched::{TimeRightError, TimeRightOp, TIME_RIGHT_OP};
 
 /// The longest the drive holds the hart for one pick.
 const QUANTUM_US: u64 = 250;
@@ -138,7 +140,7 @@ fn run_reservation(ctx: &mut Context<'_>, boot: CpuId) {
     ctx.scheduler.selftest_reset_cpu(boot);
     let root = reserve::selftest_root();
     let before = reserve::held(root);
-    let Ok(right) = reserve::derive(root, SHARE_PPM) else {
+    let Ok(right) = reserve::derive(root, SHARE_PPM, 0) else {
         log_error!(target: "selftest", "KSELFTEST: sched time right FAIL (derive)");
         return;
     };
@@ -219,7 +221,7 @@ fn run_syscall_rejects(ctx: &mut Context<'_>) {
     let other = ctx.tasks.selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
     let root = reserve::selftest_root();
     let before = reserve::held(root);
-    let Ok(right) = reserve::derive(root, HELD_PPM) else {
+    let Ok(right) = reserve::derive(root, HELD_PPM, 0) else {
         log_error!(target: "selftest", "KSELFTEST: test_reject_time_right FAIL (derive)");
         return;
     };
@@ -317,9 +319,133 @@ fn run_syscall_rejects(ctx: &mut Context<'_>) {
     sys.tasks.set_current(Pid::KERNEL);
 }
 
+/// A right handed down (TASK-0365 P1), through the syscall table: a holder that is not init
+/// derives a right with a grain for its child and hands it the capability — the transfer that
+/// carries a time right's `MANAGE`. The child holds exactly that: it binds and derives no more
+/// than the right, takes no part finer than its grain and cannot refine the grain; a task that
+/// is not the holder's child is handed nothing; and the holder's revoke leaves the child's
+/// capability naming nothing, its reservation ended.
+fn run_handed_down(ctx: &mut Context<'_>) {
+    const HELD_PPM: u32 = 200_000;
+    const GRAIN_PPM: u32 = 50_000;
+    const NAME: &str = "test_reject_an_app_claims_more_than_app_host_holds";
+    let holder = ctx.tasks.selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
+    let app = ctx.tasks.selftest_create_dummy_task(holder, ctx.scheduler);
+    let stranger = ctx.tasks.selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
+    let root = reserve::selftest_root();
+    let before = reserve::held(root);
+    let pool = reserve::derive(root, 2 * HELD_PPM, 0);
+    let staged = pool.is_ok_and(|pool| {
+        let cap =
+            Capability { kind: CapabilityKind::TimeRight(pool.to_raw()), rights: Rights::MANAGE };
+        ctx.tasks.caps_of_mut(holder).is_some_and(|caps| {
+            Held::plain(cap).is_ok_and(|held| caps.set(RIGHT_SLOT, held).is_ok())
+        })
+    });
+    let Ok(pool) = pool.and_then(|pool| staged.then_some(pool).ok_or(TimeRightError::Full)) else {
+        log_error!(target: "selftest", "KSELFTEST: {} FAIL (stage)", NAME);
+        return;
+    };
+
+    let mut table = SyscallTable::new();
+    api::install_handlers(&mut table);
+    let timer = ctx.hal.timer();
+    let mut sys = api::Context::new(
+        ctx.scheduler,
+        ctx.tasks,
+        ctx.router,
+        ctx.address_spaces,
+        timer,
+        ctx.hart_timers,
+        ctx.waitsets,
+        ctx.fences,
+    );
+    let denied = |r: Result<usize, SysError>| {
+        matches!(r, Err(SysError::Capability(CapError::PermissionDenied)))
+    };
+    let invalid = |r: Result<usize, SysError>| {
+        matches!(r, Err(SysError::AddressSpace(AddressSpaceError::InvalidArgs)))
+    };
+    let right = |op: TimeRightOp, a: usize, b: usize, c: usize, d: usize| {
+        Args::new([TIME_RIGHT_OP, op as usize, a, b, c, d])
+    };
+    let hand = |to: Pid, slot: usize| {
+        Args::new([to.as_index(), slot, Rights::MANAGE.bits() as usize, RIGHT_SLOT, 0, 0])
+    };
+    let (held, grain, period) = (HELD_PPM as usize, GRAIN_PPM as usize, PERIOD_NS as usize);
+
+    // The holder derives its child's right, in grains, and hands it down — to its child only.
+    sys.tasks.set_current(holder);
+    let derive = right(TimeRightOp::Derive, RIGHT_SLOT, held, grain, 0);
+    let Ok(slot) = table.dispatch(SYSCALL_SCHED, &mut sys, &derive) else {
+        log_error!(target: "selftest", "KSELFTEST: {} FAIL (derive)", NAME);
+        return;
+    };
+    let stranger_refused = matches!(
+        table.dispatch(SYSCALL_CAP_TRANSFER_TO, &mut sys, &hand(stranger, slot)),
+        Err(SysError::Transfer(TransferError::Capability(CapError::PermissionDenied)))
+    );
+    let handed = table.dispatch(SYSCALL_CAP_TRANSFER_TO, &mut sys, &hand(app, slot)).is_ok();
+
+    // The child: what it holds, and nothing more.
+    sys.tasks.set_current(app);
+    let mut call = |op: TimeRightOp, a: usize, b: usize, c: usize, d: usize| {
+        table.dispatch(SYSCALL_SCHED, &mut sys, &right(op, a, b, c, d))
+    };
+    let more = denied(call(TimeRightOp::Bind, RIGHT_SLOT, 0, held + 1, period))
+        && denied(call(TimeRightOp::Derive, RIGHT_SLOT, held + 1, 0, 0));
+    let finer = invalid(call(TimeRightOp::Bind, RIGHT_SLOT, 0, grain - 1, period))
+        && invalid(call(TimeRightOp::Derive, RIGHT_SLOT, grain - 1, 0, 0))
+        && invalid(call(TimeRightOp::Derive, RIGHT_SLOT, grain, grain - 1, 0));
+    let holds = call(TimeRightOp::Held, RIGHT_SLOT, 0, 0, 0) == Ok((held << 32) | held);
+    let bound = call(TimeRightOp::Bind, RIGHT_SLOT, 0, grain, period).is_ok()
+        && reserve::hart_of(app).is_some();
+
+    // The holder takes it back in one step.
+    sys.tasks.set_current(holder);
+    let revoke = right(TimeRightOp::Revoke, slot, 0, 0, 0);
+    let revoked = table.dispatch(SYSCALL_SCHED, &mut sys, &revoke) == Ok(0);
+    sys.tasks.set_current(app);
+    let bind = right(TimeRightOp::Bind, RIGHT_SLOT, 0, grain, period);
+    let dead =
+        denied(table.dispatch(SYSCALL_SCHED, &mut sys, &bind)) && reserve::hart_of(app).is_none();
+    sys.tasks.set_current(Pid::KERNEL);
+    reserve::release(app);
+    let returned = reserve::revoke(pool).is_ok() && reserve::held(root) == before;
+    let balanced = reserve::audit();
+
+    let proven = [stranger_refused, handed, more, finer, holds, bound, revoked, dead, returned];
+    if proven.iter().all(|&ok| ok) && balanced {
+        log_info!(
+            target: "selftest",
+            "KSELFTEST: {} ok (held_ppm={} grain_ppm={} stranger=1 more=2 finer=3)",
+            NAME,
+            HELD_PPM,
+            GRAIN_PPM
+        );
+    } else {
+        log_error!(
+            target: "selftest",
+            "KSELFTEST: {} FAIL (stranger={} handed={} more={} finer={} holds={} bound={} revoked={} dead={} returned={} balanced={})",
+            NAME,
+            stranger_refused,
+            handed,
+            more,
+            finer,
+            holds,
+            bound,
+            revoked,
+            dead,
+            returned,
+            balanced
+        );
+    }
+}
+
 pub(super) fn run(ctx: &mut Context<'_>, boot: CpuId) {
     run_fair(ctx, boot);
     run_reservation(ctx, boot);
     run_syscall_rejects(ctx);
+    run_handed_down(ctx);
     ctx.tasks.set_current(Pid::KERNEL);
 }

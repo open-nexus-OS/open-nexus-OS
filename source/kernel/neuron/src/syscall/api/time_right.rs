@@ -3,7 +3,9 @@
 
 //! CONTEXT: the sched syscall's time-right operation (RFC-0120 §Syscall surface, TASK-0363 P3):
 //! `(TIME_RIGHT_OP, op, a, b, c, d)` — claim the root (init, once), read what a right holds,
-//! derive a subset into a new slot, bind a share of it to a task, unbind, revoke. Authority is
+//! derive a subset into a new slot (with a grain: the smallest part ever taken from it, what
+//! bounds the slots an untrusted holder can fill), bind a share of it to a task, unbind, revoke.
+//! A right is handed to a child as its capability (`cap_rules::manage_travels`). Authority is
 //! the `TimeRight` capability in the caller's table with `MANAGE` (its payload is a generation-
 //! checked id: a copy outliving a revoke names nothing); binding another task's reservation
 //! takes the same standing as setting its class (the QoS admins), since a reservation places
@@ -94,7 +96,8 @@ fn run(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
             Ok(((total as usize) << 32) | own as usize)
         }
         TimeRightOp::Derive => {
-            let child = reserve::derive(right_at(ctx, a)?, share(b)?).map_err(refused)?;
+            let (parent, grain) = (right_at(ctx, a)?, share(c)?);
+            let child = reserve::derive(parent, share(b)?, grain).map_err(refused)?;
             install(ctx, child).inspect_err(|_| {
                 let _ = reserve::revoke(child);
             })

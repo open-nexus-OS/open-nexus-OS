@@ -5,7 +5,7 @@ role: reference
 subsystem: kernel
 sources: [source/kernel/neuron/src/sched, source/kernel/neuron/src/task/wake.rs, source/kernel/neuron/src/core/trap/baseline.rs, source/libs/nexus-sched/src/time_right.rs]
 contracts: [RFC-0120, RFC-0021, ADR-0052, ADR-0096, ADR-0101]
-verified: 2026-11-17
+verified: 2026-11-18
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -70,7 +70,8 @@ admitted against the hart's capacity (80 %; the fair class keeps the rest).
 | The contract | `nexus_sched::TimeRights` | the tree of rights, the reservations, admission, revoke by generation — host-tested |
 | The kernel's table | `sched/reserve.rs` | 64 rights, 64 reservations, behind its own lock (taken before a hart's queues, never after) |
 | A task's reservation | its record (`Record::reservation`) and a copy in its queue entry (`run_queue::Res`) | the id; this period's deadline and what is left of the budget |
-| The syscall | `syscall/api/time_right.rs`, sched syscall operation 8 | claim the root (init, once), held, derive, bind, unbind, revoke — authority is the `TimeRight` capability |
+| The syscall | `syscall/api/time_right.rs`, sched syscall operation 8 | claim the root (init, once), held, derive (with a grain), bind, unbind, revoke — authority is the `TimeRight` capability |
+| Handing down | the capability transfer (`cap_rules::manage_travels`) | a parent pins the right it derived into its child's `TIME_RIGHT_SLOT`; never in a message |
 
 - **A bind** admits the reservation on the task's home hart, else on another its affinity
   allows; a holder runs on that hart (its wake goes there, it is not stolen).
@@ -79,16 +80,28 @@ admitted against the hart's capacity (80 %; the fair class keeps the rest).
   clock. Past it the holder runs fair; the overrun is counted.
 - **A miss** is a period in which a runnable holder did not get its budget — counted in the
   queues (`HartQueues::take_missed`).
-- **init** claims the root, derives the display chain's right and binds the renderer, the
-  compositor and the input router before their wake (`nexus-init/src/affinity.rs`
-  `DISPLAY_TIME`); line `init: time rights (root_ppm= delegated_ppm= bound_ppm= bound= fail=)`.
+- **Who holds which time** (TASK-0365 P1). init claims the root and divides it: the display
+  chain's right, from it one right per chain service that holds time — handed to the service
+  and bound before its wake — and the apps' right for the app spawner, a quarter of what the
+  chain leaves, cut in grains of a twentieth of a CPU. One table states the chain's class and
+  time (`nexus-init/src/affinity.rs` `CHAIN`). execd hands every app a tenth of a CPU of the
+  apps' right between spawn and resume and revokes it at the reap (`execd/src/app_time.rs`);
+  an app the right has nothing left for runs fair. Lines: `init: time rights (root_ppm=
+  delegated_ppm= apps_ppm= bound_ppm= handed= bound= fail=)`, `execd: app time right ok (pid=
+  share_ppm= apps_own_ppm=)`, `apphost: time right (held_ppm= own_ppm=)`.
+- **A grain** is the smallest part a derive or a bind may take from a right; it is inherited
+  and only made coarser. A right fills at most `total / grain` of the kernel's slots — an app
+  cannot fill the table with crumbs.
 
 Markers: `KSELFTEST: sched time right ok (budgets= of_us= ran_us= periods= missed= stalled=)` —
 a holder of a fifth of the boot hart every 2 ms, against a hog of eight times its weight, runs a
 hundred budgets in full, misses no period (but those a measured stall of the host covered), and
 the books balance after unbind and revoke. `KSELFTEST: test_reject_time_right_claim_by_stranger
 ok`, `…_forged_slot ok`, `…_beyond_held ok`, `…_bind_other_task ok`, `…_after_revoke ok` — the
-syscall's refusals. No marker states a guarantee while kernel paths wait for the kernel lock
+syscall's refusals. `KSELFTEST: test_reject_an_app_claims_more_than_app_host_holds ok
+(held_ppm= grain_ppm= stranger=1 more=2 finer=3)` — a right handed down by a holder that is not
+init: its child binds and derives no more than it holds and nothing finer than the grain, a
+stranger is handed nothing, the parent's revoke ends it. No marker states a guarantee while kernel paths wait for the kernel lock
 (RFC-0120, G1).
 
 ## Records

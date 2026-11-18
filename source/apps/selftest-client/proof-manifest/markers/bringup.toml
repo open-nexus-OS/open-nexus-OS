@@ -934,6 +934,14 @@ phase = "bringup"
 emit_when = { profile = "smp" }
 proves = "a revoke ends a right and everything derived from it in one step: the derived slot binds, reads and unbinds nothing, its holder's reservation is gone, and the root holds what it held"
 
+# TASK-0365 P1: a right handed down. Through the syscall table, a holder that is not init derives
+# a right in grains for its child and hands it the capability (the transfer that carries a time
+# right's MANAGE); the child is then the caller of every refused call.
+[marker."KSELFTEST: test_reject_an_app_claims_more_than_app_host_holds ok"]
+phase = "bringup"
+emit_when = { profile = "smp" }
+proves = "a task holding a right its parent handed down binds and derives no more than that right, takes no part finer than its grain and cannot refine the grain; a task that is not the holder's child is handed nothing; the parent's revoke leaves the child's capability naming nothing and its reservation ended, and the root holds what it held"
+
 [marker."KSELFTEST: sched spread ok"]
 phase = "bringup"
 emit_when = { profile = "smp" }

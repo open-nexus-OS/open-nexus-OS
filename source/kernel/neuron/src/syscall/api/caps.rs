@@ -360,24 +360,7 @@ pub(super) fn sys_cap_transfer(ctx: &mut Context<'_>, args: &Args) -> SysResult<
             }
         }
     }
-    // RFC-0005 Phase 2 (hardening): `Rights::MANAGE` is not transferable for endpoints.
-    //
-    // Exceptions: EndpointFactory (init-lite holds endpoint-create authority)
-    // and Fence caps (Phase C: fences carry only MANAGE and their signal/wait
-    // authority is harmless — a workpool parent hands its fence caps to its
-    // own compute threads before resuming them).
-    if rights.contains(Rights::MANAGE) {
-        let parent_caps =
-            ctx.tasks.caps_of(parent).ok_or(Error::Transfer(task::TransferError::InvalidParent))?;
-        let base = parent_caps
-            .get(typed.parent_slot.0)
-            .map_err(|e| Error::Transfer(task::TransferError::Capability(e)))?;
-        if !matches!(base.kind, CapabilityKind::EndpointFactory | CapabilityKind::Fence(_)) {
-            return Err(Error::Transfer(task::TransferError::Capability(
-                CapError::PermissionDenied,
-            )));
-        }
-    }
+    check_manage_travels(ctx.tasks, parent, typed.parent_slot.0, rights)?;
 
     // Phase-2 hardening (factory distribution): EndpointFactory is not a general transferable cap.
     // Until policyd-gated distribution exists, only bootstrap (PID 0) may transfer it into init-lite (PID 1).
@@ -401,28 +384,40 @@ pub(super) fn sys_cap_transfer(ctx: &mut Context<'_>, args: &Args) -> SysResult<
     Ok(slot)
 }
 
+/// RFC-0005 phase 2 (hardening): a transfer carries `MANAGE` only for the kinds whose `MANAGE`
+/// is the holder's to hand on (`cap_rules::manage_travels`) — the endpoint factory (init holds
+/// the authority to make endpoints), a fence (a work pool hands its fences to its own threads)
+/// and a time right (RFC-0120: a parent hands a child the right it derived for it). Never an
+/// endpoint's.
+fn check_manage_travels(
+    tasks: &task::TaskTable,
+    parent: task::Pid,
+    slot: usize,
+    rights: Rights,
+) -> Result<(), Error> {
+    use crate::cap_rules::{manage_travels, Carries};
+    if !rights.contains(Rights::MANAGE) {
+        return Ok(());
+    }
+    let caps = tasks.caps_of(parent).ok_or(Error::Transfer(task::TransferError::InvalidParent))?;
+    let base = caps.get(slot).map_err(|e| Error::Transfer(task::TransferError::Capability(e)))?;
+    let carries = match base.kind {
+        CapabilityKind::EndpointFactory => Carries::EndpointFactory,
+        CapabilityKind::Fence(_) => Carries::Fence,
+        CapabilityKind::TimeRight(_) => Carries::TimeRight,
+        _ => Carries::Other,
+    };
+    if !manage_travels(carries) {
+        return Err(Error::Transfer(task::TransferError::Capability(CapError::PermissionDenied)));
+    }
+    Ok(())
+}
+
 pub(super) fn sys_cap_transfer_to(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let typed = CapTransferToArgsTyped::decode(args)?;
     let rights = typed.check()?;
     let parent = ctx.tasks.current_pid();
-    // RFC-0005 Phase 2 (hardening): `Rights::MANAGE` is not transferable for endpoints.
-    //
-    // Exceptions: EndpointFactory (init-lite holds endpoint-create authority)
-    // and Fence caps (Phase C: fences carry only MANAGE and their signal/wait
-    // authority is harmless — a workpool parent hands its fence caps to its
-    // own compute threads before resuming them).
-    if rights.contains(Rights::MANAGE) {
-        let parent_caps =
-            ctx.tasks.caps_of(parent).ok_or(Error::Transfer(task::TransferError::InvalidParent))?;
-        let base = parent_caps
-            .get(typed.parent_slot.0)
-            .map_err(|e| Error::Transfer(task::TransferError::Capability(e)))?;
-        if !matches!(base.kind, CapabilityKind::EndpointFactory | CapabilityKind::Fence(_)) {
-            return Err(Error::Transfer(task::TransferError::Capability(
-                CapError::PermissionDenied,
-            )));
-        }
-    }
+    check_manage_travels(ctx.tasks, parent, typed.parent_slot.0, rights)?;
 
     // Phase-2 hardening (factory distribution): EndpointFactory is not a general transferable cap.
     // Until policyd-gated distribution exists, only bootstrap (PID 0) may transfer it into init-lite (PID 1).

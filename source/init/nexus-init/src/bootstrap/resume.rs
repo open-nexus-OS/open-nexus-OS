@@ -11,6 +11,7 @@
 use crate::bootstrap::diag::il;
 use crate::bootstrap::CtrlChannel;
 use crate::os_payload::*;
+use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 
 /// Resume every spawned service EXCEPT the display + input device drivers
 /// (`gpud`/`windowd`/`inputd`/`hidrawd`) so policyd can service MMIO policy checks
@@ -78,73 +79,140 @@ pub(crate) fn apply_qos(chan_name: &str, pid: u32) {
     }
 }
 
-/// RFC-0120: the display chain's time. init claims the machine's root time right once, derives
-/// the chain's right from it (`service_topology::display_time_ppm`) and binds each chain
-/// service its part right before its wake (`reservation_for`) — so a service's first run is
-/// already its reservation's. A respawned service is bound again (its old reservation ended
-/// with it). A refusal is a per-item line and the service runs fair at its class's weight.
-/// Slots are stored plus one (0: not held).
-static ROOT_RIGHT: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
-static CHAIN_RIGHT: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
-static TIME_BOUND: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
-static TIME_FAILED: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+/// RFC-0120: who holds which time. init claims the machine's root time right once and divides
+/// it (TASK-0365 P1):
+/// - the display chain's right, and from it one right per chain service that holds time
+///   (`service_topology::CHAIN`) — handed to the service as a capability (`TIME_RIGHT_SLOT`)
+///   and bound to it as a reservation right before its wake, so a service's first run is
+///   already its reservation's. A respawned service is handed the same right again (its old
+///   reservation ended with it);
+/// - the apps' right (`apps_time_ppm`, in grains of `APPS_GRAIN_PPM`), handed to the app
+///   spawner, which hands each app a part of it.
+///
+/// init keeps the capability of every right it handed down: a revoke takes it back in one
+/// step. A refusal is a per-item line and the service runs fair at its class's weight. Slots
+/// are stored plus one (0: not held).
+static ROOT_RIGHT: AtomicU32 = AtomicU32::new(0);
+static CHAIN_RIGHT: AtomicU32 = AtomicU32::new(0);
+static APPS_RIGHT: AtomicU32 = AtomicU32::new(0);
+static SERVICE_RIGHTS: [AtomicU32; crate::service_topology::CHAIN.len()] =
+    [const { AtomicU32::new(0) }; crate::service_topology::CHAIN.len()];
+static TIME_HANDED: AtomicUsize = AtomicUsize::new(0);
+static TIME_BOUND: AtomicUsize = AtomicUsize::new(0);
+static TIME_FAILED: AtomicUsize = AtomicUsize::new(0);
 
-/// The display chain's right: claimed and derived at the first ask.
-fn chain_right() -> Option<nexus_abi::Cap> {
-    use core::sync::atomic::Ordering;
-    let held = CHAIN_RIGHT.load(Ordering::Relaxed);
-    if held != 0 {
-        return Some(held - 1);
-    }
-    if ROOT_RIGHT.load(Ordering::Relaxed) == 0 {
+fn held_right(cell: &AtomicU32) -> Option<nexus_abi::Cap> {
+    let held = cell.load(Ordering::Relaxed);
+    (held != 0).then(|| held - 1)
+}
+
+/// The machine's root right: claimed at the first ask.
+fn root_right() -> Option<nexus_abi::Cap> {
+    held_right(&ROOT_RIGHT).or_else(|| {
         let root = nexus_abi::time_right::claim_root().ok()?;
         ROOT_RIGHT.store(root + 1, Ordering::Relaxed);
-    }
-    let root = ROOT_RIGHT.load(Ordering::Relaxed) - 1;
-    let chain =
-        nexus_abi::time_right::derive(root, crate::service_topology::display_time_ppm()).ok()?;
-    CHAIN_RIGHT.store(chain + 1, Ordering::Relaxed);
-    Some(chain)
+        Some(root)
+    })
+}
+
+/// The right `cell` keeps: derived from `parent` at the first ask (`share_ppm`, in grains of
+/// `grain_ppm` — 0: the parent's).
+fn derived(
+    cell: &AtomicU32,
+    parent: Option<nexus_abi::Cap>,
+    share_ppm: u32,
+    grain_ppm: u32,
+) -> Option<nexus_abi::Cap> {
+    held_right(cell).or_else(|| {
+        let right = nexus_abi::time_right::derive(parent?, share_ppm, grain_ppm).ok()?;
+        cell.store(right + 1, Ordering::Relaxed);
+        Some(right)
+    })
+}
+
+/// Hands `right` down to the child `pid`, into the fleet's slot.
+fn hand_down(right: nexus_abi::Cap, pid: u32) -> bool {
+    let slot = crate::service_topology::TIME_RIGHT_SLOT;
+    nexus_abi::time_right::hand_down(right, pid, slot).is_ok()
+}
+
+fn time_right_failed(chan_name: &str, share_ppm: u32, handed: bool) {
+    TIME_FAILED.fetch_add(1, Ordering::Relaxed);
+    debug_write_str("init: time right FAIL svc=");
+    debug_write_str(chan_name);
+    debug_write_str(" share_ppm=0x");
+    debug_write_hex(share_ppm as usize);
+    debug_write_str(if handed { " handed=1\n" } else { " handed=0\n" });
 }
 
 pub(crate) fn apply_time_right(chan_name: &str, pid: u32) {
-    let Some(r) = crate::service_topology::reservation_for(chan_name) else {
+    if chan_name == crate::service_topology::APP_SPAWNER {
+        return hand_apps_right(chan_name, pid);
+    }
+    let Some((row, r)) = crate::service_topology::reservation_for(chan_name) else {
         return;
     };
-    let bound = chain_right().is_some_and(|chain| {
-        nexus_abi::time_right::bind_for(chain, pid, r.share_ppm, r.period_ns).is_ok()
-    });
+    let chain = derived(&CHAIN_RIGHT, root_right(), crate::service_topology::display_time_ppm(), 0);
+    let right = derived(&SERVICE_RIGHTS[row], chain, r.share_ppm, 0);
+    let handed = right.is_some_and(|right| hand_down(right, pid));
+    let bound = handed
+        && right.is_some_and(|right| {
+            nexus_abi::time_right::bind_for(right, pid, r.share_ppm, r.period_ns).is_ok()
+        });
+    if handed {
+        TIME_HANDED.fetch_add(1, Ordering::Relaxed);
+    }
     if bound {
-        TIME_BOUND.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        TIME_BOUND.fetch_add(1, Ordering::Relaxed);
     } else {
-        TIME_FAILED.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-        debug_write_str("init: time right FAIL svc=");
-        debug_write_str(chan_name);
-        debug_write_str(" share_ppm=0x");
-        debug_write_hex(r.share_ppm as usize);
-        debug_write_byte(b'\n');
+        time_right_failed(chan_name, r.share_ppm, handed);
     }
 }
 
-/// The time rights as the kernel holds them now, in ppm of one CPU: what the root was given,
-/// what init delegated from it (the chain's right), what of the chain's right is bound.
+/// The apps' right into the app spawner. A spawner that is spawned again starts over: the old
+/// right is revoked — every app's right below it ends in that one step — and a new one derived.
+/// A machine too small for one grain has no apps' right: its apps run in the fair class.
+fn hand_apps_right(chan_name: &str, pid: u32) {
+    if let Some(old) = held_right(&APPS_RIGHT) {
+        let _ = nexus_abi::time_right::revoke(old);
+        let _ = nexus_abi::cap_close(old);
+        APPS_RIGHT.store(0, Ordering::Relaxed);
+    }
+    let root = root_right();
+    let total = root.and_then(|root| nexus_abi::time_right::held(root).ok()).map_or(0, |h| h.0);
+    let share = crate::service_topology::apps_time_ppm(total);
+    if share == 0 {
+        return;
+    }
+    let right = derived(&APPS_RIGHT, root, share, crate::service_topology::APPS_GRAIN_PPM);
+    if right.is_some_and(|right| hand_down(right, pid)) {
+        TIME_HANDED.fetch_add(1, Ordering::Relaxed);
+    } else {
+        time_right_failed(chan_name, share, false);
+    }
+}
+
+/// The time rights as the kernel holds them now, in ppm of one CPU: what the root was given
+/// and what init delegated from it (the chain's right and the apps'), what of the chain
+/// services' rights is bound, and how many rights were handed down and bound.
 fn time_right_summary() {
-    use core::sync::atomic::Ordering;
-    let held = |slot: &core::sync::atomic::AtomicU32| {
-        let slot = slot.load(Ordering::Relaxed);
-        if slot == 0 {
-            return (0, 0);
-        }
-        nexus_abi::time_right::held(slot - 1).unwrap_or((0, 0))
+    let held = |cell: &AtomicU32| {
+        held_right(cell).and_then(|slot| nexus_abi::time_right::held(slot).ok()).unwrap_or((0, 0))
     };
     let (root, root_own) = held(&ROOT_RIGHT);
-    let (chain, chain_own) = held(&CHAIN_RIGHT);
+    let (apps, _) = held(&APPS_RIGHT);
+    let bound: u32 =
+        SERVICE_RIGHTS.iter().map(|cell| held(cell)).map(|(total, own)| total - own).sum();
     debug_write_str("init: time rights (root_ppm=0x");
     debug_write_hex(root as usize);
     debug_write_str(" delegated_ppm=0x");
     debug_write_hex(root.saturating_sub(root_own) as usize);
+    debug_write_str(" apps_ppm=0x");
+    debug_write_hex(apps as usize);
     debug_write_str(" bound_ppm=0x");
-    debug_write_hex(chain.saturating_sub(chain_own) as usize);
+    debug_write_hex(bound as usize);
+    debug_write_str(" handed=0x");
+    debug_write_hex(TIME_HANDED.load(Ordering::Relaxed));
     debug_write_str(" bound=0x");
     debug_write_hex(TIME_BOUND.load(Ordering::Relaxed));
     debug_write_str(" fail=0x");

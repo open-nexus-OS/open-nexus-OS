@@ -13,7 +13,8 @@
 //! PUBLIC API: TimeRights, RightId, ReservationId, TimeRightError, Charged, PPM and the bounds
 //! DEPENDS_ON: core
 //! INVARIANTS: every share is accounted exactly once (`audit`); a hart's reservations never
-//!   exceed its capacity; a reservation never runs past its budget in a period
+//!   exceed its capacity; a reservation never runs past its budget in a period; a right and
+//!   everything below it fill at most `share / grain` slots
 //! TEST_COVERAGE: tests/time_right.rs (test_reject_* per refusal, conservation over 10 000 steps)
 
 /// One hart's whole time, the unit shares are stated in (parts per million).
@@ -43,7 +44,8 @@ pub enum TimeRightOp {
     ClaimRoot = 0,
     /// What right `a` was given and still holds: `(total << 32) | own`, in ppm.
     Held = 1,
-    /// A right of `b` ppm derived from right `a` into a new slot. Returns the slot.
+    /// A right of `b` ppm derived from right `a` into a new slot, with grain `c` ppm (0: the
+    /// parent's). Returns the slot.
     Derive = 2,
     /// `c` ppm of right `a` with period `d` ns bound to task `b` (0: the caller). Returns the
     /// hart it is admitted on.
@@ -117,7 +119,8 @@ pub enum TimeRightError {
     BeyondCapacity,
     /// Derived deeper than `DEPTH_MAX`.
     TooDeep,
-    /// A share below `SHARE_MIN_PPM`, or a reservation above one hart.
+    /// A share below the right's grain (`SHARE_MIN_PPM` at the root), a grain finer than the
+    /// parent's or above the share, or a reservation above one hart.
     Share,
     /// A period outside its bounds, or a budget below `BUDGET_MIN_NS`.
     Period,
@@ -151,6 +154,8 @@ struct Node {
     /// The share it was given, and what of it is neither derived away nor bound.
     total: u32,
     own: u32,
+    /// The smallest part a derive or a bind may take from it — never finer than its parent's.
+    grain: u32,
 }
 
 #[derive(Clone, Copy)]
@@ -171,7 +176,8 @@ struct Hart {
     leaving: [(u64, u32); LEAVING],
 }
 
-const NO_NODE: Node = Node { live: false, gen: 0, parent: None, depth: 0, total: 0, own: 0 };
+const NO_NODE: Node =
+    Node { live: false, gen: 0, parent: None, depth: 0, total: 0, own: 0, grain: 0 };
 const NO_RESERVATION: Reservation = Reservation {
     live: false,
     gen: 0,
@@ -224,7 +230,8 @@ impl<const R: usize, const V: usize, const H: usize> TimeRights<R, V, H> {
         let total = capacity.saturating_mul(online as u32);
         self.nodes = [NO_NODE; R];
         if let Some(root) = self.nodes.first_mut() {
-            *root = Node { live: true, gen: 1, parent: None, depth: 0, total, own: total };
+            let grain = SHARE_MIN_PPM;
+            *root = Node { live: true, gen: 1, parent: None, depth: 0, total, own: total, grain };
         }
         self.reservations = [NO_RESERVATION; V];
         self.harts = [Hart { leaving: [(0, 0); LEAVING] }; H];
@@ -268,9 +275,19 @@ impl<const R: usize, const V: usize, const H: usize> TimeRights<R, V, H> {
     }
 
     /// Derives a right of `share_ppm` from `parent`: a subset of what the parent still holds.
-    pub fn derive(&mut self, parent: RightId, share_ppm: u32) -> Result<RightId, TimeRightError> {
+    /// `grain_ppm` is the smallest part that may ever be taken from the child (0: the parent's
+    /// grain) — never finer than the parent's, so the child and everything below it fill at
+    /// most `share / grain` slots: what a holder hands to code it does not trust.
+    pub fn derive(
+        &mut self,
+        parent: RightId,
+        share_ppm: u32,
+        grain_ppm: u32,
+    ) -> Result<RightId, TimeRightError> {
         let p = self.alive(parent).ok_or(TimeRightError::Revoked)?;
-        if share_ppm < SHARE_MIN_PPM {
+        let floor = self.nodes[p].grain;
+        let grain = if grain_ppm == 0 { floor } else { grain_ppm };
+        if share_ppm < floor || grain < floor || grain > share_ppm {
             return Err(TimeRightError::Share);
         }
         if share_ppm > self.nodes[p].own {
@@ -283,8 +300,8 @@ impl<const R: usize, const V: usize, const H: usize> TimeRights<R, V, H> {
         let slot = self.free_node().ok_or(TimeRightError::Full)?;
         let gen = self.nodes[slot].gen.wrapping_add(1);
         self.nodes[p].own -= share_ppm;
-        self.nodes[slot] =
-            Node { live: true, gen, parent: Some(parent), depth, total: share_ppm, own: share_ppm };
+        let (parent, total, own) = (Some(parent), share_ppm, share_ppm);
+        self.nodes[slot] = Node { live: true, gen, parent, depth, total, own, grain };
         Ok(RightId { slot: slot as u16, gen })
     }
 
@@ -341,7 +358,7 @@ impl<const R: usize, const V: usize, const H: usize> TimeRights<R, V, H> {
         now: u64,
     ) -> Result<ReservationId, TimeRightError> {
         let n = self.alive(right).ok_or(TimeRightError::Revoked)?;
-        if !(SHARE_MIN_PPM..=PPM).contains(&share_ppm) {
+        if !(self.nodes[n].grain..=PPM).contains(&share_ppm) {
             return Err(TimeRightError::Share);
         }
         let budget = Self::budget(share_ppm, period_ns);

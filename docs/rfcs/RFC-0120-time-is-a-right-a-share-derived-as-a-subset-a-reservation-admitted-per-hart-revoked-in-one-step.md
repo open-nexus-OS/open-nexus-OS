@@ -7,7 +7,7 @@ owners: ["@kernel-team"]
 created: 2026-11-13
 updated: 2026-11-18
 subsystem: kernel
-tasks: [TASK-0363]
+tasks: [TASK-0363, TASK-0365]
 depends_on: [RFC-0118]
 links:
   - label: "The track this answers (gates G1–G3)"
@@ -47,7 +47,8 @@ against an undecided contract.
 - **Does not own:** the run queues and their locks (P2); the order of one hart and the fair
   class's weights (ADR-0101); tickless timers (P4); placement (P5, TASK-0365); a call lending
   the caller's reservation to the server (the IPC package, TASK-0330); who is given which share
-  (init's recipe, TASK-0365 P1).
+  (init's table `nexus-init/src/affinity.rs` `CHAIN` and the apps' right, execd's recipe —
+  TASK-0365 P1).
 
 ## Contract (normative)
 
@@ -56,8 +57,11 @@ against an undecided contract.
 - A **time right** is a share of the harts' time, in parts per million of one hart (`PPM`), held
   in a derivation tree of depth ≤ 8. The root holds `harts × capacity`; `capacity` is the part
   of a hart reservations may fill (the rest is the fair class's floor — everything without a
-  right still runs). A right records what it was given (`total`) and what of it is neither
-  derived away nor bound (`own`).
+  right still runs). A right records what it was given (`total`), what of it is neither
+  derived away nor bound (`own`), and its **grain**: the smallest part a derive or a bind may
+  take from it (1 000 ppm at the root). A grain is inherited and may only be made coarser on
+  the way down, so a right and everything below it fill at most `total / grain` slots — what
+  a holder sets when it hands a right to code it does not trust.
 - A **reservation** is the part of a right one thread runs with on one hart: a share ≤ one hart
   and a period in `[1 ms, 1 s]`, giving a budget of `share × period` (≥ 50 µs) each period, a
   deadline at the period's end, earliest deadline first on its hart. A right is a holding; only
@@ -67,9 +71,9 @@ against an undecided contract.
 
 | Operation | Does | Refused with |
 |---|---|---|
-| `derive(parent, share)` | a child right of `share`, taken from the parent's `own` | `Revoked`, `Share` (< 1 000 ppm), `BeyondHeld`, `TooDeep`, `Full` |
+| `derive(parent, share, grain)` | a child right of `share`, taken from the parent's `own`, with `grain` (0: the parent's) | `Revoked`, `Share` (share below the parent's grain; a grain finer than the parent's or above the share), `BeyondHeld`, `TooDeep`, `Full` |
 | `revoke(right)` | the right and everything derived from it; its `total` is the parent's `own` again | `Revoked`, `Root` |
-| `bind(right, share, period, hart, now)` | a reservation, taken from the right's `own`, admitted on `hart` | `Revoked`, `Share`, `Period`, `BeyondHeld`, `Hart`, `BeyondCapacity`, `Full` |
+| `bind(right, share, period, hart, now)` | a reservation, taken from the right's `own`, admitted on `hart` | `Revoked`, `Share` (below the right's grain, above one hart), `Period`, `BeyondHeld`, `Hart`, `BeyondCapacity`, `Full` |
 | `unbind(reservation, now)` | ends it; its share is the right's `own` again | `Revoked` |
 | `migrate(reservation, to, now)` | moves it to another hart, admitted there | `Revoked`, `Hart`, `BeyondCapacity` |
 | `charge(reservation, ns, now)` | takes run time from this period's budget, at most what is left | `Revoked`, `Exhausted` |
@@ -140,6 +144,14 @@ the right's id — slot and generation — so a capability that outlives a revok
 is made only by the kernel: the root's by the claim, a child's by `derive`, into the caller's
 own table.
 
+**A right is handed down as its capability** (TASK-0365 P1): the holder derives a right for its
+child and transfers the capability into it — the capability transfer carries `MANAGE` for a
+time right, as it does for a fence and never for an endpoint (`cap_rules::manage_travels`), and
+goes into a direct child only (RFC-0112). The child holds that right: it binds and derives what
+the right holds, in its grains, and has no way to its parent's. The parent keeps its own
+capability of the child's right and revokes it in one step. A message never carries one (no
+`MANAGE` in-band). The fleet's slot is `nexus_service_topology::TIME_RIGHT_SLOT`.
+
 ### The syscall
 
 The operations ride the sched syscall (48) as operation 8: registers `(8, op, a, b, c, d)`, one
@@ -150,7 +162,7 @@ register back. One definition on both sides (`nexus_sched::TimeRightOp`; userspa
 |---|---|---|---|
 | 0 `ClaimRoot` | — | the root's slot | init, by kernel identity; once per boot |
 | 1 `Held` | slot | `total << 32 \| own`, ppm | the capability |
-| 2 `Derive` | slot, share | the child's slot | the capability |
+| 2 `Derive` | slot, share, grain (0: the parent's) | the child's slot | the capability |
 | 3 `Bind` | slot, task (0 = the caller), share, period ns | the hart that admitted it | the capability; another task: the standing that sets its class |
 | 4 `Unbind` | slot, task (0 = the caller) | 0 | the capability that bound it; another task as above |
 | 5 `Revoke` | slot | 0 | the capability |
@@ -204,6 +216,7 @@ installed is revoked again.
 | Nothing of a revoked right runs, is replenished, moved, bound or derived from | `test_reject_run_after_revoke` |
 | A reservation runs at most its budget a period, and at most `share × time + one budget` through any moves | `a_reservation_runs_its_budget_once_a_period`; the random walk |
 | Bounds: depth ≤ 8, share ≥ 1 000 ppm, period 1 ms–1 s, budget ≥ 50 µs | `test_reject_a_share_below_the_floor_and_a_tree_too_deep`, `test_reject_a_period_or_a_budget_out_of_bounds` |
+| No part finer than a right's grain is taken from it or below it; a grain is never refined | `test_reject_a_part_finer_than_the_rights_grain`; the random walk derives with grains |
 
 ## Failure model
 
@@ -213,8 +226,10 @@ installed is revoked again.
 - **No room on a hart** (`BeyondCapacity`): a bind is refused to its caller; a move is not made.
   Placement (P5) asks another hart; none having room is the caller's answer, never a silent
   over-commit.
-- **Tables full** (`Full`): refused. The floor on a share bounds how many rights a holder can
-  make from what it holds; the kernel's table sizes are decided in P3 against that bound.
+- **Tables full** (`Full`): refused. A right's grain bounds how many slots it and everything
+  below it can fill (`total / grain`); whoever hands a right to untrusted code sets the grain so
+  that the sum stays below the kernel's tables (init: the apps' right in twentieths of a CPU,
+  29 slots of 64 on eight harts).
 - **Returning to a hart just left:** refused until the old deadline unless the hart has room for
   both — the conservative side of rule 2.
 
@@ -227,8 +242,13 @@ installed is revoked again.
   only take from `own`.
 - A holder can starve only what it derived (it revokes its own subtree), never a sibling or its
   parent; a child cannot outlive its parent's revoke.
-- Denial of service through the tables is bounded by the share floor and the depth; a share too
-  small to pay for its switches is refused (`Period`).
+- Denial of service through the tables is bounded by the grain and the depth: an app holding a
+  tenth of a CPU in grains of a twentieth fills two slots, not a hundred
+  (`test_reject_a_part_finer_than_the_rights_grain`,
+  `KSELFTEST: test_reject_an_app_claims_more_than_app_host_holds`); a share too small to pay
+  for its switches is refused (`Period`).
+- A right travels only from a parent into its direct child, by the kernel's transfer; a task
+  cannot obtain one by naming it, and a copy of a revoked right names nothing.
 - DON'T: accept a share, a period or a hart from userspace without these checks; treat a class
   label as a guarantee; print a guarantee marker before G1 holds.
 - Open risk: a reservation's holder that never blocks consumes its whole budget every period —
@@ -248,6 +268,13 @@ Kernel markers (multi-hart lanes and the board; `selftest/smp_sched/time_right.r
   period missed, the books balanced after unbind and revoke.
 - `KSELFTEST: test_reject_time_right_claim_by_stranger ok`, `…_forged_slot ok`,
   `…_beyond_held ok`, `…_bind_other_task ok`, `…_after_revoke ok` — the syscall's refusals.
+- `KSELFTEST: test_reject_an_app_claims_more_than_app_host_holds ok` — a right handed down: the
+  child binds and derives no more than it, nothing finer than its grain; a stranger is handed
+  nothing; the parent's revoke ends it.
+
+Userspace (every lane): `init: time rights (root_ppm= delegated_ppm= apps_ppm= bound_ppm=
+handed= bound= fail=)`, `execd: app time right ok (pid= share_ppm= apps_own_ppm=)`,
+`apphost: time right (held_ppm= own_ppm=)`.
 
 None of them states a guarantee (G1).
 

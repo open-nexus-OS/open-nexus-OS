@@ -2,14 +2,16 @@
 schema: 1
 id: TASK-0365
 title: "Placement by load: the display chain holds a time right, no program names a hart, and an exhausted budget is an event"
-status: draft
+status: in_progress
 owner: ["@kernel-team", "@runtime"]
 created: 2026-11-10
-updated: 2026-11-10
+updated: 2026-11-18
 subsystem: kernel
 kind: service
 novelty: variant
 estimate: 3
+started: 2026-11-18
+dates_source: recorded
 goal:
   metric: "harts the display chain runs on within one frame; literal CPU masks in userspace; the compositor's wait from owing a frame to sending it"
   baseline: "the chain (gpud, windowd, inputd, hidrawd, xhcid, touchd, imed) is pinned to hart 0; literal masks in init affinity.rs, execd sched_recipe.rs, nexus-workpool and pinched; windowd hops frame owed>sent mean 11-27 ms, max 92-321 ms (board--2026-11-10T14-55-42)"
@@ -19,8 +21,9 @@ consumer: hardware-network/LU.1
 phases:
   - id: P1
     story: "init derives the display chain's time right and hands it down: windowd, gpud, inputd and app-host hold a share, and app-host gives an app only what it holds"
-    state: planned
+    state: proving
     gate: "init: time rights line (root, delegated, sum <= root); test_reject_an_app_claims_more_than_app_host_holds; the soft-realtime list is one table for the right and the class"
+    started: 2026-11-18
   - id: P2
     story: "no program names a hart: service placement, the sched recipes and the worker counts of the workpool and pinched come from the exported topology and from roles"
     state: planned
@@ -40,22 +43,35 @@ phases:
 
 ## The ask
 
-Who asked, in their words, and the outcome they want.
+The operator's plan for the SMP lane (2026-11-10): the display chain holds a time right, the
+chain runs on several harts, no program names a hart — the consumer of TASK-0363's mechanism.
 
 ## Measured before the cut
 
-What the code and the system do today — numbers, log paths, the measurement folder. A plan
-that names no measurement is a guess.
+- `build/logs/board--2026-11-18T08-25-01` (TASK-0363 P3): init binds three reservations from
+  one right it alone holds (`init: time rights … bound=0x3`); no service and no app holds a
+  capability. 99.26 % of 163 507 holder wakes within 200 us; cpu0 is the busiest hart in every
+  window (the chain's fixed role).
+- `board--2026-11-10T14-55-42`: windowd `owed>sent` mean 11–27 ms, max 92–321 ms (P3's number).
 
-## Three lenses
+## Three lenses (P1)
 
-- **Scope** — in: … · out: … (with where each "out" goes).
-- **Invariant** — what must hold, and the `test_reject_*` that proves it.
-- **Contract** — the RFC/ADR this implements or seeds.
+- **Scope** — in: a time right travels parent → child as a capability; a grain per right; init's
+  one table for class and time; a right per chain service and the apps' right; execd hands each
+  app a part and revokes it at the reap. · out: binding an app's right (TASK-0367 P2, the
+  painter's bands, and P3 here — a holder must migrate by load first); periods from the
+  display's refresh (P3, with a measurement); the masks (P2).
+- **Invariant** — a holder takes from a right only what it holds, in parts no finer than its
+  grain, and a right goes only into a direct child:
+  `KSELFTEST: test_reject_an_app_claims_more_than_app_host_holds`,
+  `test_reject_a_part_finer_than_the_rights_grain`,
+  `test_reject_manage_of_an_endpoint_in_a_transfer`.
+- **Contract** — RFC-0120 (the grain, the capability handed down), RFC-0112 (transfer targets).
 
 ## Not doing here
 
-The scope firewall: what is deliberately left out, and which task or milestone step takes it.
+- A call lending the caller's right to its server: TASK-0330 P2.
+- Threads of a process sharing its right: TASK-0364.
 
 ## Definition of Done
 

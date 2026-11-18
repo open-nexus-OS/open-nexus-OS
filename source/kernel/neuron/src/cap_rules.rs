@@ -6,7 +6,8 @@
 //! the target only). A capability goes only into the caller itself or one of its direct
 //! children: the parent that wires a child (init → its services, execd → its apps, a work pool
 //! → its threads); into a stranger it would take an empty slot the stranger's parent was about
-//! to pin a route into — a forged route. A REPLACE_DEAD transfer re-pins a slot that is empty or
+//! to pin a route into — a forged route. `MANAGE` travels only with the kinds whose `MANAGE` is
+//! the holder's to hand on (`manage_travels`). A REPLACE_DEAD transfer re-pins a slot that is empty or
 //! holds a capability to a DEAD endpoint (a restarted server's route into its clients'
 //! declared slots), never a live capability or one of another kind.
 //! OWNERS: @kernel-team
@@ -18,6 +19,26 @@
 #[must_use]
 pub fn transfer_target_allowed(caller: u32, child: u32, child_parent: Option<u32>) -> bool {
     child == caller || child_parent == Some(caller)
+}
+
+/// What kind of capability a transfer carries, as far as its `MANAGE` right is concerned.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Carries {
+    /// The authority to make endpoints (bootstrap → init only, checked separately).
+    EndpointFactory,
+    /// A fence: `MANAGE` is all it has, and signalling or awaiting it harms nobody.
+    Fence,
+    /// A time right (RFC-0120): `MANAGE` is the holding itself — a parent hands a child the
+    /// right it derived for it, and the child can take from it only what it holds.
+    TimeRight,
+    /// Everything else — an endpoint above all, whose `MANAGE` closes it for every holder.
+    Other,
+}
+
+/// Whether a transfer may carry `MANAGE` (RFC-0005 phase 2: never for an endpoint).
+#[must_use]
+pub fn manage_travels(kind: Carries) -> bool {
+    !matches!(kind, Carries::Other)
 }
 
 /// What a REPLACE_DEAD transfer finds in its target slot.
@@ -72,6 +93,16 @@ mod tests {
         assert!(!transfer_target_allowed(1, 9, Some(7)), "a grandchild");
         assert!(!transfer_target_allowed(7, 1, Some(0)), "the parent");
         assert!(!transfer_target_allowed(7, 0, None), "the bootstrap task");
+    }
+
+    /// `MANAGE` travels with the kinds whose `MANAGE` is theirs to hand on, never with an
+    /// endpoint's (it would let a client close its server's endpoint).
+    #[test]
+    fn test_reject_manage_of_an_endpoint_in_a_transfer() {
+        assert!(!manage_travels(Carries::Other));
+        assert!(manage_travels(Carries::EndpointFactory));
+        assert!(manage_travels(Carries::Fence));
+        assert!(manage_travels(Carries::TimeRight), "a time right is handed down as a capability");
     }
 
     #[test]

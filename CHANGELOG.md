@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-11-18 (who holds which time: rights handed down — TASK-0365 P1)
+
+- **A time right is handed down as a capability.** A parent derives a right for its child and
+  pins it at the fleet's `TIME_RIGHT_SLOT`; the transfer carries a time right's `MANAGE` into a
+  direct child (`cap_rules::manage_travels` — never an endpoint's, never in a message). The
+  child takes from it what it holds; the parent keeps its capability and revokes it in one step.
+- **A right has a grain** (RFC-0120, `nexus_sched::TimeRights::derive(parent, share, grain)`,
+  the syscall's third argument): the smallest part ever taken from it or below it, inherited
+  and only made coarser. A right fills at most `total / grain` of the kernel's 64 slots — found
+  while planning the apps' rights: an app holding a tenth of a CPU could have filled the table
+  with thousandths.
+- **init divides the root**: the chain's right and one right per chain service that holds time
+  (handed down, then bound before the wake), and the apps' right for execd — a quarter of what
+  the chain leaves, in grains of a twentieth of a CPU, sized from the machine's root. The
+  chain's class and its time are one table (`affinity.rs` `CHAIN`).
+- **execd hands every app a tenth of a CPU** of the apps' right between spawn and resume and
+  revokes it at the reap (`app_time.rs`, a column of the sched recipe); the app names what it
+  holds at start. Nothing binds an app's right yet: its first consumer is the painter's bands
+  (TASK-0367 P2).
+- Markers: `KSELFTEST: test_reject_an_app_claims_more_than_app_host_holds ok`,
+  `execd: app time right ok (`, `apphost: time right (held_ppm=`; host:
+  `test_reject_a_part_finer_than_the_rights_grain`, `test_reject_manage_of_an_endpoint_in_a_transfer`.
+- Board (`board--2026-11-18T09-41-28`, 8 harts): root 6 400 000 ppm, 2 000 000 delegated (the
+  chain 550 000, the apps 1 450 000), four rights handed down, three bound, none refused; seven
+  app starts each held 100 000 ppm. Holders' wakes: 99.17 % of 171 190 within 200 us, none
+  above 10 ms, no period missed; no kernel-lock hold above 1 ms; IPC round trip 56 us (budget
+  64; 35–49 us in the seven runs before, nothing on its path changed). The share returning at
+  the reap and the compositor's right after a restart are proven on the one-hart lane
+  (`many-windows--2026-11-18T09-31-09`: one grain, handed to the next app after the first
+  ended; five restarts, none refused).
+
 ### Changed - 2026-11-17 (a class is a weight, a guarantee is a time right — TASK-0363 P3)
 
 - **The order of a hart** (`sched/run_queue_order.rs`, ADR-0101, host-tested): a reservation with

@@ -417,6 +417,18 @@ proves = "an app window heard the level through the compositor; handled= says wh
 phase = "end"
 proves = "an app-host chose the form of the painter's fill and blend kernels from the kernel's answer before its first row (vector= says which runs, width= the vector registers' width the kernel stated)"
 
+# TASK-0365 P1 (RFC-0120): an app holds the time its spawner handed it. execd derives a part of
+# the apps' right (init's, cut in grains) between spawn and resume and pins it at the fleet's
+# slot; the app reads what it holds at start. On a machine too small for an apps' right the
+# lines read `none` — the app runs in the fair class.
+[marker."execd: app time right ok ("]
+phase = "end"
+proves = "execd derived an app's right from the apps' right init handed it, pinned it into the app before its first run and kept its own capability to revoke it at the reap (share_ppm= the app's, apps_own_ppm= what the apps' right still holds)"
+
+[marker."apphost: time right (held_ppm="]
+phase = "end"
+proves = "the capability at the app's time-right slot names a live right: the app reads the share it was handed (held_ppm=) and what of it is unbound (own_ppm=)"
+
 # TASK-0333 6f-1 (ADR-0087): at the first freeze, before the thaw, the drill at `critical` — memd
 # squeezes the frozen app before any kill: the order to abilitymgr (a suspended instance alone),
 # abilitymgr's to execd, execd's batches; the totals travel back up, the thaw brings the pages back.

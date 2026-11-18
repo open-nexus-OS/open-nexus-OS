@@ -312,7 +312,7 @@ steps:
   - key: L8.3
     section: L
     story: "placement by load, cluster-aware: the display chain holds a time right and runs on several harts, no program names a hart"
-    state: planned
+    state: active
     tasks: [TASK-0365]
     gate: "per-hart utilisation gate on QEMU and the board; the chain on >= 3 harts within a frame"
   - key: L9.1

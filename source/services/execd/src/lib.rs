@@ -18,6 +18,9 @@
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 extern crate alloc;
 
+// RFC-0120: an app's time right — derived, handed down at spawn, revoked at the reap.
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+mod app_time;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 mod atlas_vmo;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]

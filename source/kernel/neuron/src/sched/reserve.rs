@@ -171,9 +171,10 @@ pub fn claim_root() -> Option<RightId> {
     (!ROOT_CLAIMED.swap(true, Ordering::AcqRel)).then(|| TABLE.lock().root())
 }
 
-/// A right of `share` ppm derived from `parent`.
-pub fn derive(parent: RightId, share: u32) -> Result<RightId, TimeRightError> {
-    TABLE.lock().derive(parent, share)
+/// A right of `share` ppm derived from `parent`, nothing finer than `grain` ppm ever taken from
+/// it (0: the parent's grain).
+pub fn derive(parent: RightId, share: u32, grain: u32) -> Result<RightId, TimeRightError> {
+    TABLE.lock().derive(parent, share, grain)
 }
 
 /// What `right` was given and what of it it still holds: `(total, own)`.

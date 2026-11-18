@@ -3,7 +3,9 @@
 
 //! CONTEXT: time as a right (RFC-0120, TASK-0363 P3) — the sched syscall's time-right
 //! operation. A time right is a capability: a share of the machine's time (ppm of one CPU),
-//! derived from the root init holds, only ever as a subset of what its holder still has. A
+//! derived from the root init holds, only ever as a subset of what its holder still has, and
+//! handed to a child as its capability (`hand_down`; a grain bounds what untrusted code can
+//! do with it). A
 //! holder binds a part of it to a task as a reservation — a budget every period, run before
 //! everything fair on the CPU that admitted it — and revokes a right with everything derived
 //! from it in one step. Binding another task takes the standing that sets its class (init,
@@ -43,10 +45,24 @@ pub fn held(right: Cap) -> SysResult<(u32, u32)> {
 }
 
 /// Derives a right of `share_ppm` from `right` into a new slot: a subset of what `right` still
-/// holds itself, refused beyond it.
+/// holds itself, refused beyond it. `grain_ppm` is the smallest part that may ever be taken
+/// from the new right or below it (0: `right`'s own grain; never finer than it): the right
+/// fills at most `share / grain` of the kernel's slots — set it for a right handed to code
+/// that is not trusted. The capability is handed to a child with `cap_transfer_to_slot`
+/// (`Rights::MANAGE`); the holder keeps its own to revoke it.
 #[must_use = "the derived right is a capability to keep or hand on"]
-pub fn derive(right: Cap, share_ppm: u32) -> SysResult<Cap> {
-    op(TimeRightOp::Derive, right as usize, share_ppm as usize, 0, 0).map(|slot| slot as Cap)
+pub fn derive(right: Cap, share_ppm: u32, grain_ppm: u32) -> SysResult<Cap> {
+    op(TimeRightOp::Derive, right as usize, share_ppm as usize, grain_ppm as usize, 0)
+        .map(|slot| slot as Cap)
+}
+
+/// Hands `right` down to the caller's child `pid`, into the child's empty slot `slot` (the
+/// fleet's `TIME_RIGHT_SLOT`): the child holds that right — it binds and derives what the right
+/// holds, in its grains, and nothing of the caller's. The caller keeps its own capability and
+/// revokes the right with it. The kernel takes a capability into a direct child only.
+#[must_use = "a child that was handed nothing runs fair"]
+pub fn hand_down(right: Cap, pid: Pid, slot: Cap) -> SysResult<()> {
+    cap_transfer_to_slot(pid, right, Rights::MANAGE, slot).map(|_| ())
 }
 
 /// Binds `share_ppm` of `right` to the caller as a reservation of `period_ns`: that share of

@@ -1817,6 +1817,7 @@ if [[ "$REQUIRE_SMP" == "1" ]]; then
     "KSELFTEST: test_reject_time_right_beyond_held ok"
     "KSELFTEST: test_reject_time_right_bind_other_task ok"
     "KSELFTEST: test_reject_time_right_after_revoke ok"
+    "KSELFTEST: test_reject_an_app_claims_more_than_app_host_holds ok"
     "KSELFTEST: sched spread ok"
     "KSELFTEST: work stealing ok"
     "KSELFTEST: test_reject_steal_above_bound ok"

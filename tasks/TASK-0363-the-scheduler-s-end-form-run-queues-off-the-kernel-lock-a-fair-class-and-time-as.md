@@ -2,7 +2,8 @@
 schema: 1
 id: TASK-0363
 title: "The scheduler's end form: run queues off the kernel lock, a fair class, and time as a right — a budget per period, delegated as a subset, revoked in bounded time"
-status: in_progress
+status: done
+status_note: "all phases done; wakes off the kernel lock = TASK-0330; the 2026-11-17 lock stalls stay named in CHANGELOG"
 owner: ["@kernel-team"]
 created: 2026-11-10
 updated: 2026-11-18
@@ -11,12 +12,16 @@ kind: service
 novelty: first
 estimate: 5
 started: 2026-11-11
+done: 2026-11-18
+active_days: 6
 dates_source: recorded
+variance_note: "6 days for 5: P6-P8 (deadlines per hart) were found on the board and built inside; a boot-stack overflow cost half a day"
 goal:
   metric: "wake-to-run latency p99 of a thread holding a time right on the board; run-queue operations under the kernel lock; conservation of delegated budgets"
   baseline: "every run queue lives inside the kernel lock; strict classes with a 10 ms tick; a class is a label any service may claim; wakes ran 0.3-5.1 ms late before ADR-0096 (board cycle 83); today's histogram is TASK-0330/P0's"
   target: "wake-to-run p99 <= 200 us for a time-right holder with 8 harts loaded; 0 run-queue operations under the kernel lock; the sum of delegated budgets never above the root in 10 000 random delegate, steal and migrate steps of the host model"
   instrument: "KSELFTEST: sched wake latency line; the kernel lock's holder table; sched host tests"
+  result: "board 2026-11-18T08-25-01: 99.26 % of 163 507 holder wakes within 200 us (p99 met), none above 10 ms; each hart's queue under its own lock, a hart's own pick takes no kernel lock, a wake from a syscall still runs under it until TASK-0330 deletes it; host model: the delegated sum never above the root in 10 000 steps"
 consumer: TASK-0365/P1
 phases:
   - id: P1
@@ -37,9 +42,11 @@ phases:
     note: "opened 2026-11-13. S1 (5e3efd33): per-hart run-queue leaf locks, host-tested core. S2 (committed after board cycle 24): a task's frame in its scheduling record at a fixed address, the owner word (Free/Queued/Running) handed on under the queue lock, every frame access checked (KINIT: FAIL frame owner) — it found the preemption's late save and yield's early requeue, both fixed. S3 BUILT 2026-11-16 (ADR-0100, Proposed): the idle loop picks from its own queue and starts the task without the kernel lock (core/dispatch.rs::dispatch_unlocked — frame, floating-point states and space view from the record; set_runs_here outside the task table; enter_space shared with the locked path; HartSpaces atomic and installed); a task the record cannot start goes to the locked path already picked; kill and freeze withdraw under the holding hart's queue lock (Scheduler::withdraw) instead of running_on + purge; the floating-point states moved into the record (fp_if_held for set_current: the kernel selftests act as queued tasks). QEMU 1, 2, 8 harts (8 harts once red by its 90 s budget cutting pinched's third restart, green at 120 s) and usb-visible 32/32: 0 breaches, steal park ok. Gate left (ADR-0098: a step that does not move its holder's share is reverted): board — the idle loop's share of the kernel lock (KINIT: bkl held us idle=, 3.3 s per 10 s window before) falls; no run-queue operation of a dispatch among the lock's holders; ladder 118 BOARD 2026-11-16 (build/logs/board--2026-11-16T12-16-50 S3, build/logs/board--2026-11-16T12-40-08 S3 with KINIT: bkl idle split): ladder 118, 0 breaches, no panic, bkl budget max_wait 399 us (5-6 ms before S2), wake ipi max 44 us. The idle group's lock time did not fall (3.3-3.8 s a window) — the split names why: dispatch 0 us/0 takes (the unlocked path starts every task), steal 0.03-0.14 s, the boot hart's delivery 3.4-4.7 s (events 1.6-2.2 s, the deadline walk over every task 1.4-2.0 s): the boot hart spins and polls under the lock each turn. That is P6's (one deadline walk, no walk per turn) and P4's (the boot hart sleeps until an event) — the phase's board gate (no run-queue operation of a dispatch among the holders) is met; ADR-0098's holder rule applies to the delivery, which this step does not touch"
   - id: P3
     story: "a holder of a time right runs within its budget every period, everything else shares the rest fairly by weight, and every thread's run time is metered"
-    state: proving
+    state: done
     gate: "the host model green on the kernel's own scheduler core; KSELFTEST: sched time right ok (the budget honoured over 100 periods, the overrun counted), sched fair ok (two weights within 5 % of their ratio), sched runtime metered ok; board: wake-to-run p99 <= 200 us for a time-right holder (moved from P4)"
     started: 2026-11-17
+    done: 2026-11-18
+    evidence: build/logs/board--2026-11-18T08-25-01
   - id: P4
     story: "no periodic tick: each hart's timer is armed for its next deadline and an idle hart sleeps until an event"
     state: done

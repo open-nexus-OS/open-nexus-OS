@@ -17,17 +17,23 @@ use crate::os_lite::{IMG_APPHOST, IMG_HELLO};
 /// (same doctrine as the init service topology; no TOML at runtime). Applied
 /// cross-task right after spawn via execd's QoS-admin standing. The placement is a
 /// role (RFC-0118): its CPU set is derived from the CPUs the kernel reports online,
-/// never written as a mask; shares clamp to [1,1000].
-const SCHED_RECIPES: &[(u8, Placement, usize)] = &[
-    // (image_id, placement, shares)
-    (IMG_HELLO, Placement::Any, 100),
-    (IMG_APPHOST, Placement::Any, 100),
+/// never written as a mask; shares clamp to [1,1000]. The time is the part of the apps' right
+/// the child is handed as its own (RFC-0120, `app_time`; ppm of one CPU, 0: none — it runs in
+/// the fair class): an app a tenth of a CPU, which it may bind whole or in the grains init cut
+/// the apps' right in.
+const SCHED_RECIPES: &[(u8, Placement, usize, u32)] = &[
+    // (image_id, placement, shares, time_ppm)
+    (IMG_HELLO, Placement::Any, 100, 0),
+    (IMG_APPHOST, Placement::Any, 100, 100_000),
 ];
 
 pub(crate) fn apply_sched_recipe(pid: u32, image_id: u8) {
-    for (img, placement, shares) in SCHED_RECIPES {
+    for (img, placement, shares, time_ppm) in SCHED_RECIPES {
         if *img != image_id {
             continue;
+        }
+        if *time_ppm != 0 {
+            crate::app_time::grant(pid, *time_ppm);
         }
         let set = nexus_abi::sched::online().map(|online| placement.set(online));
         let aff_ok = set.is_ok_and(|set| nexus_abi::sched::set_affinity_for(pid, set).is_ok());

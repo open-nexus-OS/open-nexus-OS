@@ -30,8 +30,8 @@ fn the_root_holds_every_harts_capacity() {
 #[test]
 fn a_derived_right_is_taken_from_what_its_parent_holds() {
     let mut m = model();
-    let display = m.derive(m.root(), 1_200_000).unwrap();
-    let apps = m.derive(display, 400_000).unwrap();
+    let display = m.derive(m.root(), 1_200_000, 0).unwrap();
+    let apps = m.derive(display, 400_000, 0).unwrap();
     assert_eq!(m.held(m.root()), Some((3_200_000, 2_000_000)));
     assert_eq!(m.held(display), Some((1_200_000, 800_000)));
     assert_eq!(m.held(apps), Some((400_000, 400_000)));
@@ -41,15 +41,15 @@ fn a_derived_right_is_taken_from_what_its_parent_holds() {
 #[test]
 fn test_reject_delegate_beyond_held() {
     let mut m = model();
-    let display = m.derive(m.root(), 600_000).unwrap();
-    let app = m.derive(display, 500_000).unwrap();
+    let display = m.derive(m.root(), 600_000, 0).unwrap();
+    let app = m.derive(display, 500_000, 0).unwrap();
     // The display path holds 100 000 itself now: it cannot hand out what it gave away.
-    assert_eq!(m.derive(display, 100_001), Err(E::BeyondHeld));
-    assert_eq!(m.derive(app, 500_001), Err(E::BeyondHeld));
+    assert_eq!(m.derive(display, 100_001, 0), Err(E::BeyondHeld));
+    assert_eq!(m.derive(app, 500_001, 0), Err(E::BeyondHeld));
     // Nor bind it to a thread.
     assert_eq!(m.bind(display, 100_001, 10 * MS, 0, 0), Err(E::BeyondHeld));
     // The root cannot mint: it holds the harts' capacity and no more.
-    assert_eq!(m.derive(m.root(), 4 * CAPACITY), Err(E::BeyondHeld));
+    assert_eq!(m.derive(m.root(), 4 * CAPACITY, 0), Err(E::BeyondHeld));
     assert_eq!(m.held(display), Some((600_000, 100_000)), "a refusal changes nothing");
     assert!(m.audit(0));
 }
@@ -57,20 +57,45 @@ fn test_reject_delegate_beyond_held() {
 #[test]
 fn test_reject_a_share_below_the_floor_and_a_tree_too_deep() {
     let mut m = model();
-    assert_eq!(m.derive(m.root(), SHARE_MIN_PPM - 1), Err(E::Share));
-    assert_eq!(m.derive(m.root(), 0), Err(E::Share));
+    assert_eq!(m.derive(m.root(), SHARE_MIN_PPM - 1, 0), Err(E::Share));
+    assert_eq!(m.derive(m.root(), 0, 0), Err(E::Share));
     let mut at = m.root();
     for _ in 0..DEPTH_MAX {
-        at = m.derive(at, 100_000).unwrap();
+        at = m.derive(at, 100_000, 0).unwrap();
     }
-    assert_eq!(m.derive(at, 50_000), Err(E::TooDeep));
+    assert_eq!(m.derive(at, 50_000, 0), Err(E::TooDeep));
+    assert!(m.audit(0));
+}
+
+/// What a holder hands to code it does not trust: a right with a grain. Nothing smaller is ever
+/// taken from it or below it, so a right of 200 000 ppm in grains of 50 000 fills four slots
+/// and no more — it cannot fill the table with crumbs.
+#[test]
+fn test_reject_a_part_finer_than_the_rights_grain() {
+    let mut m = model();
+    let apps = m.derive(m.root(), 800_000, 0).unwrap();
+    assert_eq!(m.derive(apps, 200_000, SHARE_MIN_PPM - 1), Err(E::Share), "finer than the root's");
+    assert_eq!(m.derive(apps, 200_000, 200_001), Err(E::Share), "a grain above the share");
+    let app = m.derive(apps, 200_000, 50_000).unwrap();
+    assert_eq!(m.derive(app, 49_999, 0), Err(E::Share));
+    assert_eq!(m.bind(app, 49_999, 10 * MS, 0, 0), Err(E::Share));
+    assert_eq!(m.derive(app, 100_000, 10_000), Err(E::Share), "a child never refines its grain");
+    // A grain is inherited, and a child may only coarsen it.
+    let part = m.derive(app, 100_000, 0).unwrap();
+    assert_eq!(m.bind(part, 49_999, 10 * MS, 1, 0), Err(E::Share));
+    assert_eq!(m.derive(part, 60_000, 60_000).map(|_| ()), Ok(()));
+    assert_eq!(m.bind(part, 40_000, 10 * MS, 1, 0), Err(E::Share), "what is left is a crumb");
+    // Four parts of the app's 200 000 at most: two bound, one derived twice over.
+    assert_eq!(m.bind(app, 50_000, 10 * MS, 0, 0).map(|_| ()), Ok(()));
+    assert_eq!(m.bind(app, 50_000, 10 * MS, 0, 0).map(|_| ()), Ok(()));
+    assert_eq!(m.bind(app, 50_000, 10 * MS, 0, 0), Err(E::BeyondHeld));
     assert!(m.audit(0));
 }
 
 #[test]
 fn test_reject_admit_beyond_capacity() {
     let mut m = model();
-    let right = m.derive(m.root(), 2_000_000).unwrap();
+    let right = m.derive(m.root(), 2_000_000, 0).unwrap();
     m.bind(right, 500_000, 10 * MS, 0, 0).unwrap();
     m.bind(right, 300_000, 10 * MS, 0, 0).unwrap();
     // Hart 0 is at its 80 %: the right holds 1.2 harts more, and still none of it fits here.
@@ -86,7 +111,7 @@ fn test_reject_admit_beyond_capacity() {
 #[test]
 fn test_reject_a_period_or_a_budget_out_of_bounds() {
     let mut m = model();
-    let right = m.derive(m.root(), 800_000).unwrap();
+    let right = m.derive(m.root(), 800_000, 0).unwrap();
     assert_eq!(m.bind(right, 100_000, PERIOD_MIN_NS - 1, 0, 0), Err(E::Period));
     assert_eq!(m.bind(right, 100_000, PERIOD_MAX_NS + 1, 0, 0), Err(E::Period));
     // 1 000 ppm of a 1 ms period is 1 µs of budget: a switch costs more.
@@ -98,7 +123,7 @@ fn test_reject_a_period_or_a_budget_out_of_bounds() {
 #[test]
 fn a_reservation_runs_its_budget_once_a_period() {
     let mut m = model();
-    let right = m.derive(m.root(), 500_000).unwrap();
+    let right = m.derive(m.root(), 500_000, 0).unwrap();
     // 25 % of a hart every 8 ms: 2 ms of budget.
     let r = m.bind(right, 250_000, 8 * MS, 2, 0).unwrap();
     assert_eq!(m.state(r), Some((2, 8 * MS, 2 * MS, 2 * MS)));
@@ -119,9 +144,9 @@ fn a_reservation_runs_its_budget_once_a_period() {
 #[test]
 fn test_reject_run_after_revoke() {
     let mut m = model();
-    let display = m.derive(m.root(), 1_000_000).unwrap();
-    let app = m.derive(display, 400_000).unwrap();
-    let widget = m.derive(app, 100_000).unwrap();
+    let display = m.derive(m.root(), 1_000_000, 0).unwrap();
+    let app = m.derive(display, 400_000, 0).unwrap();
+    let widget = m.derive(app, 100_000, 0).unwrap();
     let r_app = m.bind(app, 200_000, 10 * MS, 0, 0).unwrap();
     let r_widget = m.bind(widget, 100_000, 10 * MS, 1, 0).unwrap();
     m.charge(r_app, MS, MS).unwrap();
@@ -135,7 +160,7 @@ fn test_reject_run_after_revoke() {
     assert_eq!(m.charge(r_widget, 1, 2 * MS), Err(E::Revoked));
     assert_eq!(m.replenish(r_app, 10 * MS), Err(E::Revoked));
     assert_eq!(m.migrate(r_widget, 2, 2 * MS), Err(E::Revoked));
-    assert_eq!(m.derive(widget, 10_000), Err(E::Revoked));
+    assert_eq!(m.derive(widget, 10_000, 0), Err(E::Revoked));
     assert_eq!(m.bind(app, 10_000, 10 * MS, 3, 2 * MS), Err(E::Revoked));
     assert_eq!(m.revoke(app), Err(E::Revoked), "once");
     assert_eq!(m.revoke(m.root()), Err(E::Root));
@@ -149,13 +174,13 @@ fn test_reject_run_after_revoke() {
 #[test]
 fn a_slot_of_a_revoked_right_is_reused_and_an_old_id_stays_dead() {
     let mut m: TimeRights<3, 2, 1> = TimeRights::new(CAPACITY);
-    let a = m.derive(m.root(), 400_000).unwrap();
-    let b = m.derive(a, 200_000).unwrap();
-    assert_eq!(m.derive(m.root(), 100_000), Err(E::Full));
+    let a = m.derive(m.root(), 400_000, 0).unwrap();
+    let b = m.derive(a, 200_000, 0).unwrap();
+    assert_eq!(m.derive(m.root(), 100_000, 0), Err(E::Full));
     m.revoke(a).unwrap();
     // Both slots are free again: `a`'s own, and `b`'s, whose right died with `a`.
-    let c = m.derive(m.root(), 300_000).unwrap();
-    let d = m.derive(c, 100_000).unwrap();
+    let c = m.derive(m.root(), 300_000, 0).unwrap();
+    let d = m.derive(c, 100_000, 0).unwrap();
     assert_eq!(m.held(a), None);
     assert_eq!(m.held(b), None, "an id of an earlier generation never names the new right");
     assert_eq!(m.held(d), Some((100_000, 100_000)));
@@ -165,7 +190,7 @@ fn a_slot_of_a_revoked_right_is_reused_and_an_old_id_stays_dead() {
 #[test]
 fn test_reject_migrate_beyond_the_targets_capacity() {
     let mut m = model();
-    let right = m.derive(m.root(), 2_400_000).unwrap();
+    let right = m.derive(m.root(), 2_400_000, 0).unwrap();
     let mover = m.bind(right, 300_000, 10 * MS, 0, 0).unwrap();
     m.bind(right, 600_000, 10 * MS, 1, 0).unwrap();
     assert_eq!(m.migrate(mover, 1, MS), Err(E::BeyondCapacity));
@@ -183,7 +208,7 @@ fn test_reject_migrate_beyond_the_targets_capacity() {
 #[test]
 fn a_migrant_never_arrives_denser_than_its_share() {
     let mut m = model();
-    let right = m.derive(m.root(), 1_000_000).unwrap();
+    let right = m.derive(m.root(), 1_000_000, 0).unwrap();
     // 40 % every 10 ms: 4 ms of budget. It ran 1 ms and is moved at 9 ms: 3 ms left for the
     // last millisecond would be three harts' worth on the target — it starts a new period.
     let late = m.bind(right, 400_000, 10 * MS, 0, 0).unwrap();
@@ -201,7 +226,7 @@ fn a_migrant_never_arrives_denser_than_its_share() {
 #[test]
 fn an_unbound_share_is_the_rights_again() {
     let mut m = model();
-    let right = m.derive(m.root(), 500_000).unwrap();
+    let right = m.derive(m.root(), 500_000, 0).unwrap();
     let r = m.bind(right, 500_000, 10 * MS, 3, 0).unwrap();
     assert_eq!(m.held(right), Some((500_000, 0)));
     m.unbind(r, 4 * MS).unwrap();
@@ -255,7 +280,10 @@ fn conservation_over_10_000_random_steps() {
         let pick = (!res.is_empty()).then(|| rng.below(res.len() as u64) as usize);
         let ok = match (op, pick) {
             (0, _) => {
-                m.derive(right, 1_000 + rng.below(900_000) as u32).map(|id| rights.push(id)).is_ok()
+                // A grain now and then: the books must balance with coarse rights too.
+                let grain = [0, 0, 0, 5_000][rng.below(4) as usize];
+                let share = 1_000 + rng.below(900_000) as u32;
+                m.derive(right, share, grain).map(|id| rights.push(id)).is_ok()
             }
             (1, _) => m.revoke(right).is_ok(),
             (2, _) => {
@@ -316,7 +344,7 @@ fn test_reject_admit_on_a_hart_the_machine_does_not_have() {
 #[test]
 fn an_id_survives_its_word_and_a_forged_word_names_nothing() {
     let mut m = model();
-    let right = m.derive(m.root(), 200_000).unwrap();
+    let right = m.derive(m.root(), 200_000, 0).unwrap();
     let res = m.bind(right, 100_000, 10 * MS, 0, 0).unwrap();
     assert_ne!(right.to_raw(), 0);
     assert_eq!(RightId::from_raw(right.to_raw()), right);
@@ -324,7 +352,7 @@ fn an_id_survives_its_word_and_a_forged_word_names_nothing() {
     assert_eq!(m.right_of(res), Some(right));
     // A word of another generation is refused like a revoked right.
     let forged = RightId::from_raw(right.to_raw() + (1 << 16));
-    assert_eq!(m.derive(forged, SHARE_MIN_PPM), Err(E::Revoked));
+    assert_eq!(m.derive(forged, SHARE_MIN_PPM, 0), Err(E::Revoked));
     assert_eq!(m.held(forged), None);
 }
 
@@ -346,7 +374,7 @@ fn a_waking_thread_never_brings_back_time_it_did_not_run() {
 #[test]
 fn test_reject_wake_after_revoke() {
     let mut m = model();
-    let right = m.derive(m.root(), 200_000).unwrap();
+    let right = m.derive(m.root(), 200_000, 0).unwrap();
     let r = m.bind(right, 100_000, 10 * MS, 0, 0).unwrap();
     m.revoke(right).unwrap();
     assert_eq!(m.wake(r, MS), Err(E::Revoked));

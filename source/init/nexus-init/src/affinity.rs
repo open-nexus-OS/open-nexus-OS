@@ -33,21 +33,6 @@ const fn eq(a: &str, b: &str) -> bool {
     true
 }
 
-/// The soft-realtime chain: the services a frame or a key passes through on its way from the
-/// device to the glass. One list, two consumers — their placement (`placement_for`, ADR-0049)
-/// and their scheduler class (ADR-0096: init raises them to `Interactive` before their wake,
-/// so an interrupt or a message that wakes one of them preempts a `Normal` task at the trap
-/// exit; everything else, apps included, runs `Normal`).
-pub const fn soft_realtime(name: &str) -> bool {
-    eq(name, "gpud")
-        || eq(name, "windowd")
-        || eq(name, "inputd")
-        || eq(name, "hidrawd")
-        || eq(name, "xhcid")
-        || eq(name, "touchd")
-        || eq(name, "imed")
-}
-
 /// A service's reservation (RFC-0120): `share_ppm` of one CPU every `period_ns`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Reservation {
@@ -57,32 +42,83 @@ pub struct Reservation {
     pub period_ns: u64,
 }
 
-/// The display chain's time (TASK-0363 P3; the start of TASK-0365 P1): what init binds, from
-/// the right it derives for the chain, to a service before its wake. A reservation runs before
-/// everything fair, so the chain's guarantee no longer rests on a class: the renderer a third
-/// of a CPU every 10 ms, the compositor a fifth every frame at 120 Hz, the input router a
-/// twentieth every 4 ms. Past its budget a service runs on in the fair class at its class's
-/// weight. The rest of the chain (the device drivers, the input method) keeps the weight only,
-/// until init hands rights down (TASK-0365 P1).
-pub const DISPLAY_TIME: &[(&str, Reservation)] = &[
-    ("gpud", Reservation { share_ppm: 300_000, period_ns: 10_000_000 }),
-    ("windowd", Reservation { share_ppm: 200_000, period_ns: 8_333_333 }),
-    ("inputd", Reservation { share_ppm: 50_000, period_ns: 4_000_000 }),
+/// The soft-realtime chain: the services a frame or a key passes through on its way from the
+/// device to the glass, each with the time it holds. One table, three consumers (TASK-0365 P1):
+/// - **placement** (`placement_for`, ADR-0049);
+/// - **class** (ADR-0096: init raises them to `Interactive` before their wake — a weight in the
+///   fair class, ADR-0101; everything else, apps included, runs `Normal`);
+/// - **time** (RFC-0120): init derives a right of the service's share from the chain's right,
+///   hands it the capability (`TIME_RIGHT_SLOT`) and binds it as a reservation before its wake.
+///   A reservation runs before everything fair, so the chain's guarantee does not rest on a
+///   class: the renderer a third of a CPU every 10 ms, the compositor a fifth every 8.3 ms,
+///   the input router a twentieth every 4 ms. Past its budget a service runs on in the fair
+///   class. The device drivers and the input method hold no time: their weight only.
+pub const CHAIN: &[(&str, Option<Reservation>)] = &[
+    ("gpud", Some(Reservation { share_ppm: 300_000, period_ns: 10_000_000 })),
+    ("windowd", Some(Reservation { share_ppm: 200_000, period_ns: 8_333_333 })),
+    ("inputd", Some(Reservation { share_ppm: 50_000, period_ns: 4_000_000 })),
+    ("hidrawd", None),
+    ("xhcid", None),
+    ("touchd", None),
+    ("imed", None),
 ];
 
-/// The reservation init binds to service `name`, if it holds one.
-pub fn reservation_for(name: &str) -> Option<Reservation> {
-    DISPLAY_TIME.iter().find(|(svc, _)| *svc == name).map(|&(_, reservation)| reservation)
+/// `name`'s row of the chain.
+const fn chain_row(name: &str) -> Option<usize> {
+    let mut i = 0;
+    while i < CHAIN.len() {
+        if eq(CHAIN[i].0, name) {
+            return Some(i);
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Whether `name` is a service of the soft-realtime chain.
+pub const fn soft_realtime(name: &str) -> bool {
+    chain_row(name).is_some()
+}
+
+/// The reservation init binds to service `name` — and the right it hands it — if it holds one,
+/// with its row of the chain (what init keeps its right under).
+pub const fn reservation_for(name: &str) -> Option<(usize, Reservation)> {
+    match chain_row(name) {
+        Some(row) => match CHAIN[row].1 {
+            Some(reservation) => Some((row, reservation)),
+            None => None,
+        },
+        None => None,
+    }
 }
 
 /// What the display chain's right holds: the sum of its services' shares.
 pub const fn display_time_ppm() -> u32 {
     let (mut sum, mut i) = (0, 0);
-    while i < DISPLAY_TIME.len() {
-        sum += DISPLAY_TIME[i].1.share_ppm;
+    while i < CHAIN.len() {
+        if let Some(reservation) = CHAIN[i].1 {
+            sum += reservation.share_ppm;
+        }
         i += 1;
     }
     sum
+}
+
+/// The service that spawns the apps and hands each its time: it holds the apps' right.
+pub const APP_SPAWNER: &str = "execd";
+
+/// The smallest part ever taken from the apps' right or below it (RFC-0120's grain): an app is
+/// code the system does not trust, so its right is cut in twentieths of a CPU — the apps'
+/// right, however it is divided, fills at most `apps_time_ppm / APPS_GRAIN_PPM` of the kernel's
+/// slots, never the table.
+pub const APPS_GRAIN_PPM: u32 = 50_000;
+
+/// What the apps' right holds on a machine whose root right is `root_ppm`: a quarter of what
+/// the display chain leaves, in whole grains — it scales with the CPUs, never a fixed number.
+/// Zero (no right: every app runs in the fair class) when that is less than one grain.
+pub const fn apps_time_ppm(root_ppm: u32) -> u32 {
+    let quarter = root_ppm.saturating_sub(display_time_ppm()) / 4;
+    quarter - quarter % APPS_GRAIN_PPM
 }
 
 /// Declarative CPU placement SSOT (SMP soft-realtime plan P1). The display +

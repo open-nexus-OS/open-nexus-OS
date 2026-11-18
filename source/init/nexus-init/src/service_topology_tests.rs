@@ -39,6 +39,24 @@ fn the_soft_realtime_chain_is_one_list_for_placement_and_class() {
     }
 }
 
+/// The chain's rows that hold time: `(name, reservation)`.
+fn holders() -> impl Iterator<Item = (&'static str, super::Reservation)> {
+    super::CHAIN.iter().filter_map(|&(name, time)| time.map(|r| (name, r)))
+}
+
+/// TASK-0365 P1: the class and the time come from ONE table — every row is of the chain
+/// (placed on the display CPU, raised to `Interactive`), and a row's reservation is what
+/// `reservation_for` hands init, under the row init keeps its right at.
+#[test]
+fn the_chain_is_one_table_for_the_class_and_the_right() {
+    for (row, &(name, time)) in super::CHAIN.iter().enumerate() {
+        assert!(super::soft_realtime(name), "{name}");
+        assert_eq!(super::reservation_for(name), time.map(|r| (row, r)), "{name}");
+        assert_eq!(super::CHAIN.iter().filter(|(n, _)| *n == name).count(), 1, "{name} once");
+    }
+    assert_eq!(holders().map(|(_, r)| r.share_ppm).sum::<u32>(), super::display_time_ppm());
+}
+
 #[test]
 fn the_display_chains_time_is_admitted_on_one_cpu_within_the_contracts_bounds() {
     use nexus_sched::time_right::{
@@ -47,22 +65,55 @@ fn the_display_chains_time_is_admitted_on_one_cpu_within_the_contracts_bounds() 
     // The kernel's capacity of a CPU (four fifths: the fair class keeps the rest).
     const CAPACITY_PPM: u32 = 800_000;
     assert!(super::display_time_ppm() <= CAPACITY_PPM, "the chain shares one CPU");
-    for &(name, r) in super::DISPLAY_TIME {
-        // A holder is a member of the chain: placed on the display CPU, where its time is.
-        assert!(super::soft_realtime(name), "{name}");
-        assert_eq!(super::reservation_for(name), Some(r));
+    for (name, r) in holders() {
         assert!(r.share_ppm >= SHARE_MIN_PPM, "{name}");
         assert!((PERIOD_MIN_NS..=PERIOD_MAX_NS).contains(&r.period_ns), "{name}");
         assert!(u64::from(r.share_ppm) * r.period_ns / 1_000_000 >= BUDGET_MIN_NS, "{name}");
     }
-    // The contract admits them as init binds them: one right for the chain, each service a
-    // part of it, all on the one CPU the chain is placed on — and nothing is left over.
-    let mut rights = TimeRights::<8, 8, 2>::new(CAPACITY_PPM);
-    let chain = rights.derive(rights.root(), super::display_time_ppm()).expect("the chain's right");
-    for &(name, r) in super::DISPLAY_TIME {
-        assert!(rights.bind(chain, r.share_ppm, r.period_ns, 0, 0).is_ok(), "{name}");
+    // The contract admits them as init hands them down: one right for the chain, from it one
+    // right per service, bound whole on the one CPU the chain is placed on — nothing is left
+    // over, on a machine of one CPU as on one of eight.
+    for cpus in [1usize, 2, 8] {
+        let mut rights = TimeRights::<16, 8, 8>::EMPTY;
+        rights.reset(cpus, CAPACITY_PPM);
+        let chain = rights.derive(rights.root(), super::display_time_ppm(), 0).expect("the chain");
+        for (name, r) in holders() {
+            let own = rights.derive(chain, r.share_ppm, 0).expect(name);
+            assert!(rights.bind(own, r.share_ppm, r.period_ns, 0, 0).is_ok(), "{name}");
+            assert_eq!(rights.held(own), Some((r.share_ppm, 0)), "{name}");
+        }
+        assert_eq!(rights.held(chain), Some((super::display_time_ppm(), 0)));
+        assert!(rights.audit(0));
     }
-    assert_eq!(rights.held(chain), Some((super::display_time_ppm(), 0)));
+}
+
+/// The apps' right: a quarter of what the chain leaves, in whole grains, on every machine —
+/// and with the chain's right never more than the root holds. Its grain bounds the slots the
+/// apps can fill, however they divide it, far below the kernel's 64.
+#[test]
+fn the_apps_right_scales_with_the_machine_and_fills_a_bounded_number_of_slots() {
+    use nexus_sched::time_right::{TimeRightError, TimeRights};
+    const CAPACITY_PPM: u32 = 800_000;
+    for cpus in [1usize, 2, 4, 8, 64] {
+        let root = CAPACITY_PPM * cpus as u32;
+        let apps = super::apps_time_ppm(root);
+        assert_eq!(apps % super::APPS_GRAIN_PPM, 0, "{cpus} cpus: whole grains");
+        assert!(apps + super::display_time_ppm() <= root, "{cpus} cpus");
+        assert!(apps >= super::APPS_GRAIN_PPM, "{cpus} cpus: at least one app holds time");
+    }
+    assert_eq!(super::apps_time_ppm(0), 0, "no root: no apps' right");
+    assert_eq!(super::apps_time_ppm(super::display_time_ppm() + 100_000), 0, "less than a grain");
+    // Eight CPUs, as init divides them: an app takes crumbs until the right is spent.
+    let mut rights = TimeRights::<64, 64, 8>::new(CAPACITY_PPM);
+    let apps = super::apps_time_ppm(8 * CAPACITY_PPM);
+    let pool = rights.derive(rights.root(), apps, super::APPS_GRAIN_PPM).expect("the apps' right");
+    let mut filled = 0;
+    while rights.derive(pool, super::APPS_GRAIN_PPM, 0).is_ok() {
+        filled += 1;
+    }
+    assert_eq!(filled, apps / super::APPS_GRAIN_PPM);
+    assert!(filled < 32, "the apps fill {filled} slots at most");
+    assert_eq!(rights.derive(pool, super::APPS_GRAIN_PPM - 1, 0), Err(TimeRightError::Share));
     assert!(rights.audit(0));
 }
 

@@ -5,7 +5,7 @@ role: guide
 subsystem: kernel
 sources: [source/kernel/neuron/src, source/kernel/neuron-boot/src]
 contracts: [RFC-0005, RFC-0021, RFC-0085, RFC-0098, RFC-0100, RFC-0119, ADR-0049, ADR-0073, ADR-0077, ADR-0080, ADR-0082, ADR-0091]
-verified: 2026-11-17
+verified: 2026-11-18
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -139,21 +139,21 @@ retired numbers stay retired.
 
 ## Scheduling
 
-- **Preemptive.** The `timer_irq` feature is on by default; the tick is 10 ms of the device tree's
-  timebase. Per-hart deadlines arm the compare register earliest-first (ADR-0052).
+- **Preemptive, no periodic tick.** A hart's timer is armed for the earliest of its task's
+  slice end (10 ms), a holder's budget end and its next deadline (ADR-0052); idle, it sleeps.
 - **SMP.** The device tree's harts, each with its own run queues and lock
   ([scheduler.md](scheduler.md), [smp.md](smp.md)).
 - **Order (ADR-0101).** Per hart, a reservation of a time right with budget left runs first,
   earliest deadline first (RFC-0120); everything else is fair by weight. The classes `Idle`,
   `Normal`, `Interactive`, `PerfBurst` are weights, not priorities; a full queue rejects.
 - **A wake goes ahead** at the trap exit when the order says so (`Scheduler::switch_if_ready`).
-  init binds the display chain its reservations and raises the soft-realtime chain
-  (`service_topology::soft_realtime`) to `Interactive`; everything else runs `Normal` and may
-  only lower itself.
+  init hands the display chain its time rights, binds them and raises the chain to
+  `Interactive` (one table, `service_topology::CHAIN`); execd hands each app a part of the
+  apps' right. Everything else runs `Normal` and may only lower itself.
 - **Placement.** init places services by role at resume (ADR-0049): the soft-realtime chain
   on CPU 0, the rest on the other online CPUs ([topology.md](topology.md)).
-- **No lock across a context switch.** The schedule decision copies the next frame into the
-  hart-local staging slot under the BKL, the guard drops, then `sret` reads only hart-local state.
+- **No lock across a context switch.** The next frame is staged hart-locally, the guard drops,
+  then `sret` reads only hart-local state.
 
 ## Memory
 

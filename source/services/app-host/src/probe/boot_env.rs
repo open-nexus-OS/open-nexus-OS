@@ -64,6 +64,18 @@ pub(super) fn choose_paint_kernels() {
     ));
 }
 
+/// The app's time (RFC-0120, TASK-0365 P1): the right its spawner derived for it and pinned at
+/// the fleet's slot before its first run — what the app may bind for its threads, and all it
+/// may. Named once per start; an app that was handed none runs in the fair class.
+pub(super) fn mark_time_right() {
+    match nexus_abi::time_right::held(nexus_service_topology::TIME_RIGHT_SLOT) {
+        Ok((held, own)) => {
+            raw_marker(&alloc::format!("apphost: time right (held_ppm={held} own_ppm={own})"));
+        }
+        Err(_) => raw_marker("apphost: time right (none)"),
+    }
+}
+
 /// The launch clock starts: the process's first instruction, named on one clock with
 /// windowd's `launch request` and `surface presented` (TASK-0333 6a's stages).
 pub(super) fn mark_start() -> u64 {

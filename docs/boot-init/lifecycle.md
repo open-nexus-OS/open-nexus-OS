@@ -5,7 +5,7 @@ role: guide
 subsystem: app-platform
 sources: [source/init/nexus-init/src/bootstrap/supervision.rs, source/init/nexus-init/src/service_supervision.rs, source/init/nexus-init/src/supervision_engine.rs, source/init/nexus-init/src/bootstrap/respawn.rs, source/init/nexus-init/src/bootstrap/windowd_respawn.rs, source/services/execd/src/os_lite]
 contracts: [ADR-0073, ADR-0056, ADR-0057, ADR-0062, RFC-0013, RFC-0112]
-verified: 2026-11-04
+verified: 2026-11-18
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -97,8 +97,9 @@ The windowd respawn (`bootstrap/windowd_respawn.rs`, `src/respawn_plan.rs`):
 2. Drop answers still queued for the dead instance.
 3. Re-pin every client leg into windowd over the dead capabilities (`REPLACE_DEAD`); clients
    are read from the declarations (`SERVICE_SPECS`), never from a separate list.
-4. Place it on cpu0, raise it to `Interactive` (ADR-0096, the soft-realtime chain's class), resume
-   it, tell execd (`OP_COMPOSITOR_BACK`).
+4. Place it on cpu0, raise it to `Interactive` (ADR-0096, the soft-realtime chain's class), hand
+   it its time right again and bind its reservation (RFC-0120: the dead one's ended with it),
+   resume it, tell execd (`OP_COMPOSITOR_BACK`).
 
 Then:
 

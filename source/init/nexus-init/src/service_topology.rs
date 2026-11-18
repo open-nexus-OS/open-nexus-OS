@@ -18,7 +18,8 @@ pub use nexus_service_topology::*;
 /// CPU placement for a service (init applies it at resume; kernel-side comments in
 /// `core/trap/runtime.rs` refer to this by name).
 pub use crate::affinity::{
-    display_time_ppm, placement_for, reservation_for, soft_realtime, Reservation, DISPLAY_TIME,
+    apps_time_ppm, display_time_ppm, placement_for, reservation_for, soft_realtime, Reservation,
+    APPS_GRAIN_PPM, APP_SPAWNER, CHAIN,
 };
 
 #[cfg(test)]

@@ -193,9 +193,8 @@ fn wait_ok_response(pid: u32, code: i32, reason: ExitReason) -> Vec<u8> {
 /// RFC-0081: reaper-of-record sweep. Drains every child that has exited since
 /// the last call, non-blocking — each `wait_nohang` reap frees that child's
 /// address space (heap-backed page tables) in the kernel, and records the exit
-/// (idempotent crash handling) so a later `OP_WAIT_PID` answers from cache.
-/// Bounded by the tracked-child count; human-rate, so the per-reap marker and
-/// `format!` are acceptable (same discipline as the spawn markers).
+/// (idempotent crash handling) so a later `OP_WAIT_PID` answers from cache. Bounded by the
+/// tracked-child count; human-rate, so the per-reap marker and `format!` are acceptable.
 fn reap_ready_children(state: &mut State) -> Vec<Death> {
     let mut apps = Vec::new();
     // Twice the table's bound of exited rows covers any burst of deaths between two sweeps.
@@ -215,6 +214,7 @@ fn reap_ready_children(state: &mut State) -> Vec<Death> {
                     mm.as_ref().map_or(0, |m| m.kernel_objects())
                 ));
                 if is_app {
+                    crate::app_time::end(pid);
                     apps.push(Death { pid, code, reason });
                 }
             }

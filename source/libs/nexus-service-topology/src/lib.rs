@@ -77,6 +77,12 @@ pub const LATE_GRANT_BASE: u32 = 0xE0;
 /// fleet-wide slot, not a per-service declaration — every service holds the same fence.
 pub const STAGE_FENCE_SLOT: u32 = 0x38;
 
+/// Where a task's time right lands (RFC-0120, TASK-0365 P1): the capability its parent derived
+/// for it and handed down before its first run — init to a service of the display chain and to
+/// the app spawner, the app spawner to each app. One fleet-wide slot, empty in a task that was
+/// given no time (it runs in the fair class). A holder takes from it only what it holds.
+pub const TIME_RIGHT_SLOT: u32 = 0x3B;
+
 /// The block plane's client slots (TASK-0315 wiring, TASK-0324 P4f-1b home): every
 /// block-plane client (statefsd, vfsd, bootctld, updated, bundlemgrd) receives blkd's
 /// request SEND at [`BLK_PLANE_REQ_SLOT`] and a private reply pair at [`BLK_PLANE_REPLY`],

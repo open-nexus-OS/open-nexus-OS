@@ -5,7 +5,7 @@ role: reference
 subsystem: kernel
 sources: [source/kernel/neuron/src/core/idle.rs, source/kernel/neuron/src/core/cpu_main.rs, source/kernel/neuron/src/core/trap/own_deadlines.rs, source/kernel/neuron/src/core/trap/runtime.rs, source/kernel/neuron/src/core/trap/baseline.rs, source/kernel/neuron/src/core/smp/runtime.rs, source/kernel/neuron/src/task/deadline_rule.rs, source/kernel/neuron/src/timer.rs, source/kernel/neuron/src/mm/pressure_endpoint.rs, source/kernel/neuron/src/task/wake.rs]
 contracts: [ADR-0052, RFC-0021]
-verified: 2026-11-17
+verified: 2026-11-18
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
