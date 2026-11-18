@@ -236,17 +236,20 @@ proves = "kernel selftest: poisoned tp rejected by identity fast path and counte
 [marker."SELFTEST: workpool bounded ok"]
 phase = "bringup"
 emit_when = { profile = "headless" }
-proves = "workpool rejects run-before-init, zero-worker init and double init (bounded contract)"
+proves = "workpool rejects a run before init and a second init (bounded contract)"
 
 [marker."SELFTEST: workpool determinism ok"]
 phase = "bringup"
 emit_when = { profile = "headless" }
 proves = "fence-coordinated parallel compute equals the sequential reference (workers=1 == workers=N)"
 
-[marker."SELFTEST: workpool affinity ok"]
+# TASK-0365 P2: no program names a CPU or a count of them. The pool has a worker per CPU its
+# process may run on (the set its role was given, among the online ones); a worker pins itself
+# nowhere — the kernel places it inside the set it inherits.
+[marker."SELFTEST: workpool sized ok"]
 phase = "bringup"
 emit_when = { profile = "headless" }
-proves = "worker self-pin round-trips through SYSCALL_SCHED (set_affinity + get_affinity agree; C4)"
+proves = "the pool has as many workers as CPUs the program may run on (its own set among the online ones, both asked of the kernel and counted by the probe), every worker alive on its own stack and woken by the run"
 
 [marker."SELFTEST: pinched bounded ok"]
 phase = "bringup"
@@ -276,7 +279,7 @@ proves = "depth-6 add-tree folds to the exact normal-form value 2080 on the net 
 [marker."SELFTEST: inet parallel exec ok"]
 phase = "bringup"
 emit_when = { profile = "headless" }
-proves = "both workpool workers performed >0 interactions in the parallel rounds (honest dispatch counters)"
+proves = "the rounds ran on the pool, not inline: the first chunk's worker performed >0 interactions and, on a pool of more than one worker, so did the others (honest dispatch counters)"
 
 [marker."SELFTEST: pinched bounded FAIL (status)"]
 phase = "bringup"
@@ -1470,7 +1473,7 @@ phase = "bringup"
 [marker."SELFTEST: thread spawn FAIL (spawn)"]
 phase = "bringup"
 
-[marker."SELFTEST: workpool affinity FAIL (no pin)"]
+[marker."SELFTEST: workpool sized FAIL"]
 phase = "bringup"
 
 [marker."SELFTEST: workpool bounded FAIL"]

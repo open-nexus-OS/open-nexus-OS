@@ -10,6 +10,8 @@ authors = ["Open Nexus OS Contributors"]
 
 [dependencies]
 nexus-abi = { path = "../nexus-abi" }
+# The CPU set the pool is sized from (pure; the kernel's answers come through nexus-abi).
+nexus-sched = { path = "../nexus-sched" }
 
 [lints.rust]
 unexpected_cfgs = { level = "allow" }

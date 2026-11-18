@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-11-18 (no program names a CPU or a count of them — TASK-0365 P2)
+
+- **The workpool sizes itself**: a worker per CPU its process may run on — the set its role
+  was given, among the online ones (`nexus_workpool::workers_for`; `init()` takes no number
+  and returns the count, `workers()` reads it). A worker pins itself nowhere: it inherits its
+  process's set and the kernel places it inside. The fixed ceiling of four and the worker's
+  self-pin to "the i-th online CPU" are gone (retired-name gate: `MAX_WORKERS`,
+  `PINCHED_WORKERS`, `selftest_pinned`, `pin_worker`, `WORKER_STACKS`).
+- **The workers' stacks are one lazy mapping**, sized by the worker count: one region of the
+  address space, a page committed when a stack reaches it (was: four static 64 KiB arrays).
+- **pinched reports the pool's own count** (`pinched: workpool ready (workers=)`: 1 on one
+  hart, 7 on eight — the background role); its interaction-net counters are "the first chunk's
+  worker" and "the others", on any worker count.
+- **Fixed: a restarted service is placed like at boot.** init's restart path resumed pinched
+  without its placement, class and time — found by the new line (a restarted pinched named 8
+  workers, not 7). `scripts/qemu-test.sh` now fails a run whose pinched instances name
+  different worker counts.
+- Markers: `SELFTEST: workpool sized ok` replaces `SELFTEST: workpool affinity ok` (the
+  self-pin round trip it proved no longer exists); `SELFTEST: workpool bounded ok` no longer
+  claims a zero-worker reject (no caller names a number).
+- Board (`board--2026-11-18T10-33-10`, 8 harts): pinched 7 workers at each of its four starts,
+  the selftest's pool 8 of 8 alive and woken, the broker's raster and net results unchanged.
+  Holders' wakes 99.16 % of 158 767 within 200 us, none above 10 ms, 5 periods missed (0, 4
+  and 23 in the three runs before); no kernel-lock hold above 1 ms.
+- **Open, named: the IPC round trip on the board is 57 us** (budget 64) — 56 in the run before,
+  28–49 in the ten before that. It repeats within a build (48 and 49 on one image) and moves
+  between builds; the one-hart lane reads 62 us on every one of them, so the path's cost did
+  not change. Not measured: which CPUs the two partners of the bench sit on — the round trip
+  per CPU is the first measurement of the placement phase (TASK-0365 P3).
+
 ### Changed - 2026-11-18 (who holds which time: rights handed down — TASK-0365 P1)
 
 - **A time right is handed down as a capability.** A parent derives a right for its child and

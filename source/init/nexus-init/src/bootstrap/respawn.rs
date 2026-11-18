@@ -269,6 +269,13 @@ fn respawn_pinched(
     // respawn mints again); close it so respawns never accumulate caps.
     let _ = nexus_abi::cap_close(req);
 
+    // A restarted service is the same role: placed, classed and given its time as at boot,
+    // before its first run (TASK-0365 P2 — without this it ran on every CPU, and its pool
+    // sized itself from them: `pinched: workpool ready (workers=)` named one more).
+    crate::bootstrap::resume::apply_affinity(name, pid);
+    crate::bootstrap::resume::apply_qos(name, pid);
+    crate::bootstrap::resume::apply_time_right(name, pid);
+
     // RFC-0087 §2: the restart counter is durable BEFORE anyone can observe
     // the restarted instance (strict PUT+SYNC → resume ordering keeps the
     // shared statefs response queue race-free for readers).

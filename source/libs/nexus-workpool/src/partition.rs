@@ -34,7 +34,7 @@ mod tests {
     #[test]
     fn chunks_cover_exactly_and_disjointly() {
         for total in [0usize, 1, 7, 64, 1000, 1023] {
-            for workers in 1usize..=4 {
+            for workers in 1usize..=64 {
                 let mut next = 0usize;
                 for idx in 0..workers {
                     let (start, end) = chunk_bounds(total, workers, idx);

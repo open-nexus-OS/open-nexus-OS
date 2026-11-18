@@ -376,29 +376,32 @@ extern "C" fn wp_job(start: usize, end: usize, _ctx: *mut u8) {
 pub(crate) fn workpool_proof() {
     use core::sync::atomic::Ordering;
 
-    // Bounded contract first: run before init and invalid init are REJECTED.
+    // Bounded contract first: a run before init is REJECTED. The pool sizes itself (TASK-0365
+    // P2): a worker per CPU this program may run on — no caller names a number.
     let pre_run = nexus_workpool::run(1, wp_job, core::ptr::null_mut(), 1_000_000_000).is_err();
-    let zero_init = nexus_workpool::init(0).is_err();
-    if let Err(err) = nexus_workpool::init(2) {
-        emit_line(match err {
-            nexus_workpool::PoolError::AbiFence => {
-                crate::markers::M_SELFTEST_WORKPOOL_BOUNDED_FAIL_FENCE
-            }
-            nexus_workpool::PoolError::AbiSpawn => {
-                crate::markers::M_SELFTEST_WORKPOOL_BOUNDED_FAIL_SPAWN
-            }
-            nexus_workpool::PoolError::AbiTransfer => {
-                crate::markers::M_SELFTEST_WORKPOOL_BOUNDED_FAIL_TRANSFER
-            }
-            nexus_workpool::PoolError::AbiResume => {
-                crate::markers::M_SELFTEST_WORKPOOL_BOUNDED_FAIL_RESUME
-            }
-            _ => crate::markers::M_SELFTEST_WORKPOOL_BOUNDED_FAIL_INIT,
-        });
-        return;
-    }
-    let double_init = nexus_workpool::init(2).is_err();
-    if pre_run && zero_init && double_init {
+    let workers = match nexus_workpool::init() {
+        Ok(workers) => workers,
+        Err(err) => {
+            emit_line(match err {
+                nexus_workpool::PoolError::AbiFence => {
+                    crate::markers::M_SELFTEST_WORKPOOL_BOUNDED_FAIL_FENCE
+                }
+                nexus_workpool::PoolError::AbiSpawn => {
+                    crate::markers::M_SELFTEST_WORKPOOL_BOUNDED_FAIL_SPAWN
+                }
+                nexus_workpool::PoolError::AbiTransfer => {
+                    crate::markers::M_SELFTEST_WORKPOOL_BOUNDED_FAIL_TRANSFER
+                }
+                nexus_workpool::PoolError::AbiResume => {
+                    crate::markers::M_SELFTEST_WORKPOOL_BOUNDED_FAIL_RESUME
+                }
+                _ => crate::markers::M_SELFTEST_WORKPOOL_BOUNDED_FAIL_INIT,
+            });
+            return;
+        }
+    };
+    let double_init = nexus_workpool::init().is_err();
+    if pre_run && double_init {
         emit_line(crate::markers::M_SELFTEST_WORKPOOL_BOUNDED_OK);
     } else {
         emit_line(crate::markers::M_SELFTEST_WORKPOOL_BOUNDED_FAIL);
@@ -432,13 +435,31 @@ pub(crate) fn workpool_proof() {
             }
             if bad_lo == 0 && bad_hi == 0 {
                 emit_line(crate::markers::M_SELFTEST_WORKPOOL_DETERMINISM_OK);
-                // C4: worker 0 pins itself to CPU 0 (present on every SMP
-                // config), so at least one round-tripped pin is REQUIRED.
-                if nexus_workpool::pool::selftest_pinned() >= 1 {
-                    emit_line(crate::markers::M_SELFTEST_WORKPOOL_AFFINITY_OK);
+                // Sized by the machine: as many workers as CPUs this program may run on
+                // (counted here from the kernel's two answers, not taken from the pool),
+                // every one of them alive on its own stack and woken by the run.
+                let cpus = nexus_abi::sched::get_affinity()
+                    .ok()
+                    .zip(nexus_abi::sched::online().ok())
+                    .map_or(0, |(own, online)| own.intersection(online).count());
+                let (alive, woke, _) = nexus_workpool::pool::selftest_debug();
+                if workers == cpus && alive == workers && woke >= workers {
+                    emit_line(crate::markers::M_SELFTEST_WORKPOOL_SIZED_OK);
                 } else {
-                    emit_line(crate::markers::M_SELFTEST_WORKPOOL_AFFINITY_FAIL_NO_PIN);
+                    emit_line(crate::markers::M_SELFTEST_WORKPOOL_SIZED_FAIL);
                 }
+                // The numbers behind the marker (the probes' own line form).
+                use crate::markers::{emit_bytes, emit_u64};
+                for (label, value) in [
+                    (&b"selftest: workpool (workers="[..], workers),
+                    (b" cpus=", cpus),
+                    (b" alive=", alive),
+                    (b" woke=", woke),
+                ] {
+                    emit_bytes(label);
+                    emit_u64(value as u64);
+                }
+                emit_bytes(b")\n");
             } else if bad_lo > 0 && bad_hi == 0 {
                 emit_line(crate::markers::M_SELFTEST_WORKPOOL_DETERMINISM_FAIL_LO_CHUNK);
             } else if bad_lo == 0 && bad_hi > 0 {

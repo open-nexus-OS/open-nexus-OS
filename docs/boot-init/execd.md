@@ -5,7 +5,7 @@ role: guide
 subsystem: app-platform
 sources: [source/services/execd, source/kernel/neuron/src/syscall/api/exec.rs, source/libs/nexus-wire/src/execd.rs]
 contracts: [ADR-0080, ADR-0081, ADR-0091, ADR-0073, RFC-0081, RFC-0111]
-verified: 2026-11-12
+verified: 2026-11-18
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -83,7 +83,9 @@ Order gate: `src/orders.rs` (host-tested, `test_reject_*`). Shared codec:
    (RFC-0086 identity).
 6. Grants before resume: windowd route, payload VMO, event channel (execd keeps its SEND half),
    timer channel, read-only shared glyph atlas (RFC-0080), the app's granted service routes
-   (`nexus-sdk-routes`).
+   (`nexus-sdk-routes`). The sched recipe (`sched_recipe.rs`) sets its placement role and
+   shares and hands it a time right: a tenth of a CPU derived from the apps' right init gave
+   execd (RFC-0120, `app_time.rs`, `execd: app time right ok (`); none left — it runs fair.
 7. Wait for bundlemgrd's payload answer, close execd's payload capability, `task_resume`.
 
 ## Reaping and death
@@ -92,6 +94,7 @@ Order gate: `src/orders.rs` (host-tested, `test_reject_*`). Shared codec:
   (`execd: reaper armed`). The kernel writes one `OP_CHILD_EXITED` frame per dead child.
 - The wake runs a sweep of `wait_nohang_with_reason` (RFC-0081): every ready zombie is reaped
   (`execd: reaped pid=<p> code=<c> (free= vmos= …)`) with its kernel exit reason (ADR-0056).
+- A reaped app's time right is revoked: its share is the apps' right's again.
 - An app's death goes to abilitymgr as a one-way `OP_INSTANCE_EXITED`
   (`execd: exit notified (pid= to=abilitymgr)`), bounded pending queue, never a blocking request.
 - An ordered kill (ADR-0082) is recorded first, so the reap reads `Killed` as the order carried

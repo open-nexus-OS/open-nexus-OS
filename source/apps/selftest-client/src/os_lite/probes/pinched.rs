@@ -228,9 +228,10 @@ fn inet_proof(client: &KernelClient) {
                 return;
             }
             emit_line(crate::markers::M_SELFTEST_INET_DETERMINISM_OK);
-            // Parallel dispatch: both workers must have reduced (>0 each) on
-            // the parallel backend. Honest counters from the round driver.
-            if workers >= 1 && w0 > 0 && w1 > 0 {
+            // Dispatch on the pool: the first chunk's worker must have reduced, and on a
+            // pool of more than one worker the others too (one CPU gives one worker).
+            // Honest counters from the round driver.
+            if workers >= 1 && w0 > 0 && (workers == 1) == (w1 == 0) {
                 emit_line(crate::markers::M_SELFTEST_INET_PARALLEL_EXEC_OK);
             } else {
                 emit_line(crate::markers::M_SELFTEST_INET_PARALLEL_EXEC_FAIL_COUNTERS);

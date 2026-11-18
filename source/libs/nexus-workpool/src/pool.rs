@@ -2,16 +2,22 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: THE process-wide compute pool (TASK-0276: one shared pool, never
-//! a pool per subsystem) — fixed worker count, fence-coordinated (no busy
-//! spinning), deterministic partition → compute → canonical reduce.
+//! a pool per subsystem) — a worker per CPU the process may run on (TASK-0365 P2: the
+//! set its role was given, asked of the kernel; no program names a CPU or a count of
+//! them), fence-coordinated (no busy spinning), deterministic partition → compute →
+//! canonical reduce.
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: QEMU markers (workpool determinism/bounded ok); partition
-//!   math + the workers=1≡N equality matrix are host-tested in this crate.
+//! TEST_COVERAGE: QEMU markers (workpool determinism/bounded/sized ok); partition
+//!   math, the sizing rule + the workers=1≡N equality matrix are host-tested in this crate.
 //! INVARIANTS:
 //!   - Workers are same-AS compute threads with EMPTY cap tables except the
 //!     two fence caps transferred before resume (compute-only contract).
+//!   - A worker is placed by the kernel inside the set it inherits from its process
+//!     (a woken thread runs where it runs soonest); it pins itself nowhere.
+//!   - The workers' stacks are one mapping of one object committed on first touch:
+//!     sized by the worker count, one region of the address space, no page before use.
 //!   - Exactly one job in flight (`run` is synchronous); a concurrent submit
 //!     is REJECTED, never queued unbounded (TASK-0276 backpressure).
 //!   - Workers park in `fence_wait` (kernel-blocked) between jobs.
@@ -23,16 +29,29 @@
 
 use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
+use nexus_sched::CpuSet;
+
 use crate::partition::chunk_bounds;
 
-/// Worker ceiling (mirrors the kernel CPU ceiling).
-pub const MAX_WORKERS: usize = 4;
-// 64 KiB per worker: real workloads (SVG rasterization) overflowed 32 KiB —
-// and a static-array stack overflows SILENTLY into neighbouring .bss (the
-// known three-stack-cliff failure mode). The canary below turns the silent
-// cliff into a loud, attributable error.
-// Only consumed by the OS-side worker spawn path below; host builds compile
-// the API surface without the static stacks.
+/// The pool's tables hold a worker per CPU a set can name — the one ceiling a machine has
+/// (RFC-0118), never a count of workers.
+const SLOTS: usize = CpuSet::BITS;
+
+/// How many workers a process has: one per CPU it may run on — the set its role was given,
+/// among the online ones — and one where the kernel answers nothing.
+#[must_use]
+pub const fn workers_for(may_run_on: CpuSet, online: CpuSet) -> usize {
+    let cpus = may_run_on.intersection(online).count();
+    if cpus == 0 {
+        1
+    } else {
+        cpus
+    }
+}
+
+// 64 KiB per worker: real workloads (SVG rasterization) overflowed 32 KiB. A worker that
+// runs through its stack's floor writes into its neighbour's top; the canary below turns
+// that into a loud, attributable error.
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 const WORKER_STACK_BYTES: usize = 64 * 1024;
 
@@ -57,16 +76,16 @@ pub enum PoolError {
     NotReady,
     /// A job is already in flight (bounded depth-1 submission; retry later).
     Busy,
-    /// Invalid arguments (workers == 0).
-    InvalidArgs,
     /// A previous run timed out with workers still executing: worker state is
     /// unknown, so the pool refuses all further jobs (callers use their
     /// inline fallback). Fail-closed — never hand a new job to workers that
     /// may still be writing the old one.
     Poisoned,
-    /// A worker's stack canary is dead: it overflowed its static stack and
+    /// A worker's stack canary is dead: it overflowed its stack and
     /// may have corrupted neighbouring memory. The pool poisons itself.
     StackOverflow,
+    /// The workers' stacks could not be made or mapped during init.
+    AbiStack,
     /// fence_create failed during init.
     AbiFence,
     /// thread spawn failed during init.
@@ -125,12 +144,12 @@ struct Shared {
         not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")),
         allow(dead_code)
     )]
-    worker_job_slot: [AtomicUsize; MAX_WORKERS],
+    worker_job_slot: [AtomicUsize; SLOTS],
     #[cfg_attr(
         not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")),
         allow(dead_code)
     )]
-    worker_done_slot: [AtomicUsize; MAX_WORKERS],
+    worker_done_slot: [AtomicUsize; SLOTS],
     /// Parent-side fence cap slots.
     #[cfg_attr(
         not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")),
@@ -143,11 +162,16 @@ struct Shared {
     )]
     parent_done_slot: AtomicUsize,
     /// Diagnostics: workers that reached their entry loop.
-    alive: [AtomicUsize; MAX_WORKERS],
+    alive: [AtomicUsize; SLOTS],
     /// Diagnostics: fence_wait returns per worker.
-    woke: [AtomicUsize; MAX_WORKERS],
-    /// Diagnostics: workers whose self-pin round-tripped (set + get agree).
-    pinned: [AtomicUsize; MAX_WORKERS],
+    woke: [AtomicUsize; SLOTS],
+    /// Where the workers' stacks are mapped (worker `i`: `WORKER_STACK_BYTES` from
+    /// `stacks + i * WORKER_STACK_BYTES`).
+    #[cfg_attr(
+        not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")),
+        allow(dead_code)
+    )]
+    stacks: AtomicUsize,
 }
 
 static SHARED: Shared = Shared {
@@ -158,34 +182,51 @@ static SHARED: Shared = Shared {
     job_total: AtomicUsize::new(0),
     seq: AtomicU64::new(0),
     done_count: AtomicUsize::new(0),
-    worker_job_slot: [const { AtomicUsize::new(0) }; MAX_WORKERS],
-    worker_done_slot: [const { AtomicUsize::new(0) }; MAX_WORKERS],
+    worker_job_slot: [const { AtomicUsize::new(0) }; SLOTS],
+    worker_done_slot: [const { AtomicUsize::new(0) }; SLOTS],
     parent_job_slot: AtomicUsize::new(0),
     parent_done_slot: AtomicUsize::new(0),
-    alive: [const { AtomicUsize::new(0) }; MAX_WORKERS],
-    woke: [const { AtomicUsize::new(0) }; MAX_WORKERS],
-    pinned: [const { AtomicUsize::new(0) }; MAX_WORKERS],
+    alive: [const { AtomicUsize::new(0) }; SLOTS],
+    woke: [const { AtomicUsize::new(0) }; SLOTS],
+    stacks: AtomicUsize::new(0),
 };
 
+/// Makes the workers' stacks: one object committed on first touch (a stack costs the pages
+/// it reaches), mapped once at an address the kernel chooses — one region of the address
+/// space however many workers the machine gives. Returns where.
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
-static mut WORKER_STACKS: [[u8; WORKER_STACK_BYTES]; MAX_WORKERS] =
-    [[0; WORKER_STACK_BYTES]; MAX_WORKERS];
+fn map_stacks(workers: usize) -> Result<usize, PoolError> {
+    use nexus_abi::page_flags::{READ, USER, VALID, WRITE};
+    let len = workers * WORKER_STACK_BYTES;
+    let object = nexus_abi::vmo_create_lazy(len).map_err(|_| PoolError::AbiStack)?;
+    let mapped = nexus_abi::vm_map(object, 0, len, VALID | USER | READ | WRITE);
+    // The mapping holds the object; the capability is not needed past it.
+    let _ = nexus_abi::cap_close(object);
+    mapped.map_err(|_| PoolError::AbiStack)
+}
+
+/// Worker `idx`'s stack.
+///
+/// # Safety
+/// `base` is where [`map_stacks`] mapped at least `idx + 1` stacks; the caller is the one
+/// user of worker `idx`'s range for the borrow.
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+unsafe fn stack_of(base: usize, idx: usize) -> &'static mut [u8] {
+    // SAFETY: the range lies inside the mapping (the caller's contract), mapped read-write
+    // for the rest of the program.
+    unsafe {
+        core::slice::from_raw_parts_mut(
+            (base + idx * WORKER_STACK_BYTES) as *mut u8,
+            WORKER_STACK_BYTES,
+        )
+    }
+}
 
 /// Worker loop: park in `fence_wait` until the next job seq, process our
 /// deterministic chunk, last-one-out signals the done fence.
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 extern "C" fn worker_entry(idx: usize) {
     SHARED.alive[idx].store(1, Ordering::Release);
-    // TASK-0042/C4: deterministic self-pin — worker idx wants the idx-th online CPU
-    // (RFC-0118: asked of the kernel, never assumed). A machine with fewer online CPUs
-    // has no such CPU and the worker deterministically keeps the inherited set.
-    let wanted = nexus_abi::sched::online().ok().and_then(|online| online.iter().nth(idx));
-    let desired = wanted.and_then(nexus_abi::sched::CpuSet::single);
-    if desired.is_some_and(|set| {
-        nexus_abi::sched::set_affinity(set).is_ok() && nexus_abi::sched::get_affinity() == Ok(set)
-    }) {
-        SHARED.pinned[idx].store(1, Ordering::Release);
-    }
     let job_slot = SHARED.worker_job_slot[idx].load(Ordering::Acquire) as u32;
     let done_slot = SHARED.worker_done_slot[idx].load(Ordering::Acquire) as u32;
     let mut seq: u64 = 0;
@@ -225,35 +266,35 @@ pub fn selftest_probe_done_fence() -> bool {
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 fn canaries_intact() -> bool {
     let workers = SHARED.workers.load(Ordering::Acquire);
-    for idx in 0..workers.min(MAX_WORKERS) {
-        // SAFETY: read-only view of the worker's dedicated static stack; the
-        // bottom 8 bytes are reserved for the canary (never valid stack data).
-        let stack = unsafe { &(*core::ptr::addr_of!(WORKER_STACKS))[idx] };
-        if stack[..8] != STACK_CANARY.to_le_bytes() {
-            return false;
-        }
-    }
-    true
+    let base = SHARED.stacks.load(Ordering::Acquire);
+    (0..workers).all(|idx| {
+        // SAFETY: the bottom 8 bytes of a worker's stack are reserved for the canary
+        // (never valid stack data) and lie inside the mapping `init` made for `workers`.
+        let floor = unsafe {
+            core::ptr::read_volatile((base + idx * WORKER_STACK_BYTES) as *const [u8; 8])
+        };
+        floor == STACK_CANARY.to_le_bytes()
+    })
 }
 
 /// Diagnostics for proofs: (alive workers, woke count, done_count).
 pub fn selftest_debug() -> (usize, usize, u64) {
     let mut alive = 0;
     let mut woke = 0;
-    for idx in 0..MAX_WORKERS {
+    for idx in 0..SLOTS {
         alive += SHARED.alive[idx].load(Ordering::Acquire);
         woke += SHARED.woke[idx].load(Ordering::Acquire);
     }
     (alive, woke, SHARED.done_count.load(Ordering::Acquire) as u64)
 }
 
-/// Diagnostics for proofs: workers whose self-pin round-tripped (C4).
-pub fn selftest_pinned() -> usize {
-    let mut pinned = 0;
-    for slot in SHARED.pinned.iter() {
-        pinned += slot.load(Ordering::Acquire);
+/// The pool's workers: as many as CPUs the process may run on; 0 before [`init`].
+#[must_use]
+pub fn workers() -> usize {
+    match SHARED.state.load(Ordering::Acquire) {
+        STATE_UNINIT | STATE_INIT_IN_PROGRESS => 0,
+        _ => SHARED.workers.load(Ordering::Acquire),
     }
-    pinned
 }
 
 /// Diagnostic: does the parent's own job-fence cap observe its own signal?
@@ -265,26 +306,10 @@ pub fn selftest_probe_job_selfsignal() -> bool {
     nexus_abi::fence_wait(job_slot, seq, deadline).is_ok()
 }
 
-/// C4 (TASK-0042): deterministic worker placement — worker `i` pins itself
-/// to the `i`-th online CPU the kernel reports (RFC-0118), and keeps the
-/// inherited set on a machine with fewer online CPUs than workers.
-#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
-fn pin_worker(pid: nexus_abi::Pid, idx: usize) {
-    let _ = pid;
-    let _ = idx;
-    // Affinity is per-task and must be set BY the worker or cross-task with
-    // the QoS-admin cap. Services do not hold that cap, so v1 pins nothing
-    // cross-task; the deterministic placement comes from the kernel's
-    // round-robin spawn placement + affinity-respecting stealing. (execd
-    // recipe wiring — Phase B4 — will pin service pools explicitly.)
-}
-
-/// Initializes THE process pool with `workers` compute threads (clamped to
-/// [`MAX_WORKERS`]). Call once; further calls are rejected.
-pub fn init(workers: usize) -> Result<(), PoolError> {
-    if workers == 0 {
-        return Err(PoolError::InvalidArgs);
-    }
+/// Initializes THE process pool: a compute thread per CPU the process may run on
+/// ([`workers_for`] of its own set and the online one — the caller names no number).
+/// Returns how many. Call once; further calls are rejected.
+pub fn init() -> Result<usize, PoolError> {
     if SHARED
         .state
         .compare_exchange(STATE_UNINIT, STATE_INIT_IN_PROGRESS, Ordering::AcqRel, Ordering::Acquire)
@@ -292,11 +317,21 @@ pub fn init(workers: usize) -> Result<(), PoolError> {
     {
         return Err(PoolError::AlreadyInitialized);
     }
-    let workers = workers.min(MAX_WORKERS);
+    // The kernel's two answers; a host build has no kernel to ask and gets the one worker.
+    #[cfg(nexus_env = "os")]
+    let (own, online) = {
+        let online = nexus_abi::sched::online().unwrap_or(CpuSet::EMPTY);
+        (nexus_abi::sched::get_affinity().unwrap_or(online), online)
+    };
+    #[cfg(not(nexus_env = "os"))]
+    let (own, online) = (CpuSet::EMPTY, CpuSet::EMPTY);
+    let workers = workers_for(own, online);
 
     #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
     {
         let result = (|| -> Result<(), PoolError> {
+            let stacks = map_stacks(workers)?;
+            SHARED.stacks.store(stacks, Ordering::Release);
             let job_fence = nexus_abi::fence_create().map_err(|_| PoolError::AbiFence)?;
             let done_fence = nexus_abi::fence_create().map_err(|_| PoolError::AbiFence)?;
             SHARED.parent_job_slot.store(job_fence as usize, Ordering::Release);
@@ -304,8 +339,8 @@ pub fn init(workers: usize) -> Result<(), PoolError> {
             SHARED.workers.store(workers, Ordering::Release);
 
             for idx in 0..workers {
-                // SAFETY: each worker gets exactly one dedicated static stack.
-                let stack = unsafe { &mut (*core::ptr::addr_of_mut!(WORKER_STACKS))[idx] };
+                // SAFETY: `stacks` maps `workers` stacks; worker `idx` gets exactly its own.
+                let stack = unsafe { stack_of(stacks, idx) };
                 stack[..8].copy_from_slice(&STACK_CANARY.to_le_bytes());
                 let pid = nexus_abi::thread::spawn_thread_suspended(worker_entry, idx, stack)
                     .map_err(|_| PoolError::AbiSpawn)?;
@@ -317,7 +352,6 @@ pub fn init(workers: usize) -> Result<(), PoolError> {
                     .map_err(|_| PoolError::AbiTransfer)?;
                 SHARED.worker_job_slot[idx].store(js as usize, Ordering::Release);
                 SHARED.worker_done_slot[idx].store(ds as usize, Ordering::Release);
-                pin_worker(pid, idx);
                 nexus_abi::task_resume(pid).map_err(|_| PoolError::AbiResume)?;
             }
             Ok(())
@@ -325,7 +359,7 @@ pub fn init(workers: usize) -> Result<(), PoolError> {
         match result {
             Ok(()) => {
                 SHARED.state.store(STATE_READY, Ordering::Release);
-                Ok(())
+                Ok(workers)
             }
             Err(err) => {
                 // Fail closed: the pool stays unusable (workers may be
@@ -339,7 +373,7 @@ pub fn init(workers: usize) -> Result<(), PoolError> {
     {
         SHARED.workers.store(workers, Ordering::Release);
         SHARED.state.store(STATE_READY, Ordering::Release);
-        Ok(())
+        Ok(workers)
     }
 }
 

@@ -20,7 +20,7 @@ use nexus_sync::SpinLock;
 
 use crate::os_lite::{emit_line, finish, vmo_capacity, POOL_READY};
 use crate::protocol::*;
-use crate::{INET_ARENA_NODES, MAX_INET_DEPTH, PINCHED_WORKERS};
+use crate::{INET_ARENA_NODES, MAX_INET_DEPTH};
 
 /// The in-flight interaction-net round. Same publish discipline as SVG_JOB:
 /// the server stores the Arc before signalling the job fence; workers clone
@@ -34,9 +34,10 @@ struct InetRound {
     /// deques, no lock-free experiments). Confluence keeps the RESULT
     /// independent of merge order.
     next: SpinLock<alloc::vec::Vec<nexus_inet::Redex>>,
-    /// Per-worker interaction counters (parallel-dispatch proof) and a
-    /// sticky error flag (any rule failure fails the whole job, loudly).
-    reductions: [AtomicU32; nexus_workpool::MAX_WORKERS],
+    /// Interaction counters (the dispatch proof) — the first chunk's worker and all the
+    /// others' together, however many the machine gives — and a sticky error flag (any
+    /// rule failure fails the whole job, loudly).
+    reductions: [AtomicU32; 2],
     failed: AtomicBool,
 }
 
@@ -52,8 +53,8 @@ extern "C" fn job_inet_round(start: usize, end: usize, _ctx: *mut u8) {
         round.failed.store(true, Ordering::Release);
         return;
     }
-    // Worker identity for the counter: derive from the chunk start (chunking
-    // is deterministic, chunks are disjoint — start maps to at most one idx).
+    // Which counter: the chunk that starts the list is the first worker's (chunking is
+    // deterministic, chunks are disjoint); every other chunk counts as "the others".
     let idx = if start == 0 { 0 } else { 1 };
     round.reductions[idx].fetch_add(out.reductions, Ordering::AcqRel);
     round.next.lock().extend(out.new_redexes);
@@ -79,7 +80,7 @@ fn run_inet_round(
         net: net.clone(),
         redexes: redexes.to_vec(),
         next: SpinLock::new(alloc::vec::Vec::new()),
-        reductions: [const { AtomicU32::new(0) }; nexus_workpool::MAX_WORKERS],
+        reductions: [const { AtomicU32::new(0) }; 2],
         failed: AtomicBool::new(false),
     });
     *INET_ROUND.lock() = Some(round.clone());
@@ -99,12 +100,10 @@ fn run_inet_round(
         return Err(RoundErr::Stuck);
     }
     let mut reds: u32 = 0;
-    for (idx, c) in round.reductions.iter().enumerate() {
+    for (count, c) in counts.iter_mut().zip(round.reductions.iter()) {
         let v = c.load(Ordering::Acquire);
         reds = reds.saturating_add(v);
-        if idx < 2 {
-            counts[idx] = counts[idx].saturating_add(v);
-        }
+        *count = count.saturating_add(v);
     }
     let next = core::mem::take(&mut *round.next.lock());
     Ok((reds, next))
@@ -186,7 +185,7 @@ pub(crate) fn handle_inet_tree_sum(vmo: u32, depth: usize) {
         emit_line("pinched: inet FAIL (no normal form value)");
         return finish(vmo, STATUS_BAD_INPUT, 0, 0);
     };
-    let workers: u32 = if parallel { PINCHED_WORKERS as u32 } else { 0 };
+    let workers: u32 = if parallel { nexus_workpool::workers() as u32 } else { 0 };
     let mut out = [0u8; OUT_LEN];
     out[0..8].copy_from_slice(&result.to_le_bytes());
     out[8..12].copy_from_slice(&counts[0].to_le_bytes());

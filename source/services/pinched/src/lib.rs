@@ -40,10 +40,6 @@ pub mod broker;
 /// u32 elements = 64 KiB payload — sized to the service's static job buffer.
 pub const MAX_JOB_ELEMS: usize = 16384;
 
-/// Fixed worker count for the service's workpool (one compute thread per
-/// expected secondary CPU; workers self-pin, see nexus-workpool C4).
-pub const PINCHED_WORKERS: usize = 2;
-
 /// Maximum SVG raster target edge (bounds the per-worker row buffer).
 pub const MAX_SVG_JOB_DIM: usize = 256;
 
@@ -106,8 +102,8 @@ pub mod protocol {
     /// Interaction-net tree-sum evaluation on the nexus-inet backend (Phase
     /// E proof workload). `total` = tree depth (1..=MAX_INET_DEPTH); no VMO
     /// input payload. Output at [`DATA_OFFSET`]: `[result:i64le,
-    /// red_w0:u32le, red_w1:u32le]` (per-worker interaction counters — the
-    /// parallel-dispatch proof). Header `elems` = total interactions. The
+    /// red_w0:u32le, red_w1:u32le]` (interaction counters — the first chunk's worker
+    /// and all the others' together: the dispatch proof on any worker count). Header `elems` = total interactions. The
     /// generic net-serialization wire format is a documented follow-up; v1
     /// clients declare WHAT to evaluate (the workload), never how.
     pub const JOB_INET_TREE_SUM: u8 = 3;

@@ -100,11 +100,15 @@ program ([float-state.md](float-state.md)).
 
 Placement is a role, not a mask (`nexus_sched::Placement`): `Display` = CPU 0 when online,
 `Background` = the other online CPUs (all of them on one hart), `Any` = the online set. init
-(`source/init/nexus-init/src/affinity.rs`, `bootstrap/resume.rs`), execd's sched recipes and the
-workpool (worker `i` on the `i`-th online CPU) resolve a role against the online set the kernel
-reports, so the set is one the kernel admits on every machine; a refusal is a failure
-(`init: affinity FAIL svc= set=`), never a reason to try a wider set. The boot summary is
-`init: affinity applied n= fail= online=`.
+(`source/init/nexus-init/src/affinity.rs`, `bootstrap/resume.rs`) and execd's sched recipes
+resolve a role against the online set the kernel reports, so the set is one the kernel admits on
+every machine; a refusal is a failure (`init: affinity FAIL svc= set=`), never a reason to try a
+wider set. The boot summary is `init: affinity applied n= fail= online=`.
+
+No program names a CPU or a count of them (TASK-0365 P2). The workpool has a worker per CPU its
+process may run on — its own set among the online ones (`nexus_workpool::workers_for`), which a
+thread inherits — and a worker pins itself nowhere: the kernel places it inside that set.
+`SELFTEST: workpool sized ok`; `pinched: workpool ready (workers=)`.
 
 ## Proof
 

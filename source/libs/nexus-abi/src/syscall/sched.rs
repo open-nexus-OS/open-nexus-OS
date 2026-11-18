@@ -12,7 +12,7 @@
 //! STATUS: Functional
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: `SELFTEST: affinity applied ok` (pin, a set beyond the harts refused, widen
-//!   back), `SELFTEST: workpool affinity ok`; the set and topology rules are host-tested in
+//!   back), `SELFTEST: workpool sized ok`; the set and topology rules are host-tested in
 //!   `nexus-sched`
 //! RFC: docs/rfcs/RFC-0118-n-harts-from-the-device-tree-a-64-bit-cpu-set-the-topology-exported.md
 

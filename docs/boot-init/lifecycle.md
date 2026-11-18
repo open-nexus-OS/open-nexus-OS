@@ -65,7 +65,9 @@ verified: 2026-11-18
    5 failures in 60 s park the service: `init: crash-loop blocked svc=<svc> reason=<r>`.
    Decided by the pure engine `src/supervision_engine.rs`.
 5. **Respawn** — `bootstrap/respawn.rs` restarts the services `respawnable()` lists (`pinched`,
-   `windowd`). Any other dead service is announced, marked stale, and stays down.
+   `windowd`). Any other dead service is announced, marked stale, and stays down. A respawned
+   instance is the same role: placed, classed and given its time as at boot, before its
+   first run.
 6. **Persist** — before resuming a respawned instance init bumps
    `/state/init/restarts/<svc>` in statefs (`bootstrap/persist.rs`; init holds
    `statefs.read`/`statefs.write` in `policies/base.toml`).

@@ -50,7 +50,7 @@ Job kinds:
 | ---- | ------- | ---------------- |
 | `JOB_MAP_MIX_U32` (1) | u32 elements, pure per-element transform | elements |
 | `JOB_SVG_RASTER` (2) | UTF-8 SVG in, BGRA8888 pixels out | output rows |
-| `JOB_INET_TREE_SUM` (3) | add-tree depth in, folded value + per-worker counters out | redexes per round |
+| `JOB_INET_TREE_SUM` (3) | add-tree depth in, folded value + two dispatch counters out (the first chunk's worker, all the others) | redexes per round |
 
 ## First workload: banded SVG rasterization (D4)
 

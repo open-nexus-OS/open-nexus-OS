@@ -3470,6 +3470,14 @@ if [[ "$(count_lines "SELFTEST: hw probe ok (float=1 vector=1 ")" -gt 0 ]]; then
     exit 1
   fi
 fi
+# TASK-0365 P2: a restarted service is the same role — init places it like at boot, before its
+# first run. pinched sizes its pool from the CPUs it may run on, so every instance of one run
+# names the same worker count (a restart that skipped the placement named one more).
+pinched_pools="$(grep -aoE "pinched: workpool ready \(workers=[0-9]+\)" "$UART_LOG" | sort -u || true)"
+if [[ "$(printf '%s\n' "$pinched_pools" | grep -c .)" -gt 1 ]]; then
+  echo "[error] a restarted pinched was not placed like at boot: $(printf '%s' "$pinched_pools" | tr '\n' ' ')" >&2
+  exit 1
+fi
 
 # TASK-0244 P3 (RFC-0098): the platform comes from the device tree, in EVERY profile.
 # The kernel must have parsed the tree it was handed and printed the values it read;

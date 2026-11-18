@@ -2980,6 +2980,7 @@ name = "nexus-workpool"
 version = "0.1.0"
 dependencies = [
  "nexus-abi",
+ "nexus-sched",
 ]
 
 [[package]]

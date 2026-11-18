@@ -32,7 +32,7 @@ use crate::os_lite_inet::handle_inet_tree_sum;
 
 use crate::broker::mix_u32;
 use crate::protocol::*;
-use crate::{MAX_JOB_ELEMS, MAX_SVG_BYTES, MAX_SVG_JOB_DIM, PINCHED_WORKERS};
+use crate::{MAX_JOB_ELEMS, MAX_SVG_BYTES, MAX_SVG_JOB_DIM};
 
 /// Result type for pinched operations.
 pub type PinchedResult<T> = Result<T, PinchedError>;
@@ -143,10 +143,12 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> PinchedResult<()> {
 
     // Bring up the compute backend once. Failure is NOT fatal: jobs then run
     // inline (deterministically identical result, workers reported as 0).
-    match nexus_workpool::init(PINCHED_WORKERS) {
-        Ok(()) => {
+    // TASK-0365 P2: as many workers as CPUs the broker may run on — its role's set, which
+    // init placed it in; the count is the pool's, never written here.
+    match nexus_workpool::init() {
+        Ok(workers) => {
             POOL_READY.store(true, Ordering::Release);
-            emit_line("pinched: workpool ready");
+            emit_line(&alloc::format!("pinched: workpool ready (workers={workers})"));
         }
         Err(_) => emit_line("pinched: workpool unavailable (inline fallback)"),
     }
@@ -305,7 +307,7 @@ fn handle_compute(frame: &[u8], vmo_slot: Option<u32>, io_buf: &mut Vec<u8>) {
     let workers: u32 = if POOL_READY.load(Ordering::Acquire)
         && nexus_workpool::run(total, job_map_mix, core::ptr::null_mut(), 5_000_000_000).is_ok()
     {
-        PINCHED_WORKERS as u32
+        nexus_workpool::workers() as u32
     } else {
         job_map_mix(0, total, core::ptr::null_mut());
         0
@@ -376,21 +378,24 @@ fn handle_svg(frame: &[u8], vmo: u32, total: usize, io_buf: &mut Vec<u8>) {
     // the deadline must dominate the worst honest run, not the average.
     let workers: u32 = if POOL_READY.load(Ordering::Acquire) {
         match nexus_workpool::run(h, job_svg_rows, core::ptr::null_mut(), 6_000_000_000) {
-            Ok(()) => PINCHED_WORKERS as u32,
+            Ok(()) => nexus_workpool::workers() as u32,
             Err(_) => {
                 let (alive, woke, done) = nexus_workpool::pool::selftest_debug();
                 emit_line(match (alive, woke > 0, done) {
-                    (a, _, _) if a < 2 => "pinched: svg run FAIL (worker died)",
+                    (a, _, _) if a < nexus_workpool::workers() => {
+                        "pinched: svg run FAIL (worker died)"
+                    }
                     (_, false, _) => "pinched: svg run FAIL (workers never woke)",
                     (_, true, 0) => "pinched: svg run FAIL (woke, done=0)",
                     (_, true, 1) => "pinched: svg run FAIL (woke, done=1)",
                     _ => "pinched: svg run FAIL (woke, done=2?)",
                 });
-                // Which step did each worker band reach? (chunk starts: 0 and h/2)
+                // Which step did the first two bands reach? (their chunk starts)
+                let second = nexus_workpool::chunk_bounds(h, nexus_workpool::workers(), 1).0;
                 emit_line(
                     match (
                         SVG_STEP[0].load(Ordering::Acquire),
-                        SVG_STEP[(h / 2) % 4].load(Ordering::Acquire),
+                        SVG_STEP[second % 4].load(Ordering::Acquire),
                     ) {
                         (0, b) if b > 0 => "pinched: svg step a=0 (band0 never entered)",
                         (a, 0) if a > 0 => "pinched: svg step b=0 (band1 never entered)",

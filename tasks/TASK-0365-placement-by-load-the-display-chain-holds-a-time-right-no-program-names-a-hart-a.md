@@ -21,13 +21,16 @@ consumer: hardware-network/LU.1
 phases:
   - id: P1
     story: "init derives the display chain's time right and hands it down: windowd, gpud, inputd and app-host hold a share, and app-host gives an app only what it holds"
-    state: proving
+    state: done
     gate: "init: time rights line (root, delegated, sum <= root); test_reject_an_app_claims_more_than_app_host_holds; the soft-realtime list is one table for the right and the class"
     started: 2026-11-18
+    done: 2026-11-18
+    evidence: build/logs/board--2026-11-18T09-41-28
   - id: P2
     story: "no program names a hart: service placement, the sched recipes and the worker counts of the workpool and pinched come from the exported topology and from roles"
-    state: planned
+    state: proving
     gate: "retired-name gate for the literal masks and MAX_WORKERS; the one-hart lane green (the same roles on one hart)"
+    started: 2026-11-18
   - id: P3
     story: "a frame's threads run side by side: the chain on several harts of one cluster, background work on the other"
     state: planned
@@ -67,6 +70,22 @@ chain runs on several harts, no program names a hart — the consumer of TASK-03
   `test_reject_a_part_finer_than_the_rights_grain`,
   `test_reject_manage_of_an_endpoint_in_a_transfer`.
 - **Contract** — RFC-0120 (the grain, the capability handed down), RFC-0112 (transfer targets).
+
+## Three lenses (P2)
+
+Measured before: init and execd already place by role (RFC-0118). Left naming a count or a CPU:
+`nexus-workpool` (`MAX_WORKERS = 4`, worker `i` pins itself to the `i`-th online CPU, four
+static stacks) and pinched (`PINCHED_WORKERS = 2`).
+
+- **Scope** — in: the pool sized from the CPUs its process may run on, no self-pin, stacks from
+  one lazy mapping; pinched and the selftest name no number; a restarted service placed like at
+  boot (found by the new line). · out: waking through a word, the caller's time right, the
+  scaling number (TASK-0366 P3); queue, cancellation, isolation (TASK-0368).
+- **Invariant** — the worker count is `|own set ∩ online|`, at least one, on any machine
+  (`a_pool_has_a_worker_per_cpu_its_process_may_run_on`, `SELFTEST: workpool sized ok`); the
+  result is the same for every count (`every_worker_count_a_machine_can_give_produces_identical_results`);
+  every pinched instance of a run names the same count (`scripts/qemu-test.sh`).
+- **Contract** — RFC-0118 (roles against the online set), ADR-0046 (the pool's determinism).
 
 ## Not doing here
 
