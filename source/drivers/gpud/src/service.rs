@@ -222,6 +222,7 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
     } else {
         "gpud: completion wait spin fallback (irq unbound)"
     });
+    backend.scan.timed = clock.timer.is_some() && clock.waitset.is_some();
     service_requests(server, &mut backend, clock, None)
 }
 
@@ -298,7 +299,7 @@ fn service_requests(
         // virtio GPU's boot-splash hold, its spin demo), the frame clock paces a frame so
         // gpud re-evaluates the reveal gate itself — windowd stalls its present loop after
         // its first frame. Once revealed this reverts to Blocking (fully reactive).
-        let pacing = display.pacing();
+        let pacing = (display.pacing(), display.next_landing_ns());
         // A frame is due: drain any further queued requests first, then act in the WouldBlock
         // arm. Otherwise WAIT on the waitset (server + frame clock) — no recv timeout.
         #[cfg(nexus_env = "os")]

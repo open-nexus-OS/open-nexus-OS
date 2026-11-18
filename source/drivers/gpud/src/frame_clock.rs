@@ -3,8 +3,10 @@
 //! CONTEXT: gpud's frame clock (TASK-0324 P7-d): the ONE-SHOT kernel timer on the declared
 //! timer-notify endpoint that paces the self-presented phases (bootstrap splash, boot-splash
 //! hold, spin demo) — a synthetic vblank on a device without one, a waitset member next to the
-//! server endpoint. Never a recv timeout, never a timer on the server endpoint. Outside those
-//! phases the timer is disarmed: an idle gpud takes zero wakes.
+//! server endpoint. Never a recv timeout, never a timer on the server endpoint. The same timer
+//! wakes the loop at the frame boundary a held present is acked at (`backend/scan_clock.rs`,
+//! TASK-0351 P17). With no phase and no held present the timer is disarmed: an idle gpud takes
+//! zero wakes.
 //! OWNERS: @gfx @runtime
 //! STATUS: Functional
 //! API_STABILITY: Internal
@@ -31,21 +33,24 @@ pub(crate) struct FrameClock {
 
 #[cfg(nexus_env = "os")]
 impl FrameClock {
-    /// Arms the next frame (one call per change), then WAITS on the waitset; a timer frame
-    /// marks the frame due. Returns the wait the server recv must use (non-blocking after a
-    /// waitset wake; blocking only without a waitset).
-    pub(crate) fn wait(&mut self, pacing: bool) -> Wait {
+    /// Arms the timer for what comes first — the next self-presented frame (`pacing`) or the
+    /// boundary a held present lands at (`landing`) — one call per change, then WAITS on the
+    /// waitset. The timer fired for a frame marks the frame due; fired for a landing it only
+    /// woke the loop, whose pass acks the present. Returns the wait the server recv must use
+    /// (non-blocking after a waitset wake; blocking only without a waitset).
+    pub(crate) fn wait(&mut self, (pacing, landing): (bool, Option<u64>)) -> Wait {
         let Some(ws) = self.waitset else {
             return Wait::Blocking;
         };
+        let frame =
+            if pacing { self.last_frame_ns.saturating_add(FRAME_PERIOD_NS).max(1) } else { 0 };
+        let want = landing.map_or(frame, |at| if pacing { frame.min(at) } else { at.max(1) });
         if let Some(timer) = self.timer.as_mut() {
-            let want =
-                if pacing { self.last_frame_ns.saturating_add(FRAME_PERIOD_NS).max(1) } else { 0 };
             timer.arm_at(want);
         }
         let _ = nexus_abi::waitset_wait(ws, 0);
         if self.timer.as_mut().is_some_and(|t| t.drain()) {
-            self.due = true;
+            self.due = pacing && want == frame;
         }
         Wait::NonBlocking
     }

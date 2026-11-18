@@ -86,8 +86,9 @@ impl LoopTelemetry {
             // ADR-0075: the clients windowd did not wait on — behind, their deepest outbox,
             // the intent refused because a client was far behind.
             let (behind, queued_max, dropped) = runtime.client_census();
+            let [by_gpud, by_req, by_timer, pulse_req] = super::frame_causes::take_wakes();
             let _ = debug_println(&alloc::format!(
-                "windowd: loop hz={} apply={} present={} nack={} fullrq={} reply(ch={} cap={} shared={}) frames(content={} blit={} pointer={} moved={} keepalive={} shape={}) windows(drawn={win_drawn} occluded={win_occluded}) damage(rects={rects} queued_px={queued_px} flushed_px={flushed_px}) clients(behind={behind} queued_max={queued_max} dropped={dropped}) work(flush_us_max={flush_us} released={released} held_us_max={held_us} base_rows={base_rows} base_us={base_us}) layers(refused={refused})",
+                "windowd: loop hz={} apply={} present={} nack={} fullrq={} reply(ch={} cap={} shared={}) frames(content={} blit={} pointer={} moved={} keepalive={} shape={}) windows(drawn={win_drawn} occluded={win_occluded}) damage(rects={rects} queued_px={queued_px} flushed_px={flushed_px}) clients(behind={behind} queued_max={queued_max} dropped={dropped}) work(flush_us_max={flush_us} released={released} held_us_max={held_us} base_rows={base_rows} base_us={base_us}) layers(refused={refused}) woke(gpud={by_gpud} req={by_req} frame_req={pulse_req} timer={by_timer})",
                 self.iters,
                 self.applies,
                 presents,

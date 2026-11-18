@@ -115,6 +115,13 @@ pub(crate) trait Display {
         None
     }
 
+    /// The frame boundary the loop's timer is armed for: a display without a vertical blank
+    /// holds a present that completed before its boundary (`scan_clock`, TASK-0351 P17) and
+    /// [`Display::vblank_wake`] returns it there. `None`: nothing is held.
+    fn next_landing_ns(&self) -> Option<u64> {
+        None
+    }
+
     /// The refresh period an ack names for a present acked at once (RFC-0110): a display without
     /// a scan clock names the time its present completed and a 60 Hz period.
     fn period_ns(&self) -> u32 {

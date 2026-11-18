@@ -22,6 +22,7 @@ pub(super) fn dispatch_push(
     frame: &[u8],
     sender_sid: u64,
 ) -> bool {
+    super::frame_causes::woke(super::frame_causes::WOKE_REQUEST);
     if frame.len() < 4 {
         return false;
     }

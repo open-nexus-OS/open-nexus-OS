@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-11-18 (a display without a vertical blank keeps a frame clock — TASK-0351 P17)
+
+- **QEMU's virtio GPU completes a present in microseconds**, and acked at once every
+  completion started the compositor's next frame: through a window's open transition windowd
+  looped at 417–2086 Hz with as many presents (`usb-visible--2026-11-18T14-18-19`), on the
+  cores the opening app needed. gpud now holds a present that completed before its frame
+  boundary — one refresh period after the frame before it — and acks it there, woken by the
+  loop's one-shot timer (`backend/scan_clock.rs`, host-tested; `Display::present_ack_deferred`,
+  `vblank_wake`, `next_landing_ns` on the virtio display — the deferred ack the board's
+  display gives at its flip). A present after a rest is acked at once as before; the board
+  is unchanged (RFC-0110 amended).
+- **A frame on the glass is pulsed once per client.** With the presents at the display's
+  rate the loop still ran at up to 3002 Hz: windowd answered every frame request at once, so
+  a client whose tick drew nothing asked again — 2977 requests a second, 435–3305 ticks an
+  animation of eight frames. A request for the frame already pulsed now stays armed until the
+  predicted shown time moved on (`windowd` `frame_clock::owes_pulse`, host-tested); a client
+  slower than the display is pulsed at once as before, a faster one runs as far ahead as
+  windowd keeps presents in flight. Measured (`usb-visible--2026-11-18T15-30-19`): at most 59
+  presents and 56 frame requests a second, 5–32 ticks an animation, every loop pass drains a
+  message (208 at most), the lane's app launches 190–282 ms (two were 590 and 601 ms).
+  On the board (`board--2026-11-18T16-23-19`): 1.09 app ticks a sent frame over 179 motion
+  episodes (582 in the run before, `board--2026-11-18T14-59-11`), 82 frame requests a second
+  at most, 44 of 79 frame windows ok.
+- **The loop line names what woke it**: `woke(gpud= req= frame_req= timer=)` at the end of
+  `windowd: loop hz=…` — a rate above their sum is a waitset member nobody drains.
+
+### Changed - 2026-11-18 (a dismissal paints nothing again — TASK-0354 P8, first cut)
+
+- **A layer closed by its timeout, by Escape or by a tap beside it costs no raster.** The
+  dismissal ran the unbounded relayout and painted every row of the surface (800 rows, 75 ms
+  on QEMU); it is bounded like a tap's now (`probe/overlay.rs`), and a clock tick and a
+  timeout in one pass paint the rows of both.
+- **The layout diff compares the base's boxes and the motion layers' apart**
+  (`layout_diff::part_rows`): one window over both reached from a bar button to its panel at
+  the end of the list and named everything between. Its tests moved to
+  `layout_diff/tests.rs`.
+- **Open**: a tap that changes the base at its top and far below (a bar button and the dock,
+  an open) still names every row — the damage is one row span. The tap's trace says it
+  (`apphost: tap (…) base=<rows|whole(old/new/prefix/suffix)>`; 28 of 49 layout taps on the
+  board), and a re-made surface says what it carried and paints
+  (`apphost: surface re-made (…)`).
+
 ### Changed - 2026-11-18 (a frame follows its windows: no table of 64, no cache of four — TASK-0351 P6)
 
 Measured first, on the board with the launcher starting an instance per press

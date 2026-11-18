@@ -108,6 +108,26 @@ pub(super) fn sent(content: bool, blit: bool, pointer: bool) {
     kind.fetch_add(1, Ordering::Relaxed);
 }
 
+/// What woke the loop, counted where it is drained (TASK-0351 P17): a reply of gpud's, a
+/// client's request (and how many of them asked for a frame pulse), the one-shot timer. A loop
+/// rate far above their sum is a waitset member nobody drains.
+static WAKES: [AtomicU32; 4] =
+    [AtomicU32::new(0), AtomicU32::new(0), AtomicU32::new(0), AtomicU32::new(0)];
+pub(crate) const WOKE_GPUD: usize = 0;
+pub(crate) const WOKE_REQUEST: usize = 1;
+pub(crate) const WOKE_TIMER: usize = 2;
+pub(crate) const WOKE_FRAME_REQ: usize = 3;
+
+/// One message drained from a waitset member.
+pub(crate) fn woke(by: usize) {
+    WAKES[by].fetch_add(1, Ordering::Relaxed);
+}
+
+/// The window's drained messages `[gpud, requests, timer, frame requests]`, and a fresh count.
+pub(super) fn take_wakes() -> [u32; 4] {
+    core::array::from_fn(|k| WAKES[k].swap(0, Ordering::Relaxed))
+}
+
 /// The frame clock owed a frame to keep its completions coming.
 pub(super) fn keepalive() {
     KEEPALIVE.fetch_add(1, Ordering::Relaxed);

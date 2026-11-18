@@ -74,19 +74,19 @@ impl super::DslApp {
     pub(super) fn timer_fired(&mut self) -> bool {
         // A one-shot fires AT its deadline; the 1 ms slack covers the clock read after it.
         let now = super::clock::mono_now_ns().saturating_add(1_000_000);
-        let mut changed = false;
-        // A clock tick names the rows it changed (`relayout_bounded`); anything else repaints all.
+        // A clock tick names the rows it changed (`relayout_bounded`), and so does a dismissal
+        // (TASK-0354 P8); a change that names none repaints all. Both due: the rows of both.
         self.tap_render_span = None;
-        if self.clock_supported() && now >= self.clock_deadline_ns {
-            changed |= self.clock_tick();
-        }
-        if self.transient_armed.as_ref().is_some_and(|(_, deadline)| now >= *deadline)
-            && self.transient_timeout()
-        {
-            changed = true;
-            self.tap_render_span = None;
-        }
-        changed
+        let ticked = self.clock_supported() && now >= self.clock_deadline_ns && self.clock_tick();
+        let tick_rows = self.tap_render_span.take();
+        let timed_out = self.transient_armed.as_ref().is_some_and(|(_, deadline)| now >= *deadline)
+            && self.transient_timeout();
+        self.tap_render_span = match (ticked, timed_out) {
+            (true, true) => both(tick_rows, self.tap_render_span),
+            (true, false) => tick_rows,
+            _ => self.tap_render_span,
+        };
+        ticked || timed_out
     }
 
     /// The transient layer's declared lifetime ran out: fire its `on Dismiss` (reason
@@ -147,12 +147,25 @@ impl super::DslApp {
         }
     }
 
+    /// A dismissal's change, bounded like a tap's (TASK-0354 P8): the layout's diff names the
+    /// base rows the layer's leaving changed — none, for a layer the compositor held (a toast,
+    /// a sheet, a menu as a motion layer). The unbounded relayout this was painted every row of
+    /// the surface for a toast's timeout and for Escape (413k px on QEMU, 77 ms).
     fn apply_dismiss_damage(&mut self, damage: Option<Damage>) -> bool {
+        self.tap_render_span = None;
         if matches!(damage, Some(Damage::Layout)) {
-            self.relayout_retained();
-            self.tree_dirty = true;
+            self.relayout_bounded();
         }
         self.anim_sync();
         matches!(damage, Some(Damage::Paint) | Some(Damage::Layout))
+    }
+}
+
+/// The base rows of two changes in one pass (`None`: every row; an empty span: none).
+fn both(a: Option<(i32, i32)>, b: Option<(i32, i32)>) -> Option<(i32, i32)> {
+    match (a?, b?) {
+        (a, b) if a.1 <= a.0 => Some(b),
+        (a, b) if b.1 <= b.0 => Some(a),
+        (a, b) => Some((a.0.min(b.0), a.1.max(b.1))),
     }
 }

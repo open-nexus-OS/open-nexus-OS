@@ -214,6 +214,25 @@ impl super::DslApp {
         self.plan_store()
     }
 
+    /// The surface was made anew at its size. Its marker, and what the re-create costs (TASK-0354
+    /// P8): whether only the store grew, the rows that came over from the old buffer, and what
+    /// the next present paints of the base (`whole`: every row again).
+    pub(super) fn say_resized(&self, store_only: bool, pending: Option<Option<(i32, i32)>>) {
+        raw_marker("apphost: resized");
+        let paints = match pending {
+            None => alloc::string::String::from("none"),
+            Some(None) => alloc::string::String::from("whole"),
+            Some(Some((y0, y1))) => alloc::format!("{y0}..{y1}"),
+        };
+        raw_marker(&alloc::format!(
+            "apphost: surface re-made (store_only={} store_rows={} carried={} base_paints={paints} layer_rows={:?})",
+            u8::from(store_only),
+            self.store_rows,
+            self.carried.unwrap_or(0),
+            self.motion_repaint
+        ));
+    }
+
     /// Whether `plan` needs more than the surface was created with (a re-create).
     pub(super) fn outgrows(&self, plan: StorePlan) -> bool {
         plan.rows > self.store_rows || plan.width > self.store_w

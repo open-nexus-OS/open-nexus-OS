@@ -70,6 +70,9 @@ mod resources;
 // Pure policy, host-tested; the OS probe/attach paths consume it.
 #[cfg(any(test, all(feature = "os-lite", target_os = "none")))]
 pub(crate) mod scanout_policy;
+// The frame boundaries of a display without a vertical blank (TASK-0351 P17); host-tested.
+#[cfg(any(test, all(feature = "os-lite", target_os = "none")))]
+pub(crate) mod scan_clock;
 // RFC-0093 §5 on a display that switches what it scans (the board's controller); host-tested.
 #[cfg(any(test, all(feature = "os-lite", target_os = "none")))]
 pub(crate) mod splash_hold;
@@ -296,6 +299,9 @@ pub struct VirtioGpuBackend {
     /// The ring's deadline-expiry count when the current present began (`Display::present_lost`).
     #[cfg(all(feature = "os-lite", target_os = "none"))]
     pub(crate) deadline_expiries_at_present: u32,
+    /// The frame boundaries this display keeps itself: it has no vertical blank (P17).
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
+    pub(crate) scan: scan_clock::ScanClock,
     /// One-shot: the frame clock's hold tick was logged (`gpud: hold tick alive`).
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) hold_tick_logged: bool,
@@ -422,6 +428,8 @@ impl VirtioGpuBackend {
             reveal_requested: false,
             #[cfg(all(feature = "os-lite", target_os = "none"))]
             deadline_expiries_at_present: 0,
+            #[cfg(all(feature = "os-lite", target_os = "none"))]
+            scan: scan_clock::ScanClock::default(),
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             hold_tick_logged: false,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]

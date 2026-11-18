@@ -3,8 +3,10 @@
 
 //! CONTEXT: windowd compositor runtime — the frame pulse (the Choreographer contract, RFC-0110):
 //! an ANIMATING client (a scroll's ease or fling, a DSL animation) sends `OP_SURFACE_FRAME_REQ`, a
-//! one-shot request, and windowd answers with ONE `OP_SURFACE_FRAME` after its next composited
-//! frame — naming, since TASK-0343, the time the client's next frame is shown (the display's
+//! one-shot request, and windowd answers with ONE `OP_SURFACE_FRAME` per frame on the glass
+//! (`frame_clock::owes_pulse`, TASK-0351 P17: a client asking again for the frame it was pulsed
+//! for waits until the timeline moved on) — naming, since TASK-0343, the time the client's next
+//! frame is shown (the display's
 //! timeline from gpud's timed acks, `crate::frame_clock`) and the time between frames on the
 //! glass. The client advances its physics to that time, so its motion moves by the time between
 //! the frames the glass shows. windowd's own transitions step to the same time. Split out of
@@ -28,11 +30,18 @@ pub(crate) struct Pulses {
     desktop: bool,
     clock: FrameClock,
     stepped_ns: u64,
+    /// The shown time each client was pulsed for last: the desktop's, then the apps' by slot.
+    pulsed: alloc::vec::Vec<u64>,
 }
 
 impl Pulses {
     pub(crate) const fn new() -> Self {
-        Self { desktop: false, clock: FrameClock::new(), stepped_ns: 0 }
+        Self {
+            desktop: false,
+            clock: FrameClock::new(),
+            stepped_ns: 0,
+            pulsed: alloc::vec::Vec::new(),
+        }
     }
 
     /// The judged landings so far — on time, late, early — and the cadence and period gpud
@@ -54,6 +63,7 @@ impl DisplayServerRuntime {
         else {
             return;
         };
+        crate::compositor::frame_causes::woke(crate::compositor::frame_causes::WOKE_FRAME_REQ);
         if let Some(idx) = self.app_index_by_surface(surface_id) {
             self.apps[idx].frame_pulse_pending = true;
         } else if self.desktop_surface_id == Some(surface_id) {
@@ -111,6 +121,22 @@ impl DisplayServerRuntime {
         }
     }
 
+    /// Whether the client `who` (0 the desktop, an app's slot + 1) is owed a pulse now: the
+    /// frame the timeline names is not the one it was pulsed for (`frame_clock::owes_pulse`).
+    /// It is then noted as pulsed for it. Before gpud named a timeline every ask is answered.
+    #[cfg(nexus_env = "os")]
+    fn owed_pulse(&mut self, who: usize, now_ns: u64) -> bool {
+        let Some((target, step)) = self.next_frame_shown(now_ns) else { return true };
+        if self.pulses.pulsed.len() <= who {
+            self.pulses.pulsed.resize(who + 1, 0);
+        }
+        let owed = crate::frame_clock::owes_pulse(self.pulses.pulsed[who], target, step);
+        if owed {
+            self.pulses.pulsed[who] = target;
+        }
+        owed
+    }
+
     /// The pulse for `surface_id`: timed when gpud named the timeline, plain before.
     fn pulse_frame(&self, surface_id: u32, now_ns: u64, out: &mut [u8]) -> usize {
         match self.next_frame_shown(now_ns) {
@@ -127,10 +153,12 @@ impl DisplayServerRuntime {
         }
     }
 
-    /// Send the armed frame pulses (once per composited frame, after the
-    /// present work): ONE `OP_SURFACE_FRAME` per requesting client, then the
-    /// request clears — the Choreographer one-shot contract. State (ADR-0075):
-    /// a busy client gets the newest pulse once it drains, never a backlog.
+    /// Send the armed frame pulses (after the present work, so a frame that just left moved
+    /// the timeline on): ONE `OP_SURFACE_FRAME` per requesting client and frame on the glass,
+    /// then the request clears — the Choreographer one-shot contract. A request for the frame
+    /// already pulsed stays armed: the frame clock keeps running for it
+    /// ([`Self::has_frame_pulse_clients`]) and the pass after its next frame answers it. State
+    /// (ADR-0075): a busy client gets the newest pulse once it drains, never a backlog.
     pub(crate) fn flush_frame_pulses(&mut self) {
         #[cfg(nexus_env = "os")]
         {
@@ -153,13 +181,16 @@ impl DisplayServerRuntime {
                 {
                     continue;
                 }
+                if !self.owed_pulse(idx + 1, now) {
+                    continue;
+                }
                 self.apps[idx].frame_pulse_pending = false;
                 let Some(id) = self.apps[idx].surface_id else { continue };
                 let Some(slot) = self.apps[idx].event_channel else { continue };
                 let n = self.pulse_frame(id, now, &mut frame);
                 let _ = self.client_send(slot, &frame[..n], Delivery::Latest);
             }
-            if self.pulses.desktop {
+            if self.pulses.desktop && self.owed_pulse(0, now) {
                 self.pulses.desktop = false;
                 if let (Some(id), Some(slot)) = (self.desktop_surface_id, self.desktop_channel) {
                     let n = self.pulse_frame(id, now, &mut frame);

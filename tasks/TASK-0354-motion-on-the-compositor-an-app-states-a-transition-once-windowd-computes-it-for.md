@@ -5,7 +5,7 @@ title: "Compositor motion: a transition stated once, moved by windowd for every 
 status: in_progress
 owner: ["@ui"]
 created: 2026-11-03
-updated: 2026-11-16
+updated: 2026-11-18
 subsystem: ui
 components: [windowd, app-host, animation]
 kind: ui
@@ -89,8 +89,10 @@ phases:
     note: "Board board--2026-11-13T13-50-14 (image dev-1e3cb775): the log names the refusal — apphost: motion in app (token=10 why=resets) x6 for the window kit's menus and (token=3 why=resets) x7 for a window's fades: a blur root on the window's frost resets its rectangle (motion_math::composes_apart), so no window carries a layer yet (all 20 layers are the shell's). The app's own path got cheaper: its damage is what moves and paints (motion_math::moved_extent) — a menu's enter repaints 136-259 rows at 8-15 ms a frame (median; max 14-32), before 604-698 rows at 37-42 ms. A window's page fade still repaints 464-988 rows at 22-59 ms. Open decision (ARCH, the operator's): a window's popover as a layer WITH a backdrop — windowd blurs under a window's layer and the menu frosts the window's content, a look change against painting in place; the same for a faded page that holds a pane. 2026-11-16: the window kit's popover (a blur root, .material(overlay)) was refused on a window's frost (why=resets, 4-7 per board cycle, board--2026-11-16T15-13-23) — composes_apart now lets a blur root through: the layer claims its glass region and windowd blurs under the moving layer what lies below it in the window (the design's frosted popover); only a faded opaque pane resets. Board pending: no why=resets, the menus' enter without a tokens=menuIn hops episode BOARD build/logs/board--2026-11-16T15-53-32: gate met — no why=resets (were 4), no tokens=menuIn hops episode; the window menu is a layer windowd moves (apphost: motion layer token=10 w=383 h=353 paint_us=11587 once; windowd: owner=4 ms=280 scale=9200 dx=-14 dy=-12); frames 51/22, inputs 102/9, launches 6/0 as before. Closes with the commit (rule 8) Operator 2026-11-16: looked right and felt smoother"
   - id: P8
     story: "closing a panel, the launcher or a toast costs no app raster: the layer goes and nothing under it is painted again - the cause of today's close frames named first (an exit motion, a store replan or a scrim), then cut"
-    state: planned
+    state: building
     gate: "board: the launcher's close without an apphost hops motion episode (was 4 frames of 1920x1080 at 96 ms each with tokens= empty, board--2026-11-05T13-12-18); QEMU: the toast's timeout close without one (was 413k px)"
+    started: 2026-11-18
+    note: "2026-11-18 board cycle 37 (board--2026-11-18T16-23-19): dismissals (2 timeout, 1 Escape) bounded; of 49 layout taps 21 name rows and 28 name the whole base (base=whole), and 13 of 15 re-made surfaces paint the whole base (9 store-only with their rows carried) — the open part: a tap that changes the base at its top (bar button) and far below is ONE row span = every row. QEMU usb-visible--2026-11-18T16-08-51: timeout, backdrop and Escape base=0..0 with rows=0 episodes (were 800 rows, 75 ms); opens base=whole(130/135/42/46), whole(135/141/42/41), whole(141/161/39/0), whole(65/140/2/0). Built: overlay.rs apply_dismiss_damage bounded (relayout_bounded; tick + timeout = rows of both), layout_diff::part_rows (base and layers compared apart; test a_change_at_the_start_and_a_held_overlay_at_the_end_damage_the_start_alone red before), tests split to layout_diff/tests.rs. Next cut: the base's change as several spans (the present carries 4 rects; dirty_rows is one span through the event loop) so two changes far apart stay two; then the store's re-create for a grown layer set (9 per run) without a base paint. Instruments: 'apphost: tap (...) base=', 'apphost: surface re-made (store_only= store_rows= carried= base_paints= layer_rows=)'."
   - id: P9
     story: "a transition leaves the way it came: panels, sheets and their scrim, the island, toasts, the launcher, overlay panes and the action bar animate out on the compositor (today a .transition is enter-only)"
     state: planned

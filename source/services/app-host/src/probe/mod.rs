@@ -614,7 +614,7 @@ pub(super) fn run() -> Result<(), &'static str> {
                             dsl.reannounce_text_focus(&client, surface_id);
                             raw_marker("apphost: surface re-created");
                         } else {
-                            raw_marker("apphost: resized");
+                            dsl.say_resized(store_only, dirty.then_some(dirty_rows));
                         }
                         // Fresh surface id: re-arm parked pulses.
                         if dsl.anim_active() {

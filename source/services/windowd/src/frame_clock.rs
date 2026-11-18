@@ -86,6 +86,18 @@ impl FrameClock {
     }
 }
 
+/// Whether a client last pulsed for the frame shown at `pulsed_ns` is owed the pulse of the
+/// frame shown at `target_ns` (TASK-0351 P17): a frame on the glass is pulsed once. A client
+/// that asks again before the timeline moved on — its tick drew nothing, or it draws faster
+/// than the display shows — waits for the next frame; answered at once it asked 2977 times a
+/// second on QEMU (`usb-visible--2026-11-18T15-21-35`). A pulse named far ahead of the timeline
+/// (the timeline started over) never holds the client back.
+pub(crate) fn owes_pulse(pulsed_ns: u64, target_ns: u64, step_ns: u32) -> bool {
+    let step = u64::from(step_ns);
+    target_ns >= pulsed_ns.saturating_add(step / 2)
+        || pulsed_ns > target_ns.saturating_add(8 * step)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -140,6 +152,35 @@ mod tests {
         assert_eq!((c.on_time, c.late, c.early), (1, 1, 1));
         c.note_shown(2, shown(t0 + 9 * p, 1));
         assert_eq!((c.on_time, c.late, c.early), (1, 1, 1), "an ack is judged once");
+    }
+
+    #[test]
+    fn a_frame_is_pulsed_once_and_the_next_when_the_timeline_moved_on() {
+        let mut c = FrameClock::new();
+        let (t0, p) = (1_000 * MS, u64::from(P));
+        c.note_shown(1, shown(t0, 1));
+        let (first, step) = c.next_shown(t0 + MS, 0).expect("a timeline");
+        assert!(owes_pulse(0, first, step), "never pulsed");
+        // Asked again a millisecond later, nothing sent in between: the same frame.
+        let (again, _) = c.next_shown(t0 + 2 * MS, 0).expect("a timeline");
+        assert!(!owes_pulse(first, again, step));
+        // Its frame left (one in flight): the frame after it is owed at once — a client may
+        // draw ahead of the display by what the compositor keeps in flight.
+        let (ahead, _) = c.next_shown(t0 + 2 * MS, 1).expect("a timeline");
+        assert!(owes_pulse(first, ahead, step));
+        assert!(!owes_pulse(ahead, ahead, step));
+        // A client that took three periods to draw is owed the frame the clock has moved to.
+        let (late, _) = c.next_shown(t0 + 3 * p, 0).expect("a timeline");
+        assert!(owes_pulse(first, late, step));
+        // A landing a little early does not pulse the same frame twice.
+        assert!(!owes_pulse(first, first + p / 4, step));
+    }
+
+    #[test]
+    fn test_reject_holding_a_client_behind_a_pulse_far_ahead_of_the_timeline() {
+        let (t0, p) = (1_000 * MS, u64::from(P));
+        assert!(!owes_pulse(t0 + 3 * p, t0, P), "ahead by what is in flight: it waits");
+        assert!(owes_pulse(t0 + 60 * p, t0, P), "the timeline started over: pulsed");
     }
 
     #[test]

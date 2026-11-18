@@ -111,7 +111,21 @@ impl super::DslApp {
         for t in self.texts.iter().take(2) {
             let _ = core::fmt::write(&mut txt, format_args!("'{}' ", t.content));
         }
-        raw_marker(&alloc::format!("apphost: tap ({x},{y}) hit={hit:?} dmg={damage:?} txt={txt}"));
+        // What the tap's relayout named of the base (TASK-0354 P8): its rows, or every row with
+        // the comparison that gave no bound (old boxes, new boxes, common prefix and suffix).
+        let base = match (damage, self.tap_render_span) {
+            (Some(nexus_dsl_runtime::Damage::Layout), None) => {
+                let [o, n, prefix, suffix] = crate::layout_diff::last_window();
+                alloc::format!("whole({o}/{n}/{prefix}/{suffix})")
+            }
+            (Some(nexus_dsl_runtime::Damage::Layout), Some((y0, y1))) => {
+                alloc::format!("{y0}..{y1}")
+            }
+            _ => alloc::string::String::from("-"),
+        };
+        raw_marker(&alloc::format!(
+            "apphost: tap ({x},{y}) hit={hit:?} dmg={damage:?} base={base} txt={txt}"
+        ));
         true
     }
 

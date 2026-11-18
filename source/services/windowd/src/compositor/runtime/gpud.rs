@@ -290,6 +290,9 @@ impl DisplayServerRuntime {
             match self.recv_gpud(Wait::NonBlocking, &mut reply_buf) {
                 Ok(n) => {
                     let n = n.min(reply_buf.len());
+                    crate::compositor::frame_causes::woke(
+                        crate::compositor::frame_causes::WOKE_GPUD,
+                    );
                     any = true;
                     if !self.handle_gpud_reply(&reply_buf[..n]) {
                         return any;

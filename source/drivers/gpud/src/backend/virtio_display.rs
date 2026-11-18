@@ -290,6 +290,25 @@ impl Display for VirtioGpuBackend {
         self.is_holding_boot_splash() || self.bootstrap_splash_active()
     }
 
+    /// TASK-0351 P17: the device completes a present in microseconds and has no vertical
+    /// blank — a drawn present that came before its frame boundary is acked there.
+    fn present_ack_deferred(&mut self, seq: u32, status: u8, _received_ns: u64) -> bool {
+        let now = nexus_abi::nsec().unwrap_or(0);
+        matches!(status, STATUS_OK | nexus_display_proto::STATUS_REVEALED)
+            && self.scan.hold(seq, status, now, u64::from(self.period_ns()))
+    }
+
+    fn next_landing_ns(&self) -> Option<u64> {
+        self.scan.next_ns()
+    }
+
+    fn vblank_wake(&mut self) -> Option<super::display::Landed> {
+        let held = self.scan.landed(nexus_abi::nsec().unwrap_or(0))?;
+        let (at_ns, period_ns) = (held.at_ns, self.period_ns());
+        let shown = nexus_display_proto::frame_time::Shown { at_ns, period_ns, cadence: 1 };
+        Some(super::display::Landed { seq: held.seq, status: held.status, shown })
+    }
+
     #[cfg(feature = "virgl")]
     fn frame_tick(&mut self, _attached: bool, stats: &mut PresentStats) {
         // One-shot liveness proof: pin that the frame clock drives the hold.

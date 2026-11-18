@@ -76,7 +76,12 @@ every refresh, they come on a steady cadence (every second refresh) instead of a
 
 - **No fake success**: a time is never invented where a clock exists — the board names the frame
   boundary its flip was taken at, read from the scan line counter; a display without a scan
-  clock (QEMU's virtio GPU) names the time its present completed and says nothing more.
+  clock (QEMU's virtio GPU) names the time its present completed and says nothing more. Its
+  driver completes a present no sooner than one refresh period of the mode after the frame
+  before it (amended 2026-11-18, TASK-0351 P17, gpud `backend/scan_clock.rs`): the device
+  answers in microseconds, and acked at once every answer started the next frame — a window's
+  open transition ran at up to 2083 presents a second. The time named is still the time the
+  ack leaves; no frame is claimed on a glass the driver cannot see.
 - **Bounded**: a timing tail decodes only with a period of 1–100 ms, a cadence of 1–4 and a step
   within; anything else is a plain message (`test_reject_*`).
 - **Determinism**: the cadence follows the second longest of the last eight draws (one slow frame
@@ -123,7 +128,12 @@ The frame pulse (`OP_SURFACE_FRAME`, the Choreographer contract) names that pred
 ```
 
 `nexus_display_proto::frame_time::{encode,decode}_surface_frame_at`; the plain pulse stays the
-answer before gpud named a timing. windowd's own transitions step to the same prediction — and so
+answer before gpud named a timing. A frame on the glass is pulsed once per client (amended
+2026-11-18, TASK-0351 P17, `frame_clock::owes_pulse`): a request for the frame the client was
+already pulsed for stays armed until the prediction moved on by half a step — a present left or
+landed, or time passed — so a client whose tick drew nothing, or that draws faster than the
+display shows, runs at the display's rate and at most as far ahead as windowd keeps presents in
+flight. Answered at once, such a client asked 2977 times a second. windowd's own transitions step to the same prediction — and so
 do the surfaces' motion layers (RFC-0109, amendment 2026-11-04, TASK-0354 P2): a motion starts at
 the predicted shown time of the frame that first draws it, and every frame evaluates every moving
 layer for its own predicted time. No client steps a motion layer: the app that declared it is not

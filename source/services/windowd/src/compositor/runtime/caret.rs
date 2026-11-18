@@ -170,7 +170,11 @@ impl DisplayServerRuntime {
         }
         match self.caret.timer.as_mut() {
             Some(t) => {
-                t.drain();
+                if t.drain() {
+                    crate::compositor::frame_causes::woke(
+                        crate::compositor::frame_causes::WOKE_TIMER,
+                    );
+                }
             }
             None => drain_endpoint(topo::TIMER_RECV),
         }

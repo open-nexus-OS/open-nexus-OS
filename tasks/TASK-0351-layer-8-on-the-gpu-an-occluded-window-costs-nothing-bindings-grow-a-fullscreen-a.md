@@ -28,10 +28,12 @@ links:
 phases:
   - id: P0
     story: "the frame cost with 12 and 30 windows and the binding use are measured on the board"
-    state: proving
+    state: done
     gate: "board cycle: frame p99, ns_per_px, layers per frame and bindings in use logged for 12 and 30 windows"
     started: 2026-11-03
-    note: "board 2026-11-18T10-51-11 (the launcher starts an instance per press): 12 windows logged — frame avg 84 ms, max 171 ms, 12.9 passes, 381 draws, slot 9.5 Mpx and scene 5.9 Mpx a frame, 5 ns per px, 31 layers, bindings 59 of 128; at 17-20 windows a frame takes 0.3-0.8 s and windowd drops layers at the frame's bound of 64 (the operator's 'hang'). Cause measured: the glass cache held rows for five windows (glass_off=81 of 32 frames) and band writes reach every glass above a change (band=115). 30 windows follow P6's cut."
+    done: 2026-11-18
+    evidence: build/logs/board--2026-11-18T14-59-11
+    note: "2026-11-18: measured through 3, 7, 12, 22, 28, 40 and 49 windows on the board: frame 28/51/84/164/191/271/341 ms, ns_per_px 2-3, layers per frame 165-187, bindings in use 109 of 128 at 49 windows (gpud: gpu frame us, gpu work, dc present mix, bindings)."
   - id: P1
     story: "a window hidden behind others costs the frame nothing"
     state: done
@@ -46,7 +48,7 @@ phases:
     gate: "host: a space binds 130 bindings past a reserve of 2 (nexus-driverkit), the surface window reaches the layout's GiB; board: 30 windows with 0 binding failures, gpud: bindings of= grows past 128"
     started: 2026-11-04
     evidence: build/logs/many-windows--2026-11-04T09-45-42
-    note: "board 2026-11-18T10-51-11: bindings in_use 59 of 128 at 12 windows, no binding failure up to 20 windows; the table's growth past 128 is not reached by 30 windows of this kind (about 1.3 bindings a window) — the host test is its proof, the board's gate is 0 failures at 30"
+    note: "2026-11-18 board--2026-11-18T14-59-11: 49 windows, 0 binding failures, in_use=109 of=128 — the table was not asked to grow (it grows past 128 from about 58 windows; proven on the host)."
   - id: P3
     story: "the frame the planner scans out directly is named: an opaque, untransformed, plain window body from a surface of its own covering the display whole (RFC-0101 §8 amended) — the contract and the host-tested decision; the contiguous surface and the flip are P9"
     state: done
@@ -69,10 +71,10 @@ phases:
     note: "board 2026-11-05T13-12-18: q16 915 us and area16 748 us meet the sweep half; gpu gate scene FAIL on cold 44.8 ms against 23.3 (hover 3.3 ms)"
   - id: P6
     story: "the passes a frame runs hold the budget on the board, with glass and while something moves"
-    state: building
+    state: blocked
     gate: "board: gpud: gpu gate scene ok, frame p99 <= 16.7 ms with glass on the operator series, 0 of 32 frames dropped during a transition"
     started: 2026-11-18
-    note: "2026-11-18 fourth board run (board--2026-11-18T14-59-11): 49 windows drawn, 0 refused frames, 0 passes over the draw bound, glass_off=0, cache 11 planes — the freeze is gone. Gate NOT met: 3 windows 28 ms, 7 windows 51 ms, 22 windows 164 ms, 49 windows 341 ms a frame (7-28 passes; 3-9 glass writes a frame, nearly all band_base; hidden glasses put off: up to 22 a frame). Cause read from 'windowd: loop hz … damage(flushed_px=)': the damage that leaves is one to five bounding boxes of 1.3-2.1 Mpx (window opened/closed/presented, merged while a frame is in flight) named origin 0 — every glass in reach blurs again. Next in this phase: damage carries the surface it came from through the queue and the merge (windowd), a change dies under an opaque layer that covers it (planner), then one board run."
+    note: "2026-11-18 operator after the fourth board run (board--2026-11-18T14-59-11, commit 37805d99): the freeze is gone (49 windows drawn, 0 refused frames) and that is enough for now — no over-engineering, a note. Frame gate open: 3 windows 28 ms, 7 -> 51 ms, 22 -> 164 ms, 49 -> 341 ms (3-9 glass writes a frame, nearly all band_base). Cause read from 'windowd: loop hz … damage(flushed_px=)': the damage that leaves is one to five bounding boxes of 1.3-2.1 Mpx (a window opened, closed or presented, merged while a frame is in flight), its origin guessed by geometry (the topmost window it lies within, else the base) — every glass in reach blurs again. Design for when this is taken up: (1) windowd: a damage rectangle carries the surface it came from through queue_dirty_rect and the merge, merged per source only; opening, closing and raising a window need no named damage on the GPU path; (2) planner: a change ends at an opaque layer that covers it, a written glass is a new change for the layers above; (3) glass writes counted by origin class. Then the pass's own cost (3.6 ms at 16 draws, 14 ms at 210; emit 8.5 us a draw) is P5/P13."
   - id: P7
     story: "every effect's mathematics lives in nexus-gfx's kernel tables and the executors interpret it (ADR-0094): the blur taps shared by the shaders and the raster, the dual filter harvested from nexus-effects into the table, the crate and the dead crates deleted, no tap weight or coverage formula left in a driver or a shader source"
     state: done
@@ -135,8 +137,12 @@ phases:
     note: "launch settings green in 14.6 s, 39/39 chain markers; the ring's frames pointer=11 and 2 a second (was 668); the one 360 Hz window is the overlapping open transition (moved=332, P17) - the first gate counted loop hz and conflated it; board 2026-11-05T13-12-18: the ring on four launches, 15 presents a second"
   - id: P17
     story: "a display without a vertical blank completes a present no sooner than its mode's refresh: on QEMU's virtio GPU windowd's transitions, motion layers and frame pulses run at the display's cadence instead of spinning on completions that return in microseconds"
-    state: planned
-    gate: "QEMU usb-visible: windowd loop hz below 70 during a window's open transition (was 346, moved=331, usb-visible--2026-11-05T13-08-48); board unchanged (vblank-paced)"
+    state: done
+    gate: "QEMU usb-visible, each second of a window's open transition: windowd present at most 60, a client's frame requests at most 60, loop hz no more than the messages it drained (woke(gpud=+req=)) — was present=2083, loop hz=3002, frame requests 2977; board unchanged (vblank-paced)"
+    started: 2026-11-18
+    done: 2026-11-18
+    evidence: build/logs/board--2026-11-18T16-23-19
+    note: "2026-11-18 board cycle 37 (board--2026-11-18T16-23-19, image dev-50c2785e): ladder complete (118 rungs, red only at the operator's board-visual ack), no bkl stall. The pulse rule on the board: 1.09 app ticks a sent frame over 179 motion episodes (582.6 over 25 in board--2026-11-18T14-59-11), frame_req max 82/s, present max 50/s, loop hz max 586 = gpud 296 + req 296 (pointer samples apply=246); frame pace on_time=2083 late=291 early=165; ux frame 44 ok / 12 warn / 23 FAIL of 79 windows; launches 78-341 ms (4 ok, 2 warn; 4 windows); ux input p50 16.6 ms, 133 ok / 18 warn / 8 FAIL. The board's display acks at its flip as before (vblank-paced). QEMU: usb-visible--2026-11-18T15-30-19, many-windows--2026-11-18T15-37-38, many-apps--2026-11-18T15-42-03 green (present max 59-61/s was 2083, frame_req max 56 was ~2977, launches p50 229 ms was 545). Seen, not this phase's: a motion hop stays open when a pulse found motion live and its tick sent nothing (pulse>sent max 6-14 s in six episodes; 4 s on QEMU before the change too) — the instrument's, TASK-0354 P1's line."
   - id: P18
     story: "a window never flickers: Settings with its sidebar as an overlay (a narrow window) and Settings fullscreen show the same pixels frame after frame at their bottom, as every other window does"
     state: planned

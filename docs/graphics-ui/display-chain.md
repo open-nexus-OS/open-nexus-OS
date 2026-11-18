@@ -69,7 +69,7 @@ App surfaces are composed by reference: windowd asks for a buffer per surface (`
 |---|---|---|---|
 | who draws | CPU executor `backend/cpu_frame.rs` over `nexus_gfx::raster` | GPU passes of the pipeline library on the GL scanout (`gl_scanout.rs`, `virgl_composite.rs`); CPU fallbacks per command | the GPU in windowd's context into a free ring slot (`backend/dc/gpu_frame.rs`); otherwise refused |
 | to the glass | `TRANSFER_TO_HOST_2D` + flush | double-buffered swapchain (`gl_scanout_init.rs`); `SET_SCANOUT` + flush is the batch tail | flip through the controller's configuration latch (`backend/dc/flip.rs`) |
-| ack | at once, 60 Hz period named | at once, 60 Hz period named | deferred until the flip landed (`vblank_wake`) |
+| ack | a 60 Hz period after the last (`scan_clock.rs`) | as 2D | deferred until the flip landed (`vblank_wake`) |
 | pointer | virtio cursor queue | procedural GL cursor | the controller's 64×64 pointer layer (`backend/dc/cursor.rs`); a move is no present |
 
 ## Board flips and cadence
