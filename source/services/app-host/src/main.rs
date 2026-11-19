@@ -127,11 +127,14 @@ mod pass_plan;
 // spans. Same one-cfg shape as `band_math`: the mapping is in `probe/surface_mem.rs`.
 #[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
 mod slot_math;
-// Pure `.scroll(paged)` page-turn decisions (launcher pager) — same one-cfg
-// shape as `hover_wash`: the physics/timing lives in RISC-V-only `probe/`,
-// the decision here where host tests reach it.
+// The paged track's pure decisions (drag, rubber band, turn, glide, wheel — TASK-0354 P12) —
+// same one-cfg shape as `hover_wash`: `probe/scroll/paged.rs` runs them per frame, the decisions
+// live here where host tests reach them.
 #[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
 mod pager_math;
+// `.motion`'s FLIP arithmetic (TASK-0354 P10): `probe/anim/bound.rs` keeps the rest table.
+#[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
+mod bound_math;
 // How often a proof line may fire (once per process for anything typing can trigger) — the
 // keystroke privacy rule. Same one-cfg shape: host tests reach the counters.
 #[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]

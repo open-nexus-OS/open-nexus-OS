@@ -183,6 +183,35 @@ uniform scale byte-identically, radius follows the SMALLER axis so the knob
 stays a capsule), slides it in from the old end after the flip — `quick`,
 spring-soft — and lets the stretch go with the release.
 
+### State motion: the scene is the rest (TASK-0354 P10)
+
+App-side state motion has ONE model: the scene always holds the rest — where a node belongs
+now, laid out and painted as it is — and a motion is a transient deviation from it that decays
+to identity and is dropped. A motion skipped at a bound is a jump to the right picture, never a
+wrong one. Three declared forms land in one host table (`app-host/src/probe/anim*`):
+
+- **presence — `.animate(token, value:)`**: the runtime writes the absent state into the scene
+  (the node's own opacity 0; a kit part the same in its builder). The host plays only the
+  change: absent → present is the token's enter from `MotionToken::resting(prop, false)`;
+  present → absent is the exit, painted over a base of full opacity (`NodeAnim::base_opacity`)
+  and reset to identity when its fade ends. Nothing is held at rest.
+- **geometry — `.motion(duration, curve)`**: per declared node a rest record (place, size,
+  rotation, opacity) keyed by the node's identity — its emitted path, so the two branches of an
+  `if` at one place are one node. A re-layout that changes the rest starts the deviation that
+  makes the node look like it still sits where it was (FLIP, `app-host/src/bound_math.rs`):
+  translate from the centre delta, scale per axis, rotation, opacity over a base when it travels
+  down; a retarget starts from where the node is seen. First sight records; nothing starts
+  inside the control the pointer holds; above 128 tracked nodes a node jumps.
+- **kit parts**: `registry::motion_parts` in the DSL runtime names a kit widget's moving parts
+  by child path (the toggle's on layer and thumb, the checkbox's on layer and mark, the select's
+  chevron, the slider's and progress bar's fill) and stamps on each exactly what `.animate` or
+  `.motion` would; the widget crates stay free of the animation crate.
+
+`.rotate(deg)` is a rest rotation in the scene (the painter turns a glyph's own shape, ink cut
+to the box); `.press(kind)` declares the press dip by role (`press_kind::plan`). The tokens
+`pop` (a part that pops in from 60 % on the icon spring) and `swapInline` (content swapped in
+place enters 28 px from the side it travels from) are the two the design added.
+
 ### Widget animation (kit widgets)
 
 Inherently-animated **kit widgets** (`userspace/ui/widgets/*`) — the `Skeleton`
@@ -199,13 +228,19 @@ node whose **value carries the loop sub-kind** (`loop_subkind`, `emit.rs`;
 widget's fixed builder structure at paint time
 (`AnimState::{sync_loops,tick_loops}`):
 
-- **`LOOP_SWEEP`** (the indeterminate `ProgressBar` pip) and **`LOOP_SHIMMER`** (the
-  `Skeleton`'s band): the sole child (`root+1`) rides a TranslateX **sawtooth** whose
-  place is a function of the clock (`app-host/src/loop_math.rs`) — the pip crosses its
-  track in 1.1 s on the smooth curve, the band its block in 1.4 s ease-in-out (the design
-  artifacts' timings), each starting again at the leading edge (travel = parent − child
-  width, read from the live layout). No spring, no keyframe track, nothing allocated;
-  every loop of a kind is in phase and one time gives one pixel on every run.
+- **`LOOP_SWEEP`** (the indeterminate `ProgressBar` pip, 40 % of the track) and
+  **`LOOP_SHIMMER`** (the `Skeleton`'s band): the sole child (`root+1`) rides a TranslateX
+  **sawtooth** whose place is a function of the clock (`app-host/src/loop_math.rs`) — the pip
+  crosses its track in 1.1 s on the smooth curve, the band its block in 1.4 s ease-in-out (the
+  design artifacts' timings). It crosses FROM OUTSIDE the track (wholly before its leading
+  edge at the start, wholly past its trailing edge at the end — `Sweep::from_outside`), cut by
+  the track's rounded clip (`NodeAnim::clip`, the capsule fill's own coverage at its ends); a
+  track inside a scroll layer keeps the inside travel. A reduced-motion theme parks the part
+  outside (hidden). No spring, no keyframe track, nothing allocated; every loop of a kind is in
+  phase and one time gives one pixel on every run.
+- **`LOOP_LEVEL`** — `LevelBars`: the four bars (`root+1..=root+4`) each scale from their
+  bottom between 40 % and 100 %, 0.7 s each way on ease-in-out, bar `i` 80 ms behind bar `i−1`
+  (`loop_math::level_scale_pct`); a reduced-motion theme rests them at full height.
 - **`LOOP_CAROUSEL`** — `Spinner`: the 12 spoke children (`root+1..=root+12`)
   get a stepped per-spoke opacity fade (leading spoke opaque, tail fading)
   advanced on a ~80 ms time grid — a rotation with **no springs and no
@@ -216,7 +251,7 @@ widget's fixed builder structure at paint time
   toward the opposite endpoint on each convergence) stays available for
   future resting-frame widgets.
 
-All four are allocation-free per tick, damage only the widget's rows, keep the
+All five are allocation-free per tick, damage only the widget's rows, keep the
 frame pulse armed while the widget is on screen (compositor visibility gating
 parks hidden windows), and stop the instant the node leaves the tree. The
 widgets' `.phase()` builders remain the deterministic CPU resting-frame API

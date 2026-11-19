@@ -66,7 +66,8 @@ pub fn paint_row_picked_animated(
     let surface_y = canvas.y;
     for &i in pick {
         let Some(b) = boxes.get(i as usize) else { continue };
-        let anim = anims.iter().find(|a| a.node_id == b.node_id && !a.is_identity());
+        let anim =
+            crate::covering_index(anims, b.node_id).map(|i| &anims[i]).filter(|a| !a.is_identity());
         paint_one(canvas, b, views, surface_y, anim);
     }
 }
@@ -129,9 +130,19 @@ fn paint_one(
         }
         clip_x = Some(meet(clip_x, (cx0 - shift, cx1 - shift)));
     }
+    // A motion's rounded clip (a part entering its track from outside), in surface coordinates:
+    // its columns join the scissor, and a row of its rounded ends carries their soft edge.
+    let round0 = canvas.round;
+    let mut round = round0;
+    if let Some(rc) = anim.and_then(|a| a.clip) {
+        let Some((cols, soft)) = rc.row(surface_y) else { return };
+        clip_x = Some(meet(clip_x, cols));
+        round = soft;
+    }
     canvas.y = layout_y;
     canvas.shift_x = shift;
     canvas.clip_x = clip_x;
+    canvas.round = round;
     // Per-node animation transform (opacity fade + translate + uniform scale). A matching
     // non-identity `NodeAnim` replaces the box's fill with a transformed, alpha-scaled draw;
     // otherwise the box paints as usual. Text is faded/translated by the caller's glyph pass.
@@ -142,6 +153,7 @@ fn paint_one(
     canvas.y = surface_y;
     canvas.shift_x = shift0;
     canvas.clip_x = clip0;
+    canvas.round = round0;
 }
 
 #[cfg(test)]

@@ -6,6 +6,7 @@
 
 mod deps;
 mod modifiers;
+mod parts;
 mod slots;
 use modifiers::apply_modifier;
 use slots::{emit_slot_items, SlotFrame};
@@ -372,6 +373,7 @@ fn emit_widget<'p>(
                     action,
                     press_offset: registry::press_offset(&kind),
                     autofocus: mods.autofocus,
+                    press: mods.press,
                 });
             }
         }
@@ -438,6 +440,7 @@ fn emit_widget<'p>(
             AnimIntent::new(AnimKind::Loop, animation::MotionToken::Pulse.id(), sub),
         ));
     }
+    parts::stamp_parts(ctx, &kind, &props);
     ctx.on_opaque = on_opaque;
     let pane = registry::PaneTokens(ctx.tokens);
     let tokens: &dyn nexus_theme_tokens::Tokens = if on_opaque { &pane } else { ctx.tokens };
@@ -451,6 +454,7 @@ fn loop_subkind(kind: &str, props: &[(String, Value)]) -> Option<i32> {
     match kind {
         "Skeleton" => Some(crate::anim::LOOP_SHIMMER),
         "Spinner" => Some(crate::anim::LOOP_CAROUSEL),
+        "LevelBars" => Some(crate::anim::LOOP_LEVEL),
         "ProgressBar" if !props.iter().any(|(n, v)| n == "value" && matches!(v, Value::Int(_))) => {
             Some(crate::anim::LOOP_SWEEP)
         }
@@ -485,23 +489,21 @@ pub(super) fn stamp_anim(
     ctx: &mut EmitCtx<'_, '_>,
     args: capnp::struct_list::Reader<'_, ir::token_arg::Owned>,
     kind: AnimKind,
-) {
+) -> Option<AnimIntent> {
     let token_name = match args.get(0).which() {
         Ok(ir::token_arg::Which::Token(sym)) => alloc::string::String::from(ctx.symbol(sym)),
-        _ => return,
+        _ => return None,
     };
-    let Some(token) = animation::MotionToken::from_name(&token_name).map(|t| t.id()) else {
-        return;
-    };
+    let token = animation::MotionToken::from_name(&token_name).map(|t| t.id())?;
     // Driving value snapshot (animate/effect carry a second expr arg; a
     // transition is a lifecycle event with no expr → "present" = 1).
     let value = match kind {
         // `Loop` is never authored via a modifier (the runtime emits it for a
         // widget); `stamp_anim` only handles the modifier kinds.
-        AnimKind::Loop => return,
+        AnimKind::Loop | AnimKind::Bound => return None,
         AnimKind::Transition => crate::anim::transition_identity(&ctx.path),
         AnimKind::Animate | AnimKind::Effect => {
-            let Some(second) = (args.len() > 1).then(|| args.get(1)) else { return };
+            let second = (args.len() > 1).then(|| args.get(1))?;
             match second.which() {
                 Ok(ir::token_arg::Which::Expr(Ok(expr))) => {
                     ctx.record_deps(expr, Damage::Paint);
@@ -509,23 +511,45 @@ pub(super) fn stamp_anim(
                         // An `.animate` value that is not a number has no
                         // present/absent reading — stamp NOTHING rather than
                         // guess 0 and hide the node.
-                        Ok(v) if kind == AnimKind::Animate => match presence_i32(&v) {
-                            Some(n) => n,
-                            None => return,
-                        },
+                        Ok(v) if kind == AnimKind::Animate => presence_i32(&v)?,
                         Ok(v) => change_token_i32(&v),
-                        Err(_) => return,
+                        Err(_) => return None,
                     }
                 }
                 Ok(ir::token_arg::Which::Boolean(b)) => i32::from(b),
                 Ok(ir::token_arg::Which::Int(i)) => {
                     i.clamp(i32::MIN as i64, i32::MAX as i64) as i32
                 }
-                _ => return,
+                _ => return None,
             }
         }
     };
-    ctx.anim_intents.push((ctx.path.clone(), AnimIntent::new(kind, token, value)));
+    let intent = AnimIntent::new(kind, token, value);
+    ctx.anim_intents.push((ctx.path.clone(), intent));
+    Some(intent)
+}
+
+/// Stamps `.motion(duration, curve)` onto the current node: an [`AnimKind::Bound`] intent whose
+/// token packs the pair and whose value is the node's identity (its emitted path), so the host
+/// keys its rest record by the node's place, not its number. An unknown name (the checker
+/// rejects it) stamps nothing.
+pub(super) fn stamp_bound(
+    ctx: &mut EmitCtx<'_, '_>,
+    args: capnp::struct_list::Reader<'_, ir::token_arg::Owned>,
+) {
+    let name = |i: u32| match (args.len() > i).then(|| args.get(i)).map(|a| a.which()) {
+        Some(Ok(ir::token_arg::Which::Token(sym))) => {
+            Some(alloc::string::String::from(ctx.symbol(sym)))
+        }
+        _ => None,
+    };
+    let (Some(d), Some(c)) = (name(0), name(1)) else { return };
+    let (Some(d), Some(c)) = (crate::anim::duration_named(&d), crate::anim::curve_named(&c)) else {
+        return;
+    };
+    let identity = crate::anim::transition_identity(&ctx.path);
+    let intent = AnimIntent::new(AnimKind::Bound, crate::anim::pack_bound(d, c), identity);
+    ctx.anim_intents.push((ctx.path.clone(), intent));
 }
 
 /// The PRESENCE reading of an `.animate(…, value:)` expression: `Some(n)` when

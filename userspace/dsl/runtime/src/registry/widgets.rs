@@ -86,6 +86,7 @@ pub(super) fn build_widget_inner(
         "Checkbox" => controls::checkbox(props, mods, tokens),
         "Slider" => controls::slider(props, mods, tokens),
         "Spinner" => controls::spinner(props, mods, tokens),
+        "LevelBars" => controls::level_bars(props, tokens),
         "ProgressBar" => controls::progress_bar(props, mods, tokens),
         "Toast" => controls::toast(props, tokens),
         "Banner" => controls::banner(props, tokens),

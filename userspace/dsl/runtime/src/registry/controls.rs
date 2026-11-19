@@ -22,7 +22,9 @@ use nexus_widget_button::{ButtonShape, ButtonVariant, GlassButton};
 mod display;
 mod fields;
 mod rows;
-pub(super) use display::{badge, banner, card, progress_bar, skeleton, slider, spinner, toast};
+pub(super) use display::{
+    badge, banner, card, level_bars, progress_bar, skeleton, slider, spinner, toast,
+};
 pub(super) use fields::{search_bar, select, text_field};
 pub(super) use rows::{avatar, chip, list_item, toolbar};
 

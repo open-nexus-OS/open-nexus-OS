@@ -231,6 +231,49 @@ Mitigation:
 - lint: cap slot complexity (heuristic) and enforce virtualization for large lists
 - push business logic into stores/effects, keep slots presentational
 
+## Motion bound to state
+
+State moves things by changing where they ARE; the motion follows. Three recipes:
+
+1. **A sliding indicator** (a tab's underline, a rail's marker, a page dot): lay the indicator
+   out at the active item and add `.motion(quick, spring)` — never compute an offset. The two
+   branches of an `if` at one place are the same node, so a branch that makes it wider or moves it
+   travels:
+
+   ```nx
+   Store Tabs { tab: Int = 0, }
+
+   Component TabMark {
+       props: {
+           index: Int,
+       }
+       if $state.tab == $props.index {
+           Stack { }
+               .width(24)
+               .height(3)
+               .rounded(full)
+               .bg(accent)
+               .motion(quick, spring)
+       } else {
+           Stack { }
+               .width(0)
+               .height(3)
+               .motion(quick, spring)
+       }
+   }
+   ```
+
+2. **Show or hide a part**: `.animate(pop, value: $state.checked)` (a mark that pops) or
+   `.animate(fade, value: $state.on)` (a layer that fades). The part is always in the tree; the
+   absent state is its opacity 0, and the change plays both ways.
+
+3. **Press feel by role**: `.press(tile)` on a tile that should dip like a tile whatever its size,
+   `.press(key)` on a keyboard key (it holds 94 % while pressed).
+
+Anti-pattern: `.animate(…, value: x)` to make something "move when `x` changes" — `.animate` is
+present/absent and rests a node invisible at 0. Use `.motion` (a node that moves) or `.effect`
+(a one-shot attention motion on a trigger, `swapInline` for content swapped in place).
+
 ## Why not full generics (v0.x)
 
 Full generics typically imply:

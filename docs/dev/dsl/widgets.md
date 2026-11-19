@@ -46,7 +46,7 @@ catalog must have its `###` entry here, and every example must compile.
 | Content | [`Text`](#text), [`Icon`](#icon), [`Image`](#image), [`Avatar`](#avatar), [`Badge`](#badge), [`Skeleton`](#skeleton) |
 | Controls | [`Button`](#button), [`Toggle`](#toggle), [`Checkbox`](#checkbox), [`Slider`](#slider), [`Chip`](#chip), [`Select`](#select) |
 | Inputs | [`TextField`](#textfield), [`SearchBar`](#searchbar) |
-| Feedback | [`Spinner`](#spinner), [`ProgressBar`](#progressbar), [`Toast`](#toast), [`Banner`](#banner) |
+| Feedback | [`Spinner`](#spinner), [`ProgressBar`](#progressbar), [`LevelBars`](#levelbars), [`Toast`](#toast), [`Banner`](#banner) |
 | Navigation and rows | [`ListItem`](#listitem), [`Toolbar`](#toolbar), [`Breadcrumbs`](#breadcrumbs) |
 | Platform | [`NativeWidget`](#nativewidget) |
 
@@ -558,6 +558,11 @@ Page PrefsPage {
 Press stretches the thumb and hover is a compositor layer; the toggle itself never repaints
 for them.
 
+**Motion** — the on colour is a layer over the track that fades in and out (`fade`), and the
+thumb travels to its end on the soft spring (`quick`): a change from anywhere — a tap, the store,
+another surface — moves, it never snaps. On a tap the thumb also stretches as it slides. Reduced
+motion lands at once.
+
 **Modifiers** — `.disabled(true)` (the disabled look, 45 % opacity).
 
 **Accessibility** — `label` or `.label("…")` is required (NX0402).
@@ -597,6 +602,10 @@ Page FormPage {
 **Interaction** — a tap writes the negated `checked`. A tap on an indeterminate box therefore
 reports the negation of its `checked` value; the page clears `indeterminate` itself.
 
+**Motion** — the tint is a layer over the box that fades (`snappy`), and the mark pops in and
+out (`pop`: from 60 % on the icon spring). Both parts are always there, invisible while
+unchecked. Reduced motion shows or hides them at once.
+
 **Modifiers** — `.disabled(true)`.
 
 **Accessibility** — `label` or `.label("…")` is required (NX0402).
@@ -634,6 +643,9 @@ Page DisplayPage {
 
 **Interaction** — a tap at a point across the slider writes that point's fraction of the
 track, 0–100, to the bound field. The slider has no drag yet: it moves on taps.
+
+**Motion** — the fill follows a new value on the soft spring (`quick`); while the pointer holds
+the slider it follows at once.
 
 **Modifiers** — `.disabled(true)`, and flex. The slider takes the row's free width; it has no
 fixed width of its own.
@@ -721,6 +733,9 @@ Page LangPage {
 
 **Interaction** — a tap runs the select's own `on Tap` handler, which opens the page's option
 panel; the select never writes `value` itself.
+
+**Motion** — `open` turns the same chevron glyph 180° on the swift step; it is never swapped
+for another glyph.
 
 **Modifiers** — `.disabled(true)`.
 
@@ -881,10 +896,44 @@ ProgressBar { }
 | Positional prop | `value` |
 | Interactive | no |
 
+**Motion** — a determinate fill follows a new `value` (`quick`, smooth). The indeterminate pip
+(40 % of the track) crosses from outside the track's leading edge to past its trailing edge, cut
+by the track's rounded ends; under a reduced-motion theme it rests outside (hidden).
+
 **Modifiers** — `.fg(role)` is the fill colour when `tint` is absent; `.disabled(true)` (50 %
 opacity); flex. The bar is as wide as its container.
 
 **See also** — [`Slider`](#slider), [`Spinner`](#spinner).
+
+### `LevelBars`
+
+The media level bars: four 3 px bars that rise and fall staggered, the activity island's
+compact form (design artifacts: ActivityRunner).
+
+```nx-view
+LevelBars { }
+LevelBars { tint: "label", opacity: 200 }
+```
+
+| Prop | Type | Default | Values |
+|---|---|---|---|
+| `tint` | role | `onAccent` | the bars' colour (the island is black in both themes) |
+| `opacity` | `Int` | `148` | 0–255, the bars' strength (148 = the dark scope's secondary .58) |
+
+| | |
+|---|---|
+| Children | none |
+| Positional prop | — |
+| Interactive | no |
+
+**Motion** — each bar scales from its bottom between 40 % and 100 %, 0.7 s each way on
+ease-in-out, each 80 ms behind the one before; rest heights 8 / 12 / 6 / 10 px in a 12 px row,
+2 px apart. The host runs it on the clock (no app work per frame beyond the bars' rectangle).
+Under a reduced-motion theme the bars rest at full height.
+
+**Modifiers** — flex.
+
+**See also** — [`Spinner`](#spinner), [`ProgressBar`](#progressbar).
 
 ### `Toast`
 

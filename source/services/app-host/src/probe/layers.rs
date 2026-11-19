@@ -34,10 +34,11 @@ impl super::DslApp {
         let (sw, sh) = (self.w as i32, self.h as i32);
         let fit = |b: &nexus_layout::LayoutBox| {
             let (x, y, w, h) = (b.rect.x.0, b.rect.y.0, b.rect.width.0, b.rect.height.0);
-            let (x, y, w, h) = match anims.iter().find(|a| a.node_id == b.node_id) {
-                Some(a) => a.transform_rect(x, y, w, h),
-                None => (x, y, w, h),
-            };
+            let (x, y, w, h) =
+                match nexus_scene_raster::covering_index(anims, b.node_id).map(|i| &anims[i]) {
+                    Some(a) => a.transform_rect(x, y, w, h),
+                    None => (x, y, w, h),
+                };
             let (x0, y0) = (x.max(0), y.max(0));
             let (x1, y1) = ((x + w).min(sw), (y + h).min(sh));
             (x1 > x0 && y1 > y0).then(|| (x0 as u16, y0 as u16, (x1 - x0) as u16, (y1 - y0) as u16))

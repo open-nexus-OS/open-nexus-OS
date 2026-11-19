@@ -199,8 +199,15 @@ by key, never by its place in the list.
 and its damage history by key; a glass's backdrop key folds only the layers whose extent reaches
 it — a slice moving elsewhere re-blurs no glass.
 
-**The app (app-host):** one `ScrollMomentum` per scroll layer (wheel, fling, paged glide and its
-page triggers, `EndReached` scoped to the container that reached its end), the wheel targeted at
+**The app (app-host):** one `ScrollMomentum` per vertical or horizontal scroll layer (wheel,
+fling, `EndReached` scoped to the container that reached its end) and a **paged track** per paged
+one (amended 2026-11-19, TASK-0354 P12, `pager_math.rs`): the drag follows the pointer 1:1 once
+it locked to the track, past either end at 35 % — the offset leaves `[0, max]` by at most one
+viewport, and windowd shows `[offset, offset + viewport) ∩ valid`, so the base shows in the strip
+the band leaves (no wire change) — a release past 16 % of the width or a flick turns a page and
+fires its trigger, the wheel turns past 40 units then cools 420 ms, every turn and return a
+500 ms glide on the glide curve; inside a paged viewport a `Tap` fires on the release, never
+after a drag. The wheel is targeted at
 the scroll layer under the pointer; the band filled ahead of the viewport within a time budget
 per frame pulse, nearest content first, never blocking the physics tick; motion sent on every
 tick that moved; the structure and the presented store rows sent together. The hover decision

@@ -9,19 +9,23 @@
 // DEMO DATA — the shell has no calendar service and the DSL has no clock
 // arithmetic, so the three months are authored (see `CalMonthNow`) and
 // `CalStore` pages between them. Everything the user can do here works; what
-// it shows is fixed.
+// it shows is fixed. Paging slides the month in from the side it comes from (design artifacts:
+// PN-MONTH — 28 px and a fade on the glide curve, `swapInline` keyed by the month index).
 
 Component CalendarBody {
     Stack {
         CalHeader { }
         CalWeekHeader { }
-        if $state.calMonth == 0 {
-            CalMonthPrev { }
-        } else if $state.calMonth == 2 {
-            CalMonthNext { }
-        } else {
-            CalMonthNow { }
+        Stack {
+            if $state.calMonth == 0 {
+                CalMonthPrev { }
+            } else if $state.calMonth == 2 {
+                CalMonthNext { }
+            } else {
+                CalMonthNow { }
+            }
         }
+        .effect(swapInline, trigger: $state.calMonth)
         GroupLabel { label: @t("cal.upcoming") }
         CalUpcoming { }
     }

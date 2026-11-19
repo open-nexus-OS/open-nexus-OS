@@ -24,7 +24,7 @@ mod borders;
 use borders::{paint_borders_row, paint_inset_highlight_row};
 
 pub mod anim;
-pub use anim::NodeAnim;
+pub use anim::{covering_index, NodeAnim};
 
 mod scrolled;
 pub use scrolled::{
@@ -36,6 +36,8 @@ use shapes::{ceil_i32, floor_i32, sqrt_f32};
 #[cfg(test)]
 mod span_identity;
 mod strokes;
+mod xform;
+pub use xform::RoundClip;
 
 use nexus_layout::LayoutBox;
 use nexus_layout_types::{Material, Rgba8, ShapeKind};
@@ -54,13 +56,16 @@ pub struct RowCanvas<'a> {
     /// Horizontal scissor on the SURFACE (x0, x1 exclusive) — the scroll
     /// viewport's columns. `None` = full row.
     pub clip_x: Option<(i32, i32)>,
+    /// The soft edge of a rounded clip on this row (`NodeAnim::clip`, set by the row loop around
+    /// one box): pixels in its corner columns take the clip's coverage. `None` = no such clip.
+    pub(crate) round: Option<xform::RowRound>,
 }
 
 impl RowCanvas<'_> {
     /// A plain unscrolled row canvas.
     #[must_use]
     pub fn new(buf: &mut [u8], y: i32, width: i32) -> RowCanvas<'_> {
-        RowCanvas { buf, y, width, shift_x: 0, clip_x: None }
+        RowCanvas { buf, y, width, shift_x: 0, clip_x: None, round: None }
     }
 
     /// Src-over blend one pixel of this row (model-x; scroll shift + viewport
@@ -80,6 +85,10 @@ impl RowCanvas<'_> {
         if i + 4 > self.buf.len() {
             return;
         }
+        let c = match &self.round {
+            Some(k) => k.cover(x, c),
+            None => c,
+        };
         let (a, inv) = (c.a as u32, 255 - c.a as u32);
         let mix = |dst: u8, src: u8| ((dst as u32 * inv + src as u32 * a) / 255) as u8;
         self.buf[i] = mix(self.buf[i], c.b);
@@ -124,6 +133,10 @@ impl RowCanvas<'_> {
         if i + 4 > self.buf.len() {
             return;
         }
+        if let Some(cov) = self.round.as_ref().map(|k| k.coverage(x)).filter(|cov| *cov < 1.0) {
+            self.set_fraction(i, c, cov);
+            return;
+        }
         // Premultiplied write — the exact pixel `blend` produces onto an
         // empty destination, so a glass reset is indistinguishable from
         // painting the tint on a fresh surface.
@@ -138,7 +151,8 @@ impl RowCanvas<'_> {
 /// Paint one box's contribution to this row (fill + borders).
 pub fn paint_box_row(canvas: &mut RowCanvas<'_>, b: &LayoutBox) {
     let (x, y, w, h) = (b.rect.x.0, b.rect.y.0, b.rect.width.0, b.rect.height.0);
-    paint_box_row_at(canvas, b, x, y, w, h, b.visual.background, 100);
+    let turn = i32::from(b.visual.rotate_deg);
+    paint_box_row_at(canvas, b, x, y, w, h, b.visual.background, 100, turn, b.opacity);
 }
 
 /// The row's flat color of a vertical linear gradient: a row-based painter
@@ -173,9 +187,11 @@ fn gradient_row_color(
 /// ANIMATION path (the transformed rect + faded fill) — every `ShapeKind`
 /// (rect/triangles/circle/path/vector) scales and translates, so icons and
 /// round buttons animate as whole shapes, not just their bounding fill.
-/// `radius_pct` scales the corner radius (100 = as authored).
-// reason: shared shape-dispatch entry — args are the explicit geometry, fill
-// and radius scale; a struct wrapper would not improve this hot path.
+/// `radius_pct` scales the corner radius (100 = as authored). `turn` is the glyph shape's
+/// rotation in degrees clockwise (0 = none: the shapes below as they always were), `opacity` the
+/// effective opacity every colour is painted at (the box's own, or a motion's `base_opacity`).
+// reason: shared shape-dispatch entry — args are the explicit geometry, fill,
+// radius scale, turn and opacity; a struct wrapper would not improve this hot path.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn paint_box_row_at(
     canvas: &mut RowCanvas<'_>,
@@ -186,6 +202,8 @@ pub(crate) fn paint_box_row_at(
     h: i32,
     background: Option<Rgba8>,
     radius_pct: u16,
+    turn: i32,
+    opacity: u8,
 ) {
     if w <= 0 || h <= 0 {
         return;
@@ -202,7 +220,7 @@ pub(crate) fn paint_box_row_at(
     // the shadow and nothing else — leaving at the box's edge, the shadow ended flat there.
     // A faded box paints every colour at its effective opacity (`LayoutBox::opacity`, its own
     // times its ancestors'), so a disabled control dims as one.
-    let op = u32::from(b.opacity);
+    let op = u32::from(opacity);
     let fade =
         |c: Rgba8| if op == 255 { c } else { Rgba8 { a: (u32::from(c.a) * op / 255) as u8, ..c } };
     let (_, above, _, below) = shadow_reach(b);
@@ -228,7 +246,12 @@ pub(crate) fn paint_box_row_at(
     .map(fade);
     if let Some(bg) = background {
         let (xf, yf, wf, hf) = (x as f32, y as f32, w as f32, h as f32);
+        // A turned glyph shape is drawn by `xform`, its ink cut to this rect.
+        let turned = xform::Rot::about(turn, (xf, yf, wf, hf)).is_some_and(|rot| {
+            xform::paint_rotated_shape_row(canvas, &b.visual.shape, (x, y, w, h), rot, bg)
+        });
         match &b.visual.shape {
+            _ if turned => {}
             ShapeKind::Rect => {
                 let radius = (b.visual.corner_radius.top_left.0.max(0) as i64
                     * radius_pct.max(1) as i64

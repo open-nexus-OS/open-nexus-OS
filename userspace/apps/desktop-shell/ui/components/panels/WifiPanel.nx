@@ -41,6 +41,7 @@ Component WifiPanel {
                 }
             }
             .direction(row)
+            .press(tile)
             on Tap -> dispatch(ToggleWiredOnly)
         }
         .padding(12)

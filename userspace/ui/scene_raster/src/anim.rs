@@ -5,7 +5,9 @@
 //! paint tail of the DSL `.animate`/`.transition`/`.effect` binding
 //! (docs/dev/ui/foundations/animation.md, ADR-0031). A [`NodeAnim`] keyed by
 //! `LayoutBox::node_id` carries the animation engine's current interpolated
-//! opacity + translate + uniform scale for one node; the picked painter draws
+//! opacity + translate + scale for one node — and, beyond those, a rotation of
+//! its glyph shape, a base opacity (a box whose scene rest is hidden, painted
+//! during its exit) and a rounded clip (`xform`); the picked painter draws
 //! that node's fill transformed and alpha-scaled instead of at rest. Like the
 //! `ScrollView` (a box placed by its scroll layer's view) it is
 //! presentation-only — never a re-layout, alloc-free.
@@ -17,7 +19,7 @@
 //! DSL nodes are panels/bars/text); text is faded/translated by the caller's
 //! separate glyph pass, not here.
 
-use crate::RowCanvas;
+use crate::{RoundClip, RowCanvas};
 use nexus_layout::LayoutBox;
 use nexus_layout_types::Rgba8;
 
@@ -52,6 +54,40 @@ pub struct NodeAnim {
     /// whole control — tile, glyph, children — grows as one shape.
     pub anchor_x: i32,
     pub anchor_y: i32,
+    /// A motion's rotation, degrees clockwise, ADDED to the box's rest rotation
+    /// (`VisualStyle::rotate_deg`); `0` = the rest rotation alone. Turns the
+    /// box's own glyph shape about the drawn rect's centre, ink cut to that rect.
+    pub rot_deg: i16,
+    /// The box painted as if its effective opacity (`LayoutBox::opacity`) were
+    /// this value; `None` = its own. A box whose scene opacity is 0 is painted
+    /// through this during its exit (the scene is the rest, the motion the
+    /// deviation from it).
+    pub base_opacity: Option<u8>,
+    /// A rounded rect the node is painted under (a pip or a band entering its
+    /// track from outside): nothing of the node is painted outside it, and at
+    /// its rounded ends the node takes the coverage the rect's own fill has.
+    pub clip: Option<RoundClip>,
+    /// The exclusive end of the pre-order node range this transform covers: the node itself
+    /// (`node_id + 1`), or its whole subtree (a pressed control dips its glyph and label with it,
+    /// a swapped month slides every cell). A box with its own entry keeps that one
+    /// ([`covering_index`]).
+    pub span_end: usize,
+}
+
+/// The transform box `node_id` is painted with: its own entry, else the innermost entry whose
+/// subtree covers it (`a.node_id < node_id < a.span_end`, the largest `a.node_id`). Its index in
+/// `anims`.
+#[must_use]
+pub fn covering_index(anims: &[NodeAnim], node_id: usize) -> Option<usize> {
+    if let Some(i) = anims.iter().position(|a| a.node_id == node_id) {
+        return Some(i);
+    }
+    anims
+        .iter()
+        .enumerate()
+        .filter(|(_, a)| a.node_id < node_id && node_id < a.span_end)
+        .max_by_key(|(_, a)| a.node_id)
+        .map(|(i, _)| i)
 }
 
 impl NodeAnim {
@@ -67,6 +103,10 @@ impl NodeAnim {
             scale_y_pct: None,
             anchor_x: SELF_ANCHOR,
             anchor_y: SELF_ANCHOR,
+            rot_deg: 0,
+            base_opacity: None,
+            clip: None,
+            span_end: node_id + 1,
         }
     }
 
@@ -86,14 +126,23 @@ impl NodeAnim {
             && self.dy == 0
             && self.scale_pct == 100
             && self.scale_y_pct.is_none_or(|v| v == 100)
+            && self.rot_deg == 0
+            && self.base_opacity.is_none()
+            && self.clip.is_none()
     }
 
-    /// The corner-radius scale: the SMALLER axis, so a non-uniform stretch
-    /// keeps round end-caps (a stretched circle reads as a capsule, not an
-    /// ellipse). For the uniform case this is exactly `scale_pct`.
+    /// The corner-radius scale. A uniform scale scales the radius with the
+    /// box (`scale_pct`). A SPLIT axis (`scale_y_pct` set) keeps the radius
+    /// as authored (100): the fill clamps it to half the smaller side, so a
+    /// capsule stretched or squeezed along one axis stays a capsule with
+    /// round end-caps instead of ends that square off as it shrinks.
     #[must_use]
     pub fn radius_pct(&self) -> u16 {
-        self.scale_pct.min(self.scale_y_pct.unwrap_or(self.scale_pct))
+        if self.scale_y_pct.is_some() {
+            100
+        } else {
+            self.scale_pct
+        }
     }
 
     /// The box rect after scale about the anchor + translate.
@@ -138,17 +187,38 @@ pub(crate) fn paint_anim_box_row(canvas: &mut RowCanvas<'_>, b: &LayoutBox, a: &
     }
     let (nx, ny, nw, nh) = a.transform_rect(x, y, w, h);
     let bg = b.visual.background.map(|c| fade(c, a.opacity));
-    crate::paint_box_row_at(canvas, b, nx, ny, nw, nh, bg, a.radius_pct());
+    let turn = i32::from(b.visual.rotate_deg) + i32::from(a.rot_deg);
+    let opacity = a.base_opacity.unwrap_or(b.opacity);
+    crate::paint_box_row_at(canvas, b, nx, ny, nw, nh, bg, a.radius_pct(), turn, opacity);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// A box takes its own entry, else the innermost one whose subtree covers it.
+    #[test]
+    fn a_box_takes_its_own_transform_else_the_innermost_covering_one() {
+        let outer = NodeAnim { span_end: 10, dx: 4, ..NodeAnim::identity(2) };
+        let inner = NodeAnim { span_end: 7, dx: 9, ..NodeAnim::identity(4) };
+        let own = NodeAnim { dx: 1, ..NodeAnim::identity(6) };
+        let anims = [outer, inner, own];
+        assert_eq!(covering_index(&anims, 3), Some(0), "under the outer only");
+        assert_eq!(covering_index(&anims, 5), Some(1), "the inner subtree wins");
+        assert_eq!(covering_index(&anims, 6), Some(2), "its own entry wins");
+        assert_eq!(covering_index(&anims, 8), Some(0), "past the inner's end");
+        assert_eq!(covering_index(&anims, 10), None, "the end is exclusive");
+        assert_eq!(covering_index(&anims, 1), None, "before every range");
+    }
+
     #[test]
     fn identity_detects_no_op() {
         assert!(NodeAnim::identity(3).is_identity());
         assert!(!NodeAnim { opacity: 128, ..NodeAnim::identity(3) }.is_identity());
+        assert!(
+            NodeAnim { span_end: 9, ..NodeAnim::identity(3) }.is_identity(),
+            "a range alone moves nothing"
+        );
         assert!(!NodeAnim { dx: 4, ..NodeAnim::identity(3) }.is_identity());
     }
 

@@ -53,11 +53,67 @@ impl Sweep {
         let x = (travel as f32 * cubic_bezier(self.curve, t) + 0.5) as i32;
         x.clamp(0, travel)
     }
+
+    /// Where a part `part_w` wide is at `now_ns` crossing a track `track_w` wide FROM OUTSIDE it
+    /// (TASK-0354 P13, design artifacts: PRG-5): wholly before the track's leading edge at the
+    /// start of every crossing, wholly past its trailing edge at the end — the track's rounded
+    /// clip cuts what lies outside. Relative to the track's leading edge.
+    pub(crate) fn from_outside(&self, now_ns: u64, track_w: i32, part_w: i32) -> i32 {
+        let part_w = part_w.max(0);
+        self.at(now_ns, track_w.max(0).saturating_add(part_w)) - part_w
+    }
+}
+
+/// The level bars' half cycle: 0.7 s up, 0.7 s down (design artifacts: ActivityRunner, M24).
+pub(crate) const LEVEL_HALF_NS: u64 = 700_000_000;
+/// Each bar runs this far behind the bar before it.
+pub(crate) const LEVEL_STAGGER_NS: u64 = 80_000_000;
+/// The bars' low end (their scale from the bottom); the high end is 1.
+pub(crate) const LEVEL_FROM: f32 = 0.4;
+/// The ease-in-out the bars follow both ways.
+const LEVEL_CURVE: [f32; 4] = [0.42, 0.0, 0.58, 1.0];
+
+/// Bar `index`'s vertical scale at `now_ns`, in percent: from 40 up to 100 and back on
+/// ease-in-out, `index × 80 ms` behind bar 0. A function of the clock alone, like the sweeps.
+pub(crate) fn level_scale_pct(now_ns: u64, index: u64) -> u16 {
+    let cycle = 2 * LEVEL_HALF_NS;
+    let lag = index.saturating_mul(LEVEL_STAGGER_NS) % cycle;
+    let local = (now_ns % cycle + cycle - lag) % cycle;
+    let (half, rising) =
+        if local < LEVEL_HALF_NS { (local, true) } else { (local - LEVEL_HALF_NS, false) };
+    let e = cubic_bezier(LEVEL_CURVE, half as f32 / LEVEL_HALF_NS as f32);
+    let s = if rising { LEVEL_FROM + (1.0 - LEVEL_FROM) * e } else { 1.0 - (1.0 - LEVEL_FROM) * e };
+    (s * 100.0 + 0.5) as u16
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The level bars at named times: bar 0 starts low, peaks at 0.7 s, is low again at 1.4 s;
+    /// bar 1 is 80 ms behind; the curve is symmetric, so a quarter of the way up mirrors a
+    /// quarter of the way down.
+    #[test]
+    fn the_level_bars_rise_and_fall_in_700_ms_each_staggered_80_ms() {
+        let ms = |ms: u64, i: u64| level_scale_pct(ms * 1_000_000, i);
+        assert_eq!((ms(0, 0), ms(700, 0), ms(1_400, 0)), (40, 100, 40));
+        assert_eq!(ms(350, 0), 70, "half way up at half time (ease-in-out is symmetric)");
+        assert_eq!(ms(175, 0), ms(700 + 525, 0), "up mirrors down");
+        assert_eq!(ms(80, 1), ms(0, 0), "bar 1 is 80 ms behind");
+        assert_eq!(ms(780, 1), 100);
+        assert_eq!(ms(240, 3), 40, "bar 3 starts 240 ms late");
+        assert!((0..=1_400).step_by(7).all(|t| (40..=100).contains(&ms(t, 2))));
+    }
+
+    /// From outside: the part starts wholly before the track and ends wholly past it.
+    #[test]
+    fn a_sweep_from_outside_enters_and_leaves_the_track_whole() {
+        let at = |ms: u64| PIP.from_outside(ms * 1_000_000, 200, 80);
+        assert_eq!(at(0), -80, "wholly before the leading edge");
+        assert_eq!(at(1_099), 200, "wholly past the trailing edge");
+        assert!((0..1_100).step_by(10).all(|t| (-80..=200).contains(&at(t))));
+        assert_eq!(PIP.from_outside(0, 0, 0), 0, "nothing to cross");
+    }
 
     /// The pip at named times of its 1.1 s crossing of a 200-px travel: the smooth curve's
     /// values (`cubic-bezier(0.4, 0, 0.2, 1)` — 0.0259 at a tenth, 0.2366 at a quarter, 0.7756 at

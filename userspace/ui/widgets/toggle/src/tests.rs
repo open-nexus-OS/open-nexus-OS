@@ -79,31 +79,52 @@ fn the_thumb_sits_at_the_inset_and_travels_when_on() {
         let off = sizes(GlassToggle::new().size(size).build(&t));
         let on = sizes(GlassToggle::new().size(size).checked(true).build(&t));
         assert_eq!((off[1].2, off[1].3), (m.width.0, m.height.0), "{size:?}: the track");
-        assert_eq!(off[2], (m.inset.0, m.inset.0, m.thumb.0, m.thumb.0), "{size:?}: thumb off");
-        assert_eq!(on[2].0, m.inset.0 + m.travel.0, "{size:?}: thumb on");
+        assert_eq!(off[3], (m.inset.0, m.inset.0, m.thumb.0, m.thumb.0), "{size:?}: thumb off");
+        assert_eq!(on[3].0, m.inset.0 + m.travel.0, "{size:?}: thumb on");
     }
 }
 
 #[test]
-fn the_track_is_fill_off_and_the_tint_with_its_glow_on() {
+fn the_track_is_fill_and_the_on_layer_carries_the_tint_with_its_glow() {
     let t = DarkTokens;
-    let off = GlassToggle::new().build(&t);
-    assert_eq!(visual(&off).background, Some(t.color(ColorToken::Fill)));
-    assert_eq!(visual(&off).shadow, None);
-    assert_eq!(visual(&off).corner_radius.top_left, RadiusToken::Full.px());
+    let parts = |node: &LayoutNode| match node {
+        LayoutNode::Stack(_, own, children) => (own.clone(), visual(&children[0]).clone()),
+        _ => panic!("toggle must be a Stack"),
+    };
+    let (track, layer) = parts(&GlassToggle::new().build(&t));
+    assert_eq!(track.background, Some(t.color(ColorToken::Fill)));
+    assert_eq!(track.shadow, None);
+    assert_eq!(track.corner_radius.top_left, RadiusToken::Full.px());
+    assert_eq!(layer.opacity, Some(nexus_layout_types::Fraction(0)), "off: the layer is invisible");
     let on = GlassToggle::new().checked(true).tint(ColorToken::ModeAirplane).build(&t);
-    assert_eq!(visual(&on).background, Some(t.color(ColorToken::ModeAirplane)));
-    assert_eq!(visual(&on).shadow, Some(glow_shadow(&t, ColorToken::ModeAirplane, Glow::Sm)));
+    let (track, layer) = parts(&on);
+    assert_eq!(track.background, Some(t.color(ColorToken::Fill)), "the track never changes");
+    assert_eq!(layer.background, Some(t.color(ColorToken::ModeAirplane)));
+    assert_eq!(layer.shadow, Some(glow_shadow(&t, ColorToken::ModeAirplane, Glow::Sm)));
+    assert_eq!(layer.opacity, None, "on: drawn");
+}
+
+/// The on layer covers the whole track (out of flow, at the track's own origin and size).
+#[test]
+fn the_on_layer_covers_the_track() {
+    let t = BaseTokens;
+    for size in [ControlSize::Xs, ControlSize::Md, ControlSize::Xl] {
+        let m = SwitchMetrics::of(size);
+        let all = sizes(GlassToggle::new().size(size).build(&t));
+        let (track, layer) = (all[1], all[2]);
+        assert_eq!(layer, track, "{size:?}: the layer is the track's rect");
+        assert_eq!((track.2, track.3), (m.width.0, m.height.0));
+    }
 }
 
 #[test]
-fn the_thumb_is_white_with_shadow1_and_is_child_0() {
+fn the_thumb_is_white_with_shadow1_and_is_child_1() {
     let t = DarkTokens;
     match GlassToggle::new().id("wifi").build(&t) {
         LayoutNode::Stack(stack, _, children) => {
             assert_eq!(stack.id, Some("wifi"));
-            assert_eq!(children.len(), 1, "the thumb, +1 in pre-order (press_offset)");
-            let thumb = visual(&children[0]);
+            assert_eq!(children.len(), 2, "[on layer, thumb]: the thumb is +2 in pre-order");
+            let thumb = visual(&children[1]).clone();
             assert_eq!(thumb.background, Some(t.color(ColorToken::OnAccent)));
             assert_eq!(thumb.shadow, Some(nexus_style::box_shadow(t.shadow(ShadowToken::Shadow1))));
         }

@@ -24,14 +24,17 @@
 //! the per-frame tick is allocation-free (`tick_into` into a stack buffer).
 
 use super::*;
-use crate::loop_math::sweep_of;
 use animation::{
     shake_px, AnimProp, AnimationDriver, Easing, LayerId, MotionToken, SceneUpdate, SpringConfig,
 };
 
+mod bound;
 mod damage;
 mod interaction;
+mod loops;
+use bound::BoundRest;
 pub(super) use interaction::HeldPress;
+use loops::{is_loop_part, LoopEnt};
 use nexus_dsl_runtime::theme_tokens::Tokens;
 use nexus_dsl_runtime::{
     AnimIntent, AnimKind, LOOP_CAROUSEL, LOOP_CAROUSEL_SPOKES, LOOP_SHIMMER, LOOP_SWEEP,
@@ -52,18 +55,6 @@ pub(super) const MAX_EXPANDED_ANIMS: usize = 48;
 /// Pulse peak scale (fraction over 1.0) of the `.effect(pulse)` token.
 const PULSE_PEAK: f32 = 0.12;
 
-/// Continuous-loop (`AnimKind::Loop`) breathe opacity endpoints + midpoint —
-/// an inherently-animated widget (Skeleton) pulses between these forever via a
-/// spring that re-fires toward the opposite endpoint on each convergence
-/// (alloc-free: `spring_to` allocates nothing, so the loop never grows the heap).
-const BREATHE_BRIGHT: f32 = 1.0;
-const BREATHE_DIM: f32 = 0.15;
-const BREATHE_MID: f32 = 0.55;
-
-/// Carousel step interval (`LOOP_CAROUSEL`): one revolution in exactly 1 s over the 12 spokes
-/// (the design artifacts' activity ring, 83.3 ms a spoke).
-const SPINNER_STEP_NS: u64 = 1_000_000_000 / LOOP_CAROUSEL_SPOKES as u64;
-
 /// The property target for a driving value under a token — `MotionToken`'s own
 /// present/absent contract, which is the SSOT both this seed path and the app
 /// conformance tests read. It used to live HERE, in a RISC-V-only module no
@@ -71,17 +62,6 @@ const SPINNER_STEP_NS: u64 = 1_000_000_000 / LOOP_CAROUSEL_SPOKES as u64;
 /// the node at opacity 0" reached a device unnoticed.
 fn target_for(token: MotionToken, prop: AnimProp, value: i32) -> f32 {
     token.resting(prop, value != 0)
-}
-
-/// One continuous widget loop (reconciled against the emitted Loop intents).
-#[derive(Clone, Copy)]
-struct LoopEnt {
-    /// The widget ROOT node the intent targets.
-    node_id: usize,
-    /// Loop sub-kind (`nexus_dsl_runtime::LOOP_*`, stamped in the intent value).
-    sub: i32,
-    /// Carousel: current leading-spoke step on the time grid.
-    step: u8,
 }
 
 /// Host-owned animation state for one `DslApp` surface. See the module header.
@@ -99,6 +79,11 @@ pub(super) struct AnimState {
     /// on a time grid (`loop_math`); the breathe spring re-fires. These keep the frame
     /// pulse armed while the widget is on screen. Bounded by the cap.
     loops: alloc::vec::Vec<LoopEnt>,
+    /// `.motion` nodes' rests by identity (`anim/bound.rs`), bounded by `bound::MAX_BOUND`.
+    bound: alloc::vec::Vec<BoundRest>,
+    /// The emit's intents, reused across syncs (transitions and loops first, so a bound cuts the
+    /// least important): no snapshot array by value on the stack.
+    intents: alloc::vec::Vec<(usize, AnimIntent)>,
     /// Last physics tick (ns) for dt integration (diagnostics/telemetry).
     last_ns: u64,
     /// The tokens that started a motion since the last tick (bit = id): the episode's line.
@@ -112,6 +97,8 @@ impl AnimState {
             seen: alloc::vec::Vec::new(),
             anims: alloc::vec::Vec::new(),
             loops: alloc::vec::Vec::new(),
+            bound: alloc::vec::Vec::new(),
+            intents: alloc::vec::Vec::new(),
             last_ns: 0,
             started: 0,
         }
@@ -154,6 +141,7 @@ impl AnimState {
             // ScaleY mirrors X unless a non-uniform interaction split it
             // (toggle-thumb stretch) — the NodeAnim superset contract.
             AnimProp::ScaleY => a.scale_y_pct.unwrap_or(a.scale_pct) as f32 / 100.0,
+            AnimProp::Rotate => f32::from(a.rot_deg),
             _ => prop.identity(),
         }
     }
@@ -171,6 +159,9 @@ impl AnimState {
             // toggle-thumb stretch). While split, ScaleX only moves X.
             AnimProp::ScaleX => a.scale_pct = (v.max(0.0) * 100.0) as u16,
             AnimProp::ScaleY => a.scale_y_pct = Some((v.max(0.0) * 100.0) as u16),
+            AnimProp::Rotate => {
+                a.rot_deg = (if v >= 0.0 { v + 0.5 } else { v - 0.5 }).clamp(-720.0, 720.0) as i16;
+            }
             _ => {}
         }
     }
@@ -217,13 +208,92 @@ impl AnimState {
         }
     }
 
+    /// An `.animate` part that became PRESENT. The scene draws it now; the token's enter plays
+    /// from where it is seen — from its absent rest when nothing was painting it, or from the
+    /// point an exit had reached (no jump).
+    fn present(&mut self, node_id: usize, token: MotionToken, tokens: &dyn Tokens) {
+        let Some(a) = self.anims.iter_mut().find(|a| a.node_id == node_id) else {
+            self.enter(node_id, token, tokens);
+            return;
+        };
+        // An exit was painting it over a base; the box itself is drawn again.
+        let seen =
+            a.base_opacity.map_or(1.0, |b| f32::from(b) / 255.0) * f32::from(a.opacity) / 255.0;
+        a.base_opacity = None;
+        self.set_prop(node_id, AnimProp::Opacity, seen);
+        for prop in [Some(token.primary_prop()), token.secondary_prop(), Some(AnimProp::Opacity)] {
+            let Some(prop) = prop else { continue };
+            self.start_prop(node_id, token, prop, target_for(token, prop, 1), tokens);
+        }
+    }
+
+    /// An `.animate` part that became ABSENT. The scene no longer draws it (its own opacity 0);
+    /// the exit paints it over a base of full opacity, the token played back toward its absent
+    /// rest, and is reset to identity when the fade ends ([`Self::fold`]).
+    fn absent(&mut self, node_id: usize, token: MotionToken, tokens: &dyn Tokens) {
+        self.node_mut(node_id).base_opacity = Some(255);
+        for prop in [Some(token.primary_prop()), token.secondary_prop(), Some(AnimProp::Opacity)] {
+            let Some(prop) = prop else { continue };
+            self.start_prop(node_id, token, prop, target_for(token, prop, 0), tokens);
+        }
+    }
+
+    /// Fold one driver update into the node's transform. An opacity track that ended over a base
+    /// hands the picture back to the scene: faded out (an exit, a `.motion` to 0) the whole slot
+    /// returns to identity and the node's other tracks stop — the scene draws nothing there;
+    /// faded to a lower rest (a `.motion` down) the base and the factor clear, the box draws its
+    /// own opacity, which is where the track ended.
+    fn fold(&mut self, u: &SceneUpdate) {
+        let node_id = u.layer_id.0 as usize;
+        self.set_prop(node_id, u.property, u.value);
+        if u.property != AnimProp::Opacity || u.progress < 1.0 {
+            return;
+        }
+        let Some(a) = self.anims.iter_mut().find(|a| a.node_id == node_id) else { return };
+        if a.base_opacity.is_none() {
+            return;
+        }
+        if a.opacity == 0 {
+            *a = NodeAnim::identity(node_id);
+            let layer = LayerId(node_id as u64);
+            for prop in [
+                AnimProp::TranslateX,
+                AnimProp::TranslateY,
+                AnimProp::ScaleX,
+                AnimProp::ScaleY,
+                AnimProp::Rotate,
+            ] {
+                self.driver.cancel(layer, prop);
+            }
+        } else {
+            a.base_opacity = None;
+            a.opacity = 255;
+        }
+    }
+
     /// Fire a bounded attention effect (`.effect(wiggle|pulse)`): a keyframe
     /// oscillation that RETURNS to identity (so the entry is pruned on
     /// convergence). Linear between the explicit keyframes.
-    fn start_effect(&mut self, node_id: usize, token: MotionToken, tokens: &dyn Tokens) {
+    fn start_effect(
+        &mut self,
+        node_id: usize,
+        token: MotionToken,
+        prev: i32,
+        now: i32,
+        tokens: &dyn Tokens,
+    ) {
         let layer = LayerId(node_id as u64);
         let dur = Self::dur_ns(token, tokens);
         match token {
+            // Content swapped in place enters from the side it travels from (a larger trigger
+            // from the trailing side), invisible, and glides to rest.
+            MotionToken::SwapInline => {
+                let dir = if now >= prev { 1 } else { -1 };
+                self.set_prop(node_id, AnimProp::TranslateX, animation::motion::swap_px(0.0, dir));
+                self.set_prop(node_id, AnimProp::Opacity, 0.0);
+                self.start_prop(node_id, token, AnimProp::TranslateX, 0.0, tokens);
+                self.start_prop(node_id, token, AnimProp::Opacity, 1.0, tokens);
+            }
             // The design's shake, a track through its eased steps (five points a step).
             MotionToken::Wiggle => self.driver.keyframe_to(
                 layer,
@@ -255,47 +325,32 @@ impl AnimState {
         tokens: &dyn Tokens,
     ) {
         match intent.kind {
-            AnimKind::Animate => {
-                let p = token.primary_prop();
-                self.set_prop(node_id, p, target_for(token, p, intent.value));
-                if let Some(sp) = token.secondary_prop() {
-                    self.set_prop(node_id, sp, target_for(token, sp, intent.value));
-                }
-            }
+            // The scene holds the rest (absent = the node's own opacity 0): first sight records.
+            AnimKind::Animate => {}
             AnimKind::Transition => self.enter(node_id, token, tokens),
             // Effects have no resting change — they fire on a trigger change.
             AnimKind::Effect => {}
-            // Continuous loops are reconciled in `sync_loops`, never here.
-            AnimKind::Loop => {}
+            // Loops are reconciled in `sync_loops`, `.motion` in `sync_bound`, never here.
+            AnimKind::Loop | AnimKind::Bound => {}
         }
     }
 
-    /// A node whose driving value CHANGED: (re)start the token's motion.
+    /// A node whose driving value CHANGED from `prev`: (re)start the token's motion.
     fn restart(
         &mut self,
         node_id: usize,
         token: MotionToken,
         intent: AnimIntent,
+        prev: i32,
         tokens: &dyn Tokens,
     ) {
         match intent.kind {
-            AnimKind::Animate => {
-                let p = token.primary_prop();
-                self.start_prop(node_id, token, p, target_for(token, p, intent.value), tokens);
-                if let Some(sp) = token.secondary_prop() {
-                    self.start_prop(
-                        node_id,
-                        token,
-                        sp,
-                        target_for(token, sp, intent.value),
-                        tokens,
-                    );
-                }
-            }
+            AnimKind::Animate if intent.value != 0 => self.present(node_id, token, tokens),
+            AnimKind::Animate => self.absent(node_id, token, tokens),
             AnimKind::Transition => self.enter(node_id, token, tokens),
-            AnimKind::Effect => self.start_effect(node_id, token, tokens),
-            // Continuous loops are reconciled in `sync_loops`, never here.
-            AnimKind::Loop => {}
+            AnimKind::Effect => self.start_effect(node_id, token, prev, intent.value, tokens),
+            // Loops are reconciled in `sync_loops`, `.motion` in `sync_bound`, never here.
+            AnimKind::Loop | AnimKind::Bound => {}
         }
     }
 
@@ -321,163 +376,6 @@ impl AnimState {
             }
         }
     }
-
-    /// A slow, smooth (over-damped) breathe spring — a calm ~1s approach with
-    /// no overshoot, so the loop reads as a gentle pulse, not a bounce.
-    fn breathe_config() -> SpringConfig {
-        SpringConfig { stiffness: 18.0, damping: 9.0, mass: 1.0, initial_velocity: 0.0 }
-    }
-
-    /// (Re)start a breathe half-cycle for `node_id`: spring the opacity from its
-    /// current value toward the OPPOSITE endpoint (dim when currently bright,
-    /// bright when currently dim). Alloc-free (`spring_to` carries no Vec).
-    fn start_breathe(&mut self, node_id: usize) {
-        let cur = self.cur(node_id, AnimProp::Opacity);
-        let target = if cur > BREATHE_MID { BREATHE_DIM } else { BREATHE_BRIGHT };
-        self.driver.spring_to(
-            LayerId(node_id as u64),
-            AnimProp::Opacity,
-            cur,
-            target,
-            Self::breathe_config(),
-        );
-    }
-
-    /// Sweep travel distance (px) for a loop root: parent width − band/pip
-    /// child width, from the CURRENT layout boxes (layout-fresh each cycle).
-    fn sweep_travel(node_id: usize, boxes: &[nexus_layout::LayoutBox]) -> f32 {
-        let w_of = |id: usize| boxes.iter().find(|b| b.node_id == id).map_or(0, |b| b.rect.width.0);
-        (w_of(node_id) - w_of(node_id + 1)).max(0) as f32
-    }
-
-    /// Write a sweep's place at `now_ns` (the pip's or the shimmer band's, on its time grid)
-    /// into the part's transform; whether it moved. Alloc-free.
-    fn write_sweep(
-        &mut self,
-        ent: LoopEnt,
-        now_ns: u64,
-        boxes: &[nexus_layout::LayoutBox],
-    ) -> bool {
-        let Some(sweep) = sweep_of(ent.sub) else { return false };
-        let x = sweep.at(now_ns, Self::sweep_travel(ent.node_id, boxes) as i32);
-        let part = self.node_mut(ent.node_id + 1);
-        let moved = part.dx != x;
-        part.dx = x;
-        moved
-    }
-
-    /// Write the carousel's stepped spoke opacities: the leading spoke is opaque, the one `d`
-    /// behind it `(n − d)/n` — the Spinner builder's resting `(i+1)/12` fade, rotated.
-    fn write_carousel(&mut self, node_id: usize, step: u8) {
-        let n = LOOP_CAROUSEL_SPOKES;
-        for i in 0..n {
-            let d = (i + n - step as usize) % n;
-            let a = (255 * (n - d) / n) as u8;
-            self.node_mut(node_id + 1 + i).opacity = a;
-        }
-    }
-
-    /// Forget one loop's paint state (the widget left the tree): cancel its
-    /// springs and reset the touched nodes to identity so nothing stays faded.
-    fn forget_loop(&mut self, ent: LoopEnt) {
-        match ent.sub {
-            LOOP_SWEEP | LOOP_SHIMMER => {
-                let child = ent.node_id + 1;
-                self.set_prop(child, AnimProp::TranslateX, 0.0);
-                self.prune_identity(child);
-            }
-            LOOP_CAROUSEL => {
-                for i in 0..LOOP_CAROUSEL_SPOKES {
-                    let c = ent.node_id + 1 + i;
-                    self.node_mut(c).opacity = 255;
-                    self.prune_identity(c);
-                }
-            }
-            _ => {
-                self.driver.cancel(LayerId(ent.node_id as u64), AnimProp::Opacity);
-                self.set_prop(ent.node_id, AnimProp::Opacity, BREATHE_BRIGHT);
-                self.prune_identity(ent.node_id);
-            }
-        }
-    }
-
-    /// Reconcile the continuous-loop set with the freshly-emitted `Loop`
-    /// intents: forget loops gone from the tree and start each newly-seen
-    /// looping widget's motion (sub-kind from the intent value).
-    fn sync_loops(&mut self, present: &[(usize, AnimIntent)]) {
-        let is_present = |e: &LoopEnt| {
-            present
-                .iter()
-                .any(|(pn, pi)| *pn == e.node_id && pi.kind == AnimKind::Loop && pi.value == e.sub)
-        };
-        let mut i = 0;
-        while i < self.loops.len() {
-            if is_present(&self.loops[i]) {
-                i += 1;
-            } else {
-                let ent = self.loops.swap_remove(i);
-                self.forget_loop(ent);
-            }
-        }
-        // Start newly-seen loops.
-        for &(node_id, intent) in present {
-            if intent.kind != AnimKind::Loop || self.loops.iter().any(|e| e.node_id == node_id) {
-                continue;
-            }
-            if self.loops.len() >= MAX_NODE_ANIMS {
-                break;
-            }
-            // step 0xFF = "not painted yet": the first tick always writes.
-            self.loops.push(LoopEnt { node_id, sub: intent.value, step: 0xFF });
-            match intent.value {
-                // The sweeps and the carousel paint on the first tick's time grid.
-                LOOP_SWEEP | LOOP_SHIMMER | LOOP_CAROUSEL => {}
-                _ => self.start_breathe(node_id),
-            }
-        }
-    }
-
-    /// Keep every loop alive: a sweep's part moves to its place on the time grid, the carousel
-    /// advances its leading spoke on its own, and a converged breathe springs to the opposite
-    /// endpoint. Returns the union ROW SPAN of loop-driven paint changes the driver's own
-    /// updates do NOT cover (the sweeps and the carousel steps). Alloc-free.
-    fn tick_loops(&mut self, now_ns: u64, boxes: &[nexus_layout::LayoutBox]) -> Option<(i32, i32)> {
-        let mut span: Option<(i32, i32)> = None;
-        let grow =
-            |boxes: &[nexus_layout::LayoutBox], node_id: usize, span: &mut Option<(i32, i32)>| {
-                if let Some(b) = boxes.iter().find(|b| b.node_id == node_id) {
-                    let (y0, y1) = (b.rect.y.0 - 1, b.rect.y.0 + b.rect.height.0 + 1);
-                    *span = Some(match *span {
-                        Some((s0, s1)) => (s0.min(y0), s1.max(y1)),
-                        None => (y0, y1),
-                    });
-                }
-            };
-        for idx in 0..self.loops.len() {
-            let ent = self.loops[idx];
-            match ent.sub {
-                LOOP_SWEEP | LOOP_SHIMMER => {
-                    if self.write_sweep(ent, now_ns, boxes) {
-                        grow(boxes, ent.node_id, &mut span);
-                    }
-                }
-                LOOP_CAROUSEL => {
-                    let step = ((now_ns / SPINNER_STEP_NS) % LOOP_CAROUSEL_SPOKES as u64) as u8;
-                    if step != ent.step {
-                        self.loops[idx].step = step;
-                        self.write_carousel(ent.node_id, step);
-                        grow(boxes, ent.node_id, &mut span);
-                    }
-                }
-                _ => {
-                    if !self.driver.is_active(LayerId(ent.node_id as u64), AnimProp::Opacity) {
-                        self.start_breathe(ent.node_id);
-                    }
-                }
-            }
-        }
-        span
-    }
 }
 
 impl super::DslApp {
@@ -489,16 +387,15 @@ impl super::DslApp {
     pub(super) fn anim_sync(&mut self) {
         // Snapshot the intents (Copy) so the driver can be borrowed mutably
         // without holding the `view.animations()` borrow across the loop.
-        let mut buf = [(0usize, AnimIntent::new(AnimKind::Animate, 0, 0)); MAX_NODE_ANIMS];
-        let mut n = 0;
-        for &(node_id, intent) in self.view.animations() {
-            if n >= buf.len() {
-                break;
-            }
-            buf[n] = (node_id, intent);
-            n += 1;
-        }
-        let present = &buf[..n];
+        let mut buf = core::mem::take(&mut self.anim.intents);
+        buf.clear();
+        let cap = bound::MAX_BOUND + MAX_NODE_ANIMS;
+        let first = |i: &AnimIntent| matches!(i.kind, AnimKind::Transition | AnimKind::Loop);
+        let all = self.view.animations();
+        buf.extend(all.iter().filter(|(_, i)| first(i)).copied());
+        buf.extend(all.iter().filter(|(_, i)| !first(i)).copied());
+        buf.truncate(cap);
+        let present = &buf[..];
         // The motion layers follow the nodes that still enter — first, so a panel closing in the
         // same change as a modal opening leaves the modal room to be a layer.
         let mut entering = [(0usize, 0i32); MAX_NODE_ANIMS];
@@ -546,7 +443,9 @@ impl super::DslApp {
             match prev {
                 _ if layered => {}
                 None => self.anim.seed(node_id, token, intent, tokens),
-                Some(pv) if pv != intent.value => self.anim.restart(node_id, token, intent, tokens),
+                Some(pv) if pv != intent.value => {
+                    self.anim.restart(node_id, token, intent, pv, tokens)
+                }
                 _ => {}
             }
             self.anim.upsert_seen(node_id, intent.value);
@@ -571,24 +470,20 @@ impl super::DslApp {
                 || driver.is_active(layer, AnimProp::Opacity)
                 || driver.is_active(layer, AnimProp::TranslateX)
                 || driver.is_active(layer, AnimProp::TranslateY)
-                // Loop-owned CHILD entries (sweep band / carousel spokes)
-                // carry no driver spring at every instant — keep them so a
-                // re-emit mid-cycle doesn't flash the widget to identity.
-                || loops.iter().any(|e| match e.sub {
-                    LOOP_SWEEP | LOOP_SHIMMER => a.node_id == e.node_id + 1,
-                    LOOP_CAROUSEL => {
-                        a.node_id > e.node_id
-                            && a.node_id <= e.node_id + LOOP_CAROUSEL_SPOKES
-                    }
-                    _ => a.node_id == e.node_id,
-                })
+                // Loop-owned parts carry no driver spring at every instant.
+                || is_loop_part(loops, a.node_id)
         });
         // Continuous loops (inherently-animated widgets): start new, drop gone.
         self.anim.sync_loops(present);
+        // `.motion`: a changed rest travels (nothing inside the control the pointer holds).
+        let held =
+            self.press_target().and_then(|id| self.layout.boxes.iter().find(|b| b.node_id == id));
+        self.anim.sync_bound(present, &self.layout.boxes, held.map(|b| b.rect), tokens);
         // Arm the clock on the idle→active edge (see `was_idle` above).
         if was_idle && self.anim.driver.active_count() > 0 {
             self.anim.driver.reset_clock(nsec_now());
         }
+        self.anim.intents = buf;
     }
 
     /// Advance the animation physics to `at` on the frame pulse (RFC-0110: when the frame is
@@ -610,7 +505,7 @@ impl super::DslApp {
             let node_id = u.layer_id.0 as usize;
             // Damage BEFORE the fold (the node's currently-painted rect).
             self.damage_anim(node_id);
-            self.anim.set_prop(node_id, u.property, u.value);
+            self.anim.fold(u);
             // Converged (progress==1) back to identity → drop the slot.
             if u.progress >= 1.0 {
                 self.anim.prune_identity(node_id);
@@ -620,7 +515,11 @@ impl super::DslApp {
         }
         // Advance the continuous loops (sawtooth re-fire / breathe re-fire /
         // carousel step): their extra paint damage is rows.
-        if let Some((y0, y1)) = self.anim.tick_loops(now, &self.layout.boxes) {
+        // A reduced-motion theme parks the loops at rest (bars full, pip and band outside).
+        let reduced = tokens_for(self.theme_mode)
+            .motion_ms(nexus_dsl_runtime::theme_tokens::MotionDurationToken::Quick)
+            == 0;
+        if let Some((y0, y1)) = self.anim.tick_loops(now, &self.layout.boxes, reduced) {
             self.pending.rows((y0.max(0), y1.min(self.layout_bottom())), self.w);
         }
     }
@@ -633,15 +532,18 @@ impl super::DslApp {
         self.anim.driver.active_count() > 0 || !self.anim.loops.is_empty()
     }
 
-    /// Expand the per-node transforms into a SUBTREE CASCADE for the painter:
-    /// each animated container also transforms every box laid out INSIDE it
-    /// (pre-order descendants ≈ rect containment + higher `node_id`),
-    /// anchored at the CONTAINER's center — a pressed button dips pill,
-    /// glyph and label as one control (the design interaction feel).
-    /// A box with its OWN animation keeps its own entry. Alloc-free, bounded
-    /// by `out.len()`.
+    /// The per-node transforms for the painter, each covering its SUBTREE (`NodeAnim::span_end`,
+    /// pre-order — one walk of the scene for all of them): a pressed button dips pill, glyph and
+    /// label as one control, a swapped month slides every cell — with no bound on the boxes a
+    /// node holds (a copied entry per contained box stopped at 48: the calendar's lower rows
+    /// changed at once, board--2026-11-19T12-30-24). A box with its own entry keeps it
+    /// (`nexus_scene_raster::covering_index`). Anchored at the node's centre, a level bar at its
+    /// bottom, a token that grows from its corner at that corner. Alloc-free, bounded by
+    /// `out.len()`.
     pub(super) fn expand_node_anims(&self, out: &mut [NodeAnim]) -> usize {
         let mut n = 0usize;
+        let mut ranges = [(0usize, 0usize); MAX_EXPANDED_ANIMS];
+        let mut m = 0usize;
         for a in &self.anim.anims {
             if n >= out.len() {
                 break;
@@ -653,34 +555,26 @@ impl super::DslApp {
             };
             let (ox, oy, ow, oh) =
                 (owner.rect.x.0, owner.rect.y.0, owner.rect.width.0, owner.rect.height.0);
+            // A level bar scales from its bottom.
+            let centre =
+                (ox + ow / 2, if self.anim.level_bar(a.node_id) { oy + oh } else { oy + oh / 2 });
             // A token that grows from the corner it hangs on (a menu) scales about that corner.
-            let centre = (ox + ow / 2, oy + oh / 2);
             let (cx, cy) =
                 self.enter_anchor(a.node_id).filter(|_| !a.is_identity()).unwrap_or(centre);
             out[n] = a.anchored_at(cx, cy);
-            n += 1;
-            if a.is_identity() {
-                continue; // identity: nothing to cascade
+            if !a.is_identity() && m < ranges.len() {
+                ranges[m] = (a.node_id, a.node_id + 1);
+                m += 1;
             }
-            for b in &self.layout.boxes {
-                if n >= out.len() {
-                    break;
-                }
-                if b.node_id <= a.node_id || b.rect.width.0 <= 0 || b.rect.height.0 <= 0 {
-                    continue;
-                }
-                let contained = b.rect.x.0 >= ox
-                    && b.rect.y.0 >= oy
-                    && b.rect.x.0 + b.rect.width.0 <= ox + ow
-                    && b.rect.y.0 + b.rect.height.0 <= oy + oh;
-                if !contained {
-                    continue;
-                }
-                if self.anim.anims.iter().any(|o| o.node_id == b.node_id) {
-                    continue; // its own animation wins
-                }
-                out[n] = NodeAnim { node_id: b.node_id, ..a.anchored_at(cx, cy) };
-                n += 1;
+            n += 1;
+        }
+        // The subtrees the moving nodes cover, in one walk.
+        let ranges = &mut ranges[..m];
+        ranges.sort_unstable_by_key(|r| r.0);
+        crate::motion_math::subtree_ends(self.view.scene(), ranges);
+        for a in out[..n].iter_mut() {
+            if let Ok(k) = ranges.binary_search_by_key(&a.node_id, |r| r.0) {
+                a.span_end = ranges[k].1;
             }
         }
         n

@@ -32,6 +32,9 @@ pub enum AnimKind {
     /// fixed builder structure makes the animated part a stable pre-order
     /// child offset, so the loop targets child boxes without any rebuild.
     Loop,
+    /// `.motion(duration, curve)`: the node travels to changes of its own place, size, rotation
+    /// and opacity. `token` = the packed pair ([`pack_bound`]), `value` = the node's identity.
+    Bound,
 }
 
 /// `AnimIntent::value` sub-kinds for [`AnimKind::Loop`] (the host maps each to
@@ -50,6 +53,9 @@ pub const LOOP_CAROUSEL_SPOKES: usize = 12;
 /// TranslateX sawtooth on the sole child (`root+1`): the Skeleton's shimmer band crossing its
 /// block (the design's 1.4 s, ease-in-out).
 pub const LOOP_SHIMMER: i32 = 3;
+/// The level bars (`LevelBars`): each child scales from its bottom between 40 % and 100 %, 0.7 s
+/// each way on ease-in-out, child `i` 80 ms behind child `i − 1` (design artifacts: ActivityRunner).
+pub const LOOP_LEVEL: i32 = 4;
 
 /// One animation stamped on a node. `Copy`/`Eq` so the host can diff intents
 /// across re-emits with zero allocation (steady-state alloc-bounded contract).
@@ -100,6 +106,11 @@ impl AnimIntent {
         Self { kind, token, value }
     }
 }
+
+mod bound;
+pub use bound::{
+    curve_named, duration_named, pack_bound, unpack_bound, CURVE_NAMES, DURATION_NAMES,
+};
 
 #[cfg(test)]
 mod tests {

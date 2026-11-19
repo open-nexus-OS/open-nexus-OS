@@ -4,7 +4,7 @@
 //! Model building + name resolution (duplicates, unknown references,
 //! route/page wiring, widget-vs-component resolution, modifier catalog).
 
-use super::modifiers::check_modifiers;
+use super::modifiers::{check_modifiers, check_rotate_target};
 use super::queries::{check_query_call, check_query_decl};
 use super::Model;
 use crate::ast::{Decl, Expr, File, HandlerAction, Pattern, Stmt, ViewNode};
@@ -392,6 +392,7 @@ pub(super) fn check_view(node: &ViewNode, model: &Model<'_>, diags: &mut Vec<Dia
                 }
             }
             check_modifiers(&widget.modifiers, diags);
+            check_rotate_target(&widget.name.text, &widget.modifiers, diags);
             for handler in &widget.handlers {
                 if !registry::TRIGGERS.contains(&handler.trigger.text.as_str()) {
                     diags.push(Diagnostic::new(
@@ -467,6 +468,7 @@ pub(super) fn check_view(node: &ViewNode, model: &Model<'_>, diags: &mut Vec<Dia
         }
         ViewNode::Collection(collection) => {
             check_modifiers(&collection.modifiers, diags);
+            check_rotate_target("List", &collection.modifiers, diags);
             for child in &collection.body {
                 check_view(child, model, diags);
             }

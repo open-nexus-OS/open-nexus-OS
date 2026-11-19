@@ -11,6 +11,9 @@ pub enum AnimProp {
     ScaleY,
     ShadowRadius,
     BlurRadius,
+    /// Degrees clockwise about the node's centre (a `.motion` node's rotation travelling to its
+    /// rest; the rest itself is in the scene).
+    Rotate,
 }
 
 impl Default for AnimProp {

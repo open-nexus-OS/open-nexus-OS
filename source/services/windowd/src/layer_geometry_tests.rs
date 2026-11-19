@@ -92,6 +92,48 @@ fn a_folded_horizontal_ring_cuts_at_its_strips() {
     assert_eq!(out[1], Piece { src: (0, 1696), dst: (920, 100), size: (1000, 600) });
 }
 
+/// One launcher page (a band of one viewport) — the paged track's rubber band (TASK-0354 P12).
+fn one_page() -> ScrollLayerDesc {
+    ScrollLayerDesc {
+        vx: 0,
+        vy: 100,
+        vw: 1280,
+        vh: 600,
+        axis: AXIS_HORIZONTAL,
+        flags: 0,
+        bx: 0,
+        by: 1096,
+        strip_len: 1280,
+        strips: 1,
+        valid_start: 0,
+        valid_len: 1280,
+    }
+}
+
+/// A paged track pulled 35 px past its start (offset −35): the band is shown moved in by 35 px,
+/// the strip it leaves shows the base — windowd reads nothing before the band.
+#[test]
+fn a_band_pulled_past_its_start_is_shown_moved_in() {
+    let mut out = [Piece::default(); MAX_PIECES];
+    let n = pieces(&one_page(), -35, &mut out);
+    assert_eq!(n, 1);
+    assert_eq!(out[0], Piece { src: (0, 1096), dst: (35, 100), size: (1280 - 35, 600) });
+    // …and past its end (offset +35): moved out by 35 px.
+    let n = pieces(&one_page(), 35, &mut out);
+    assert_eq!(n, 1);
+    assert_eq!(out[0], Piece { src: (35, 1096), dst: (0, 100), size: (1280 - 35, 600) });
+}
+
+/// Any `i32` offset is intersected with the band: at the integer's ends nothing is shown and
+/// nothing panics.
+#[test]
+fn test_reject_an_offset_at_the_i32_ends() {
+    let mut out = [Piece::default(); MAX_PIECES];
+    assert_eq!(pieces(&one_page(), i32::MIN, &mut out), 0);
+    assert_eq!(pieces(&one_page(), i32::MAX, &mut out), 0);
+    assert_eq!(pieces(&one_page(), -1280, &mut out), 0, "one viewport before: all base");
+}
+
 #[test]
 fn a_wash_follows_its_scroll_layer_and_is_clipped_to_its_viewport() {
     let mut layers = SurfaceLayers::EMPTY;

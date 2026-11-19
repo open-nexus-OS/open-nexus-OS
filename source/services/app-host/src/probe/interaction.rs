@@ -35,13 +35,9 @@ impl super::DslApp {
     /// damage re-lays-out + refreshes the text runs. Returns whether a
     /// re-render is needed.
     pub(super) fn tap(&mut self, x: i32, y: i32) -> TapOutcome {
-        use nexus_dsl_runtime::Damage;
         // The press a drag may grow from (`probe/drag.rs`; windowd's DRAG frames follow).
         self.arm_drag(x, y);
         self.pointer = Some((x, y));
-        let tokens = tokens_for(self.theme_mode);
-        let device =
-            device_for(self.shell_profile, self.w, &self.locale_tag, &self.keymap, self.theme_mode);
         // The page's scroll layers at their offsets: the hit-test sees what the compositor shows.
         let (views, nv) = self.hit_views();
         // Interaction motion (RFC-0116): the press layer, and the dip the control's
@@ -88,6 +84,30 @@ impl super::DslApp {
                 self.interaction_release();
             }
         }
+        // Inside a paged viewport the press may still become a drag of the track: the feedback
+        // shows now, the Tap waits for the release (`probe/drag.rs`, TASK-0354 P12).
+        if hit.is_some() && self.hold_tap((hit, press_part)) {
+            return TapOutcome::HandledQuietly;
+        }
+        self.tap_dispatch(x, y, hit, press_part)
+    }
+
+    /// The dispatch half of a tap at `(x, y)` on handler `hit` (its animated part `press_part`):
+    /// the store moves, the dismiss reason, the pager verb, the damage, the trace, the motion
+    /// sync — in this order. Run by `tap()` at the press, or at the release for a tap held in a
+    /// paged viewport.
+    pub(super) fn tap_dispatch(
+        &mut self,
+        x: i32,
+        y: i32,
+        hit: Option<usize>,
+        press_part: Option<usize>,
+    ) -> TapOutcome {
+        use nexus_dsl_runtime::Damage;
+        let tokens = tokens_for(self.theme_mode);
+        let device =
+            device_for(self.shell_profile, self.w, &self.locale_tag, &self.keymap, self.theme_mode);
+        let (views, nv) = self.hit_views();
         // The part's pre-dispatch x (the thumb slides on a toggle flip; the
         // slide-in animates from old − new).
         let part_x_before = press_part

@@ -273,4 +273,8 @@ pub struct VisualStyle {
     pub inset_highlight: Option<Rgba8>,
     /// The surface's material (RFC-0116); `None` = a plain painted box.
     pub material: Option<Material>,
+    /// The box's REST rotation, degrees clockwise about its centre (`.rotate(deg)`); `0` = none.
+    /// The painter turns the box's own glyph shape (`ShapeKind::{Path, Vector, Stroke,
+    /// TriangleUp, TriangleDown}`) and clips its ink to the box; children do not rotate.
+    pub rotate_deg: i16,
 }

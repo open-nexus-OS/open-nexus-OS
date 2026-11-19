@@ -217,6 +217,21 @@ pub const MODIFIERS: &[ModifierSpec] = &[
     // one width — a count, a clock, a value that changes in place never shifts its neighbours;
     // `.figures(proportional)` undoes a style's tabular figures (`clock`).
     ModifierSpec { name: "figures", args: &[ModArg::Token], class: FieldClass::Layout },
+    // -- rotation (paint, APPEND-ONLY id 63, TASK-0354 P10): `.rotate(deg)` — degrees clockwise
+    // about the box's centre, an Int expression clamped to -360..=360 at emit; a leaf glyph's own
+    // shape only (an `Icon` — NX0416 elsewhere); with `.motion` beside it a change travels.
+    ModifierSpec { name: "rotate", args: &[ModArg::Expr], class: FieldClass::Paint },
+    // -- geometry motion (paint, APPEND-ONLY id 64, TASK-0354 P10/P12): `.motion(duration, curve)` —
+    // THIS node travels to changes of its own place, size, rotation and opacity instead of jumping;
+    // the theme's two closed vocabularies (`vocab::MOTION_DURATIONS`, `vocab::MOTION_CURVES`).
+    ModifierSpec {
+        name: "motion",
+        args: &[ModArg::Token, ModArg::Token],
+        class: FieldClass::Paint,
+    },
+    // -- press feel (paint, APPEND-ONLY id 65, TASK-0354 P13): `.press(kind)` — the dip a press
+    // gives THIS control by its role (`vocab::PRESS_KINDS`); a declared kind wins over the shape.
+    ModifierSpec { name: "press", args: &[ModArg::Token], class: FieldClass::Paint },
 ];
 
 #[must_use]
@@ -289,6 +304,8 @@ pub const MOTION_TOKENS: &[&str] = &[
     "slideDown",
     "pushInline",
     "menuIn",
+    "pop",
+    "swapInline",
 ];
 
 /// Whether `name` is a valid motion token.
@@ -335,8 +352,9 @@ pub fn device_field(name: &str) -> Option<&'static [&'static str]> {
 mod vocab;
 pub use vocab::{
     retired_modifier, retired_token, token_vocabulary, token_vocabulary_at, BLUR_MATERIALS,
-    COLOR_MODIFIERS, COLOR_TOKENS, MATERIALS, RADII, RETIRED_MODIFIERS, RETIRED_TOKENS,
-    SPACING_GRID, SPACING_MODIFIERS, SPACING_TOKENS, TEXT_STYLES, TINT_LEVELS, TOKEN_VOCABULARIES,
+    COLOR_MODIFIERS, COLOR_TOKENS, MATERIALS, MOTION_CURVES, MOTION_DURATIONS, PRESS_KINDS, RADII,
+    RETIRED_MODIFIERS, RETIRED_TOKENS, SPACING_GRID, SPACING_MODIFIERS, SPACING_TOKENS,
+    TEXT_STYLES, TINT_LEVELS, TOKEN_VOCABULARIES,
 };
 // The `svc.*` service-surface lookup lives in its own module (structure
 // ratchet); same public API, re-exported here.

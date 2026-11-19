@@ -137,6 +137,45 @@ pub(in crate::registry) fn spinner(
     spinner.build(tokens)
 }
 
+/// The level bars' rest heights (design artifacts: ActivityRunner — four 3 px bars, 2 apart,
+/// bottom-aligned in a 12 px row). The host's level loop scales each from its bottom between 40 %
+/// and 100 %, child `i` 80 ms behind child `i − 1` (`LOOP_LEVEL`).
+pub(in crate::registry) const LEVEL_BAR_HEIGHTS: [i32; 4] = [8, 12, 6, 10];
+
+/// `LevelBars { tint, opacity }`: the media level bars (the island's compact form). `tint` is a
+/// colour role (default `onAccent` — the island is black in both themes), `opacity` 0–255
+/// (default 148, the dark scope's secondary strength .58).
+pub(in crate::registry) fn level_bars(props: Props<'_>, tokens: &dyn Tokens) -> LayoutNode {
+    use nexus_layout_types::{Align, Direction, FxPx};
+    let color = tint(props).unwrap_or(ColorToken::OnAccent);
+    let opacity = match prop(props, "opacity") {
+        Some(Value::Int(o)) => (*o).clamp(0, 255) as u8,
+        _ => 148,
+    };
+    let bars = LEVEL_BAR_HEIGHTS
+        .iter()
+        .map(|h| {
+            let bar = Mods {
+                width: Some(FxPx::new(3)),
+                height: Some(FxPx::new(*h)),
+                bg: Some(color),
+                opacity: Some(opacity),
+                rounded: crate::registry::tokens::radius("full"),
+                ..Mods::default()
+            };
+            crate::registry::plain_stack(&bar, tokens, alloc::vec![])
+        })
+        .collect();
+    let row = Mods {
+        direction: Some(Direction::Row),
+        align: Some(Align::End),
+        gap: FxPx::new(2),
+        height: Some(FxPx::new(12)),
+        ..Mods::default()
+    };
+    crate::registry::plain_stack(&row, tokens, bars)
+}
+
 /// `ProgressBar { value, size, tint, label, showValue, appearance, height }`. No `Int` value is
 /// the indeterminate pip (the host's sweep loop moves it); `appearance: "circular"` is the ring.
 pub(in crate::registry) fn progress_bar(

@@ -15,6 +15,25 @@ use crate::diag::{DiagCode, Diagnostic};
 use crate::registry;
 use alloc::{format, string::String, vec::Vec};
 
+/// `.rotate` turns a glyph's own shape (TASK-0354 P10): on anything but an `Icon` — a container
+/// whose children would not turn with it — it is NX0416.
+pub(super) fn check_rotate_target(
+    widget: &str,
+    modifiers: &[ModifierCall],
+    diags: &mut Vec<Diagnostic>,
+) {
+    if widget == "Icon" {
+        return;
+    }
+    for m in modifiers.iter().filter(|m| m.name.text == "rotate") {
+        diags.push(Diagnostic::new(
+            DiagCode::RotateTarget,
+            m.span,
+            format!("`.rotate` turns a glyph's own shape: put it on an `Icon`, not on `{widget}`"),
+        ));
+    }
+}
+
 pub(super) fn check_modifiers(modifiers: &[ModifierCall], diags: &mut Vec<Diagnostic>) {
     for modifier in modifiers {
         if let Some(hint) = registry::retired_modifier(&modifier.name.text) {

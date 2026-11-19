@@ -355,7 +355,8 @@ impl super::DslApp {
                 // host-tested with the painter).
                 let dx = b.scroll_root.and_then(|r| views.iter().find(|v| v.root == r));
                 let dx = dx.map_or(0, |v| v.dx);
-                let animated = anims.iter().any(|a| a.node_id == b.node_id && !a.is_identity());
+                let animated = nexus_scene_raster::covering_index(anims, b.node_id)
+                    .is_some_and(|i| !anims[i].is_identity());
                 let run = ti.map(|ti| &self.texts[ti]);
                 if !crate::pass_plan::meets_cols(b, dx, animated, cols)
                     && !run.is_some_and(|t| crate::pass_plan::run_meets_cols(b, t, dx, cols))
@@ -364,8 +365,9 @@ impl super::DslApp {
                 }
             }
             vis_pick.push(bi as u32);
-            vis_anim
-                .push(anims.iter().position(|a| a.node_id == b.node_id).map_or(-1, |i| i as i16));
+            vis_anim.push(
+                nexus_scene_raster::covering_index(anims, b.node_id).map_or(-1, |i| i as i16),
+            );
             if let Some(ti) = ti {
                 vis_text.push((bi as u32, ti as u32));
             }

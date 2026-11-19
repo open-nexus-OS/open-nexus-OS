@@ -71,6 +71,7 @@ Component BatteryPanel {
                 }
             }
             .direction(row)
+            .press(tile)
             on Tap -> dispatch(ToggleNoStandby)
         }
         .padding(12)

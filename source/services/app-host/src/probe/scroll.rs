@@ -19,6 +19,8 @@
 
 use super::*;
 use nexus_dsl_runtime::interact::ScrollLayerView;
+
+mod paged;
 use nexus_scene_raster::ScrollView;
 
 /// Scroll layers a page may have (the wire's bound): a further container is laid out and hit as
@@ -26,8 +28,6 @@ use nexus_scene_raster::ScrollView;
 pub(super) const MAX_SCROLL_LAYERS: usize = nexus_display_proto::surface_layers::MAX_SCROLL_LAYERS;
 /// The wheel's fixed step per notch (px) — predictable: N notches scroll N steps.
 const STEP_PX: i32 = 72;
-/// The pager's wheel lock after a turn: one flick turns ONE page (spec: 360 ms).
-const PAGE_LOCK_NS: u64 = 360_000_000;
 
 /// The time a frame pulse names for the frame it asks for (RFC-0110): when that frame is shown;
 /// `None` under a plain pulse.
@@ -54,11 +54,14 @@ pub(super) struct ScrollLayer {
     pub(super) axis: Axis,
     /// The content's length along the axis (positions `0..extent`).
     pub(super) extent: i32,
+    /// How far a horizontal layer's content reaches down its viewport (`band_rows`).
+    cross: i32,
     /// The offset this layer is composed at (the physics' position, committed as motion).
     pub(super) offset: i32,
     physics: animation::ScrollMomentum,
     last_ns: u64,
-    lock_until_ns: u64,
+    /// A paged layer's track (`scroll/paged.rs`); the physics drives the other axes only.
+    track: paged::PagedTrack,
     /// `EndReached` fired for this approach to the end; re-armed by a re-layout.
     end_fired: bool,
     /// A modal box lies over it: painted into the base at its offset, no wheel.
@@ -72,21 +75,17 @@ pub(super) struct ScrollLayer {
 
 impl ScrollLayer {
     fn new(root: usize, viewport: (i32, i32, i32, i32), axis: Axis, extent: i32) -> Self {
-        let config = match axis {
-            // A slightly softer ease than the wheel's so a page turn reads as the design's
-            // ~0.42 s glide, not a snap.
-            Axis::Paged => animation::ScrollConfig { rate_per_s: 10.0, fling_friction_per_s: 4.0 },
-            _ => animation::ScrollConfig::default(),
-        };
+        let config = animation::ScrollConfig::default();
         let mut layer = Self {
             root,
             viewport,
             axis,
             extent,
+            cross: viewport.3 - viewport.1,
             offset: 0,
             physics: animation::ScrollMomentum::new(config),
             last_ns: 0,
-            lock_until_ns: 0,
+            track: paged::PagedTrack::default(),
             end_fired: false,
             covered: false,
             band: super::band::Band::default(),
@@ -107,6 +106,20 @@ impl ScrollLayer {
             y1 - y0
         } else {
             x1 - x0
+        }
+    }
+
+    /// The rows its band holds: a horizontal band is as tall as its content (capped at the
+    /// viewport) — below the content there is nothing to store, the base shows there (the
+    /// launcher's pages start at the top of a viewport as tall as the area, board--2026-11-19
+    /// T12-30-24: a band of the viewport's height left the launcher no room in the store); a
+    /// vertical band spans its viewport.
+    pub(super) fn band_rows(&self) -> i32 {
+        let vh = self.viewport.3 - self.viewport.1;
+        if self.vertical() {
+            vh
+        } else {
+            self.cross.clamp(1, vh.max(1))
         }
     }
 
@@ -175,6 +188,7 @@ impl super::DslApp {
                 nexus_layout_types::ScrollAxis::Paged => Axis::Paged,
             };
             let extent = self.content_extent(b.node_id, viewport, axis);
+            let cross = self.content_cross(b.node_id, viewport);
             let mut layer = match self.scroll_layers.iter().flatten().find(|l| l.root == b.node_id)
             {
                 Some(old) if old.axis == axis => {
@@ -185,6 +199,11 @@ impl super::DslApp {
                 }
                 _ => ScrollLayer::new(b.node_id, viewport, axis, extent),
             };
+            if layer.cross != cross {
+                // Rows it did not hold are not painted: the band fills again.
+                layer.band.valid_len = 0;
+            }
+            layer.cross = cross;
             layer.physics.set_extent(layer.viewport_len() as f32, extent as f32);
             layer.offset = layer.offset.clamp(0, layer.max_offset());
             layer.end_fired = false;
@@ -272,6 +291,17 @@ impl super::DslApp {
         end
     }
 
+    /// How far scroll root `root`'s content reaches down from its viewport's top (px).
+    fn content_cross(&self, root: usize, viewport: (i32, i32, i32, i32)) -> i32 {
+        self.layout
+            .boxes
+            .iter()
+            .filter(|b| b.scroll_root == Some(root))
+            .map(|b| b.rect.y.0 + b.rect.height.0 - viewport.1)
+            .max()
+            .unwrap_or(0)
+    }
+
     /// The layers as the hit-test sees them.
     pub(super) fn hit_views(&self) -> ([ScrollLayerView; MAX_SCROLL_LAYERS], usize) {
         let mut out =
@@ -354,20 +384,10 @@ impl super::DslApp {
         let now = nsec_now();
         let mut trigger = None;
         if layer.axis == Axis::Paged {
-            let view = layer.viewport_len();
-            let Some(turn) = crate::pager_math::page_turn(
-                layer.physics.target() as i32,
-                view,
-                layer.max_offset(),
-                delta,
-                now < layer.lock_until_ns,
-            ) else {
-                return false;
-            };
-            let glide = turn.target_px as f32 - layer.physics.target();
-            let _ = layer.physics.scroll_wheel(glide);
-            layer.lock_until_ns = now + PAGE_LOCK_NS;
-            trigger = Some(if turn.dir > 0 { "PageNext" } else { "PagePrev" });
+            let Some(name) = self.paged_wheel(k, delta, now) else { return false };
+            trigger = Some(name);
+            let Some(l) = self.scroll_layers[k] else { return false };
+            layer = l;
         } else {
             if layer.max_offset() == 0 {
                 return false;
@@ -399,6 +419,10 @@ impl super::DslApp {
         let mut changed = false;
         for k in 0..MAX_SCROLL_LAYERS {
             let Some(mut layer) = self.scroll_layers[k] else { continue };
+            if layer.axis == Axis::Paged {
+                self.paged_tick(k, now);
+                continue;
+            }
             if !layer.physics.is_animating() {
                 continue;
             }
@@ -415,6 +439,11 @@ impl super::DslApp {
     /// `EndReached` once per approach to the content end. Returns whether the model changed.
     fn step_layer(&mut self, k: usize) -> bool {
         let Some(mut layer) = self.scroll_layers[k] else { return false };
+        // A paged layer's offset is its track's (`scroll/paged.rs`), never the physics'.
+        if layer.axis == Axis::Paged {
+            self.rehover();
+            return false;
+        }
         let pos = (layer.physics.offset_px().max(0)).min(layer.max_offset());
         if pos != layer.offset {
             layer.offset = pos;
@@ -436,7 +465,10 @@ impl super::DslApp {
 
     /// Whether any layer's physics still eases or glides (the loop keeps the pulse armed).
     pub(super) fn momentum_active(&self) -> bool {
-        self.scroll_layers.iter().flatten().any(|l| l.physics.is_animating())
+        self.scroll_layers.iter().flatten().any(|l| match l.axis {
+            Axis::Paged => l.track.gliding(),
+            _ => l.physics.is_animating(),
+        })
     }
 
     /// Glides the pager to an absolute page index (the store's `SetPage` dot tap, via the
@@ -447,13 +479,7 @@ impl super::DslApp {
         else {
             return;
         };
-        let Some(mut layer) = self.scroll_layers[k] else { return };
-        let target =
-            crate::pager_math::page_target_px(page, layer.viewport_len(), layer.max_offset());
-        let glide = target as f32 - layer.physics.target();
-        let _ = layer.physics.scroll_wheel(glide);
-        layer.last_ns = nsec_now();
-        self.scroll_layers[k] = Some(layer);
+        self.pager_glide_to(k, page, nsec_now());
     }
 
     /// Dispatches the page's declarative `on WindowsChanged` handler (RFC-0086): the

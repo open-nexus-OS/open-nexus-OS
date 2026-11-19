@@ -25,9 +25,9 @@ use nexus_style::control::{label_style, metrics, over};
 use nexus_style::{glyph, Dim, InteractionState, Style};
 use nexus_theme_tokens::{ColorToken, ControlSize, Tokens};
 
-/// The chevron (`M6 9l6 6 6-6`, stroke 2.2) and its open (turned) form.
+/// The chevron (`M6 9l6 6 6-6`, stroke 2.2). Open, the same glyph is turned 180° (its rest
+/// rotation — the host carries the turn, TASK-0354 P10), never swapped for another.
 const CHEVRON_DOWN: [&[glyph::GridPoint]; 1] = [&[(60, 90), (120, 150), (180, 90)]];
-const CHEVRON_UP: [&[glyph::GridPoint]; 1] = [&[(60, 150), (120, 90), (180, 150)]];
 
 /// A dropdown select trigger.
 #[derive(Debug, Clone, Default)]
@@ -98,9 +98,17 @@ impl Select {
 
     fn chevron(&self, tokens: &dyn Tokens) -> LayoutNode {
         let size = FxPx::new((metrics(self.size).icon.0 - 2).max(12));
-        let path = if self.open { &CHEVRON_UP } else { &CHEVRON_DOWN };
-        glyph::stroke(path, false, 22, size, tokens.color(ColorToken::LabelSecondary))
+        let mut chevron =
+            glyph::stroke(&CHEVRON_DOWN, false, 22, size, tokens.color(ColorToken::LabelSecondary));
+        if let (true, LayoutNode::Stack(_, visual, _)) = (self.open, &mut chevron) {
+            visual.rotate_deg = 180;
+        }
+        chevron
     }
+
+    /// The trigger's moving part as a child index: the chevron (it turns while open). The DSL
+    /// runtime's motion table names it by this index.
+    pub const CHEVRON_PART: u32 = 1;
 
     /// The resolved trigger [`Style`].
     pub fn style(&self, tokens: &dyn Tokens) -> Style {
@@ -219,7 +227,10 @@ mod tests {
         let open = Select::new().value("a").open(true).build(&t);
         let fill = t.color(ColorToken::Fill);
         assert_eq!(parts(&open).1.background, Some(over(fill, fill)));
-        assert_ne!(parts(&closed).2[1], parts(&open).2[1], "the chevron turns");
+        let (_, closed_v, _) = parts(&parts(&closed).2[1]);
+        let (_, open_v, _) = parts(&parts(&open).2[1]);
+        assert_eq!((closed_v.rotate_deg, open_v.rotate_deg), (0, 180), "the same glyph turns");
+        assert_eq!(closed_v.shape, open_v.shape, "never another glyph");
     }
 
     #[test]

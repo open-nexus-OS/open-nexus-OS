@@ -20,13 +20,22 @@ in `docs/dev/ui/foundations/layout/layout-pipeline.md`.
 
 What follows for app authors:
 
-- Put a value in a **paint** position (`.bg`, `.fg`, `.opacity`, a motion value) rather than a
+- Put a value in a **paint** position (`.bg`, `.fg`, `.opacity`, `.rotate`) rather than a
   layout one (`.width`, `.padding`, text content) when it changes often — the geometry then
-  survives. Which modifier is which: [modifiers.md](modifiers.md).
+  survives. A `.motion` node is the exception by design: it moves BY layout (its new place is
+  laid out, the host carries it there), and its change is a layout change whose rectangles the
+  layout diff names. Which modifier is which: [modifiers.md](modifiers.md).
 - Give collection items a stable `.key(expr)`: identity, per-item state and the row diff
   follow the key ([state.md](state.md)).
-- Motion belongs in `.animate` / `.transition` / `.effect`: the host owns the clock and
-  interpolates, and the program is not re-run per frame.
+- Motion belongs in `.animate` / `.transition` / `.effect` / `.motion`: the host owns the clock
+  and interpolates, and the program is not re-run per frame. Where each runs:
+
+  | Declared as | Runs | Cost per frame |
+  |---|---|---|
+  | `.transition` | the compositor (windowd moves the layer, exits included) | none in the app: painted once |
+  | `.scroll` (also `paged`: drag, rubber band, turn, glide) | the compositor (the band's offset) | none in the app |
+  | `.animate`, `.effect`, `.motion`, a `.rotate` change, a kit widget's parts, the loops | the app, per frame | the moving node's rectangle only |
+
 - `.scroll` makes a container a scroll layer: its content is laid out and painted once and
   the compositor moves it (see [modifiers.md](modifiers.md)).
 
@@ -43,6 +52,8 @@ What follows for app authors:
 | app-host image | 14 MiB | `scripts/check-image-budgets.sh` |
 | `@persist` snapshot | 2048 bytes | app-host |
 | Query page | `limit` 1–1000 | checker (`NX0410`), [db-queries.md](db-queries.md) |
+| Moving nodes (`.animate`/`.effect` transients, loops) | 32 a surface; beyond, a node jumps to its end | app-host |
+| Tracked `.motion` nodes | 128 a surface; beyond, a node jumps to its new place | app-host |
 
 The other `Budgets` fields (`maxExprNodes`, `maxListLen`, `maxStrLen`, `maxEffectSteps`,
 `maxLocals`) are written into every program ([ir.md](ir.md)); the loader does not check them.

@@ -109,7 +109,7 @@ Two properties are worth stating because they are contracts, not accidents:
 | `.direction(d)` | `row\|column` | stack direction (containers) |
 | `.wrap(b)` | `Bool` | flex wrap |
 | `.overflow(o)` | `visible\|hidden` | overflow behavior (`hidden` clips — wherever the container is painted, inside a scrolling list too) |
-| `.scroll(a)` | `vertical\|horizontal\|paged` | makes THIS container a scroll layer (RFC-0109): its content is laid out and painted once into the layer's band, the app's physics turns a wheel notch into an offset, and the compositor moves the band — no re-layout, no re-raster per step. Several per page (four layers; more flatten into the page unscrolled, clipped to their viewport); a `.scroll` inside another's content clips like `overflow(hidden)` and does not scroll on its own. `paged` snaps by whole viewport widths, so each child without a `.width` of its own is one page — one viewport wide, its content laid out against it (`.align(center)` centres a narrower grid in it). Pair with `on EndReached -> dispatch(...)` on the same container for lazy loading (fires once when its offset nears its content end; re-arms after each layout). See `docs/dev/ui/foundations/layout/scroll.md`. |
+| `.scroll(a)` | `vertical\|horizontal\|paged` | makes THIS container a scroll layer (RFC-0109): its content is laid out and painted once into the layer's band, the app's physics turns a wheel notch into an offset, and the compositor moves the band — no re-layout, no re-raster per step. Several per page (four layers; more flatten into the page unscrolled, clipped to their viewport); a `.scroll` inside another's content clips like `overflow(hidden)` and does not scroll on its own. `paged` turns by whole viewport widths, so each child without a `.width` of its own is one page — one viewport wide, its content laid out against it (`.align(center)` centres a narrower grid in it). A paged layer is a **paged track** (design artifacts: PagedView): a press that moves more than 6 px along it and more along than across locks to the track, which then follows the pointer 1:1; past either end — also with a single page — it follows at 35 % (the rubber band) and glides back on release; a release turns one page past 16 % of the viewport's width or after a flick (more than 24 px within 250 ms); the wheel turns a page past 40 units (one detent) and then ignores the wheel for 420 ms; every turn and every return is a 500 ms glide on the `glide` curve; a turn by drag or wheel fires `PageNext`/`PagePrev` on the container. All of it moves the band on the compositor — no app raster. **Inside a paged viewport a `Tap` fires on the release, never after a drag** (a swipe across a launcher icon does not open it); the press feedback still shows at once. A reduced-motion theme lands at once. Pair with `on EndReached -> dispatch(...)` on the same container for lazy loading (fires once when its offset nears its content end; re-arms after each layout). See `docs/dev/ui/foundations/layout/scroll.md`. |
 | `.overlay(kind?)` | `modal\|transient` (optional) | lifts THIS container OUT OF FLOW as a full-bleed layer over its parent's content (drop-down panels, dialogs). Anchor inside the layer with ordinary flex (rows/`Spacer`/`justify`); paint and hit-testing prefer the layer naturally (later node ids win every overlap — a handler on the layer itself is the outside-tap closer). **`modal`** (ADR-0068): the layer joins the bounded modal stack (max 4); while it is the topmost modal, hit-testing, hover and text focus are confined to its subtree, ESC and a tap on it that no handler claims fire its `on Dismiss` (a layer that must not close on a backdrop tap absorbs with `on Tap -> dispatch(Noop)`); app-host mirrors the depth to windowd, which refuses input on the app's other windows. **`transient`**: a toast-class layer that confines nothing and leaves through `on Dismiss` when `.dismissAfter` elapses. Both REQUIRE `on Dismiss` (NX0413). |
 | `.dismissAfter(ms)` | `Int` (0..=60000) | on a `.overlay(transient)` layer: its declared lifetime — the HOST's one-shot timer fires the layer's `on Dismiss` after `ms` (the DSL holds no clock). Off a transient layer = NX0413. |
 | `.zIndex(t)` | z-index token | **not implemented** — later siblings paint over earlier ones; `.overlay()` lifts a layer |
@@ -261,6 +261,7 @@ above 16 px fails the build (the hangul block alone would be hundreds of MB).
 | `.focusable(b)` | `Bool` | **not implemented** — keyboard focus participation (class: semantics) |
 | `.autofocus(b)` | `Bool` | on a text field (`TextField`/`SearchBar`): while it is on screen — inside the topmost modal, if one is open — and NO field holds text focus, the host gives it focus through the same path a tap takes (the keyboard goes to it without a click). It also HOLDS the keyboard: a press on a control beside it (a category button) leaves the focus in the field — a press on another text field still moves it. Use it where typing is the surface's purpose (the shell search). (class: semantics, TASK-0067B) |
 | `.hitSlop(n)` | grid px \| spacing name | grows the INPUT rect outward by n px; layout and pixels unchanged (class: layout) |
+| `.press(kind)` | `button\|tile\|key\|icon\|chrome\|none` | the dip a press gives THIS control, by its role (design artifacts: press scale): `button` 95 %, `tile` 96 % (down `instant`, up `quick` on the soft spring), `key` 94 % held while pressed (down `instant` linear, up `quick` soft spring), `icon` 92 %, `chrome` 88 %, `none` the hover/press layer alone. A declared kind wins over the kind the host reads from the shape and size (a large tile dips like a tile). |
 
 ## Accessibility (class: semantics)
 
@@ -276,18 +277,20 @@ Semantic motion tokens with explicit categories — no free-form animation langu
 
 | Modifier | Args | Meaning |
 |---|---|---|
-| `.animate(t, value: expr)` | motion token + `Bool`/`Int`/`Fx` | animate state-driven property changes |
-| `.transition(t)` | motion token | insert/remove/open/close lifecycle motion |
+| `.animate(t, value: expr)` | motion token + `Bool`/`Int`/`Fx` | shows the node while `value` is non-zero; the change plays the token both ways (in and out) |
+| `.transition(t)` | motion token | insert/remove/open/close lifecycle motion (the compositor) |
 | `.effect(t, trigger: expr)` | motion token + any scalar | bounded attention effect on trigger change |
+| `.motion(duration, curve)` | `instant\|swift\|quick\|base\|slow` + `spring\|springSoft\|springIcon\|smooth\|glide\|enter` | THIS node travels to changes of its own place, size, rotation and opacity instead of jumping |
+| `.rotate(deg)` | `Int` expr, −360..=360 | turns a glyph's own shape clockwise about its centre (an `Icon` only — NX0416 elsewhere) |
 
 Reduced-motion behavior is part of each token's contract.
 
 ### `value:` is PRESENT/ABSENT — not "on change"
 
 `.animate` binds a property to whether its driving value is **non-zero**, not to
-the fact that the value moved. The host seeds the node at
-`MotionToken::resting(prop, value != 0)`, so for every opacity-primary token
-(`snappy`, `smooth`, `emphasized`, `fade`):
+the fact that the value moved. The absent state is written into the scene — the node's own
+opacity is 0 there — so for every opacity-primary token (`snappy`, `smooth`, `emphasized`,
+`fade`, `pop`):
 
 | `value:` | resting opacity |
 |---|---|
@@ -298,8 +301,10 @@ That is the intended contract ("show this while `x`"), and it is sharp enough to
 cut. `.animate(snappy, value: $state.disp)` on a display card — a `Str`, which
 has no zero/non-zero reading — rested the card at opacity 0 and blanked the
 number, the history line and the card's own glass together, while the store, the
-scene, the layout and the glyph raster were all provably correct. The animation
-transform is applied **last**, so it erases six correct stages silently.
+scene, the layout and the glyph raster were all provably correct. Since TASK-0354 P10 the
+absent state is the node's own opacity 0 in the scene and the host holds nothing at rest: it
+plays the enter (absent → present) and the exit (present → absent) and lets go; a motion it skips
+at its bound is a jump to the right picture, never a wrong one.
 
 Consequences, all enforced:
 
@@ -317,7 +322,14 @@ folding rules) and `tests/dsl_apps_conformance/tests/calculator_pixels.rs`
 (`nothing_rests_invisible_over_the_display` — the app-level invariant).
 
 The token argument is validated against the curated motion set (`snappy, smooth, emphasized,
-fade, slideUp, fadeScale, wiggle, pulse, slideDown, pushInline, menuIn`). A `.transition` runs
+fade, slideUp, fadeScale, wiggle, pulse, slideDown, pushInline, menuIn, pop, swapInline`).
+`pop` (a value token) fades a small part in while it grows from 0.60 on the icon spring in the
+`quick` step and plays back out the same way — a check mark, a radio dot, a PIN dot; reduced
+motion shows or hides it at once. `swapInline` (an effect) slides content swapped in place: on a
+change of its trigger the node starts 28 px on the side it travels from, invisible, and glides
+to rest in the `base` step — a larger trigger value comes from the trailing side, a smaller one
+from the leading side, so the trigger must be a number to carry a direction (a month index; a
+`Str` trigger has no order and may come from either side); reduced motion swaps at once. A `.transition` runs
 on the compositor: app-host rasters the subtree once and windowd moves the layer (ADR-0097).
 It plays both ways: when the node leaves — a panel closes, a sheet is dismissed, a toast times
 out — the same layer plays the token back toward where it came from (the enter's curve mirrored,
@@ -331,9 +343,100 @@ at once.
 the edge of what the subtree paints that is nearer the edge of the node carrying the
 `.transition` (a menu laid out at the top leading corner of its overlay grows from that corner,
 one in the middle from its centre); the layout states the anchor, no argument does — the
-same corner whether the compositor moves the layer or app-host paints the enter itself. An
-`.animate` or `.effect` intent is interpolated by app-host's animation driver on the frame pulse
-and painted per node. See `docs/dev/ui/foundations/animation.md` (token→physics mapping, scope).
+same corner whether the compositor moves the layer or app-host paints the enter itself.
+
+Where each runs: `.transition` and `.scroll` (the paged track and its rubber band included) on
+the compositor — painted once, no app raster per frame; `.animate`, `.effect`, `.motion`,
+`.rotate` changes, the kit widgets' parts and the loops in the app, per frame, the damaged
+rectangle only. A `.motion` node moves by layout: its change is a layout change whose rectangles
+the layout diff names. See `docs/dev/ui/foundations/animation.md` (token→physics mapping, scope)
+and `perf.md` (the bounds).
+
+### `.motion` — a node follows its own changes
+
+`.motion(duration, curve)` says: when a re-layout moves THIS node, resizes it, turns it
+(`.rotate`) or changes its opacity, the change travels instead of jumping. The node is laid out
+where it belongs — at the active tab, at the slider's value, at the current page's dot — and the
+host carries it there from where it was (place and size from their centre and their ratio,
+rotation from the difference) on the declared pair; opacity always travels on `swift`/`smooth`
+(the design's surface rule). Rules:
+
+- the first layout of a node never moves it (nothing slides in on open);
+- the node's identity is its place in the emitted tree, not its number — a sibling added
+  elsewhere does not make another node slide, and the two branches of an `if` at one place are
+  the same node: switching branches changes its size, place or rotation, and that travels;
+- a change that arrives while the previous one still travels starts from where the node is, at
+  the deviation it still had (no jump);
+- nothing starts inside the control the pointer holds (a slider's fill follows at once while it
+  is pressed);
+- the host tracks at most 128 `.motion` nodes a surface; beyond, a node jumps to its new place.
+
+| Duration | ms | | Curve | Control points |
+|---|---|---|---|---|
+| `instant` | 100 | | `spring` | (0.34, 1.4, 0.5, 1) |
+| `swift` | 160 | | `springSoft` | (0.34, 1.2, 0.5, 1) |
+| `quick` | 280 | | `springIcon` | (0.34, 1.56, 0.64, 1) |
+| `base` | 400 | | `smooth` | (0.4, 0, 0.2, 1) |
+| `slow` | 500 | | `glide` | (0.22, 1, 0.36, 1) |
+| | | | `enter` | (0.16, 1, 0.3, 1) |
+
+A reduced-motion theme sets every duration to 0: the node lands at once.
+
+```nx
+// The launcher's page dots: the active one stretches to a capsule, its neighbours shift. Both
+// branches emit one node at the same place, so the switch travels.
+Store Pager { page: Int = 0, }
+
+Component PagerDot {
+    props: {
+        page: Int,
+    }
+    if $state.page == $props.page {
+        Stack { }
+            .width(20)
+            .height(8)
+            .rounded(full)
+            .bg(label)
+            .opacity(235)
+            .motion(quick, springSoft)
+    } else {
+        Stack { }
+            .width(8)
+            .height(8)
+            .rounded(full)
+            .bg(label)
+            .opacity(77)
+            .motion(quick, springSoft)
+    }
+}
+```
+
+### `.rotate` — a glyph turns
+
+`.rotate(deg)` turns an `Icon`'s own shape clockwise about the box's centre; the value is an
+`Int` expression clamped to −360..=360. The ink is clipped to the box (the layout does not
+change), children do not turn, and on anything but an `Icon` the checker says NX0416. With
+`.motion` beside it the change travels.
+
+```nx
+// A disclosure chevron that turns up while its menu is open (one glyph; the branch switch
+// turns it).
+Store Menu { open: Bool = false, }
+
+Page MenuPage {
+    Stack {
+        if $state.open {
+            Icon { symbol: "chevron.down", size: 12 }
+                .rotate(180)
+                .motion(quick, springSoft)
+        } else {
+            Icon { symbol: "chevron.down", size: 12 }
+                .rotate(0)
+                .motion(quick, springSoft)
+        }
+    }
+}
+```
 
 ## Keys (class: layout — identity)
 
@@ -383,6 +486,10 @@ unimplemented but retired: any use is a compile error naming the replacement.
 
 ## Changelog
 
+- **v9 (2026-11-19, TASK-0354 P10/P12/P13)** — `.rotate(deg)` (append-only id 63), `.motion(duration,
+  curve)` (64) and `.press(kind)` (65) added; motion tokens `pop` and `swapInline`; `.animate`'s
+  absent state lives in the scene (the host plays enter and exit, holds nothing at rest); the
+  paged track (drag, rubber band, turn, glide, wheel) and the release tap inside a paged viewport.
 - **v8 (2026-11-09, TASK-0357)** — every `Int` argument takes an `Int` expression (a prop or a
   store field, a layout dependency): `.columns`, `.grow`, `.shrink`, `.basis`, `.opacity`,
   `.truncate` and `.dismissAfter` read it like the size arguments always did, instead of 0.

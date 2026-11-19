@@ -209,6 +209,14 @@ pub const WIDGETS: &[WidgetSpec] = &[
         bind: None,
     },
     WidgetSpec {
+        name: "LevelBars",
+        primary_prop: None,
+        interactive: false,
+        label_prop: None,
+        allows_children: false,
+        bind: None,
+    },
+    WidgetSpec {
         name: "ProgressBar",
         primary_prop: Some("value"),
         interactive: false,

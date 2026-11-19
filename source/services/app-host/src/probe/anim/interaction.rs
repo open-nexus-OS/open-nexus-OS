@@ -173,8 +173,10 @@ impl crate::probe::DslApp {
     /// What a press on (or the hover of) handler `h` does on this surface: a kit control that
     /// animates a part of itself (the toggle's thumb, `press_offset`) takes no layer of its own.
     fn press_plan(&self, h: usize) -> PressPlan {
-        let part = self.view.handlers().iter().any(|(id, e)| *id == h && e.press_offset != 0);
-        press_kind::plan(&self.layout.boxes, h, part, self.base_alpha != 0)
+        let entry = self.view.handlers().iter().find(|(id, _)| *id == h).map(|(_, e)| e);
+        let part = entry.is_some_and(|e| e.press_offset != 0);
+        let declared = entry.and_then(|e| e.press);
+        press_kind::plan(&self.layout.boxes, h, part, self.base_alpha != 0, declared)
     }
 
     /// Whether tap handler `id` holds another one — a container catch-all behind controls

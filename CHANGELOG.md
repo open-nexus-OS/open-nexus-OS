@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-11-19 (the shell moves like the design — TASK-0354 P10/P12/P13)
+
+- **The launcher's pages are a track.** A drag follows the pointer 1:1 once it locked to the
+  track (6 px, more along than across); past either end — also with a single page — it follows
+  at 35 % and glides back on release; a release past 16 % of the width or a flick (more than
+  24 px within 250 ms) turns a page; the wheel turns past one detent and cools for 420 ms; every
+  turn and return is a 500 ms glide on the glide curve. All of it moves the band's offset on the
+  compositor — windowd intersects an offset outside the band with its valid range, no wire
+  change (`pager_math.rs`, `probe/scroll/paged.rs`). Inside a paged viewport a `Tap` fires on
+  the release, never after a drag (`probe/drag/paged_press.rs`): a swipe across an icon no
+  longer opens it.
+- **State motion has one model: the scene is the rest.** `.animate`'s absent state is the node's
+  own opacity 0 in the scene; the host plays the enter and the exit and holds nothing at rest
+  (the 32-slot table no longer keeps absent nodes alive). New: `.motion(duration, curve)` — a
+  node travels to changes of its own place, size, rotation and opacity (FLIP keyed by its place
+  in the tree, `bound_math.rs`, 128 tracked a surface); `.rotate(deg)` — a glyph's rest rotation,
+  drawn by the painter (NX0416 off an `Icon`); `.press(kind)` — the press dip by role (tile
+  96 %, key 94 % held); tokens `pop` and `swapInline`. Modifier ids 63–65, appended.
+- **The kit's parts move.** The toggle's on colour fades as a layer over the track and its thumb
+  travels on the soft spring from any change; the checkbox's tint fades and its mark pops; the
+  select's chevron turns (one glyph); the slider's and progress bar's fills follow their value
+  (`registry::motion_parts`, proven to land on the part by `tests/motion_parts.rs`). The
+  indeterminate pip and the shimmer band cross their track from outside, cut by its rounded ends;
+  the new `LevelBars` (the island's bars) rise and fall staggered by 80 ms.
+- **The shell uses it.** The page dots stretch and shift, the window chip's chevron turns, the
+  Control Center tiles dip as tiles, the keyboard's keys as keys, the calendar's month slides in
+  from the side it comes from. The DSL reference (`docs/dev/dsl/`) documents every new modifier,
+  token, widget motion and where each runs, every example compiled by the docs gate.
+- **A band is as tall as its content; a transform covers its subtree.** A horizontal scroll band
+  stores only the rows its content reaches (`ScrollLayer::band_rows`): the launcher's pages now
+  start at the top of a strip as tall as the area — a drag grabs the track anywhere — and the
+  launcher still finds room in the store for its compositor layer (a viewport-tall band had sent
+  it to the app's paint, behind the windows: six `motion in app (why=store)`). An app-side
+  transform covers its node's pre-order subtree (`NodeAnim::span_end`,
+  `nexus_scene_raster::covering_index`) instead of one copied entry per contained box, which
+  stopped at 48 — the calendar's lower rows changed at once.
+- **On the board** (`board--2026-11-19T13-14-36`, dev-b37c2aa7): 20 page glides, every one
+  `rastered=0`; the rubber band pulled 184 and 262 px past the end and glided home; tap to open
+  p50 58 ms (n=49). Frames still drop on opens and closes (36 of 117 `ux frame` windows FAIL):
+  the GPU's glass and blur passes (TASK-0351 P6), not the motion.
+
 ### Changed - 2026-11-19 (a shell transition costs what moves, opening and closing — TASK-0354 P8/P9, TASK-0367 P3, TASK-0351 P15)
 
 - **Damage is rectangles, not a row span.** app-host keeps its pending damage as at most four

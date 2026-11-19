@@ -59,6 +59,29 @@ pub(crate) fn subtree_span(root: &LayoutNode, target: usize) -> Option<(usize, u
     walk(root, &mut 0, target)
 }
 
+/// The exclusive pre-order end of each `targets[k].0`'s subtree, into `targets[k].1`, in ONE
+/// walk (`targets` sorted by id; an id not in the tree keeps its end) — `subtree_span`'s numbering.
+pub(crate) fn subtree_ends(root: &LayoutNode, targets: &mut [(usize, usize)]) {
+    fn walk(node: &LayoutNode, index: &mut usize, targets: &mut [(usize, usize)]) {
+        *index += 1;
+        let here = *index;
+        let absolute = |c: &&LayoutNode| matches!(c.item().position, Position::Absolute);
+        match node {
+            LayoutNode::Stack(_, _, ch) => ch
+                .iter()
+                .filter(|c| !absolute(c))
+                .chain(ch.iter().filter(absolute))
+                .for_each(|c| walk(c, index, targets)),
+            LayoutNode::Grid(_, _, ch) => ch.iter().for_each(|c| walk(c, index, targets)),
+            _ => {}
+        }
+        if let Ok(k) = targets.binary_search_by_key(&here, |t| t.0) {
+            targets[k].1 = *index + 1;
+        }
+    }
+    walk(root, &mut 0, targets);
+}
+
 /// How far box `b`'s paint reaches past its rectangle `(left, top, right, bottom)`: its drop
 /// shadow (blur, offset, spread — `nexus-scene-raster`'s shadow row), its text shadow, and a
 /// pixel of anti-aliasing.
@@ -337,6 +360,10 @@ mod tests {
         assert_eq!(subtree_span(&p, 7), Some((7, 8)));
         assert_eq!(subtree_span(&p, 8), None, "no node 8");
         assert_eq!(subtree_span(&p, 0), None);
+        // One walk names the same ends; an id not in the tree keeps its own.
+        let mut ends = [(1, 0), (3, 0), (6, 0), (7, 0), (9, 10)];
+        subtree_ends(&p, &mut ends);
+        assert_eq!(ends, [(1, 8), (3, 6), (6, 8), (7, 8), (9, 10)]);
     }
 
     fn boxed(node_id: usize, (x, y, w, h): (i32, i32, i32, i32)) -> LayoutBox {

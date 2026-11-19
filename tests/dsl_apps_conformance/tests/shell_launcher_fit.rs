@@ -117,10 +117,16 @@ fn the_full_screen_grid_fits_1280_by_800_and_pages_sit_side_by_side() {
     assert!(top >= 150 + 16, "the grid starts under the search row: {top}");
     assert!(bottom <= dots[0].1, "the grid ends above the page dots: {bottom} vs {dots:?}");
     assert!(dots[0].1 + 8 <= 744 - 16, "the dots end inside the band's bottom padding: {dots:?}");
-    // Centred: the space above the rows equals the space below them, up to the 28 px control.
-    let above = top - 166;
-    let below = (dots[0].1 - 10) - bottom;
-    assert!((above - below).abs() <= 8, "the rows are centred: above {above}, below {below}");
+    // At the top (the operator, 2026-11-19): the rows start right under the search row.
+    assert_eq!(top, 166, "the rows start under the search row, not centred: {top}");
+    // The paged strip takes all the height between the search row and the dots: its viewport —
+    // where a drag grabs the track — is the whole area, not a band around the rows.
+    let strip = boxes
+        .iter()
+        .find(|b| matches!(b.overflow, nexus_layout_types::Overflow::Scroll(_)))
+        .expect("the paged strip");
+    let (sy0, sy1) = (strip.rect.y.0, strip.rect.y.0 + strip.rect.height.0);
+    assert!(sy0 <= top && sy1 >= dots[0].1 - 28, "the strip spans the area: {sy0}..{sy1}");
 }
 
 #[test]

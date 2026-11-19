@@ -8,6 +8,8 @@
 //! adding one) never touches the walker.
 
 mod controls;
+mod motion_parts;
+pub use motion_parts::{motion_parts, PartMotion, MAX_PARTS};
 mod pane;
 mod tokens;
 mod widgets;
@@ -87,6 +89,13 @@ pub struct Mods {
     /// see [`nexus_layout_types::FlexItem::hit_slop`].
     pub hit_slop: nexus_layout_types::FxPx,
     pub opacity: Option<u8>,
+    /// `.animate(token, value:)` with a zero value on a presence token: the node's absent state,
+    /// its own opacity 0 IN THE SCENE (TASK-0354 P10) — the host plays the change, holds no rest.
+    pub absent: bool,
+    /// `.rotate(deg)`: the glyph's rest rotation, degrees clockwise, −360..=360.
+    pub rotate_deg: i16,
+    /// `.press(kind)`: the press role the node declares.
+    pub press: Option<crate::interact::PressRole>,
     pub disabled: bool,
     /// Compositing material (`.material(panel|window|dock|thin|ultraThin|card|pane|overlay)`,
     /// RFC-0116) — a blur material becomes a backdrop-blurred region at the compositor, an
@@ -173,6 +182,9 @@ impl Default for Mods {
             border_color: None,
             border_tint: None,
             opacity: None,
+            absent: false,
+            rotate_deg: 0,
+            press: None,
             disabled: false,
             material: None,
             scroll: None,
@@ -243,6 +255,10 @@ impl Mods {
             // the kit controls dim by their own family (`nexus_style::Dim`).
             visual.opacity = Some(nexus_style::Dim::default().opacity());
         }
+        if self.absent {
+            visual.opacity = Some(nexus_layout_types::Fraction(0));
+        }
+        visual.rotate_deg = self.rotate_deg;
         if let Some(material) = self.material {
             // The material's recipe (RFC-0116: fill, glass edge, shadow, edge highlight) is the
             // ONE definition — `Style::material`, which every kit widget calls too, so a page
@@ -463,7 +479,30 @@ pub fn build_widget(
             }
         }
     }
+    // The motion rests apply to EVERY kind for the same reason (TASK-0354 P10): a kit arm builds
+    // its own visual, and an absent `.animate` or a `.rotate` on an `Icon` must not be dropped.
+    if mods.absent || mods.rotate_deg != 0 {
+        if let Some(visual) = node_visual_mut(&mut node) {
+            if mods.absent {
+                visual.opacity = Some(nexus_layout_types::Fraction(0));
+            }
+            if mods.rotate_deg != 0 {
+                visual.rotate_deg = mods.rotate_deg;
+            }
+        }
+    }
     node
+}
+
+/// The visual of any node kind that paints (a spacer paints nothing).
+fn node_visual_mut(node: &mut LayoutNode) -> Option<&mut VisualStyle> {
+    match node {
+        LayoutNode::Stack(_, visual, _)
+        | LayoutNode::Grid(_, visual, _)
+        | LayoutNode::Text(_, visual)
+        | LayoutNode::TextInput(_, visual) => Some(visual),
+        LayoutNode::Spacer(_) => None,
+    }
 }
 
 /// The mutable `FlexItem` of any node kind.
@@ -497,7 +536,7 @@ pub fn press_offset(kind: &str) -> u32 {
     match kind {
         // GlassToggle: root = the track, sole child (+1 pre-order) = the
         // thumb — the press stretches the thumb along the travel axis.
-        "Toggle" => 1,
+        "Toggle" => 2,
         _ => 0,
     }
 }

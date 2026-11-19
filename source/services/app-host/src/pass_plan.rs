@@ -216,15 +216,17 @@ impl PassPlan<'_> {
             let by = by + (line - nexus_text_baked::line_height(*font) as i32) / 2;
             // Animated text node: fade its glyphs by the node opacity and shift them by the
             // horizontal translate (vertical translate + scale on TEXT are the fill path's).
-            let (mut color, bx_glyph) =
-                match anims.iter().find(|a| a.node_id == b.node_id && !a.is_identity()) {
-                    Some(a) => {
-                        let mut c = *color;
-                        c[3] = (c[3] as u32 * a.opacity as u32 / 255) as u8;
-                        (c, bx - dx - a.dx)
-                    }
-                    None => (*color, bx - dx),
-                };
+            let (mut color, bx_glyph) = match nexus_scene_raster::covering_index(anims, b.node_id)
+                .map(|i| &anims[i])
+                .filter(|a| !a.is_identity())
+            {
+                Some(a) => {
+                    let mut c = *color;
+                    c[3] = (c[3] as u32 * a.opacity as u32 / 255) as u8;
+                    (c, bx - dx - a.dx)
+                }
+                None => (*color, bx - dx),
+            };
             // A faded box (its own and its ancestors' opacity — a disabled control) fades its text.
             color[3] = (u32::from(color[3]) * u32::from(b.opacity) / 255) as u8;
             // The focused field shows its WHOLE text, scrolled so its caret stays in view

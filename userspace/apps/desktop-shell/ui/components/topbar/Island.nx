@@ -4,14 +4,14 @@
 // The Activity Runner in the bar (design artifacts: TopBar, ActivityRunner):
 // 118×28, the `island` capsule — black in both themes, so its marks are
 // white (`onAccent`) rather than labels that would flip with the theme. The
-// compact media form: a 14×14 album square (radius 4) and four 3px level
-// bars (8 / 12 / 6 / 10, 2 apart, bottom-aligned) at the dark scope's
-// secondary strength (.58), the two centred as one group, 8 apart.
+// compact media form: a 14×14 album square (radius 4) and the kit's `LevelBars` (four 3px
+// bars, 8 / 12 / 6 / 10 at rest, 2 apart, bottom-aligned, at the dark scope's secondary
+// strength .58, rising and falling staggered by 80 ms), the two centred as one group, 8 apart.
 //
 // `TopBar` mounts it only while something plays (`nowPlaying`): with nothing
 // live there is no island. Still open, each blocked on a capability: the
 // artwork (no album image source — the art is the design's placeholder
-// gradient, vertical here), the bars' level loop, the expanded runner
+// gradient, vertical here), the expanded runner
 // (340×70 media, 300×70 call and navigation) with its spring morph and the
 // tap/hover that opens it, and the toggle/timer/call activities — they need
 // the media session and an activity feed.
@@ -23,36 +23,8 @@ Component Island {
             .height(14)
             .bgFade(modeTablet, danger)
             .rounded(4)
-        Stack {
-            Stack { }
-                .width(3)
-                .height(8)
-                .bg(onAccent)
-                .opacity(148)
-                .rounded(full)
-            Stack { }
-                .width(3)
-                .height(12)
-                .bg(onAccent)
-                .opacity(148)
-                .rounded(full)
-            Stack { }
-                .width(3)
-                .height(6)
-                .bg(onAccent)
-                .opacity(148)
-                .rounded(full)
-            Stack { }
-                .width(3)
-                .height(10)
-                .bg(onAccent)
-                .opacity(148)
-                .rounded(full)
-        }
-        .direction(row)
-        .align(end)
-        .gap(2)
-        .height(12)
+        // The four level bars rise and fall staggered (design artifacts: M24, the kit's loop).
+        LevelBars { }
     }
     .direction(row)
     .align(center)

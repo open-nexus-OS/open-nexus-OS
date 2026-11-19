@@ -23,6 +23,7 @@ Component KeyRow {
         .shadow(shadow1)
         .key(cell.label)
         .label(cell.label)
+        .press(key)
         on Tap -> dispatch(Key(cell.key))
     }
     .direction(row)

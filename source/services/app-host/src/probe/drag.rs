@@ -41,6 +41,8 @@ use nexus_display_proto::surface_motion::MotionBatch;
 use nexus_dsl_runtime::Damage;
 use nexus_ipc::{Client as _, KernelClient, Wait};
 
+mod paged_press;
+
 /// Pointer travel (pixels, either axis) before a held press becomes a drag.
 const SLOP: i32 = 3;
 
@@ -54,6 +56,12 @@ pub(super) struct Drag {
     pending: Option<(i32, i32)>,
     /// The gesture's pointer history: (frames, samples, the most in one frame, folded).
     history: (u32, u32, usize, u32),
+    /// The uncovered paged layer the press landed in (`drag/paged_press.rs`), its axis lock, the
+    /// Tap held for the release (handler, animated part), and when the press landed (ns).
+    paged: Option<usize>,
+    lock: crate::pager_math::Lock,
+    held: Option<(Option<usize>, Option<usize>)>,
+    t0: u64,
 }
 
 /// A pointer frame that is not a tap's facts alone: `(surface, kind, x, y, facts, motion)` — a
@@ -93,7 +101,16 @@ pub(crate) fn current() -> (i32, i32, i32, i32) {
 impl super::DslApp {
     /// A primary press landed on this surface (the tap): a drag may grow from it.
     pub(super) fn arm_drag(&mut self, x: i32, y: i32) {
-        self.drag = Some(Drag { start: (x, y), taken: None, pending: None, history: (0, 0, 0, 0) });
+        self.drag = Some(Drag {
+            start: (x, y),
+            taken: None,
+            pending: None,
+            history: (0, 0, 0, 0),
+            paged: self.paged_layer_at(x, y),
+            lock: crate::pager_math::Lock::Undecided,
+            held: None,
+            t0: super::nsec_now(),
+        });
     }
 
     /// A DRAG's pointer samples, counted for the gesture's trace line.
@@ -117,6 +134,9 @@ impl super::DslApp {
         x: i32,
         y: i32,
     ) {
+        // A press in a paged viewport may leave its track gliding (release, leave): the pulse.
+        let paged = self.drag.is_some_and(|d| d.paged.is_some());
+        let mut glide = false;
         let repaint = match kind {
             wire::INPUT_KIND_DRAG => {
                 // Noted, not computed: the present loop computes the newest (`drag_flush`).
@@ -130,15 +150,21 @@ impl super::DslApp {
             wire::INPUT_KIND_RELEASE => {
                 // The press lets go first: its spring back survives the drag's re-emit.
                 let released = self.interaction_release();
-                self.drag_end(x, y) || released
+                let ended = self.drag_end(x, y) || released;
+                // A released track glides on the frame pulse, whatever the release repainted.
+                glide = paged && self.momentum_active();
+                ended
             }
             wire::INPUT_KIND_LEAVE => {
                 if self.text_hover_clear() {
                     super::boot::send_cursor_hint(client, surface_id, false);
                 }
-                // The layers fade out (motion), a held press lets go.
+                // The layers fade out (motion), a held press lets go, a held Tap is dropped and a
+                // dragged track returns.
                 let released = self.interaction_release();
-                self.hover_clear() || released
+                let returned = self.track_leave();
+                glide = paged && self.momentum_active();
+                self.hover_clear() || released || returned
             }
             _ => {
                 // Editable-field hover → windowd cursor hint (I-beam), sent only on CHANGE.
@@ -155,7 +181,7 @@ impl super::DslApp {
             }
         };
         // Started springs, animations and layer fades tick on the frame pulse.
-        if repaint && (self.anim_active() || self.layers_live()) {
+        if (repaint && (self.anim_active() || self.layers_live())) || glide {
             let _ = client.send(&wire::encode_surface_frame_req(surface_id), Wait::Blocking);
         }
     }
@@ -193,6 +219,10 @@ impl super::DslApp {
     /// also the first move — the pointer is already past the press), then moves it. Dispatches
     /// only; the caller lays out once (`settle`).
     fn drag_move(&mut self, x: i32, y: i32) -> Option<Damage> {
+        // A press in a paged viewport: the track decides first (`drag/paged_press.rs`).
+        if let Some(done) = self.track_move(self.drag?, x, y) {
+            return done;
+        }
         let drag = self.drag?;
         let box_id = match drag.taken {
             Some(Some(box_id)) => box_id,
@@ -244,6 +274,8 @@ impl super::DslApp {
             damage = damage.max(self.dispatch(box_id, "DragEnd"));
         }
         let repaint = self.settle(damage);
+        let paged = self.track_end(drag, (x, y));
+        let repaint = repaint || paged;
         self.trace_drag(drag, (x, y));
         set_cell(0, 0, (0, 0));
         repaint

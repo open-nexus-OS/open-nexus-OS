@@ -72,6 +72,17 @@ last blur.
 - Out of scope: exits of the app's own Tier-2 enters (the DSL runtime keeping a leaving node
   alive), window surfaces (their frosted base, TASK-0354 P7), interaction micro-motion (a press, a
   hover-grow — small and bounded, the app's).
+- **Amendment 2026-11-19 (TASK-0354 P10/P12/P13) — the app's own motion (Tier 2) has one model:
+  the scene is the rest.** What stays the app's — a kit part of 6–48 px (a layer per part would
+  spend the 16-layer budget and the GPU passes for a few pixels), a value change, a node that
+  moves with its layout — is a transient deviation from the scene that decays to identity and is
+  dropped: `.animate`'s absent state is in the scene (the node's own opacity 0) and the app plays
+  enter and exit; `.motion(duration, curve)` carries a node to a changed place, size, rotation or
+  opacity (FLIP by the node's place in the tree, 128 tracked a surface, above that a jump); the
+  kit's parts carry the same intents by child path. A motion skipped at a bound is a jump to the
+  right picture, never a wrong one. The compositor's side is unchanged: no wire field, no windowd
+  or gpud behaviour change; the launcher's paged track moves a scroll band's offset (RFC-0109),
+  which windowd already intersects with the band.
 
 ## Consequences
 

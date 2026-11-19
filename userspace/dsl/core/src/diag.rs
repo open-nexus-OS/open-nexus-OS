@@ -89,6 +89,7 @@ pub enum DiagCode {
     OverlayDismiss, // NX0413 (`.overlay(modal|transient)` without `on Dismiss`, or `.dismissAfter` off a transient)
     NestedBlur, // NX0414 (a blur material inside a blur material — RFC-0116: one blur per stack)
     UnnamedTapTarget, // NX0415 (a tappable container without an accessible name — TASK-0357 P3)
+    RotateTarget, // NX0416 (`.rotate` on anything but a leaf glyph — TASK-0354 P10)
     // --- lowering (NX05xx)
     LoweringUnsupported, // NX0501 (a construct outside the v0.1 lowering subset)
 }
@@ -139,6 +140,7 @@ impl DiagCode {
             DiagCode::OverlayDismiss => "NX0413",
             DiagCode::NestedBlur => "NX0414",
             DiagCode::UnnamedTapTarget => "NX0415",
+            DiagCode::RotateTarget => "NX0416",
             DiagCode::LoweringUnsupported => "NX0501",
         }
     }

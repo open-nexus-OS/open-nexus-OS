@@ -5,7 +5,7 @@ role: guide
 subsystem: ui
 sources: [userspace/ui/paint-kernels, userspace/ui/scene_raster/src/shapes.rs, source/services/app-host/src/probe/boot_env.rs, source/services/app-host/src/probe/paint.rs, source/services/app-host/src/pass_plan.rs, source/apps/selftest-client/src/os_lite/probes/paintkernels.rs]
 contracts: [ADR-0099, RFC-0119]
-verified: 2026-11-18
+verified: 2026-11-19
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -30,7 +30,8 @@ A kernel is a loop a frame spends its pixels in, as one function of a span of a 
 
 Apps, motion layers and animations are painted row by row through `nexus-scene-raster`, so
 they reach the kernels without knowing them. What a row computes per pixel — a corner's
-coverage, a shadow, a gradient, a glyph — is not a kernel of this crate.
+coverage, a shadow, a gradient, a glyph — is not a kernel of this crate. Under a rounded clip
+(`xform.rs`) the soft columns at a span's ends are set or blended pixel by pixel; the rest of the span is the kernel's.
 
 ## Two forms, one result
 

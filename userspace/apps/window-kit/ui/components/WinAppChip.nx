@@ -3,8 +3,9 @@
 //
 // The top bar's app chip (design artifacts: Window): capsule 30, padding 0 8 0 4, the app's
 // glyph and a chevron — never the app name. It opens the window menu (`WinMenu("app")`);
-// while the menu is open (`menu == "app"`) it pins the `fill` layer and the chevron points
-// up (the design rotates it 180°; the DSL has no rotation, so the glyph swaps).
+// while the menu is open (`menu == "app"`) it pins the `fill` layer and the chevron turns up:
+// one glyph, rotated 180° (design artifacts: M39 — quick on the soft spring; both branches emit
+// it at the same place, so `.motion` carries the turn).
 
 Component WinAppChip {
     props: {
@@ -14,8 +15,10 @@ Component WinAppChip {
     if $state.menu == "app" {
         Stack {
             WinAppGlyph { icon: $props.icon, appId: $props.appId }
-            Icon { symbol: "chevron.up", size: 14 }
+            Icon { symbol: "chevron.down", size: 14 }
                 .fg(labelSecondary)
+                .rotate(180)
+                .motion(quick, springSoft)
         }
         .direction(row)
         .align(center)
@@ -31,6 +34,8 @@ Component WinAppChip {
             WinAppGlyph { icon: $props.icon, appId: $props.appId }
             Icon { symbol: "chevron.down", size: 14 }
                 .fg(labelSecondary)
+                .rotate(0)
+                .motion(quick, springSoft)
         }
         .direction(row)
         .align(center)

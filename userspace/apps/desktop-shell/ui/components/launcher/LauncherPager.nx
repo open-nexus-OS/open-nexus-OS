@@ -2,18 +2,21 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // The paged app grid (design artifacts: launcher, PagedView + PageControl): a horizontal
-// `.scroll(paged)` strip of page cells — the HOST snaps the offset to whole pages (glide ease),
-// the wheel turns ±1 page and fires `PageNext`/`PagePrev` so `$state.page` tracks the snap; a
-// dot tap glides via `svc.shell.scrollToPage`. The strip's children are SIX `LauncherPage`
+// `.scroll(paged)` strip of page cells — the HOST's paged track (TASK-0354 P12): a drag follows
+// the pointer, past either end on a rubber band (also with a single page) that glides back; a
+// release past 16 % of the width or a flick turns a page, the wheel turns past one detent; each
+// turn fires `PageNext`/`PagePrev` so `$state.page` follows, and every turn and return is a
+// 500 ms glide; a dot tap glides via `svc.shell.scrollToPage`. An icon's `Tap` fires on the
+// release, never after a drag (a swipe across an icon does not open it). The strip's children are SIX `LauncherPage`
 // nodes — one node per page, because several `if`s in one branch arm would stack in a column
 // and put page 2 under page 1 instead of beside it; a page without apps is an empty, zero-wide
-// cell. The strip hugs its tallest page and two spacers centre it vertically between the search
-// row and the page indicator (the design centres the rows of a page); the indicator sits at the
-// bottom and hides itself with a single page.
+// cell. The strip takes all the height between the search row and the page indicator, so its
+// viewport — where a drag grabs the track — is the whole area, and each page starts its rows at
+// the top (the operator, 2026-11-19); the indicator sits at the bottom and hides itself with a
+// single page.
 
 Component LauncherPager {
     Stack {
-        Spacer
         Stack {
             LauncherPage { page: 0 }
             LauncherPage { page: 1 }
@@ -23,10 +26,10 @@ Component LauncherPager {
             LauncherPage { page: 5 }
         }
         .direction(row)
+        .grow(1)
         .scroll(paged)
         on PageNext -> dispatch(PageNext)
         on PagePrev -> dispatch(PagePrev)
-        Spacer
         PagerDots { }
     }
     .grow(1)

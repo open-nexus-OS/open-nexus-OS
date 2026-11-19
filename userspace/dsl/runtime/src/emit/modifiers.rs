@@ -8,7 +8,7 @@
 //! arm is a declared-but-unimplemented modifier; `docs/dev/dsl/modifiers.md`
 //! lists which those are, because a silent no-op is worse than an error.
 
-use super::{stamp_anim, AnimKind, Damage, EmitCtx};
+use super::{stamp_anim, stamp_bound, AnimIntent, AnimKind, Damage, EmitCtx};
 use crate::registry::{self, Mods};
 use crate::store::Value;
 use crate::RtError;
@@ -294,10 +294,44 @@ pub(super) fn apply_modifier(
         //    the driving value) onto this node's path; the HOST owns the clock
         //    and physics (`AnimationDriver`). The driving/trigger expr records
         //    a PAINT dep so a change re-emits and refreshes the snapshot.
-        43 => stamp_anim(ctx, args, AnimKind::Animate), // animate(token, value:)
-        44 => stamp_anim(ctx, args, AnimKind::Transition), // transition(token)
-        45 => stamp_anim(ctx, args, AnimKind::Effect),  // effect(token, trigger:)
-        _ => {} // key/label/others: identity/semantics — no paint effect here
+        43 => {
+            // animate(token, value:): a zero value on a presence token is the node's absent
+            // state — its own opacity 0 in the scene; the host plays the change (TASK-0354 P10).
+            let intent = stamp_anim(ctx, args, AnimKind::Animate);
+            let presence = |i: AnimIntent| {
+                animation::MotionToken::from_id(i.token)
+                    .is_some_and(|t| t.category() != animation::MotionCategory::Effect)
+            };
+            if intent.is_some_and(|i| i.value == 0 && presence(i)) {
+                mods.absent = true;
+            }
+        }
+        44 => {
+            stamp_anim(ctx, args, AnimKind::Transition); // transition(token)
+        }
+        45 => {
+            stamp_anim(ctx, args, AnimKind::Effect); // effect(token, trigger:)
+        }
+        64 => stamp_bound(ctx, args), // motion(duration, curve)
+        63 => {
+            // rotate(deg): the glyph's rest rotation — a LAYOUT dependency although the box keeps
+            // its place: the rotation lives in the laid-out box's visual, which a paint-only
+            // re-emit does not refresh (with `.motion` beside it the host carries the change).
+            mods.rotate_deg = match first.map(|a| a.which()) {
+                Some(Ok(ir::token_arg::Which::Int(i))) => i,
+                Some(Ok(ir::token_arg::Which::Expr(Ok(expr)))) => {
+                    ctx.record_deps(expr, Damage::Layout);
+                    match ctx.eval(expr)? {
+                        Value::Int(i) => i,
+                        _ => 0,
+                    }
+                }
+                _ => 0,
+            }
+            .clamp(-360, 360) as i16;
+        } // rotate
+        65 => mods.press = crate::interact::PressRole::named(&token_name(ctx)), // press
+        _ => {}                       // key/label/others: identity/semantics — no paint effect here
     }
     Ok(())
 }

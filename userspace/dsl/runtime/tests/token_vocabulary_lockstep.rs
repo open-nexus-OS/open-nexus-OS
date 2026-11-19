@@ -166,3 +166,20 @@ fn the_two_slide_tokens_are_distinct() {
          `primary_prop` swallows a forgotten arm without a compile error"
     );
 }
+
+/// `.motion(duration, curve)` and `.press(kind)`: the runtime resolves the names the compiler
+/// accepts (TASK-0354 P10/P13) — the runtime does not link the compiler, so the two tables are
+/// held together here.
+#[test]
+fn the_motion_pair_and_press_names_match_the_compiler() {
+    use nexus_dsl_runtime::anim::{CURVE_NAMES, DURATION_NAMES};
+    use nexus_dsl_runtime::interact::PressRole;
+
+    assert_eq!(DURATION_NAMES, nexus_dsl_core::registry::MOTION_DURATIONS);
+    assert_eq!(CURVE_NAMES, nexus_dsl_core::registry::MOTION_CURVES);
+    assert_eq!(PressRole::NAMES, nexus_dsl_core::registry::PRESS_KINDS);
+    assert_eq!(
+        nexus_dsl_core::registry::token_vocabulary_at("motion", 1),
+        Some(&nexus_dsl_core::registry::MOTION_CURVES[..])
+    );
+}

@@ -107,6 +107,18 @@ pub const MATERIALS: &[&str] =
 /// The materials that blur what lies behind them — one per stack.
 pub const BLUR_MATERIALS: &[&str] = &["panel", "window", "dock", "thin", "ultraThin"];
 
+/// `.motion`'s first argument: the theme's duration steps (instant 100, swift 160, quick 280, base
+/// 400, slow 500 ms — design artifacts: motion tokens).
+pub const MOTION_DURATIONS: &[&str] = &["instant", "swift", "quick", "base", "slow"];
+
+/// `.motion`'s second argument: the theme's curves.
+pub const MOTION_CURVES: &[&str] =
+    &["spring", "springSoft", "springIcon", "smooth", "glide", "enter"];
+
+/// `.press(kind)`: the press feel by role (a button 95 %, a tile 96 %, a key 94 % held, an icon
+/// 92 %, window chrome 88 %, none: the hover/press layer alone).
+pub const PRESS_KINDS: &[&str] = &["button", "tile", "key", "icon", "chrome", "none"];
+
 /// Closed token vocabularies per modifier: `(modifier, allowed tokens)` — the default for every
 /// argument; [`token_vocabulary_at`] refines a position.
 ///
@@ -138,6 +150,8 @@ pub const TOKEN_VOCABULARIES: &[(&str, &[&str])] = &[
     ("overflow", &["visible", "hidden"]),
     ("scroll", &["vertical", "horizontal", "paged"]),
     ("overlay", &["modal", "transient"]),
+    ("motion", MOTION_DURATIONS),
+    ("press", PRESS_KINDS),
     ("padding", SPACING_TOKENS),
     ("paddingX", SPACING_TOKENS),
     ("paddingY", SPACING_TOKENS),
@@ -162,6 +176,7 @@ pub fn token_vocabulary(name: &str) -> Option<&'static [&'static str]> {
 pub fn token_vocabulary_at(name: &str, index: usize) -> Option<&'static [&'static str]> {
     match (name, index) {
         ("tint", 1) => Some(TINT_LEVELS),
+        ("motion", 1) => Some(MOTION_CURVES),
         _ => token_vocabulary(name),
     }
 }

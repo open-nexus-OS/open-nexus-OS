@@ -35,14 +35,14 @@ const _: () = assert!(crate::band_math::DAMAGE_RECTS == wire::MAX_DAMAGE_RECTS);
 /// The wire description of `layer`'s band (a covered layer's shows nothing: its content paints
 /// in the base).
 pub(super) fn desc(layer: &ScrollLayer) -> lw::ScrollLayerDesc {
-    let (x0, y0, x1, y1) = layer.viewport;
+    let (x0, y0, x1, _) = layer.viewport;
     let clamp = |v: i32| v.clamp(0, i32::from(u16::MAX)) as u16;
     let b = &layer.band;
     lw::ScrollLayerDesc {
         vx: clamp(x0),
         vy: clamp(y0),
         vw: clamp(x1 - x0),
-        vh: clamp(y1 - y0),
+        vh: clamp(layer.band_rows()),
         axis: if layer.vertical() { lw::AXIS_VERTICAL } else { lw::AXIS_HORIZONTAL },
         // TASK-0351 P14: a band on a ground is opaque — windowd composes it without a blend.
         flags: if layer.ground.is_some() { lw::BAND_OPAQUE } else { 0 },
@@ -140,7 +140,7 @@ impl super::DslApp {
         let Some(layer) = self.scroll_layers[k] else { return true };
         let desc = desc(&layer);
         let Some((sx, sy, _)) = desc.ring_place(p0) else { return true };
-        let (vx0, vy0, vx1, vy1) = layer.viewport;
+        let (vx0, vy0, vx1, _) = layer.viewport;
         let n = p1 - p0;
         let pass = super::paint::Pass::Band(layer.root);
         if layer.vertical() {
@@ -156,14 +156,15 @@ impl super::DslApp {
             // A run of columns: every viewport row, the canvas shifted so content column `p0`
             // lands at the row's start.
             let shift = vx0 + p0 as i32;
-            self.prepare_picks(pass, (vy0, vy1), Some((shift, shift + n as i32)));
-            for r in 0..(vy1 - vy0) as u32 {
+            let rows = layer.band_rows();
+            self.prepare_picks(pass, (vy0, vy0 + rows), Some((shift, shift + n as i32)));
+            for r in 0..rows as u32 {
                 let y = vy0 + r as i32;
                 if !self.paint_band_row(mem, y, shift, (0, n as i32), (sy + r, sx), layer.ground) {
                     return false;
                 }
             }
-            damage.add((sx, sy, n, (vy1 - vy0) as u32));
+            damage.add((sx, sy, n, rows as u32));
         }
         true
     }

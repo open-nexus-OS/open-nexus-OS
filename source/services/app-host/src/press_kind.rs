@@ -18,6 +18,7 @@
 
 use crate::hover_wash::{hover_wash_anchor, hover_washable};
 use animation::Easing;
+use nexus_dsl_runtime::interact::PressRole;
 use nexus_layout::LayoutBox;
 use nexus_layout_types::ShapeKind;
 use nexus_theme_tokens::{ColorToken, MotionCurveToken, MotionDurationToken, Tokens};
@@ -60,6 +61,10 @@ pub(crate) enum PressKind {
     AppIcon,
     /// The kit animates a part of it (the toggle's thumb).
     Part,
+    /// A large surface that still dips as one (a Control Center tile, `.press(tile)`): 96 %.
+    Tile,
+    /// A keyboard key (`.press(key)`): 94 %, down at once and linear, held while pressed.
+    Key,
     /// A row, a tile, a field: the press layer only.
     Plain,
 }
@@ -71,6 +76,8 @@ impl PressKind {
             PressKind::Control => Some(0.95),
             PressKind::Chrome => Some(0.88),
             PressKind::AppIcon => Some(0.92),
+            PressKind::Tile => Some(0.96),
+            PressKind::Key => Some(0.94),
             PressKind::Part | PressKind::Plain => None,
         }
     }
@@ -80,6 +87,7 @@ impl PressKind {
     pub(crate) fn down(self) -> (MotionDurationToken, Easing) {
         match self {
             PressKind::AppIcon => (MotionDurationToken::Quick, spring_icon()),
+            PressKind::Key => (MotionDurationToken::Instant, Easing::Linear),
             _ => (MotionDurationToken::Instant, Easing::EaseOut),
         }
     }
@@ -109,9 +117,16 @@ pub(crate) struct PressPlan {
 
 /// The plan for a press on (or the hover of) handler box `handler`: `part` — the kit animates a
 /// part of it; `window` — the surface is a window (the desktop's ghost circles are the shell's
-/// buttons, a window's are its chrome).
+/// buttons, a window's are its chrome); `declared` — the role the node states (`.press(kind)`),
+/// which wins over the role read from the shape and size, the size cap included.
 #[must_use]
-pub(crate) fn plan(boxes: &[LayoutBox], handler: usize, part: bool, window: bool) -> PressPlan {
+pub(crate) fn plan(
+    boxes: &[LayoutBox],
+    handler: usize,
+    part: bool,
+    window: bool,
+    declared: Option<PressRole>,
+) -> PressPlan {
     let nothing = |kind| PressPlan { kind, target: None, anchor: None };
     let Some(h) = find(boxes, handler) else { return nothing(PressKind::Plain) };
     if part {
@@ -119,6 +134,18 @@ pub(crate) fn plan(boxes: &[LayoutBox], handler: usize, part: bool, window: bool
     }
     // A container catch-all (an overlay's backdrop, a panel body) takes taps, never a layer.
     let anchor = hover_wash_anchor(boxes, handler).filter(|_| hover_washable(boxes, handler));
+    if let Some(role) = declared {
+        let kind = match role {
+            PressRole::Button => PressKind::Control,
+            PressRole::Tile => PressKind::Tile,
+            PressRole::Key => PressKind::Key,
+            PressRole::Icon => PressKind::AppIcon,
+            PressRole::Chrome => PressKind::Chrome,
+            PressRole::None => PressKind::Plain,
+        };
+        let target = kind.scale().map(|_| handler);
+        return PressPlan { kind, target, anchor };
+    }
     if let Some(tile) = app_icon_tile(boxes, h) {
         // The icon carries the press; only a rounded button around it shows the layers.
         let layered = anchor.filter(|&a| find(boxes, a).is_some_and(|b| radius(b) > 0));
@@ -242,7 +269,7 @@ mod tests {
     #[test]
     fn a_capsule_button_dips_to_95() {
         let boxes = [filled(boxed(3, (0, 0, 96, 36), 9999), GLASS)];
-        let p = plan(&boxes, 3, false, true);
+        let p = plan(&boxes, 3, false, true, None);
         assert_eq!(p, PressPlan { kind: PressKind::Control, target: Some(3), anchor: Some(3) });
         assert_eq!(p.kind.scale(), Some(0.95));
         assert_eq!(p.kind.down(), (MotionDurationToken::Instant, Easing::EaseOut));
@@ -257,7 +284,7 @@ mod tests {
     #[test]
     fn a_bare_wrapper_dips_and_its_pill_takes_the_layers() {
         let boxes = [boxed(1, (10, 10, 66, 36), 0), filled(boxed(2, (10, 10, 66, 36), 18), GLASS)];
-        let p = plan(&boxes, 1, false, true);
+        let p = plan(&boxes, 1, false, true, None);
         assert_eq!(p, PressPlan { kind: PressKind::Control, target: Some(1), anchor: Some(2) });
     }
 
@@ -266,19 +293,19 @@ mod tests {
     #[test]
     fn a_ghost_circle_is_chrome_in_a_window_and_a_button_on_the_desktop() {
         let boxes = [boxed(5, (0, 0, 30, 30), 15)];
-        assert_eq!(plan(&boxes, 5, false, true).kind, PressKind::Chrome);
+        assert_eq!(plan(&boxes, 5, false, true, None).kind, PressKind::Chrome);
         assert_eq!(PressKind::Chrome.scale(), Some(0.88));
-        assert_eq!(plan(&boxes, 5, false, false).kind, PressKind::Control);
+        assert_eq!(plan(&boxes, 5, false, false, None).kind, PressKind::Control);
         // A filled circle is an action control wherever it is.
         let filled_circle = [filled(boxed(5, (0, 0, 36, 36), 18), GLASS)];
-        assert_eq!(plan(&filled_circle, 5, false, true).kind, PressKind::Control);
+        assert_eq!(plan(&filled_circle, 5, false, true, None).kind, PressKind::Control);
     }
 
     /// A row keeps its size: the press layer only.
     #[test]
     fn a_rounded_row_shows_only_the_press_layer() {
         let boxes = [boxed(1, (0, 0, 680, 41), 10)];
-        let p = plan(&boxes, 1, false, true);
+        let p = plan(&boxes, 1, false, true, None);
         assert_eq!(p, PressPlan { kind: PressKind::Plain, target: None, anchor: Some(1) });
         assert_eq!(p.kind.scale(), None);
     }
@@ -289,7 +316,7 @@ mod tests {
     fn an_app_icon_dips_its_tile_and_takes_no_layer() {
         let boxes =
             [boxed(1, (0, 0, 162, 92), 0), boxed(2, (53, 0, 56, 92), 0), sprite(3, (53, 0, 56))];
-        let p = plan(&boxes, 1, false, false);
+        let p = plan(&boxes, 1, false, false, None);
         assert_eq!(p, PressPlan { kind: PressKind::AppIcon, target: Some(3), anchor: None });
         assert_eq!(p.kind.scale(), Some(0.92));
         let icon = Easing::Curve(MotionCurveToken::SpringIcon);
@@ -302,7 +329,7 @@ mod tests {
     #[test]
     fn a_rounded_app_button_shows_layers_and_dips_its_icon() {
         let boxes = [boxed(1, (0, 0, 48, 50), 12), sprite(2, (4, 4, 40))];
-        let p = plan(&boxes, 1, false, false);
+        let p = plan(&boxes, 1, false, false, None);
         assert_eq!(p, PressPlan { kind: PressKind::AppIcon, target: Some(2), anchor: Some(1) });
     }
 
@@ -310,10 +337,10 @@ mod tests {
     #[test]
     fn a_small_image_in_a_row_is_not_an_app_icon() {
         let boxes = [boxed(1, (0, 0, 240, 40), 8), sprite(2, (8, 8, 24))];
-        assert_eq!(plan(&boxes, 1, false, true).kind, PressKind::Plain);
+        assert_eq!(plan(&boxes, 1, false, true, None).kind, PressKind::Plain);
         // Nor is a 40-px app icon at the start of a long list row.
         let row = [boxed(1, (0, 0, 300, 56), 12), sprite(2, (8, 8, 40))];
-        assert_eq!(plan(&row, 1, false, true).kind, PressKind::Plain);
+        assert_eq!(plan(&row, 1, false, true, None).kind, PressKind::Plain);
     }
 
     /// A container catch-all takes the tap and nothing else: no layer, no dip.
@@ -321,12 +348,12 @@ mod tests {
     fn a_container_takes_no_layer_and_no_dip() {
         let boxes = [boxed(1, (0, 0, 960, 570), 0)];
         assert_eq!(
-            plan(&boxes, 1, false, true),
+            plan(&boxes, 1, false, true, None),
             PressPlan { kind: PressKind::Plain, target: None, anchor: None }
         );
         // A big capsule is no control to dip either (it still takes the layers).
         let wide = [boxed(2, (0, 0, 400, 44), 22)];
-        assert_eq!(plan(&wide, 2, false, true).kind, PressKind::Plain);
+        assert_eq!(plan(&wide, 2, false, true, None).kind, PressKind::Plain);
     }
 
     /// The toggle's switch: the kit animates its thumb — no layer, no dip of the track.
@@ -334,7 +361,7 @@ mod tests {
     fn a_part_pressed_control_takes_neither() {
         let boxes = [boxed(1, (0, 0, 44, 26), 13), boxed(2, (3, 3, 20, 20), 10)];
         assert_eq!(
-            plan(&boxes, 1, true, true),
+            plan(&boxes, 1, true, true, None),
             PressPlan { kind: PressKind::Part, target: None, anchor: None }
         );
         assert_eq!(PressKind::Part.scale(), None);
@@ -344,7 +371,7 @@ mod tests {
     #[test]
     fn a_stale_handler_plans_nothing() {
         let boxes = [boxed(1, (0, 0, 30, 30), 15)];
-        assert_eq!(plan(&boxes, 9, false, true).anchor, None);
+        assert_eq!(plan(&boxes, 9, false, true, None).anchor, None);
     }
 
     /// A filled control is one whose fill is a tint role, near opaque: accent, label (the play
@@ -371,5 +398,26 @@ mod tests {
         assert_eq!(thumb_stretch(15).1, 5);
         assert_eq!(thumb_stretch(29).1, 9);
         assert_eq!(thumb_stretch(25).1, 8);
+    }
+
+    /// A declared role wins over the shape, the size cap included: a wide tile dips like a tile,
+    /// a key like a key, and `none` keeps the size.
+    #[test]
+    fn a_declared_role_wins_over_the_shape() {
+        let wide = [boxed(1, (0, 0, 160, 72), 0)];
+        assert_eq!(plan(&wide, 1, false, true, None).kind, PressKind::Plain, "too big to dip");
+        let tile = plan(&wide, 1, false, true, Some(PressRole::Tile));
+        assert_eq!((tile.kind, tile.target), (PressKind::Tile, Some(1)));
+        assert_eq!(PressKind::Tile.scale(), Some(0.96));
+        let key = plan(&wide, 1, false, true, Some(PressRole::Key));
+        assert_eq!((key.kind, PressKind::Key.scale()), (PressKind::Key, Some(0.94)));
+        assert_eq!(PressKind::Key.down(), (MotionDurationToken::Instant, Easing::Linear));
+        let none = plan(&wide, 1, false, true, Some(PressRole::None));
+        assert_eq!((none.kind, none.target), (PressKind::Plain, None));
+        assert_eq!(
+            plan(&wide, 1, true, true, Some(PressRole::Tile)).kind,
+            PressKind::Part,
+            "a kit part first"
+        );
     }
 }

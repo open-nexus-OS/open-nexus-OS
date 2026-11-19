@@ -66,6 +66,13 @@ pub enum MotionToken {
     /// A menu opens: it fades in while it grows from 0.92, on the spring in the `quick` step,
     /// from the corner it hangs on (design artifacts: menu entrance) — see [`MotionOrigin`].
     MenuIn = 10,
+    /// A small part appears or goes: it fades in while it grows from 0.60 on the icon spring in
+    /// the `quick` step (design artifacts: a check mark, a radio dot, a PIN dot pop in).
+    Pop = 11,
+    /// Content swapped in place along the reading axis: on a change of its trigger the node starts
+    /// 28 px on the side it travels from, invisible, and glides to rest in the `base` step
+    /// (design artifacts: the calendar's month slide — a later month comes from the trailing side).
+    SwapInline = 12,
 }
 
 /// The point a token's scale grows from.
@@ -81,7 +88,7 @@ pub enum MotionOrigin {
 
 impl MotionToken {
     /// Every token, in id order (checker + docs iterate this).
-    pub const ALL: [MotionToken; 11] = [
+    pub const ALL: [MotionToken; 13] = [
         MotionToken::Snappy,
         MotionToken::Smooth,
         MotionToken::Emphasized,
@@ -93,6 +100,8 @@ impl MotionToken {
         MotionToken::SlideDown,
         MotionToken::PushInline,
         MotionToken::MenuIn,
+        MotionToken::Pop,
+        MotionToken::SwapInline,
     ];
 
     /// Canonical `.nx` token name.
@@ -110,6 +119,8 @@ impl MotionToken {
             MotionToken::SlideDown => "slideDown",
             MotionToken::PushInline => "pushInline",
             MotionToken::MenuIn => "menuIn",
+            MotionToken::Pop => "pop",
+            MotionToken::SwapInline => "swapInline",
         }
     }
 
@@ -135,16 +146,19 @@ impl MotionToken {
     #[must_use]
     pub const fn category(self) -> MotionCategory {
         match self {
-            MotionToken::Snappy | MotionToken::Smooth | MotionToken::Emphasized => {
-                MotionCategory::Value
-            }
+            MotionToken::Snappy
+            | MotionToken::Smooth
+            | MotionToken::Emphasized
+            | MotionToken::Pop => MotionCategory::Value,
             MotionToken::Fade
             | MotionToken::SlideUp
             | MotionToken::SlideDown
             | MotionToken::FadeScale
             | MotionToken::PushInline
             | MotionToken::MenuIn => MotionCategory::Transition,
-            MotionToken::Wiggle | MotionToken::Pulse => MotionCategory::Effect,
+            MotionToken::Wiggle | MotionToken::Pulse | MotionToken::SwapInline => {
+                MotionCategory::Effect
+            }
         }
     }
 
@@ -160,8 +174,9 @@ impl MotionToken {
             | MotionToken::Fade
             | MotionToken::SlideUp
             | MotionToken::SlideDown
-            | MotionToken::MenuIn => MotionDurationToken::Quick,
-            MotionToken::Smooth => MotionDurationToken::Base,
+            | MotionToken::MenuIn
+            | MotionToken::Pop => MotionDurationToken::Quick,
+            MotionToken::Smooth | MotionToken::SwapInline => MotionDurationToken::Base,
             MotionToken::Emphasized
             | MotionToken::FadeScale
             | MotionToken::PushInline
@@ -180,6 +195,8 @@ impl MotionToken {
             | MotionToken::PushInline
             | MotionToken::MenuIn => MotionCurveToken::Spring,
             MotionToken::SlideUp | MotionToken::SlideDown => MotionCurveToken::Enter,
+            MotionToken::Pop => MotionCurveToken::SpringIcon,
+            MotionToken::SwapInline => MotionCurveToken::Glide,
             MotionToken::Smooth | MotionToken::Fade | MotionToken::Wiggle | MotionToken::Pulse => {
                 MotionCurveToken::Smooth
             }
@@ -205,7 +222,9 @@ impl MotionToken {
             MotionToken::SlideUp | MotionToken::SlideDown | MotionToken::FadeScale => {
                 AnimProp::TranslateY
             }
-            MotionToken::Wiggle | MotionToken::PushInline => AnimProp::TranslateX,
+            MotionToken::Wiggle | MotionToken::PushInline | MotionToken::SwapInline => {
+                AnimProp::TranslateX
+            }
             MotionToken::Pulse => AnimProp::ScaleX,
             // snappy/smooth/emphasized/fade/fadeScale drive opacity first.
             _ => AnimProp::Opacity,
@@ -222,7 +241,8 @@ impl MotionToken {
             | MotionToken::SlideUp
             | MotionToken::SlideDown
             | MotionToken::PushInline
-            | MotionToken::MenuIn => Some(AnimProp::ScaleX),
+            | MotionToken::MenuIn
+            | MotionToken::Pop => Some(AnimProp::ScaleX),
             _ => None,
         }
     }
@@ -284,6 +304,7 @@ impl MotionToken {
                 MotionToken::SlideUp => SLIDE_UP_SCALE,
                 MotionToken::SlideDown | MotionToken::PushInline => SLIDE_DOWN_SCALE,
                 MotionToken::MenuIn => MENU_IN_FROM,
+                MotionToken::Pop => POP_FROM,
                 _ => 1.0,
             },
             _ => prop.identity(),
@@ -310,6 +331,23 @@ pub const SLIDE_UP_SCALE: f32 = 0.97;
 pub const SLIDE_DOWN_SCALE: f32 = 0.96;
 /// A menu's absent-state scale: it grows in from 0.92.
 pub const MENU_IN_FROM: f32 = 0.92;
+
+/// A part's absent-state scale under `pop`: it grows in from 0.60 (design artifacts: a check
+/// mark from .6 — a radio dot's .4 is drawn the same under an opacity near 0 on ≤ 8 px).
+pub const POP_FROM: f32 = 0.60;
+/// `swapInline`'s travel (px): the content comes in from 28 px on the side it travels from.
+pub const SWAP_INLINE_PX: f32 = 28.0;
+
+/// Where `swapInline` holds the node at progress `t` (`0..=1`), in px along the reading axis:
+/// from `SWAP_INLINE_PX` on the side of travel (`dir` > 0: a later value, from the trailing side;
+/// < 0: an earlier one, from the leading side; 0: from the trailing side — a change without a
+/// direction) to rest, on the token's glide. The opacity rises on the same progress.
+#[must_use]
+pub fn swap_px(t: f32, dir: i32) -> f32 {
+    let side = if dir < 0 { -1.0 } else { 1.0 };
+    let e = MotionToken::SwapInline.easing().ease(t.clamp(0.0, 1.0));
+    side * SWAP_INLINE_PX * (1.0 - e)
+}
 
 /// The attention shake of `wiggle` at progress `t` (`0..=1`), in px to the side (design
 /// artifacts: the lock field's shake, 500 ms): ten equal steps through −1, +3, −6, +6, −6, +6,
@@ -343,6 +381,51 @@ mod tests {
         for (i, t) in MotionToken::ALL.into_iter().enumerate() {
             assert_eq!(t.id() as usize, i);
         }
+    }
+
+    /// TASK-0354 P10 (design artifacts: CHK-8, RAD-6, M64): `pop` fades a part in while it grows
+    /// from 0.60 on the icon spring in `quick` — its overshoot included.
+    #[test]
+    fn pop_starts_at_60_percent_and_follows_the_icon_spring() {
+        let pop = MotionToken::Pop;
+        assert_eq!(MotionToken::from_name("pop"), Some(pop));
+        assert_eq!(pop.id(), 11);
+        assert_eq!(pop.category(), MotionCategory::Value);
+        assert_eq!(pop.duration(), MotionDurationToken::Quick);
+        assert_eq!(
+            (pop.primary_prop(), pop.secondary_prop()),
+            (AnimProp::Opacity, Some(AnimProp::ScaleX))
+        );
+        assert_eq!(pop.resting(AnimProp::ScaleX, false), 0.60);
+        assert_eq!(pop.resting(AnimProp::ScaleX, true), 1.0);
+        assert_eq!(pop.resting(AnimProp::Opacity, false), 0.0);
+        let curve = MotionCurveToken::SpringIcon.control_points();
+        for t in [0.0f32, 0.1, 0.5, 1.0] {
+            let e = pop.easing().ease(t);
+            assert!((e - crate::keyframe::cubic_bezier(curve, t)).abs() < 1e-6, "t={t}");
+        }
+        assert!(pop.easing().ease(0.5) > 1.0, "the icon spring overshoots");
+        assert_eq!(pop.easing().ease(1.0), 1.0);
+    }
+
+    /// TASK-0354 P12 (design artifacts: M10, the calendar's month slide): a later value comes in
+    /// 28 px from the trailing side, an earlier one from the leading side, on the glide in `base`.
+    #[test]
+    fn swap_inline_enters_28_px_from_the_side_of_travel() {
+        let s = MotionToken::SwapInline;
+        assert_eq!((MotionToken::from_name("swapInline"), s.id()), (Some(s), 12));
+        assert_eq!(s.category(), MotionCategory::Effect);
+        assert_eq!((s.duration(), s.curve()), (MotionDurationToken::Base, MotionCurveToken::Glide));
+        assert_eq!(swap_px(0.0, 1), 28.0);
+        assert_eq!(swap_px(0.0, -1), -28.0);
+        assert_eq!(swap_px(0.0, 0), 28.0, "no direction: from the trailing side");
+        assert_eq!(swap_px(1.0, 1), 0.0);
+        let glide = MotionCurveToken::Glide.control_points();
+        for t in [0.1f32, 0.5] {
+            let want = 28.0 * (1.0 - crate::keyframe::cubic_bezier(glide, t));
+            assert!((swap_px(t, 1) - want).abs() < 1e-4 && (swap_px(t, -1) + want).abs() < 1e-4);
+        }
+        assert!(swap_px(0.5, 1) < 3.0, "the glide is most of the way at half time");
     }
 
     #[test]

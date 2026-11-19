@@ -26,6 +26,7 @@ fn prop_name(p: AnimProp) -> &'static str {
         AnimProp::ScaleY => "scaleY",
         AnimProp::ShadowRadius => "shadowRadius",
         AnimProp::BlurRadius => "blurRadius",
+        AnimProp::Rotate => "rotate",
     }
 }
 

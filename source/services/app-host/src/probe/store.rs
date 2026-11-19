@@ -49,8 +49,8 @@ fn band_shape(
     margin_pct: u32,
     w: u32,
 ) -> Option<(u32, u32, u32, u32)> {
-    let (vx0, vy0, vx1, vy1) = l.viewport;
-    let (vw, vh) = ((vx1 - vx0).max(1) as u32, (vy1 - vy0).max(1) as u32);
+    let (vx0, _, vx1, _) = l.viewport;
+    let (vw, vh) = ((vx1 - vx0).max(1) as u32, l.band_rows().max(1) as u32);
     let len = l.viewport_len().max(1) as u32;
     let margin = (len * margin_pct / 100).max(MARGIN_MIN);
     let cap = len + 2 * margin;

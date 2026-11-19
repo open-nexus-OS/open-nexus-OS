@@ -10,6 +10,7 @@
 //! out of `shapes.rs` (structure ratchet).
 
 use super::shapes::{ceil_i32, floor_i32, sqrt_f32};
+use super::xform::Rot;
 use super::RowCanvas;
 use nexus_layout_types::{PathPoint, PathShape, Rgba8};
 
@@ -39,6 +40,21 @@ impl RowCanvas<'_> {
         width_milli: u16,
         c: Rgba8,
     ) {
+        self.stroke_paths_row_turned(paths, rect, width_milli, None, c);
+    }
+
+    /// [`stroke_paths_row`](Self::stroke_paths_row) with the mapped points turned by `rot` (a
+    /// rotated glyph, `xform`); `None` is the stroke at rest, its points exactly as mapped. A
+    /// turned stroke is asked on the same rows and columns as at rest: its caller cuts the ink
+    /// to the rect.
+    pub(crate) fn stroke_paths_row_turned(
+        &mut self,
+        paths: &[PathShape],
+        rect: (f32, f32, f32, f32),
+        width_milli: u16,
+        rot: Option<Rot>,
+        c: Rgba8,
+    ) {
         let (x, y, w, h) = rect;
         let (sx, sy) = (w / 1000.0, h / 1000.0);
         let reach = width_milli as f32 * sx.min(sy) * 0.5 + 0.5;
@@ -46,7 +62,13 @@ impl RowCanvas<'_> {
         if py < y - reach || py > y + h + reach {
             return;
         }
-        let map = |p: &PathPoint| (x + p.x_milli as f32 * sx, y + p.y_milli as f32 * sy);
+        let map = |p: &PathPoint| {
+            let at = (x + p.x_milli as f32 * sx, y + p.y_milli as f32 * sy);
+            match &rot {
+                Some(rot) => rot.map(at),
+                None => at,
+            }
+        };
         // A pixel's distance is the least over the segments near it, so the segments are walked
         // once per row and each visits only the pixels its own extent reaches (TASK-0367): the
         // same distances and the same least as asking every segment at every pixel.

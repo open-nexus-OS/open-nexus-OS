@@ -3,7 +3,9 @@
 //
 // One dot of the page indicator (design artifacts: PageControl md): the ACTIVE page a 20×8
 // capsule at 92 % of `label`, every other page an 8×8 dot at 30 %, its hit area 20 high; a tap
-// glides to its page (`SetPage(k)` → the store's scrollToPage effect).
+// glides to its page (`SetPage(k)` → the store's scrollToPage effect). Both branches emit one
+// node at the same place, so a page change STRETCHES the dot into the capsule and its
+// neighbours shift on the soft spring (design artifacts: G6, M32 — `.motion(quick, springSoft)`).
 
 Component PagerDot {
     props: {
@@ -16,6 +18,7 @@ Component PagerDot {
             .rounded(full)
             .bg(label)
             .opacity(235)
+            .motion(quick, springSoft)
     } else {
         Stack { }
             .width(8)
@@ -23,6 +26,7 @@ Component PagerDot {
             .rounded(full)
             .bg(label)
             .opacity(77)
+            .motion(quick, springSoft)
             .hitSlop(6)
             .label(@t("launcher.pageDot"))
         on Tap -> dispatch(SetPage($props.page))

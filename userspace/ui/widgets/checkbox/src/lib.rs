@@ -129,18 +129,13 @@ impl GlassCheckbox {
     pub fn style(&self, tokens: &dyn Tokens) -> Style {
         let side = box_px(self.size);
         let radius = if side <= 18 { 6 } else { RadiusToken::Sm.px().0 };
-        let s = Style::new().rounded(FxPx::new(radius));
-        let s = if self.filled() {
-            s.background(tokens.color(self.tint_role())).shadow(glow_shadow(
-                tokens,
-                self.tint_role(),
-                Glow::Sm,
-            ))
-        } else {
-            s.background_token(tokens, ColorToken::Fill)
-                .border_token(tokens, ColorToken::Separator)
-                .shadow_token(tokens, ShadowToken::EdgeHighlight)
-        };
+        // The box keeps its off look; the tint is the on layer over it (`on_layer`), so a change
+        // fades instead of snapping (design artifacts: CHK-8, TASK-0354 P10).
+        let s = Style::new()
+            .rounded(FxPx::new(radius))
+            .background_token(tokens, ColorToken::Fill)
+            .border_token(tokens, ColorToken::Separator)
+            .shadow_token(tokens, ShadowToken::EdgeHighlight);
         if self.labelled() {
             s
         } else {
@@ -148,19 +143,55 @@ impl GlassCheckbox {
         }
     }
 
-    /// The mark: the ✓ or the dash, round(box × 0.6), in the on-colour.
-    fn mark(&self, tokens: &dyn Tokens) -> Option<LayoutNode> {
-        if !self.filled() {
-            return None;
-        }
+    /// The mark: the ✓ or the dash, round(box × 0.6), in the on-colour. Always there (the host
+    /// pops it in and out); its own opacity 0 while the box is empty.
+    fn mark(&self, tokens: &dyn Tokens) -> LayoutNode {
         let size = FxPx::new((box_px(self.size) * 6 + 5) / 10);
         let ink = tokens.color(on_tint(self.tint_role()));
-        Some(if self.indeterminate {
+        let mut mark = if self.indeterminate {
             glyph::stroke(&DASH, false, 32, size, ink)
         } else {
             glyph::stroke(&CHECK, false, 30, size, ink)
-        })
+        };
+        if !self.filled() {
+            hide(&mut mark);
+        }
+        mark
     }
+
+    /// The on layer: the tint with its small glow over the whole box (it covers the edge), the
+    /// mark centred in it; its own opacity 0 while the box is empty. `BOX_PARTS` names it and
+    /// the mark.
+    fn on_layer(&self, tokens: &dyn Tokens) -> LayoutNode {
+        let d = Some(FxPx::new(box_px(self.size)));
+        let radius = if box_px(self.size) <= 18 { 6 } else { RadiusToken::Sm.px().0 };
+        let mut style = Style::new()
+            .rounded(FxPx::new(radius))
+            .background(tokens.color(self.tint_role()))
+            .shadow(glow_shadow(tokens, self.tint_role(), Glow::Sm));
+        if !self.filled() {
+            style = style.opacity(nexus_layout_types::Fraction(0));
+        }
+        LayoutNode::Stack(
+            Stack {
+                direction: Direction::Row,
+                align: Align::Center,
+                justify: Justify::Center,
+                min_width: d,
+                max_width: d,
+                min_height: d,
+                max_height: d,
+                item: FlexItem { flex_shrink: 0, ..FlexItem::default() },
+                ..Stack::default()
+            },
+            style.visual(),
+            alloc::vec![self.mark(tokens)],
+        )
+    }
+
+    /// The box's moving parts as child paths from the box: the on layer and the mark in it. The
+    /// DSL runtime's motion table names them by these paths.
+    pub const BOX_PARTS: [&'static [u32]; 2] = [&[0], &[0, 0]];
 
     fn check_box(&self, tokens: &dyn Tokens) -> LayoutNode {
         let d = Some(FxPx::new(box_px(self.size)));
@@ -178,7 +209,7 @@ impl GlassCheckbox {
                 ..Stack::default()
             },
             self.style(tokens).visual(),
-            self.mark(tokens).into_iter().collect(),
+            alloc::vec![self.on_layer(tokens)],
         )
     }
 
@@ -254,7 +285,9 @@ mod tests {
         assert_eq!(v.background, Some(t.color(ColorToken::Fill)));
         assert_eq!(v.border.top.map(|b| b.color), Some(t.color(ColorToken::Separator)));
         assert_eq!(v.inset_highlight, Some(t.shadow(ShadowToken::EdgeHighlight).color));
-        assert!(children.is_empty(), "no mark");
+        let (_, layer, marks) = parts(&children[0]);
+        assert_eq!(layer.opacity, Some(Fraction(0)), "off: the on layer is there, invisible");
+        assert_eq!(parts(&marks[0]).1.opacity, Some(Fraction(0)), "and so is the mark");
     }
 
     #[test]
@@ -262,13 +295,17 @@ mod tests {
         let t = DarkTokens;
         let node = GlassCheckbox::new().checked(true).tint(ColorToken::Success).build(&t);
         let (_, v, children) = parts(&node);
-        assert_eq!(v.background, Some(t.color(ColorToken::Success)));
-        assert_eq!(v.border.top, None, "the tint layer covers the edge");
-        assert_eq!(v.shadow, Some(glow_shadow(&t, ColorToken::Success, Glow::Sm)));
-        assert_eq!(children.len(), 1, "the mark");
-        let (mark, mv, _) = parts(&children[0]);
+        assert_eq!(v.background, Some(t.color(ColorToken::Fill)), "the box never changes");
+        assert_eq!(children.len(), 1, "the on layer");
+        let (_, layer, marks) = parts(&children[0]);
+        assert_eq!(layer.background, Some(t.color(ColorToken::Success)));
+        assert_eq!(layer.opacity, None, "drawn");
+        assert_eq!(layer.border.top, None, "the tint layer covers the edge");
+        assert_eq!(layer.shadow, Some(glow_shadow(&t, ColorToken::Success, Glow::Sm)));
+        let (mark, mv, _) = parts(&marks[0]);
         assert_eq!(mark.min_width, Some(FxPx::new(13)), "round(22 × 0.6)");
         assert_eq!(mv.background, Some(t.color(ColorToken::OnAccent)));
+        assert_eq!(mv.opacity, None);
         match &mv.shape {
             ShapeKind::Stroke { paths, .. } => assert_eq!(paths[0].points.len(), 3, "the ✓"),
             other => panic!("a stroked mark, got {other:?}"),
@@ -279,12 +316,22 @@ mod tests {
     fn indeterminate_draws_the_dash() {
         let t = BaseTokens;
         let node = GlassCheckbox::new().indeterminate(true).build(&t);
-        let (_, v, children) = parts(&node);
-        assert_eq!(v.background, Some(t.color(ColorToken::Accent)));
-        match &parts(&children[0]).1.shape {
+        let (_, layer, marks) = parts(&parts(&node).2[0]);
+        assert_eq!(layer.background, Some(t.color(ColorToken::Accent)));
+        match &parts(&marks[0]).1.shape {
             ShapeKind::Stroke { paths, .. } => assert_eq!(paths[0].points.len(), 2, "the dash"),
             _ => panic!(),
         }
+    }
+
+    /// `BOX_PARTS` lands on the on layer and the mark (the DSL runtime's motion table uses it).
+    #[test]
+    fn the_box_parts_name_the_layer_and_the_mark() {
+        let t = BaseTokens;
+        let node = GlassCheckbox::new().checked(true).build(&t);
+        let at = |path: &[u32]| path.iter().fold(&node, |n, i| &parts(n).2[*i as usize]);
+        assert!(parts(at(GlassCheckbox::BOX_PARTS[0])).1.shadow.is_some(), "the glowing layer");
+        assert!(matches!(parts(at(GlassCheckbox::BOX_PARTS[1])).1.shape, ShapeKind::Stroke { .. }));
     }
 
     #[test]
@@ -331,5 +378,12 @@ mod tests {
         }
         let small = GlassCheckbox::new().size(ControlSize::Sm).label("x").build(&t);
         assert_eq!(parts(&small).0.gap, FxPx::new(8));
+    }
+}
+
+/// Sets a node's own opacity to 0 (an absent part: laid out, not drawn).
+fn hide(node: &mut LayoutNode) {
+    if let LayoutNode::Stack(_, visual, _) | LayoutNode::Text(_, visual) = node {
+        visual.opacity = Some(nexus_layout_types::Fraction(0));
     }
 }

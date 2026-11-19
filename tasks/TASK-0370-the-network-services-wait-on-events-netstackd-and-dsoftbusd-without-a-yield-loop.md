@@ -5,7 +5,7 @@ title: "The network services wait on events: netstackd and dsoftbusd without a y
 status: draft
 owner: ["@runtime"]
 created: 2026-11-11
-updated: 2026-11-11
+updated: 2026-11-19
 subsystem: networking
 kind: service
 novelty: variant
@@ -20,6 +20,7 @@ phases:
     story: "the network owner sleeps until its device or a client has something for it: the virtio-net interrupt, its timer and its request endpoint are one waitset, the DHCP wait is a timer, and a client's blocking read is parked on the socket's readiness instead of a yield loop"
     state: planned
     gate: "QEMU: 0 yield_ call sites in source/services/netstackd (gate), KINIT: yield top does not name netstackd in the steady window, the net ladder (dhcp, icmp ping, tcp, udp) green"
+    note: "2026-11-19 (for the network lane): just test-all stops at deny-check — eight new RustSec 'unsound' advisories for heapless 0.7.17 (RUSTSEC-2026-0574..0581: FindMutView::pop, Spsc::peek ordering, IndexMap::truncate, a panicking Drop, SortedLinkedList::zeroize, Deque TryFrom/make_contiguous, the treiber stack race). heapless comes only through vendor/smoltcp (a dev-dependency of userspace/nexus-net-os); config/deny.toml already carries the sibling atomic-polyfill exception with the same follow-up. Decide with this lane's netstackd work: replace smoltcp/heapless with a portable-atomic based stack (end form), or a dated deny exception per ID until then. Log: build/agents/test-all-2026-11-19.log."
   - id: P1
     story: "the distributed bus waits for its local address, its peers and its sessions as events: an address notification from the network owner, socket readiness and timers — no connect or discovery retry by yield"
     state: planned

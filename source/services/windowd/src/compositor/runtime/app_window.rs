@@ -25,6 +25,8 @@ use super::*;
 use crate::client_surface::Delivery;
 use nexus_display_proto::client_surface as wire;
 
+mod wire_bytes;
+
 /// Window bounds: the pool reserve + `ShellWindow` frame are sized for the
 /// LARGEST allowed surface; smaller surfaces render into the top-left of the
 /// body. (`crate::client_surface` enforces the surface-size bounds.)
@@ -468,34 +470,6 @@ impl DisplayServerRuntime {
                 let _ = debug_println("WINDOWD: parked intent reply flushed");
             }
         }
-    }
-
-    /// Active shell profile as its wire tag (from the SystemUI shell config SSOT).
-    pub(crate) fn shell_profile_wire(&self) -> u8 {
-        use nexus_display_proto::client_surface as wire;
-        match self.shell_config.profile_id.as_str() {
-            "tablet" => wire::PROFILE_TABLET,
-            "phone" => wire::PROFILE_PHONE,
-            "tv" => wire::PROFILE_TV,
-            _ => wire::PROFILE_DESKTOP,
-        }
-    }
-
-    /// Sends the active shell profile to EVERY connected app-host (floating
-    /// window, desktop shell, pending channels) — the live Desktop/Tablet
-    /// switch; apps re-mount so their platform override arms re-select.
-    /// Sends the active theme mode to the app on its event channel (`chrome =
-    /// intent ⟂ policy` for colours too: the WM owns the theme, apps follow).
-    /// The packed theme byte for `OP_SURFACE_THEME` pushes: low nibble =
-    /// mode, high nibble = the accent-palette index (`pack_theme`).
-    pub(crate) fn theme_wire_byte(&self) -> u8 {
-        use nexus_display_proto::client_surface as wire;
-        let mode = match self.theme_mode {
-            crate::theme::ThemeMode::Dark => wire::THEME_DARK,
-            crate::theme::ThemeMode::Light => wire::THEME_LIGHT,
-        };
-        let solid = if self.solid_materials { wire::THEME_SOLID } else { 0 };
-        wire::pack_theme(mode, self.theme_accent) | solid
     }
 
     /// Sends one app-bound frame of USER INTENT (a text commit, a key, a tap, a window rect)

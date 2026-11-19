@@ -66,6 +66,49 @@ pub struct HandlerEntry {
     /// The node carries `.autofocus(true)` (TASK-0067B): a text-field bind that takes
     /// focus while no field holds it — see `View::autofocus_box`.
     pub autofocus: bool,
+    /// The press role the node declares (`.press(kind)`, TASK-0354 P13); `None` = the host reads
+    /// it from the shape and size.
+    pub press: Option<PressRole>,
+}
+
+/// The dip a press gives a control, by its declared role (`.press(kind)`; design artifacts:
+/// press scale). The host maps each to its scale and timing; a declared role wins over the role
+/// it would read from the shape and size.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PressRole {
+    /// 95 %.
+    Button,
+    /// 96 %, a large surface that still dips as one.
+    Tile,
+    /// 94 %, held while pressed (a keyboard key).
+    Key,
+    /// 92 %.
+    Icon,
+    /// 88 %, window chrome.
+    Chrome,
+    /// No dip: the hover/press layer alone.
+    None,
+}
+
+impl PressRole {
+    /// The role names, in the compiler's `registry::PRESS_KINDS` order (held in lockstep by
+    /// `tests/token_vocabulary_lockstep.rs`).
+    pub const NAMES: [&'static str; 6] = ["button", "tile", "key", "icon", "chrome", "none"];
+
+    /// The role a `.press` names.
+    #[must_use]
+    pub fn named(name: &str) -> Option<Self> {
+        const ROLES: [PressRole; 6] = [
+            PressRole::Button,
+            PressRole::Tile,
+            PressRole::Key,
+            PressRole::Icon,
+            PressRole::Chrome,
+            PressRole::None,
+        ];
+        let i = Self::NAMES.iter().position(|n| *n == name)?;
+        ROLES.get(i).copied()
+    }
 }
 
 /// Pre-order box id (1-based, matches `LayoutBox::node_id`) for a path.
@@ -290,6 +333,7 @@ mod hit_slop_tests {
                 action: HandlerAction::Dispatch { event: 0, case: 0, payload: alloc::vec![] },
                 press_offset: 0,
                 autofocus: false,
+                press: None,
             },
         )
     }
@@ -391,6 +435,7 @@ mod multi_viewport_tests {
                 action: HandlerAction::Dispatch { event: 0, case: 0, payload: alloc::vec![] },
                 press_offset: 0,
                 autofocus: false,
+                press: None,
             },
         )
     }

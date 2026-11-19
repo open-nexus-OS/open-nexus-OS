@@ -194,7 +194,10 @@ impl GlassToggle {
         )
     }
 
-    fn thumb(m: SwitchMetrics, tokens: &dyn Tokens) -> LayoutNode {
+    /// The thumb, laid over the on layer by a negative leading margin: `inset − width` puts it
+    /// at the leading inset, `+ travel` at the trailing one when on (a layout change the host
+    /// carries — the thumb's `.motion` part).
+    fn thumb(m: SwitchMetrics, on: bool, tokens: &dyn Tokens) -> LayoutNode {
         // White in both themes (the artifacts' knob), lifted by `shadow1`.
         let visual = Style::new()
             .background(tokens.color(ColorToken::OnAccent))
@@ -208,7 +211,14 @@ impl GlassToggle {
                 max_width: d,
                 min_height: d,
                 max_height: d,
-                item: FlexItem { flex_shrink: 0, ..FlexItem::default() },
+                item: FlexItem {
+                    flex_shrink: 0,
+                    margin: EdgeInsets {
+                        left: m.inset - m.width + if on { m.travel } else { FxPx::ZERO },
+                        ..EdgeInsets::zero()
+                    },
+                    ..FlexItem::default()
+                },
                 ..Stack::default()
             },
             visual,
@@ -218,11 +228,12 @@ impl GlassToggle {
 
     fn track(&self, tokens: &dyn Tokens, root: bool) -> LayoutNode {
         let m = SwitchMetrics::of(self.size);
-        let mut style =
-            Style::new().background(self.track_color(tokens)).rounded_token(RadiusToken::Full);
-        if self.checked {
-            style = style.shadow(glow_shadow(tokens, self.tint_role(), Glow::Sm));
-        }
+        // The track is always the off fill; the on colour (and its glow) is a layer over it that
+        // is always there, invisible while off — so a change fades instead of snapping (design
+        // artifacts: CHK-8; the host plays the layer's `fade`, TASK-0354 P10).
+        let mut style = Style::new()
+            .background(tokens.color(ColorToken::Fill))
+            .rounded_token(RadiusToken::Full);
         if root {
             style = self.finish(style, tokens);
         }
@@ -230,10 +241,8 @@ impl GlassToggle {
             Stack {
                 id: if root { self.id } else { None },
                 direction: Direction::Row,
-                padding: EdgeInsets::all(m.inset),
                 align: Align::Center,
-                // The thumb sits at the trailing end when on.
-                justify: if self.checked { Justify::End } else { Justify::Start },
+                justify: Justify::Start,
                 min_width: Some(m.width),
                 max_width: Some(m.width),
                 min_height: Some(m.height),
@@ -242,7 +251,32 @@ impl GlassToggle {
                 ..Stack::default()
             },
             style.visual(),
-            alloc::vec![Self::thumb(m, tokens)],
+            alloc::vec![self.on_layer(m, tokens), Self::thumb(m, self.checked, tokens)],
+        )
+    }
+
+    /// The on layer: the tint (and its glow) over the whole track, in flow at the track's own
+    /// size and behind the thumb (tree order is paint order); its own opacity 0 while off. The
+    /// part `TRACK_PARTS[0]` names.
+    fn on_layer(&self, m: SwitchMetrics, tokens: &dyn Tokens) -> LayoutNode {
+        let mut style = Style::new()
+            .background(tokens.color(self.tint_role()))
+            .rounded_token(RadiusToken::Full)
+            .shadow(glow_shadow(tokens, self.tint_role(), Glow::Sm));
+        if !self.checked {
+            style = style.opacity(nexus_layout_types::Fraction(0));
+        }
+        LayoutNode::Stack(
+            Stack {
+                min_width: Some(m.width),
+                max_width: Some(m.width),
+                min_height: Some(m.height),
+                max_height: Some(m.height),
+                item: FlexItem { flex_shrink: 0, ..FlexItem::default() },
+                ..Stack::default()
+            },
+            style.visual(),
+            Vec::new(),
         )
     }
 
@@ -315,6 +349,11 @@ impl GlassToggle {
             items,
         )
     }
+
+    /// The track's moving parts, in its child order: the on layer (shown while on) and the thumb
+    /// (laid out at the leading end when off, the trailing end when on). The DSL runtime's motion
+    /// table names them by these indices.
+    pub const TRACK_PARTS: [&'static str; 2] = ["on_layer", "thumb"];
 
     /// Build the toggle node.
     pub fn build(self, tokens: &dyn Tokens) -> LayoutNode {

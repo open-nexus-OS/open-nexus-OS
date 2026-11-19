@@ -23,6 +23,7 @@ Component RowCell {
         .rounded(md)
         .shadow(shadow1)
         .label($props.label)
+        .press(key)
         on Tap -> dispatch(Key($props.key))
     } else {
         Stack {
@@ -36,6 +37,7 @@ Component RowCell {
         .rounded(md)
         .shadow(shadow1)
         .label(@t("osk.backspace"))
+        .press(key)
         on Tap -> dispatch(Action($props.action))
     }
 }

@@ -84,7 +84,7 @@ pub(crate) fn ellipse_coverage(px: f32, py: f32, rect: (f32, f32, f32, f32)) -> 
 
 /// `c` with its alpha scaled by `coverage` (0..=1).
 #[inline]
-fn covered(c: Rgba8, coverage: f32) -> Rgba8 {
+pub(crate) fn covered(c: Rgba8, coverage: f32) -> Rgba8 {
     Rgba8 { a: (c.a as f32 * coverage.clamp(0.0, 1.0) + 0.5) as u8, ..c }
 }
 
@@ -116,8 +116,13 @@ pub(crate) fn arc_band(
 }
 
 /// [`arc_band`] for a filled rounded rect's left corner on the row at `py` (a corner row): the
-/// columns its arc of radius `r` crosses.
-fn corner_band(rect: (f32, f32, f32, f32), py: f32, r: i32, zone: (i32, i32)) -> (i32, i32) {
+/// columns its arc of radius `r` crosses. A rounded clip asks the same (`xform::RoundClip`).
+pub(crate) fn corner_band(
+    rect: (f32, f32, f32, f32),
+    py: f32,
+    r: i32,
+    zone: (i32, i32),
+) -> (i32, i32) {
     let rf = r as f32;
     let oy = (py - (rect.1 + rect.3 * 0.5)).abs() - (rect.3 * 0.5 - rf);
     arc_band(rect.0 + rf, (rf - 0.5, oy), (rf + 0.5, oy), zone)
@@ -159,6 +164,8 @@ impl RowCanvas<'_> {
         if c.a == 0 {
             return;
         }
+        // Under a rounded clip the soft columns are blended one by one; the rest is the span.
+        let (x0, x1) = self.soft_ends(x0, x1, |canvas, xx| canvas.blend(xx, c));
         let Some((b0, b1)) = self.span_bytes(x0, x1) else { return };
         // The kernel: scalar, or the vector unit where the kernel reported one (ADR-0099).
         nexus_paint_kernels::blend(&mut self.buf[b0..b1], [c.b, c.g, c.r, c.a]);
@@ -175,6 +182,7 @@ impl RowCanvas<'_> {
 
     /// REPLACE span `[x0, x1)` with `c` — exactly `set` on each pixel (premultiplied), once.
     pub(crate) fn set_span(&mut self, x0: i32, x1: i32, c: Rgba8) {
+        let (x0, x1) = self.soft_ends(x0, x1, |canvas, xx| canvas.set(xx, c));
         let Some((b0, b1)) = self.span_bytes(x0, x1) else { return };
         let a = c.a as u32;
         let px = [
@@ -191,15 +199,27 @@ impl RowCanvas<'_> {
     #[inline]
     pub(crate) fn set_covered(&mut self, x: i32, c: Rgba8, coverage: f32) {
         if coverage >= 1.0 {
+            // `set` asks a rounded clip itself.
             self.set(x, c);
             return;
         }
-        if coverage <= 0.0 {
-            return;
-        }
+        // Under a rounded clip the pixel takes the tint over the fraction both cover.
+        let coverage = match &self.round {
+            Some(k) => coverage * k.coverage(x - self.shift_x),
+            None => coverage,
+        };
         let Some(i) = self.pixel_index(x) else {
             return;
         };
+        self.set_fraction(i, c, coverage);
+    }
+
+    /// The pixel at byte index `i` takes `c` (premultiplied) over the fraction `coverage` of it.
+    #[inline]
+    pub(crate) fn set_fraction(&mut self, i: usize, c: Rgba8, coverage: f32) {
+        if coverage <= 0.0 {
+            return;
+        }
         let a = c.a as f32;
         let tint = [c.b as f32 * a / 255.0, c.g as f32 * a / 255.0, c.r as f32 * a / 255.0, a];
         for (k, t) in tint.iter().enumerate() {
