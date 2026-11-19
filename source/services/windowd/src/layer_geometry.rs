@@ -60,13 +60,20 @@ const SHADOW_REACH: u32 = 32;
 pub(crate) struct TreeChange {
     pub(crate) whole: bool,
     rects: [Rect; CHANGED_MAX],
+    /// Per rectangle: the region of the new structure that draws the change, when one does.
+    regions: [Option<u8>; CHANGED_MAX],
     count: usize,
     pub(crate) bands: u8,
 }
 
 impl TreeChange {
-    pub(crate) const NONE: Self =
-        Self { whole: false, rects: [(0, 0, 0, 0); CHANGED_MAX], count: 0, bands: 0 };
+    pub(crate) const NONE: Self = Self {
+        whole: false,
+        rects: [(0, 0, 0, 0); CHANGED_MAX],
+        regions: [None; CHANGED_MAX],
+        count: 0,
+        bands: 0,
+    };
     pub(crate) const STRUCTURE: Self = Self { whole: true, ..Self::NONE };
 
     /// The rectangles that changed (surface pixels).
@@ -74,11 +81,25 @@ impl TreeChange {
         &self.rects[..self.count]
     }
 
+    /// The region of the structure now in effect that draws rectangle `i`'s change — one that
+    /// moved within its level or came (the damage's origin, RFC-0101 §8). `None`: no region
+    /// that is still there draws it (one that went or changed its material, a scroll layer's
+    /// viewport, a motion layer) — the change is the surface's.
+    pub(crate) fn region_of(&self, i: usize) -> Option<usize> {
+        self.regions[..self.count].get(i).copied().flatten().map(usize::from)
+    }
+
     /// One more changed rectangle; past the bound the change is the whole surface.
     fn push(&mut self, r: Rect) {
+        self.push_from(r, None);
+    }
+
+    /// One more changed rectangle, drawn by region `region` of the new structure.
+    fn push_from(&mut self, r: Rect, region: Option<usize>) {
         match self.rects.get_mut(self.count) {
             Some(slot) => {
                 *slot = r;
+                self.regions[self.count] = region.and_then(|i| u8::try_from(i).ok());
                 self.count += 1;
             }
             None => self.whole = true,
@@ -146,11 +167,22 @@ impl SurfaceLayers {
     /// The frame shown at `at` (it redraws `note`) draws these layers: a flip waiting for it
     /// turns, a motion drawn for the first time starts, one that ended is said once
     /// (`motion_geometry::stamp`) — what each motion layer did, by index.
+    #[cfg(test)]
     pub(crate) fn stamp(&mut self, at: u64, note: FrameNote) -> [Said; MAX_MOTION_LAYERS] {
+        self.stamp_by(at, |_| note)
+    }
+
+    /// [`Self::stamp`] with each motion layer's own note (`note(k)`: what the frame redraws of
+    /// layer `k` — the damage whose origin is the layer's).
+    pub(crate) fn stamp_by(
+        &mut self,
+        at: u64,
+        note: impl Fn(usize) -> FrameNote,
+    ) -> [Said; MAX_MOTION_LAYERS] {
         self.drawn_at = at;
         let mut said = [Said::Nothing; MAX_MOTION_LAYERS];
         for (k, m) in self.tree.motions().iter().enumerate() {
-            said[k] = stamp(m, &mut self.motion_states[k], at, note);
+            said[k] = stamp(m, &mut self.motion_states[k], at, note(k));
         }
         said
     }
@@ -227,13 +259,19 @@ fn structure_change(now: &SurfaceTree, next: &SurfaceTree) -> TreeChange {
         }
     }
     if now.regions().len() == next.regions().len() {
-        for (a, b) in now.regions().iter().zip(next.regions()) {
+        for (i, (a, b)) in now.regions().iter().zip(next.regions()).enumerate() {
             if a != b {
-                change.push(span(region_rect(a), region_rect(b)));
+                // The region draws the change while it stays what it is: another material or
+                // glass level may draw it in another pass, below where it was.
+                let level = (a.material, a.glass_level) == (b.material, b.glass_level);
+                change.push_from(span(region_rect(a), region_rect(b)), level.then_some(i));
             }
         }
     } else {
-        unmatched(now.regions(), next.regions(), |l| change.push(region_rect(l)));
+        // One that came is in the new structure; one that went is no layer any more.
+        unmatched(now.regions(), next.regions(), |l| {
+            change.push_from(region_rect(l), next.regions().iter().position(|n| n == l));
+        });
     }
     // A motion layer is the same while its place, its pixels and what it claims are: its
     // durations falling to 0 (the app's note that the motion and its scrim's fade are over)
@@ -366,34 +404,55 @@ pub(crate) fn owns(owner_sid: u64, sender_sid: u64) -> bool {
 
 /// Screen rectangles one store rectangle of a present can damage: a band's viewport each, a motion
 /// layer's rest each.
+#[cfg(test)]
 pub(crate) const STORE_DAMAGE_MAX: usize = proto::MAX_SCROLL_LAYERS + MAX_MOTION_LAYERS;
+
+/// A layer of a surface whose pixels are rows of its store: motion layer `k`, scroll layer `k`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum StoreLayer {
+    Motion(usize),
+    Scroll(usize),
+}
 
 /// The screen damage of a present's rectangle in the surface's STORE: the viewports of the scroll
 /// layers whose band it touches and the rests of the motion layers whose pixels it touches, in
 /// surface coordinates (a moving layer is redrawn where it is by the planner, TASK-0354 P2).
 /// Patches change nothing on the screen by themselves (a wash using one is motion).
+#[cfg(test)]
 pub(crate) fn store_damage(
     layers: &SurfaceLayers,
     rect: (u32, u32, u32, u32),
     out: &mut [(u32, u32, u32, u32); STORE_DAMAGE_MAX],
 ) -> usize {
+    let mut n = 0;
+    store_damage_each(layers, rect, |_, view| {
+        out[n] = view;
+        n += 1;
+    });
+    n
+}
+
+/// [`store_damage`], each rectangle with the layer whose rows changed — the layer that draws it
+/// (the damage's origin, RFC-0101 §8).
+pub(crate) fn store_damage_each(
+    layers: &SurfaceLayers,
+    rect: (u32, u32, u32, u32),
+    mut each: impl FnMut(StoreLayer, Rect),
+) {
     let touches = |b: Rect| {
         rect.0 < b.0 + b.2 && b.0 < rect.0 + rect.2 && rect.1 < b.1 + b.3 && b.1 < rect.1 + rect.3
     };
-    let mut n = 0;
-    for m in layers.tree.motions() {
+    for (k, m) in layers.tree.motions().iter().enumerate() {
         if touches((u32::from(m.sx), u32::from(m.sy), u32::from(m.w), u32::from(m.h))) {
-            out[n] = m.rest();
-            n += 1;
+            each(StoreLayer::Motion(k), m.rest());
         }
     }
-    for s in layers.tree.scrolls() {
+    for (k, s) in layers.tree.scrolls().iter().enumerate() {
         if touches(s.band_rect()) && s.valid_len > 0 {
-            out[n] = (u32::from(s.vx), u32::from(s.vy), u32::from(s.vw), u32::from(s.vh));
-            n += 1;
+            let viewport = (u32::from(s.vx), u32::from(s.vy), u32::from(s.vw), u32::from(s.vh));
+            each(StoreLayer::Scroll(k), viewport);
         }
     }
-    n
 }
 
 #[cfg(test)]

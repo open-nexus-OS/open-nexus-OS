@@ -14,7 +14,7 @@
 //! frame. Instruments (not chain markers): `windowd: motion layer (… exit= tap_us=)` when a
 //! segment starts and `windowd: motion done (…)` once when it ends — frames drawn while it moved
 //! against the refresh periods in its length, the latest frame past a period, the largest redraw
-//! of a frame drawn meanwhile (the frame's whole damage).
+//! of a frame drawn meanwhile (the damage whose origin is the layer's, TASK-0351 P15).
 //! OWNERS: @ui
 //! STATUS: Functional
 //! API_STABILITY: Internal
@@ -23,6 +23,7 @@
 
 use super::surface_layers_encode::DESKTOP_OWNER;
 use super::*;
+use crate::damage_origin::motion_of_key;
 use crate::frame_transform::{FrameTransform, SCALE_ONE};
 use crate::layer_geometry::SurfaceLayers;
 use crate::motion_geometry::{
@@ -42,11 +43,27 @@ pub(super) fn live(layers: &SurfaceLayers, at: u64) -> u8 {
     bits
 }
 
-/// The frame shown at `at` (it redraws `note`) draws `layers`: a motion drawn for the first time
-/// starts with it (its first frame shows where it starts), a flip turns, an end is said once.
+/// The frame shown at `at` draws `layers`: a motion drawn for the first time starts with it (its
+/// first frame shows where it starts), a flip turns, an end is said once. What the frame redraws
+/// of a motion layer is the damage whose origin is the layer's (`rects`: each with its origin's
+/// key) — TASK-0351 P15: not the frame's sum, which another surface's change swells.
 /// `tap_us`: from the last press routed to `owner` to this frame (`frame_causes::tap_us`).
-fn stamp(layers: &mut SurfaceLayers, owner: u32, at: u64, note: FrameNote) {
-    let said = layers.stamp(at, note);
+fn stamp(
+    layers: &mut SurfaceLayers,
+    owner: u32,
+    at: u64,
+    period_ns: u64,
+    rects: &[(DamageRect, u32)],
+) {
+    let drawn = *layers;
+    let said = layers.stamp_by(at, |k| FrameNote {
+        period_ns,
+        damage_px: rects
+            .iter()
+            .filter(|(_, key)| motion_of_key(&drawn, owner, *key) == Some(k))
+            .map(|(r, _)| r.area())
+            .sum(),
+    });
     for (m, said) in layers.tree.motions().iter().zip(said) {
         match said {
             Said::Nothing => {}
@@ -113,15 +130,13 @@ fn push(
 
 impl DisplayServerRuntime {
     /// Every surface's motion layers drawn for the first time start with this frame, shown at
-    /// `at` and redrawing the first `rect_count` of `rects`; flips turn, ends are said.
-    pub(super) fn stamp_motions(&mut self, at: u64, rects: &[DamageRect], rect_count: usize) {
-        let damage_px =
-            rects.iter().take(rect_count).map(|r| u64::from(r.width) * u64::from(r.height)).sum();
-        let note = FrameNote { period_ns: u64::from(self.frame_pace().2), damage_px };
-        stamp(&mut self.desktop_layers, DESKTOP_OWNER, at, note);
+    /// `at` and redrawing `rects` (each with its origin's key); flips turn, ends are said.
+    pub(super) fn stamp_motions(&mut self, at: u64, rects: &[(DamageRect, u32)]) {
+        let period_ns = u64::from(self.frame_pace().2);
+        stamp(&mut self.desktop_layers, DESKTOP_OWNER, at, period_ns, rects);
         for idx in 0..self.apps.len() {
             let key = self.window_key(idx);
-            stamp(&mut self.apps[idx].layers, key, at, note);
+            stamp(&mut self.apps[idx].layers, key, at, period_ns, rects);
         }
     }
 

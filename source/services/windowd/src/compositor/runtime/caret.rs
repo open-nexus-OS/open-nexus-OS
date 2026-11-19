@@ -186,8 +186,10 @@ impl DisplayServerRuntime {
     fn refresh_caret(&mut self, now: u64) {
         let (shown, next) = self.caret_now(now);
         if shown != self.caret.drawn {
+            // The caret is a layer of its own that came, went or moved: a change of the layer
+            // set, not of a layer's pixels.
             for (rect, _) in [self.caret.drawn, shown].into_iter().flatten() {
-                self.queue_dirty_rect(rect);
+                self.structure_changed(rect, Cause::Caret);
             }
             self.caret.drawn = shown;
             if shown.is_some() && !core::mem::replace(&mut self.caret.said, true) {

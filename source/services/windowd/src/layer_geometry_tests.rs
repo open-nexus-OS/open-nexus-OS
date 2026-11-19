@@ -526,6 +526,62 @@ fn store_rows_and_washes_of_a_motion_layer_land_at_its_rest() {
     assert_eq!((p.dst, p.size), ((24, 220), (92, 10)), "cut at the layer's bottom");
 }
 
+/// A structure rectangle's origin (RFC-0101 §8): the region that moved within its level or
+/// came draws it; one that went or changed its material is no layer that draws it.
+#[test]
+fn a_changed_rectangle_names_the_region_that_draws_it() {
+    let base = LayerDesc { y: 10, w: 100, h: 50, ..Default::default() };
+    let region = |x: u16, material: u8| LayerDesc { x, material, ..base };
+    let tree = |regions: &[LayerDesc]| {
+        let mut t = SurfaceTree::EMPTY;
+        t.regions[..regions.len()].copy_from_slice(regions);
+        t.region_count = regions.len();
+        t
+    };
+    let now = tree(&[region(0, 1), region(300, 1)]);
+    // The second moved: its own change, where it was and is.
+    let moved = structure_change(&now, &tree(&[region(0, 1), region(400, 1)]));
+    assert_eq!(moved.rects(), &[(300, 10, 200, 50)]);
+    assert_eq!(moved.region_of(0), Some(1));
+    assert_eq!(moved.region_of(1), None, "no such rectangle");
+    // Another material may draw it in another pass: unknown.
+    let dressed = structure_change(&now, &tree(&[region(0, 1), region(300, 0)]));
+    assert_eq!((dressed.rects().len(), dressed.region_of(0)), (1, None));
+    // One came: the new structure's region. One went: no layer.
+    let came = structure_change(&now, &tree(&[region(0, 1), region(300, 1), region(600, 1)]));
+    assert_eq!((came.rects(), came.region_of(0)), (&[(600, 10, 100, 50)][..], Some(2)));
+    let went = structure_change(&now, &tree(&[region(300, 1)]));
+    assert_eq!((went.rects(), went.region_of(0)), (&[(0, 10, 100, 50)][..], None));
+    assert_eq!(TreeChange::STRUCTURE.region_of(0), None);
+}
+
+/// A store rectangle's damage goes with the layer whose rows changed.
+#[test]
+fn the_store_s_damage_names_the_layer_whose_rows_changed() {
+    let mut layers = SurfaceLayers::EMPTY;
+    layers.tree.scrolls[0] = vertical();
+    layers.tree.scroll_count = 1;
+    layers.tree.motions[0] = MotionLayerDesc {
+        x: 20,
+        y: 30,
+        w: 100,
+        h: 200,
+        sx: 1200,
+        sy: 900,
+        ..MotionLayerDesc::EMPTY
+    };
+    layers.tree.motion_count = 1;
+    let mut seen = [(StoreLayer::Scroll(9), (0, 0, 0, 0)); 2];
+    let mut n = 0;
+    store_damage_each(&layers, (0, 900, 1400, 8), |layer, view| {
+        seen[n] = (layer, view);
+        n += 1;
+    });
+    assert_eq!(n, 2);
+    assert_eq!(seen[0], (StoreLayer::Motion(0), (20, 30, 100, 200)));
+    assert_eq!(seen[1], (StoreLayer::Scroll(0), (310, 120, 1080, 700)));
+}
+
 /// A surface's demand on the frame's bound: each region, each piece of a scroll layer's
 /// window, each wash — and each motion layer's own pixels (TASK-0354 P2).
 #[test]

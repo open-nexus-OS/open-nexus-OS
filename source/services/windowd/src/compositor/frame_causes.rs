@@ -37,6 +37,9 @@ static WINDOWS_OCCLUDED: AtomicU32 = AtomicU32::new(0);
 static QUEUED_RECTS: AtomicU32 = AtomicU32::new(0);
 static QUEUED_PX: AtomicU64 = AtomicU64::new(0);
 static FLUSHED_PX: AtomicU64 = AtomicU64::new(0);
+/// The joins of two origins a full pending list forced (`damage_rects`): each one a present
+/// whose blur is no longer bounded by what changed.
+static DEGRADED: AtomicU32 = AtomicU32::new(0);
 /// TASK-0339: windowd's own CPU work per frame — the longest flush and the wallpaper rows
 /// rewritten into the retained plane (a syscall a row), with its microseconds; the measurement
 /// that splits an input's wait into "windowd works" and "windowd waits". RFC-0114 §5: the
@@ -142,6 +145,11 @@ pub(super) fn shape() {
 pub(super) fn queued(px: u64) {
     QUEUED_RECTS.fetch_add(1, Ordering::Relaxed);
     QUEUED_PX.fetch_add(px, Ordering::Relaxed);
+}
+
+/// The pending list was full: two rectangles of two origins joined, their origin unknown.
+pub(super) fn degraded() {
+    DEGRADED.fetch_add(1, Ordering::Relaxed);
 }
 
 /// A frame's merged content rectangles of `px` pixels left for gpud.
@@ -256,12 +264,13 @@ pub(super) fn take_work() -> (u64, u64, u64, u64, u64) {
     )
 }
 
-/// The window's damage counts `(rects, queued_px, flushed_px)`, and a fresh window.
-pub(super) fn take_damage() -> (u32, u64, u64) {
+/// The window's damage counts `(rects, queued_px, flushed_px, degraded)`, and a fresh window.
+pub(super) fn take_damage() -> (u32, u64, u64, u32) {
     (
         QUEUED_RECTS.swap(0, Ordering::Relaxed),
         QUEUED_PX.swap(0, Ordering::Relaxed),
         FLUSHED_PX.swap(0, Ordering::Relaxed),
+        DEGRADED.swap(0, Ordering::Relaxed),
     )
 }
 

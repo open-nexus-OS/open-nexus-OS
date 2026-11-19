@@ -26,19 +26,33 @@ const KEPT: usize = 4;
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct FrameClock {
     shown: Option<Shown>,
-    /// `(seq, predicted landing)` of the latest presents sent.
-    predicted: [(u32, u64); KEPT],
+    /// `(seq, predicted landing, sent with nothing in flight)` of the latest presents sent.
+    predicted: [(u32, u64, bool); KEPT],
     next: usize,
     /// Landings at, after (more than half a period late) and before the time predicted for them,
-    /// counted since the start (the telemetry takes differences).
+    /// counted since the start (the telemetry takes differences); an early landing split by
+    /// whether nothing (`early0`) or something (`early1`) was in flight when it was sent — the
+    /// half-period floor of `next_shown` misses in the first, a double count in the second
+    /// (TASK-0343 P7: the split names which before anything is fixed).
     pub(crate) on_time: u32,
     pub(crate) late: u32,
     pub(crate) early: u32,
+    pub(crate) early0: u32,
+    pub(crate) early1: u32,
 }
 
 impl FrameClock {
     pub(crate) const fn new() -> Self {
-        Self { shown: None, predicted: [(0, 0); KEPT], next: 0, on_time: 0, late: 0, early: 0 }
+        Self {
+            shown: None,
+            predicted: [(0, 0, false); KEPT],
+            next: 0,
+            on_time: 0,
+            late: 0,
+            early: 0,
+            early0: 0,
+            early1: 0,
+        }
     }
 
     /// The latest timing gpud named.
@@ -60,9 +74,10 @@ impl FrameClock {
         Some((at, u32::try_from(step).unwrap_or(u32::MAX)))
     }
 
-    /// windowd sent the present `seq`, predicted to be shown at `at`.
-    pub(crate) fn note_sent(&mut self, seq: u32, at: u64) {
-        self.predicted[self.next % KEPT] = (seq, at);
+    /// windowd sent the present `seq`, predicted to be shown at `at`, with `in_flight` presents
+    /// ahead of it.
+    pub(crate) fn note_sent(&mut self, seq: u32, at: u64, in_flight: u32) {
+        self.predicted[self.next % KEPT] = (seq, at, in_flight == 0);
         self.next = self.next.wrapping_add(1);
     }
 
@@ -71,15 +86,20 @@ impl FrameClock {
     pub(crate) fn note_shown(&mut self, seq: u32, shown: Shown) {
         self.shown = Some(shown);
         let half = u64::from(shown.period_ns) / 2;
-        let Some(k) = self.predicted.iter().position(|&(s, at)| s == seq && at != 0) else {
+        let Some(k) = self.predicted.iter().position(|&(s, at, _)| s == seq && at != 0) else {
             return;
         };
-        let at = self.predicted[k].1;
-        self.predicted[k] = (0, 0);
+        let (_, at, idle) = self.predicted[k];
+        self.predicted[k] = (0, 0, false);
         if shown.at_ns > at + half {
             self.late = self.late.wrapping_add(1);
         } else if shown.at_ns + half < at {
             self.early = self.early.wrapping_add(1);
+            if idle {
+                self.early0 = self.early0.wrapping_add(1);
+            } else {
+                self.early1 = self.early1.wrapping_add(1);
+            }
         } else {
             self.on_time = self.on_time.wrapping_add(1);
         }
@@ -143,15 +163,30 @@ mod tests {
         let t0 = 1_000 * MS;
         let p = u64::from(P);
         c.note_shown(1, shown(t0, 1));
-        c.note_sent(2, t0 + p);
-        c.note_sent(3, t0 + 2 * p);
-        c.note_sent(4, t0 + 3 * p);
+        c.note_sent(2, t0 + p, 0);
+        c.note_sent(3, t0 + 2 * p, 1);
+        c.note_sent(4, t0 + 3 * p, 2);
         c.note_shown(2, shown(t0 + p, 1));
         c.note_shown(3, shown(t0 + 3 * p, 1));
         c.note_shown(4, shown(t0 + 2 * p, 1));
         assert_eq!((c.on_time, c.late, c.early), (1, 1, 1));
         c.note_shown(2, shown(t0 + 9 * p, 1));
         assert_eq!((c.on_time, c.late, c.early), (1, 1, 1), "an ack is judged once");
+    }
+
+    /// An early landing names whether its present was sent with nothing in flight (the
+    /// half-period floor's case) or behind another (a landing counted against the wrong slot).
+    #[test]
+    fn an_early_landing_says_whether_anything_was_in_flight() {
+        let mut c = FrameClock::new();
+        let (t0, p) = (1_000 * MS, u64::from(P));
+        c.note_shown(1, shown(t0, 1));
+        c.note_sent(2, t0 + 3 * p, 0);
+        c.note_sent(3, t0 + 4 * p, 1);
+        c.note_shown(2, shown(t0 + p, 1));
+        c.note_shown(3, shown(t0 + 2 * p, 1));
+        assert_eq!((c.early, c.early0, c.early1), (2, 1, 1));
+        assert_eq!(c.early, c.early0 + c.early1, "the split adds up");
     }
 
     #[test]

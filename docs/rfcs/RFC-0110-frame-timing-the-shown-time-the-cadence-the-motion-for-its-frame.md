@@ -120,7 +120,11 @@ when the present it sends next is shown: the last landing plus one step (`cadenc
 every present in flight and one for itself — or, the display having idled, the first boundary at
 least half a period ahead of now. It keeps the prediction of each present it sends and judges the
 landing gpud reports for it: on time (within half a period), late, early
-(`windowd: frame pace (on_time= late= early= cadence= period_us=)` each second with traffic).
+(`windowd: frame pace (on_time= late= early= early0= early1= cadence= period_us=)` each second
+with traffic; amended 2026-11-19, TASK-0343 P7: an early landing is split by whether nothing
+(`early0`) or something (`early1`) was in flight when its present was sent — the half-period floor
+for an idle display misses in the first, a landing judged against the wrong prediction in the
+second; the split names which before either is changed).
 The frame pulse (`OP_SURFACE_FRAME`, the Choreographer contract) names that prediction:
 
 ```
@@ -162,7 +166,10 @@ advance to `target_ns` — never back in time; on a plain pulse, by the client's
 - No timed ack yet (boot, a display without the interrupt): no prediction, plain pulses, clients
   step by their own clock — the behaviour before this RFC.
 - A frame late for its slot: it lands at the next boundary, counted `late=` (gpud) and `late=`
-  (windowd); the next prediction starts from that landing.
+  (windowd); the next prediction starts from that landing. gpud counts it late only when its
+  present was received at least half a period before the slot; a landing past its slot whose
+  present came later (the first frame after an idle display) is a restart, `restarts=` on
+  `gpud: dc flips (` (amended 2026-11-19, TASK-0343 P7 — they had been counted late).
 - A stale timing (the display idled): the prediction moves to the first boundary half a period
   ahead of now.
 

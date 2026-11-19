@@ -99,7 +99,7 @@ impl DisplayServerRuntime {
             self.buffers.desktop_retiring_layers = super::surface_layers::SurfaceLayers::EMPTY;
             self.buffers.desktop_retiring_owner = a.owner;
             self.show_window(WindowId::Desktop);
-            self.queue_full_frame_damage();
+            self.full_frame_structure(crate::damage_rects::Cause::Shown);
             return true;
         }
         let Some(idx) = self.take_app_slot() else {
@@ -116,7 +116,7 @@ impl DisplayServerRuntime {
         slot.win.visible = true;
         self.show_window(WindowId::App(idx as u16));
         let rect = self.app_window_damage_rect(idx);
-        self.queue_dirty_rect(rect);
+        self.structure_changed(rect, Cause::Shown);
         true
     }
 
@@ -169,7 +169,7 @@ impl DisplayServerRuntime {
             self.desktop_surface_id.is_none() && self.buffers.desktop_retiring.is_some();
         if desktop_ghost && ghost_pick::is_gone(self.buffers.desktop_retiring_owner, alive) {
             self.end_retiring(Owner::Desktop);
-            self.queue_full_frame_damage();
+            self.full_frame_structure(crate::damage_rects::Cause::Hidden);
             closed += 1;
         }
         closed

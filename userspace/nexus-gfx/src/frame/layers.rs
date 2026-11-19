@@ -238,7 +238,9 @@ pub struct RetainedLayers {
 /// Damage rectangles a present's set keeps (windowd names at most seven).
 pub const MAX_DAMAGE: usize = 8;
 
-/// The origin of damage above every layer (the pointer): below no glass.
+/// The origin of damage above every layer (the pointer): below no glass. Every other origin is
+/// the key of the layer that draws the change (`FrameLayer::key`, the lowest when several show
+/// it); `0` — or a key the set does not hold — is unknown: below every glass.
 pub const ORIGIN_ABOVE: u32 = u32::MAX;
 
 impl RetainedLayers {
@@ -378,9 +380,13 @@ impl RetainedLayers {
         (&self.damage[..], self.last.0, self.last.1)
     }
 
-    /// The index of the first layer carrying transform id `layer_id`, if one does.
-    pub fn index_of_id(&self, layer_id: u32) -> Option<usize> {
-        self.layers.iter().position(|l| l.layer_id == layer_id)
+    /// The index of the first layer of key `key` (RFC-0109), if the set holds one — where a
+    /// damage rectangle of that origin was drawn (RFC-0101 §8). Key `0` names no layer.
+    pub(super) fn index_of_key(&self, key: u32) -> Option<usize> {
+        if key == 0 {
+            return None;
+        }
+        self.layers.iter().position(|l| l.key == key)
     }
 
     /// The transform of layer id `layer_id` from now on; `false` for id 0, or when the set holds

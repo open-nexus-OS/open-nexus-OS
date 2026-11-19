@@ -166,7 +166,7 @@ impl DisplayServerRuntime {
                     self.apps[idx].win.visible = true;
                     self.windows.show_unfocused(wid);
                     let rect = self.app_window_damage_rect(idx);
-                    self.queue_dirty_rect(rect);
+                    self.structure_changed(rect, Cause::Shown);
                 }
             }
             (true, None) => {
@@ -183,7 +183,7 @@ impl DisplayServerRuntime {
                     let rect = self.app_window_damage_rect(idx);
                     self.apps[idx].win.visible = false;
                     self.windows.hide(wid);
-                    self.queue_dirty_rect(rect);
+                    self.structure_changed(rect, Cause::Hidden);
                 }
             }
             (false, None) => {}

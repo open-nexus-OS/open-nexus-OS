@@ -53,19 +53,6 @@ fn cover_luts_short_mode_center_crops_height() {
 }
 
 #[test]
-fn damage_premerge_merges_only_bounded_area_growth() {
-    let mut rects = [
-        DamageRect { x: 10, y: 10, width: 20, height: 20 },
-        DamageRect { x: 25, y: 10, width: 20, height: 20 },
-        DamageRect { x: 400, y: 400, width: 20, height: 20 },
-    ];
-    let count = super::premerge_damage_rects(&mut rects, 3);
-    assert_eq!(count, 2);
-    assert!(rects[..count].iter().any(|rect| rect.width == 35 && rect.height == 20));
-    assert!(rects[..count].iter().any(|rect| rect.x == 400 && rect.y == 400));
-}
-
-#[test]
 fn tile_map_has_dirty_in_row_range_detects_marked_rows() {
     let mut tm = TileMap::new();
     // Mark a rect covering rows 128..192 (tiles ty=2..=2)

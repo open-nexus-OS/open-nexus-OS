@@ -310,11 +310,24 @@ impl DisplayServerRuntime {
         self.pending_layer_frame = true;
     }
 
-    pub(super) fn queue_dirty_rect(&mut self, rect: DamageRect) {
+    /// `rect` of the screen changed, drawn by the layer `origin` names (RFC-0101 §8). Where the
+    /// CPU composes, an origin means nothing: the rects join as they touch, as before.
+    pub(super) fn queue_dirty_rect(&mut self, rect: DamageRect, origin: Origin) {
         self.note_frame_owed();
-        crate::compositor::frame_causes::queued(u64::from(rect.width) * u64::from(rect.height));
         self.tile_map.mark_rect(rect);
-        crate::compositor::damage::queue_damage_rect(&mut self.pending_damage_rects, rect);
+        let origin = if self.gpu_composes { origin } else { Origin::unknown(origin.cause) };
+        crate::compositor::damage::queue(&mut self.pending_damage, rect, origin);
+    }
+
+    /// The layer set changed at `rect` (a window, a starting surface or the caret came or went).
+    /// Where the GPU composes, the present carries the layers and the planner redraws each one
+    /// new, gone or drawn otherwise: no rect is named. The CPU path blits the rect again.
+    pub(super) fn structure_changed(&mut self, rect: DamageRect, cause: Cause) {
+        if self.gpu_composes {
+            self.owe_frame();
+        } else {
+            self.queue_dirty_rect(rect, Origin::unknown(cause));
+        }
     }
 
     /// Queue a GPU-only blit rect for animation frames where only GPU CB params
@@ -346,21 +359,10 @@ impl DisplayServerRuntime {
         let paint_only = self.paint_only_damage;
 
         // 1. Collect content damage (panels/text — needs CPU recomposite of Plane 1).
-        let mut content = [DamageRect { x: 0, y: 0, width: 0, height: 0 }; 5];
-        let mut content_count = 0usize;
-        if let Some(rect) = self.pending_damage_rect.take() {
-            content[content_count] = rect;
-            content_count += 1;
-        }
-        while let Some(rect) = self.pending_damage_rects.pop() {
-            if content_count < content.len() {
-                content[content_count] = rect;
-                content_count += 1;
-            }
-        }
-        content_count = premerge_damage_rects(&mut content, content_count);
+        //    Each rect with its origin; near rects of one origin are joined.
+        let (content, content_count) = self.pending_damage.take();
         crate::compositor::frame_causes::flushed(
-            content[..content_count].iter().map(|r| u64::from(r.width) * u64::from(r.height)).sum(),
+            content[..content_count].iter().map(|(r, _)| r.area()).sum(),
         );
 
         // GPU-blit-only rect from animation ticks (Plane 1 already current).
@@ -387,7 +389,7 @@ impl DisplayServerRuntime {
         // damage only re-blits it; the thaw re-renders it from the wallpaper.
         let glass_quality = select_glass_quality(PROOF_PANEL_H);
         let recomposite = if self.capture.frozen() { 0 } else { content_count };
-        for rect in content.iter().copied().take(recomposite) {
+        for (rect, _) in content.iter().copied().take(recomposite) {
             if let Err(e) = self.write_damage_rect(rect, glass_quality, paint_only) {
                 // Fold-immune: a failed Plane-1 recomposite silently freezes
                 // the base scene (the wallpaper-swap hunt earned this line).
@@ -397,19 +399,21 @@ impl DisplayServerRuntime {
         }
 
         // 3. Blit list: content + gpu-blit + cursor rects — all refresh the
-        //    display plane from the retained Plane 1.
-        let mut blits = [DamageRect { x: 0, y: 0, width: 0, height: 0 }; 7];
+        //    display plane from the retained Plane 1, each named with its origin's key: a
+        //    re-blitted region's is unknown (0), the pointer is above every layer.
+        let none = DamageRect { x: 0, y: 0, width: 0, height: 0 };
+        let mut blits = [(none, 0u32); crate::damage_rects::PRESENT_DAMAGE_RECTS];
         let mut blit_count = 0usize;
-        for rect in content.iter().copied().take(content_count) {
-            blits[blit_count] = rect;
+        for (rect, origin) in content.iter().copied().take(content_count) {
+            blits[blit_count] = (rect, origin.key);
             blit_count += 1;
         }
         if let Some(rect) = gpu_blit_rect {
-            blits[blit_count] = rect;
+            blits[blit_count] = (rect, 0);
             blit_count += 1;
         }
         if let Some(rect) = cursor_rect {
-            blits[blit_count] = rect;
+            blits[blit_count] = (rect, nexus_gfx::frame::layers::ORIGIN_ABOVE);
             blit_count += 1;
         }
 
@@ -423,7 +427,7 @@ impl DisplayServerRuntime {
             wire.resize(need, 0);
         }
         let built = match wire.get_mut(HEAD..) {
-            Some(body) => self.build_scene_cb_into(&blits, blit_count, body),
+            Some(body) => self.build_scene_cb_into(&blits[..blit_count], body),
             None => Err(WindowdError::InvalidDamage),
         };
         let gpud_ok = match built {
@@ -457,8 +461,8 @@ impl DisplayServerRuntime {
         }
         if !gpud_ok {
             // gpud queue full / backpressured — requeue so the next tick retries.
-            for rect in content.iter().copied().take(content_count) {
-                self.queue_dirty_rect(rect);
+            for (rect, origin) in content.iter().copied().take(content_count) {
+                self.queue_dirty_rect(rect, origin);
             }
             if let Some(rect) = gpu_blit_rect {
                 self.pending_gpu_blit_rect = Some(match self.pending_gpu_blit_rect {
@@ -506,8 +510,7 @@ impl DisplayServerRuntime {
 
     pub(crate) fn has_pending_damage(&self) -> bool {
         self.pending_gpu_blit_rect.is_some()
-            || !self.pending_damage_rects.is_empty()
-            || self.pending_damage_rect.is_some()
+            || !self.pending_damage.is_empty()
             || self.pending_cursor_rect.is_some()
             || self.pending_layer_frame
     }
@@ -531,12 +534,9 @@ impl DisplayServerRuntime {
                 "windowd: present retry n={}",
                 self.present_retry_count
             ));
-            self.queue_dirty_rect(DamageRect {
-                x: 0,
-                y: 0,
-                width: self.mode.width,
-                height: self.mode.height,
-            });
+            let (width, height) = (self.mode.width, self.mode.height);
+            let screen = DamageRect { x: 0, y: 0, width, height };
+            self.queue_dirty_rect(screen, Origin::unknown(Cause::Retry));
             // Full recompose, not a paint-only patch: the failed frame's GPU
             // state is undefined.
             self.paint_only_damage = false;

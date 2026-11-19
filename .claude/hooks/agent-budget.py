@@ -53,7 +53,7 @@ STRONG_TYPES = {
         "sections": ("Facts", "Sources", "Question"),
     },
     "critical-writer": {
-        "total": 2,
+        "total": 3,
         "sections": ("Change", "Invariant", "Files", "Gates"),
     },
 }

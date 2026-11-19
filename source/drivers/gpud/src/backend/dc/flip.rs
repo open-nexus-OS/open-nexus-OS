@@ -144,7 +144,7 @@ impl FlipIrq {
         at_wake: bool,
         stamps: Option<ring::Stamps>,
         now: u64,
-        (cadence, late): (u8, u32),
+        (cadence, late, restarts): (u8, u32, u32),
     ) {
         self.landed = self.landed.saturating_add(1);
         self.at_wake += u32::from(at_wake);
@@ -153,7 +153,7 @@ impl FlipIrq {
             emit(&alloc::format!(
                 "gpud: dc flips (n={} at_wake={} at_pass={} behind={} wakes={} held={} taken={} \
                  vsyncs={} unraised={} underflows={} onl2=0x{:x} out=0x{:x} cadence={cadence} \
-                 paced={} late={late})",
+                 paced={} late={late} restarts={restarts})",
                 self.landed,
                 self.at_wake,
                 self.at_pass,
@@ -265,7 +265,8 @@ impl DcDisplay {
             live.release_splash();
         }
         let at_ns = self.pace.taken_at(self.latched_ns, self.boundary_now());
-        self.pace.note_shown(at_ns);
+        let received_ns = landed.drawn.ack.map_or(0, |_| landed.drawn.stamps.received_ns);
+        self.pace.note_shown(at_ns, received_ns);
         match landed.next {
             Some(next) => self.latch_or_hold(next),
             None => {
@@ -276,7 +277,7 @@ impl DcDisplay {
         }
         let now = nsec().unwrap_or(0);
         let stamps = landed.drawn.ack.map(|_| landed.drawn.stamps);
-        let pace = (self.pace.cadence(), self.pace.late);
+        let pace = (self.pace.cadence(), self.pace.late, self.pace.restarts);
         self.flip_irq.as_mut()?.note_landed(woke, stamps, now, pace);
         let (seq, status) = landed.drawn.ack?;
         let shown = nexus_display_proto::frame_time::Shown {

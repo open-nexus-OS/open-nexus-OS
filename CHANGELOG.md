@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-11-19 (a change is damage where its layer draws it — TASK-0351 P6/P15, TASK-0343 P7, TASK-0355 P1, TASK-0335 P5)
+
+- **Damage carries its origin.** Each rectangle windowd sends to gpud names the topmost layer
+  that draws the change (`windowd/src/damage_origin.rs`; the wire's existing
+  `Command::Damage { rect, origin }`, RFC-0101 §8 amended) instead of an origin guessed from
+  geometry; the pending list joins rectangles of one key only (six at most, `degraded=` when two
+  keys must join), and opening, closing, raising, minimizing, resizing and moving a window name
+  no rectangle on the GPU path — the planner damages the layers that came, went, moved or were
+  reordered. The planner attributes a change to that layer, stops it at an opaque layer that
+  covers it, hands a written glass on to the layers above and counts the writes by origin
+  (`frame/reach.rs`, `gpud: glass writes by (…)`, `windowd: damage wide (…)`).
+- **On the board** (`board--2026-11-19T15-50-37`, 179 windows of 32 frames): tap to the first
+  frame of an open p50 48.5 ms (was 57.7); gpud's frame hop p50 5.4 ms (24.9); the worst frame
+  per window p50 15.6 ms (23.9); 11.1 % of frames dropped (14.8 %); an open of a panel or the
+  Control Center damages 360k-463k px (was 1.3-2.1 Mpx). Still open: transitions show 8-9 of 17
+  frames — each dropped frame is one glass write, mostly a moving panel's own glass (its cache is
+  addressed by its drawn size on both executors) and changes still without a key.
+- **Frame pacing names its misses.** windowd splits early landings into `early0` (nothing in
+  flight) and `early1` (behind another present): 115 against 333 on the board, so the misses are
+  landings judged against the wrong prediction, not the idle floor. gpud counts a landing late
+  only when its present arrived in time for its slot; an idle display's first frame is a
+  `restart` (late 4.0 % of flips, was 13.5 % with the restarts counted in).
+
 ### Changed - 2026-11-19 (the shell moves like the design — TASK-0354 P10/P12/P13)
 
 - **The launcher's pages are a track.** A drag follows the pointer 1:1 once it locked to the

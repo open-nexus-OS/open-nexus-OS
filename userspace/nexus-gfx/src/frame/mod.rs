@@ -8,7 +8,10 @@
 //! backdrop read from its cache or written into it (the destination-so-far key, and nothing
 //! changed within its reach), whether the atlas's content must be uploaded first, and what the
 //! frame changes on the screen (`damage`: the present's `Damage` rectangles, every layer drawn
-//! otherwise than before, every glass blurred again — RFC-0101 §8, TASK-0215 5c-3 P5). The QEMU
+//! otherwise than before, the overlap of layers that swapped their order, every glass blurred
+//! again — RFC-0101 §8, TASK-0215 5c-3 P5). A `Damage` rectangle's origin is the key of the
+//! layer that draws the change: it reaches the glasses above that layer, up to an opaque layer
+//! that covers it (`reach`, TASK-0351 P6). The QEMU
 //! path's virgl executor and the board's GPU executor draw the same plan — the board's through
 //! `board`, the plan lowered into its passes, the slot's pass limited to what the slot lacks
 //! (`damage::History`, buffer age); the CPU path's own recipe commands (`BlitSurface`,
@@ -16,8 +19,8 @@
 //! OWNERS: @ui @gpu
 //! STATUS: Functional
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: `tests/frame_plan.rs`, `tests/frame_motion.rs` (host); the QEMU lanes'
-//!   composite markers
+//! TEST_COVERAGE: `tests/frame_plan.rs`, `tests/frame_motion.rs`, `tests/frame_reach.rs`,
+//!   `tests/frame_reach_oracle.rs` (host); the QEMU lanes' composite markers
 //! INVARIANTS: no allocation (the plan is the frame's own storage); a frame is planned only for a
 //!   present (TASK-0338: a scroll or a move is a present — no executor draws a frame of its own);
 //!   a present without layers keeps the set; a transform holds until a present carries another;
@@ -38,6 +41,7 @@ pub mod occlude;
 pub mod oracle;
 pub mod pieces;
 pub mod plan;
+mod reach;
 pub mod scanout;
 pub mod walk;
 
@@ -51,5 +55,6 @@ pub use glass::{CacheStep, GlassCache, WriteCause};
 pub use kernels::{blur_radius, blur_scale, Gaussian, Weights, BLUR_RADII};
 pub use layers::{FrameLayer, RetainedLayers, Taken, Transform, MAX_LAYERS};
 pub use plan::{Frame, Glass, LayerStep, Planned, Writes};
+pub use reach::WritesBy;
 pub use scanout::direct;
 pub use walk::Draws;

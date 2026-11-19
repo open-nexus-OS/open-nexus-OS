@@ -12,12 +12,9 @@ use alloc::vec::Vec;
 
 use super::damage::Area;
 use super::glass::{fold_layer, glass_key, glass_rows, seed, CacheStep, GlassCache, WriteCause};
-use super::layers::{FrameLayer, RetainedLayers, MAX_LAYERS, ORIGIN_ABOVE};
+use super::layers::{FrameLayer, RetainedLayers, MAX_LAYERS};
 use super::occlude::{self, Px};
-
-/// How far a glass's blur reads beyond its rectangle: the widest blur a layer may ask (64, the
-/// buffer's bound) and the chain's own margin.
-const GLASS_REACH: u32 = 66;
+use super::reach::{px, Changes, GlassAt, Touch, WritesBy, GLASS_REACH};
 
 /// Whether `a` and `b` draw the same pixels at the same place — the layer as drawn, its content
 /// generation and its buffer's slot left out (a content change, a slot flip included, reaches
@@ -50,14 +47,6 @@ fn rows_of(l: &FrameLayer) -> u32 {
     glass_rows(l.height, super::board::blur_scale(super::board::blur_radius(l.backdrop_blur)))
 }
 
-/// An area as a rectangle in pixels; `None` for no area and for the whole screen.
-fn px(a: Area) -> Option<Px> {
-    match a {
-        Area::Rect { x0, y0, x1, y1 } => Some((x0, y0, x1 - x0, y1 - y0)),
-        _ => None,
-    }
-}
-
 /// A glass layer's step.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Glass {
@@ -88,6 +77,8 @@ pub struct Planned {
     pub layers: usize,
     /// The glass writes of this frame by cause (TASK-0336 P0).
     pub writes: Writes,
+    /// The same writes by what reached the glass (TASK-0351 P6).
+    pub by: WritesBy,
     /// The atlas's content changed since its last upload: upload before the layers draw.
     pub upload: bool,
     /// What this frame changes on the screen (RFC-0101 §8): a plane shown this frame must be
@@ -146,8 +137,11 @@ pub struct Frame {
     ids: Vec<Ident>,
     carried: Vec<Option<usize>>,
     kept: Vec<bool>,
-    /// The opaque rectangles above a glass that touch what its write would change.
+    /// The opaque rectangles above a glass that touch what its write would change — and, while
+    /// a change is asked for, the covers between it and the glass (`reach`).
     above: Vec<Px>,
+    /// The frame's changes by their place in the walk (`reach`).
+    changes: Changes,
 }
 
 /// `v` emptied with room for `n` entries; how many it has room for (all of them unless the
@@ -172,6 +166,7 @@ impl Frame {
             carried: Vec::new(),
             kept: Vec::new(),
             above: Vec::new(),
+            changes: Changes::new(),
         }
     }
 
@@ -195,18 +190,6 @@ impl Frame {
         if full {
             damage = Area::Full;
         }
-        // A glass blurs its backdrop again for a change below it: the base's (origin 0), a
-        // window's below it in the walk, an unknown origin's; never for its own content, a
-        // window's above it or the pointer's.
-        let origin_below = |origin: u32, j: usize, own_id: u32| -> bool {
-            origin == 0
-                || (origin != ORIGIN_ABOVE
-                    // Every slice of a window shares its id: a window's own change is never
-                    // below one of its own glasses (cycle 41: the second slice counted the
-                    // first as below it).
-                    && origin != own_id
-                    && self.layers.index_of_id(origin).is_none_or(|i| i < j))
-        };
         // The last plan by identity (RFC-0109): a layer is compared with — and keeps the glass
         // rows of — the layer of its key in the last plan, wherever either stands in its list.
         let last = self.steps.len();
@@ -226,6 +209,7 @@ impl Frame {
             && room(&mut carried, want) == want
             && room(&mut kept, last) == last
             && room(&mut above, want) == want
+            && self.changes.begin(want)
             && self.prev.try_reserve(last).is_ok()
             && self.steps.try_reserve(want.saturating_sub(last)).is_ok()
             && self.idents.try_reserve(want.saturating_sub(last)).is_ok();
@@ -252,8 +236,16 @@ impl Frame {
         }
         self.glass.carry(&carried);
         self.steps.clear();
+        // A glass blurs its backdrop again for a change below it (`reach`): the present's
+        // rectangles at the steps their origins name, the overlap of layers that swapped their
+        // order — which changes the screen though neither is drawn otherwise — and, as the walk
+        // goes up, every glass blurred again below it.
+        if fits {
+            self.changes.name(named, &self.layers, &drawn);
+            damage = damage.union(self.changes.reorder(&carried, &drawn, extent));
+        }
         let wallpaper = seed(display.0, display.1, self.glass.wallpaper_epoch);
-        let mut writes = Writes::default();
+        let (mut writes, mut by) = (Writes::default(), WritesBy::default());
         for (i, &layer) in drawn.iter().enumerate() {
             let before = carried[i].map(|j| self.prev[j]);
             if before.is_none_or(|b| !same_drawing(&b, &layer)) {
@@ -273,33 +265,20 @@ impl Frame {
                 let rows = rows_of(&layer);
                 let rect = Area::rect(layer.dst_x, layer.dst_y, layer.width, layer.height);
                 let reach = rect.grown(GLASS_REACH);
-                // The desktop's own glass regions (id 0: the dock's buttons, the bar's pills)
-                // draw the desktop surface's pixels over a blur of the same surface: a change
-                // of the desktop within such a region is the region's own content, not its
-                // backdrop (cycle 38: those regions were blurred again every frame).
-                let own = |r: &Area, o: u32| o == 0 && layer.layer_id == 0 && r.inside(rect);
-                // The damage below the glass within its reach: the band it blurs again
+                // The changes below the glass within its reach: the band it blurs again
                 // (TASK-0335 P1). A full present, a new backdrop (the key) or rows at a new
                 // place blur the whole glass.
-                let reaches = |r: &Area, o: u32| {
-                    origin_below(o, i, layer.layer_id) && r.touches(reach) && !own(r, o)
-                };
-                let band = if full {
-                    Area::Full
+                let touch = if full {
+                    Touch::FULL
                 } else {
-                    named.iter().fold(Area::None, |a, (r, o)| {
-                        if reaches(r, *o) {
-                            a.union(r.intersect(reach))
-                        } else {
-                            a
-                        }
-                    })
+                    let at = GlassAt { index: i, rect, id: layer.layer_id };
+                    self.changes.touch(&at, &self.steps, &mut above)
                 };
-                let by_base = !full && named.iter().any(|(r, o)| *o == 0 && reaches(r, *o));
+                let rested = self.glass.rested(i);
                 // What the rows still owe — a write put off while nobody could see it — is
                 // part of the band until a write pays it.
-                let (now, owed) = (band != Area::None, self.glass.owed(i));
-                let band = band.union(owed);
+                let (now, owed) = (touch.band != Area::None, self.glass.owed(i));
+                let band = touch.band.union(owed);
                 let touched = band != Area::None;
                 // The backdrop is what lies below the glass within its reach (RFC-0109): a
                 // layer drawn elsewhere — a scroll layer's slice in another window, a hover's
@@ -316,12 +295,7 @@ impl Frame {
                 // reach only a moving window touched, keeps its last blur — what nobody can
                 // see sharp is not computed; one write when the motion rests.
                 let moving = self.layers.in_motion(layer.layer_id)
-                    || (now
-                        && owed == Area::None
-                        && named.iter().all(|(r, o)| {
-                            !(origin_below(*o, i, layer.layer_id) && r.touches(reach))
-                                || (*o != 0 && *o != ORIGIN_ABOVE && self.layers.in_motion(*o))
-                        }));
+                    || (now && owed == Area::None && touch.motion_only);
                 // Cost follows what is seen (TASK-0351 P6): a write changes the glass where its
                 // backdrop did, grown by the blur's reach. Where opaque layers above hide all
                 // of that — a window under the windows opened over it — nothing on the screen
@@ -348,7 +322,10 @@ impl Frame {
                     });
                 let put_off = if hidden { self.glass.put_off(i, key, rows, band) } else { None };
                 let cache = match self.glass.keep(i, rows).filter(|_| moving && !full) {
-                    Some(kept) => kept,
+                    Some(kept) => {
+                        self.glass.hold(i);
+                        kept
+                    }
                     None => match put_off {
                         Some(read) => {
                             writes.hidden = writes.hidden.saturating_add(1);
@@ -358,18 +335,23 @@ impl Frame {
                     },
                 };
                 // What the glass shows changes where its blurred backdrop did: the band grown by
-                // the blur's reach, within the glass (the whole glass when blurred live or anew).
-                match cache {
-                    CacheStep::Read(_) => {}
+                // the blur's reach, within the glass (the whole glass when blurred live or anew)
+                // — the frame's damage, and a change of this step for the glasses above it.
+                let shown = match cache {
+                    CacheStep::Read(_) => Area::None,
                     CacheStep::Write(_) => {
-                        writes.note(if full { WriteCause::Full } else { miss });
-                        if miss == WriteCause::Band && by_base {
+                        let cause = if full { WriteCause::Full } else { miss };
+                        writes.note(cause);
+                        by.note(&touch, cause, rested);
+                        if miss == WriteCause::Band && touch.base {
                             writes.band_base = writes.band_base.saturating_add(1);
                         }
-                        damage = damage.union(band.grown(GLASS_REACH).intersect(rect));
+                        band.grown(GLASS_REACH).intersect(rect)
                     }
-                    CacheStep::Off => damage = damage.union(rect),
-                }
+                    CacheStep::Off => rect,
+                };
+                damage = damage.union(shown);
+                self.changes.written(i, shown);
                 Some(Glass { cache, rows, band })
             };
             let upload = buffer_upload(&layer, before, self.layers.buffers_lost);
@@ -389,7 +371,7 @@ impl Frame {
         if upload && set_epoch != 0 {
             self.layers.uploaded_epoch = set_epoch;
         }
-        Planned { layers: count, writes, upload, damage }
+        Planned { layers: count, writes, by, upload, damage }
     }
 
     /// The cache grew by a plane after the last plan found it short (`GlassCache::short`): the

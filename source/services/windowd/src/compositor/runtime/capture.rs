@@ -353,12 +353,8 @@ impl DisplayServerRuntime {
     /// (CPU paths), the wallpaper texture re-uploaded from plane 0 (GL); windows return.
     fn capture_thaw_effects(&mut self) {
         self.capture.owed.thaw = !self.capture_send_wallpaper_dirty();
-        self.queue_dirty_rect(DamageRect {
-            x: 0,
-            y: 0,
-            width: self.mode.width,
-            height: self.mode.height,
-        });
+        let screen = DamageRect { x: 0, y: 0, width: self.mode.width, height: self.mode.height };
+        self.queue_dirty_rect(screen, Origin::unknown(Cause::Capture));
         self.queue_full_frame_damage();
         let _ = debug_println("windowd: capture freeze off");
     }

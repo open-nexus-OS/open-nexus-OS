@@ -6,10 +6,19 @@ status: in_progress
 status_note: "P4's first cuts board-proven in cycle 62; the rest — the band's clean, the blur's dual filter — parked to layer 8's closing by the operator 2026-10-22"
 owner: ["@gpu", "@ui"]
 created: 2026-10-20
-updated: 2026-11-13
+updated: 2026-11-19
 subsystem: ui
+kind: service
+novelty: variant
+estimate: 2
 started: 2026-10-21
 dates_source: git-reconstructed
+goal:
+  metric: "the GPU frame's cost with glass on screen and frames dropped per measurement window"
+  baseline: "glass_w 0.5-2.4 writes a frame in the FAIL windows (gpud: gpu frame us), a panel switch 8.7 Mpx a frame with 29 of 32 dropped (board--2026-11-19T13-14-36 l.4937-4967); 553 of 3744 frames dropped over 117 windows, worst frame p50 23.9 ms p90 82 ms; opens dc present avg 24.9 ms (board--2026-11-19T12-13-37)"
+  target: "dc present avg <= 8 ms with glass; 0 of 32 dropped in a transition window; worst frame p90 <= 16.7 ms"
+  instrument: "gpud: dc present us · gpud: gpu frame us (glass_w=) · gpud: ux frame (dropped=, max_us=) over the operator's session"
+consumer: TASK-0355/P2
 depends_on: [TASK-0334, TASK-0215]
 follow_ups: [TASK-0336, TASK-0337]
 implements: [RFC-0108, RFC-0101]
@@ -66,12 +75,17 @@ phases:
     evidence: docs/board/measurements/2026-10-22-frame-pace/README.md
   - id: P5
     story: "a scroll frame with an upload keeps the rows it already cleaned: only the rows the upload wrote are forgotten"
-    state: planned
+    state: done
     gate: "board: the CPU's clean in the chat's scroll windows below 1 ms a frame (was 2.3-2.6 ms in six of nine, cycle 62)"
+    started: 2026-11-19
+    done: 2026-11-19
+    evidence: "board board--2026-11-19T15-50-37: gpud gpu frame us clean= at most 74 us in every window of the series (chat and Settings scrolls included; gate < 1000 us)"
+    note: "2026-11-19 DONE by measurement (board--2026-11-19T15-50-37, architect: app surfaces are buffers the app cleans, desktop.rs skips source != 0): clean <= 74 us."
   - id: P6
     story: "the blur runs the dual filter (a down/up chain at half and quarter resolution) where it is cheaper than the separable gaussian, priced first by gpud: gpu work"
-    state: planned
+    state: dropped
     gate: "board: blur ns per glass write below the gaussian's on the operator's series; gpud: ux frame FAIL leaves config/fail-marker-allow-board.txt"
+    note: "2026-11-19 priced (architect, build/agents/arch-frame-budget-glass-2026-11-19.md): blur_px is 1.5-3 % of a frames pixels; a glass write costs its full-resolution scene pass, not the blur — the dual filter is not the lever. Operator decides whether the story is retired. Operator 2026-11-19: dropped — the blur is not the lever (1.5-3 % of a frames pixels); the frame cost is the scene pass a glass write runs, cut by TASK-0351 P6s damage origin."
 ---
 
 ## Context

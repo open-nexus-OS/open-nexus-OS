@@ -60,13 +60,25 @@ pub(super) struct Pace {
     cadence: u8,
     /// The boundary the last flip was taken at (0: none yet).
     last_shown_ns: u64,
-    /// Landings later than their slot.
+    /// Landings later than their slot whose present was received in time for it (at least half
+    /// a period before the slot).
     pub(super) late: u32,
+    /// Landings past their slot whose present came too late to make it — the first frame after
+    /// an idle display, never the driver's miss (TASK-0343 P7: they were counted late).
+    pub(super) restarts: u32,
 }
 
 impl Pace {
     pub(super) const fn new(timing: Timing) -> Self {
-        Self { timing, draws: [0; WINDOW], noted: 0, cadence: 1, last_shown_ns: 0, late: 0 }
+        Self {
+            timing,
+            draws: [0; WINDOW],
+            noted: 0,
+            cadence: 1,
+            last_shown_ns: 0,
+            late: 0,
+            restarts: 0,
+        }
     }
 
     pub(super) fn timing(&self) -> Timing {
@@ -109,11 +121,18 @@ impl Pace {
         }
     }
 
-    /// A flip landed at the boundary `at_ns`.
-    pub(super) fn note_shown(&mut self, at_ns: u64) {
+    /// A flip landed at the boundary `at_ns`; its present was received at `received_ns` (0: it
+    /// carries no stamps — never late). Past its slot it is late only when the present was in
+    /// time for that slot; otherwise the display restarted (it idled, the present came after).
+    pub(super) fn note_shown(&mut self, at_ns: u64, received_ns: u64) {
         let p = self.timing.period_ns;
-        if self.last_shown_ns != 0 && at_ns > self.slot() + p / 2 {
-            self.late = self.late.saturating_add(1);
+        let slot = self.slot();
+        if self.last_shown_ns != 0 && at_ns > slot + p / 2 {
+            if received_ns != 0 && received_ns.saturating_add(p / 2) <= slot {
+                self.late = self.late.saturating_add(1);
+            } else {
+                self.restarts = self.restarts.saturating_add(1);
+            }
         }
         self.last_shown_ns = at_ns;
     }
@@ -195,7 +214,7 @@ mod tests {
         assert_eq!(pace.cadence(), 2);
         let b0 = 1_000 * MS;
         assert!(pace.may_latch(b0), "before a first landing nothing is held");
-        pace.note_shown(b0);
+        pace.note_shown(b0, 0);
         // Drawn in the frame that began at the landing: the next boundary is a period early.
         assert!(!pace.may_latch(b0));
         // In the next frame: taken at the boundary after it — the slot.
@@ -210,7 +229,7 @@ mod tests {
         for _ in 0..WINDOW {
             pace.note_draw(10 * MS);
         }
-        pace.note_shown(1_000 * MS);
+        pace.note_shown(1_000 * MS, 0);
         assert!(pace.may_latch(1_000 * MS), "at cadence one a drawn frame is latched at once");
     }
 
@@ -229,10 +248,34 @@ mod tests {
     #[test]
     fn a_landing_past_its_slot_is_counted_late() {
         let mut pace = sixty();
-        pace.note_shown(1_000 * MS);
-        pace.note_shown(1_000 * MS + P);
+        let t0 = 1_000 * MS;
+        pace.note_shown(t0, t0 - P);
+        pace.note_shown(t0 + P, t0);
         assert_eq!(pace.late, 0);
-        pace.note_shown(1_000 * MS + 3 * P);
-        assert_eq!(pace.late, 1, "a period skipped at cadence one");
+        pace.note_shown(t0 + 3 * P, t0 + P);
+        assert_eq!(pace.late, 1, "a period skipped at cadence one, received in time");
+    }
+
+    /// The first frame after an idle display lands past the old slot because nothing was sent:
+    /// a restart, not the driver's miss.
+    #[test]
+    fn a_landing_after_an_idle_display_is_not_late() {
+        let mut pace = sixty();
+        let t0 = 1_000 * MS;
+        pace.note_shown(t0, t0 - P);
+        pace.note_shown(t0 + 40 * P, t0 + 39 * P);
+        assert_eq!((pace.late, pace.restarts), (0, 1));
+        pace.note_shown(t0 + 50 * P, 0);
+        assert_eq!((pace.late, pace.restarts), (0, 2), "no stamps: never late");
+    }
+
+    /// A present received a period before its slot that still lands later is the driver's miss.
+    #[test]
+    fn test_reject_excusing_a_frame_received_in_time() {
+        let mut pace = sixty();
+        let t0 = 1_000 * MS;
+        pace.note_shown(t0, t0 - P);
+        pace.note_shown(t0 + 2 * P, t0);
+        assert_eq!((pace.late, pace.restarts), (1, 0));
     }
 }

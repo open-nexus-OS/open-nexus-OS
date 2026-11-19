@@ -399,11 +399,12 @@ impl Desktop {
                 }
                 if let Some(l) = self.frame.step(i).map(|s| s.layer) {
                     emit_fmt(format_args!(
-                        "gpud: gpu glass written (i={i} rect={},{},{}x{} id={} blur={} src_row={})",
+                        "gpud: gpu glass written (i={i} rect={},{},{}x{} key={} id={} blur={} src_row={})",
                         l.dst_x,
                         l.dst_y,
                         l.width,
                         l.height,
+                        l.key,
                         l.layer_id,
                         l.backdrop_blur,
                         l.src_row_abs
@@ -457,7 +458,7 @@ impl Desktop {
         let mut split = [plan_ns, 0, 0, 0, 0];
         let mut witness = [0u64; 3];
         let mut work = super::desktop_work::Work::default();
-        work.note_plan(planned.writes, planned.layers);
+        work.note_plan(planned.writes, planned.by, planned.layers);
         // At most two passes in flight: the context's two render-target data alternate per
         // pass (the firmware's, `render.rs`); a third pass in the queue would reuse the data of
         // one still drawing — cycle 40's lockup. Pass p waits for pass p − 2 before it is

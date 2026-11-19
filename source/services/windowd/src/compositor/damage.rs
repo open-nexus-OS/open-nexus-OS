@@ -57,7 +57,21 @@ fn flush_error_label(err: WindowdError) -> &'static str {
     }
 }
 
-pub(crate) use crate::damage_rects::{premerge_damage_rects, queue_damage_rect, DamageRect};
+pub(crate) use crate::damage_rects::DamageRect;
+use crate::damage_rects::{wide_line, Origin, PendingDamage};
+
+/// One rect into the present's pending damage, with the layer that draws it: counted on the loop
+/// line, named when it is a megapixel or more, and counted again when the list was full and it
+/// cost an origin (`degraded`).
+pub(crate) fn queue(pending: &mut PendingDamage, rect: DamageRect, origin: Origin) {
+    super::frame_causes::queued(rect.area());
+    if let Some(line) = wide_line(rect, origin) {
+        let _ = nexus_abi::debug_println(&line);
+    }
+    if pending.queue(rect, origin) {
+        super::frame_causes::degraded();
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum GlassQuality {

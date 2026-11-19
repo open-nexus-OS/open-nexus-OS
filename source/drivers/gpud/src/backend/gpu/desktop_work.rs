@@ -15,7 +15,7 @@
 //! TEST_COVERAGE: `Board::work_px` on the host (`tests/frame_board.rs`), the write causes in
 //!   `tests/frame_motion.rs`; the lines on the board
 
-use nexus_gfx::frame::{Target, Writes, PROGRAM_KINDS};
+use nexus_gfx::frame::{Target, Writes, WritesBy, PROGRAM_KINDS};
 
 use super::contexts::Holdings;
 use super::emit_fmt;
@@ -25,9 +25,10 @@ use super::series::LAST;
 /// cache rows); the glass writes by cause (TASK-0336 P0: band, backdrop, new, full, the band
 /// writes the base's change reached — and the glasses whose rows owed a hidden change,
 /// TASK-0351 P6); and the pixels by program (TASK-0335 P4: opaque, straight, rounded, shadow,
-/// blur); and the layers the frames composed (TASK-0351 P0).
+/// blur); and the layers the frames composed (TASK-0351 P0); and the glass writes by the origin
+/// class of what caused them (TASK-0351 P6: below, glass, unknown, moved, order, rest).
 #[derive(Clone, Copy, Debug, Default)]
-pub(super) struct Work([u64; 3], [u64; 6], [u64; PROGRAM_KINDS], u64, [u64; 8]);
+pub(super) struct Work([u64; 3], [u64; 6], [u64; PROGRAM_KINDS], u64, [u64; 8], [u64; 6]);
 
 impl Work {
     /// The slot pass's blended pixels by layer kind (`Board::blended_by_kind`, TASK-0351 P14);
@@ -54,10 +55,15 @@ impl Work {
         }
     }
 
-    /// A frame's plan: its glass writes by cause, and the layers it composes.
-    pub(super) fn note_plan(&mut self, w: Writes, layers: usize) {
+    /// A frame's plan: its glass writes by cause and by origin class, and the layers it composes.
+    pub(super) fn note_plan(&mut self, w: Writes, by: WritesBy, layers: usize) {
         for (acc, n) in
             self.1.iter_mut().zip([w.band, w.backdrop, w.new, w.full, w.band_base, w.hidden])
+        {
+            *acc += u64::from(n);
+        }
+        for (acc, n) in
+            self.5.iter_mut().zip([by.below, by.glass, by.unknown, by.moved, by.order, by.rest])
         {
             *acc += u64::from(n);
         }
@@ -77,6 +83,9 @@ impl Work {
         }
         self.3 += frame.3;
         for (acc, w) in self.4.iter_mut().zip(frame.4) {
+            *acc += w;
+        }
+        for (acc, w) in self.5.iter_mut().zip(frame.5) {
             *acc += w;
         }
     }
@@ -122,6 +131,13 @@ impl Work {
         emit_fmt(format_args!(
             "gpud: glass writes (band={} backdrop={} new={} full={} band_base={} hidden={})",
             w[0], w[1], w[2], w[3], w[4], w[5]
+        ));
+        // TASK-0351 P6: what the glass writes came from — `unknown` is a change queued without
+        // its layer (windowd's origin 0), the share the damage origin aims to bring to 0.
+        let b = self.5;
+        emit_fmt(format_args!(
+            "gpud: glass writes by (below={} glass={} unknown={} moved={} order={} rest={})",
+            b[0], b[1], b[2], b[3], b[4], b[5]
         ));
     }
 }

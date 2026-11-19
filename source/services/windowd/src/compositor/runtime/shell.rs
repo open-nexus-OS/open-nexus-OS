@@ -319,12 +319,9 @@ impl DisplayServerRuntime {
             }
             // Full CPU repaint: mark every tile dirty (the GPU blit rect from
             // `queue_full_frame_damage` below alone skips the wallpaper bands).
-            self.queue_dirty_rect(DamageRect {
-                x: 0,
-                y: 0,
-                width: self.mode.width,
-                height: self.mode.height,
-            });
+            let screen =
+                DamageRect { x: 0, y: 0, width: self.mode.width, height: self.mode.height };
+            self.queue_dirty_rect(screen, Origin::unknown(Cause::Shell));
             // Fold-immune proof the swap ran (this decided a user-visible bug).
             let _ = nexus_abi::debug_write(match mode {
                 crate::theme::ThemeMode::Dark => b"windowd: wallpaper swapped dark\n".as_slice(),

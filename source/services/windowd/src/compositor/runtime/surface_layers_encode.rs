@@ -19,6 +19,7 @@
 //! API_STABILITY: Internal
 //! TEST_COVERAGE: the geometry in `surface_layers.rs`; the encode on the QEMU lanes.
 
+use crate::damage_origin::MOTION_KEY_BASE;
 use crate::layer_geometry::{pieces, wash_place, Piece, SurfaceLayers, MAX_PIECES};
 use crate::layer_quota::LayerQuota;
 use crate::motion_geometry::{backdrop_id, layer_id as motion_id, region_owner, scroll_owner};
@@ -114,8 +115,6 @@ fn inside(inner: Rect, outer: Rect) -> bool {
         && inner.1 + inner.3 <= outer.1 + outer.3
 }
 
-/// The first store key index of the motion layers' own pixels (slices use `k * MAX_PIECES + j`).
-const MOTION_KEY_BASE: u32 = 0x80;
 /// The first wash key index of the motion layers' backdrops (washes use their index).
 const BACKDROP_KEY_BASE: u32 = 0x80;
 

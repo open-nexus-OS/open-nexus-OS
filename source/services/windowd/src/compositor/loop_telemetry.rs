@@ -31,7 +31,7 @@ pub(super) struct LoopTelemetry {
     nack_base: u32,
     fullrq_base: u32,
     /// RFC-0110: the judged landings (on time, late, early) at the window's start.
-    pace_base: [u32; 3],
+    pace_base: [u32; 5],
     /// TASK-0333 6b-2 P0: the atlas high-water last reported.
     atlas_peak: u32,
 }
@@ -45,7 +45,7 @@ impl LoopTelemetry {
             seq_base: 0,
             nack_base: 0,
             fullrq_base: 0,
-            pace_base: [0; 3],
+            pace_base: [0; 5],
             atlas_peak: 0,
         }
     }
@@ -77,7 +77,7 @@ impl LoopTelemetry {
             // that can wedge the compositor, so it belongs next to the cadence.
             let (ch, cap, shared) = super::reply_route::counts();
             let (content, blit, pointer, moved, keepalive, shape) = super::frame_causes::take();
-            let (rects, queued_px, flushed_px) = super::frame_causes::take_damage();
+            let (rects, queued_px, flushed_px, degraded) = super::frame_causes::take_damage();
             let (flush_us, released, held_us, base_rows, base_us) =
                 super::frame_causes::take_work();
             let refused = super::frame_causes::take_refused();
@@ -88,7 +88,7 @@ impl LoopTelemetry {
             let (behind, queued_max, dropped) = runtime.client_census();
             let [by_gpud, by_req, by_timer, pulse_req] = super::frame_causes::take_wakes();
             let _ = debug_println(&alloc::format!(
-                "windowd: loop hz={} apply={} present={} nack={} fullrq={} reply(ch={} cap={} shared={}) frames(content={} blit={} pointer={} moved={} keepalive={} shape={}) windows(drawn={win_drawn} occluded={win_occluded}) damage(rects={rects} queued_px={queued_px} flushed_px={flushed_px}) clients(behind={behind} queued_max={queued_max} dropped={dropped}) work(flush_us_max={flush_us} released={released} held_us_max={held_us} base_rows={base_rows} base_us={base_us}) layers(refused={refused}) woke(gpud={by_gpud} req={by_req} frame_req={pulse_req} timer={by_timer})",
+                "windowd: loop hz={} apply={} present={} nack={} fullrq={} reply(ch={} cap={} shared={}) frames(content={} blit={} pointer={} moved={} keepalive={} shape={}) windows(drawn={win_drawn} occluded={win_occluded}) damage(rects={rects} queued_px={queued_px} flushed_px={flushed_px} degraded={degraded}) clients(behind={behind} queued_max={queued_max} dropped={dropped}) work(flush_us_max={flush_us} released={released} held_us_max={held_us} base_rows={base_rows} base_us={base_us}) layers(refused={refused}) woke(gpud={by_gpud} req={by_req} frame_req={pulse_req} timer={by_timer})",
                 self.iters,
                 self.applies,
                 presents,
@@ -124,12 +124,12 @@ impl LoopTelemetry {
             // RFC-0110: the presents shown when windowd predicted — the time the clients'
             // frame pulses named — more than half a period late, or early; the cadence gpud holds.
             let (judged, cadence, period_ns) = runtime.frame_pace();
-            let [on_time, late, early] =
+            let [on_time, late, early, early0, early1] =
                 core::array::from_fn(|k| judged[k].wrapping_sub(self.pace_base[k]));
             if on_time + late + early > 0 {
                 let _ = debug_println(&alloc::format!(
                     "windowd: frame pace (on_time={on_time} late={late} early={early} \
-                     cadence={cadence} period_us={})",
+                     early0={early0} early1={early1} cadence={cadence} period_us={})",
                     period_ns / 1000
                 ));
             }

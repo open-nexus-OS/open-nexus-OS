@@ -149,8 +149,7 @@ impl DisplayServerRuntime {
             let full = DamageRect { x: 0, y: 0, width: self.mode.width, height: self.mode.height };
             let mut frame_buf = [0u8; 8192];
             let sent = match self.build_scene_cb_into(
-                &[full],
-                1,
+                &[(full, 0)],
                 &mut frame_buf[nexus_display_proto::PRESENT_HEADER_LEN..],
             ) {
                 Ok(written) => Some(self.send_gpud_present(
@@ -242,8 +241,7 @@ impl DisplayServerRuntime {
         let full = DamageRect { x: 0, y: 0, width: self.mode.width, height: self.mode.height };
         let mut frame_buf = [0u8; 8192];
         let ok = match self.build_scene_cb_into(
-            &[full],
-            1,
+            &[(full, 0)],
             &mut frame_buf[nexus_display_proto::PRESENT_HEADER_LEN..],
         ) {
             Ok(written) => self.send_gpud_present(
@@ -253,7 +251,7 @@ impl DisplayServerRuntime {
         };
         if !ok {
             // Backpressured: the present loop's next full frame reveals instead.
-            self.queue_dirty_rect(full);
+            self.queue_dirty_rect(full, Origin::unknown(Cause::Shell));
         }
         // The ack lands on a later drain; `on_revealed` prints the visible markers then.
         self.drain_gpud_replies();

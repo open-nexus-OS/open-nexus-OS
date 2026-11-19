@@ -46,10 +46,10 @@ impl Pulses {
 
     /// The judged landings so far — on time, late, early — and the cadence and period gpud
     /// named last (`windowd: frame pace (`).
-    pub(crate) fn pace(&self) -> ([u32; 3], u8, u32) {
+    pub(crate) fn pace(&self) -> ([u32; 5], u8, u32) {
         let c = &self.clock;
         let (cadence, period) = c.shown().map_or((0, 0), |s| (s.cadence, s.period_ns));
-        ([c.on_time, c.late, c.early], cadence, period)
+        ([c.on_time, c.late, c.early, c.early0, c.early1], cadence, period)
     }
 }
 
@@ -103,7 +103,7 @@ impl DisplayServerRuntime {
     }
 
     /// The judged landings so far, the cadence and the period (`windowd: frame pace (`).
-    pub(crate) fn frame_pace(&self) -> ([u32; 3], u8, u32) {
+    pub(crate) fn frame_pace(&self) -> ([u32; 5], u8, u32) {
         self.pulses.pace()
     }
 
@@ -117,7 +117,8 @@ impl DisplayServerRuntime {
     /// windowd sends the present `seq` now: the landing predicted for it, kept to judge.
     pub(super) fn note_present_sent(&mut self, seq: u32, now_ns: u64) {
         if let Some((at, _)) = self.next_frame_shown(now_ns) {
-            self.pulses.clock.note_sent(seq, at);
+            let in_flight = self.frames_in_flight();
+            self.pulses.clock.note_sent(seq, at, in_flight);
         }
     }
 

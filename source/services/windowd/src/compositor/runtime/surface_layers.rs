@@ -13,8 +13,10 @@
 //! API_STABILITY: Internal
 //! TEST_COVERAGE: the geometry in `crate::layer_geometry`; the handlers on the QEMU lanes.
 
+use super::surface_layers_encode as encode;
 use super::*;
-use crate::layer_geometry::{owns, store_damage, STORE_DAMAGE_MAX};
+use crate::damage_origin::{origins, region_key, Changed};
+use crate::layer_geometry::{owns, store_damage_each, StoreLayer};
 pub(crate) use crate::layer_geometry::{SurfaceLayers, TreeChange};
 use nexus_display_proto::surface_layers::{self as proto, SurfaceMotion, SurfaceTree};
 
@@ -135,43 +137,55 @@ impl DisplayServerRuntime {
         let layers = idx.map_or(self.desktop_layers, |i| self.apps[i].layers);
         let base_h = u32::from(surface.height);
         let display = (self.mode.width, self.mode.height);
-        let queue = |rt: &mut Self, r: (u32, u32, u32, u32)| {
+        // Each rectangle goes with its origin (RFC-0101 §8): the layer of this surface that
+        // draws the change, as `damage_origin::origins` names it.
+        let owner = idx.map_or(encode::DESKTOP_OWNER, |i| self.window_key(i));
+        let queue = |rt: &mut Self, r: (u32, u32, u32, u32), key: u32, cause: Cause| {
             // Where the scene draws these pixels, cut at the frame and the display.
             if let Some((x0, y0, w, h)) = place.on_screen(r, display) {
                 let dr = DamageRect { x: x0, y: y0, width: w, height: h };
-                rt.queue_dirty_rect(dr);
+                rt.queue_dirty_rect(dr, Origin::of(key, cause));
                 if idx.is_none() {
                     rt.invalidate_blur_over(dr, None);
                 }
             }
         };
+        let named = |rt: &mut Self, changed: Changed, cause: Cause| {
+            origins(&layers, owner, changed, |key, r| queue(rt, r, key, cause));
+        };
         let whole = (0, 0, u32::MAX, u32::MAX);
         if rects.is_empty() || change.whole {
-            queue(self, whole);
+            named(self, Changed::Base(whole), Cause::PresentWhole);
         }
         // TASK-0351 P15 / TASK-0354 P2: a region that moved damages where it was and is, a region
-        // or a motion layer that came or went where it is or was — never the whole surface.
-        for r in change.rects() {
-            queue(self, *r);
+        // or a motion layer that came or went where it is or was — never the whole surface. A
+        // region still there draws its own change; what went is no layer: its origin is unknown.
+        for (i, r) in change.rects().iter().enumerate() {
+            let key = change.region_of(i).map_or(0, |region| region_key(owner, region));
+            queue(self, *r, key, Cause::MovedRegion);
         }
         for (k, s) in layers.tree.scrolls().iter().enumerate() {
             if change.bands & (1 << k) != 0 {
-                queue(self, (u32::from(s.vx), u32::from(s.vy), u32::from(s.vw), u32::from(s.vh)));
+                let viewport = (u32::from(s.vx), u32::from(s.vy), u32::from(s.vw), u32::from(s.vh));
+                named(self, Changed::Store(StoreLayer::Scroll(k), viewport), Cause::Band);
             }
         }
         for r in rects {
             let (x, y, w, h) =
                 (u32::from(r.x), u32::from(r.y), u32::from(r.width), u32::from(r.height));
             if y < base_h {
-                queue(self, (x, y, w, (y + h).min(base_h) - y));
+                let base = (x, y, w, (y + h).min(base_h) - y);
+                named(self, Changed::Base(base), Cause::PresentRect);
             }
             if y + h > base_h {
                 let top = y.max(base_h);
-                let mut views = [(0, 0, 0, 0); STORE_DAMAGE_MAX];
-                let n = store_damage(&layers, (x, top, w, y + h - top), &mut views);
-                for v in &views[..n] {
-                    queue(self, *v);
-                }
+                store_damage_each(&layers, (x, top, w, y + h - top), |layer, view| {
+                    let cause = match layer {
+                        StoreLayer::Scroll(_) => Cause::Band,
+                        StoreLayer::Motion(_) => Cause::PresentRect,
+                    };
+                    named(self, Changed::Store(layer, view), cause);
+                });
             }
         }
     }

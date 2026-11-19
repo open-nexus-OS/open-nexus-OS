@@ -282,15 +282,15 @@ fn a_scroll_inside_a_glass_window_computes_no_corner_and_no_shadow() {
     });
     let scroll = layer(|l| {
         rect(120, 160, 760, 500)(l);
-        (l.src_x, l.layer_id) = (900, 1);
+        (l.src_x, l.layer_id, l.key) = (900, 1, 0x1_0001);
     });
     planned(&mut f, &[window.clone(), scroll.clone()]);
     // The next present scrolls: the same layers, the damage the scroll layer's viewport, named
-    // by the window's own transform (its content, not its backdrop) — the glass is read from
-    // its rows.
+    // by the scroll layer's key (RFC-0101 §8: the layer that draws the change — above the
+    // window's glass, so its content, not its backdrop) — the glass is read from its rows.
     let viewport = Command::Damage {
         rect: nexus_gfx::core::types::TileRect { x: 120, y: 160, width: 760, height: 500 },
-        origin: 1,
+        origin: 0x1_0001,
     };
     let p = planned(&mut f, &[window, scroll, viewport]);
     let b = Board::new(&f, p, DISPLAY, LAYOUT_ROWS, HALF_ROWS).with_area((120, 160, 879, 659));

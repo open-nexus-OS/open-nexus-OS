@@ -163,7 +163,8 @@ fn every_glass_write_names_its_cause() {
 fn a_glass_of_a_window_in_motion_keeps_its_blur_and_writes_once_at_rest() {
     let mut f = ready_frame(2048);
     let base = layer(0, 0, 1920, 1080);
-    let body = with(layer(200, 200, 600, 400), |l| l.layer_id = 2);
+    const BODY: u32 = 0x2_0000;
+    let body = with(layer(200, 200, 600, 400), |l| (l.layer_id, l.key) = (2, BODY));
     let chrome = with(glass(layer(200, 200, 600, 60), 40), |l| l.layer_id = 2);
     f.layers.take_frame(&[base.clone(), body.clone(), chrome.clone()]);
     f.plan(DISPLAY, &every_blur);
@@ -197,7 +198,7 @@ fn a_glass_of_a_window_in_motion_keeps_its_blur_and_writes_once_at_rest() {
         body.clone(),
         chrome.clone(),
         dock.clone(),
-        damage_from(2, 120, 920, 20, 10),
+        damage_from(BODY, 120, 920, 20, 10),
     ]);
     let p = f.plan(DISPLAY, &every_blur);
     assert!(matches!(cache_of(&f, 3), Some(CacheStep::Read(_))), "touched by motion only: kept");

@@ -20,9 +20,8 @@ use super::{
     DISPLAY_OFFSET_BYTES, DISPLAY_WIDTH, PROOF_PANEL_H, RETAINED_OFFSET_BYTES, RETAINED_ROW_OFFSET,
     ROW_WRITE_CHUNK,
 };
-use crate::compositor::damage::{
-    premerge_damage_rects, select_glass_quality, DamageRect, GlassQuality,
-};
+use crate::compositor::damage::{select_glass_quality, DamageRect, GlassQuality};
+use crate::damage_rects::{Cause, Origin, PendingDamage};
 use crate::error::WindowdError;
 use crate::geometry::checked_stride;
 use crate::ids::CallerCtx;
@@ -311,11 +310,10 @@ pub(crate) struct DisplayServerRuntime {
     markers_emitted: bool,
     input_markers_emitted: InputMarkerState,
     input_state_debug_emitted: bool,
-    pending_damage_rects: Vec<DamageRect>,
+    pending_damage: PendingDamage,
     tile_map: TileMap,
     /// True when pending damage only affects paint (no layout/shadow change needed).
     paint_only_damage: bool,
-    pending_damage_rect: Option<DamageRect>,
     /// Cursor damage (old ∪ new pointer rect) for the next frame. Tracked
     /// separately from content damage: cursor rects only need a retained→display
     /// blit + cursor overlay (no CPU recomposite — Plane 1 is already cursor-free).
@@ -744,9 +742,8 @@ impl DisplayServerRuntime {
             markers_emitted: false,
             input_markers_emitted: InputMarkerState::default(),
             input_state_debug_emitted: false,
-            pending_damage_rects: Vec::new(),
+            pending_damage: PendingDamage::new(),
             tile_map: TileMap::new(),
-            pending_damage_rect: None,
             pending_cursor_rect: None,
             pending_gpu_blit_rect: None,
             pending_layer_frame: false,

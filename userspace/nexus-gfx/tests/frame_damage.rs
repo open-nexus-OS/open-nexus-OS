@@ -127,19 +127,23 @@ fn a_glass_window_typed_into_keeps_its_blur_and_a_change_below_it_renews_it() {
     use nexus_gfx::frame::layers::ORIGIN_ABOVE;
     let mut f = ready_frame(2048);
     let base = layer(0, 0, 1920, 1080);
-    // Window 1 (id 1) is glass; window 2 (id 2) lies above it, to its right.
-    let win1 = with(layer(400, 300, 600, 400), |l| (l.backdrop_blur, l.layer_id) = (20, 1));
-    let win2 = with(layer(900, 300, 400, 300), |l| l.layer_id = 2);
+    // Window 1 (id 1) is glass; window 2 (id 2) lies above it, to its right. A change names
+    // the key of the layer that draws it (RFC-0101 §8).
+    const KEY1: u32 = 0x1_0000;
+    const KEY2: u32 = 0x2_0000;
+    let win1 =
+        with(layer(400, 300, 600, 400), |l| (l.backdrop_blur, l.layer_id, l.key) = (20, 1, KEY1));
+    let win2 = with(layer(900, 300, 400, 300), |l| (l.layer_id, l.key) = (2, KEY2));
     f.layers.take_frame(&[base.clone(), win1.clone(), win2.clone(), damage(0, 0, 1920, 1080)]);
     f.plan(DISPLAY, &every_blur);
     assert_eq!(cache_of(&f, 1), Some(CacheStep::Write(0)));
     // Typing in window 1: damage inside it, from it. Its backdrop is unchanged.
-    f.layers.take_frame(&[damage_from(1, 450, 350, 200, 40)]);
+    f.layers.take_frame(&[damage_from(KEY1, 450, 350, 200, 40)]);
     let p = f.plan(DISPLAY, &every_blur);
     assert_eq!(cache_of(&f, 1), Some(CacheStep::Read(0)));
     assert_eq!(p.damage, Area::Rect { x0: 450, y0: 350, x1: 650, y1: 390 }, "the frame redraws it");
     // Window 2 above it changes, overlapping window 1's reach: not below — unchanged backdrop.
-    f.layers.take_frame(&[damage_from(2, 900, 300, 100, 100)]);
+    f.layers.take_frame(&[damage_from(KEY2, 900, 300, 100, 100)]);
     f.plan(DISPLAY, &every_blur);
     assert_eq!(cache_of(&f, 1), Some(CacheStep::Read(0)));
     // The pointer over the glass: never below.
@@ -151,11 +155,11 @@ fn a_glass_window_typed_into_keeps_its_blur_and_a_change_below_it_renews_it() {
     f.plan(DISPLAY, &every_blur);
     assert_eq!(cache_of(&f, 1), Some(CacheStep::Write(0)));
     // An origin the set does not know: taken as below.
-    f.layers.take_frame(&[damage_from(7, 500, 400, 10, 10)]);
+    f.layers.take_frame(&[damage_from(0x7_0000, 500, 400, 10, 10)]);
     f.plan(DISPLAY, &every_blur);
     assert_eq!(cache_of(&f, 1), Some(CacheStep::Write(0)));
     // More rectangles than the set keeps: everything.
-    let many: Vec<Command> = (0..9).map(|i| damage_from(2, 10 * i, 0, 4, 4)).collect();
+    let many: Vec<Command> = (0..9).map(|i| damage_from(KEY2, 10 * i, 0, 4, 4)).collect();
     f.layers.take_frame(&many);
     let p = f.plan(DISPLAY, &every_blur);
     assert_eq!(p.damage, Area::Full);
@@ -190,14 +194,20 @@ fn a_desktop_glass_region_keeps_its_blur_when_its_own_pixels_change() {
 fn a_window_of_two_glass_slices_keeps_both_blurs_when_typed_into() {
     let mut f = ready_frame(2048);
     let base = layer(0, 0, 1920, 1080);
-    let head = with(layer(400, 300, 600, 40), |l| (l.backdrop_blur, l.layer_id) = (20, 1));
-    let body = with(layer(400, 340, 600, 400), |l| (l.backdrop_blur, l.layer_id) = (20, 1));
+    const HEAD: u32 = 0x1_0000;
+    let head =
+        with(layer(400, 300, 600, 40), |l| (l.backdrop_blur, l.layer_id, l.key) = (20, 1, HEAD));
+    let body = with(layer(400, 340, 600, 400), |l| {
+        (l.backdrop_blur, l.layer_id, l.key) = (20, 1, HEAD + 1)
+    });
     f.layers.take_frame(&[base.clone(), head.clone(), body.clone(), damage(0, 0, 1920, 1080)]);
     f.plan(DISPLAY, &every_blur);
     assert_eq!(cache_of(&f, 1), Some(CacheStep::Write(0)));
     assert_eq!(cache_of(&f, 2).map(|c| matches!(c, CacheStep::Write(_))), Some(true));
-    // Typing into the body: the window's own change, below neither of its slices.
-    f.layers.take_frame(&[damage_from(1, 450, 400, 200, 40)]);
+    // Typing into the body, named by the window's lowest slice: the window's own change, below
+    // neither of its slices (the head's key is below the body's glass in the walk — the shared
+    // id says it is the same window).
+    f.layers.take_frame(&[damage_from(HEAD, 450, 400, 200, 40)]);
     f.plan(DISPLAY, &every_blur);
     assert!(matches!(cache_of(&f, 1), Some(CacheStep::Read(_))), "the head's glass kept");
     assert!(matches!(cache_of(&f, 2), Some(CacheStep::Read(_))), "the body's glass kept");

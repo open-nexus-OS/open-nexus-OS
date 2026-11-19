@@ -105,14 +105,16 @@ pub enum CacheStep {
     Off,
 }
 
-/// What one slot holds: its backdrop's key, its first row and how many (`h == 0`: none), and
-/// what its rows still owe — the backdrop changes a write was put off for.
+/// What one slot holds: its backdrop's key, its first row and how many (`h == 0`: none), what
+/// its rows still owe — the backdrop changes a write was put off for — and whether the last
+/// plan kept them through a motion.
 #[derive(Clone, Copy, Default)]
 struct Slot {
     key: u64,
     y: u32,
     h: u32,
     owed: Area,
+    kept: bool,
 }
 
 /// The cache's bookkeeping, a slot per layer index — windowd encodes the scene back to front
@@ -218,6 +220,19 @@ impl GlassCache {
     pub fn keep(&self, slot: usize, h: u32) -> Option<CacheStep> {
         let held = self.held(slot);
         (self.ready && h != 0 && held.h == h).then_some(CacheStep::Read(held.y))
+    }
+
+    /// `slot`'s rows are kept through a motion this plan ([`Self::keep`] was taken).
+    pub(super) fn hold(&mut self, slot: usize) {
+        if let Some(held) = self.slots.get_mut(slot) {
+            held.kept = true;
+        }
+    }
+
+    /// Whether the last plan kept `slot`'s rows through a motion — asked once a plan: the mark
+    /// is taken, so a write this plan is the one write that follows the motion.
+    pub(super) fn rested(&mut self, slot: usize) -> bool {
+        self.slots.get_mut(slot).is_some_and(|held| core::mem::take(&mut held.kept))
     }
 
     /// What `slot`'s rows still owe: the backdrop changes its writes were put off for.

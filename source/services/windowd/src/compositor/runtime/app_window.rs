@@ -305,7 +305,7 @@ impl DisplayServerRuntime {
                         // surface it replaces give way in this present (TASK-0336, RFC-0114).
                         if self.end_starting_surface(idx) || self.apps[idx].retiring.is_some() {
                             self.end_retiring(Owner::App(idx));
-                            self.queue_dirty_rect(rect);
+                            self.structure_changed(rect, Cause::Solid);
                         }
                         // Glass windows above see it through their backdrop: their blur is stale.
                         self.invalidate_blur_over(rect, Some(idx));

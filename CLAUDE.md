@@ -116,7 +116,7 @@ invariant, fable high for the hardest one (a lock order, the scheduler), opus hi
 wide change whose invariant is simple, opus max only when the brief says why. A brief is self-contained (the files,
 the steps, the result file) — the agent writes its result to that file, a resumed session reads
 the file and never re-spawns for a result that exists, and a follow-up continues the living
-agent. Hook caps per 5 h: 12 legwork (3 per 10 min), 3 architect, 2 critical-writer (one fable
+agent. Hook caps per 5 h: 12 legwork (3 per 10 min), 3 architect, 3 critical-writer (one fable
 agent per 10 min); any other strong-model agent asks the user. Architecture, security and hard
 bugs go to the architect, never to sonnet; protection-zone code is written by the main session
 or the critical-writer. Model use follows the Model protocol.

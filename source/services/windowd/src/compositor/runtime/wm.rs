@@ -53,7 +53,7 @@ impl DisplayServerRuntime {
         }
         self.windows.minimize(id);
         let _ = debug_println(&alloc::format!("windowd: minimize id={}", Self::window_name(id)));
-        self.queue_gpu_blit_rect(vacated);
+        self.structure_changed(vacated, crate::damage_rects::Cause::Hidden);
         // Ghost guard: overlapping windows' destination-so-far blur caches may
         // hold the minimized window — re-blur them (see close_app_window).
         if let WindowId::App(i) = id {
@@ -77,11 +77,11 @@ impl DisplayServerRuntime {
         // The window's content is its app's buffer (RFC-0114): nothing to re-mount.
         let _ = debug_println(&alloc::format!("windowd: restore id={}", Self::window_name(id)));
         let rect = self.window_damage_rect(id);
-        self.queue_gpu_blit_rect(rect);
+        self.structure_changed(rect, crate::damage_rects::Cause::Shown);
         self.push_window_set();
         // Restoring a fullscreen window re-covers the chrome — full present.
         if self.windows.fullscreen_active().is_some() {
-            self.queue_full_frame_damage();
+            self.full_frame_structure(crate::damage_rects::Cause::Shown);
         }
     }
 
@@ -117,10 +117,19 @@ impl DisplayServerRuntime {
         // (`push_app_content_rect` reads the flag → full display vs. inset).
         self.push_app_content_rect(idx);
         // Chrome visibility + window geometry both changed → full present.
-        self.queue_full_frame_damage();
+        self.full_frame_structure(crate::damage_rects::Cause::Shown);
     }
 
-    /// Whole-display damage (chrome appears/disappears, fullscreen toggles).
+    /// A whole-display STRUCTURE change (chrome appears or goes, fullscreen toggles, the
+    /// desktop's surface is swapped): on the GPU path the present carries the layers and names
+    /// no rectangle — the planner damages what came, went, moved or was reordered (RFC-0101 §8,
+    /// a whole-screen rectangle made every glass blur again); on the CPU path the whole display.
+    pub(super) fn full_frame_structure(&mut self, cause: crate::damage_rects::Cause) {
+        let screen = DamageRect { x: 0, y: 0, width: self.mode.width, height: self.mode.height };
+        self.structure_changed(screen, cause);
+    }
+
+    /// Whole-display damage (a theme change, a capture: content, not structure).
     pub(super) fn queue_full_frame_damage(&mut self) {
         self.queue_gpu_blit_rect(DamageRect {
             x: 0,
@@ -295,7 +304,7 @@ impl DisplayServerRuntime {
         };
         let idx = i as usize;
         let old = self.window_damage_rect(id);
-        self.queue_gpu_blit_rect(old);
+        self.structure_changed(old, crate::damage_rects::Cause::MovedRegion);
         // Resize negotiation: let the frame grow to the requested size in BOTH
         // axes (mode-bounded). The glass composite samples at most the content
         // (`glass_params`), so growing past it never over-reads; on release
@@ -307,7 +316,7 @@ impl DisplayServerRuntime {
         let h = h.max(min_h).min(self.mode.height);
         self.apps[idx].win.set_frame(x, y, w, h);
         let new = self.window_damage_rect(id);
-        self.queue_gpu_blit_rect(new);
+        self.structure_changed(new, crate::damage_rects::Cause::MovedRegion);
     }
 
     /// Select the pointer shape for the current pointer position: an ACTIVE

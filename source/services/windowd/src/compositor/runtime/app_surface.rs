@@ -44,7 +44,7 @@ impl DisplayServerRuntime {
             self.show_window(wid);
         }
         let rect = self.app_window_damage_rect(idx);
-        self.queue_dirty_rect(rect);
+        self.structure_changed(rect, Cause::Shown);
     }
 
     /// Reset everything derived from THE SURFACE when a client (re)creates one: its declared
@@ -70,7 +70,7 @@ impl DisplayServerRuntime {
         if let Some(cache) = self.apps[idx].win.take_blur_cache() {
             self.atlas_alloc.free(cache);
         }
-        self.queue_dirty_rect(vacated);
+        self.structure_changed(vacated, Cause::Hidden);
         self.sync_surface_focus_to_imed();
         // The backdrop blur is destination-so-far: any window whose cached
         // blur was captured while the closed window overlapped it keeps a

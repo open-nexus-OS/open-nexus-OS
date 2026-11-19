@@ -297,7 +297,13 @@ fn the_atlas_uploads_once_per_generation() {
     f.layers.take_frame(&[stamped(3)]);
     assert_eq!(
         f.plan(DISPLAY, &every_blur),
-        Planned { layers: 1, writes: Default::default(), upload: true, damage: Area::Full }
+        Planned {
+            layers: 1,
+            writes: Default::default(),
+            by: Default::default(),
+            upload: true,
+            damage: Area::Full
+        }
     );
     // A pointer move: nothing new to upload.
     assert!(!f.plan(DISPLAY, &every_blur).upload);

@@ -214,7 +214,7 @@ impl DisplayServerRuntime {
         self.apps[idx].drag_offset = None;
         self.apps[idx].win.end_drag();
         let new = self.apps[idx].win.damage_rect(w, h);
-        self.queue_gpu_blit_rect(old.merge(new));
+        self.structure_changed(old.merge(new), crate::damage_rects::Cause::MovedRegion);
         self.invalidate_blur_over(old.merge(new), Some(idx));
     }
 

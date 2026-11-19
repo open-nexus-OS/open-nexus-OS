@@ -6,10 +6,19 @@ status: in_progress
 status_note: "board cycle 62 2026-10-22"
 owner: ["@ui", "@gpu"]
 created: 2026-10-22
-updated: 2026-11-13
+updated: 2026-11-19
 subsystem: ui
+kind: service
+novelty: variant
+estimate: 1
 started: 2026-10-22
 dates_source: git-reconstructed
+goal:
+  metric: "presents that land late while the screen moves"
+  baseline: "gpud: dc flips late=502 of 3712 (13.5 %), behind=3038 (board--2026-11-19T13-14-36)"
+  target: "late <= 2 % of flips while scrolling and paging"
+  instrument: "gpud: dc flips (late=, behind=) · windowd: frame pace (on_time=, late=)"
+consumer: TASK-0355/P2
 depends_on: [TASK-0342]
 implements: [RFC-0110, RFC-0093]
 links:
@@ -68,8 +77,10 @@ phases:
     evidence: docs/board/measurements/2026-10-22-frame-pace/README.md
   - id: P7
     story: "windowd's prediction of a present's landing holds while scrolling: a present in flight whose landing the driver already reported is not counted twice"
-    state: planned
+    state: building
     gate: "board: windowd: frame pace on_time >= 90 % of the presents in the scroll windows and early = 0 (was 62-72 % on time, the misses mostly early, cycle 62; the cause measured first)"
+    started: 2026-11-19
+    note: "2026-11-19 measurement built and read (board--2026-11-19T15-50-37): windowd frame pace on_time 4716 late 556 early 448 = early0 115 (nothing in flight: the half-period floor) + early1 333 (something in flight): the story's cause (a landing judged against the wrong prediction) carries the misses, not the floor. gpud dc flips late 247 of 6201 (4.0 %, was 13.5 %) with restarts=343 counted apart (an idle display's first frame). Next: the fix for early1 (frame_clock note_shown with presents in flight)."
 ---
 
 > Status (migrated 2026-11-02): In Progress (board cycle 62 2026-10-22 — the operator follows the scroll, typing's frames carry pixels, the underflows timed; open: the prediction lands early — 62–72 % on time while scrolling against the 90 % line; parked to layer 8's closing by the operator 2026-10-22)

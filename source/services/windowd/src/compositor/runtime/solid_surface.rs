@@ -53,7 +53,7 @@ impl DisplayServerRuntime {
         crate::atlas::note_atlas_content_write();
         self.apps[idx].solid = Some(patch);
         let rect = self.app_window_damage_rect(idx);
-        self.queue_dirty_rect(rect);
+        self.structure_changed(rect, Cause::Solid);
         true
     }
 
@@ -148,7 +148,7 @@ impl DisplayServerRuntime {
             self.apps[idx].transform = WinTransform::IDENTITY;
             self.apps[idx].pending_wm = None;
             self.hide_window(crate::window_scene::WindowId::App(idx as u16));
-            self.queue_dirty_rect(vacated);
+            self.structure_changed(vacated, Cause::Solid);
         }
     }
 }

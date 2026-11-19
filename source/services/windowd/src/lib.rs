@@ -132,6 +132,9 @@ mod wake_clock;
 mod client_outbox;
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 mod compositor;
+/// The origin of a surface's change (RFC-0101 §8): which layer draws it — pure, host-TESTED.
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
+mod damage_origin;
 /// The damage-rect model (TASK-0335): pure, host-TESTED, consumed by the OS-only compositor.
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod damage_rects;

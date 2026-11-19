@@ -50,7 +50,6 @@ struct AppSceneSnap {
 /// warm-up): one entry per window slot — the slots grow (RFC-0114 §7) — and the desktop's.
 pub(super) struct SceneScratch {
     snaps: Vec<AppSceneSnap>,
-    frames: Vec<Option<DamageRect>>,
     quotas: Vec<LayerQuota>,
     demand: Vec<usize>,
     share: Vec<usize>,
@@ -64,7 +63,6 @@ impl SceneScratch {
     pub(super) const fn new() -> Self {
         Self {
             snaps: Vec::new(),
-            frames: Vec::new(),
             quotas: Vec::new(),
             demand: Vec::new(),
             share: Vec::new(),
@@ -85,7 +83,8 @@ impl DisplayServerRuntime {
     ///   4. BlendCursor overlaid last.
     ///
     /// Record the per-frame scene into the reusable `scene_cb` and serialize it
-    /// into `out`. Returns the number of bytes written.
+    /// into `out`. Returns the number of bytes written. `rects`: what changed, each with its
+    /// origin — the key of the layer that draws it, as it was queued (RFC-0101 §8).
     ///
     /// Zero per-frame heap allocation: `scene_cb` is cleared (capacity retained)
     /// rather than freshly allocated, and serialization borrows it instead of
@@ -94,8 +93,7 @@ impl DisplayServerRuntime {
     /// the service mid-animation; the frame path still allocates nothing.
     pub(super) fn build_scene_cb_into(
         &mut self,
-        rects: &[DamageRect],
-        rect_count: usize,
+        rects: &[(DamageRect, u32)],
         out: &mut [u8],
     ) -> Result<usize, WindowdError> {
         // No pixel is copied (RFC-0114): every window's body and layers sample the app's own
@@ -104,7 +102,7 @@ impl DisplayServerRuntime {
         self.begin_frame_reads();
         // TASK-0354 P2: the surfaces' motion layers move for the time this frame is shown.
         let at = self.transition_time(nexus_abi::nsec().unwrap_or(0));
-        self.stamp_motions(at, rects, rect_count);
+        self.stamp_motions(at, rects);
         // Snapshot all `self` reads needed inside the encoder block so the
         // mutable borrow of `self.scene_cb` does not conflict with field reads.
         let mode = self.mode;
@@ -132,16 +130,6 @@ impl DisplayServerRuntime {
         let app_snaps = &mut scratch.snaps;
         app_snaps.clear();
         app_snaps.resize(self.apps.len(), AppSceneSnap::default());
-        // The visible windows' frames: a damage rectangle inside one came from that window
-        // (or something above it), the rest from the desktop under every window — the
-        // damage's origin (`Command::Damage`, RFC-0101 §8): a glass blurs its backdrop again
-        // only for a change below it, never for its own content.
-        let app_frames = &mut scratch.frames;
-        app_frames.clear();
-        for idx in 0..self.apps.len() {
-            let visible = self.apps[idx].win.visible;
-            app_frames.push(visible.then(|| self.app_window_damage_rect(idx)));
-        }
         for idx in 0..self.apps.len() {
             let wid = WindowId::App(idx as u16);
             let fullscreen = fullscreen_id == Some(wid);
@@ -329,8 +317,10 @@ impl DisplayServerRuntime {
 
             // 1. Blit content damage from retained plane → display plane — and name it as the
             //    scene's damage (RFC-0101 §8, TASK-0215 5c-3 P5): a GPU executor that keeps its
-            //    planes redraws this, and what moved, instead of the screen.
-            for rect in rects.iter().copied().take(rect_count) {
+            //    planes redraws this, and what moved, instead of the screen. The origin is the
+            //    one queued with the rectangle: a glass blurs its backdrop again only for a
+            //    change below it.
+            for (rect, origin) in rects.iter().copied() {
                 encoder
                     .try_blit_surface(
                         rect.x,
@@ -341,26 +331,6 @@ impl DisplayServerRuntime {
                         rect.height,
                     )
                     .map_err(|_| WindowdError::InvalidDamage)?;
-                let inside = |f: &DamageRect| {
-                    f.x <= rect.x
-                        && f.y <= rect.y
-                        && rect.x.saturating_add(rect.width) <= f.x.saturating_add(f.width)
-                        && rect.y.saturating_add(rect.height) <= f.y.saturating_add(f.height)
-                };
-                // The topmost window the rectangle lies within names the origin (its key).
-                let origin = win_order[..win_n]
-                    .iter()
-                    .rev()
-                    .find_map(|wid| match wid {
-                        WindowId::App(slot) => app_frames
-                            .get(usize::from(*slot))
-                            .copied()
-                            .flatten()
-                            .filter(inside)
-                            .map(|_| app_snaps[usize::from(*slot)].key),
-                        _ => None,
-                    })
-                    .unwrap_or(0);
                 encoder
                     .try_damage(
                         nexus_gfx::core::types::TileRect {
@@ -377,7 +347,7 @@ impl DisplayServerRuntime {
             // 1a. A frame owed for what moved alone names no damage (TASK-0338): the planner
             //     redraws the layers drawn otherwise than before — never the whole screen, which
             //     is what a present with layers and no `Damage` means.
-            if rect_count == 0 {
+            if rects.is_empty() {
                 encoder.try_damage_none().map_err(|_| WindowdError::InvalidDamage)?;
             }
 
