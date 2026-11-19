@@ -86,8 +86,8 @@ impl super::DslApp {
         // Bounded like a tap's (TASK-0337, cycle 52): the window feed changes the taskbar's
         // rows, not the screen — the full repaint this was cost the desktop a full-screen CPU
         // raster and the board a full-screen frame on every window open, close and focus
-        // (25 of them in one cycle). The diff of the layout before and after names the rows.
-        self.tap_render_span = None;
+        // (25 of them in one cycle). The diff of the layout before and after names the
+        // rectangles; a paint-only change names none, and its caller's `dispatched` repaints all.
         if matches!(damage, Some(Damage::Layout)) {
             self.relayout_bounded();
         }

@@ -176,7 +176,9 @@ impl Shadow {
             radius: l.corner_radius.min(l.width / 2).min(l.height / 2) as f32,
             blur: l.shadow_blur,
             offset_y: l.shadow_offset_y,
-            alpha: l.shadow_alpha.min(255) as f32 / 255.0,
+            // At its layer's opacity, as its frost and content: a closing window's shadow fades
+            // with it (TASK-0354 P9: it stood a moment after the window had gone).
+            alpha: l.shadow_alpha.min(255) as f32 / 255.0 * (l.opacity.min(255) as f32 / 255.0),
         })
     }
 
@@ -241,7 +243,8 @@ impl Shadow {
 }
 
 /// A glass's blurred backdrop drawn back over it from its cache rows (the reduced result inside
-/// its one-texel margin), its corners cut.
+/// its one-texel margin), its corners cut — at its layer's opacity: a glass fading with its
+/// motion layer fades its frost too (TASK-0354 P9: a closed panel left its frost standing).
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Back {
     rect: Px,
@@ -249,6 +252,8 @@ struct Back {
     /// The cache rows' scale and the rows' first row.
     scale: u32,
     row: u32,
+    /// The layer's opacity (`1.0`: drawn whole — the opaque program, as before).
+    alpha: f32,
 }
 
 impl Back {
@@ -258,6 +263,7 @@ impl Back {
             radius: l.corner_radius.min(l.width / 2).min(l.height / 2),
             scale: blur_scale(blur_radius(l.backdrop_blur)),
             row,
+            alpha: l.opacity.min(255) as f32 / 255.0,
         }
     }
 
@@ -275,12 +281,15 @@ impl Back {
         let (x, y, w, h) = self.rect;
         let s = self.scale;
         let f = |v: u32| v as f32;
+        let tint = [1.0, 1.0, 1.0, self.alpha];
         let (pipe, quad) = if rounded {
             let r = self.radius as f32;
             let whole = (f(x), f(y), f(w), f(h));
-            (Pipe::Rounded, Quad::part(whole, (f(p.0), f(p.1), f(p.2), f(p.3)), [1.0; 4], r))
+            (Pipe::Rounded, Quad::part(whole, (f(p.0), f(p.1), f(p.2), f(p.3)), tint, r))
         } else {
-            (Pipe::Opaque, Quad::layer(f(p.0), f(p.1), f(p.2), f(p.3), [1.0; 4], 0.0))
+            // A fading back blends (the content's straight program); a whole one replaces.
+            let pipe = if self.alpha >= 1.0 { Pipe::Opaque } else { Pipe::Straight };
+            (pipe, Quad::layer(f(p.0), f(p.1), f(p.2), f(p.3), tint, 0.0))
         };
         DrawSpec {
             pipe,
@@ -425,6 +434,54 @@ mod tests {
                 assert!(!occlude::intersects(*a, *b), "parts overlap: {a:?} {b:?}");
             }
         }
+    }
+
+    /// TASK-0354 P9: a glass fading with its motion layer fades its frost — every piece of its
+    /// back carries the layer's opacity and blends; a whole glass draws exactly as before (the
+    /// opaque program for the cross, tint 1).
+    #[test]
+    fn a_fading_glass_fades_its_frost_and_shadow_and_a_whole_one_draws_as_before() {
+        let back = |opacity: u32| {
+            let l = FrameLayer {
+                dst_x: 100,
+                dst_y: 50,
+                width: 301,
+                height: 207,
+                corner_radius: 16,
+                backdrop_blur: 24,
+                opacity,
+                ..FrameLayer::default()
+            };
+            Back::of(&l, 7)
+        };
+        let whole = back(255);
+        for (part, rounded) in whole.parts().into_iter().flatten() {
+            let d = whole.draw(rounded, part);
+            assert_eq!(d.pipe, if rounded { Pipe::Rounded } else { Pipe::Opaque });
+            assert_eq!(d.quad.push[3], 1.0, "a whole glass: tint 1");
+        }
+        let fading = back(96);
+        for (part, rounded) in fading.parts().into_iter().flatten() {
+            let d = fading.draw(rounded, part);
+            assert_eq!(d.pipe, if rounded { Pipe::Rounded } else { Pipe::Straight }, "it blends");
+            assert!((d.quad.push[3] - 96.0 / 255.0).abs() < 1e-6, "the layer opacity");
+            assert_eq!(d.tex, whole.draw(rounded, part).tex, "the same cache texels");
+        }
+        // Its drop shadow fades with it too.
+        let shadowed = |opacity: u32| {
+            let l = FrameLayer {
+                width: 300,
+                height: 200,
+                shadow_blur: 24,
+                shadow_alpha: 128,
+                opacity,
+                ..FrameLayer::default()
+            };
+            Shadow::of(&l).map(|s| s.alpha)
+        };
+        assert_eq!(shadowed(255), Some(128.0 / 255.0), "a whole layer: its own shadow");
+        let half = shadowed(96).expect("still shadowed");
+        assert!((half - 128.0 / 255.0 * 96.0 / 255.0).abs() < 1e-6, "times the layer's opacity");
     }
 
     #[test]

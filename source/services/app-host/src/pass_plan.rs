@@ -303,36 +303,9 @@ impl PassPlan<'_> {
     }
 }
 
-/// Columns a glyph or a stroke may paint outside its box (a side bearing, a stroked icon's round
-/// cap — `pass_plan_tests` catches the icon's cap at 0): every box is widened by it when a pass
-/// is planned over columns.
-const GLYPH_OVERHANG: i32 = 2;
-
-/// Whether box `b` may write a pixel of surface columns `[c0, c1)` (TASK-0367 P3) — the picking
-/// rule of a pass planned over columns: the box, its drop shadow's reach, its text's halo and a
-/// glyph's overhang, placed `dx` px left of its layout position (a scroll view's offset). An
-/// animated box (`animated`) is moved and scaled by its transform, so it is always picked: a
-/// pick too many only costs its rows' clipped work, a pick too few loses pixels.
-pub(crate) fn meets_cols(b: &LayoutBox, dx: i32, animated: bool, (c0, c1): (i32, i32)) -> bool {
-    if animated {
-        return true;
-    }
-    let (sl, _, sr, _) = nexus_scene_raster::shadow_reach(b);
-    let halo = b
-        .visual
-        .text_shadows
-        .iter()
-        .flatten()
-        .map(|s| {
-            nexus_text_baked::blur_reach(u32::from(s.blur_radius)) as i32
-                + i32::from(s.offset_x).abs()
-        })
-        .max()
-        .unwrap_or(0);
-    let x = b.rect.x.0 - dx;
-    x - sl.max(halo) - GLYPH_OVERHANG < c1
-        && x + b.rect.width.0 + sr.max(halo) + GLYPH_OVERHANG > c0
-}
+/// The picking rules of a pass planned over columns, and the reaches past a box's sides.
+mod cols;
+pub(crate) use cols::{meets_cols, run_meets_cols, run_reach, stroke_reach, GLYPH_OVERHANG};
 
 /// Blends the selection highlight over `[bx + x0, bx + x1)` of one row inside the field's
 /// box — drawn BEFORE the glyphs so the text stays on top.
@@ -364,6 +337,10 @@ fn paint_selection_row(
     }
 }
 
+/// TASK-0354 P8: a diff's rectangles, painted by the column pass, are the full frame.
+#[cfg(test)]
+#[path = "pass_plan_diff_tests.rs"]
+mod diff_tests;
 #[cfg(test)]
 #[path = "pass_plan_tests.rs"]
 mod tests;

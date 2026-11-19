@@ -132,7 +132,7 @@ impl super::DslApp {
                 // Traced like a repainting tap (bounded): a quiet tap is still
                 // a tap that landed somewhere — the one position oracle the
                 // live harness has. Nothing will present: settled at once.
-                if self.trace_tap(x, y, hit, damage) {
+                if self.trace_tap(x, y, hit, damage, None) {
                     raw_marker("apphost: tap settled");
                 }
                 return TapOutcome::HandledQuietly;
@@ -141,13 +141,13 @@ impl super::DslApp {
         }
         // Pretext discipline: ONLY layout-class damage re-runs the engine
         // (widget props — including text content — record Layout deps).
-        // A paint-only change re-renders from the RETAINED boxes: the
-        // pre-measured text + kept layout make that the cheap path.
-        self.tap_render_span = None;
-        if matches!(damage, Some(Damage::Layout)) {
-            self.relayout_bounded();
+        // A paint-only change re-renders from the RETAINED boxes — all of them: it names no
+        // rectangle.
+        let diff = matches!(damage, Some(Damage::Layout)).then(|| self.relayout_bounded());
+        if diff.is_none() {
+            self.pending.whole();
         }
-        self.tap_present_owed = self.trace_tap(x, y, hit, damage);
+        self.tap_present_owed = self.trace_tap(x, y, hit, damage, diff);
         // Part-press (toggle thumb): the flip has re-laid-out, the knob sits
         // at its new end — stretch it along the travel axis and slide it in
         // from where it was (node ids are stable across the re-emit).
@@ -165,54 +165,41 @@ impl super::DslApp {
         TapOutcome::Repainted
     }
 
-    /// Re-lays out after a structural change and keeps the rows it changed as the next present's
-    /// span (`merge_tap_damage`): a bounded change — an overlay toggles, a row swaps its value, a
-    /// typed character — re-renders ONLY those rows instead of the whole frame (on the board a
-    /// full-frame CPU raster costs most of a second; on the QEMU TCG boot it read as "menus never
-    /// open"). The previous retained state is taken, not cloned: the relayout rebuilds both
-    /// lists and the old ones feed the diff.
-    pub(super) fn relayout_bounded(&mut self) {
-        let held = self.held_spans();
+    /// Re-lays out after a structural change and adds the rectangles it changed to the pending
+    /// damage: a bounded change — an overlay toggles, a row swaps its value, a typed character
+    /// — re-renders ONLY those instead of the whole frame (on the board a full-frame CPU raster
+    /// costs most of a second; on the QEMU TCG boot it read as "menus never open"). Returns the
+    /// change (a tap's trace says it); the structure is declared anew.
+    pub(super) fn relayout_bounded(&mut self) -> crate::layout_diff::Changed {
+        let Some((changed, _)) = self.relayout_diffed() else { return Default::default() };
+        self.tree_dirty = true;
+        changed
+    }
+
+    /// The relayout and its diff (`layout_diff`), with what the diff cannot see named beside it:
+    /// an animated node paints at its transform — before the layout and after it — and a scroll
+    /// layer an overlay came over or left shows in the base or in its band (`probe/damage.rs`).
+    /// The previous retained state is taken, not cloned: the relayout rebuilds both lists, the
+    /// old ones feed the diff, and the old boxes go to the caller. `None`: the layout failed and
+    /// was abandoned — the screen still shows the retained boxes, they go back, nothing changed.
+    pub(super) fn relayout_diffed(
+        &mut self,
+    ) -> Option<(crate::layout_diff::Changed, alloc::vec::Vec<nexus_layout::LayoutBox>)> {
+        self.diffs = self.diffs.wrapping_add(1);
+        let (held, shown) = (self.held_spans(), self.base_shows());
+        self.damage_animated();
         let old_boxes = core::mem::take(&mut self.layout.boxes);
         let old_texts = core::mem::take(&mut self.texts);
         if !self.relayout_retained() {
-            // The layout failed and was abandoned: the screen still shows the retained boxes —
-            // they go back, and nothing is repainted (an empty span).
             self.layout.boxes = old_boxes;
             self.texts = old_texts;
-            self.tap_render_span = Some((0, 0));
-            return;
+            return None;
         }
         // What the motion layers hold changes their store rows, never the base's (P5).
-        self.tap_render_span = self.layout_change((&old_boxes, &old_texts), &held);
-        self.tree_dirty = true;
-    }
-
-    /// Folds the last tap's damage span into the present-loop's dirty state:
-    /// `None` = genuine full repaint; an EMPTY span = pixels identical, no
-    /// repaint needed; a real span unions with whatever is already pending
-    /// (an earlier full request always wins).
-    pub(super) fn merge_tap_damage(
-        &mut self,
-        dirty: &mut bool,
-        dirty_rows: &mut Option<(i32, i32)>,
-    ) {
-        match self.tap_render_span.take() {
-            None => {
-                *dirty = true;
-                *dirty_rows = None;
-            }
-            Some((y0, y1)) if y1 <= y0 => {}
-            Some(span) => {
-                self.damage_cols.full();
-                *dirty_rows = match (*dirty, *dirty_rows) {
-                    (true, None) => None,
-                    (_, Some((a0, a1))) => Some((a0.min(span.0), a1.max(span.1))),
-                    (false, None) => Some(span),
-                };
-                *dirty = true;
-            }
-        }
+        let changed = self.layout_change((&old_boxes, &old_texts), &held);
+        self.damage_animated();
+        self.damage_views(&shown, changed.shifted);
+        Some((changed, old_boxes))
     }
 
     /// Reserve `top` surface rows for the shell status bar and re-lay-out.

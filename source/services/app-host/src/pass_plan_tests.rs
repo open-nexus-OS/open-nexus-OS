@@ -15,21 +15,21 @@ use nexus_layout_types::{
 };
 use nexus_text_baked::measure_text::BakedTextMeasure;
 
-const W: i32 = 480;
-const H: i32 = 360;
+pub(super) const W: i32 = 480;
+pub(super) const H: i32 = 360;
 /// The window's frost as the page base (premultiplied): translucent, so the straight-alpha
 /// conversion is exercised on every pixel.
-const GROUND: [u8; 4] = [40, 36, 32, 200];
+pub(super) const GROUND: [u8; 4] = [40, 36, 32, 200];
 
-fn rect((x, y, w, h): (i32, i32, i32, i32)) -> Rect {
+pub(super) fn rect((x, y, w, h): (i32, i32, i32, i32)) -> Rect {
     Rect::new(FxPx::new(x), FxPx::new(y), FxPx::new(w), FxPx::new(h))
 }
 
-fn boxed(node_id: usize, at: (i32, i32, i32, i32), visual: VisualStyle) -> LayoutBox {
+pub(super) fn boxed(node_id: usize, at: (i32, i32, i32, i32), visual: VisualStyle) -> LayoutBox {
     LayoutBox { node_id, rect: rect(at), visual, ..LayoutBox::default() }
 }
 
-fn shadow(y: i32, blur: i32, a: u8) -> Option<BoxShadow> {
+pub(super) fn shadow(y: i32, blur: i32, a: u8) -> Option<BoxShadow> {
     Some(BoxShadow {
         offset_x: FxPx::new(0),
         offset_y: FxPx::new(y),
@@ -39,7 +39,7 @@ fn shadow(y: i32, blur: i32, a: u8) -> Option<BoxShadow> {
     })
 }
 
-fn run(node: usize, content: &str, align: TextAlign) -> TextRun {
+pub(super) fn run(node: usize, content: &str, align: TextAlign) -> TextRun {
     let style = TextStyle { text_align: align, ..TextStyle::default() };
     TextRun {
         node,
@@ -203,10 +203,10 @@ impl Scene {
     }
 }
 
-const ROW_BYTES: usize = W as usize * 4;
+pub(super) const ROW_BYTES: usize = W as usize * 4;
 
 /// The whole surface, row after row, as the probe paints its base.
-fn whole(plan: &PassPlan<'_>) -> Vec<u8> {
+pub(super) fn whole(plan: &PassPlan<'_>) -> Vec<u8> {
     let mut out = vec![0u8; ROW_BYTES * H as usize];
     for (y, row) in out.chunks_exact_mut(ROW_BYTES).enumerate() {
         plan.paint_ground_row(row, y as i32, GROUND);

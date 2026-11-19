@@ -12,6 +12,7 @@
 //! API_STABILITY: Internal
 //! TEST_COVERAGE: `mod tests` below
 
+use crate::motion_geometry::{carry, stamp, FrameNote, MotionState, Said};
 use nexus_display_proto::client_surface::{LayerDesc, MAX_SURFACE_LAYERS};
 use nexus_display_proto::surface_layers::{
     self as proto, MotionLayerDesc, ScrollLayerDesc, SurfaceMotion, SurfaceTree, Wash,
@@ -29,16 +30,22 @@ pub(crate) struct SurfaceLayers {
     pub(crate) motion: SurfaceMotion,
     /// A refusal was said for this surface (once per surface: a broken client must not flood).
     refusal_said: bool,
-    /// When each motion layer's motion started (ns, the shown time of the frame that first drew
-    /// it; `0`: not drawn yet) — carried by id across structures (`motion_geometry`).
-    pub(crate) starts: [u64; MAX_MOTION_LAYERS],
+    /// Each motion layer's motion — its segment (start, direction, turn, backdrop) and a flip
+    /// waiting for its frame — carried by id across structures (`motion_geometry::carry`).
+    pub(crate) motion_states: [MotionState; MAX_MOTION_LAYERS],
     /// The shown time of the last frame that drew these layers (`motion_geometry::frame_owed`).
     pub(crate) drawn_at: u64,
 }
 
 /// The most rectangles a structure change names before it counts as the whole surface: every
-/// region and every motion layer of the structure before it and after it.
-pub(crate) const CHANGED_MAX: usize = 2 * (MAX_SURFACE_LAYERS + MAX_MOTION_LAYERS);
+/// region, every motion layer and every scroll layer of the structure before it and after it.
+pub(crate) const CHANGED_MAX: usize =
+    2 * (MAX_SURFACE_LAYERS + MAX_MOTION_LAYERS + proto::MAX_SCROLL_LAYERS);
+
+// `unmatched` marks the second list's entries in one table: every list it pairs fits in it.
+const _: () = assert!(proto::MAX_SCROLL_LAYERS <= MAX_SURFACE_LAYERS + MAX_MOTION_LAYERS);
+// `TreeChange::bands` holds one bit per scroll layer.
+const _: () = assert!(proto::MAX_SCROLL_LAYERS <= u8::BITS as usize);
 
 /// How far a region's drop shadow reaches past its rectangle (`material_glass`: blur 24, 8 down).
 const SHADOW_REACH: u32 = 32;
@@ -116,7 +123,7 @@ impl SurfaceLayers {
             wash_count: 0,
         },
         refusal_said: false,
-        starts: [0; MAX_MOTION_LAYERS],
+        motion_states: [MotionState::EMPTY; MAX_MOTION_LAYERS],
         drawn_at: 0,
     };
 
@@ -125,14 +132,27 @@ impl SurfaceLayers {
         *self = Self::EMPTY;
     }
 
-    /// The present: the waiting structure takes effect — its motion layers keep their starts by
-    /// id (`motion_geometry::carry_starts`). Says what changed on the screen.
+    /// The present: the waiting structure takes effect — its motion layers keep their motion by
+    /// id, a flipped `exit` waits for the next frame (`motion_geometry::carry`). Says what
+    /// changed on the screen. Only the owner's present reaches here (`owns`).
     pub(crate) fn activate(&mut self) -> TreeChange {
         let Some(next) = self.pending.take() else { return TreeChange::NONE };
         let change = structure_change(&self.tree, &next);
-        self.starts = crate::motion_geometry::carry_starts(&self.tree, &self.starts, &next);
+        self.motion_states = carry(&self.tree, &self.motion_states, &next);
         self.tree = next;
         change
+    }
+
+    /// The frame shown at `at` (it redraws `note`) draws these layers: a flip waiting for it
+    /// turns, a motion drawn for the first time starts, one that ended is said once
+    /// (`motion_geometry::stamp`) — what each motion layer did, by index.
+    pub(crate) fn stamp(&mut self, at: u64, note: FrameNote) -> [Said; MAX_MOTION_LAYERS] {
+        self.drawn_at = at;
+        let mut said = [Said::Nothing; MAX_MOTION_LAYERS];
+        for (k, m) in self.tree.motions().iter().enumerate() {
+            said[k] = stamp(m, &mut self.motion_states[k], at, note);
+        }
+        said
     }
 
     /// A structure for the surface's next present.
@@ -154,7 +174,7 @@ impl SurfaceLayers {
     /// Whether these layers owe a frame for a motion layer: not drawn yet, or still moving in the
     /// last frame drawn (`motion_geometry::frame_owed`).
     pub(crate) fn motion_frame_owed(&self) -> bool {
-        crate::motion_geometry::frame_owed(&self.tree, &self.starts, self.drawn_at)
+        crate::motion_geometry::frame_owed(&self.tree, &self.motion_states, self.drawn_at)
     }
 
     /// The motion's offset of scroll layer `k` (0 when the motion names none yet).
@@ -181,20 +201,31 @@ impl SurfaceLayers {
 
 /// What `next` changes against `now`: the same regions moved or re-dressed → where each was and
 /// is; regions or motion layers that came or went → where each is or was (a layer with a
-/// backdrop: all — its backdrop spans the surface); valid ranges → the bands; viewports, bands'
-/// shapes and patches → all.
+/// backdrop: all — its backdrop spans the surface); a scroll layer that came, went or whose band
+/// was re-placed → its viewport (TASK-0351 P15: the launcher bringing its grid's band is not a
+/// full frame); a valid range alone → its band; patches → all.
 fn structure_change(now: &SurfaceTree, next: &SurfaceTree) -> TreeChange {
-    let same_but_valid = |a: &ScrollLayerDesc, b: &ScrollLayerDesc| {
-        ScrollLayerDesc { valid_start: 0, valid_len: 0, ..*a }
-            == ScrollLayerDesc { valid_start: 0, valid_len: 0, ..*b }
-    };
-    if now.patches() != next.patches()
-        || now.scrolls().len() != next.scrolls().len()
-        || now.scrolls().iter().zip(next.scrolls()).any(|(a, b)| !same_but_valid(a, b))
-    {
+    if now.patches() != next.patches() {
         return TreeChange::STRUCTURE;
     }
     let mut change = TreeChange::NONE;
+    // A scroll layer is the same while everything but its valid range is: matched by that shape
+    // (an index may shift when another comes or goes), a new range is its band's rows.
+    let shape = |s: &ScrollLayerDesc| ScrollLayerDesc { valid_start: 0, valid_len: 0, ..*s };
+    let viewport =
+        |s: &ScrollLayerDesc| (u32::from(s.vx), u32::from(s.vy), u32::from(s.vw), u32::from(s.vh));
+    let mut shapes = [ScrollLayerDesc::default(); 2 * proto::MAX_SCROLL_LAYERS];
+    for (slot, s) in shapes.iter_mut().zip(now.scrolls().iter().chain(next.scrolls())) {
+        *slot = shape(s);
+    }
+    let (old_shapes, new_shapes) = shapes.split_at(now.scrolls().len());
+    unmatched(old_shapes, &new_shapes[..next.scrolls().len()], |s| change.push(viewport(s)));
+    for (k, b) in next.scrolls().iter().enumerate() {
+        let held = now.scrolls().iter().find(|a| shape(a) == shape(b));
+        if held.is_some_and(|a| (a.valid_start, a.valid_len) != (b.valid_start, b.valid_len)) {
+            change.bands |= 1 << k;
+        }
+    }
     if now.regions().len() == next.regions().len() {
         for (a, b) in now.regions().iter().zip(next.regions()) {
             if a != b {
@@ -205,8 +236,11 @@ fn structure_change(now: &SurfaceTree, next: &SurfaceTree) -> TreeChange {
         unmatched(now.regions(), next.regions(), |l| change.push(region_rect(l)));
     }
     // A motion layer is the same while its place, its pixels and what it claims are: its
-    // duration falling to 0 (the app's note that the motion is over) changes nothing on screen.
-    let key = |m: &MotionLayerDesc| MotionLayerDesc { duration_ms: 0, ..*m };
+    // durations falling to 0 (the app's note that the motion and its scrim's fade are over)
+    // change nothing on screen, nor does its direction flipping (a close or a re-open: windowd
+    // moves it — TASK-0354 P9).
+    let key =
+        |m: &MotionLayerDesc| MotionLayerDesc { duration_ms: 0, backdrop_ms: 0, exit: false, ..*m };
     let (old, new) = (now.motions(), next.motions());
     let mut keys = [MotionLayerDesc::EMPTY; 2 * MAX_MOTION_LAYERS];
     for (slot, m) in keys.iter_mut().zip(old.iter().chain(new)) {
@@ -217,11 +251,6 @@ fn structure_change(now: &SurfaceTree, next: &SurfaceTree) -> TreeChange {
         Some(_) => change.whole = true,
         None => change.push(m.rest()),
     });
-    for (k, (a, b)) in now.scrolls().iter().zip(next.scrolls()).enumerate() {
-        if (a.valid_start, a.valid_len) != (b.valid_start, b.valid_len) {
-            change.bands |= 1 << k;
-        }
-    }
     change
 }
 

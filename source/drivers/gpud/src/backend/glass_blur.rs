@@ -124,11 +124,14 @@ impl VirtioGpuBackend {
             }
         };
         // The glass's half-resolution rectangle (inside the margin) over the glass, its corners
-        // cut, premultiplied over what is beneath.
+        // cut, premultiplied over what is beneath — at the layer's opacity, as its content is
+        // (`virgl_composite`): a glass fading with its motion layer fades its frost (TASK-0354
+        // P9; the board's executor does the same, `frame::pieces::Back`).
         let r = l.corner_radius.min(w / 2).min(h / 2) as f32;
         let sf = nexus_gfx::frame::blur_scale(pair.radius) as f32;
         let (tw, th) = (self.display_w as f32, tex_h as f32);
-        let q = Quad::layer(x as f32, y as f32, w as f32, h as f32, [1.0; 4], r).with_texture([
+        let tint = [1.0, 1.0, 1.0, l.opacity.min(255) as f32 / 255.0];
+        let q = Quad::layer(x as f32, y as f32, w as f32, h as f32, tint, r).with_texture([
             w as f32 / sf / tw,
             h as f32 / sf / th,
             1.0 / tw,

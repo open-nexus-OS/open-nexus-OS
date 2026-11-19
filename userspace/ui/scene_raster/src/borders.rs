@@ -48,7 +48,10 @@ pub(crate) fn paint_inset_highlight_row(
         let (rf, oy) = (r as f32, (iy + r) as f32 - py);
         let (lo, hi) =
             arc_band((ix + r) as f32, (rf - 0.5, oy + 1.0), (rf + 0.5, oy), (ix, ix + r));
-        for xx in (lo..hi).flat_map(|xx| [xx, 2 * ix + iw - 1 - xx]) {
+        let (v0, v1) = canvas.visible(ix, ix + iw);
+        for xx in
+            (lo..hi).flat_map(|xx| [xx, 2 * ix + iw - 1 - xx]).filter(|xx| (v0..v1).contains(xx))
+        {
             canvas.blend_covered(xx, color, band(xx as f32 + 0.5));
         }
         if iw > 2 * r {
@@ -61,15 +64,18 @@ pub(crate) fn paint_inset_highlight_row(
     // computed at the middle column, laid as one span (the shine ran two distance fields on
     // every pixel of its rows before).
     let margin = r + 2;
+    let (v0, v1) = canvas.visible(ix, ix + iw);
     if iw > 2 * margin {
-        for xx in (ix..ix + margin).chain(ix + iw - margin..ix + iw) {
+        for xx in
+            (ix.max(v0)..(ix + margin).min(v1)).chain((ix + iw - margin).max(v0)..(ix + iw).min(v1))
+        {
             canvas.blend_covered(xx, color, band(xx as f32 + 0.5));
         }
         let mid = band((ix + iw / 2) as f32 + 0.5);
         canvas.blend_span_covered(ix + margin, ix + iw - margin, color, mid);
         return;
     }
-    for xx in ix..ix + iw {
+    for xx in v0..v1 {
         canvas.blend_covered(xx, color, band(xx as f32 + 0.5));
     }
 }

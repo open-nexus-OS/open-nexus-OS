@@ -91,9 +91,17 @@ pub(super) struct DslApp {
     pub(super) sent_tree: nexus_display_proto::surface_layers::SurfaceTree,
     /// The motion changed since the last `OP_SURFACE_MOTION` (an offset, the wash).
     pub(super) motion_dirty: bool,
-    /// The layer set's geometry changed: the store is planned again (and the surface re-created
-    /// when it no longer fits its rows).
-    pub(super) store_replan: bool,
+    /// The store's latest plan since the surface was made (TASK-0354 P8): the surface is made
+    /// again only when THAT plan does not fit — derived from the last plan, never latched by a
+    /// transient one on the way to it.
+    pub(super) store_wanted: Option<super::band::StorePlan>,
+    /// Where the store's bands and motion layers live: stable places (TASK-0354 P9).
+    pub(super) store_alloc: crate::store_alloc::StoreAlloc,
+    /// The base's height when the surface was made: at that height a re-create never asks for
+    /// fewer rows or a narrower store than it holds.
+    pub(super) created_h: u32,
+    /// The create refused a reserved store (`QUOTA`): later creates ask for the plan alone.
+    pub(super) reserve_refused: bool,
     /// What a paint pass's rows read beside the picked boxes (`probe/paint.rs`).
     pub(super) pass_ctx: super::paint::PassCtx,
     /// The DSL animation subsystem (`.animate`/`.transition`/`.effect`):
@@ -135,14 +143,13 @@ pub(super) struct DslApp {
     pub(super) vis_pick: alloc::vec::Vec<u32>,
     /// Reused (box index, texts index) pairs for the span's text runs.
     pub(super) vis_text: alloc::vec::Vec<(u32, u32)>,
-    /// Damage span of the LAST structural tap (`merge_tap_damage`): `Some` =
-    /// the diffed row window (may be empty — pixels identical), `None` =
-    /// full repaint. Set by `tap()`, consumed once by the event loop.
-    pub(super) tap_render_span: Option<(i32, i32)>,
-    /// The columns the frame's partial rows changed in (TASK-0351 P15, `band_math::Cols`):
-    /// claimed by the animation tick, widened by every row-only contributor, taken by the
-    /// present that names the rows' damage as a rectangle.
-    pub(super) damage_cols: crate::band_math::Cols,
+    /// What the next present paints of the base (TASK-0354 P8, `probe/damage.rs`): rectangles
+    /// in LAYOUT pixels, added by whoever changes a pixel — the layout diff, an animated node,
+    /// a motion layer that went, a field's selection — and taken by the event loop alone.
+    pub(super) pending: crate::band_math::Pending,
+    /// The bounded relayouts so far: a dispatch that reports a change and ran none named no
+    /// rectangle (`Self::dispatched`).
+    pub(super) diffs: u32,
     /// The first input since the last answer that asked for work (RFC-0108 §hops,
     /// `probe/band.rs`), and the input chain's hop in the app: received → answered.
     pub(super) input_rx_ns: Option<u64>,
@@ -182,8 +189,6 @@ pub(super) struct DslApp {
         [Option<super::motion_layers::MotionLayer>; super::motion_layers::MAX_MOTION_LAYERS],
     /// The last motion id stated (a new one starts a motion in windowd).
     pub(super) motion_seq: u16,
-    /// Rows a motion layer left (it went, or lost its place): the base paints them again.
-    pub(super) motion_repaint: Option<(i32, i32)>,
     /// Layout rows a change inside the motion layers named (TASK-0354 P5): painted again into
     /// the layers' store rows — never the base's, which never held them.
     pub(super) motion_rows: Option<(i32, i32)>,

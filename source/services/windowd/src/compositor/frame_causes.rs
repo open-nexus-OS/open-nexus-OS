@@ -204,6 +204,31 @@ pub(super) fn input_applied(now_ns: u64) {
     }
 }
 
+/// The last primary press routed to a surface: its owner (a window's key or the desktop's) and
+/// when windowd routed it — what `windowd: motion layer (… tap_us=)` measures a tap's answer from
+/// (TASK-0355: the tap to the first frame of the transition it opened).
+static PRESS_OWNER: AtomicU32 = AtomicU32::new(0);
+static PRESS_NS: AtomicU64 = AtomicU64::new(0);
+
+/// A primary press went to the surface of `owner` at `now_ns`.
+pub(super) fn press_routed(owner: u32, now_ns: u64) {
+    PRESS_OWNER.store(owner, Ordering::Relaxed);
+    PRESS_NS.store(now_ns, Ordering::Relaxed);
+}
+
+/// The time from the last press routed to `owner` to the frame shown at `at` (µs) — 0 when the
+/// last press went elsewhere or is more than a second old (the motion was not its answer).
+pub(super) fn tap_us(owner: u32, at: u64) -> u64 {
+    let pressed = PRESS_NS.load(Ordering::Relaxed);
+    let since = at.saturating_sub(pressed);
+    let ours = PRESS_OWNER.load(Ordering::Relaxed) == owner && pressed != 0 && at >= pressed;
+    if ours && since <= 1_000_000_000 {
+        since / 1000
+    } else {
+        0
+    }
+}
+
 /// The window's input hop `staged>applied` as `(mean_us, max_us, count)`, and a fresh window.
 pub(super) fn take_input_hops() -> (u64, u64, u32) {
     HOP_STAGED_APPLIED.take()

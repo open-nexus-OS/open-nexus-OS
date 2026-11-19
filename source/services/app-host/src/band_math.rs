@@ -4,13 +4,16 @@
 //! CONTEXT: the pure decisions of a scroll layer's virtual band (RFC-0109): what it draws next —
 //! the visible window first, below then above, then the margins ahead and behind, starting over
 //! at the window when it holds nothing of it — how its valid range grows as the ring overwrites
-//! what it held, and the bounded list of rectangles a present names. Same one-cfg shape as
+//! what it held — and the bounded set of rectangles damage is kept in (TASK-0354 P8): what a
+//! present names, and what a model change leaves to repaint (`Pending`). Same one-cfg shape as
 //! `hover_wash`: the drawing lives in RISC-V-only `probe/band.rs`, the decisions here where host
 //! tests reach them.
 //! OWNERS: @ui @runtime
 //! STATUS: Functional
 //! API_STABILITY: Internal
-//! TEST_COVERAGE: unit tests below
+//! TEST_COVERAGE: `band_math/tests.rs` (host)
+//! INVARIANTS: a set of rectangles never covers less than what was added to it (a merge is a
+//!   union); a pending `whole` is never narrowed
 
 /// A scroll layer's virtual band: where its ring lives in the store and what it holds.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -117,85 +120,184 @@ pub(crate) fn grow(band: &mut Band, q0: u32, q1: u32) {
     }
 }
 
-/// What a present names: up to four surface rectangles (the wire's bound), a fifth merged into
-/// the one it grows least.
+/// A rectangle `(x, y, width, height)`.
+pub(crate) use crate::slot_math::Rect;
+
+/// The rectangles a set of damage keeps — the wire's bound (`probe/band.rs` asserts the two equal).
+pub(crate) const DAMAGE_RECTS: usize = 4;
+
+fn union(a: Rect, b: Rect) -> Rect {
+    let (x0, y0) = (a.0.min(b.0), a.1.min(b.1));
+    let (x1, y1) = (
+        a.0.saturating_add(a.2).max(b.0.saturating_add(b.2)),
+        a.1.saturating_add(a.3).max(b.1.saturating_add(b.3)),
+    );
+    (x0, y0, x1 - x0, y1 - y0)
+}
+
+fn area(r: Rect) -> i128 {
+    i128::from(r.2) * i128::from(r.3)
+}
+
+/// A bounded set of damage rectangles: what a present names (surface and store pixels) and what
+/// a model change leaves to repaint ([`Pending`]). ONE merge rule (TASK-0354 P8): a pair whose
+/// union is no larger than the two together is one rectangle; above [`DAMAGE_RECTS`], the pair —
+/// among all, the newcomer or not — whose union adds the least area. A merge is always a union,
+/// so the set never covers less than what was added: over the bound the damage grows.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct PresentDamage {
-    rects: [(u32, u32, u32, u32); 4],
+    rects: [Rect; DAMAGE_RECTS],
     n: usize,
 }
 
 impl PresentDamage {
-    pub(crate) fn add(&mut self, r: (u32, u32, u32, u32)) {
+    pub(crate) fn add(&mut self, r: Rect) {
         if r.2 == 0 || r.3 == 0 {
             return;
         }
-        let union = |a: (u32, u32, u32, u32), b: (u32, u32, u32, u32)| {
-            let (x0, y0) = (a.0.min(b.0), a.1.min(b.1));
-            let (x1, y1) = ((a.0 + a.2).max(b.0 + b.2), (a.1 + a.3).max(b.1 + b.3));
-            (x0, y0, x1 - x0, y1 - y0)
-        };
-        if self.n < self.rects.len() {
-            self.rects[self.n] = r;
-            self.n += 1;
-            return;
+        let mut all = [(0, 0, 0, 0); DAMAGE_RECTS + 1];
+        all[..self.n].copy_from_slice(&self.rects[..self.n]);
+        all[self.n] = r;
+        let mut n = self.n + 1;
+        loop {
+            // The pair whose union adds the least area over the two.
+            let mut best: Option<(i128, usize, usize)> = None;
+            for i in 0..n {
+                for j in i + 1..n {
+                    let grows = area(union(all[i], all[j])) - area(all[i]) - area(all[j]);
+                    if best.is_none_or(|b| grows < b.0) {
+                        best = Some((grows, i, j));
+                    }
+                }
+            }
+            match best {
+                Some((grows, i, j)) if grows <= 0 || n > DAMAGE_RECTS => {
+                    all[i] = union(all[i], all[j]);
+                    all.copy_within(j + 1..n, j);
+                    n -= 1;
+                }
+                _ => break,
+            }
         }
-        let area = |q: (u32, u32, u32, u32)| u64::from(q.2) * u64::from(q.3);
-        let k = (0..self.n)
-            .min_by_key(|&k| area(union(self.rects[k], r)) - area(self.rects[k]))
-            .unwrap_or(0);
-        self.rects[k] = union(self.rects[k], r);
+        self.rects[..n].copy_from_slice(&all[..n]);
+        self.n = n;
     }
 
-    pub(crate) fn rects(&self) -> &[(u32, u32, u32, u32)] {
+    pub(crate) fn rects(&self) -> &[Rect] {
         &self.rects[..self.n]
     }
 
     pub(crate) fn is_empty(&self) -> bool {
         self.n == 0
     }
-}
 
-/// The columns a frame's partial row damage is known to lie in (TASK-0351 P15). The row
-/// painter repaints whole rows, but what CHANGED in them is a rectangle: an animated panel 330
-/// wide moving down the desktop changes 330 columns of its rows, and a present naming 1920-wide
-/// rows made the compositor redraw — and re-blur every glass over — the whole band each frame.
-/// A contributor that knows its columns claims them (`within`); one that only knows rows (a
-/// tap's diff, a drag, a text edit, a widget loop) widens the frame to all of them (`full`),
-/// and a frame nobody claimed is full-width: narrowing is opt-in, never assumed.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) enum Cols {
-    #[default]
-    Unclaimed,
-    Within(i32, i32),
-    Full,
-}
-
-impl Cols {
-    /// This frame's rows changed within columns `x0..x1` (as far as this contributor knows).
-    pub(crate) fn within(&mut self, x0: i32, x1: i32) {
-        *self = match *self {
-            Cols::Full => Cols::Full,
-            Cols::Within(a0, a1) => Cols::Within(a0.min(x0), a1.max(x1)),
-            Cols::Unclaimed => Cols::Within(x0, x1),
-        };
+    /// The pixels the rectangles name (one two of them share counts twice).
+    pub(crate) fn px(&self) -> u64 {
+        self.rects().iter().map(|r| u64::from(r.2) * u64::from(r.3)).sum()
     }
 
-    /// A contributor without column knowledge: the rows changed anywhere.
-    pub(crate) fn full(&mut self) {
-        *self = Cols::Full;
-    }
-
-    /// The damage rectangle of rows `b0..b1` on a surface `w` wide: the claimed columns, cut to
-    /// the surface, or — unclaimed, full, or claimed past the surface — every column.
-    pub(crate) fn rect(self, w: u32, (b0, b1): (u32, u32)) -> (u32, u32, u32, u32) {
-        if let Cols::Within(x0, x1) = self {
-            let (x0, x1) = ((x0.max(0) as u32).min(w), (x1.max(0) as u32).min(w));
-            if x1 > x0 {
-                return (x0, b0, x1 - x0, b1 - b0);
+    /// The disjoint row intervals `[y0, y1)` the rectangles cover, ascending — what a pass that
+    /// works by rows (a band's ring, a motion layer's store rows) runs over once each.
+    pub(crate) fn row_intervals(&self) -> ([(i32, i32); DAMAGE_RECTS], usize) {
+        let edge = |v: u32| i32::try_from(v).unwrap_or(i32::MAX);
+        let mut rows = [(0, 0); DAMAGE_RECTS];
+        for (o, r) in rows.iter_mut().zip(self.rects()) {
+            *o = (edge(r.1), edge(r.1.saturating_add(r.3)));
+        }
+        rows[..self.n].sort_unstable();
+        let mut m = 0;
+        for k in 0..self.n {
+            if m > 0 && rows[k].0 <= rows[m - 1].1 {
+                rows[m - 1].1 = rows[m - 1].1.max(rows[k].1);
+            } else {
+                rows[m] = rows[k];
+                m += 1;
             }
         }
-        (0, b0, w, b1 - b0)
+        (rows, m)
+    }
+}
+
+/// What the next present repaints of the base (TASK-0354 P8): everything, or a bounded set of
+/// rectangles in layout coordinates. The ONE pending damage of a surface — every contributor
+/// adds what it changed (the layout's diff, an animated node, a motion layer that went, a widget
+/// loop), the present loop takes it. Everything (`whole`) is for doubt alone — a mount, a
+/// resize, a theme, a change that names no bound — and is never narrowed by a later rectangle.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Pending {
+    whole: bool,
+    rects: PresentDamage,
+}
+
+/// What a present repaints ([`Pending::take`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Change {
+    /// Everything, anew: the base, the patch, every band and motion layer.
+    Whole,
+    /// These rectangles of the layout.
+    Rects(PresentDamage),
+}
+
+impl Pending {
+    /// Everything changed, or nothing bounds what did.
+    pub(crate) fn whole(&mut self) {
+        *self = Self { whole: true, rects: PresentDamage::default() };
+    }
+
+    /// The rectangle with edges `(x0, y0, x1, y1)` changed — cut to the base `(w, h)`; one that
+    /// leaves nothing there names nothing.
+    pub(crate) fn add(&mut self, (x0, y0, x1, y1): (i32, i32, i32, i32), (w, h): (u32, u32)) {
+        if self.whole {
+            return;
+        }
+        let cut = |v: i32, max: u32| (v.max(0) as u32).min(max);
+        let (x0, y0, x1, y1) = (cut(x0, w), cut(y0, h), cut(x1, w), cut(y1, h));
+        if x1 > x0 && y1 > y0 {
+            self.rects.add((x0, y0, x1 - x0, y1 - y0));
+        }
+    }
+
+    /// Rows `[y0, y1)` changed, by a contributor that knows no columns (a widget loop, a text
+    /// field's selection, a scroll layer's content): every column of a base `w` wide.
+    pub(crate) fn rows(&mut self, (y0, y1): (i32, i32), w: u32) {
+        self.add((0, y0, i32::try_from(w).unwrap_or(i32::MAX), y1), (w, u32::MAX));
+    }
+
+    /// Another change's damage too.
+    pub(crate) fn merge(&mut self, other: Pending) {
+        if other.whole {
+            self.whole();
+        } else if !self.whole {
+            for r in other.rects.rects() {
+                self.rects.add(*r);
+            }
+        }
+    }
+
+    /// Whether nothing is owed.
+    pub(crate) fn is_empty(&self) -> bool {
+        !self.whole && self.rects.is_empty()
+    }
+
+    /// What the present repaints, leaving nothing pending (`None`: nothing).
+    pub(crate) fn take(&mut self) -> Option<Change> {
+        let taken = core::mem::take(self);
+        match taken {
+            Pending { whole: true, .. } => Some(Change::Whole),
+            Pending { rects, .. } if rects.is_empty() => None,
+            Pending { rects, .. } => Some(Change::Rects(rects)),
+        }
+    }
+}
+
+/// How a trace line says it: `none`, `whole`, or the rectangles' count and pixels.
+impl core::fmt::Display for Pending {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match (self.whole, self.rects.rects().len()) {
+            (true, _) => f.write_str("whole"),
+            (false, 0) => f.write_str("none"),
+            (false, n) => write!(f, "rects(n={n} px={})", self.rects.px()),
+        }
     }
 }
 
@@ -215,156 +317,4 @@ pub(crate) fn covered(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A layer is covered by what an overlay paints over its viewport: a sheet over the content
-    /// covers it; a full-bleed host painting nothing (absent from `painted`), an overlay beside
-    /// the viewport or one drawn before the layer's root does not — board cycle 2026-11-10: every
-    /// bare overlay counted by its box, and a closed menu's full-window host froze the scrolling.
-    #[test]
-    fn a_layer_is_covered_by_what_an_overlay_paints_and_not_by_its_box() {
-        let viewport = (300, 60, 1200, 800);
-        let sheet = (40, (0, 52, 320, 800));
-        assert!(covered(10, viewport, &[sheet]), "the open sheet lies over the content");
-        assert!(!covered(10, viewport, &[]), "a host painting nothing covers nothing");
-        assert!(!covered(10, viewport, &[(40, (0, 52, 280, 800))]), "beside the viewport");
-        assert!(!covered(50, viewport, &[sheet]), "drawn before the layer's root");
-    }
-
-    /// A 1400-position ring for a 700-row viewport.
-    fn band() -> Band {
-        Band { bx: 0, by: 869, strip_len: 1400, strips: 1, valid_start: 0, valid_len: 0 }
-    }
-
-    #[test]
-    fn an_empty_band_draws_its_visible_window_first() {
-        let f = next_fill(&band(), 700, 5000, 300, false).expect("a fill");
-        assert_eq!((f.from, f.to, f.visible, f.restart), (300, 1000, true, true));
-    }
-
-    #[test]
-    fn then_the_margins_ahead_and_behind() {
-        let mut b = band();
-        grow(&mut b, 300, 1000);
-        let ahead = next_fill(&b, 700, 5000, 300, false).expect("ahead");
-        assert_eq!((ahead.from, ahead.to, ahead.visible, ahead.forward), (1000, 1350, false, true));
-        grow(&mut b, 1000, 1350);
-        let behind = next_fill(&b, 700, 5000, 300, false).expect("behind");
-        assert_eq!((behind.from, behind.to, behind.forward), (0, 300, false));
-        grow(&mut b, 0, 300);
-        assert_eq!(next_fill(&b, 700, 5000, 300, false), None, "the target is held");
-        assert_eq!((b.valid_start, b.valid_len), (0, 1350));
-    }
-
-    /// Scrolling on: the visible window's new rows come before any margin, and the ring drops
-    /// what it overwrites at the far end.
-    #[test]
-    fn scrolling_fills_the_window_first_and_the_ring_forgets_behind() {
-        let mut b = band();
-        grow(&mut b, 0, 1050);
-        let f = next_fill(&b, 700, 5000, 400, false).expect("the window's gap");
-        assert_eq!((f.from, f.to, f.visible), (1050, 1100, true));
-        grow(&mut b, 1050, 1100);
-        let f = next_fill(&b, 700, 5000, 400, false).expect("the margin");
-        assert!(!f.visible && f.forward);
-        grow(&mut b, 1100, 1450);
-        assert_eq!(
-            (b.valid_start, b.valid_end()),
-            (50, 1450),
-            "1400 held, the first 50 overwritten"
-        );
-    }
-
-    /// A jump past everything held starts over at the new window — never a stale range shown.
-    #[test]
-    fn test_reject_keeping_a_range_the_window_left() {
-        let mut b = band();
-        grow(&mut b, 0, 1400);
-        let f = next_fill(&b, 700, 9000, 6000, false).expect("restart");
-        assert!(f.restart && f.visible);
-        assert_eq!((f.from, f.to), (6000, 6700));
-    }
-
-    #[test]
-    fn a_covered_or_empty_layer_draws_nothing() {
-        assert_eq!(next_fill(&band(), 700, 5000, 0, true), None);
-        assert_eq!(next_fill(&band(), 700, 0, 0, false), None);
-        assert_eq!(next_fill(&Band::default(), 700, 5000, 0, false), None);
-    }
-
-    #[test]
-    fn a_run_never_crosses_a_strip_end() {
-        // Two 960-column strips: positions 900..1100 cross the first strip's end at 960.
-        let f = Fill { from: 900, to: 1100, visible: true, forward: true, restart: false };
-        assert_eq!(run_of(&f, 960, 1000), (900, 960));
-        let back = Fill { from: 900, to: 1100, visible: false, forward: false, restart: false };
-        assert_eq!(run_of(&back, 960, 1000), (960, 1100), "backward: the run ends at `to`");
-        assert_eq!(run_of(&back, 960, 64), (1036, 1100), "a chunk at a time");
-    }
-
-    #[test]
-    fn a_backward_run_trims_the_far_end_the_ring_overwrote() {
-        let mut b = band();
-        grow(&mut b, 600, 2000);
-        grow(&mut b, 500, 600);
-        assert_eq!((b.valid_start, b.valid_end()), (500, 1900));
-    }
-
-    #[test]
-    fn present_damage_stays_within_four_rectangles() {
-        let mut d = PresentDamage::default();
-        assert!(d.is_empty());
-        for k in 0..6u32 {
-            d.add((0, k * 100, 1440, 10));
-        }
-        assert_eq!(d.rects().len(), 4);
-        let rows: u32 = d.rects().iter().map(|r| r.3).sum();
-        assert!(rows >= 60, "every named row is still named");
-        d.add((0, 0, 0, 10));
-        assert_eq!(d.rects().len(), 4, "an empty rectangle names nothing");
-    }
-
-    /// TASK-0351 P15: a panel sliding down the desktop names its columns, not 1920-wide rows.
-    #[test]
-    fn an_animated_node_names_the_columns_it_moved_in() {
-        let mut c = Cols::default();
-        c.within(299, 631);
-        c.within(299, 631);
-        assert_eq!(c.rect(1920, (44, 650)), (299, 44, 332, 606));
-        // Two nodes side by side: the union of their columns.
-        c.within(1200, 1500);
-        assert_eq!(c.rect(1920, (44, 650)), (299, 44, 1201, 606));
-    }
-
-    #[test]
-    fn an_unclaimed_frame_is_every_column() {
-        assert_eq!(Cols::default().rect(1920, (10, 20)), (0, 10, 1920, 10));
-    }
-
-    /// A tap's diff, a drag or a text edit knows only rows: the frame is full-width whatever an
-    /// animation claimed before or after it.
-    #[test]
-    fn test_reject_narrowing_a_frame_a_rowonly_contributor_touched() {
-        let mut c = Cols::default();
-        c.within(300, 630);
-        c.full();
-        assert_eq!(c.rect(1920, (44, 650)), (0, 44, 1920, 606));
-        c.within(300, 630);
-        assert_eq!(c, Cols::Full, "a later claim never narrows a full frame");
-        let mut d = Cols::default();
-        d.full();
-        d.within(300, 630);
-        assert_eq!(d.rect(1920, (0, 10)), (0, 0, 1920, 10));
-    }
-
-    #[test]
-    fn a_claim_is_cut_to_the_surface_and_one_past_it_is_every_column() {
-        let mut c = Cols::default();
-        c.within(-5, 2000);
-        assert_eq!(c.rect(1920, (0, 10)), (0, 0, 1920, 10));
-        let mut off = Cols::default();
-        off.within(1930, 1940);
-        assert_eq!(off.rect(1920, (0, 10)), (0, 0, 1920, 10), "nothing claimed on the surface");
-    }
-}
+mod tests;

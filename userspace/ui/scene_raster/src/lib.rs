@@ -88,6 +88,25 @@ impl RowCanvas<'_> {
         self.buf[i + 3] = (a + self.buf[i + 3] as u32 * inv / 255) as u8;
     }
 
+    /// The part of model-x span `[x0, x1)` whose pixels [`blend`](Self::blend) and
+    /// [`set`](Self::set) write after the scroll shift and the scissor (TASK-0367 P3): a painter
+    /// loops over it instead of walking its whole range and returning at every pixel outside —
+    /// a box crossing a narrow damage cost its full width per row before. Nothing that lands is
+    /// skipped, so the bytes are the same.
+    #[inline]
+    #[must_use]
+    pub fn visible(&self, x0: i32, x1: i32) -> (i32, i32) {
+        let n = i32::try_from(self.buf.len() / 4).unwrap_or(i32::MAX);
+        let (mut lo, mut hi) = (0, self.width.min(n));
+        if let Some((c0, c1)) = self.clip_x {
+            lo = lo.max(c0);
+            hi = hi.min(c1);
+        }
+        let a = x0.max(lo.saturating_add(self.shift_x));
+        let b = x1.min(hi.saturating_add(self.shift_x));
+        (a, b.max(a))
+    }
+
     /// REPLACE one pixel of this row (alpha included; same shift/scissor
     /// discipline as [`blend`](Self::blend)) — the glass-region reset write.
     #[inline]
@@ -254,8 +273,7 @@ pub(crate) fn paint_box_row_at(
                 if sw > 0 && sh > 0 {
                     let sy = ((canvas.y - y).clamp(0, h - 1) as i64 * sh as i64 / h as i64)
                         .clamp(0, (sh - 1) as i64) as i32;
-                    let x0 = x.max(0);
-                    let x1 = (x + w).min(canvas.width);
+                    let (x0, x1) = canvas.visible(x.max(0), (x + w).min(canvas.width));
                     for px in x0..x1 {
                         let sx = ((px - x) as i64 * sw as i64 / w as i64).clamp(0, (sw - 1) as i64)
                             as i32;
@@ -394,7 +412,9 @@ fn paint_shadow_row(
         (x1, x1)
     };
     let (k0, k1) = if k1 > k0 { (k0, k1) } else { (x1.max(x0), x1.max(x0)) };
-    for px in (x0..k0).chain(k1..x1) {
+    // Only the columns the scissor lets through are asked (TASK-0367 P3).
+    let (v0, v1) = canvas.visible(x0, x1);
+    for px in (x0.max(v0)..k0.min(v1)).chain(k1.max(v0)..x1.min(v1)) {
         let pxf = px as f32 + 0.5;
         let dx = (pxf - cx).abs() - hw;
         let dxc = if dx > 0.0 { dx } else { 0.0 };

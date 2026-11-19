@@ -15,10 +15,11 @@ enforces the checkable part:
   * legwork (sonnet/haiku): `effort` above medium denied; LEGWORK_BURST spawns per BURST_WINDOW,
     LEGWORK_TOTAL per TOTAL_WINDOW.
   * fable runs only through the two definitions in .claude/agents/ — `architect` (decides,
-    read-only) and `critical-writer` (one delicate bounded change). Each needs the sections of
-    its brief form (a brief is facts, sources and a question — not a hand-over of the chat),
-    runs at the definition's effort (high), one strong agent per BURST_WINDOW, and its own cap
-    per TOTAL_WINDOW.
+    read-only; default fable high) and `critical-writer` (one delicate bounded change; default
+    fable medium). Each needs the sections of its brief form (a brief is facts, sources and a
+    question — not a hand-over of the chat), one strong agent per BURST_WINDOW, and its own cap
+    per TOTAL_WINDOW. The call may pick the model and effort per task within STRONG_COMBOS
+    (operator, 2026-11-18: "opus xhigh, max, and fable medium, depending on the task").
   * any other agent on a model that is not sonnet/haiku ASKS the user — never silent.
   * the caps count per user across sessions (the quota is per account, not per session).
     A follow-up to a living agent (SendMessage) is not a spawn and is not counted.
@@ -40,9 +41,12 @@ TOTAL_WINDOW = 5 * 60 * 60                # the 5-hour quota window
 LEGWORK_BURST, LEGWORK_TOTAL = 3, 12      # sonnet/haiku spawns per burst window / per quota window
 STRONG_BURST = 1                          # fable agents per burst window, over both kinds
 
-# Fable as an agent: the definition supplies model and effort; the call may repeat them, not raise them.
-STRONG_MODELS = (None, "fable")
-STRONG_EFFORT = (None, "high")
+# A strong agent's model and effort: omitted = the definition's; otherwise one of these pairs.
+STRONG_COMBOS = {
+    None: (None, "medium", "high"),
+    "fable": (None, "medium", "high"),
+    "opus": ("high", "xhigh", "max"),
+}
 STRONG_TYPES = {
     "architect": {
         "total": 3,
@@ -165,10 +169,12 @@ def check_agent(ti):
         return "deny", ("agent budget: `fork` inherits the whole conversation — the most expensive brief there is. "
                         "Write a self-contained brief for a general-purpose agent with model: sonnet instead.")
 
-    if sub in STRONG_TYPES and model in STRONG_MODELS:
-        if effort not in STRONG_EFFORT:
-            return "deny", (f"agent budget: effort `{effort}` is not allowed for `{sub}` — it runs at the "
-                            "definition's effort (high). Omit `effort`.")
+    if sub in STRONG_TYPES and model in STRONG_COMBOS:
+        if effort not in STRONG_COMBOS[model]:
+            allowed = ", ".join(e for e in STRONG_COMBOS[model] if e)
+            omit = " (or omitted: the definition's)" if None in STRONG_COMBOS[model] else ""
+            return "deny", (f"agent budget: `{sub}` on `{model or 'its definition model'}` runs at "
+                            f"{allowed}{omit}, not `{effort or 'unset'}`.")
         reason = check_brief(sub, prompt)
         if reason:
             return "deny", reason

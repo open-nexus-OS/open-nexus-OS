@@ -481,7 +481,7 @@ impl super::DslApp {
         // the loop's re-create.
         if self.sync_layers() {
             let plan = self.plan_store();
-            self.store_replan |= self.outgrows(plan);
+            self.store_wanted = Some(plan);
         }
         // What the bands hold is redrawn where the change's damage names it (`band::redraw`).
         true

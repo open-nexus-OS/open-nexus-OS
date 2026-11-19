@@ -225,7 +225,7 @@ impl DisplayServerRuntime {
             {
                 continue;
             }
-            let f = self.app_window_rect(i);
+            let f = self.app_window_damage_rect(i);
             let x0 = rect.x.max(f.x);
             let y0 = rect.y.max(f.y);
             let x1 = (rect.x + rect.width).min(f.x + f.width);
@@ -280,9 +280,12 @@ impl DisplayServerRuntime {
                 let rects = &rects[..count];
                 match self.owner_of(surface_id) {
                     Some(Owner::Desktop) => {
-                        let screen = (0, 0, self.mode.width, self.mode.height);
+                        let place = crate::surface_place::SurfacePlace::display((
+                            self.mode.width,
+                            self.mode.height,
+                        ));
                         let change = self.desktop_layers.activate();
-                        self.present_damage(&surface, rects, change, None, screen);
+                        self.present_damage(&surface, rects, change, None, place);
                         // The desktop it replaced (a re-create) goes with this one's frame.
                         self.end_retiring(Owner::Desktop);
                         // The session's first desktop frame completes the reveal: the revealed
@@ -290,10 +293,12 @@ impl DisplayServerRuntime {
                         self.note_desktop_content();
                     }
                     Some(Owner::App(idx)) => {
-                        let rect = self.app_window_rect(idx);
-                        let screen = (rect.x, rect.y, rect.width, rect.height);
+                        // The changed pixels are where the scene draws the surface; the
+                        // hand-over and the blur above cover the window with its shadow.
+                        let (place, rect) =
+                            (self.surface_place(idx), self.app_window_damage_rect(idx));
                         let change = self.apps[idx].layers.activate();
-                        self.present_damage(&surface, rects, change, Some(idx), screen);
+                        self.present_damage(&surface, rects, change, Some(idx), place);
                         // The app's frame takes its window over: the starting surface and a
                         // surface it replaces give way in this present (TASK-0336, RFC-0114).
                         if self.end_starting_surface(idx) || self.apps[idx].retiring.is_some() {

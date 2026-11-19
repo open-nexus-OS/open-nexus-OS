@@ -470,6 +470,12 @@ pub(super) fn create_surface(
                 if let Some(cap) = refused {
                     let _ = nexus_abi::cap_close(cap);
                 }
+                if b.status == wire::SURFACE_STATUS_QUOTA {
+                    if let Some(smaller) = dsl.unreserve(plan) {
+                        plan = smaller;
+                        continue;
+                    }
+                }
                 if b.status == wire::SURFACE_STATUS_QUOTA
                     && plan.rows > size.1
                     && !dsl.store_refused

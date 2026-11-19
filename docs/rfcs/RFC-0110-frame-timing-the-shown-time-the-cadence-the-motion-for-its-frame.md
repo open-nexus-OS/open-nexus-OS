@@ -5,7 +5,7 @@ title: "Frame timing — when a frame reaches the glass, the cadence the driver 
 status: in_progress
 owners: ["@ui", "@gpu"]
 created: 2026-10-22
-updated: 2026-10-22
+updated: 2026-11-19
 subsystem: ui
 tasks: [TASK-0343]
 links:
@@ -137,7 +137,9 @@ flight. Answered at once, such a client asked 2977 times a second. windowd's own
 do the surfaces' motion layers (RFC-0109, amendment 2026-11-04, TASK-0354 P2): a motion starts at
 the predicted shown time of the frame that first draws it, and every frame evaluates every moving
 layer for its own predicted time. No client steps a motion layer: the app that declared it is not
-woken until it changes something.
+woken until it changes something. A motion turned mid-flight (amended 2026-11-18, TASK-0354 P9: an
+exit interrupted by a re-open, or the reverse) is evaluated in closed form from the progress and
+velocity it had at the shown time of the first frame after the turn — never by stepping.
 
 **The client (app-host).** On a timed pulse the scroll layers' physics and the DSL animations
 advance to `target_ns` — never back in time; on a plain pulse, by the client's own clock.

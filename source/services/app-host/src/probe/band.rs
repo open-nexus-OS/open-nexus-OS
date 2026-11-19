@@ -26,8 +26,11 @@ const FILL_BUDGET_NS: u64 = 4_000_000;
 const FILL_BATCH: u32 = 8;
 
 pub(super) use super::store::StorePlan;
-use crate::band_math::{grow, next_fill, run_of};
+use crate::band_math::{grow, next_fill, run_of, Change};
 pub(super) use crate::band_math::{Band, PresentDamage};
+
+/// A present names as many rectangles as the damage set holds: the set's bound is the wire's.
+const _: () = assert!(crate::band_math::DAMAGE_RECTS == wire::MAX_DAMAGE_RECTS);
 
 /// The wire description of `layer`'s band (a covered layer's shows nothing: its content paints
 /// in the base).
@@ -75,8 +78,8 @@ impl super::DslApp {
             || self.motion_paint_owed()
     }
 
-    /// One fill pass: each uncovered layer's band grows toward its target — the visible window,
-    /// then the margins — a run of the ring at a time, until the budget is spent. `None`: no
+    /// One fill pass: each uncovered layer's band grows toward its target — the visible window
+    /// whole, then the margins a run of the ring at a time until the budget is spent. `None`: no
     /// budget, the visible windows complete and nothing more (the first frame after a content
     /// change). The rows drawn are added to `damage`. Returns whether a band changed what it
     /// holds.
@@ -91,11 +94,15 @@ impl super::DslApp {
         for k in 0..super::scroll::MAX_SCROLL_LAYERS {
             while let Some(layer) = self.scroll_layers[k] {
                 let Some(fill) = layer_fill(&layer) else { break };
-                if (budget.is_none() && !fill.visible) || deadline.is_some_and(|d| nsec_now() >= d)
-                {
+                // The visible window is always completed in this frame: under a budget it came in
+                // a few columns a frame and a full-screen grid built itself up in scanlines
+                // (board--2026-11-19T09-44-05). The budget is the margins' alone.
+                let late = deadline.is_some_and(|d| nsec_now() >= d);
+                if !fill.visible && (budget.is_none() || late) {
                     break;
                 }
-                let chunk = if budget.is_some() { FILL_BATCH } else { FILL_BATCH * 8 };
+                let chunk =
+                    if fill.visible || budget.is_none() { FILL_BATCH * 8 } else { FILL_BATCH };
                 // One run of the ring: no strip end (and no wrap) inside it.
                 let (q0, q1) = run_of(&fill, layer.band.strip_len, chunk);
                 if q1 <= q0 {
@@ -161,43 +168,15 @@ impl super::DslApp {
         true
     }
 
-    /// Redraws what a model change named: layout rows `span` (`None`: everything) — the base's
-    /// rows there and, in each band, the content rows there it holds (a horizontal band whose
-    /// viewport the span crosses: all it holds). Everything is the base, the patch, and every
-    /// band from its visible window out. The drawn rows are added to `damage`; `false` when the
-    /// surface refused a write.
-    pub(super) fn redraw(
+    /// Layout rows `[y0, y1)` of a model change (`probe/damage.rs::redraw`) in each band: the
+    /// content rows there it holds (a horizontal band whose viewport the rows cross: all it
+    /// holds), named in `damage`. `false` when the surface refused a write.
+    pub(super) fn redraw_band_rows(
         &mut self,
         mem: &mut SurfaceMem,
-        span: Option<(i32, i32)>,
+        (y0, y1): (i32, i32),
         damage: &mut PresentDamage,
     ) -> bool {
-        let (w, h) = (self.w, self.h as i32);
-        let Some((y0, y1)) = span else {
-            if !self.render(mem) || !self.draw_patch(mem, damage) {
-                return false;
-            }
-            damage.add((0, 0, w, h as u32));
-            self.invalidate_bands();
-            self.fill_bands(mem, None, damage);
-            return self.paint_motion_layers(mem, damage, true);
-        };
-        let (b0, b1) = (y0.max(0), y1.min(h));
-        if b1 > b0 {
-            // TASK-0351 P15 / TASK-0367 P3: the damage names what changed in the rows, and only
-            // those columns are painted.
-            let rect = core::mem::take(&mut self.damage_cols).rect(w, (b0 as u32, b1 as u32));
-            let cols = (rect.0 as i32, (rect.0 + rect.2) as i32);
-            if !self.render_rows(mem, (b0, b1), Some(cols)) {
-                return false;
-            }
-            self.motion_hops.damaged(u64::from(rect.2) * u64::from(rect.3));
-            damage.add(rect);
-        }
-        // The rows of a motion layer the change reaches, in its store rows (TASK-0354 P2).
-        if !self.redraw_motion_rows(mem, (y0, y1), damage) {
-            return false;
-        }
         for k in 0..super::scroll::MAX_SCROLL_LAYERS {
             let Some(l) = self.scroll_layers[k] else { continue };
             if l.covered || l.band.valid_len == 0 {
@@ -226,17 +205,17 @@ impl super::DslApp {
     }
 
     /// One present: into the slot windowd released (RFC-0114 — the last present's rects first
-    /// come forward), the model change redrawn (`change`: `Some(span)` — the span's layout rows,
-    /// or everything), a fill pass of the bands within its budget, the structure when it changed,
-    /// the present of the slot naming every row drawn. `Ok(true)`: a present is in flight (its
-    /// ack — the release of the other slot — clears it).
+    /// come forward), the model change redrawn (`change`: what the pending damage named — its
+    /// rectangles, or everything), a fill pass of the bands within its budget, the structure when
+    /// it changed, the present of the slot naming every row drawn. `Ok(true)`: a present is in
+    /// flight (its ack — the release of the other slot — clears it).
     pub(super) fn present_frame(
         &mut self,
         client: &KernelClient,
         surface_id: u32,
         mem: &mut SurfaceMem,
         seq: &mut u32,
-        change: Option<Option<(i32, i32)>>,
+        change: Option<Change>,
     ) -> Result<bool, &'static str> {
         // The modal edge on every present, not only when base rows paint: a modal that enters
         // as a motion layer changes no base row, and its `modal.on` and `apphost: modal open`
@@ -248,19 +227,9 @@ impl super::DslApp {
         if let Some(rows) = self.carried.take() {
             damage.add((0, 0, self.w, rows));
         }
-        // A motion layer that went, or lost its place: its rows paint in the base again — whole
-        // (it names no columns, and P3 paints only the columns the damage names).
-        if self.motion_repaint.is_some() {
-            self.damage_cols.full();
-        }
-        let change = match (change, self.motion_repaint.take()) {
-            (Some(Some((a, b))), Some((c, d))) => Some(Some((a.min(c), b.max(d)))),
-            (None, Some(r)) => Some(Some(r)),
-            (change, _) => change,
-        };
-        mem.begin_frame(change == Some(None));
-        if let Some(span) = change {
-            if !self.redraw(mem, span, &mut damage) {
+        mem.begin_frame(change == Some(Change::Whole));
+        if let Some(change) = change {
+            if !self.redraw(mem, change, &mut damage) {
                 return Err("apphost: FAIL interactive render");
             }
         }
@@ -316,7 +285,8 @@ impl super::DslApp {
         (seq, slot): (u32, u8),
         damage: &PresentDamage,
     ) -> Result<(), &'static str> {
-        let mut rects = [wire::DamageRect { x: 0, y: 0, width: 0, height: 0 }; 4];
+        let none = wire::DamageRect { x: 0, y: 0, width: 0, height: 0 };
+        let mut rects = [none; wire::MAX_DAMAGE_RECTS];
         let c = |v: u32| v.min(u32::from(u16::MAX)) as u16;
         for (o, r) in rects.iter_mut().zip(damage.rects()) {
             *o = wire::DamageRect { x: c(r.0), y: c(r.1), width: c(r.2), height: c(r.3) };
@@ -358,7 +328,7 @@ impl super::DslApp {
     /// moved a glass box, or let it rest).
     fn regions_moved(&self) -> bool {
         let mut now = [wire::LayerDesc::default(); wire::MAX_SURFACE_LAYERS];
-        let n = self.regions(&mut now, &mut [0; wire::MAX_SURFACE_LAYERS]);
+        let (n, _) = self.tree_regions(&mut now, &mut [0; wire::MAX_SURFACE_LAYERS]);
         let sent = &self.sent_tree;
         n != sent.region_count || now[..n] != sent.regions[..n]
     }
@@ -368,7 +338,8 @@ impl super::DslApp {
     pub(super) fn send_tree(&mut self, client: &KernelClient, surface_id: u32) {
         let mut tree = lw::SurfaceTree::EMPTY;
         let mut region_nodes = [0; wire::MAX_SURFACE_LAYERS];
-        tree.region_count = self.regions(&mut tree.regions, &mut region_nodes);
+        let (regions, mut ghosts) = self.tree_regions(&mut tree.regions, &mut region_nodes);
+        tree.region_count = regions;
         let mut roots = [0; super::scroll::MAX_SCROLL_LAYERS];
         let mut n = 0;
         for l in self.scroll_layers.iter().flatten() {
@@ -379,7 +350,9 @@ impl super::DslApp {
             roots[n] = l.root;
             n += 1;
         }
-        tree.scroll_count = n;
+        // A leaving layer's scroll layers after the page's (TASK-0354 P9).
+        tree.scroll_count =
+            self.ghost_scrolls(n, &mut tree.scrolls, &mut [0; lw::MAX_SCROLL_LAYERS], &mut ghosts);
         // The patch row: the interaction layers' first patch, one per motion layer's backdrop,
         // the layers' second patch last (`interaction_layer::WIRE_PATCHES`).
         if !self.store_refused {
@@ -390,7 +363,7 @@ impl super::DslApp {
             tree.patch_count = lw::MAX_PATCHES;
         }
         let claims = (&region_nodes[..tree.region_count], &roots[..n]);
-        tree.motion_count = self.motion_descs(claims.0, claims.1, &mut tree.motions);
+        tree.motion_count = self.motion_descs(claims, &ghosts, &mut tree.motions);
         super::motion_layers::keep_claims_inside(&mut tree);
         let mut buf = [0u8; lw::SURFACE_TREE_MAX_LEN];
         let len = lw::encode_surface_tree(surface_id, &tree, &mut buf);
@@ -410,7 +383,13 @@ impl super::DslApp {
             motion.offsets[n] = l.offset;
             n += 1;
         }
-        motion.offset_count = n;
+        // The leaving layers' scroll layers keep the offsets they left with, in the structure's
+        // order (`send_tree`).
+        let mut scrolls = [lw::ScrollLayerDesc::default(); lw::MAX_SCROLL_LAYERS];
+        let mut ghosts = [(0, 0); super::motion_layers::MAX_MOTION_LAYERS];
+        let mut offsets = motion.offsets;
+        motion.offset_count = self.ghost_scrolls(n, &mut scrolls, &mut offsets, &mut ghosts);
+        motion.offsets = offsets;
         motion.wash_count = self.washes(&mut motion.washes);
         if lw::validate_motion(&motion, &self.sent_tree).is_err() {
             motion.wash_count = 0;
@@ -427,8 +406,8 @@ impl super::DslApp {
 
     /// An input arrived at `rx_ns` (RFC-0108 §hops): the input chain's hop in the app starts — for
     /// an input that asked for work (a repaint, a motion), the first one since the last answer.
-    pub(super) fn note_input_rx(&mut self, rx_ns: u64, dirty: bool) {
-        if (dirty || self.motion_dirty) && self.input_rx_ns.is_none() {
+    pub(super) fn note_input_rx(&mut self, rx_ns: u64) {
+        if (!self.pending.is_empty() || self.motion_dirty) && self.input_rx_ns.is_none() {
             self.input_rx_ns = Some(rx_ns);
         }
     }

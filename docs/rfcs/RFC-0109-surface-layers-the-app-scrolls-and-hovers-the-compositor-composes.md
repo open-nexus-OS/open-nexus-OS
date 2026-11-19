@@ -3,10 +3,10 @@ schema: 1
 id: RFC-0109
 title: "Surface layers — the app scrolls and hovers, the compositor composes what it declared"
 status: done
-status_note: "complete 2026-11-05 (board cycle 2026-11-05T13-12-18): scroll and hover layers, motion layers painted once, modals and toasts in front"
+status_note: "complete 2026-11-05; amended 2026-11-19: damage as rectangles, a scroll layer's viewport, exits (MOTION_EXIT)"
 owners: ["@ui", "@runtime"]
 created: 2026-10-21
-updated: 2026-11-05
+updated: 2026-11-19
 subsystem: ui
 tasks: [TASK-0341, TASK-0354]
 links:
@@ -205,12 +205,24 @@ the scroll layer under the pointer; the band filled ahead of the viewport within
 per frame pulse, nearest content first, never blocking the physics tick; motion sent on every
 tick that moved; the structure and the presented store rows sent together. The hover decision
 stays the DSL runtime's hit-test, answered with a wash. A present's damage is what changed, not
-the rows it was painted in (TASK-0351 P15): a frame whose rows changed only inside the animated
-nodes' rectangles names those columns, and the row painter paints only them (TASK-0367 P3: the
-pass is planned over the columns, a box picked where its pixels, shadow, halo or a stroke's cap
-may reach them; the rest of each row is the slot's, carried forward); a contributor that knows
-only rows (a layout diff, a drag, a text edit, a widget loop, a motion layer that went) widens
-the frame to full width — narrowing is claimed, never assumed.
+the rows it was painted in (TASK-0351 P15, amended 2026-11-18 TASK-0354 P8): the app keeps its
+pending damage as at most four rectangles (the present's own bound, `MAX_DAMAGE_RECTS`) — a
+fifth merges the pair whose union adds the least area, so above the bound the damage grows,
+never shrinks. A layout change is aligned box by box (an order-preserving resync within a bounded
+look-ahead and comparison budget): a box both layouts hold unchanged damages nothing, an
+unmatched box its painted rectangle with a glyph's overhang, a box that paints nothing nothing —
+a bar button changing at the top and a block appearing far below are two rectangles, not every
+row between them; past the budget every remaining box damages its rectangle. The row painter
+paints each rectangle's columns only (TASK-0367 P3: the pass is planned over the columns, a box
+picked where its pixels, shadow, halo or a stroke's cap may reach them; the shared painter's loops
+are cut to the canvas scissor; the rest of each row is the slot's, carried forward); a contributor
+that knows only rows (a drag, a text edit, a widget loop) names those rows at full width, and a
+whole-surface redraw is kept for doubt alone (mount, resize, a theme, a shape that gives no
+bound) — narrowing is claimed, never assumed. The desktop's store is created at its full height
+once and never shrinks, so opening a layer re-creates no surface. windowd puts a present's
+rectangles where the scene draws the surface — the frame's corner, cut at the frame and the display
+(`surface_place`) — never at the window's shadow halo (amended 2026-11-19, TASK-0351 P18: the halo
+moved every rectangle up to 75 px up and left of what changed).
 
 **Motion layers (amendment 2026-11-04, TASK-0354 P2).** A **motion layer** is a part of the
 surface the compositor moves: the app paints a subtree once, at rest, into the store (the base is
@@ -226,7 +238,8 @@ woken between the motion's start and its end and paints nothing per frame.
   `duration_ms:u16` (`0`: at rest), `from_dx,from_dy:i16` (the offset it starts from),
   `regions:u16` (bit `k`: region `k` is part of the layer), `token:u8` (a curated motion token —
   the curve), `from_opacity:u8`, `scrolls:u8` (bit `k`: scroll layer `k`), `flags:u8` (bit 0
-  `MOTION_FRONT`: drawn in front — below; the other bits reserved, zero), `backdrop:u8` (`0`: none;
+  `MOTION_FRONT`: drawn in front — below; bit 1 `MOTION_EXIT` (amendment 2026-11-18, TASK-0354
+  P9): the layer is leaving — below; the other bits reserved, zero), `backdrop:u8` (`0`: none;
   `p + 1`: patch `p` spread over the whole surface below the layer) and `backdrop_opacity:u8`
   (amendment 2026-11-05: these two bytes were reserved), then `backdrop_ms:u16` (the backdrop's
   own fade) and `from_scale:u16` (the scale it starts from in 1/10000, `0` = unscaled — the
@@ -254,6 +267,17 @@ woken between the motion's start and its end and paints nothing per frame.
   track computes, P3). A backdrop fades in over `backdrop_ms` on the fade curve. At `p ≥ 1`, or `duration_ms = 0`, it
   rests. The app declares `duration_ms = 0` once a motion is over, so a later compositor (RFC-0112)
   never replays it.
+- *Exit (amendment 2026-11-18, TASK-0354 P9).* The id is the layer's life: a layer leaving is the
+  same id declared with `MOTION_EXIT`, and it plays its token toward where it came from — progress
+  `q = 1 − e(p)` in place of `e(p)` in the formulas above, the backdrop going from where it is to
+  0 over `backdrop_ms`. Past its end an exited layer is drawn nowhere and owes no frame. A flip of
+  the flag while the previous motion is still in flight (a close interrupted by a re-open, or the
+  reverse) turns at the shown time of the first frame after it: the motion continues from the
+  progress and velocity it had there as a critically damped spring toward 0 or 1, settled at the
+  token's duration, with the progress clamped to [−0.25, 1.25] and the velocity to 50 per second;
+  an uninterrupted motion stays the token's curve. A flip changes no rectangle by itself (the
+  structure's comparison ignores the flag and the durations). An exiting layer in front owns no
+  pointer: a press over it, or over its fading scrim, is the window's beneath.
 - *Composition.* While it moves, everything of the layer — its own pixels (drawn where the base
   would hold them: with the window body, in the desktop's pass below the windows), the regions it
   claims (their pixels sampled from the layer's), its scroll layers' slices, its washes and a caret
@@ -272,8 +296,10 @@ woken between the motion's start and its end and paints nothing per frame.
   it would bare an edge). The pointer follows the paint: a press inside a desktop layer in front
   (or anywhere while one has a backdrop) is the shell's, never the window's beneath.
 - *Damage.* A region or a motion layer that comes or goes changes its rectangle (a region's with
-  its shadow), not the whole surface: a panel opening is not a full-screen frame. A layer with a
-  backdrop changes every pixel when it comes or goes.
+  its shadow), not the whole surface: a panel opening is not a full-screen frame. A scroll layer
+  that comes, goes or whose band is re-placed changes its viewport (amended 2026-11-18, TASK-0351
+  P15: the launcher's grid band coming is not a full frame); patches still change the whole
+  surface. A layer with a backdrop changes every pixel when it comes or goes.
 - *The app.* A `.transition` enter is a motion layer when painting it apart composes to the pixels
   of painting it in place — on a transparent page base (the desktop: the shell, the greeter)
   anything; on a base that is not clear (a window's frost; amended 2026-11-13, TASK-0354 P7) a
@@ -294,7 +320,15 @@ woken between the motion's start and its end and paints nothing per frame.
   — a layout change the layers hold paints their store rows only; a modal opening or closing
   over its scrim repaints no base row), and a close is its absence — nothing to paint. A store
   that outgrows the surface's rows re-creates the surface at the same size and carries the drawn
-  rows over instead of painting them again.
+  rows over instead of painting them again. When a layer's node leaves (amended 2026-11-18,
+  TASK-0354 P9), the layer stays as a ghost for its exit: it holds no node, keeps its id, its place
+  in the store, its regions' and scroll layers' last declarations (at most four and two) and its
+  backdrop, is declared with `MOTION_EXIT`, and is dropped on the app's own timer at the exit's
+  end plus the over-run margin — windowd never tells the app (ADR-0075). Nothing writes a ghost's
+  store pixels; a whole redraw or a surface re-create cuts the ghosts first. The same node coming
+  back within the exit revives the same id. The store keeps every placed layer where it is while
+  others come and go (a stable first fit; a compaction only when nothing fits, after the ghosts are
+  cut). An enter the app runs itself (Tier 2) leaves at once, as before.
 
 ### Phases / milestones (contract-level)
 
@@ -392,6 +426,23 @@ track), `a_motion_owes_frames_until_its_length`, `test_reject_an_unknown_motion_
 `what_a_motion_layer_holds_never_damages_the_base`. A structure from another client is refused by
 the existing owner check (`test_reject_layers_for_a_surface_the_sender_does_not_own`).
 
+Amendment 2026-11-18 (TASK-0354 P8/P9, TASK-0367 P3, TASK-0351 P15): app-host (`band_math`,
+`layout_diff`, `pass_plan`, the store): `two_changes_far_apart_stay_two_rectangles`,
+`a_fifth_rectangle_merges_the_cheapest_pair`, `a_rows_only_contributor_names_the_full_width`,
+`a_bar_button_and_scaffold_boxes_far_below_damage_the_button_alone`,
+`a_box_that_paints_nothing_damages_nothing_when_it_comes_or_goes`,
+`test_reject_a_bound_from_an_alignment_past_its_budget`,
+`a_diffs_rectangles_repaint_to_the_full_frame` (seeded edits, byte-equal),
+`an_item_keeps_its_place_while_others_come_and_go`, `a_layer_leaves_when_its_identity_is_gone`,
+`a_reopen_within_the_exit_revives_the_same_id`, `test_reject_keeping_a_ghost_past_its_deadline`;
+the shared painter (`span_identity`): every loop cut to the scissor byte-equal to its per-pixel
+form; the wire: `a_leaving_motion_layer_round_trips`, `test_reject_a_reserved_motion_flag`;
+windowd: `a_scroll_layer_changes_its_viewport_when_it_comes_or_goes`,
+`an_exit_plays_its_token_toward_where_it_came_from`, `an_exited_layer_is_not_drawn_and_owes_no_frame`,
+`a_reopened_close_keeps_its_place_and_velocity`, `a_backdrop_fades_out_from_where_it_is`,
+`a_direction_flip_changes_no_rectangle`, `test_reject_a_pointer_for_a_leaving_front_layer`,
+`test_reject_an_unbounded_turn_velocity`.
+
 ### Proof (OS/QEMU)
 
 ```bash
@@ -406,7 +457,10 @@ bound` line. Phase 4: the greeter's enters say `apphost: motion layer (id= token
 backdrop= paint_us=)` once each and `windowd: motion layer (owner= id= …)` once each
 (measurement lines), with no `apphost: hops motion` episode for them (the app was not woken); the
 shell's power alert says `front=1 backdrop=1` with the sheet's size (not the screen's), its toast
-`front=1 backdrop=0`.
+`front=1 backdrop=0`. Amendment 2026-11-18: `just ci-os-usb-visible` — the shell's opens name
+rectangles of at most 2 % of the base (`apphost: tap (… base=`), the desktop is created once (no
+`apphost: surface re-made` after its create), and every dismissal (timeout, backdrop, Escape) says
+`windowd: motion layer (… exit=1` with no app raster during it; `just ci-os-many-apps` green.
 
 ### Proof (board)
 
@@ -419,7 +473,11 @@ A QEMU rung that wheels over a scroll layer and judges the same counters is TASK
 follow-up. Phase 4: opening a panel and the launcher, against cycle 2026-11-04T18-14-55 — one
 `apphost: motion layer (paint_us=)` per open and no `apphost: hops motion` episode during the
 enter (0 app wake-ups, 0 app raster per frame); `windowd: loop … frames(moved=)` carries the
-enter's frames; `gpud: ux frame` inside 16.7 ms while it moves.
+enter's frames; `gpud: ux frame` inside 16.7 ms while it moves. Amendment 2026-11-18: per open
+and close of the bar's panels, the Control Center, the launcher (small, big, paging), a toast and
+the power alert — `windowd: motion done (… frames= of= late_max_us= damage_px_max=)` with
+`damage_px_max ≤ 1.5 · (w + 64) · (h + 64)`, `tap_us` on `windowd: motion layer`, no
+`base=whole(` on a shell tap, no desktop re-create, and a close with no app raster.
 
 ## Alternatives considered
 

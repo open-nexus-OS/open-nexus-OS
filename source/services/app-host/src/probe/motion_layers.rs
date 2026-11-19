@@ -20,6 +20,9 @@
 //! TEST_COVERAGE: the decisions in `crate::motion_math` and `crate::layout_diff`, the wire's
 //!   bounds in `nexus-display-proto::surface_layers` (host); the lanes' `apphost: motion layer (`
 
+mod leave;
+mod wire;
+
 use super::band::PATCH_ROWS;
 use super::surface_mem::SurfaceMem;
 use super::*;
@@ -38,20 +41,25 @@ use nexus_layout_types::Rgba8;
 
 /// Motion layers a surface keeps (the wire's bound).
 pub(super) const MAX_MOTION_LAYERS: usize = lw::MAX_MOTION_LAYERS;
-/// A motion is over this long after its end: the next structure declares it at rest (a later
-/// compositor never replays it).
-const OVER_AFTER_NS: u64 = 250_000_000;
+use crate::motion_exit::Fate;
+use leave::Leaving;
 
 /// One motion layer.
 #[derive(Clone, Copy)]
 pub(super) struct MotionLayer {
-    /// The node whose `.transition` it is, and one past its subtree's last node (pre-order).
+    /// The node whose `.transition` it is, and one past its subtree's last node (pre-order);
+    /// `0..0` for a ghost (it holds no node).
     root: usize,
     end: usize,
+    /// The transition's identity (its node's path, `transition_identity`): a re-emit renumbers
+    /// the nodes, the identity stays — the layer follows it (TASK-0354 P9).
+    identity: i32,
+    /// Leaving: the node is gone, the layer plays its exit (`probe/motion_leave.rs`).
+    leaving: Option<Leaving>,
     /// Where its subtree paints at rest `(x0, y0, x1, y1)`, surface pixels (its backdrop aside).
-    pub(super) rect: Span,
+    rect: Span,
     /// Where its pixels are in the store (`None`: not placed — the base paints the subtree).
-    pub(super) store: Option<(u16, u16)>,
+    store: Option<(u16, u16)>,
     token: u8,
     duration_ms: u16,
     /// Where it starts: an offset, an opacity and a scale in 1/10000.
@@ -60,7 +68,7 @@ pub(super) struct MotionLayer {
     id: u16,
     declared_ns: u64,
     /// Its store rows hold its subtree.
-    pub(super) painted: bool,
+    painted: bool,
     /// A modal's or a toast's layer: drawn in front of everything else of the surface.
     front: bool,
     /// Its root's flat fill over the whole surface (a scrim): the compositor draws it.
@@ -69,7 +77,7 @@ pub(super) struct MotionLayer {
 
 impl MotionLayer {
     /// Its size in pixels.
-    pub(super) fn size(&self) -> (u32, u32) {
+    fn size(&self) -> (u32, u32) {
         ((self.rect.2 - self.rect.0) as u32, (self.rect.3 - self.rect.1) as u32)
     }
 
@@ -77,14 +85,11 @@ impl MotionLayer {
         node_id >= self.root && node_id < self.end
     }
 
-    /// The rows the base paints when it takes the subtree back: its rest's — every row when its
-    /// root is a backdrop (the scrim covers the surface).
-    fn base_rows(&self, h: i32) -> (i32, i32) {
-        if self.backdrop.is_some() {
-            (0, h)
-        } else {
-            (self.rect.1, self.rect.3)
-        }
+    /// What the base paints when it takes the subtree back (`damage_layer`): its rest — the
+    /// surface `(w, h)` when its root is a backdrop (the scrim covers it) — and its nodes.
+    fn rest(&self, (w, h): (u32, u32)) -> (Span, (usize, usize)) {
+        let rest = if self.backdrop.is_some() { (0, 0, w as i32, h as i32) } else { self.rect };
+        (rest, (self.root, self.end))
     }
 
     /// Whether `[first, end)` and its subtree share a node (one inside the other).
@@ -135,11 +140,12 @@ impl super::DslApp {
     /// layer: it rests in front), a subtree that composes apart on its base (anything on the
     /// desktop's clear base; on a window's frost what lies over it), that is not another layer's,
     /// room in the bound and the store. The same node entering again restarts its motion; a node
-    /// the base painted until now (`in_base`) leaves its rows there to paint again. `Err(why)`:
-    /// the app animates it (Tier 2).
+    /// the base painted until now (`in_base`) leaves its rows there to paint again; a node whose
+    /// layer is still leaving (`identity`) turns it back — the same id. `Err(why)`: the app
+    /// animates it (Tier 2).
     pub(super) fn start_motion_layer(
         &mut self,
-        node_id: usize,
+        (node_id, identity): (usize, i32),
         token: MotionToken,
         in_base: bool,
     ) -> Result<(), &'static str> {
@@ -147,6 +153,9 @@ impl super::DslApp {
         let ms = tokens_for(self.theme_mode).motion_ms(token.duration());
         let from = enter_from(token).filter(|_| ms > 0 || front).ok_or("effect")?;
         let duration_ms = ms.min(u32::from(lw::MAX_MOTION_MS)) as u16;
+        if let Some(revived) = self.revive_as((node_id, identity), token, duration_ms) {
+            return revived;
+        }
         self.motion_seq = self.motion_seq.wrapping_add(1).max(1);
         let (id, now) = (self.motion_seq, nsec_now());
         if let Some(k) =
@@ -175,6 +184,8 @@ impl super::DslApp {
         self.motion_layers[slot] = Some(MotionLayer {
             root: first,
             end,
+            identity,
+            leaving: None,
             rect,
             store: None,
             token: token.id(),
@@ -190,10 +201,8 @@ impl super::DslApp {
         let mut plan = self.plan_store();
         let placed = self.motion_layers[slot].is_some_and(|m| m.store.is_some());
         match self.motion_layers[slot] {
-            // The base held the subtree until now: its rows paint again, without it.
-            Some(m) if placed && in_base => {
-                self.motion_repaint = union(self.motion_repaint, m.base_rows(self.h as i32));
-            }
+            // The base held the subtree until now: its rest paints again, without it.
+            Some(m) if placed && in_base => self.damage_layer(m.rest((self.w, self.h))),
             Some(_) if placed => {}
             _ => {
                 // No room for it: the app paints it; the layers that gave way with it come back.
@@ -201,7 +210,7 @@ impl super::DslApp {
                 plan = self.plan_store();
             }
         }
-        self.store_replan |= self.outgrows(plan);
+        self.store_wanted = Some(plan);
         placed.then_some(()).ok_or("store")
     }
 
@@ -283,16 +292,20 @@ impl super::DslApp {
         Some((rect, backdrop))
     }
 
-    /// After a re-emit: a motion layer whose root no longer enters (`entering`: the nodes that
-    /// carry a `.transition` now) goes — its subtree, if still there, paints in the base again —
-    /// and every other is re-resolved: a subtree that paints elsewhere paints its layer again, a
-    /// new size is placed again.
-    pub(super) fn sync_motion_layers(&mut self, entering: &[usize]) {
+    /// After a re-emit: a motion layer follows its transition's identity (`entering`: the nodes
+    /// that carry a `.transition` now, with their identities). One whose identity no longer
+    /// enters goes — its subtree, if still there, paints in the base again; one whose node left
+    /// the scene leaves as a ghost for its exit (TASK-0354 P9) — and every other is re-resolved:
+    /// a subtree that paints elsewhere paints its layer again, a new size is placed again.
+    pub(super) fn sync_motion_layers(&mut self, entering: &[(usize, i32)]) {
         let mut replan = false;
         for k in 0..MAX_MOTION_LAYERS {
-            let Some(mut m) = self.motion_layers[k] else { continue };
-            let now = subtree_span(self.view.scene(), m.root);
-            let span = now.filter(|_| entering.contains(&m.root));
+            let Some(mut m) = self.motion_layers[k].filter(|m| m.leaving.is_none()) else {
+                continue;
+            };
+            let root = entering.iter().find(|(_, i)| *i == m.identity).map(|(n, _)| *n);
+            let now = subtree_span(self.view.scene(), root.unwrap_or(m.root));
+            let span = now.filter(|_| root.is_some());
             let shape = span.and_then(|s| self.layer_shape(s, k));
             // A layer that came to hold another one's nodes goes too (a node is one layer's).
             let nested = span.is_some_and(|s| {
@@ -302,13 +315,19 @@ impl super::DslApp {
             let (Some((_, end)), Some((rect, backdrop)), false) = (span, shape, nested) else {
                 // Its subtree still mounted (the same nodes at the same place in the scene): the
                 // base paints it again. One that left the scene left no pixel in the base.
-                if now == Some((m.root, m.end)) {
-                    self.motion_repaint = union(self.motion_repaint, m.base_rows(self.h as i32));
+                let mounted = now == Some((m.root, m.end));
+                match crate::motion_exit::fate(false, mounted, m.painted, m.duration_ms) {
+                    Fate::BaseTakesBack => {
+                        self.damage_layer(m.rest((self.w, self.h)));
+                        self.motion_layers[k] = None;
+                    }
+                    Fate::Leaves if self.leave(k) => {}
+                    _ => self.motion_layers[k] = None,
                 }
-                self.motion_layers[k] = None;
                 replan = true;
                 continue;
             };
+            m.root = span.map_or(m.root, |s| s.0);
             if (rect, end, backdrop) != (m.rect, m.end, m.backdrop) {
                 replan |= (rect.2 - rect.0, rect.3 - rect.1)
                     != (m.rect.2 - m.rect.0, m.rect.3 - m.rect.1);
@@ -319,23 +338,37 @@ impl super::DslApp {
         }
         if replan {
             let plan = self.plan_store();
-            self.store_replan |= self.outgrows(plan);
+            self.store_wanted = Some(plan);
         }
     }
 
     /// The store places a plan gave the motion layers: a new place paints the layer again; a
     /// layer that lost its place paints in the base again.
     pub(super) fn place_motions(&mut self, places: [Option<(u16, u16)>; MAX_MOTION_LAYERS]) {
-        let h = self.h as i32;
-        for (slot, place) in self.motion_layers.iter_mut().zip(places) {
-            let Some(m) = slot.as_mut() else { continue };
-            if m.store != place {
-                if m.store.is_some() && place.is_none() {
-                    self.motion_repaint = union(self.motion_repaint, m.base_rows(h));
-                }
-                (m.store, m.painted) = (place, false);
+        for (k, place) in places.into_iter().enumerate() {
+            let Some(mut m) = self.motion_layers[k].filter(|m| m.store != place) else { continue };
+            if m.leaving.is_some() {
+                // A ghost's pixels never move under its exit: one that lost its place goes.
+                self.motion_layers[k] = None;
+                self.tree_dirty = true;
+                continue;
             }
+            if m.store.is_some() && place.is_none() {
+                self.damage_layer(m.rest((self.w, self.h)));
+            }
+            (m.store, m.painted) = (place, false);
+            self.motion_layers[k] = Some(m);
         }
+    }
+
+    /// Each motion layer's store item (`probe/store.rs`): its id — the layer's life, so a
+    /// leaving one keeps its place — and its size; one of no area takes none.
+    pub(super) fn motion_store_items(&self) -> [Option<(u16, (u32, u32))>; MAX_MOTION_LAYERS] {
+        let mut out = [None; MAX_MOTION_LAYERS];
+        for (o, m) in out.iter_mut().zip(self.motion_layers.iter()) {
+            *o = m.map(|m| (m.id, m.size())).filter(|&(_, (w, h))| w > 0 && h > 0);
+        }
+        out
     }
 
     /// Whether node `node_id` carries a text run (it paints glyphs).
@@ -365,81 +398,6 @@ impl super::DslApp {
         Some((m.rect, m.store?))
     }
 
-    /// The placed motion layers' slots in the app's paint order (pre-order: a modal after the
-    /// panel it may cover) — the order on the wire, the order windowd draws them in.
-    fn wire_order(&self) -> ([usize; MAX_MOTION_LAYERS], usize) {
-        let mut out = [0; MAX_MOTION_LAYERS];
-        let mut n = 0;
-        for (k, m) in self.motion_layers.iter().enumerate() {
-            if m.is_some_and(|m| m.store.is_some()) {
-                out[n] = k;
-                n += 1;
-            }
-        }
-        let roots = |k: usize| self.motion_layers[k].map_or(usize::MAX, |m| m.root);
-        out[..n].sort_unstable_by_key(|&k| roots(k));
-        (out, n)
-    }
-
-    /// The structure's motion layers into `out`, in paint order: each placed one, what it claims
-    /// — `regions`: the node of each region the structure declares; `scrolls`: each scroll layer's
-    /// root in the structure's order — its motion (at rest once it is over), whether it is in
-    /// front, its backdrop. Returns the count.
-    pub(super) fn motion_descs(
-        &self,
-        regions: &[usize],
-        scrolls: &[usize],
-        out: &mut [lw::MotionLayerDesc; MAX_MOTION_LAYERS],
-    ) -> usize {
-        let now = nsec_now();
-        let (order, n) = self.wire_order();
-        let scrim_ms = tokens_for(self.theme_mode)
-            .motion_ms(nexus_dsl_runtime::theme_tokens::MotionDurationToken::Quick)
-            .min(u32::from(lw::MAX_MOTION_MS)) as u16;
-        for (slot, &k) in out.iter_mut().zip(&order[..n]) {
-            let Some(m) = self.motion_layers[k] else { continue };
-            let Some((sx, sy)) = m.store else { continue };
-            let mask = |ids: &[usize]| {
-                ids.iter()
-                    .enumerate()
-                    .filter(|(_, &id)| m.holds(id))
-                    .fold(0u32, |a, (k, _)| a | 1 << k)
-            };
-            let over = now > m.declared_ns + u64::from(m.duration_ms) * 1_000_000 + OVER_AFTER_NS;
-            let (w, h) = m.size();
-            let backdrop = m.backdrop.zip(backdrop_patch(k));
-            *slot = lw::MotionLayerDesc {
-                x: m.rect.0 as u16,
-                y: m.rect.1 as u16,
-                w: w as u16,
-                h: h as u16,
-                sx,
-                sy,
-                id: m.id,
-                token: m.token,
-                duration_ms: if over { 0 } else { m.duration_ms },
-                from_dx: m.from.0,
-                from_dy: m.from.1,
-                from_opacity: m.from.2,
-                from_scale: if m.from.3 == 10_000 { 0 } else { m.from.3 },
-                regions: mask(regions) as u16,
-                scrolls: mask(scrolls) as u8,
-                front: m.front,
-                backdrop: backdrop.map_or(0, |(_, p)| p as u8 + 1),
-                backdrop_opacity: backdrop.map_or(0, |(c, _)| c.a),
-                // A scrim arrives in the theme's quick step (the sheet springs in its own).
-                backdrop_ms: if backdrop.is_some() && !over { scrim_ms } else { 0 },
-            };
-        }
-        n
-    }
-
-    /// The wire place of motion layer `k` among the placed ones (a wash rides it by that number).
-    pub(super) fn motion_wire_index(&self, k: usize) -> Option<u8> {
-        let (order, n) = self.wire_order();
-        order[..n].iter().position(|&j| j == k).map(|i| i as u8)
-    }
-
     /// The placed motion layers' subtrees (pre-order spans) — taken before a relayout, the old
     /// layout's numbering (TASK-0354 P5).
     pub(super) fn held_spans(&self) -> [Option<(usize, usize)>; MAX_MOTION_LAYERS] {
@@ -452,26 +410,27 @@ impl super::DslApp {
 
     /// What the relayout from `old_boxes`/`old_texts` changed, split by the motion layers
     /// (TASK-0354 P5; `held`: their subtrees before it): what they hold paints their store rows
-    /// (queued in `motion_rows`), never the base's. Returns the base's rows (the
-    /// `layout_diff::changed_row_span` convention).
+    /// (queued in `motion_rows`), never the base's — whose rectangles are pending with it.
+    /// Returns the change, for a tap's trace.
     pub(super) fn layout_change(
         &mut self,
         (old_boxes, old_texts): (&[LayoutBox], &[TextRun]),
         held: &[Option<(usize, usize)>; MAX_MOTION_LAYERS],
-    ) -> Option<(i32, i32)> {
+    ) -> crate::layout_diff::Changed {
         let held_old = |id: usize| held.iter().flatten().any(|&(a, b)| id >= a && id < b);
         let held_new = |id: usize| self.motion_of(id).is_some();
         let changed = crate::layout_diff::changed_rows(
             old_boxes,
             &self.layout.boxes,
             (old_texts, &self.texts),
-            self.layout_bottom(),
+            (self.w as i32, self.layout_bottom()),
             (&held_old, &held_new),
         );
         if let Some(rows) = changed.layers {
             self.motion_rows = union(self.motion_rows, rows);
         }
-        changed.base
+        self.pending.merge(changed.base);
+        changed
     }
 
     /// Whether a motion layer owes its store a paint: a change inside one, one not painted yet.
@@ -490,8 +449,9 @@ impl super::DslApp {
         all: bool,
     ) -> bool {
         for k in 0..MAX_MOTION_LAYERS {
-            let Some(m) =
-                self.motion_layers[k].filter(|m| m.store.is_some() && (all || !m.painted))
+            // Nothing writes a ghost's store pixels while windowd draws its exit.
+            let Some(m) = self.motion_layers[k]
+                .filter(|m| m.store.is_some() && m.leaving.is_none() && (all || !m.painted))
             else {
                 continue;
             };
@@ -559,7 +519,8 @@ impl super::DslApp {
         damage: &mut PresentDamage,
     ) -> bool {
         for k in 0..MAX_MOTION_LAYERS {
-            if self.motion_layers[k].is_some_and(|m| m.store.is_some() && m.painted)
+            if self.motion_layers[k]
+                .is_some_and(|m| m.store.is_some() && m.painted && m.leaving.is_none())
                 && !self.redraw_motion(mem, k, span, damage)
             {
                 return false;

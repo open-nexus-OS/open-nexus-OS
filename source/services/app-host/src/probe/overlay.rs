@@ -62,11 +62,8 @@ impl super::DslApp {
     pub(super) fn timer_deadline_ns(&self) -> u64 {
         let clock = self.clock_deadline_ns();
         let transient = self.transient_armed.as_ref().map(|(_, deadline)| *deadline);
-        match (clock, transient) {
-            (Some(a), Some(b)) => a.min(b),
-            (Some(a), None) | (None, Some(a)) => a,
-            (None, None) => 0,
-        }
+        // A leaving layer's drop (TASK-0354 P9): its exit is over, the structure lets it go.
+        [clock, transient, self.ghost_deadline_ns()].into_iter().flatten().min().unwrap_or(0)
     }
 
     /// The one-shot fired: run whichever deadline is due (both, when they coincide). Returns
@@ -74,19 +71,16 @@ impl super::DslApp {
     pub(super) fn timer_fired(&mut self) -> bool {
         // A one-shot fires AT its deadline; the 1 ms slack covers the clock read after it.
         let now = super::clock::mono_now_ns().saturating_add(1_000_000);
-        // A clock tick names the rows it changed (`relayout_bounded`), and so does a dismissal
-        // (TASK-0354 P8); a change that names none repaints all. Both due: the rows of both.
-        self.tap_render_span = None;
-        let ticked = self.clock_supported() && now >= self.clock_deadline_ns && self.clock_tick();
-        let tick_rows = self.tap_render_span.take();
+        // A clock tick names the rectangles it changed (`relayout_bounded`), and so does a
+        // dismissal (TASK-0354 P8); a change that names none repaints all (`dispatched`). Both
+        // due: both are pending.
+        let ticked = self.clock_supported()
+            && now >= self.clock_deadline_ns
+            && self.dispatched(Self::clock_tick);
         let timed_out = self.transient_armed.as_ref().is_some_and(|(_, deadline)| now >= *deadline)
-            && self.transient_timeout();
-        self.tap_render_span = match (ticked, timed_out) {
-            (true, true) => both(tick_rows, self.tap_render_span),
-            (true, false) => tick_rows,
-            _ => self.tap_render_span,
-        };
-        ticked || timed_out
+            && self.dispatched(Self::transient_timeout);
+        let dropped = self.drop_due_ghosts(super::boot_env::nsec_now());
+        ticked || timed_out || dropped
     }
 
     /// The transient layer's declared lifetime ran out: fire its `on Dismiss` (reason
@@ -147,25 +141,16 @@ impl super::DslApp {
         }
     }
 
-    /// A dismissal's change, bounded like a tap's (TASK-0354 P8): the layout's diff names the
-    /// base rows the layer's leaving changed — none, for a layer the compositor held (a toast,
-    /// a sheet, a menu as a motion layer). The unbounded relayout this was painted every row of
-    /// the surface for a toast's timeout and for Escape (413k px on QEMU, 77 ms).
+    /// A dismissal's change, bounded like a tap's (TASK-0354 P8): the layout's diff names what
+    /// the layer's leaving changed of the base — nothing, for a layer the compositor held (a
+    /// toast, a sheet, a menu as a motion layer). The unbounded relayout this was painted every
+    /// row of the surface for a toast's timeout and for Escape (413k px on QEMU, 77 ms). A
+    /// paint-only one names nothing: its caller's `dispatched` repaints all.
     fn apply_dismiss_damage(&mut self, damage: Option<Damage>) -> bool {
-        self.tap_render_span = None;
         if matches!(damage, Some(Damage::Layout)) {
             self.relayout_bounded();
         }
         self.anim_sync();
         matches!(damage, Some(Damage::Paint) | Some(Damage::Layout))
-    }
-}
-
-/// The base rows of two changes in one pass (`None`: every row; an empty span: none).
-fn both(a: Option<(i32, i32)>, b: Option<(i32, i32)>) -> Option<(i32, i32)> {
-    match (a?, b?) {
-        (a, b) if a.1 <= a.0 => Some(b),
-        (a, b) if b.1 <= b.0 => Some(a),
-        (a, b) => Some((a.0.min(b.0), a.1.max(b.1))),
     }
 }

@@ -52,7 +52,7 @@ impl DisplayServerRuntime {
         self.fill_atlas_patch(&patch, [s[0], s[1], s[2], 255]);
         crate::atlas::note_atlas_content_write();
         self.apps[idx].solid = Some(patch);
-        let rect = self.app_window_rect(idx);
+        let rect = self.app_window_damage_rect(idx);
         self.queue_dirty_rect(rect);
         true
     }
@@ -140,7 +140,7 @@ impl DisplayServerRuntime {
             }
             let _ =
                 debug_println(&alloc::format!("windowd: starting surface expired (slot={idx})"));
-            let vacated = self.app_window_rect(idx);
+            let vacated = self.app_window_damage_rect(idx);
             self.apps[idx].starting = false;
             self.drop_solid(idx);
             self.apps[idx].event_channel = None;

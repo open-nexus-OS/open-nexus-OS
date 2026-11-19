@@ -56,26 +56,31 @@ impl DisplayServerRuntime {
     /// Whether the pointer at `(x, y)` belongs to the SHELL above every app window
     /// (`crate::shell_band`): the top-bar strip, a panel-level glass rect of the desktop
     /// surface (composited above the windows, scene pass 2b), a layer it declared in front
-    /// (its toast — pass 2c; one over a backdrop covers everything) or anywhere while the shell
-    /// holds a modal. The press, hover and wheel loops skip app windows there, so input
-    /// lands where the pixels are.
+    /// (its toast — pass 2c; one over a backdrop covers everything; a leaving one owns nothing,
+    /// TASK-0354 P9) or anywhere while the shell holds a modal. The press, hover and wheel loops
+    /// skip app windows there, so input lands where the pixels are.
     pub(super) fn shell_owns_point(&self, x: i32, y: i32) -> bool {
         use nexus_display_proto::client_surface as wire;
         use nexus_display_proto::surface_layers::MAX_MOTION_LAYERS;
         let mut panels = [(0i32, 0i32, 0u32, 0u32); wire::MAX_SURFACE_LAYERS + MAX_MOTION_LAYERS];
         let mut n = 0;
-        for l in self.desktop_layers.tree.regions() {
-            if l.material == wire::MATERIAL_GLASS && l.glass_level == wire::GLASS_PANEL {
+        // The glass drawn above the windows is the shell's (`surface_layers_encode::
+        // above_windows`): a panel-level glass, or one a motion layer claims (the launcher in
+        // either size) — the pointer follows the paint.
+        let tree = &self.desktop_layers.tree;
+        for (i, l) in tree.regions().iter().enumerate() {
+            let claimed = crate::motion_geometry::region_owner(tree, i).is_some();
+            if l.material == wire::MATERIAL_GLASS && (l.glass_level == wire::GLASS_PANEL || claimed)
+            {
                 panels[n] = (i32::from(l.x), i32::from(l.y), u32::from(l.w), u32::from(l.h));
                 n += 1;
             }
         }
-        let mut scrim = false;
-        for m in self.desktop_layers.tree.motions().iter().filter(|m| m.front) {
-            panels[n] = (i32::from(m.x), i32::from(m.y), u32::from(m.w), u32::from(m.h));
-            n += 1;
-            scrim |= m.backdrop().is_some();
-        }
+        let (front, scrim) = crate::shell_band::front_claims(
+            self.desktop_layers.tree.motions(),
+            panels.get_mut(n..).unwrap_or(&mut []),
+        );
+        n += front;
         crate::shell_band::shell_owns_point(
             x,
             y,

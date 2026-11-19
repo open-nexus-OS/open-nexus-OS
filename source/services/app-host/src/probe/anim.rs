@@ -501,12 +501,12 @@ impl super::DslApp {
         let present = &buf[..n];
         // The motion layers follow the nodes that still enter — first, so a panel closing in the
         // same change as a modal opening leaves the modal room to be a layer.
-        let mut entering = [0usize; MAX_NODE_ANIMS];
+        let mut entering = [(0usize, 0i32); MAX_NODE_ANIMS];
         let e = present.iter().filter(|(_, i)| i.kind == AnimKind::Transition).count();
-        for (slot, (id, _)) in
+        for (slot, (id, i)) in
             entering.iter_mut().zip(present.iter().filter(|(_, i)| i.kind == AnimKind::Transition))
         {
-            *slot = *id;
+            *slot = (*id, i.value);
         }
         self.sync_motion_layers(&entering[..e]);
         // Durations resolve against the pushed theme (reduced-motion = 0ms).
@@ -529,7 +529,7 @@ impl super::DslApp {
             let enters =
                 intent.kind == AnimKind::Transition && prev.is_none_or(|pv| pv != intent.value);
             let layered = enters
-                && match self.start_motion_layer(node_id, token, prev.is_some()) {
+                && match self.start_motion_layer((node_id, intent.value), token, prev.is_some()) {
                     Ok(()) => true,
                     // An effect returns to rest and is the app's by design; any other enter the
                     // compositor did not take says why, once.
@@ -593,46 +593,36 @@ impl super::DslApp {
 
     /// Advance the animation physics to `at` on the frame pulse (RFC-0110: when the frame is
     /// shown; the own clock under a plain pulse) and fold the `SceneUpdate`s into the node table.
-    /// Returns the union ROW SPAN the changes damage (old ∪ new transformed
-    /// AABB per touched node, ±1 row rounding pad) — `None` = nothing moved.
-    /// The caller repaints EXACTLY that span (the 120Hz damage contract: a
-    /// 16px skeleton breathe must never trigger a full-surface repaint +
-    /// full-band re-blit + full recomposite). Allocation-free.
-    pub(super) fn anim_tick(&mut self, at: Option<u64>) -> Option<(i32, i32)> {
+    /// What the changes damage is pending with it: per touched node its transformed rectangle,
+    /// old and new (`anim/damage.rs`). The present repaints EXACTLY those (the 120Hz damage
+    /// contract: a 16px skeleton breathe must never trigger a full-surface repaint + full-band
+    /// re-blit + full recomposite). Allocation-free.
+    pub(super) fn anim_tick(&mut self, at: Option<u64>) {
         if self.anim.driver.active_count() == 0 && self.anim.loops.is_empty() {
-            return None;
+            return;
         }
         let now = at.unwrap_or_else(nsec_now).max(self.anim.last_ns);
         self.motion_hops.tokens(core::mem::take(&mut self.anim.started));
         let mut updates = [SceneUpdate::default(); MAX_NODE_ANIMS * 2];
         let count = self.anim.driver.tick_into(now, &mut updates);
         self.anim.last_ns = now;
-        let mut span: Option<(i32, i32)> = None;
         for u in &updates[..count] {
             let node_id = u.layer_id.0 as usize;
-            // Damage rows BEFORE the fold (the node's currently-painted rect).
-            self.grow_anim_span(node_id, &mut span);
+            // Damage BEFORE the fold (the node's currently-painted rect).
+            self.damage_anim(node_id);
             self.anim.set_prop(node_id, u.property, u.value);
             // Converged (progress==1) back to identity → drop the slot.
             if u.progress >= 1.0 {
                 self.anim.prune_identity(node_id);
             }
-            // …and AFTER (where it paints now) — the union covers the motion.
-            self.grow_anim_span(node_id, &mut span);
+            // …and AFTER (where it paints now) — the two cover the motion.
+            self.damage_anim(node_id);
         }
         // Advance the continuous loops (sawtooth re-fire / breathe re-fire /
-        // carousel step) and merge their extra paint damage.
+        // carousel step): their extra paint damage is rows.
         if let Some((y0, y1)) = self.anim.tick_loops(now, &self.layout.boxes) {
-            let (y0, y1) = (y0.max(0), y1.min(self.layout_bottom()));
-            if y0 < y1 {
-                self.damage_cols.full();
-                span = Some(match span {
-                    Some((s0, s1)) => (s0.min(y0), s1.max(y1)),
-                    None => (y0, y1),
-                });
-            }
+            self.pending.rows((y0.max(0), y1.min(self.layout_bottom())), self.w);
         }
-        span
     }
 
     /// Whether any DSL animation is still interpolating OR a continuous widget

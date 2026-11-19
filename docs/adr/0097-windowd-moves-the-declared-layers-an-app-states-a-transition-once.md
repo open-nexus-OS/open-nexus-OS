@@ -3,7 +3,7 @@
 
 # ADR-0097: windowd moves the declared layers — an app states a transition once, and the compositor computes it for every shown frame
 
-- Status: Accepted (2026-11-05, TASK-0354 P2, P3, P5, P6 — board cycle `board--2026-11-05T13-12-18`)
+- Status: Accepted (2026-11-05, TASK-0354 P2, P3, P5, P6 — board cycle `board--2026-11-05T13-12-18`); amended 2026-11-18 (exits, TASK-0354 P9)
 - Date: 2026-11-04
 - Links:
   - Tasks: `tasks/TASK-0354-motion-on-the-compositor-an-app-states-a-transition-once-windowd-computes-it-for.md` (P2: execution + proof)
@@ -58,9 +58,20 @@ last blur.
   base's damage **leaves out the boxes a layer holds** (TASK-0354 P5): a modal opening or closing
   repaints no base row, a change inside a layer paints its store rows only. The system toast sits
   below the 36px bar, so being in front never covers it.
-- Out of scope: exits (the DSL's `.transition` is enter-only), window surfaces (their frosted
-  base, TASK-0354 P7), interaction micro-motion (a press, a hover-grow — small and bounded, the
-  app's).
+- **Exits (amendment 2026-11-18, TASK-0354 P9)**: a layer leaves the way it came. The id is the
+  layer's life: when its node leaves, the app keeps the layer as a ghost — no node, the same id,
+  its place in the store, the last declarations of what it claims — and declares it with
+  `MOTION_EXIT`; windowd plays the token toward where the layer came from (`1 − e(p)`), fades its
+  backdrop out, and draws it nowhere past the end. A flip mid-motion (a close interrupted by a
+  re-open) continues from the position and velocity it had as a critically damped spring — the
+  animation crate's closed form, so nothing jumps. The app drops the ghost on its own timer at the
+  exit's end plus a margin: windowd never tells a client, and never waits on one (ADR-0075). The
+  store keeps what it placed while other layers come and go, so a ghost's pixels never move. The
+  pointer leaves an exiting layer at once. No DSL change: `.transition` already names removal; an
+  enter the app runs itself (Tier 2) and a reduced-motion theme leave at once, as before.
+- Out of scope: exits of the app's own Tier-2 enters (the DSL runtime keeping a leaving node
+  alive), window surfaces (their frosted base, TASK-0354 P7), interaction micro-motion (a press, a
+  hover-grow — small and bounded, the app's).
 
 ## Consequences
 
@@ -75,9 +86,13 @@ last blur.
   recomposes the screen on the GPU for each frame of its fade; a motion layer's
   boxes are painted in their own pass (a change inside an open panel paints its rows into the
   store as well as the base rows it crosses); windowd keeps a start time per motion layer.
+- **Exits (2026-11-18)**: a close costs no raster and no app wake per frame — the ghost was painted
+  when the layer entered; the accepted cost is the ghost's store pixels until its exit ends and
+  windowd's per-layer turn state (a start, the direction, the progress and velocity at a turn).
 - **Follow-ups**: TASK-0354 P3 (the tokens as springs per the design's motion.css; the staggered
   content reveal), window surfaces as motion layers (their body cut or composed exactly), exits
-  (the DSL keeping a leaving node alive).
+  of Tier-2 enters (the DSL runtime keeping a leaving node alive), the design artifacts' own exit
+  curves per token where they differ from the mirrored enter.
 
 ## Alternatives considered
 
@@ -89,3 +104,8 @@ last blur.
   vanish or move with it while it fades in (rejected: wrong pixels).
 - **A buffer of its own per layer (a sub-surface)**: exact, but a new allocation, mapping and
   restart path per layer (rejected for now: the store already is the surface's own off-screen).
+- **Exits (2026-11-18): a new descriptor or a new id per exit** — windowd could not carry the
+  position and velocity across the flip (rejected); **windowd telling the app an exit ended** — a
+  new IPC and a wait on a client (rejected, ADR-0075); **re-rastering the leaving subtree flat** —
+  a close would cost a raster (rejected); **the time-reversed curve `e(1 − p)`** — its slow start
+  reads as lag (rejected until the design artifacts say otherwise).

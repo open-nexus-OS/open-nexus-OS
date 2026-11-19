@@ -101,7 +101,7 @@ impl DisplayServerRuntime {
         self.begin_frame_reads();
         // TASK-0354 P2: the surfaces' motion layers move for the time this frame is shown.
         let at = self.transition_time(nexus_abi::nsec().unwrap_or(0));
-        self.stamp_motions(at);
+        self.stamp_motions(at, rects, rect_count);
         // Snapshot all `self` reads needed inside the encoder block so the
         // mutable borrow of `self.scene_cb` does not conflict with field reads.
         let mode = self.mode;
@@ -137,7 +137,7 @@ impl DisplayServerRuntime {
         app_frames.clear();
         for idx in 0..self.apps.len() {
             let visible = self.apps[idx].win.visible;
-            app_frames.push(visible.then(|| self.app_window_rect(idx)));
+            app_frames.push(visible.then(|| self.app_window_damage_rect(idx)));
         }
         for idx in 0..self.apps.len() {
             let wid = WindowId::App(idx as u16);
@@ -208,7 +208,9 @@ impl DisplayServerRuntime {
                 surface: shown.map(|(c, sh)| super::surface_layers_encode::LayerSnap {
                     layers,
                     regions: SurfaceRegions::of(&c, sh),
-                    origin: (win.x.max(0) as u32, win.y.max(0) as u32),
+                    // The same place a present's damage is put at (`surface_place`).
+                    origin: crate::surface_place::SurfacePlace::of(win.x, win.y, win.w, win.h)
+                        .origin(),
                     base,
                     owner: key,
                     layer_id: key,

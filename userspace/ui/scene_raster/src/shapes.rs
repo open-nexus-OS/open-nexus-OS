@@ -244,7 +244,10 @@ impl RowCanvas<'_> {
         // Of a corner's columns only those the arc crosses are partly covered: left of them
         // nothing is, from them on the row is one span with the middle.
         let (lo, hi) = corner_band(rect, py, r, (x, x + r));
-        for xx in (lo..hi).flat_map(|xx| [xx, 2 * x + w - 1 - xx]) {
+        let (v0, v1) = self.visible(x, x + w);
+        for xx in
+            (lo..hi).flat_map(|xx| [xx, 2 * x + w - 1 - xx]).filter(|xx| (v0..v1).contains(xx))
+        {
             let cov = round_rect_coverage(xx as f32 + 0.5, py, rect, r as f32);
             self.blend_covered(xx, c, cov);
         }
@@ -278,7 +281,10 @@ impl RowCanvas<'_> {
             return;
         }
         let (lo, hi) = corner_band(rect, py, r, (x, x + r));
-        for xx in (lo..hi).flat_map(|xx| [xx, 2 * x + w - 1 - xx]) {
+        let (v0, v1) = self.visible(x, x + w);
+        for xx in
+            (lo..hi).flat_map(|xx| [xx, 2 * x + w - 1 - xx]).filter(|xx| (v0..v1).contains(xx))
+        {
             let cov = round_rect_coverage(xx as f32 + 0.5, py, rect, r as f32);
             self.set_covered(xx, c, cov);
         }
@@ -328,7 +334,10 @@ impl RowCanvas<'_> {
             let straight = ceil_i32(x as f32 + rf - 0.5);
             let band = (x, straight);
             let (lo, hi) = arc_band(x as f32 + rf, (rf - wf - 0.5, oy), (rf + 0.5, oy), band);
-            for xx in (lo..hi).flat_map(|xx| [xx, 2 * x + w - 1 - xx]) {
+            let (v0, v1) = self.visible(x, x + w);
+            for xx in
+                (lo..hi).flat_map(|xx| [xx, 2 * x + w - 1 - xx]).filter(|xx| (v0..v1).contains(xx))
+            {
                 ring(self, xx);
             }
             let end = 2 * x + w - straight;
@@ -347,8 +356,10 @@ impl RowCanvas<'_> {
         // on every pixel of every row of a window before).
         let reach = width.max(0) + radius.max(0) + 1;
         let side = width.max(0) + 2;
+        let (v0, v1) = self.visible(x, x + w);
         if self.y >= y + reach && self.y < y + h - reach && w > 2 * side {
-            for xx in (x..x + side).chain(x + w - side..x + w) {
+            for xx in (x.max(v0)..(x + side).min(v1)).chain((x + w - side).max(v0)..(x + w).min(v1))
+            {
                 ring(self, xx);
             }
             return;
@@ -357,7 +368,9 @@ impl RowCanvas<'_> {
         // coverages are one value a row — computed at the middle column, laid as one span.
         let margin = width.max(0) + radius.max(0) + 2;
         if w > 2 * margin {
-            for xx in (x..x + margin).chain(x + w - margin..x + w) {
+            for xx in
+                (x.max(v0)..(x + margin).min(v1)).chain((x + w - margin).max(v0)..(x + w).min(v1))
+            {
                 ring(self, xx);
             }
             let px = (x + w / 2) as f32 + 0.5;
@@ -366,7 +379,7 @@ impl RowCanvas<'_> {
             self.blend_span_covered(x + margin, x + w - margin, c, cov);
             return;
         }
-        for xx in x..x + w {
+        for xx in v0..v1 {
             ring(self, xx);
         }
     }
@@ -378,7 +391,8 @@ impl RowCanvas<'_> {
         if py < y - 1.0 || py > y + h + 1.0 {
             return;
         }
-        for xx in floor_i32(x)..ceil_i32(x + w) {
+        let (x0, x1) = self.visible(floor_i32(x), ceil_i32(x + w));
+        for xx in x0..x1 {
             let cov = ellipse_coverage(xx as f32 + 0.5, py, rect);
             self.blend_covered(xx, c, cov);
         }
@@ -428,7 +442,8 @@ impl RowCanvas<'_> {
         if min_x > max_x {
             return;
         }
-        for xx in floor_i32(min_x)..ceil_i32(max_x) {
+        let (x0, x1) = self.visible(floor_i32(min_x), ceil_i32(max_x));
+        for xx in x0..x1 {
             let (l, r) = (xx as f32, xx as f32 + 1.0);
             let mut area = 0.0f32;
             for (row_spans, &count) in spans.iter().zip(counts.iter()) {

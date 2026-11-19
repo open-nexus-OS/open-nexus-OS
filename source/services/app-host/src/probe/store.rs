@@ -15,6 +15,7 @@
 use super::band::{Band, PATCH_ROWS};
 use super::motion_layers::MAX_MOTION_LAYERS;
 use super::*;
+use crate::store_alloc::{Item, Outcome, StoreAlloc, MAX_ITEMS};
 use nexus_display_proto::surface_layers as lw;
 
 /// The least margin a band keeps beyond its viewport (content positions).
@@ -32,6 +33,37 @@ pub(super) struct StorePlan {
 
 /// Where each motion layer's pixels go in the store (`None`: not placed).
 type Places = [Option<(u16, u16)>; MAX_MOTION_LAYERS];
+
+/// A band's key in the store's places (`store_alloc`): its scroll layer's index.
+const BAND_KEY: u32 = 1 << 16;
+/// A motion layer's key: its id (the layer's life — a leaving layer keeps its place).
+const LAYER_KEY: u32 = 1 << 17;
+const _: () = assert!(super::scroll::MAX_SCROLL_LAYERS + MAX_MOTION_LAYERS <= MAX_ITEMS);
+
+/// Scroll layer `l`'s band with `margin_pct` of its viewport as margin each way, in a store `w`
+/// wide: `(strip_len, strips, width, height)` — vertical: one strip of the ring's rows, the
+/// viewport wide; horizontal: strips of `strip_len` columns (no wider than the surface) under
+/// each other. `None`: no band of it fits that store.
+fn band_shape(
+    l: &super::scroll::ScrollLayer,
+    margin_pct: u32,
+    w: u32,
+) -> Option<(u32, u32, u32, u32)> {
+    let (vx0, vy0, vx1, vy1) = l.viewport;
+    let (vw, vh) = ((vx1 - vx0).max(1) as u32, (vy1 - vy0).max(1) as u32);
+    let len = l.viewport_len().max(1) as u32;
+    let margin = (len * margin_pct / 100).max(MARGIN_MIN);
+    let cap = len + 2 * margin;
+    let (strip_len, strips, bw, bh) = if l.vertical() {
+        (cap, 1u32, vw, cap)
+    } else {
+        let strip_len = w.min(cap).max(len.div_ceil(2));
+        let strips = cap.div_ceil(strip_len);
+        (strip_len, strips, strip_len, strips * vh)
+    };
+    (bw <= w && strip_len <= u32::from(u16::MAX) && strips <= u32::from(u8::MAX))
+        .then_some((strip_len, strips, bw, bh))
+}
 
 impl super::DslApp {
     /// Places the wash patch, every scroll layer's band and every motion layer's pixels in the
@@ -54,86 +86,83 @@ impl super::DslApp {
             return StorePlan { rows: h, width: 0 };
         }
         let max_rows = u32::from(lw::MAX_SURFACE_ROWS);
-        let mut sizes = [None; MAX_MOTION_LAYERS];
-        for (s, m) in sizes.iter_mut().zip(self.motion_layers.iter()) {
-            *s = m.map(|m| m.size());
+        let top = h + PATCH_ROWS;
+        if self.store_alloc.bounds() != (w, top, max_rows) {
+            self.store_alloc = StoreAlloc::new(w, top, max_rows);
         }
-        let fit = |layers: &[Option<super::scroll::ScrollLayer>],
-                   sizes: &[Option<(u32, u32)>; MAX_MOTION_LAYERS],
-                   margin_pct: u32,
-                   out: &mut [Band; super::scroll::MAX_SCROLL_LAYERS],
-                   places: &mut Places| {
-            *places = [None; MAX_MOTION_LAYERS];
-            let (mut x, mut shelf_y, mut shelf_h) = (0u32, h + PATCH_ROWS, 0u32);
-            let mut used_w = PATCH_COLS; // the patches' columns
-            for (k, l) in layers.iter().enumerate() {
-                let Some(l) = l else { continue };
-                let (vx0, vy0, vx1, vy1) = l.viewport;
-                let (vw, vh) = ((vx1 - vx0).max(1) as u32, (vy1 - vy0).max(1) as u32);
-                let len = l.viewport_len().max(1) as u32;
-                let margin = (len * margin_pct / 100).max(MARGIN_MIN);
-                let cap = len + 2 * margin;
-                // Vertical: one strip of `cap` rows, the viewport wide. Horizontal: strips of
-                // `strip_len` columns (no wider than the surface) under each other.
-                let (strip_len, strips, bw, bh) = if l.vertical() {
-                    (cap, 1u32, vw, cap)
-                } else {
-                    let strip_len = w.min(cap).max(len.div_ceil(2));
-                    let strips = cap.div_ceil(strip_len);
-                    (strip_len, strips, strip_len, strips * vh)
-                };
-                if bw > w || strip_len > u32::from(u16::MAX) || strips > u32::from(u8::MAX) {
-                    return None;
-                }
-                if x + bw > w {
-                    shelf_y += shelf_h;
-                    x = 0;
-                    shelf_h = 0;
-                }
-                out[k] = Band {
-                    bx: x as u16,
-                    by: shelf_y.min(u32::from(u16::MAX)) as u16,
-                    strip_len: strip_len as u16,
-                    strips: strips as u8,
-                    valid_start: 0,
-                    valid_len: 0,
-                };
-                x += bw;
-                used_w = used_w.max(x);
-                shelf_h = shelf_h.max(bh);
-            }
-            // The motion layers' pixels at their size, on the same shelves (TASK-0354 P2).
-            for (k, s) in sizes.iter().enumerate() {
-                let Some((mw, mh)) = *s else { continue };
-                if mw > w {
-                    return None;
-                }
-                if x + mw > w {
-                    shelf_y += shelf_h;
-                    x = 0;
-                    shelf_h = 0;
-                }
-                places[k] = Some((x as u16, shelf_y.min(u32::from(u16::MAX)) as u16));
-                x += mw;
-                used_w = used_w.max(x);
-                shelf_h = shelf_h.max(mh);
-            }
-            let rows = shelf_y + shelf_h;
-            (rows <= max_rows).then_some((rows, used_w))
-        };
-        let mut bands = [Band::default(); super::scroll::MAX_SCROLL_LAYERS];
-        let mut places: Places = [None; MAX_MOTION_LAYERS];
+        let mut motions = self.motion_items();
         let mut layers = self.scroll_layers;
-        let (rows, used_w) = loop {
-            let fits = fit(&layers, &sizes, 50, &mut bands, &mut places)
-                .or_else(|| fit(&layers, &sizes, 20, &mut bands, &mut places))
-                .or_else(|| fit(&layers, &sizes, 0, &mut bands, &mut places));
-            if let Some(r) = fits {
-                break r;
+        let mut shapes = [None; super::scroll::MAX_SCROLL_LAYERS];
+        loop {
+            // A leaving layer's bands keep their places (TASK-0354 P9) while the bound has room.
+            let mut ghost_items = [Item { key: 0, w: 0, h: 0 }; MAX_ITEMS];
+            let mut ng = 0;
+            self.ghost_bands(|key, w, h| {
+                if let Some(slot) = ghost_items.get_mut(ng) {
+                    *slot = Item { key, w, h };
+                    ng += 1;
+                }
+            });
+            let live = layers.iter().flatten().count() + motions.iter().flatten().count();
+            if live + ng > MAX_ITEMS {
+                self.cut_ghosts("bound");
+                ng = 0;
+                motions = self.motion_items();
             }
-            // The motion layers give way first: the app paints them in the base again.
-            if sizes.iter().any(Option::is_some) {
-                sizes = [None; MAX_MOTION_LAYERS];
+            // Every band at the widest margin that fits, then narrower; an item that stays keeps
+            // its place (`store_alloc`), so what it drew stays valid.
+            let alloc = &mut self.store_alloc;
+            let mut outcome = Outcome::Full;
+            for pct in [50, 20, 0] {
+                let mut items = [Item { key: 0, w: 0, h: 0 }; MAX_ITEMS];
+                let mut n = 0;
+                let mut shaped = true;
+                for (k, l) in layers.iter().enumerate() {
+                    shapes[k] = None;
+                    let Some(l) = l else { continue };
+                    let Some(s) = band_shape(l, pct, w) else {
+                        shaped = false;
+                        break;
+                    };
+                    shapes[k] = Some(s);
+                    items[n] = Item { key: BAND_KEY | k as u32, w: s.2, h: s.3 };
+                    n += 1;
+                }
+                if !shaped {
+                    continue;
+                }
+                for &(id, (mw, mh)) in motions.iter().flatten() {
+                    items[n] = Item { key: LAYER_KEY | u32::from(id), w: mw, h: mh };
+                    n += 1;
+                }
+                items[n..n + ng].copy_from_slice(&ghost_items[..ng]);
+                outcome = alloc.plan(&items[..n + ng]);
+                if outcome != Outcome::Full {
+                    break;
+                }
+            }
+            // A compaction moved every place: a ghost's pixels are no longer where windowd draws
+            // them — the ghosts go, and the rest is planned again.
+            if outcome == Outcome::Compacted && self.has_ghosts() {
+                self.cut_ghosts("store");
+                motions = self.motion_items();
+                continue;
+            }
+            let fits = outcome != Outcome::Full;
+            if fits {
+                break;
+            }
+            // A ghost gives way before anything live: the big launcher entering as the small one
+            // leaves must be a layer, not the app's paint (board--2026-11-19T09-18-34: four
+            // `motion in app (token=4 why=store)` beside a leaving launcher).
+            if self.has_ghosts() {
+                self.cut_ghosts("room");
+                motions = self.motion_items();
+                continue;
+            }
+            // The motion layers give way next: the app paints them in the base again.
+            if motions.iter().any(Option::is_some) {
+                motions = [None; MAX_MOTION_LAYERS];
                 continue;
             }
             let longest = (0..layers.len())
@@ -141,9 +170,37 @@ impl super::DslApp {
                 .max_by_key(|&k| layers[k].map_or(0, |l| l.viewport_len()));
             match longest {
                 Some(k) => layers[k] = None,
-                None => break (h + PATCH_ROWS, PATCH_COLS),
+                None => {
+                    let _ = self.store_alloc.plan(&[]);
+                    break;
+                }
             }
+        }
+        let at = |key: u32| {
+            self.store_alloc.place_of(key).map(|(x, y, _, _)| (x as u16, y.min(0xFFFF) as u16))
         };
+        let mut bands = [Band::default(); super::scroll::MAX_SCROLL_LAYERS];
+        for (k, band) in bands.iter_mut().enumerate() {
+            let (Some((strip_len, strips, _, _)), Some((bx, by))) =
+                (shapes[k].filter(|_| layers[k].is_some()), at(BAND_KEY | k as u32))
+            else {
+                continue;
+            };
+            *band = Band {
+                bx,
+                by,
+                strip_len: strip_len as u16,
+                strips: strips as u8,
+                valid_start: 0,
+                valid_len: 0,
+            };
+        }
+        let mut places: Places = [None; MAX_MOTION_LAYERS];
+        for (place, m) in places.iter_mut().zip(motions) {
+            *place = m.and_then(|(id, _)| at(LAYER_KEY | u32::from(id)));
+        }
+        let (rows, used_w) = self.store_alloc.extent();
+        let (rows, used_w) = (rows.max(top), used_w.max(PATCH_COLS));
         let mut flattened = 0;
         for (k, kept) in layers.iter().enumerate() {
             if kept.is_none() && self.flatten(k) {
@@ -176,6 +233,11 @@ impl super::DslApp {
         StorePlan { rows, width: used_w.min(w) as u16 }
     }
 
+    /// Each motion layer's store item: its id and its size (one of no area takes none).
+    fn motion_items(&self) -> [Option<(u16, (u32, u32))>; MAX_MOTION_LAYERS] {
+        self.motion_store_items()
+    }
+
     /// Layer `k` goes flat: no band — its content paints in the base unscrolled, clipped to its
     /// viewport (as a container past the layer bound). Whether there was a layer.
     pub(super) fn flatten(&mut self, k: usize) -> bool {
@@ -191,7 +253,18 @@ impl super::DslApp {
     pub(super) fn created(&mut self, plan: StorePlan) {
         self.store_rows = plan.rows;
         self.store_w = plan.width;
-        self.store_replan = false;
+        self.store_wanted = None;
+        self.created_h = self.h;
+    }
+
+    /// Whether the store's latest plan waits for a re-create.
+    pub(super) fn replan_owed(&self) -> bool {
+        self.store_wanted.is_some_and(|p| self.outgrows(p))
+    }
+
+    /// [`replan_owed`](Self::replan_owed), the plan taken: the loop asks once.
+    pub(super) fn take_replan(&mut self) -> bool {
+        self.store_wanted.take().is_some_and(|p| self.outgrows(p))
     }
 
     /// No memory for the store's buffer (the create answered `QUOTA`): every scroll layer paints
@@ -207,29 +280,58 @@ impl super::DslApp {
 
     /// The store a re-create asks for: one refused before is asked for again — its layers back
     /// from flat.
+    /// At the height the surface was made a re-create never asks for less than it holds (a
+    /// store that shrank and grew again was made twice). A surface whose page base is clear —
+    /// the desktop, where every entrance is a motion layer — asks for the most rows at its width
+    /// once, so opening a layer never makes it again (TASK-0354 P8: a re-create cost 0.3-0.45 s
+    /// on the board); a `QUOTA` answer to that asks for the plan alone (`reserve_refused`).
     pub(super) fn plan_for_create(&mut self) -> StorePlan {
         if core::mem::take(&mut self.store_refused) {
             let _ = self.sync_layers();
         }
-        self.plan_store()
+        let plan = self.plan_store();
+        let held = if self.h == self.created_h { (self.store_rows, self.store_w) } else { (0, 0) };
+        let plan = StorePlan { rows: plan.rows.max(held.0), width: plan.width.max(held.1) };
+        if self.page_base_alpha() != 0 || self.reserve_refused || self.store_refused {
+            return plan;
+        }
+        let full = u16::try_from(self.w).unwrap_or(u16::MAX);
+        StorePlan { rows: plan.rows.max(u32::from(lw::MAX_SURFACE_ROWS)), width: full }
+    }
+
+    /// The create refused the reserved store for want of memory: the plan alone, once.
+    pub(super) fn unreserve(&mut self, asked: StorePlan) -> Option<StorePlan> {
+        if self.reserve_refused || self.page_base_alpha() != 0 {
+            return None;
+        }
+        self.reserve_refused = true;
+        let plan = self.plan_for_create();
+        (plan != asked).then_some(plan)
     }
 
     /// The surface was made anew at its size. Its marker, and what the re-create costs (TASK-0354
     /// P8): whether only the store grew, the rows that came over from the old buffer, and what
-    /// the next present paints of the base (`whole`: every row again).
-    pub(super) fn say_resized(&self, store_only: bool, pending: Option<Option<(i32, i32)>>) {
-        raw_marker("apphost: resized");
-        let paints = match pending {
-            None => alloc::string::String::from("none"),
-            Some(None) => alloc::string::String::from("whole"),
-            Some(Some((y0, y1))) => alloc::format!("{y0}..{y1}"),
+    /// the next present paints of the base (`whole`: every row again; else the pending
+    /// rectangles — a motion layer's rest among them).
+    /// `why`: what the old surface lacked — `rows`/`width` (the store outgrew it), `resize` (a
+    /// new size), `lost` (the compositor went); `held`: what it had; `us`: the create's time.
+    pub(super) fn say_resized(&self, store_only: bool, held: StorePlan, us: u64) {
+        let why = match (store_only, held.rows < self.store_rows) {
+            (false, _) => "resize",
+            (true, true) => "rows",
+            (true, false) => "width",
         };
+        raw_marker("apphost: resized");
         raw_marker(&alloc::format!(
-            "apphost: surface re-made (store_only={} store_rows={} carried={} base_paints={paints} layer_rows={:?})",
+            "apphost: surface re-made (store_only={} why={why} plan={}x{} held={}x{} us={us} \
+             carried={} base_paints={})",
             u8::from(store_only),
             self.store_rows,
+            self.store_w,
+            held.rows,
+            held.width,
             self.carried.unwrap_or(0),
-            self.motion_repaint
+            self.pending
         ));
     }
 

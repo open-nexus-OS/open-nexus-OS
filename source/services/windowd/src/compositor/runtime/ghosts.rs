@@ -115,7 +115,7 @@ impl DisplayServerRuntime {
         slot.win.set_frame(i32::from(a.dst_x), i32::from(a.dst_y), u32::from(a.w), u32::from(a.h));
         slot.win.visible = true;
         self.show_window(WindowId::App(idx as u16));
-        let rect = self.app_window_rect(idx);
+        let rect = self.app_window_damage_rect(idx);
         self.queue_dirty_rect(rect);
         true
     }

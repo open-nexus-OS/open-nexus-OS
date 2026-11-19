@@ -5,7 +5,7 @@ title: "The top bar and the launcher answer at once — the tap's feedback and t
 status: in_progress
 owner: ["@ui"]
 created: 2026-11-03
-updated: 2026-11-05
+updated: 2026-11-19
 subsystem: ui
 components: [desktop-shell, app-host, windowd]
 kind: ui
@@ -38,7 +38,7 @@ phases:
     story: "the dominant cost P0 names is cut"
     state: blocked
     gate: "board: the named hop at most half of its P0 value; tap to frame <= 100 ms"
-    note: "re-measured on the board 2026-11-05T13-12-18 after TASK-0354 P2: a panel's open costs one layer raster in app-host (Control Center 486 ms, launcher 599 ms, a top-bar panel 283 ms), now the dominant hop ahead of gpud's frame (TASK-0351 P5/P6); the operator put TASK-0353 first"
+    note: "re-measured on the board 2026-11-05T13-12-18 after TASK-0354 P2: a panel's open costs one layer raster in app-host (Control Center 486 ms, launcher 599 ms, a top-bar panel 283 ms), now the dominant hop ahead of gpud's frame (TASK-0351 P5/P6); the operator put TASK-0353 first BOARD build/logs/board--2026-11-19T10-18-04 (2026-11-19, windowd: motion layer tap_us — new instrument): tap to the transition's first frame p50 61 ms over 27 opens, 9 at or below 50 ms, max 493 ms; the big launcher 104-116 ms (its layer raster 35 ms + GPU passes, TASK-0351 P6). Before the package the shell's opens painted the whole base (800 rows) and re-created the desktop's surface (0.3-0.45 s)."
   - id: P2
     story: "the top bar and the launcher open and page without a hitch"
     state: planned

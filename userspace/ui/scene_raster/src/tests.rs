@@ -6,7 +6,7 @@
 use super::*;
 use nexus_layout_types::{CornerRadius, FxPx, Rect, VisualStyle};
 
-fn boxed(x: i32, y: i32, w: i32, h: i32, radius: i32, color: Rgba8) -> LayoutBox {
+pub(crate) fn boxed(x: i32, y: i32, w: i32, h: i32, radius: i32, color: Rgba8) -> LayoutBox {
     LayoutBox {
         node_id: 1,
         rect: Rect::new(FxPx::new(x), FxPx::new(y), FxPx::new(w), FxPx::new(h)),

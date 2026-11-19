@@ -137,7 +137,8 @@ impl VirtioGpuBackend {
                 l.shadow_blur,
                 0,
                 l.shadow_offset_y,
-                RgbaColor::new(0, 0, 0, l.shadow_alpha.min(255) as u8),
+                // At the layer's opacity: a fading layer's shadow fades with it (TASK-0354 P9).
+                RgbaColor::new(0, 0, 0, (l.shadow_alpha.min(255) * l.opacity.min(255) / 255) as u8),
             )?;
         }
         let (src_w, src_h) =

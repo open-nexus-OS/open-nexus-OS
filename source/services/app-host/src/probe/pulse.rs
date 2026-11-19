@@ -22,8 +22,6 @@ impl DslApp {
         at: Option<u64>,
         client: &KernelClient,
         surface_id: u32,
-        dirty: &mut bool,
-        dirty_rows: &mut Option<(i32, i32)>,
     ) {
         // A pulse that finds motion live is a wake-up and starts the motion hop; the present
         // that answers it ends the hop (`band.rs`).
@@ -34,16 +32,15 @@ impl DslApp {
             self.motion_dirty = true;
         }
         // The scroll layers' physics: offsets committed as motion, never a raster; an
-        // `EndReached` that loaded more is a model change.
-        if self.momentum_tick(at) {
-            self.merge_tap_damage(dirty, dirty_rows);
-        }
-        // Animation tick: damage EXACTLY the animated nodes' union row span (old ∪ new
+        // `EndReached` that loaded more is a model change (its relayout names it). A covered
+        // layer still gliding paints in the base: its viewport, at its new offset.
+        let shown = self.base_shows();
+        self.dispatched(|d| d.momentum_tick(at));
+        self.damage_views(&shown, None);
+        // Animation tick: damage EXACTLY the animated nodes' rectangles (old and new
         // transformed AABB) — the 120Hz damage contract; a full repaint per breathe tick
-        // starved the input path. Unions with any scroll span; a pending full request wins.
-        if let Some(span) = self.anim_tick(at) {
-            crate::layout_diff::merge_span(dirty, dirty_rows, span);
-        }
+        // starved the input path.
+        self.anim_tick(at);
         let still = self.momentum_active() || self.anim_active() || self.layers_live();
         if still || self.bands_pending() {
             let req = wire::encode_surface_frame_req(surface_id);

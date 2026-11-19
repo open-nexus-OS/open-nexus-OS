@@ -253,6 +253,8 @@ impl DisplayServerRuntime {
                                 if body_y >= 0 {
                                     // RFC-0095: this window hears the drag the press may become.
                                     self.press_route = Some(input_hover::PressRoute::app(idx));
+                                    let key = self.window_key(idx);
+                                    crate::compositor::frame_causes::press_routed(key, now_ns());
                                     self.send_app_input(idx, local_x, body_y);
                                 }
                             }
@@ -317,6 +319,8 @@ impl DisplayServerRuntime {
             && self.windows.is_visible(crate::window_scene::WindowId::Desktop)
         {
             self.press_route = Some(input_hover::PressRoute::desktop());
+            let desktop = super::surface_layers_encode::DESKTOP_OWNER;
+            crate::compositor::frame_causes::press_routed(desktop, now_ns());
             self.send_desktop_input(cursor_x, cursor_y);
         }
         self.state.focus_visible |= upstream.focus_visible;
@@ -485,4 +489,9 @@ impl DisplayServerRuntime {
 
         STATUS_OK
     }
+}
+
+/// The monotonic clock (ns) a routed press is stamped with.
+fn now_ns() -> u64 {
+    nexus_abi::nsec().unwrap_or(0)
 }

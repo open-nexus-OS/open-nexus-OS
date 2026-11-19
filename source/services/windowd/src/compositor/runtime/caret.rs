@@ -272,8 +272,8 @@ impl DisplayServerRuntime {
         let (layers, origin) = match owner {
             None => (&self.desktop_layers, (0, 0)),
             Some(s) => {
-                let r = self.app_window_rect(usize::from(s));
-                (&self.apps.get(usize::from(s))?.layers, (r.x, r.y))
+                let layers = &self.apps.get(usize::from(s))?.layers;
+                (layers, self.surface_place(usize::from(s)).origin())
             }
         };
         let at_rest = if owner.is_some() { key } else { 0 };

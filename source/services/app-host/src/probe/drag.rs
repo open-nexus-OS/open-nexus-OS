@@ -109,7 +109,6 @@ impl super::DslApp {
     }
 
     /// One pointer frame that is not a tap: hover motion, leave, drag motion, release.
-    #[allow(clippy::too_many_arguments)]
     pub(super) fn pointer_frame(
         &mut self,
         client: &KernelClient,
@@ -117,8 +116,6 @@ impl super::DslApp {
         kind: u8,
         x: i32,
         y: i32,
-        dirty: &mut bool,
-        dirty_rows: &mut Option<(i32, i32)>,
     ) {
         let repaint = match kind {
             wire::INPUT_KIND_DRAG => {
@@ -133,7 +130,7 @@ impl super::DslApp {
             wire::INPUT_KIND_RELEASE => {
                 // The press lets go first: its spring back survives the drag's re-emit.
                 let released = self.interaction_release();
-                self.drag_end(x, y, dirty, dirty_rows) || released
+                self.drag_end(x, y) || released
             }
             wire::INPUT_KIND_LEAVE => {
                 if self.text_hover_clear() {
@@ -149,10 +146,10 @@ impl super::DslApp {
                     super::boot::send_cursor_hint(client, surface_id, over);
                 }
                 // Frame-aligned hover: the layer fades (motion, RFC-0109) — never a raster.
-                let damage_before = (*dirty, *dirty_rows);
+                let damage_before = self.pending;
                 let changed = self.hover(x, y);
                 if changed {
-                    self.note_hover((*dirty, *dirty_rows) != damage_before);
+                    self.note_hover(self.pending != damage_before);
                 }
                 changed
             }
@@ -176,23 +173,18 @@ impl super::DslApp {
 
     /// Computes the newest noted drag position — once, right before the frame that shows it (the
     /// present loop calls this when no present is in flight; nothing noted = nothing to do).
-    pub(super) fn drag_flush(
-        &mut self,
-        client: &KernelClient,
-        surface_id: u32,
-        dirty: &mut bool,
-        dirty_rows: &mut Option<(i32, i32)>,
-    ) {
+    pub(super) fn drag_flush(&mut self, client: &KernelClient, surface_id: u32) {
         let Some((x, y)) = self.drag.as_mut().and_then(|d| d.pending.take()) else { return };
-        // A press on the focused text field: the drag selects (TASK-0346 P2), no gesture.
+        // A press on the focused text field: the drag selects (TASK-0346 P2), no gesture — the
+        // selection is the field's rows.
         if let Some(repaint) = self.drag_text(x, y) {
             if repaint {
-                self.merge_tap_damage(dirty, dirty_rows);
+                self.damage_field();
             }
             return;
         }
         let damage = self.drag_move(x, y);
-        if self.settle(damage, dirty, dirty_rows) && self.anim_active() {
+        if self.settle(damage) && self.anim_active() {
             let _ = client.send(&wire::encode_surface_frame_req(surface_id), Wait::Blocking);
         }
     }
@@ -232,13 +224,7 @@ impl super::DslApp {
 
     /// The button went up: the drag moves to the release point (it supersedes a noted position;
     /// motion frames may have been lost) and ends there — one layout for both.
-    fn drag_end(
-        &mut self,
-        x: i32,
-        y: i32,
-        dirty: &mut bool,
-        dirty_rows: &mut Option<(i32, i32)>,
-    ) -> bool {
+    fn drag_end(&mut self, x: i32, y: i32) -> bool {
         if let Some(drag) = self.drag.as_mut() {
             drag.pending = None;
         }
@@ -247,17 +233,17 @@ impl super::DslApp {
             self.release_text();
             self.drag = None;
             if repaint {
-                self.merge_tap_damage(dirty, dirty_rows);
+                self.damage_field();
             }
             return repaint;
         }
         let mut damage = self.drag_move(x, y);
-        let Some(drag) = self.drag.take() else { return self.settle(damage, dirty, dirty_rows) };
+        let Some(drag) = self.drag.take() else { return self.settle(damage) };
         if let Some(Some(box_id)) = drag.taken {
             set_cell(x, y, drag.start);
             damage = damage.max(self.dispatch(box_id, "DragEnd"));
         }
-        let repaint = self.settle(damage, dirty, dirty_rows);
+        let repaint = self.settle(damage);
         self.trace_drag(drag, (x, y));
         set_cell(0, 0, (0, 0));
         repaint
@@ -299,33 +285,18 @@ impl super::DslApp {
             .flatten()
     }
 
-    /// Lays out what the dispatches changed and folds the damage into the pending repaint: a
-    /// layout change repaints the rows the layout diff names (glass regions re-declared only
-    /// when a glass root moved), a paint change the frame. `true` when the model changed.
-    fn settle(
-        &mut self,
-        damage: Option<Damage>,
-        dirty: &mut bool,
-        dirty_rows: &mut Option<(i32, i32)>,
-    ) -> bool {
-        use crate::layout_diff::{glass_roots_changed, merge_span};
+    /// Lays out what the dispatches changed and names the damage: a layout change repaints the
+    /// rectangles the layout diff names (glass regions re-declared only when a glass root
+    /// moved), a paint change the frame. `true` when the model changed.
+    fn settle(&mut self, damage: Option<Damage>) -> bool {
         match damage {
             Some(Damage::Layout) => {
-                let held = self.held_spans();
-                let old_boxes = core::mem::take(&mut self.layout.boxes);
-                let old_texts = core::mem::take(&mut self.texts);
-                self.relayout_retained();
-                self.tree_dirty |= glass_roots_changed(&old_boxes, &self.layout.boxes);
-                match self.layout_change((&old_boxes, &old_texts), &held) {
-                    None => (*dirty, *dirty_rows) = (true, None),
-                    Some((y0, y1)) if y1 > y0 => {
-                        self.damage_cols.full();
-                        merge_span(dirty, dirty_rows, (y0, y1));
-                    }
-                    Some(_) => {} // the store moved, no pixel did
+                if let Some((_, old_boxes)) = self.relayout_diffed() {
+                    self.tree_dirty |=
+                        crate::layout_diff::glass_roots_changed(&old_boxes, &self.layout.boxes);
                 }
             }
-            Some(Damage::Paint) => (*dirty, *dirty_rows) = (true, None),
+            Some(Damage::Paint) => self.pending.whole(),
             _ => return false,
         }
         // The dispatch re-emitted the scene: a changed `.animate` value starts its motion.

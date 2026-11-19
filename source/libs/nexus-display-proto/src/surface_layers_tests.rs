@@ -300,6 +300,7 @@ fn with_sheet() -> SurfaceTree {
         regions: 0,
         scrolls: 0,
         front: false,
+        exit: false,
         backdrop: 0,
         backdrop_opacity: 0,
         backdrop_ms: 0,
@@ -348,14 +349,52 @@ fn test_reject_a_motion_layer_with_a_reserved_byte_or_past_the_bound() {
     let len = encode_surface_tree(9, &t, &mut buf);
     let mut out = SurfaceTree::EMPTY;
     let mut front = buf;
-    front[len - 7] = MOTION_FRONT; // the layer's flags byte: its one defined bit
+    front[len - 7] = MOTION_FRONT; // the layer's flags byte: a defined bit
     assert!(decode_surface_tree(&front[..len], &mut out).is_some() && out.motions()[0].front);
     let mut reserved = buf;
-    reserved[len - 7] = 0x02; // a reserved flag bit
+    reserved[len - 7] = 0x04; // a reserved flag bit
     assert_eq!(decode_surface_tree(&reserved[..len], &mut out), None, "reserved bit");
     let mut over = buf;
     over[11] = (MAX_MOTION_LAYERS + 1) as u8;
     assert_eq!(decode_surface_tree(&over[..len], &mut out), None, "past the bound");
+}
+
+/// TASK-0354 P9: a layer leaving is the same layer with `MOTION_EXIT` — the flag round-trips
+/// beside `MOTION_FRONT`, the entry stays 32 bytes and the structure stays valid.
+#[test]
+fn a_leaving_motion_layer_round_trips() {
+    let mut t = with_sheet();
+    t.motions[0].front = true;
+    t.motions[0].exit = true;
+    let mut buf = [0u8; SURFACE_TREE_MAX_LEN];
+    let len = encode_surface_tree(9, &t, &mut buf);
+    assert_eq!(buf[len - 7], MOTION_FRONT | MOTION_EXIT, "both flags in the one byte");
+    let mut out = SurfaceTree::EMPTY;
+    assert_eq!(decode_surface_tree(&buf[..len], &mut out), Some(9));
+    assert_eq!(out, t);
+    assert!(out.motions()[0].exit && out.motions()[0].front);
+    assert_eq!(validate_tree(&out, 1440, 853, 2269, WIDE_STORE), Ok(()));
+    assert!(!MotionLayerDesc::EMPTY.exit, "a layer enters unless it says it leaves");
+}
+
+/// Every flag bit but `MOTION_FRONT` and `MOTION_EXIT` refuses the structure (fail-closed: a
+/// receiver never guesses a bit it does not know).
+#[test]
+fn test_reject_a_reserved_motion_flag() {
+    let t = with_sheet();
+    let mut buf = [0u8; SURFACE_TREE_MAX_LEN];
+    let len = encode_surface_tree(9, &t, &mut buf);
+    let mut out = SurfaceTree::EMPTY;
+    for bit in 2..8 {
+        let mut f = buf;
+        f[len - 7] = 1 << bit;
+        assert_eq!(decode_surface_tree(&f[..len], &mut out), None, "bit {bit} is reserved");
+    }
+    for known in [0, MOTION_FRONT, MOTION_EXIT, MOTION_FRONT | MOTION_EXIT] {
+        let mut f = buf;
+        f[len - 7] = known;
+        assert!(decode_surface_tree(&f[..len], &mut out).is_some(), "flags {known:#x} known");
+    }
 }
 
 /// Every bound of a motion: it rests in the base, keeps its pixels in the store, moves no longer

@@ -122,32 +122,30 @@ impl DisplayServerRuntime {
     /// A present's damage (RFC-0109) onto the screen — a base row where the surface shows it, a
     /// band's rows in its scroll layer's viewport, the whole surface for a new structure or a
     /// present naming nothing. `idx`: the window's slot (`None`: the desktop, whose changes also
-    /// stale every window's blur above them); `screen`: where the surface's origin and extent
-    /// are on the display.
+    /// stale every window's blur above them); `place`: where the scene draws the surface
+    /// (`surface_place` — never the window's halo rectangle).
     pub(crate) fn present_damage(
         &mut self,
         surface: &crate::client_surface::ClientSurface,
         rects: &[nexus_display_proto::client_surface::DamageRect],
         change: TreeChange,
         idx: Option<usize>,
-        screen: (u32, u32, u32, u32),
+        place: crate::surface_place::SurfacePlace,
     ) {
         let layers = idx.map_or(self.desktop_layers, |i| self.apps[i].layers);
         let base_h = u32::from(surface.height);
+        let display = (self.mode.width, self.mode.height);
         let queue = |rt: &mut Self, r: (u32, u32, u32, u32)| {
-            // Cut at the surface's extent on the screen (a frame smaller than the surface).
-            let x1 = (screen.0 + r.0 + r.2).min(screen.0 + screen.2);
-            let y1 = (screen.1 + r.1 + r.3).min(screen.1 + screen.3);
-            let (x0, y0) = (screen.0 + r.0, screen.1 + r.1);
-            if x1 > x0 && y1 > y0 {
-                let dr = DamageRect { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
+            // Where the scene draws these pixels, cut at the frame and the display.
+            if let Some((x0, y0, w, h)) = place.on_screen(r, display) {
+                let dr = DamageRect { x: x0, y: y0, width: w, height: h };
                 rt.queue_dirty_rect(dr);
                 if idx.is_none() {
                     rt.invalidate_blur_over(dr, None);
                 }
             }
         };
-        let whole = (0, 0, screen.2, screen.3);
+        let whole = (0, 0, u32::MAX, u32::MAX);
         if rects.is_empty() || change.whole {
             queue(self, whole);
         }

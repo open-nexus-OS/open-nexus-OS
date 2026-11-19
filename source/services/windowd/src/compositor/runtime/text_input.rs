@@ -165,7 +165,7 @@ impl DisplayServerRuntime {
                 if !self.windows.is_visible(wid) {
                     self.apps[idx].win.visible = true;
                     self.windows.show_unfocused(wid);
-                    let rect = self.app_window_rect(idx);
+                    let rect = self.app_window_damage_rect(idx);
                     self.queue_dirty_rect(rect);
                 }
             }
@@ -180,7 +180,7 @@ impl DisplayServerRuntime {
             (false, Some(idx)) => {
                 let wid = crate::window_scene::WindowId::App(idx as u16);
                 if self.windows.is_visible(wid) {
-                    let rect = self.app_window_rect(idx);
+                    let rect = self.app_window_damage_rect(idx);
                     self.apps[idx].win.visible = false;
                     self.windows.hide(wid);
                     self.queue_dirty_rect(rect);

@@ -27,6 +27,7 @@ mod anim;
 mod band;
 mod boot;
 mod clock;
+mod damage;
 mod drag;
 mod env;
 mod frame_arena;
@@ -198,7 +199,7 @@ pub(super) fn run() -> Result<(), &'static str> {
     //    layer's band, planned from the page's layers. windowd has gpud make its buffer for this
     //    app (RFC-0114) and moves it here with the answer: drawn in place, read by the GPU where
     //    it lies. A WM resize (or a store that outgrew it) re-creates it.
-    let plan = dsl.plan_store();
+    let plan = dsl.plan_for_create();
     let (mut surface_id, mut mem) = boot::create_surface(
         (&client, &events),
         ((surf_w, surf_h), &win, resizable),
@@ -214,7 +215,9 @@ pub(super) fn run() -> Result<(), &'static str> {
     // The first frame, into slot 0: the base, the patch, every band's visible window.
     let mut first = band::PresentDamage::default();
     mem.begin_frame(true);
-    if !dsl.redraw(&mut mem, None, &mut first) {
+    // Everything: whatever a mount-time dispatch named is in it.
+    dsl.pending = Default::default();
+    if !dsl.redraw(&mut mem, crate::band_math::Change::Whole, &mut first) {
         raw_marker("APPHOST: FAIL dsl frame (render)");
         return Err("apphost: first render failed");
     }
@@ -258,9 +261,11 @@ pub(super) fn run() -> Result<(), &'static str> {
     //    * every tap is applied to the MODEL immediately (the counter
     //      increments even if the display lags);
     //    * a present-ack is pure flow control (clears `present_in_flight`);
-    //    * at most one present is outstanding; taps that arrive while one
-    //      is in flight set `dirty`, and the next ack triggers a single
-    //      coalesced present of the latest state.
+    //    * at most one present is outstanding; what changes while one is in
+    //      flight stays pending (`DslApp::pending`, `probe/damage.rs`: the
+    //      rectangles to repaint, in the base and in the bands that hold
+    //      them — everything only for mount, resize, theme), and the next
+    //      ack triggers a single coalesced present of the latest state.
     //    Plain blocking recv (P0.2): the sender-wake of an exec'd child in
     //    blocking recv is proven every boot by the recv-wake gate.
     let mut seq: u32 = 1;
@@ -271,12 +276,6 @@ pub(super) fn run() -> Result<(), &'static str> {
     let mut tap_miss_markers: u32 = 0;
     let mut wheel_rx_markers: u32 = 0;
     let mut present_in_flight = false;
-    let mut dirty = false;
-    // Damage discipline (5K/120Hz contract): `None` = full repaint
-    // (mount/resize/theme), `Some((y0, y1))` = only those LAYOUT rows are
-    // redrawn — in the base and in the bands that hold them (RFC-0109).
-    // Spans from coalesced events union; any full request wins.
-    let mut dirty_rows: Option<(i32, i32)> = None;
     // RFC-0112: the compositor died — the loop rejoins the next one (`reconnect`); until the
     // surface is made again, nothing of this window is sent.
     let (mut rejoin_due, mut surface_lost) = (false, false);
@@ -340,28 +339,21 @@ pub(super) fn run() -> Result<(), &'static str> {
                         continue;
                     }
                     if let Some(dsl) = app.as_mut() {
-                        if dsl.timer_fired() {
-                            dsl.merge_tap_damage(&mut dirty, &mut dirty_rows);
-                        }
+                        dsl.timer_fired();
                         // A grown store waits for the re-create (a pulse wakes the loop's tail).
                         if surface_lost {
                             // Nothing to show it on until the rejoin made the surface again.
-                        } else if dsl.store_replan {
+                        } else if dsl.replan_owed() {
                             let req = wire::encode_surface_frame_req(surface_id);
                             let _ = client.send(&req, Wait::Blocking);
-                        } else if dirty && !present_in_flight {
-                            match dsl.present_frame(
-                                &client,
-                                surface_id,
-                                &mut mem,
-                                &mut seq,
-                                Some(dirty_rows),
-                            ) {
+                        } else if (!dsl.pending.is_empty() || dsl.tree_dirty) && !present_in_flight
+                        {
+                            let change = dsl.pending.take();
+                            match dsl.present_frame(&client, surface_id, &mut mem, &mut seq, change)
+                            {
                                 Ok(sent) => present_in_flight |= sent,
                                 Err(m) => raw_marker(m),
                             }
-                            dirty = false;
-                            dirty_rows = None;
                         }
                     }
                     continue;
@@ -443,7 +435,7 @@ pub(super) fn run() -> Result<(), &'static str> {
             // to the time the next frame is shown (`probe/pulse.rs`).
             if let Some(dsl) = app.as_mut() {
                 let at = scroll::frame_time(&event_frame[..len]);
-                dsl.on_frame_pulse(at, &client, surface_id, &mut dirty, &mut dirty_rows);
+                dsl.on_frame_pulse(at, &client, surface_id);
             }
         } else if let Some((_, kind, x, y, facts, motion)) =
             drag::decode_pointer(&event_frame[..len])
@@ -462,23 +454,23 @@ pub(super) fn run() -> Result<(), &'static str> {
                         dsl.note_motion(kind, motion);
                     }
                     let (x, y) = (i32::from(x), i32::from(y));
-                    dsl.pointer_frame(&client, surface_id, kind, x, y, &mut dirty, &mut dirty_rows);
+                    dsl.pointer_frame(&client, surface_id, kind, x, y);
                 }
             } else if kind == wire::INPUT_KIND_WHEEL {
                 // Wheel impulse into the physics of the scroll layer under the pointer: motion,
                 // never a raster (`probe/scroll.rs`). A page trigger is a model change.
                 if let Some(dsl) = app.as_mut() {
-                    if dsl.wheel_event(&client, surface_id, y, &mut wheel_rx_markers) {
-                        dsl.merge_tap_damage(&mut dirty, &mut dirty_rows);
-                    }
+                    let rx = &mut wheel_rx_markers;
+                    dsl.dispatched(|d| d.wheel_event(&client, surface_id, y, rx));
                 }
             } else if kind == wire::INPUT_KIND_TAP {
                 if let Some(dsl) = app.as_mut() {
                     let outcome = dsl.tap(i32::from(x), i32::from(y));
                     dsl.announce_text_focus(&client, surface_id, i32::from(x), i32::from(y));
-                    // TASK-0346 P2: the caret where the press landed on the focused field.
+                    // TASK-0346 P2: the caret where the press landed on the focused field — its
+                    // selection is the field's rows.
                     if dsl.press_text(i32::from(x), i32::from(y), facts) {
-                        dsl.merge_tap_damage(&mut dirty, &mut dirty_rows);
+                        dsl.damage_field();
                     }
                     // The press may have started a dip or a layer fade, the tap an animation or
                     // a pager glide: they tick on the frame pulse, whatever the tap repainted.
@@ -486,16 +478,11 @@ pub(super) fn run() -> Result<(), &'static str> {
                         let req = wire::encode_surface_frame_req(surface_id);
                         let _ = client.send(&req, Wait::Blocking);
                     }
-                    // ONLY a repaint is dirty. A tap a handler absorbed
-                    // without one (`PanelNoop`, or a control whose effect
-                    // lands in another service) is NOT a miss; calling it
-                    // one sent readers hunting a hit-test bug for days.
-                    if outcome == TapOutcome::Repainted {
-                        // Damage-bounded structural repaint (`layout_diff`):
-                        // full-frame rasters per click are what made menus
-                        // feel like they never opened on the TCG boot.
-                        dsl.merge_tap_damage(&mut dirty, &mut dirty_rows);
-                    } else if outcome == TapOutcome::NoHandler && tap_miss_markers < 8 {
+                    // A repaint is pending with its damage (`tap`: the layout diff's
+                    // rectangles). A tap a handler absorbed without one (`PanelNoop`,
+                    // or a control whose effect lands in another service) is NOT a
+                    // miss; calling it one sent readers hunting a hit-test bug for days.
+                    if outcome == TapOutcome::NoHandler && tap_miss_markers < 8 {
                         tap_miss_markers += 1;
                         raw_marker(&alloc::format!("apphost: input tap miss at ({x},{y})"));
                         if tap_miss_markers == 1 {
@@ -507,12 +494,13 @@ pub(super) fn run() -> Result<(), &'static str> {
                 }
             }
             if let Some(dsl) = app.as_mut() {
-                dsl.note_input_rx(rx_ns, dirty);
+                dsl.note_input_rx(rx_ns);
             }
-        } else if app.as_mut().is_some_and(|d| d.absorb_shell_push(&event_frame[..len])) {
-            if let Some(dsl) = app.as_mut() {
-                dsl.merge_tap_damage(&mut dirty, &mut dirty_rows);
-            }
+        } else if app
+            .as_mut()
+            .is_some_and(|d| d.dispatched(|d| d.absorb_shell_push(&event_frame[..len])))
+        {
+            // The shell's push changed the model: its relayout named the damage.
         } else if let Some(snap) =
             nexus_display_proto::surface_settings::decode_surface_settings(&event_frame[..len])
         {
@@ -526,27 +514,24 @@ pub(super) fn run() -> Result<(), &'static str> {
                 &mut shell_profile,
                 &mut last_region,
             ) {
-                dirty = true;
-                dirty_rows = None; // presentation change: full repaint
+                damage::whole(&mut app); // presentation change: full repaint
             }
         } else if let Some(code) =
             nexus_display_proto::surface_windows::decode_surface_tile_preview(&event_frame[..len])
         {
             // TASK-0066: the zone a window drag would tile into — the shell draws it.
             if app.as_mut().is_some_and(|d| d.apply_tile_preview(code)) {
-                dirty = true;
-                dirty_rows = None;
+                damage::whole(&mut app);
             }
         } else if surface_text::decode_surface_text(&event_frame[..len]).is_some() {
             if let Some(dsl) = app.as_mut() {
-                dsl.text_frame(&event_frame[..len], &mut dirty, &mut dirty_rows);
+                dsl.text_frame(&event_frame[..len]);
             }
         } else if surface_text::decode_ime_state(&event_frame[..len]).is_some() {
             // Composition-strip push (RFC-0075 Phase 3, ime-ui only —
             // apps without the event ignore it).
             if app.as_mut().is_some_and(|d| d.apply_ime_state(&event_frame[..len])) {
-                dirty = true;
-                dirty_rows = None;
+                damage::whole(&mut app);
             }
         } else if persist::absorb_seen(&event_frame[..len], app.as_ref()) {
             // TASK-0333 6e-1 (ADR-0086): the compositor's sighting of THIS window — hidden wrote
@@ -555,8 +540,7 @@ pub(super) fn run() -> Result<(), &'static str> {
             // TASK-0333 6e-3 (RFC-0100 §3): the memory authority's level, raised into the program
             // as the host event `MemoryPressure` (pressure.rs); a handled one changed the view.
             if handled {
-                dirty = true;
-                dirty_rows = None;
+                damage::whole(&mut app);
             }
         } else {
             marker::odd_frame(&event_frame[..len], &mut odd_frame_markers);
@@ -564,7 +548,7 @@ pub(super) fn run() -> Result<(), &'static str> {
         // A layer set whose bands outgrew the surface's rows (planned at the relayout)
         // re-creates the surface (same flow as a WM resize, same size).
         let mut store_only = false;
-        if app.as_mut().is_some_and(|dsl| core::mem::take(&mut dsl.store_replan)) {
+        if app.as_mut().is_some_and(|dsl| dsl.take_replan()) {
             (store_only, recreate_surface) = (!recreate_surface, true);
         }
         // SHARED surface re-create (WM resize / a store that outgrew it): plan the store, destroy
@@ -573,7 +557,10 @@ pub(super) fn run() -> Result<(), &'static str> {
         // the structure and a full present.
         if recreate_surface {
             if let Some(dsl) = app.as_mut() {
+                dsl.cut_ghosts("recreate");
                 let plan = dsl.plan_for_create();
+                let (held, t0) =
+                    (band::StorePlan { rows: dsl.store_rows, width: dsl.store_w }, nsec_now());
                 // A lost surface died with its compositor: nothing to destroy.
                 if !surface_lost {
                     let _ = send_wait(&client, &wire::encode_surface_destroy(surface_id));
@@ -607,14 +594,14 @@ pub(super) fn run() -> Result<(), &'static str> {
                         present_in_flight = false;
                         match carried.flatten() {
                             Some(rows) => dsl.carried = Some(rows), // the pending change stays
-                            None => (dirty, dirty_rows) = (true, None), // everything, anew
+                            None => dsl.pending.whole(),            // everything, anew
                         }
                         if core::mem::take(&mut surface_lost) {
                             // The new compositor routes no key here until it hears the focus.
                             dsl.reannounce_text_focus(&client, surface_id);
                             raw_marker("apphost: surface re-created");
                         } else {
-                            dsl.say_resized(store_only, dirty.then_some(dirty_rows));
+                            dsl.say_resized(store_only, held, nsec_now().saturating_sub(t0) / 1000);
                         }
                         // Fresh surface id: re-arm parked pulses.
                         if dsl.anim_active() {
@@ -645,12 +632,12 @@ pub(super) fn run() -> Result<(), &'static str> {
         // shown without waiting for the next input. A held drag computes
         // only its newest position, here (`probe/drag.rs`).
         if let (false, Some(dsl)) = (present_in_flight || surface_lost, app.as_mut()) {
-            dsl.drag_flush(&client, surface_id, &mut dirty, &mut dirty_rows);
+            dsl.drag_flush(&client, surface_id);
         }
         if let (false, Some(dsl)) = (present_in_flight || surface_lost, app.as_mut()) {
-            if dirty || dsl.bands_pending() || dsl.tree_dirty {
-                let change = core::mem::take(&mut dirty).then_some(dirty_rows.take());
-                let full = change == Some(None);
+            if !dsl.pending.is_empty() || dsl.bands_pending() || dsl.tree_dirty {
+                let change = dsl.pending.take();
+                let full = change == Some(crate::band_math::Change::Whole);
                 match dsl.present_frame(&client, surface_id, &mut mem, &mut seq, change) {
                     Ok(sent) => present_in_flight = sent,
                     Err(m) => raw_marker(m),

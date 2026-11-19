@@ -100,10 +100,16 @@ mod interaction_layer;
 // What a press does to a control (its dip, its curves, its layers). Same one-cfg shape.
 #[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
 mod layout_diff;
+// Where the store's bands and motion layers live: stable places (TASK-0354 P9).
 #[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
 mod modal_edge;
 #[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
 mod press_kind;
+#[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
+mod store_alloc;
+// A motion layer's exit: its fate, its revival, its drop (TASK-0354 P9).
+#[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
+mod motion_exit;
 // Where a painted row's time goes (TASK-0367 P0): one staged pass's sums and its line. Same
 // one-cfg shape: `probe/paint/split.rs` runs the pass.
 #[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]

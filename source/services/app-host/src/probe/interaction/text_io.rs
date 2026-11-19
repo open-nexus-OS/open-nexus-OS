@@ -27,6 +27,11 @@ impl DslApp {
             nexus_layout_types::FxPx::new(y),
             &views[..nv],
         );
+        // The focus moved (or its caret): the field it left and the one it came to paint their
+        // runs another way (uncut, scrolled, selected) — their rows, which no layout names.
+        if snap != before {
+            [before, snap].into_iter().flatten().for_each(|f| self.damage_field_of(f.box_id));
+        }
         // Same-field taps STILL announce when focused (RFC-0075 Phase 8c):
         // the tap is the user's explicit "open the keyboard" gesture — it
         // must re-open a dismissed OSK. Only a no-op UNFOCUSED state stays
@@ -76,24 +81,16 @@ impl DslApp {
         let _ = client.send(&f, Wait::NonBlocking);
     }
 
-    /// A text frame (RFC-0075) in the present loop: applied to the focused field, the rows it
-    /// changed merged into the loop's dirty state (`relayout_bounded` — a typed character
-    /// re-renders the field, not the page), the input chain's hop started (RFC-0108 §hops).
-    pub(in crate::probe) fn text_frame(
-        &mut self,
-        frame: &[u8],
-        dirty: &mut bool,
-        dirty_rows: &mut Option<(i32, i32)>,
-    ) {
+    /// A text frame (RFC-0075) in the present loop: applied to the focused field, what it
+    /// changed pending (`relayout_bounded` — a typed character re-renders the field, not the
+    /// page), the input chain's hop started (RFC-0108 §hops).
+    pub(in crate::probe) fn text_frame(&mut self, frame: &[u8]) {
         use nexus_display_proto::surface_text as st;
         use nexus_ux_budgets::session::Applied;
         let rx_ns = super::super::boot_env::nsec_now();
         // A focus that moved since the last present (a tap elsewhere) ends its session before
         // this key counts in the next one.
         self.track_input_session();
-        // A typed character re-renders the rows its edit changed (`relayout_bounded`), never the
-        // page; a caret move, an escape or a paint-only change repaints in full (no span).
-        self.tap_render_span = None;
         let in_field = self.view.text_focus().is_some();
         // A commit carries a run of characters when windowd joined them for a client behind
         // (RFC-0113): every one counts, each timed from the run's first key.
@@ -101,9 +98,12 @@ impl DslApp {
             let n = if kind == st::SURFACE_TEXT_COMMIT { text.chars().count() } else { 1 };
             (kind, n, stamp)
         });
-        let shows = self.apply_surface_text(frame);
+        // A typed character re-renders what its edit changed (`relayout_bounded`) and the
+        // field's rows (its selection, its text's offset); a caret move, an escape or a
+        // paint-only change named nothing and repaints in full (`dispatched`).
+        let shows = self.dispatched(|d| d.apply_surface_text(frame));
         if shows {
-            self.merge_tap_damage(dirty, dirty_rows);
+            self.damage_field();
         }
         // RFC-0113 §6: the focused field counts what it applied — timed to the present that shows
         // it, or now when it shows nothing.
@@ -118,7 +118,7 @@ impl DslApp {
                 }
             }
         }
-        self.note_input_rx(rx_ns, *dirty);
+        self.note_input_rx(rx_ns);
     }
 
     /// RFC-0113 §6: when the focus left the field (a tap elsewhere, a closed overlay, another

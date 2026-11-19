@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: unit tests of `layer_geometry` — a scroll layer's pieces, a wash's place, what a new
-//! structure changes on the screen (moved regions, regions and motion layers that come or go),
+//! structure changes on the screen (moved regions, regions, motion and scroll layers that come
+//! or go),
 //! who may declare layers, the store's damage, the demand on the frame's bound. Split out of
 //! `layer_geometry.rs` (module-size ratchet).
 //! OWNERS: @ui
@@ -11,6 +12,7 @@
 //! TEST_SCOPE: the surface layers' geometry (RFC-0109, TASK-0351 P15, TASK-0354 P2)
 
 use super::*;
+use crate::motion_geometry::{drawn_moved, moved_at, Moved, Segment};
 use nexus_display_proto::surface_layers::{Patch, AXIS_HORIZONTAL};
 
 fn vertical() -> ScrollLayerDesc {
@@ -126,7 +128,9 @@ fn a_structure_takes_effect_with_its_present() {
     layers.stage(tree);
     assert_eq!(layers.latest_tree(), tree);
     assert_eq!(layers.tree, SurfaceTree::EMPTY, "not before its present");
-    assert_eq!(layers.activate(), TreeChange::STRUCTURE);
+    let came = layers.activate();
+    assert!(!came.whole, "a scroll layer that came is its viewport");
+    assert_eq!(came.rects(), &[(310, 120, 1080, 700)]);
     assert_eq!(layers.tree, tree);
     assert_eq!(layers.activate(), TreeChange::NONE, "nothing waiting");
     assert!(layers.first_refusal());
@@ -168,8 +172,42 @@ fn a_new_valid_range_changes_its_band_alone() {
     assert_eq!(structure_change(&now, &next), TreeChange::bands(1));
     let mut moved = now;
     moved.scrolls[0].vy = 130;
-    assert_eq!(structure_change(&now, &moved), TreeChange::STRUCTURE);
+    let change = structure_change(&now, &moved);
+    assert!(!change.whole, "a re-placed band is its viewports, not the surface");
+    assert_eq!(change.rects(), &[(310, 120, 1080, 700), (310, 130, 1080, 700)]);
     assert_eq!(structure_change(&now, &now), TreeChange::NONE);
+}
+
+/// TASK-0351 P15: the launcher brings its grid's band and takes it away — the viewport changes,
+/// not every pixel of the desktop; a band whose index shifted because another came keeps its
+/// pixels, and a new range of it is its band's rows at its new index.
+#[test]
+fn a_scroll_layer_changes_its_viewport_when_it_comes_or_goes() {
+    let grid = ScrollLayerDesc { vx: 160, vy: 200, vw: 1600, vh: 640, by: 1300, ..vertical() };
+    let mut now = SurfaceTree::EMPTY;
+    let mut next = now;
+    next.scrolls[0] = grid;
+    next.scroll_count = 1;
+    let came = structure_change(&now, &next);
+    assert!(!came.whole);
+    assert_eq!(came.rects(), &[(160, 200, 1600, 640)], "where it is");
+    assert_eq!(came.bands, 0);
+    let went = structure_change(&next, &now);
+    assert!(!went.whole);
+    assert_eq!(went.rects(), &[(160, 200, 1600, 640)], "where it was");
+    now.scrolls[0] = vertical();
+    now.scroll_count = 1;
+    let mut both = now;
+    both.scrolls[0] = grid;
+    both.scrolls[1] = ScrollLayerDesc { valid_start: 64, ..vertical() };
+    both.scroll_count = 2;
+    let shifted = structure_change(&now, &both);
+    assert_eq!(shifted.rects(), &[(160, 200, 1600, 640)], "the new band alone");
+    assert_eq!(shifted.bands, 1 << 1, "the shifted band's new range, at its new index");
+    let mut patched = now;
+    patched.patches[0] = Patch { x: 0, y: 1080 };
+    patched.patch_count = 1;
+    assert_eq!(structure_change(&now, &patched), TreeChange::STRUCTURE, "patches are the surface");
 }
 
 /// TASK-0351 P15: a panel sliding under the bar is one region moving — its old and new
@@ -238,15 +276,15 @@ fn a_motion_layer_changes_its_rest_when_it_comes_or_goes() {
     let mut layers = SurfaceLayers::EMPTY;
     layers.stage(with);
     assert_eq!(layers.activate().rects(), &[(20, 30, 100, 200)]);
-    layers.starts[0] = 5_000;
+    layers.motion_states[0] = MotionState::started(5_000);
     let mut over = with;
     over.motions[0].duration_ms = 0;
     layers.stage(over);
     assert_eq!(layers.activate(), TreeChange::NONE);
-    assert_eq!(layers.starts[0], 5_000, "the same motion: its start kept");
+    assert_eq!(layers.motion_states[0].seg.start, 5_000, "the same motion: its start kept");
     layers.stage(SurfaceTree::EMPTY);
     assert_eq!(layers.activate().rects(), &[(20, 30, 100, 200)]);
-    assert_eq!(layers.starts, [0; MAX_MOTION_LAYERS]);
+    assert_eq!(layers.motion_states, [MotionState::EMPTY; MAX_MOTION_LAYERS]);
 }
 
 /// A layer with a backdrop (a modal over its scrim) changes every pixel when it comes or goes:
@@ -266,6 +304,7 @@ fn a_motion_layer_with_a_backdrop_changes_the_whole_surface() {
         front: true,
         backdrop: 1,
         backdrop_opacity: 102,
+        backdrop_ms: 180,
         ..MotionLayerDesc::EMPTY
     };
     let mut with = SurfaceTree::EMPTY;
@@ -279,6 +318,11 @@ fn a_motion_layer_with_a_backdrop_changes_the_whole_surface() {
     layers.stage(with);
     assert!(layers.activate().whole, "the scrim came: every pixel");
     assert_eq!(layers.demand(), 2, "the sheet and its backdrop");
+    let mut over = with;
+    over.motions[0].duration_ms = 0;
+    over.motions[0].backdrop_ms = 0;
+    layers.stage(over);
+    assert_eq!(layers.activate(), TreeChange::NONE, "the motion and its scrim's fade are over");
     let mut without = with;
     without.motion_count = 0;
     layers.stage(without);
@@ -303,11 +347,106 @@ fn a_surface_owes_frames_until_its_motion_is_drawn_at_rest() {
     };
     layers.tree.motion_count = 1;
     assert!(layers.motion_frame_owed(), "not drawn yet");
-    layers.starts[0] = 1_000_000_000;
+    layers.motion_states[0] = MotionState::started(1_000_000_000);
     layers.drawn_at = 1_399_000_000;
     assert!(layers.motion_frame_owed(), "the last frame was a hair short of rest");
     layers.drawn_at = 1_400_000_000;
     assert!(!layers.motion_frame_owed(), "drawn at rest");
+}
+
+const MS: u64 = 1_000_000;
+
+/// A sheet sliding up 16 px over 300 ms (id 3), leaving when `exit`.
+fn sliding(exit: bool) -> SurfaceTree {
+    let mut tree = SurfaceTree::EMPTY;
+    tree.motions[0] = MotionLayerDesc {
+        x: 20,
+        y: 30,
+        w: 100,
+        h: 200,
+        sx: 0,
+        sy: 900,
+        id: 3,
+        token: 4,
+        duration_ms: 300,
+        from_dy: 16,
+        exit,
+        ..MotionLayerDesc::EMPTY
+    };
+    tree.motion_count = 1;
+    tree
+}
+
+/// `layers` declared `tree`, its enter drawn from `at` to its end.
+fn entered(layers: &mut SurfaceLayers, tree: SurfaceTree, at: u64) {
+    layers.stage(tree);
+    let _ = layers.activate();
+    assert_eq!(layers.stamp(at, FrameNote::default())[0], Said::Started);
+    let _ = layers.stamp(at + 300 * MS, FrameNote::default());
+    assert!(!layers.motion_frame_owed(), "the enter drawn at rest");
+}
+
+/// TASK-0354 P9: a close or a re-open flips the direction of the same layer — the same place,
+/// pixels and claims — and changes no rectangle (windowd moves it; one over a scrim is not the
+/// whole surface either); the flip owes its frame, and a flip back before that frame leaves the
+/// layer as it was.
+#[test]
+fn a_direction_flip_changes_no_rectangle() {
+    let mut layers = SurfaceLayers::EMPTY;
+    entered(&mut layers, sliding(false), 1_000 * MS);
+    layers.stage(sliding(true));
+    assert_eq!(layers.activate(), TreeChange::NONE, "a close");
+    assert!(layers.motion_frame_owed(), "the flip owes its frame");
+    layers.stage(sliding(false));
+    assert_eq!(layers.activate(), TreeChange::NONE, "a re-open before any frame");
+    assert!(!layers.motion_frame_owed(), "the enter it interrupted never stopped: at rest");
+    let mut modal = sliding(false);
+    modal.motions[0].backdrop = 1;
+    modal.motions[0].backdrop_ms = 180;
+    let mut closing = modal;
+    closing.motions[0].exit = true;
+    let mut layers = SurfaceLayers::EMPTY;
+    entered(&mut layers, modal, 1_000 * MS);
+    layers.stage(closing);
+    assert_eq!(layers.activate(), TreeChange::NONE, "a modal's close: not the whole surface");
+}
+
+/// TASK-0354 P9: a close starts where the layer rests and plays to its from-state; past its end
+/// the layer keeps its transform at opacity 0 — drawn through it, never at rest — and owes no
+/// frame; a motion's end is said once, with the frames drawn while it moved.
+#[test]
+fn an_exited_layer_is_not_drawn_and_owes_no_frame() {
+    let mut layers = SurfaceLayers::EMPTY;
+    entered(&mut layers, sliding(false), 1_000 * MS);
+    layers.stage(sliding(true));
+    let _ = layers.activate();
+    let e = 3_000 * MS;
+    let note = FrameNote { period_ns: 100 * MS, damage_px: 7 };
+    assert_eq!(layers.stamp(e, note)[0], Said::Started, "the close starts with its frame");
+    let (m, seg) = (layers.tree.motions[0], layers.motion_states[0].seg);
+    assert_eq!(seg.turn, None, "the enter was over: the design curve from its rest");
+    assert_eq!(moved_at(&m, &seg, e), Moved::REST, "its first frame: where it rested");
+    assert!(layers.motion_frame_owed());
+    assert_eq!(layers.stamp(e + 100 * MS, note)[0], Said::Nothing);
+    assert_eq!(layers.stamp(e + 250 * MS, FrameNote { damage_px: 9, ..note })[0], Said::Nothing);
+    let Said::Done(d) = layers.stamp(e + 300 * MS, note)[0] else { panic!("said when it ended") };
+    let done = (d.frames, d.of, d.late_max_us, d.damage_px_max);
+    assert_eq!(done, (3, 3, 50_000, 9), "3 frames of 3 periods, one 50 ms late, 9 px at most");
+    assert!(!layers.motion_frame_owed(), "past its end: no frame owed");
+    assert_eq!(layers.stamp(e + 400 * MS, note)[0], Said::Nothing, "said once");
+    for later in [e + 300 * MS, e + 10_000 * MS] {
+        assert!(drawn_moved(&m, &seg, later), "drawn through its transform");
+        let gone = moved_at(&m, &seg, later);
+        assert_eq!(gone.opacity, 0, "never drawn at rest");
+        assert_eq!((gone.dx, gone.dy), (0, 16), "at its from-state");
+    }
+    let rest = layers.motion_states[0];
+    layers.stage(sliding(true));
+    let _ = layers.activate();
+    assert_eq!(layers.motion_states[0], rest, "declared again: still gone, nothing owed");
+    assert!(!layers.motion_frame_owed());
+    let at_rest = Segment::enter_at(1_000 * MS);
+    assert!(!drawn_moved(&m, &at_rest, e), "an enter at rest: the surface's own layer");
 }
 
 /// A motion layer's new pixels in the store show at its rest; a wash riding it is placed in

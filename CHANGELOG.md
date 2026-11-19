@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-11-19 (a shell transition costs what moves, opening and closing — TASK-0354 P8/P9, TASK-0367 P3, TASK-0351 P15)
+
+- **Damage is rectangles, not a row span.** app-host keeps its pending damage as at most four
+  rectangles (the present's bound; a fifth merges the pair whose union adds the least area) and
+  the layout diff aligns the two layouts box by box (`layout_diff/align.rs`, bounded look-ahead
+  and budget): a bar button changing at the top and a block appearing far below are two
+  rectangles. The 80 % rule that turned a big diff into a full redraw is gone. On QEMU
+  (`usb-visible--2026-11-18T23-25-19`) the shell's opens paint 1 056, 2 656 and 33 504 px
+  where they painted the whole base (800 rows, 75–88 ms). A repaint of the named rectangles
+  into the old frame is byte-equal to the full new frame over 200 seeded edits
+  (`pass_plan_diff_tests.rs`), which also found two column-pick errors (a large stroke's reach,
+  an ellipsis past a narrow box).
+- **The painter walks only the scissor's columns.** The shadow, sprite, shape and border loops
+  of the shared painter are cut to the columns `blend`/`set` let through
+  (`RowCanvas::visible`), byte-equal under a sweep of scissors and shifts (`span_identity`).
+- **The desktop's surface is made once.** The store's items keep their places while others
+  come and go (`store_alloc.rs`, a stable first fit), a re-create follows the latest plan (never
+  a transient one), never asks for less than it holds, and a clear-base surface reserves its
+  full height (a `QUOTA` answer falls back to its plan). `apphost: surface re-made` says why,
+  the plan, what was held and the time. QEMU: no store re-create of the desktop.
+- **windowd damages a scroll layer's viewport** when it comes, goes or is re-placed (the
+  launcher's grid band was a full-surface change).
+- **A transition leaves the way it came** (ADR-0097 amended, RFC-0109 `MOTION_EXIT`). A layer
+  whose node leaves stays as a ghost — its id, its store place, its regions and scroll slices —
+  and windowd plays its token back toward where it came from (`1 − e(p)`), fading out; a
+  re-open mid-close turns where it is with its velocity (a closed-form spring); the pointer is
+  free at once. app-host drops the ghost on its own timer; nothing paints for a close. QEMU
+  (`usb-visible--2026-11-19T08-52-49`): six closes, 30–32 frames each, no app raster;
+  `many-apps--2026-11-19T08-57-50` green with no refused layer.
+- **A window's damage lands where its pixels are** (TASK-0351 P18). windowd put a present's
+  rectangles at the window's shadow halo (the frame plus 75 px) while the scene drew the surface
+  at the frame's corner: every change landed up to 75 px up and left of itself — a calculator
+  digit's damage missed the digit whole and the display's planes showed it only by accident
+  (the digit appeared with the next operator, the numbers "wiggled"; Settings' bottom
+  flickered). One place now serves the scene and the damage (`surface_place.rs`, host-tested),
+  and the plane ring is pinned against a full redraw over 1000 random frames.
+- **Fading layers fade whole**: a glass's frost and a layer's drop shadow carry the layer's
+  opacity on both GPU paths (a closed panel left its frost, then its shadow, standing); glass a
+  shell overlay claims (the fullscreen launcher's thick glass) is drawn — and takes the
+  pointer — above the windows like a panel's; a band's visible window is filled in one frame
+  (the fullscreen launcher's grid came in as scanlines); a leaving layer gives way in a full
+  store (the big launcher fell back to the app's paint beside the small one's exit).
+- **Instruments**: `windowd: motion layer (… exit= tap_us=)` (from the last press routed to
+  the surface to the transition's first frame) and `windowd: motion done (… frames= of=
+  late_max_us= damage_px_max=)`; `apphost: motion exit (…)`, `apphost: exit cut (why=)`; the
+  tap trace names `base=rects(n= px=)`.
+
 ### Changed - 2026-11-18 (a display without a vertical blank keeps a frame clock — TASK-0351 P17)
 
 - **QEMU's virtio GPU completes a present in microseconds**, and acked at once every

@@ -19,8 +19,8 @@
 use crate::client_surface::{has_op, header, LayerDesc, HEADER_LEN, MAX_SURFACE_LAYERS};
 use crate::motion_layer::{self, MOTION_BYTES};
 pub use crate::motion_layer::{
-    MotionLayerDesc, MAX_MOTION_LAYERS, MAX_MOTION_MS, MOTION_FRONT, MOTION_PARENT, SCALE_MAX,
-    SCALE_MIN, SCALE_ONE,
+    MotionLayerDesc, MAX_MOTION_LAYERS, MAX_MOTION_MS, MOTION_EXIT, MOTION_FRONT, MOTION_PARENT,
+    SCALE_MAX, SCALE_MIN, SCALE_ONE,
 };
 pub use crate::surface_layers_motion::{
     decode_surface_motion, encode_surface_motion, validate_motion, MotionError, SurfaceMotion,

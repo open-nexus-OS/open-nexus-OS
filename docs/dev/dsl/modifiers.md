@@ -319,6 +319,14 @@ folding rules) and `tests/dsl_apps_conformance/tests/calculator_pixels.rs`
 The token argument is validated against the curated motion set (`snappy, smooth, emphasized,
 fade, slideUp, fadeScale, wiggle, pulse, slideDown, pushInline, menuIn`). A `.transition` runs
 on the compositor: app-host rasters the subtree once and windowd moves the layer (ADR-0097).
+It plays both ways: when the node leaves — a panel closes, a sheet is dismissed, a toast times
+out — the same layer plays the token back toward where it came from (the enter's curve mirrored,
+the token's theme duration; a scrim fades out over the theme's quick step) and is dropped at
+the end. Nothing is painted for the close, and the pointer is free at once: a press during the
+exit reaches what lies beneath. A close interrupted by the node coming back (or an open by its
+leaving) turns where it is, at the speed it had — no jump. A reduced-motion theme leaves at
+once. An enter app-host had to animate itself (`apphost: motion in app (… why=…)`) also leaves
+at once.
 `menuIn` is a menu's entrance: it grows from 0.92 out of the corner it hangs on — on each axis
 the edge of what the subtree paints that is nearer the edge of the node carrying the
 `.transition` (a menu laid out at the top leading corner of its overlay grows from that corner,

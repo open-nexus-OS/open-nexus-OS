@@ -135,11 +135,19 @@ impl LayerSnap {
         motion.and_then(|k| self.layers.tree.motions().get(k)).is_some_and(|m| m.front)
     }
 
-    /// Whether a rectangle of the surface lies inside one of its panel-level glass regions.
+    /// Whether desktop glass region `i` is drawn above the windows: a panel-level glass, or one a
+    /// motion layer claims — a shell overlay (a panel, the launcher in either size, a menu), at
+    /// whatever blur its material asks (the fullscreen launcher's thick glass was drawn below the
+    /// windows while the windowed one's panel glass was above them, board--2026-11-19T09-44-05).
+    fn above_windows(&self, i: usize, l: &LayerDesc) -> bool {
+        l.material == MATERIAL_GLASS
+            && (l.glass_level == GLASS_PANEL || region_owner(&self.layers.tree, i).is_some())
+    }
+
+    /// Whether a rectangle of the surface lies inside one of its glass regions above the windows.
     fn in_panel(&self, r: Rect) -> bool {
-        self.layers.tree.regions().iter().any(|l| {
-            l.material == MATERIAL_GLASS
-                && l.glass_level == GLASS_PANEL
+        self.layers.tree.regions().iter().enumerate().any(|(i, l)| {
+            self.above_windows(i, l)
                 && inside(r, (u32::from(l.x), u32::from(l.y), u32::from(l.w), u32::from(l.h)))
         })
     }
@@ -277,8 +285,8 @@ impl LayerSnap {
             let draw = match pass {
                 Pass::Window => glass || l.material == MATERIAL_OPAQUE,
                 // The desktop base is opaque already: only its glass regions are layers.
-                Pass::DesktopBelow => glass && l.glass_level != GLASS_PANEL,
-                Pass::DesktopAbove => glass && l.glass_level == GLASS_PANEL,
+                Pass::DesktopBelow => glass && !self.above_windows(i, l),
+                Pass::DesktopAbove => self.above_windows(i, l),
                 Pass::DesktopFront => glass,
             };
             let src = match owner.and_then(|k| tree.motions().get(k)) {

@@ -198,7 +198,8 @@ impl VirtioGpuBackend {
                 shadow_blur,
                 0,
                 shadow_offset_y,
-                RgbaColor::new(0, 0, 0, shadow_alpha.min(255) as u8),
+                // At the layer's opacity: a fading layer's shadow fades with it (TASK-0354 P9).
+                RgbaColor::new(0, 0, 0, (shadow_alpha.min(255) * opacity.min(255) / 255) as u8),
             )?;
         }
         // Sync the content from the VMO atlas into the GL atlas texture — only

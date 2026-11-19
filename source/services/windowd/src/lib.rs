@@ -121,6 +121,9 @@ mod frame_transform;
 // — pure, host-TESTED.
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod surface_regions;
+// Where a surface is on the screen: the scene's and the damage's one place (TASK-0351 P18).
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
+mod surface_place;
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod wake_clock;
 // ADR-0075 (TASK-0339): the compositor never waits on a client — the bounded per-client

@@ -43,7 +43,7 @@ impl DisplayServerRuntime {
         } else {
             self.show_window(wid);
         }
-        let rect = self.app_window_rect(idx);
+        let rect = self.app_window_damage_rect(idx);
         self.queue_dirty_rect(rect);
     }
 
@@ -59,7 +59,7 @@ impl DisplayServerRuntime {
     /// Closes slot `idx`'s window: `on_purpose` (the user, the window manager) tells the app
     /// before its channel goes (RFC-0112); a dead client's channel just goes.
     pub(super) fn close_app_window(&mut self, idx: usize, on_purpose: bool) {
-        let vacated = self.app_window_rect(idx);
+        let vacated = self.app_window_damage_rect(idx);
         self.apps[idx].starting = false;
         self.drop_solid(idx);
         self.apps[idx].win.visible = false;
@@ -123,7 +123,7 @@ impl DisplayServerRuntime {
             if i == skip_idx || !self.apps[i].win.visible {
                 continue;
             }
-            let r = self.app_window_rect(i);
+            let r = self.app_window_damage_rect(i);
             let intersects = rect.x < r.x + r.width
                 && rect.x + rect.width > r.x
                 && rect.y < r.y + r.height
@@ -148,7 +148,14 @@ impl DisplayServerRuntime {
         self.atlas_alloc.grow(atlas_rows);
     }
 
-    pub(super) fn app_window_rect(&self, idx: usize) -> DamageRect {
+    pub(super) fn app_window_damage_rect(&self, idx: usize) -> DamageRect {
         self.apps[idx].win.damage_rect(self.mode.width, self.mode.height)
+    }
+
+    /// Where window `idx`'s surface is drawn (`surface_place`): the scene's origin and a present's
+    /// damage both take it — never the halo rectangle above.
+    pub(super) fn surface_place(&self, idx: usize) -> crate::surface_place::SurfacePlace {
+        let w = &self.apps[idx].win;
+        crate::surface_place::SurfacePlace::of(w.x, w.y, w.w, w.h)
     }
 }

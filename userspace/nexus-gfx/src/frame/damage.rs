@@ -171,3 +171,71 @@ impl Default for History {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// TASK-0351 P18: a ring of planes that brings the plane it draws up to date with everything
+    /// it lacks (`History::since`) and the frame's own damage shows, frame after frame, what a
+    /// full redraw shows — so planes that differ mean damage named in the wrong place, never the
+    /// ring. Three planes, a 32x24 grid, 1000 frames of random damage (none, a rectangle, the
+    /// whole screen), a plane gone stale now and then.
+    #[test]
+    fn a_ring_of_planes_shows_what_a_full_redraw_would() {
+        const W: usize = 32;
+        const H: usize = 24;
+        let mut seed = 0x9e37_79b9u32;
+        let mut next = |below: u32| {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            seed % below
+        };
+        let mut truth = [[0u32; W]; H];
+        let mut planes = [[[0u32; W]; H]; 3];
+        let mut drawn = [0u64; 3];
+        let mut history = History::new();
+        let cover = |a: Area, x: usize, y: usize| match a {
+            Area::None => false,
+            Area::Full => true,
+            Area::Rect { x0, y0, x1, y1 } => {
+                (x as u32) >= x0 && (x as u32) < x1 && (y as u32) >= y0 && (y as u32) < y1
+            }
+        };
+        for frame in 1..=1000u32 {
+            let damage = match next(10) {
+                0 => Area::None,
+                1 => Area::Full,
+                _ => {
+                    let (x0, y0) = (next(W as u32), next(H as u32));
+                    let (x1, y1) = (x0 + 1 + next(W as u32 - x0), y0 + 1 + next(H as u32 - y0));
+                    Area::Rect { x0, y0, x1, y1 }
+                }
+            };
+            for (y, row) in truth.iter_mut().enumerate() {
+                for (x, cell) in row.iter_mut().enumerate() {
+                    if cover(damage, x, y) {
+                        *cell = frame;
+                    }
+                }
+            }
+            let k = (frame % 3) as usize;
+            let stale = next(97) == 0;
+            let lacks = if stale { Area::Full } else { history.since(drawn[k]) };
+            let area = lacks.union(damage);
+            for y in 0..H {
+                for x in 0..W {
+                    if cover(area, x, y) {
+                        planes[k][y][x] = truth[y][x];
+                    }
+                }
+            }
+            drawn[k] = history.record(damage);
+            assert_eq!(
+                planes[k], truth,
+                "frame {frame}: the plane shown differs from a full redraw"
+            );
+        }
+    }
+}

@@ -3,7 +3,7 @@ name: critical-writer
 description: Fable writes one delicate, bounded change — the scheduler, a lock, a trap path, a capability check, an ABI boundary — from a brief that names the change, its invariant, the files and the gates. One change, the named files, the named gates; reports to the result file.
 tools: Read, Grep, Glob, Edit, Write, Bash
 model: fable
-effort: high
+effort: medium
 skills:
   - code-quality
 ---
@@ -19,8 +19,16 @@ You see a brief, not the conversation that led to it. CLAUDE.md's hard rules app
 ## Invariant   what must hold before and after: lock order, ownership, who may call, the bound
 ## Files       the files you may edit; everything else is read-only
 ## Gates       the commands to run and what green means
-Result file: <absolute path>
+Result file: <absolute path under build/agents/ — survives a restart, unlike the scratchpad>
 ```
+
+## Token discipline
+
+Tokens are the sprint's scarcest resource. Read what the task needs, not what is near it: grep
+for the symbol, then read the lines around it — a whole file only when the change lives in it.
+Never read a log whole (grep it). Do not re-read a file you have read unless it changed. Write
+the result file as you go, so a cut run leaves its findings. Stop as soon as the brief's
+question is answered or its gates are green; no polishing past them.
 
 ## How you work
 

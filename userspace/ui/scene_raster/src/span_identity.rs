@@ -346,3 +346,140 @@ fn an_arc_asks_only_the_columns_it_crosses_and_paints_the_same() {
     }
     assert!(rows > 60_000, "the cases ran ({rows} rows)");
 }
+
+/// What a painter writes under scissor `clip` and shift `shift`, by its old contract: the full
+/// walk without a scissor, kept only where `blend`/`set` let a pixel through — every other
+/// column stays what the row held.
+fn scissored(
+    base: &[u8],
+    row: i32,
+    (shift, clip): (i32, Option<(i32, i32)>),
+    paint: &dyn Fn(&mut RowCanvas<'_>),
+) -> Vec<u8> {
+    let mut full = base.to_vec();
+    paint(&mut canvas(&mut full, row, (shift, None)));
+    let mut out = base.to_vec();
+    let (c0, c1) = clip.unwrap_or((i32::MIN, i32::MAX));
+    for s in c0.max(0)..c1.min(W) {
+        let i = s as usize * 4;
+        out[i..i + 4].copy_from_slice(&full[i..i + 4]);
+    }
+    out
+}
+
+/// TASK-0367 P3: every painter walks only the columns the scissor lets through — under a narrow
+/// window, one at an edge, an empty one, one past the row, and with a shift, each writes exactly
+/// what the full walk wrote there and nothing else, byte for byte (fill, glass reset, ring,
+/// shine, drop shadow, ellipse, triangle, contour and sprite).
+#[test]
+fn every_painter_cut_to_the_scissor_paints_what_the_full_walk_painted() {
+    use nexus_layout_types::{BoxShadow, CornerRadius, FxPx, PathPoint, PathShape, ShapeKind};
+    let clips = [
+        None,
+        Some((0, W)),
+        Some((3, 290)),
+        Some((40, 41)),
+        Some((100, 160)),
+        Some((200, 120)),
+        Some((-20, 30)),
+        Some((300, 900)),
+    ];
+    let col = colours()[2];
+    let shadow = BoxShadow {
+        offset_x: FxPx::new(2),
+        offset_y: FxPx::new(4),
+        blur_radius: FxPx::new(18),
+        spread: FxPx::new(1),
+        color: col,
+    };
+    let sprite: &'static [u8] =
+        (0..16 * 9 * 4).map(|i| ((i * 53 + 7) % 256) as u8).collect::<Vec<u8>>().leak();
+    let star = PathShape {
+        points: [
+            (500, 0),
+            (620, 380),
+            (1000, 380),
+            (690, 610),
+            (810, 1000),
+            (500, 760),
+            (190, 1000),
+        ]
+        .iter()
+        .map(|&(x_milli, y_milli)| PathPoint { x_milli, y_milli })
+        .collect(),
+        closed: true,
+    };
+    let mut rows = 0u32;
+    for &(x, y, w, h, radius) in &[(6, 3, 333, 40, 16), (-9, 0, 120, 64, 60), (150, 5, 40, 40, 20)]
+    {
+        let boxed = nexus_layout::LayoutBox {
+            visual: nexus_layout_types::VisualStyle {
+                corner_radius: CornerRadius::uniform(FxPx::new(radius)),
+                ..nexus_layout_types::VisualStyle::default()
+            },
+            ..nexus_layout::LayoutBox::default()
+        };
+        let mut raster = super::tests::boxed(x, y, w, h, 0, Rgba8::new(0, 0, 0, 1));
+        raster.visual.shape = ShapeKind::Raster { w: 16, h: 9, rgba: sprite };
+        let (xf, yf, wf, hf) = (x as f32, y as f32, w as f32, h as f32);
+        let painters: [(&str, &dyn Fn(&mut RowCanvas<'_>)); 9] = [
+            ("fill", &|c| c.fill_round_rect_row(x, y, w, h, radius, col)),
+            ("replace", &|c| c.fill_round_rect_row_replace(x, y, w, h, radius, col)),
+            ("ring", &|c| c.stroke_round_rect_row(x, y, w, h, radius, 2, col)),
+            ("shine", &|c| {
+                let none = nexus_layout_types::EdgeBorder::none();
+                super::borders::paint_inset_highlight_row(c, (x, y, w, h), radius, &none, col)
+            }),
+            ("shadow", &|c| super::paint_shadow_row(c, &shadow, &boxed, x, y, w, h)),
+            ("ellipse", &|c| c.fill_ellipse_row((xf, yf, wf, hf), col)),
+            ("triangle", &|c| {
+                let pts = [(xf + wf / 2.0, yf), (xf + wf, yf + hf), (xf, yf + hf)];
+                c.fill_polygon_row(3, |i| pts[i], col)
+            }),
+            ("contour", &|c| c.fill_contour_row(&star, xf, yf, wf, hf, col)),
+            ("sprite", &|c| super::paint_box_row(c, &raster)),
+        ];
+        for (name, paint) in painters {
+            for clip in clips {
+                for shift in [0, 7, -5] {
+                    for row in y - 24..y + h + 24 {
+                        let want = scissored(&base_row(), row, (shift, clip), paint);
+                        let mut got = base_row();
+                        paint(&mut canvas(&mut got, row, (shift, clip)));
+                        assert_eq!(
+                            got, want,
+                            "{name} {x},{y} {w}x{h} row={row} {clip:?} shift={shift}"
+                        );
+                        rows += 1;
+                    }
+                }
+            }
+        }
+    }
+    assert!(rows > 20_000, "the sweep ran ({rows} rows)");
+}
+
+/// The window a painter walks is never wider than what the scissor, the row and the buffer let
+/// through — and it is everything they let through.
+#[test]
+fn visible_is_never_wider_than_the_scissor() {
+    let mut buf = base_row();
+    for clip in
+        [None, Some((3, 290)), Some((40, 41)), Some((200, 120)), Some((-20, 30)), Some((300, 900))]
+    {
+        for shift in [0, 7, -5] {
+            let c = canvas(&mut buf, 0, (shift, clip));
+            let (a, b) = c.visible(-1000, 1000);
+            let (c0, c1) = clip.unwrap_or((i32::MIN, i32::MAX));
+            let lands = |m: i32| {
+                let s = m - shift;
+                s >= c0.max(0) && s < c1.min(W)
+            };
+            for m in -1000..1000 {
+                assert_eq!((a..b).contains(&m), lands(m), "x={m} {clip:?} shift={shift}");
+            }
+            let (a, b) = c.visible(50, 60);
+            assert!(a >= 50 && b <= 60.max(a), "inside the asked span");
+        }
+    }
+}

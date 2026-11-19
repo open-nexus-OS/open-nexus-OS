@@ -34,6 +34,11 @@ pub const MOTION_PARENT: u8 = 0x80;
 /// the desktop above the windows, the shell's bar and its panels; in a window last in its body.
 /// The flags' other bits are reserved (zero).
 pub const MOTION_FRONT: u8 = 0x01;
+/// The flag of a layer that is LEAVING (TASK-0354 P9): the same id declared again with it plays
+/// the token toward where the layer came from; past the end it is drawn nowhere. The id is the
+/// layer's life: a re-open clears the flag on the same id and the motion turns where it is.
+pub const MOTION_EXIT: u8 = 0x02;
+const _: () = assert!(MOTION_FRONT & MOTION_EXIT == 0);
 /// A scale of one, in the 1/10000 steps a motion's scale is stated in.
 pub const SCALE_ONE: u32 = 10_000;
 /// The farthest a motion may start from its size: half of it, or twice it.
@@ -68,6 +73,8 @@ pub struct MotionLayerDesc {
     pub scrolls: u8,
     /// Drawn in front (`MOTION_FRONT`).
     pub front: bool,
+    /// Leaving (`MOTION_EXIT`): the motion plays toward where the layer came from.
+    pub exit: bool,
     /// Its backdrop: patch `backdrop - 1` spread over the whole surface below the layer's pixels
     /// at `backdrop_opacity`, fading in over `backdrop_ms` on its own smooth curve (a scrim
     /// arrives in the theme's quick step while the sheet springs in its slow one), never moving
@@ -98,6 +105,7 @@ impl MotionLayerDesc {
         regions: 0,
         scrolls: 0,
         front: false,
+        exit: false,
         backdrop: 0,
         backdrop_opacity: 0,
         backdrop_ms: 0,
@@ -170,7 +178,7 @@ pub(crate) fn put(out: &mut [u8], at: usize, m: &MotionLayerDesc) {
     out[at + 22] = m.token;
     out[at + 23] = m.from_opacity;
     out[at + 24] = m.scrolls;
-    out[at + 25] = if m.front { MOTION_FRONT } else { 0 };
+    out[at + 25] = if m.front { MOTION_FRONT } else { 0 } | if m.exit { MOTION_EXIT } else { 0 };
     out[at + 26] = m.backdrop;
     out[at + 27] = m.backdrop_opacity;
     w16(out, 28, m.backdrop_ms);
@@ -181,7 +189,7 @@ pub(crate) fn put(out: &mut [u8], at: usize, m: &MotionLayerDesc) {
 pub(crate) fn get(f: &[u8], at: usize) -> Option<MotionLayerDesc> {
     let r16 = |o: usize| u16::from_le_bytes([f[at + o], f[at + o + 1]]);
     let flags = f[at + 25];
-    if flags & !MOTION_FRONT != 0 {
+    if flags & !(MOTION_FRONT | MOTION_EXIT) != 0 {
         return None;
     }
     Some(MotionLayerDesc {
@@ -200,6 +208,7 @@ pub(crate) fn get(f: &[u8], at: usize) -> Option<MotionLayerDesc> {
         from_opacity: f[at + 23],
         scrolls: f[at + 24],
         front: flags & MOTION_FRONT != 0,
+        exit: flags & MOTION_EXIT != 0,
         backdrop: f[at + 26],
         backdrop_opacity: f[at + 27],
         backdrop_ms: r16(28),

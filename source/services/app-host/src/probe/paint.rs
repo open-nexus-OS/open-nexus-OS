@@ -100,6 +100,7 @@ impl super::DslApp {
         y: i32,
         hit: Option<usize>,
         damage: Option<nexus_dsl_runtime::Damage>,
+        diff: Option<crate::layout_diff::Changed>,
     ) -> bool {
         static TAPS: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
         if self.taps_are_keystrokes
@@ -111,17 +112,15 @@ impl super::DslApp {
         for t in self.texts.iter().take(2) {
             let _ = core::fmt::write(&mut txt, format_args!("'{}' ", t.content));
         }
-        // What the tap's relayout named of the base (TASK-0354 P8): its rows, or every row with
-        // the comparison that gave no bound (old boxes, new boxes, common prefix and suffix).
-        let base = match (damage, self.tap_render_span) {
-            (Some(nexus_dsl_runtime::Damage::Layout), None) => {
-                let [o, n, prefix, suffix] = crate::layout_diff::last_window();
-                alloc::format!("whole({o}/{n}/{prefix}/{suffix})")
+        // What the tap's relayout named of the base (TASK-0354 P8): its rectangles (how many,
+        // their pixels), or everything — and the comparison it came from (old boxes, new boxes,
+        // common prefix and suffix).
+        let base = match diff {
+            Some(c) => {
+                let [o, n, prefix, suffix] = c.window;
+                alloc::format!("{}({o}/{n}/{prefix}/{suffix})", c.base)
             }
-            (Some(nexus_dsl_runtime::Damage::Layout), Some((y0, y1))) => {
-                alloc::format!("{y0}..{y1}")
-            }
-            _ => alloc::string::String::from("-"),
+            None => alloc::string::String::from("-"),
         };
         raw_marker(&alloc::format!(
             "apphost: tap ({x},{y}) hit={hit:?} dmg={damage:?} base={base} txt={txt}"
@@ -163,7 +162,11 @@ impl super::DslApp {
         // Every dispatch path presents through here: mirror the modal depth to
         // windowd and keep the transient timer honest BEFORE the pixels (TASK-0074).
         self.overlay_sync();
-        self.render_rows(mem, (0, self.h as i32), None)
+        let t0 = nsec_now();
+        let ok = self.render_rows(mem, (0, self.h as i32), None);
+        // A motion episode's raster cost (`apphost: hops motion paint_us= rows=`).
+        self.motion_hops.painted(nsec_now().saturating_sub(t0) / 1000, self.h);
+        ok
     }
 
     /// Renders base rows `[y0, y1)` straight into the slot being drawn (RFC-0114) — the
@@ -183,7 +186,6 @@ impl super::DslApp {
         if !self.split_done && y0 == 0 && y1 == self.h as i32 && cols.is_none() {
             return self.render_rows_split(mem); // once: where a row's time goes (TASK-0367 P0)
         }
-        let t0 = nsec_now();
         let mut views = core::mem::take(&mut self.view_scratch);
         self.base_views(&mut views);
         self.prepare_picks_with(Pass::Base, (y0, y1), cols, &views);
@@ -203,8 +205,6 @@ impl super::DslApp {
             }
         }
         self.view_scratch = views;
-        // A motion episode's raster cost (`apphost: hops motion paint_us= rows=`).
-        self.motion_hops.painted(nsec_now().saturating_sub(t0) / 1000, (y1 - y0).max(0) as u32);
         ok
     }
 
@@ -348,26 +348,33 @@ impl super::DslApp {
             if by >= row1 || by + bh <= row0 {
                 continue;
             }
+            let ti = self.texts.binary_search_by_key(&b.node_id, |t| t.node).ok();
             if let Some(cols) = cols {
                 // TASK-0367 P3: the pass paints only these columns — picked by what may write
-                // there (`pass_plan::meets_cols`, host-tested with the painter).
+                // there, the box or its run (`pass_plan::meets_cols`, `run_meets_cols`:
+                // host-tested with the painter).
                 let dx = b.scroll_root.and_then(|r| views.iter().find(|v| v.root == r));
+                let dx = dx.map_or(0, |v| v.dx);
                 let animated = anims.iter().any(|a| a.node_id == b.node_id && !a.is_identity());
-                if !crate::pass_plan::meets_cols(b, dx.map_or(0, |v| v.dx), animated, cols) {
+                let run = ti.map(|ti| &self.texts[ti]);
+                if !crate::pass_plan::meets_cols(b, dx, animated, cols)
+                    && !run.is_some_and(|t| crate::pass_plan::run_meets_cols(b, t, dx, cols))
+                {
                     continue;
                 }
             }
             vis_pick.push(bi as u32);
             vis_anim
                 .push(anims.iter().position(|a| a.node_id == b.node_id).map_or(-1, |i| i as i16));
-            if let Ok(ti) = self.texts.binary_search_by_key(&b.node_id, |t| t.node) {
+            if let Some(ti) = ti {
                 vis_text.push((bi as u32, ti as u32));
             }
         }
         // Glass occlusion for the GLYPH pass: text runs paint AFTER all box fills, so a run
         // belonging to a node UNDER a later glass ROOT (an overlay panel) would print over the
         // panel's reset fill. Drop runs whose box overlaps a later glass root — nested glass
-        // blends src-over, so a pane's caption keeps painting under a `subtle` row.
+        // blends src-over, so a pane's caption keeps painting under a `subtle` row. The rule is
+        // `layout_diff::hides`: the diff names the runs a root that came or went hides by it.
         // Only a glass root of the same pass occludes (a covered layer's content and the modal
         // over it are both the base's).
         let in_pass = |b: &nexus_layout::LayoutBox| match pass {
@@ -377,16 +384,7 @@ impl super::DslApp {
         };
         vis_text.retain(|&(bi, _)| {
             let t = &self.layout.boxes[bi as usize];
-            !self.layout.boxes.iter().any(|g| {
-                g.node_id > t.node_id
-                    && g.visual.material.is_some_and(|m| m.blurs() || m.opaque())
-                    && !g.glass_nested
-                    && in_pass(g)
-                    && t.rect.x.0 < g.rect.x.0 + g.rect.width.0
-                    && t.rect.x.0 + t.rect.width.0 > g.rect.x.0
-                    && t.rect.y.0 < g.rect.y.0 + g.rect.height.0
-                    && t.rect.y.0 + t.rect.height.0 > g.rect.y.0
-            })
+            !self.layout.boxes.iter().any(|g| crate::layout_diff::hides(g, t) && in_pass(g))
         });
         self.vis_pick = vis_pick;
         self.vis_anim = vis_anim;

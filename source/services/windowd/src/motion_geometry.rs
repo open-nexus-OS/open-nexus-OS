@@ -3,17 +3,25 @@
 
 //! CONTEXT: a declared layer windowd moves (RFC-0109 §motion layers, TASK-0354 P2) — the pure
 //! part: where a motion layer is drawn at the time a frame is shown (the token's curve from the
-//! offset and opacity it starts at to its rest), when its motion started (the frame that first
-//! drew its id; the same id declared again continues), which regions, scroll layers and washes
-//! move with it, and the transform ids its layers and its backdrop carry while it moves (layers
-//! may overlap: the last drawn holds a point). The app painted the layer once and is out of the
-//! frame loop; windowd evaluates the motion for each frame's shown time (RFC-0110) and gpud draws
-//! the layers moved — keeping a moving glass's last blur (TASK-0336 P3).
+//! offset and opacity it starts at to its rest, and back on a close: TASK-0354 P9 — the segments,
+//! flips and turns live in `turn`), when its motion started (the frame that first drew its id;
+//! the same id declared again continues), which regions, scroll layers and washes move with it,
+//! and the transform ids its layers and its backdrop carry while it moves (layers may overlap:
+//! the last drawn holds a point). A layer that left stands at its from-state, not drawn — never
+//! at rest. The app painted the layer once and is out of the frame loop; windowd evaluates the
+//! motion for each frame's shown time (RFC-0110) and gpud draws the layers moved — keeping a
+//! moving glass's last blur (TASK-0336 P3).
 //! Host-tested here; the OS-only runtime (`compositor::runtime::surface_motion`) applies it.
 //! OWNERS: @ui
 //! STATUS: Functional
 //! API_STABILITY: Internal
-//! TEST_COVERAGE: `mod tests` below
+//! TEST_COVERAGE: `mod tests` below, `exit_tests`
+
+#[cfg(test)]
+mod exit_tests;
+mod turn;
+
+pub(crate) use turn::{carry, progress, stamp, FrameNote, MotionState, Said, Segment};
 
 use crate::frame_transform::SCALE_ONE;
 use animation::MotionToken;
@@ -65,79 +73,86 @@ fn length_ns(m: &MotionLayerDesc) -> u64 {
     u64::from(m.duration_ms.max(backdrop)) * 1_000_000
 }
 
-/// Where motion layer `m` is drawn at `at` (ns), its motion started at `start` (`0`: not drawn
-/// yet — its first frame shows where it starts): the token's curve from the offset, opacity and
-/// scale it starts at to its rest (a spring passes its rest and comes back). A motion past its
-/// length, of no length, or naming an unknown token rests.
-pub(crate) fn moved_at(m: &MotionLayerDesc, start: u64, at: u64) -> Moved {
-    let Some(token) = MotionToken::from_id(m.token) else { return Moved::REST };
-    let len = u64::from(m.duration_ms) * 1_000_000;
-    if len == 0 {
-        return Moved::REST;
+/// Where motion layer `m` is drawn at `at` (ns) in segment `seg` (`seg.start == 0`: not drawn
+/// yet — its first frame shows where it starts): built from the progress `q` (`turn::progress`)
+/// between the offset, opacity and scale it starts at and its rest (a spring passes its rest and
+/// comes back). An enter past its length, of no length, or naming an unknown token rests; an exit
+/// there stands at its from-state, not drawn.
+pub(crate) fn moved_at(m: &MotionLayerDesc, seg: &Segment, at: u64) -> Moved {
+    let Some(token) = MotionToken::from_id(m.token) else { return at_end(m, seg.exit) };
+    match progress(token, m, seg, at) {
+        Some(q) => moved_by(m, q),
+        None => at_end(m, seg.exit),
     }
-    let t = if start == 0 { 0.0 } else { at.saturating_sub(start) as f32 / len as f32 };
-    if t >= 1.0 {
-        return Moved::REST;
+}
+
+/// Where a segment that is over stands: an enter at rest, an exit at its from-state at opacity 0
+/// (it keeps its transform; it is never drawn at rest).
+fn at_end(m: &MotionLayerDesc, exit: bool) -> Moved {
+    if exit {
+        Moved { opacity: 0, ..moved_by(m, 0.0) }
+    } else {
+        Moved::REST
     }
-    let e = token.easing().ease(t);
-    let left = 1.0 - e;
+}
+
+/// Motion layer `m` at progress `q` (0: where it starts, 1: its rest).
+fn moved_by(m: &MotionLayerDesc, q: f32) -> Moved {
+    let left = 1.0 - q;
     let from_op = f32::from(m.from_opacity);
     let from_scale = m.start_scale() as f32;
     let one = SCALE_ONE as f32;
     Moved {
         dx: (f32::from(m.from_dx) * left) as i32,
         dy: (f32::from(m.from_dy) * left) as i32,
-        opacity: (from_op + (255.0 - from_op) * e).clamp(0.0, 255.0) as u32,
-        scale: (from_scale + (one - from_scale) * e).clamp(100.0, 40_000.0) as u32,
+        opacity: (from_op + (255.0 - from_op) * q).clamp(0.0, 255.0) as u32,
+        scale: (from_scale + (one - from_scale) * q).clamp(100.0, 40_000.0) as u32,
     }
 }
 
-/// The opacity multiplier of motion layer `m`'s backdrop at `at` (its motion started at `start`):
-/// the scrim fades in over its own `backdrop_ms` like a fade token — it neither moves nor springs,
-/// and arrives before the sheet settles. Of no length: drawn at once.
-pub(crate) fn backdrop_at(m: &MotionLayerDesc, start: u64, at: u64) -> u32 {
+/// The opacity multiplier of motion layer `m`'s backdrop at `at` in segment `seg`: the scrim
+/// fades from where the segment found it (`seg.b0`) — on to 255 for an enter, down to 0 for an
+/// exit — over its own `backdrop_ms` like a fade token; it neither moves nor springs, and arrives
+/// before the sheet settles. Of no length: at once.
+pub(crate) fn backdrop_at(m: &MotionLayerDesc, seg: &Segment, at: u64) -> u32 {
+    let to = if seg.exit { 0.0 } else { 255.0 };
     let len = u64::from(m.backdrop_ms) * 1_000_000;
     if len == 0 || MotionToken::from_id(m.token).is_none() {
-        return 255;
+        return to as u32;
     }
-    let t = if start == 0 { 0.0 } else { at.saturating_sub(start) as f32 / len as f32 };
-    (255.0 * MotionToken::Fade.easing().ease(t)).clamp(0.0, 255.0) as u32
+    let t = if seg.start == 0 { 0.0 } else { at.saturating_sub(seg.start) as f32 / len as f32 };
+    let b0 = seg.b0 as f32;
+    (b0 + (to - b0) * MotionToken::Fade.easing().ease(t)).clamp(0.0, 255.0) as u32
 }
 
-/// Whether motion layer `m`, started at `start`, still moves at `at` — a frame is owed for it:
-/// not drawn yet, or short of its length.
-pub(crate) fn in_flight(m: &MotionLayerDesc, start: u64, at: u64) -> bool {
+/// Whether motion layer `m` in segment `seg` still moves at `at` — a frame is owed for it: not
+/// drawn yet, or short of its length.
+pub(crate) fn in_flight(m: &MotionLayerDesc, seg: &Segment, at: u64) -> bool {
     let len = length_ns(m);
-    len > 0 && MotionToken::from_id(m.token).is_some() && (start == 0 || at < start + len)
+    len > 0 && MotionToken::from_id(m.token).is_some() && (seg.start == 0 || at < seg.start + len)
+}
+
+/// Whether motion layer `m` is drawn through its motion's transform at `at`: while it moves, and
+/// — leaving — ever after: an exit past its end keeps its transform at opacity 0, so a layer that
+/// left is never drawn at rest. At rest otherwise it is the surface's own layer again.
+pub(crate) fn drawn_moved(m: &MotionLayerDesc, seg: &Segment, at: u64) -> bool {
+    seg.exit || in_flight(m, seg, at)
 }
 
 /// Whether a surface whose layers the last frame drew for shown time `drawn_at` owes another
-/// frame for its motion layers: one of them was not drawn yet, or was still moving in that frame
-/// — a motion ends with a frame drawn at rest, never with whichever frame the clock last allowed
-/// (a layer left a hair short of rest stays faded and keeps the blur of its first frame).
+/// frame for its motion layers: one of them was not drawn yet, was still moving in that frame,
+/// or was flipped since — a motion ends with a frame drawn at its end, never with whichever frame
+/// the clock last allowed (a layer left a hair short of rest stays faded and keeps the blur of
+/// its first frame). A layer that left owes nothing.
 pub(crate) fn frame_owed(
     tree: &SurfaceTree,
-    starts: &[u64; MAX_MOTION_LAYERS],
+    states: &[MotionState; MAX_MOTION_LAYERS],
     drawn_at: u64,
 ) -> bool {
-    tree.motions().iter().enumerate().any(|(k, m)| in_flight(m, starts[k], drawn_at))
-}
-
-/// The start times of `next`'s motion layers: a layer whose id `now` declared keeps its start —
-/// the same motion continues across structures — and a new id starts with the frame that first
-/// draws it (`0`).
-pub(crate) fn carry_starts(
-    now: &SurfaceTree,
-    starts: &[u64; MAX_MOTION_LAYERS],
-    next: &SurfaceTree,
-) -> [u64; MAX_MOTION_LAYERS] {
-    let mut out = [0; MAX_MOTION_LAYERS];
-    for (slot, m) in out.iter_mut().zip(next.motions()) {
-        if let Some(k) = now.motions().iter().position(|o| o.id == m.id) {
-            *slot = starts[k];
-        }
-    }
-    out
+    tree.motions()
+        .iter()
+        .zip(states)
+        .any(|(m, s)| s.flip_pending() || in_flight(m, &s.seg, drawn_at))
 }
 
 /// The motion layer region `k` moves with, if one claims it.
@@ -152,11 +167,12 @@ pub(crate) fn scroll_owner(tree: &SurfaceTree, k: usize) -> Option<usize> {
 
 /// The topmost motion layer whose rest holds the rectangle `r` (surface coordinates) — what a
 /// thing the app does not claim explicitly (the caret) moves with. Layers are drawn in their
-/// order: of two overlapping, the later one holds what lies in both.
+/// order: of two overlapping, the later one holds what lies in both. A leaving layer holds no
+/// node, so nothing: a caret under it stays where it is drawn.
 pub(crate) fn holder(tree: &SurfaceTree, r: (u32, u32, u32, u32)) -> Option<usize> {
     tree.motions().iter().rposition(|m| {
         let (x, y, w, h) = m.rest();
-        r.0 >= x && r.1 >= y && r.0 + r.2 <= x + w && r.1 + r.3 <= y + h
+        !m.exit && r.0 >= x && r.1 >= y && r.0 + r.2 <= x + w && r.1 + r.3 <= y + h
     })
 }
 
@@ -192,14 +208,15 @@ mod tests {
     fn a_motion_follows_its_token_to_rest_at_the_shown_time() {
         let m = sheet();
         let start_state = Moved { dx: 0, dy: 16, opacity: 0, scale: SCALE_ONE };
-        assert_eq!(moved_at(&m, 0, 5 * MS), start_state, "not drawn yet");
+        assert_eq!(moved_at(&m, &Segment::enter_at(0), 5 * MS), start_state, "not drawn yet");
         let start = 1_000 * MS;
-        assert_eq!(moved_at(&m, start, start), start_state);
+        let seg = Segment::enter_at(start);
+        assert_eq!(moved_at(&m, &seg, start), start_state);
         // A tenth of the length: the entrance curve is at 0.4944 — 8 of 16 px left, half drawn.
         let tenth = Moved { dx: 0, dy: 8, opacity: 126, scale: SCALE_ONE };
-        assert_eq!(moved_at(&m, start, start + 40 * MS), tenth);
-        assert_eq!(moved_at(&m, start, start + 400 * MS), Moved::REST);
-        assert_eq!(moved_at(&m, start, start + 9_000 * MS), Moved::REST);
+        assert_eq!(moved_at(&m, &seg, start + 40 * MS), tenth);
+        assert_eq!(moved_at(&m, &seg, start + 400 * MS), Moved::REST);
+        assert_eq!(moved_at(&m, &seg, start + 9_000 * MS), Moved::REST);
         // The app's own track for the same token and time: the same offset.
         let mut track = animation::KeyframeTrack::new(
             alloc::vec![(0.0, 16.0), (1.0, 0.0)],
@@ -221,9 +238,10 @@ mod tests {
             ..sheet()
         };
         let start = 1_000 * MS;
-        assert_eq!(moved_at(&m, start, start).scale, 9_400);
-        assert_eq!(moved_at(&m, start, start + 500 * MS), Moved::REST);
-        let peak = moved_at(&m, start, start + 250 * MS);
+        let seg = Segment::enter_at(start);
+        assert_eq!(moved_at(&m, &seg, start).scale, 9_400);
+        assert_eq!(moved_at(&m, &seg, start + 500 * MS), Moved::REST);
+        let peak = moved_at(&m, &seg, start + 250 * MS);
         assert!(peak.scale > SCALE_ONE, "the spring passes its size: {}", peak.scale);
         assert!(peak.opacity == 255, "drawn fully at the spring's peak");
     }
@@ -241,16 +259,14 @@ mod tests {
             ..sheet()
         };
         let start = 1_000 * MS;
-        assert_eq!(backdrop_at(&m, start, start), 0, "its first frame: transparent");
-        assert_eq!(backdrop_at(&m, start, start + 140 * MS), 197, "half its length: 0.7756");
-        assert_eq!(backdrop_at(&m, start, start + 280 * MS), 255);
-        assert!(
-            in_flight(&m, start, start + 250 * MS),
-            "the layer rests, its backdrop still fades"
-        );
-        assert!(!in_flight(&m, start, start + 280 * MS));
+        let seg = Segment::enter_at(start);
+        assert_eq!(backdrop_at(&m, &seg, start), 0, "its first frame: transparent");
+        assert_eq!(backdrop_at(&m, &seg, start + 140 * MS), 197, "half its length: 0.7756");
+        assert_eq!(backdrop_at(&m, &seg, start + 280 * MS), 255);
+        assert!(in_flight(&m, &seg, start + 250 * MS), "the layer rests, its backdrop still fades");
+        assert!(!in_flight(&m, &seg, start + 280 * MS));
         let none = MotionLayerDesc { backdrop_ms: 0, ..m };
-        assert_eq!(backdrop_at(&none, start, start), 255, "no length: drawn at once");
+        assert_eq!(backdrop_at(&none, &seg, start), 255, "no length: drawn at once");
     }
 
     /// A motion is owed frames until it reaches its length, never after; one of no length (the
@@ -258,13 +274,14 @@ mod tests {
     #[test]
     fn a_motion_owes_frames_until_its_length() {
         let m = sheet();
-        assert!(in_flight(&m, 0, 0), "not drawn yet: its first frame is owed");
+        let fresh = Segment::enter_at(0);
+        assert!(in_flight(&m, &fresh, 0), "not drawn yet: its first frame is owed");
         let start = 50 * MS;
-        assert!(in_flight(&m, start, start + 399 * MS));
-        assert!(!in_flight(&m, start, start + 400 * MS));
+        assert!(in_flight(&m, &Segment::enter_at(start), start + 399 * MS));
+        assert!(!in_flight(&m, &Segment::enter_at(start), start + 400 * MS));
         let still = MotionLayerDesc { duration_ms: 0, ..m };
-        assert!(!in_flight(&still, 0, 0));
-        assert_eq!(moved_at(&still, 0, 0), Moved::REST);
+        assert!(!in_flight(&still, &fresh, 0));
+        assert_eq!(moved_at(&still, &fresh, 0), Moved::REST);
     }
 
     /// A motion owes frames until one is drawn at rest: a frame a hair short of its end owes the
@@ -275,11 +292,13 @@ mod tests {
         tree.motions[0] = sheet();
         tree.motion_count = 1;
         let start = 1_000 * MS;
-        let starts = [start, 0, 0, 0];
-        assert!(frame_owed(&tree, &[0; MAX_MOTION_LAYERS], 0), "not drawn yet");
-        assert!(frame_owed(&tree, &starts, start + 399 * MS), "the last frame was short of rest");
-        assert!(!frame_owed(&tree, &starts, start + 400 * MS), "drawn at rest: nothing owed");
-        assert_eq!(moved_at(&tree.motions[0], start, start + 399 * MS).opacity, 254);
+        let mut states = [MotionState::EMPTY; MAX_MOTION_LAYERS];
+        assert!(frame_owed(&tree, &states, 0), "not drawn yet");
+        states[0] = MotionState::started(start);
+        assert!(frame_owed(&tree, &states, start + 399 * MS), "the last frame was short of rest");
+        assert!(!frame_owed(&tree, &states, start + 400 * MS), "drawn at rest: nothing owed");
+        let seg = Segment::enter_at(start);
+        assert_eq!(moved_at(&tree.motions[0], &seg, start + 399 * MS).opacity, 254);
     }
 
     #[test]
@@ -290,24 +309,30 @@ mod tests {
         assert!(tokens_known(&tree));
         tree.motions[0].token = MotionToken::ALL.len() as u8;
         assert!(!tokens_known(&tree), "a token past the curated set");
-        assert_eq!(moved_at(&tree.motions[0], 0, 0), Moved::REST, "never drawn moved");
-        assert!(!in_flight(&tree.motions[0], 0, 0));
+        let fresh = Segment::enter_at(0);
+        assert_eq!(moved_at(&tree.motions[0], &fresh, 0), Moved::REST, "never drawn moved");
+        assert!(!in_flight(&tree.motions[0], &fresh, 0));
     }
 
-    /// The same motion declared again continues (its start carried by id); a new id starts anew,
-    /// wherever in the list either stands.
+    /// The same motion declared again continues (its state carried by id); a new id starts
+    /// anew, wherever in the list either stands.
     #[test]
     fn a_motion_keeps_its_start_across_structures_by_id() {
         let mut now = SurfaceTree::EMPTY;
         now.motions[0] = sheet();
         now.motions[1] = MotionLayerDesc { id: 9, x: 300, ..sheet() };
         now.motion_count = 2;
-        let starts = [100, 200, 0, 0];
+        let mut states = [MotionState::EMPTY; MAX_MOTION_LAYERS];
+        states[0] = MotionState::started(100);
+        states[1] = MotionState::started(200);
         let mut next = SurfaceTree::EMPTY;
         next.motions[0] = MotionLayerDesc { id: 9, x: 300, ..sheet() };
         next.motions[1] = MotionLayerDesc { id: 11, ..sheet() };
         next.motion_count = 2;
-        assert_eq!(carry_starts(&now, &starts, &next), [200, 0, 0, 0]);
+        let carried = carry(&now, &states, &next);
+        let starts = carried.map(|s| s.seg.start);
+        assert_eq!(starts, [200, 0, 0, 0]);
+        assert_eq!(carried[1], MotionState::EMPTY, "a new id: a fresh enter");
     }
 
     /// What moves with a motion layer: the regions and scroll layers it claims, a rectangle its

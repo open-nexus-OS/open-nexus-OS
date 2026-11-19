@@ -8,55 +8,78 @@
 //! (RFC-0110), and a frame is owed while any layer still moves. No app wake and no raster per
 //! frame: the planner redraws where a layer was and is, and a moving glass keeps its last blur.
 //! A window's moving layer rides the window's own transform too (a drag, a transition); a layer
-//! scales about its own centre (TASK-0354 P3); its backdrop fades in on its own curve and never
-//! moves.
+//! scales about its own centre (TASK-0354 P3); its backdrop fades on its own curve and never
+//! moves. A close plays the token back toward where the layer came from, a re-open turns from
+//! where it is (TASK-0354 P9); a layer that left keeps its transform at opacity 0 and owes no
+//! frame. Instruments (not chain markers): `windowd: motion layer (… exit= tap_us=)` when a
+//! segment starts and `windowd: motion done (…)` once when it ends — frames drawn while it moved
+//! against the refresh periods in its length, the latest frame past a period, the largest redraw
+//! of a frame drawn meanwhile (the frame's whole damage).
 //! OWNERS: @ui
 //! STATUS: Functional
 //! API_STABILITY: Internal
 //! TEST_COVERAGE: the motion in `crate::motion_geometry` and `crate::frame_transform` (host); the
-//!   lanes' `windowd: motion layer (`
+//!   lanes' `windowd: motion layer (` and `windowd: motion done (`
 
 use super::surface_layers_encode::DESKTOP_OWNER;
 use super::*;
 use crate::frame_transform::{FrameTransform, SCALE_ONE};
 use crate::layer_geometry::SurfaceLayers;
-use crate::motion_geometry::{backdrop_at, backdrop_id, in_flight, layer_id, moved_at};
+use crate::motion_geometry::{
+    backdrop_at, backdrop_id, drawn_moved, layer_id, moved_at, FrameNote, Said,
+};
 
-/// The motion layers of `layers` moving at `at` (bit `k`: layer `k`): their layers carry the
-/// motion's transform id; at rest they are the surface's own layers again.
+/// The motion layers of `layers` drawn through their motion's transform at `at` (bit `k`: layer
+/// `k`): moving, or left (at opacity 0, never at rest); at rest the others are the surface's own
+/// layers again.
 pub(super) fn live(layers: &SurfaceLayers, at: u64) -> u8 {
     let mut bits = 0;
     for (k, m) in layers.tree.motions().iter().enumerate() {
-        if in_flight(m, layers.starts[k], at) {
+        if drawn_moved(m, &layers.motion_states[k].seg, at) {
             bits |= 1 << k;
         }
     }
     bits
 }
 
-/// A motion drawn for the first time starts at `at` (its first frame shows where it starts); the
-/// frame being drawn is the surface's last drawn one.
-fn stamp(layers: &mut SurfaceLayers, owner: u32, at: u64) {
-    layers.drawn_at = at;
-    for k in 0..layers.tree.motions().len() {
-        let m = layers.tree.motions()[k];
-        if layers.starts[k] != 0 || !in_flight(&m, 0, at) {
-            continue;
+/// The frame shown at `at` (it redraws `note`) draws `layers`: a motion drawn for the first time
+/// starts with it (its first frame shows where it starts), a flip turns, an end is said once.
+/// `tap_us`: from the last press routed to `owner` to this frame (`frame_causes::tap_us`).
+fn stamp(layers: &mut SurfaceLayers, owner: u32, at: u64, note: FrameNote) {
+    let said = layers.stamp(at, note);
+    for (m, said) in layers.tree.motions().iter().zip(said) {
+        match said {
+            Said::Nothing => {}
+            Said::Started => {
+                let _ = debug_println(&alloc::format!(
+                    "windowd: motion layer (owner={owner} id={} token={} ms={} dx={} dy={} op={} \
+                     scale={} w={} h={} exit={} tap_us={})",
+                    m.id,
+                    m.token,
+                    m.duration_ms,
+                    m.from_dx,
+                    m.from_dy,
+                    m.from_opacity,
+                    m.start_scale(),
+                    m.w,
+                    m.h,
+                    u8::from(m.exit),
+                    crate::compositor::frame_causes::tap_us(owner, at)
+                ));
+            }
+            Said::Done(d) => {
+                let _ = debug_println(&alloc::format!(
+                    "windowd: motion done (owner={owner} id={} exit={} frames={} of={} \
+                     late_max_us={} damage_px_max={})",
+                    m.id,
+                    u8::from(m.exit),
+                    d.frames,
+                    d.of,
+                    d.late_max_us,
+                    d.damage_px_max
+                ));
+            }
         }
-        layers.starts[k] = at.max(1);
-        let _ = debug_println(&alloc::format!(
-            "windowd: motion layer (owner={owner} id={} token={} ms={} dx={} dy={} op={} \
-             scale={} w={} h={})",
-            m.id,
-            m.token,
-            m.duration_ms,
-            m.from_dx,
-            m.from_dy,
-            m.from_opacity,
-            m.start_scale(),
-            m.w,
-            m.h
-        ));
     }
 }
 
@@ -72,17 +95,17 @@ fn push(
     out: &mut Vec<(u32, FrameTransform)>,
 ) {
     for (k, m) in layers.tree.motions().iter().enumerate() {
-        let start = layers.starts[k];
-        if !in_flight(m, start, at) {
+        let seg = &layers.motion_states[k].seg;
+        if !drawn_moved(m, seg, at) {
             continue;
         }
-        let mv = moved_at(m, start, at);
+        let mv = moved_at(m, seg, at);
         let (x, y, w, h) = m.rest();
         let centre = (origin.0 + (x + w / 2) as i32, origin.1 + (y + h / 2) as i32);
         let moved = window.with_layer((mv.dx, mv.dy), mv.opacity, mv.scale, centre);
         out.push((layer_id(owner, k), moved));
         if m.backdrop().is_some() {
-            let fade = backdrop_at(m, start, at);
+            let fade = backdrop_at(m, seg, at);
             out.push((backdrop_id(owner, k), window.with_layer((0, 0), fade, SCALE_ONE, centre)));
         }
     }
@@ -90,12 +113,15 @@ fn push(
 
 impl DisplayServerRuntime {
     /// Every surface's motion layers drawn for the first time start with this frame, shown at
-    /// `at`.
-    pub(super) fn stamp_motions(&mut self, at: u64) {
-        stamp(&mut self.desktop_layers, DESKTOP_OWNER, at);
+    /// `at` and redrawing the first `rect_count` of `rects`; flips turn, ends are said.
+    pub(super) fn stamp_motions(&mut self, at: u64, rects: &[DamageRect], rect_count: usize) {
+        let damage_px =
+            rects.iter().take(rect_count).map(|r| u64::from(r.width) * u64::from(r.height)).sum();
+        let note = FrameNote { period_ns: u64::from(self.frame_pace().2), damage_px };
+        stamp(&mut self.desktop_layers, DESKTOP_OWNER, at, note);
         for idx in 0..self.apps.len() {
             let key = self.window_key(idx);
-            stamp(&mut self.apps[idx].layers, key, at);
+            stamp(&mut self.apps[idx].layers, key, at, note);
         }
     }
 

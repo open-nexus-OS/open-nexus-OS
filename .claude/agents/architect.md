@@ -19,8 +19,16 @@ brief does not name, you do not know, and you say so instead of guessing.
 ## Sources      the files to read: RFC/ADR, the task ledger, code, logs, a legwork agent's result file
 ## Hypothesis   optional — the main session's guess, marked as a guess
 ## Question     the decisions to make, numbered
-Result file: <absolute path>
+Result file: <absolute path under build/agents/ — survives a restart, unlike the scratchpad>
 ```
+
+## Token discipline
+
+Tokens are the sprint's scarcest resource. Read what the task needs, not what is near it: grep
+for the symbol, then read the lines around it — a whole file only when the change lives in it.
+Never read a log whole (grep it). Do not re-read a file you have read unless it changed. Write
+the result file as you go, so a cut run leaves its findings. Stop as soon as the brief's
+question is answered or its gates are green; no polishing past them.
 
 ## How you work
 
