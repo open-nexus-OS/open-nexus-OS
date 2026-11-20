@@ -72,7 +72,7 @@ fn a_panel_s_own_change_blurs_no_window_under_it() {
     }
     let p = present(&mut f, &[damage(100, 160, 1400, 60)]);
     assert_eq!(p.writes, Writes { band: 3, band_base: 3, ..Default::default() });
-    assert_eq!(p.by, WritesBy { unknown: 3, ..Default::default() });
+    assert_eq!(p.by, WritesBy { unknown: 3, zero: 3, ..Default::default() });
 }
 
 /// T7: a key the set does not hold is as origin 0 — below every glass, never above one, and
@@ -83,8 +83,13 @@ fn test_reject_an_unknown_origin_as_above() {
         (settled(&three_windows_under_a_panel()), settled(&three_windows_under_a_panel()));
     let p = present(&mut stray, &[damage_from(0xDEAD_0000, 100, 160, 1400, 60)]);
     let q = present(&mut zero, &[damage(100, 160, 1400, 60)]);
-    assert_eq!((p.writes.total(), p.by), (3, WritesBy { unknown: 3, ..Default::default() }));
-    assert_eq!((p.writes.band, p.damage, p.by), (q.writes.band, q.damage, q.by));
+    assert_eq!(
+        (p.writes.total(), p.by),
+        (3, WritesBy { unknown: 3, stray: 3, ..Default::default() })
+    );
+    // The same writes, counted apart (W4): a stray key is not the origin 0 windowd queues.
+    assert_eq!((p.writes.band, p.damage, p.by.unknown), (q.writes.band, q.damage, q.by.unknown));
+    assert_eq!((p.by.stray, p.by.zero, q.by.stray, q.by.zero), (3, 0, 0, 3));
     for i in 1..=3 {
         assert!(matches!(cache_of(&stray, i), Some(CacheStep::Write(_))), "window {i}");
         assert_eq!(stray.step(i), zero.step(i), "window {i}: the step of origin 0");
@@ -137,7 +142,7 @@ fn a_glass_blurred_again_is_a_change_for_the_glass_above_it() {
     let mut f = settled(&[base(), lower, upper]);
     let p = present(&mut f, &[damage(320, 350, 20, 10)]);
     assert_eq!(p.writes.total(), 2);
-    assert_eq!(p.by, WritesBy { unknown: 1, glass: 1, ..Default::default() });
+    assert_eq!(p.by, WritesBy { unknown: 1, zero: 1, glass: 1, ..Default::default() });
     // The lower shows its band grown by the blur's reach, within itself; the upper blurs that
     // again where it lies in its own reach.
     let shown = Area::rect(320, 350, 20, 10).grown(66).intersect(Area::rect(300, 300, 400, 200));

@@ -33,8 +33,6 @@ use crate::gpu_context::FrameTarget;
 
 const WIDTH: u32 = STRIDE_BYTES / 4;
 const STRIDE: u64 = STRIDE_BYTES as u64;
-/// Wait iterations a pass trace keeps.
-const TRACE_STEPS: usize = 24;
 /// A single-pass frame waiting longer than this arms the next frame's pass trace.
 const SLOW_WAIT_US: u64 = 20_000;
 /// Slow single-pass frames traced in a 32-frame window, at most.
@@ -414,18 +412,16 @@ fn emit_and_wait(
     let w0 = now_ns();
     let irq0 = dev.gpu.irqs;
     let mut iters = 0u64;
-    // The trace (the gate's last warm frame): each wait iteration's time since the submit, the
+    // The trace: the wait's polls as their changes and its end — the time since the submit, the
     // interrupts seen by then, and whether the geometry and the fragment words were reached.
-    let mut steps = [(0u32, 0u32, 0u8); TRACE_STEPS];
+    let mut steps = crate::backend::pass_trace::PassTrace::new();
     let (gtl, gseq) = dev.render_progress(who.0, who.1).map(|(g, _)| g).unwrap_or((ftl, fseq));
     let done = dev.wait_until(w0 + PASS_TIMEOUT_NS, |g, _| {
         let frag = g.mem.read_u32(&ftl, 0).wrapping_sub(fseq) < 0x8000_0000;
         if trace.is_some() {
-            if let Some(step) = steps.get_mut(iters as usize) {
-                let geom = g.mem.read_u32(&gtl, 0).wrapping_sub(gseq) < 0x8000_0000;
-                let at = (now_ns().saturating_sub(w0) / 1000) as u32;
-                *step = (at, g.irqs.wrapping_sub(irq0), u8::from(geom) | (u8::from(frag) << 1));
-            }
+            let geom = g.mem.read_u32(&gtl, 0).wrapping_sub(gseq) < 0x8000_0000;
+            let at = (now_ns().saturating_sub(w0) / 1000) as u32;
+            steps.note((at, g.irqs.wrapping_sub(irq0), u8::from(geom) | (u8::from(frag) << 1)));
         }
         iters += 1;
         frag
@@ -452,16 +448,10 @@ fn emit_and_wait(
             fw0.state,
             fw1.state
         ));
-        let mut line = alloc::string::String::new();
-        for (i, (at, irq, words)) in
-            steps.iter().enumerate().take((iters as usize).min(TRACE_STEPS))
-        {
-            use core::fmt::Write as _;
-            let _ = write!(line, "{}{at}:{irq}:{words}", if i == 0 { "" } else { " " });
-        }
-        emit_fmt(format_args!(
-            "gpud: gpu pass trace (of={of} iters={iters} irqs={irqs} late_us={late_us} us_at:irqs:words[g=1,f=2]= {line})"
-        ));
+        // The pixels the pass's draws cover, overdraw counted: ns per pixel beside the wait.
+        let px: u64 =
+            kept.draws.iter().map(|d| (d.quad.w.max(0.0) * d.quad.h.max(0.0)) as u64).sum();
+        emit_fmt(format_args!("{}", steps.line(of, irqs, late_us, px)));
     }
     let stamps = [s0 - e0, w0 - s0, w1 - w0, now_ns().saturating_sub(w1), iters, irqs];
     if done {

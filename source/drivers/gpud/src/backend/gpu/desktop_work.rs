@@ -29,9 +29,11 @@ use crate::backend::hop_trace::FrameHop;
 /// TASK-0351 P6; the backdrop writes blurred as a band, C-c); and the pixels by program
 /// (TASK-0335 P4: opaque, straight, rounded, shadow,
 /// blur); and the layers the frames composed (TASK-0351 P0); and the glass writes by the origin
-/// class of what caused them (TASK-0351 P6: below, glass, unknown, moved, order, rest); and the
-/// glasses written by layer key (`(key, writes)`, the first eight keys a window writes); and what
-/// the glass hold decided (TASK-0373: held, rest, drift, bound, full; foreign, TASK-0351 P6).
+/// class of what caused them (TASK-0351 P6: below, glass, unknown split into zero and stray —
+/// P19 W4 — moved, order, rest); and the glasses written by layer key (`(key, writes)`, the first
+/// eight keys a window writes); and what the glass hold decided (TASK-0373: held, rest, drift,
+/// bound, full; foreign, TASK-0351 P6); and the key misses at rest by what differs (P19 W5:
+/// set, own, moved, drew, epoch; of them written as a band, P19 C-r).
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct Work(
     [u64; 3],
@@ -39,9 +41,10 @@ pub(super) struct Work(
     [u64; PROGRAM_KINDS],
     u64,
     [u64; 8],
-    [u64; 6],
+    [u64; 7],
     [(u32, u32); GLASS_KEYS],
     Holds,
+    [u64; 6],
 );
 
 /// The glass keys a window tells apart (`gpud: glass top`).
@@ -49,7 +52,7 @@ const GLASS_KEYS: usize = 8;
 /// A window names its most-written glass past this many writes.
 const GLASS_TOP_FROM: u32 = 4;
 /// The origin classes of `gpud: glass writes by`, in their order.
-const CLASSES: [&str; 6] = ["below", "glass", "unknown", "moved", "order", "rest"];
+const CLASSES: [&str; 7] = ["below", "glass", "zero", "stray", "moved", "order", "rest"];
 
 impl Work {
     /// The slot pass's blended pixels by layer kind (`Board::blended_by_kind`, TASK-0351 P14);
@@ -84,9 +87,12 @@ impl Work {
         for (acc, n) in self.1.iter_mut().zip(causes) {
             *acc += u64::from(n);
         }
-        for (acc, n) in
-            self.5.iter_mut().zip([by.below, by.glass, by.unknown, by.moved, by.order, by.rest])
-        {
+        let classes = [by.below, by.glass, by.zero, by.stray, by.moved, by.order, by.rest];
+        for (acc, n) in self.5.iter_mut().zip(classes) {
+            *acc += u64::from(n);
+        }
+        let m = by.misses;
+        for (acc, n) in self.8.iter_mut().zip([m.set, m.own, m.moved, m.drew, m.epoch, m.band]) {
             *acc += u64::from(n);
         }
         self.3 += layers as u64;
@@ -117,6 +123,9 @@ impl Work {
             *acc += w;
         }
         for (acc, w) in self.5.iter_mut().zip(frame.5) {
+            *acc += w;
+        }
+        for (acc, w) in self.8.iter_mut().zip(frame.8) {
             *acc += w;
         }
         for (key, n) in frame.6.into_iter().filter(|(_, n)| *n > 0) {
@@ -169,18 +178,30 @@ impl Work {
             "gpud: glass writes (band={} backdrop={} new={} full={} band_base={} hidden={} backdrop_band={})",
             w[0], w[1], w[2], w[3], w[4], w[5], w[6]
         ));
-        // TASK-0351 P6: what the glass writes came from — `unknown` is a change queued without
-        // its layer (windowd's origin 0), the share the damage origin aims to bring to 0.
+        // TASK-0351 P6: what the glass writes came from — an unknown origin, named apart (P19
+        // W4): `zero` a change windowd queued without its layer (`windowd: damage zero`),
+        // `stray` one of a key no layer carries (a culled or gone layer's); their sum was
+        // `unknown`, the share the damage origin aims to bring to 0.
         let b = self.5;
         emit_fmt(format_args!(
-            "gpud: glass writes by (below={} glass={} unknown={} moved={} order={} rest={})",
-            b[0], b[1], b[2], b[3], b[4], b[5]
+            "gpud: glass writes by (below={} glass={} zero={} stray={} moved={} order={} rest={})",
+            b[0], b[1], b[2], b[3], b[4], b[5], b[6]
         ));
         // TASK-0373: what the hold decided for the window's glasses — counters, never the rule.
         let h = self.7;
         emit_fmt(format_args!(
             "gpud: glass holds (held={} rest={} drift={} bound={} full={} foreign={})",
             h.held, h.rest, h.drift, h.bound, h.full, h.foreign
+        ));
+        // TASK-0351 P19 (W5): why a glass's key missed when its hold ended — the first of its
+        // prints that differs from its rows' (layers came or went, its own window's moved,
+        // another's moved, drawn otherwise, a new wallpaper) — and how many of them were
+        // written as the band of what changed below during the hold (C-r). Counters, never
+        // the rule.
+        let m = self.8;
+        emit_fmt(format_args!(
+            "gpud: glass rest misses (set={} own={} moved={} drew={} epoch={} band={})",
+            m[0], m[1], m[2], m[3], m[4], m[5]
         ));
         // TASK-0351 P6: the glass written most in a window that wrote more than a few — the
         // glass a transition's halved cadence comes from — and the window's dominant class.

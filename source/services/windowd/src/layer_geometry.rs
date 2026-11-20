@@ -239,7 +239,11 @@ impl SurfaceLayers {
             .map(|k| pieces(&self.tree.scrolls()[k], self.offset(k), &mut out))
             .sum();
         let backdrops = self.tree.motions().iter().filter(|m| m.backdrop().is_some()).count();
+        // A motion layer that claims a region is drawn in up to four pieces around it.
+        let regions = self.tree.regions().len();
+        let cut = self.tree.motions().iter().filter(|m| (0..regions).any(|i| m.claims_region(i)));
         self.tree.motions().len()
+            + cut.count() * (crate::motion_geometry::OWN_PIECES - 1)
             + backdrops
             + self.tree.regions().len()
             + slices

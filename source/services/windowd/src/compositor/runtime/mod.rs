@@ -931,11 +931,7 @@ impl DisplayServerRuntime {
                 Self::window_name(id),
                 self.windows.z_of(id),
             ));
-            let (order, n) = self.windows.order(self.capture.frozen());
-            for &wid in &order[..n] {
-                let rect = self.window_damage_rect(wid);
-                self.queue_gpu_blit_rect(rect);
-            }
+            self.raised_damage();
         } else if focus_changed {
             let _ = debug_println(&alloc::format!(
                 "windowd: focus id={} z={}",

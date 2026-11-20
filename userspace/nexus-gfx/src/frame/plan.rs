@@ -13,6 +13,7 @@ use alloc::vec::Vec;
 use super::damage::Area;
 use super::glass::{fold_layer, glass_key, glass_rows, seed, CacheStep, GlassCache, WriteCause};
 use super::hold::Hold;
+pub use super::hold::Holds;
 use super::layers::{FrameLayer, RetainedLayers, MAX_LAYERS};
 use super::occlude::{self, Px};
 use super::reach::{px, Changes, GlassAt, Touch, WritesBy, GLASS_REACH};
@@ -69,8 +70,8 @@ impl Moves<'_> {
     /// and where it is), one that came below it (new, or above it before: where it is), one
     /// that went (gone, or above it now: where it was), and layers that swapped their order.
     /// With the frame's seed and the glass's own rectangle and radii unchanged, these are all a
-    /// key miss can come from (`same_drawing`). `None` for a glass new to the plan, or when
-    /// nothing within its reach changed.
+    /// key miss can come from (`same_drawing`). `None` for a glass new to the plan;
+    /// `Area::None` when nothing within its reach changed.
     fn below(&self, i: usize, reach: Area) -> Option<Area> {
         let was = self.carried.get(i).copied().flatten().filter(|w| *w < self.prev.len())?;
         let mut band = self.reorder;
@@ -87,7 +88,7 @@ impl Moves<'_> {
                 band = band.union(extent(b));
             }
         }
-        Some(band.intersect(reach)).filter(|b| *b != Area::None)
+        Some(band.intersect(reach))
     }
 }
 
@@ -135,40 +136,6 @@ pub struct Planned {
     pub damage: Area,
     /// What the hold decided for the frame's glasses (TASK-0373, `gpud: glass holds (`).
     pub holds: Holds,
-}
-
-/// The hold's decisions over a plan's glasses (`hold`), counted by the reason that decided —
-/// counters beside the rule, never an input to it.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Holds {
-    /// Held: read from the rows its blur was kept in.
-    pub held: u16,
-    /// Not held: nothing in motion — its own window rests and no mover lies within its reach.
-    pub rest: u16,
-    /// Not held: the movers below it travelled past its blur radius.
-    pub drift: u16,
-    /// Not held: held `HOLD_MAX` plans in a row.
-    pub bound: u16,
-    /// Not held: no rows to keep — a full present, no rows yet, or rows of another rectangle.
-    pub full: u16,
-    /// Of the held: made to owe the whole glass by a change made while the layers below it are
-    /// displaced (`Changes::foreign`) — the write after the hold is whole for it.
-    pub foreign: u16,
-}
-
-impl Holds {
-    /// No glass decided yet.
-    pub const NONE: Self = Self { held: 0, rest: 0, drift: 0, bound: 0, full: 0, foreign: 0 };
-
-    /// `other`'s decisions added (a window of plans).
-    pub fn add(&mut self, other: Self) {
-        self.held = self.held.saturating_add(other.held);
-        self.rest = self.rest.saturating_add(other.rest);
-        self.drift = self.drift.saturating_add(other.drift);
-        self.bound = self.bound.saturating_add(other.bound);
-        self.full = self.full.saturating_add(other.full);
-        self.foreign = self.foreign.saturating_add(other.foreign);
-    }
 }
 
 /// The glass writes of a frame by cause (`WriteCause`): what made each glass blur again.
@@ -385,7 +352,7 @@ impl Frame {
                 } else {
                     self.changes.touch(&at, &self.steps, &mut above)
                 };
-                let rested = self.glass.rested(i);
+                let (rested, displaced) = (self.glass.rested(i), self.glass.take_displaced(i));
                 // What the rows still owe — a write put off while nobody could see it, or
                 // what a hold missed — is part of the band until a write pays it.
                 let owed = self.glass.owed(i);
@@ -399,18 +366,21 @@ impl Frame {
                     .iter()
                     .filter(|s| extent(&s.layer).touches(reach))
                     .fold(wallpaper, |h, s| fold_layer(h, &s.layer));
+                // W5 (TASK-0351 P19, a counter): what the key folds, printed for a miss at rest.
+                let prints = self.glass.prints(&self.steps, &ids, reach, at.id, extent);
                 let (key, base) = (glass_key(below, &rest), glass_key(wallpaper, &rest));
                 let miss = self.glass.miss(i, key, rows);
-                // C-c (TASK-0351 P6): a key miss of rows that were current one plan ago — the
-                // same seed, the glass's own rectangle and radii, not kept through a motion —
-                // is a change of the layers below alone, and this plan's layer changes say
-                // where (`Moves::below`): a write blurs that band, never the whole glass.
-                let current = self.glass.current(i, base) && !rested && !full;
+                // C-c and C-r (TASK-0351 P6/P19): a key miss of rows blurred from this base —
+                // the same seed, the glass's own rectangle and radii — is a change of the layers
+                // below alone; the plans that kept the rows since (`displaced`) and this one
+                // (`Moves::below`) say where: a write blurs that band with the owe when it is a
+                // rectangle — never for a glass new to the plan, a Full owe or displacement.
+                let same = self.glass.same_base(i, base) && !full;
                 self.glass.computed(i, key, base);
-                let explained = (miss == WriteCause::Backdrop && current)
+                let explained = (miss == WriteCause::Backdrop && same)
                     .then(|| moves.below(i, reach))
                     .flatten()
-                    .map(|b| b.union(band))
+                    .map(|b| b.union(band).union(displaced))
                     .filter(|b| matches!(b, Area::Rect { .. }));
                 let mut band = if miss == WriteCause::Band { band } else { Area::Full };
                 // The hold (TASK-0351 P6, `hold`): a glass with rows whose window is in motion,
@@ -440,6 +410,10 @@ impl Frame {
                         self.hold.foreign();
                     }
                     self.glass.hold(i, if placed || foreign { band } else { owed });
+                    // C-r: where the layers below changed this plan is kept for the write
+                    // that ends the hold (a glass not carried: anywhere).
+                    let moved = moves.below(i, reach).map(|b| b.union(touch.band));
+                    self.glass.displace(i, moved.map_or(Area::Full, |b| b.union(displaced)));
                     read
                 } else {
                     // Cost follows what is seen (TASK-0351 P6): where opaque layers above hide
@@ -479,6 +453,10 @@ impl Frame {
                             if let (CacheStep::Write(_), Some(b)) = (step, explained) {
                                 (band, shows) = (b, shows_of(b));
                                 writes.backdrop_band = writes.backdrop_band.saturating_add(1);
+                                // A rest miss written as a band smaller than the glass (C-r).
+                                if rested && b.grown(GLASS_REACH).intersect(rect) != rect {
+                                    by.misses.band = by.misses.band.saturating_add(1);
+                                }
                             }
                             step
                         }
@@ -487,12 +465,13 @@ impl Frame {
                 // What the glass shows changes where its blurred backdrop did — the frame's
                 // damage, and a change of this step for the glasses above it; a glass blurred
                 // live changes wherever it is drawn.
+                let differs = self.glass.printed(i, prints, cache);
                 let shown = match cache {
                     CacheStep::Read(_) => Area::None,
                     CacheStep::Write(_) => {
                         let cause = if full { WriteCause::Full } else { miss };
                         writes.note(cause);
-                        by.note(&touch, cause, rested);
+                        by.note(&touch, cause, rested, differs);
                         if miss == WriteCause::Band && touch.base {
                             writes.band_base = writes.band_base.saturating_add(1);
                         }

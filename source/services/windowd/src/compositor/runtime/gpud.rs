@@ -188,6 +188,11 @@ impl DisplayServerRuntime {
             self.reset_gpud_client();
             return false;
         }
+        // RFC-0114 §5: present `seq`'s reads are done — before the ack arm, never an ack.
+        if let Some(seq) = proto::decode_present_drawn(reply) {
+            self.on_present_drawn(seq);
+            return true;
+        }
         match reply.len() {
             // Fire-and-forget control acks (cursor move/select, wallpaper-dirty, reveal).
             1 => {
@@ -266,14 +271,27 @@ impl DisplayServerRuntime {
         }
     }
 
-    /// Drains gpud's replies (present acks, cursor/attach acks) into the in-flight
-    /// accounting. The endpoint is ours by construction since routing v2 (RFC-0093 §1):
-    /// the reply nonce makes an answer that is not ours impossible to accept, so the
-    /// "is this actually our inbox?" guard this drain used to carry is gone with the
-    /// nonce-less protocol that needed it.
-    /// Drains gpud's replies. Returns whether any arrived: every one is a display-ring
-    /// COMPLETION (a present ack, a layer-scroll status, a cursor status) — the frame clock
-    /// of the compositor loop (TASK-0324 P7-c), which then runs [`Self::on_frame_completed`].
+    /// gpud reported present `seq` drawn (RFC-0114 §5): no frame up to the read floor reads a
+    /// client slot any more, so the presents waiting on those slots are acked to their clients.
+    /// Credited once, only for an outstanding undrawn seq; never a completion — the in-flight
+    /// gate, the frame clock, the animations and the pulses stay on the landed ack.
+    fn on_present_drawn(&mut self, seq: u32) {
+        match self.presents.drawn(seq) {
+            acks::Verdict::Credited => self.release_presents(),
+            verdict => {
+                let _ = debug_println(&alloc::format!(
+                    "windowd: FAIL present drawn seq={seq} unexpected ({verdict:?})"
+                ));
+            }
+        }
+    }
+
+    /// Drains gpud's replies (present acks, drawn notices, cursor/attach acks) into the
+    /// in-flight accounting. The endpoint is ours by construction since routing v2
+    /// (RFC-0093 §1): the reply nonce makes an answer that is not ours impossible to accept.
+    /// Returns whether a display-ring COMPLETION arrived (a present ack, a layer-scroll status,
+    /// a cursor status) — the frame clock of the compositor loop (TASK-0324 P7-c), which then
+    /// runs [`Self::on_frame_completed`]. A drawn notice is not one (`acks::is_frame_completion`).
     pub(crate) fn drain_gpud_replies(&mut self) -> bool {
         if self.framebuffer_pending_first_write {
             return false;
@@ -296,7 +314,7 @@ impl DisplayServerRuntime {
                     crate::compositor::frame_causes::woke(
                         crate::compositor::frame_causes::WOKE_GPUD,
                     );
-                    any = true;
+                    any |= acks::is_frame_completion(&reply_buf[..n]);
                     if !self.handle_gpud_reply(&reply_buf[..n]) {
                         return any;
                     }
@@ -372,7 +390,19 @@ impl DisplayServerRuntime {
             return Err(WindowdError::InvalidDamage);
         }
         let mut reply = [0u8; 64];
-        match self.recv_gpud(Wait::Blocking, &mut reply) {
+        // A drawn notice of a present in flight may arrive first (RFC-0114 §5): credited, not
+        // this request's reply — bounded by the presents a window holds.
+        let mut got = self.recv_gpud(Wait::Blocking, &mut reply);
+        for _ in 0..crate::present_acks::WINDOW {
+            let Ok(n) = got else { break };
+            let Some(seq) = nexus_display_proto::decode_present_drawn(&reply[..n.min(reply.len())])
+            else {
+                break;
+            };
+            self.on_present_drawn(seq);
+            got = self.recv_gpud(Wait::Blocking, &mut reply);
+        }
+        match got {
             Ok(n) if n >= 1 && reply[0] == GPUD_STATUS_OK => Ok(()),
             Ok(n) => {
                 if let Some(status) = reply[..n.min(reply.len())].first().copied() {

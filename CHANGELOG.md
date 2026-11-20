@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-11-20 (a tap answers sooner: the credit at drawn, the desktop never raised, a motion layer drawn once — TASK-0355 P2, TASK-0354 P4, TASK-0343 P8, TASK-0351 P19)
+
+- **An app's credit leaves when gpud has drawn.** gpud reports a present `STATUS_DRAWN` once its
+  reads of client slots are done (`nexus-display-proto`, never an ack); windowd releases a
+  client's slots at that read floor instead of at the landing (RFC-0114 §5, RFC-0101 §8,
+  ADR-0092). On the board the app's wait for its credit on tap frames fell from 30.6 ms to 0.
+- **A press on the desktop raises nothing**, and a window's raise names no rectangle where the
+  GPU composes: every desktop press with windows open had re-blurred every glass (74-89 ms).
+- **A motion layer is drawn once**: its own pixels as up to four pieces around the region it
+  claims, inset by its corners, while the surface's share covers its demand (RFC-0109); the
+  launcher's single pass fell from 10.3 to 9.65 Mpx, 41 to 35 ms.
+- **A glass held through a motion writes at rest the band of what changed below it** (C-c and
+  C-r as one rule), proven by a new pixel test against a fresh blur after every hold.
+- Instruments: readable pass traces (`gap_us=`, `px=`, bounded), glass write causes `zero=`/
+  `stray=`, `gpud: glass rest misses`, `windowd: damage zero`. Ledger rule 8: a started task may
+  pause with its rest in the backlog (RFC-0115). Board, two cycles: panel taps 61-83 → 46-57 ms,
+  drops 9.0 → 6.5 %, late flips 3.5 → 2.4 %.
+
 ### Changed - 2026-11-20 (one frame's timeline, one present in flight, a key miss is a band — TASK-0373 P1, TASK-0343 P7, TASK-0351 P6)
 
 - **One frame's timeline.** app-host, windowd and gpud record every frame into a ring of 32

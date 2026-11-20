@@ -57,11 +57,24 @@ pub(crate) fn fair_shares(rest: usize, demand: &[usize], share: &mut [usize]) {
 pub(crate) struct LayerQuota {
     left: usize,
     dropped: usize,
+    /// The share covers the surface's whole demand: no layer of it is dropped this frame.
+    whole: bool,
 }
 
 impl LayerQuota {
     pub(crate) const fn new(share: usize) -> Self {
-        Self { left: share, dropped: 0 }
+        Self { left: share, dropped: 0, whole: false }
+    }
+
+    /// The share against the surface's `demand` (its pieces counted): whether every layer fits.
+    pub(crate) const fn covering(self, demand: usize) -> Self {
+        Self { whole: self.left >= demand, ..self }
+    }
+
+    /// Whether nothing of the surface is dropped this frame — a motion layer's pieces are drawn
+    /// around its region only then, so the region they leave to is drawn too (all or none).
+    pub(crate) const fn whole(&self) -> bool {
+        self.whole
     }
 
     /// Sets one layer of the share aside BEFORE the surface spends it, for a layer drawn over
@@ -197,5 +210,14 @@ mod tests {
         let mut empty = LayerQuota::new(0);
         assert!(!empty.set_aside());
         assert_eq!(empty.dropped(), 0, "an undrawn surface counts no drop");
+    }
+
+    #[test]
+    fn test_reject_a_partial_set_of_pieces() {
+        // A share short of the demand (the pieces counted) is not whole: the layer is drawn
+        // whole, never as pieces around a region the share may then drop.
+        assert!(!LayerQuota::new(5).covering(6).whole());
+        assert!(LayerQuota::new(6).covering(6).whole());
+        assert!(!LayerQuota::new(6).whole(), "a share never told its demand is not whole");
     }
 }

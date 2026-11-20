@@ -44,11 +44,11 @@ phases:
     note: "windowd: windows occluded (n=2) on the operator's stack (n=1 on 2026-11-04T16-36-48)"
   - id: P2
     story: "a board GPU context binds as many surfaces as the windows need"
-    state: proving
+    state: planned
     gate: "host: a space binds 130 bindings past a reserve of 2 (nexus-driverkit), the surface window reaches the layout's GiB; board: 30 windows with 0 binding failures, gpud: bindings of= grows past 128"
     started: 2026-11-04
     evidence: build/logs/many-windows--2026-11-04T09-45-42
-    note: "2026-11-18 board--2026-11-18T14-59-11: 49 windows, 0 binding failures, in_use=109 of=128 — the table was not asked to grow (it grows past 128 from about 58 windows; proven on the host). 2026-11-19 board--2026-11-19T15-50-37: bindings in_use=47 of=128 — the 60-window block of the series did not reach 58 windows; still to judge."
+    note: "2026-11-18 board--2026-11-18T14-59-11: 49 windows, 0 binding failures, in_use=109 of=128 — the table was not asked to grow (it grows past 128 from about 58 windows; proven on the host). 2026-11-19 board--2026-11-19T15-50-37: bindings in_use=47 of=128 — the 60-window block of the series did not reach 58 windows; still to judge. 2026-11-20 back to the backlog (cleanup): board reached 48 bindings with 0 failures, the 30/64-window block not reached — gate unmeasured."
   - id: P3
     story: "the frame the planner scans out directly is named: an opaque, untransformed, plain window body from a surface of its own covering the display whole (RFC-0101 §8 amended) — the contract and the host-tested decision; the contiguous surface and the flip are P9"
     state: done
@@ -65,10 +65,10 @@ phases:
     evidence: "docs/adr/0095 (Proposed 2026-11-04); docs/rfcs/RFC-0101 §1; the consumer task minted below"
   - id: P5
     story: "a frame costs what the hardware asks, not what our path adds: the frame's fixed cost and the pass's area measured through our path against the stock sweep (gpud: gpu pass sweep), then cut — the passes a frame runs and what each pass costs beyond its pixels"
-    state: proving
+    state: planned
     gate: "board: gpu pass sweep q16_us within 2x of the stock's 0.64 ms and area16_us within 2x of q16_us (the area reaches the hardware); gpud: gpu gate scene ok (hover below 8.3 ms, cold below 23.3 ms)"
     started: 2026-11-04
-    note: "board 2026-11-05T13-12-18: q16 915 us and area16 748 us meet the sweep half; gpu gate scene FAIL on cold 44.8 ms against 23.3 (hover 3.3 ms) 2026-11-19 board--2026-11-19T15-50-37: sweep q16 480 us, area16 432 us (met again); gpud: gpu gate scene not printed in the series — the scene half unjudgeable. CORRECTION 2026-11-19 (architect, build/agents/arch-transition-every-frame-2026-11-19.md): the gate scene IS printed in board--2026-11-19T15-50-37 (uart.log:1121): FAIL cold 38.1 ms pipelined 31.8 ms against 23.3 — the scene half is red, not unjudgeable (the earlier note of today was wrong)."
+    note: "board 2026-11-05T13-12-18: q16 915 us and area16 748 us meet the sweep half; gpu gate scene FAIL on cold 44.8 ms against 23.3 (hover 3.3 ms) 2026-11-19 board--2026-11-19T15-50-37: sweep q16 480 us, area16 432 us (met again); gpud: gpu gate scene not printed in the series — the scene half unjudgeable. CORRECTION 2026-11-19 (architect, build/agents/arch-transition-every-frame-2026-11-19.md): the gate scene IS printed in board--2026-11-19T15-50-37 (uart.log:1121): FAIL cold 38.1 ms pipelined 31.8 ms against 23.3 — the scene half is red, not unjudgeable (the earlier note of today was wrong). 2026-11-20 back to the backlog (cleanup: proving since 11-04, never judged): last board gpud: gpu gate scene FAIL cold 38.3 ms (gate < 23.3), hover 2831 us (gate < 8300 ok); sweep not judged since."
   - id: P6
     story: "the passes a frame runs hold the budget on the board, with glass and while something moves"
     state: done
@@ -113,16 +113,16 @@ phases:
     note: "gpu pass fw and sweep drawn on every cycle since 2026-11-04; the reading: the passes drew 1920x1080 for a 16x16 damage (cut by P13, q16 5857 -> 915 us); the firmware's util counters stay at +0"
   - id: P13
     story: "the gate and the sweep measure what the desktop's frames draw: after the cold frame the slot is the GPU's own (no stale slot, no dirty base), so the hover pass and the sweep's quads are limited to their damage - the cycle-39 'fragment latency' re-read as the fragment stage shading the whole screen"
-    state: proving
+    state: planned
     gate: "board: gpud: gpu pass sweep drawn q16=16x16 and area16=16x16 (not 1920x1080), gpu gate scene hover_us below 2000; host: frame_board a second frame on a drawn slot with a 1-px damage draws no full-screen piece"
     started: 2026-11-04
-    note: "board 2026-11-05T13-12-18: sweep drawn 16x16 (met); gate scene hover 3293 us against 2000 CORRECTION 2026-11-19: board--2026-11-19T15-50-37 uart.log:1121 hover_us=2838 against 2000 — red, not unjudgeable."
+    note: "board 2026-11-05T13-12-18: sweep drawn 16x16 (met); gate scene hover 3293 us against 2000 CORRECTION 2026-11-19: board--2026-11-19T15-50-37 uart.log:1121 hover_us=2838 against 2000 — red, not unjudgeable. 2026-11-20 back to the backlog (cleanup): last board gate scene hover 2831 us against the gate hover_us < 2000 — red."
   - id: P14
     story: "a window's content costs its pixels once: a scroll band whose viewport lies on an opaque pane is rastered on the pane's pixel and declared opaque (BAND_OPAQUE), so the compositor draws the slice opaque and cuts the pane, the body, the glass back and the wallpaper under it - and the pane is the design's opaque surface-pane (the artifact's token)"
-    state: proving
+    state: planned
     gate: "host: nexus-gfx frame_window_cost an opaque slice over a pane adds no blended pixel and the pane under it is cut; app-host a band on a pane is opaque, a band touching the pane's corner or on a translucent pane is not; board: gpud: gpu work straight_px below a third of opaque_px through the typing and window windows, ux frame max_us below 40000 in every window"
     started: 2026-11-04
-    note: "board 2026-11-05T13-12-18: straight_px 0.9-1.1 of opaque_px, ux frame max 37 ms 2026-11-19 board--2026-11-19T15-50-37: straight_px/opaque_px 1.17 over the series (gate below 0.33): unchanged by the damage fix, as expected."
+    note: "board 2026-11-05T13-12-18: straight_px 0.9-1.1 of opaque_px, ux frame max 37 ms 2026-11-19 board--2026-11-19T15-50-37: straight_px/opaque_px 1.17 over the series (gate below 0.33): unchanged by the damage fix, as expected. 2026-11-20 back to the backlog (cleanup): straight_px vs opaque_px never judged against the gate since 11-04."
   - id: P15
     story: "A transition's frame damages the rectangle that moved, in the app and in the compositor: app-host names the animated nodes' columns (the row painter still paints whole rows; a row-only contributor widens to full width), and windowd takes a structure whose regions only moved as those regions' old and new rectangles — not the whole surface, which a sliding glass panel re-declared every frame. The motion line says what each frame cost: raster per frame and its rows, damage per present, the tokens that ran."
     state: done
@@ -159,6 +159,8 @@ phases:
     story: "the glass and GPU rest of P6: a held glass made to owe the whole glass by a foreign change writes a band (C-a, decided by glass holds foreign=1352), and the single-pass frames stuck at ~41 ms are named by a readable trace (GPU work or a wait)"
     state: planned
     gate: "board: slow frames with a whole glass write <= 45 (cycle 4: 51); glass-writing frames' GPU p50 <= 19 ms (cycle 4: 29.2); every single-pass frame waiting > 20 ms has a gpu pass trace line inside the console cap"
+    started: 2026-11-20
+    note: "2026-11-20 board--2026-11-20T12-38-17 instruments: 53 single-pass traces, all readable (cut 0); the 41 ms ones cover 10.3 Mpx in one pass (5x the 2.07 Mpx screen) at 4 ns/px with gap_us ~1 ms — the GPU is busy with overdraw, not a late wake. glass writes by: zero 342 (key-0 damage, the largest cause; windowd damage zero from present-rect and present-whole), stray 79, moved 231, rest 230, below 134. rest misses: moved 139, set 51, own 4, drew 4, epoch 0 → C-r is the moved band. 2026-11-20 board--2026-11-20T15-34-30: windowd raise id=desktop 81 → 0; glass writes zero 342 → 83 (gate <= 30), stray 79 → 26, below 134 → 277 (named now); rest misses set 51 → 83, moved 136, band 17 (D3's rest bands); launcher single pass 10.3 → 9.65 Mpx, 41.4 → 35.2 ms; one 24.9 Mpx / 64 ms pass in the 22-window block."
 ---
 
 ## The ask

@@ -218,11 +218,6 @@ impl LayerSnap {
             if let Some((patch, opacity)) = m.backdrop() {
                 self.encode_backdrop(enc, k, (patch, opacity), mode, quota);
             }
-            let p = Piece {
-                src: (u32::from(m.sx), u32::from(m.sy)),
-                dst: (u32::from(m.x), u32::from(m.y)),
-                size: (u32::from(m.w), u32::from(m.h)),
-            };
             let draw = Draw {
                 opacity: 255,
                 radius: 0,
@@ -232,8 +227,47 @@ impl LayerSnap {
                 key: key(self.owner, KIND_SLICE, MOTION_KEY_BASE + k as u32),
                 layer_id: self.id_of(Some(k)),
             };
-            self.composite(enc, &p, draw, mode, quota);
+            // Its own pixels around the largest region it claims that this frame draws — only
+            // while nothing of the surface is dropped, so that region is drawn too (else whole).
+            let whole = (u32::from(m.x), u32::from(m.y), u32::from(m.w), u32::from(m.h));
+            let claimed = self.claimed_drawn(pass, k).filter(|_| quota.whole());
+            let (pieces, _) = crate::motion_geometry::own_pieces(whole, claimed);
+            for (x, y, w, h) in pieces.into_iter().flatten() {
+                let p = Piece { src: m.store_of(x, y), dst: (x, y), size: (w, h) };
+                self.composite(enc, &p, draw, mode, quota);
+            }
         }
+    }
+
+    /// The regions motion layer `k` claims that `pass`'s frame draws over their back — with the
+    /// layer's pixels in the store: their rectangles and corner radii (`own_pieces`). A window
+    /// draws its glass and opaque regions; the desktop its claimed glass above the windows (for a
+    /// layer in front: its glass in front).
+    fn claimed_drawn(
+        &self,
+        pass: Pass,
+        k: usize,
+    ) -> impl Iterator<Item = ((u32, u32, u32, u32), u32)> + '_ {
+        let tree = &self.layers.tree;
+        let motion = tree.motions().get(k);
+        tree.regions().iter().enumerate().filter_map(move |(i, l)| {
+            let m = motion?;
+            let glass = l.material == MATERIAL_GLASS;
+            let drawn = match pass {
+                Pass::Window => glass || l.material == MATERIAL_OPAQUE,
+                Pass::DesktopBelow => self.above_windows(i, l),
+                Pass::DesktopFront => glass,
+                Pass::DesktopAbove => false,
+            };
+            let (x, y) = m.store_of(u32::from(l.x), u32::from(l.y));
+            let placed = self.regions.store_place(x, y).is_some();
+            (region_owner(tree, i) == Some(k) && drawn && placed).then(|| {
+                (
+                    (u32::from(l.x), u32::from(l.y), u32::from(l.w), u32::from(l.h)),
+                    u32::from(l.radius),
+                )
+            })
+        })
     }
 
     /// Motion layer `k`'s backdrop: patch `patch` spread over the whole surface at `opacity` —

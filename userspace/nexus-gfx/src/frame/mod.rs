@@ -57,6 +57,6 @@ pub use glass::{CacheStep, GlassCache, WriteCause};
 pub use kernels::{blur_radius, blur_scale, Gaussian, Weights, BLUR_RADII};
 pub use layers::{FrameLayer, RetainedLayers, Taken, Transform, MAX_LAYERS};
 pub use plan::{Frame, Glass, LayerStep, Planned, Writes};
-pub use reach::WritesBy;
+pub use reach::{RestMisses, WritesBy};
 pub use scanout::direct;
 pub use walk::Draws;

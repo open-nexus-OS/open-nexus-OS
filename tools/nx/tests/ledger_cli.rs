@@ -208,7 +208,7 @@ fn test_reject_sprint_with_unknown_phase() {
 }
 
 #[test]
-fn test_reject_in_progress_with_a_planned_phase_and_none_open() {
+fn a_started_task_pauses_with_its_rest_in_the_backlog() {
     let dir = repo();
     planned_task(dir.path());
     assert!(nx(
@@ -217,15 +217,24 @@ fn test_reject_in_progress_with_a_planned_phase_and_none_open() {
     )
     .status
     .success());
-    let o =
-        nx(dir.path(), &["phase", "TASK-0001", "P0", "--state", "done", "--evidence", "logs/x"]);
-    assert_eq!(o.status.code(), Some(3), "{}", text(&o));
-    assert!(text(&o).contains("(rule 8)"), "{}", text(&o));
-    // Closing the last phase is not a gap: the task waits for its closing.
-    assert!(nx(dir.path(), &["phase", "TASK-0001", "P1", "--state", "dropped"]).status.success());
+    // P0 done, P1 planned and nothing open: paused, not a gap (rule 8, amended 2026-11-20).
     let o =
         nx(dir.path(), &["phase", "TASK-0001", "P0", "--state", "done", "--evidence", "logs/x"]);
     assert!(o.status.success(), "{}", text(&o));
+    // A phase that was building and is not worked on goes back to the backlog.
+    assert!(nx(dir.path(), &["phase", "TASK-0001", "P1", "--state", "building"]).status.success());
+    assert!(nx(dir.path(), &["phase", "TASK-0001", "P1", "--state", "planned"]).status.success());
+    assert!(nx(dir.path(), &["lint"]).status.success());
+}
+
+#[test]
+fn test_reject_in_progress_that_never_started() {
+    let dir = repo();
+    planned_task(dir.path());
+    // Its one phase back to the backlog: an in_progress task with nothing done is a draft.
+    let o = nx(dir.path(), &["phase", "TASK-0001", "P0", "--state", "planned"]);
+    assert_eq!(o.status.code(), Some(3), "{}", text(&o));
+    assert!(text(&o).contains("(rule 8)"), "{}", text(&o));
 }
 
 #[test]

@@ -96,15 +96,17 @@ pub(crate) enum Cause {
     Capture,
     /// The shell's base repainted (the wallpaper swapped, the reveal put off).
     Shell,
+    /// A rect blitted again whole (`queue_gpu_blit_rect`): no layer is named (TASK-0351 P19).
+    Blit,
     /// A starting or closing surface came, went or gave way to the app's frame.
     Solid,
 }
 
 impl Cause {
     /// The causes: the wide line counts each on its own.
-    const COUNT: usize = Self::Solid as usize + 1;
+    pub(crate) const COUNT: usize = Self::Solid as usize + 1;
 
-    const fn name(self) -> &'static str {
+    pub(crate) const fn name(self) -> &'static str {
         match self {
             Self::PresentRect => "present-rect",
             Self::PresentWhole => "present-whole",
@@ -116,6 +118,7 @@ impl Cause {
             Self::Retry => "retry",
             Self::Capture => "capture",
             Self::Shell => "shell",
+            Self::Blit => "blit",
             Self::Solid => "solid",
         }
     }
@@ -451,6 +454,7 @@ mod tests {
             Cause::Retry,
             Cause::Capture,
             Cause::Shell,
+            Cause::Blit,
             Cause::Solid,
         ];
         assert_eq!(causes.len(), Cause::COUNT);

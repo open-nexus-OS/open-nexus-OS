@@ -24,11 +24,16 @@
 //! the executor adds a plane ([`GlassCache::add_plane`]) and the next plan places it — the
 //! cache grows with the glasses on the screen (TASK-0351: twelve windows had rows for five on
 //! the board, the others lost their blur and damaged their whole rectangle every frame).
+//!
+//! PRINTS (TASK-0351 P19, W5 — a counter, no rule): a slot keeps three prints of what lay below
+//! its glass when its rows were written (`GlassCache::printed`); a key miss at rest is counted
+//! by the first that differs (`WritesBy::misses`, `gpud: glass rest misses`).
 
 use alloc::vec::Vec;
 
 use super::damage::Area;
 use super::layers::{FrameLayer, MAX_LAYERS};
+use super::plan::{Ident, LayerStep};
 
 const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
 const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
@@ -93,6 +98,61 @@ pub enum WriteCause {
     Full,
 }
 
+/// What differs between the prints a glass's rows were written with and this plan's: the first
+/// that does, in this order (TASK-0351 P19, W5 — why a key misses at rest; a counter, no rule).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Miss {
+    /// The wallpaper epoch.
+    Epoch,
+    /// The layers below within its reach: one came, went or changed its place in the order — or
+    /// the rows carry no prints.
+    Set,
+    /// Only the extents of the glass's own window's layers below it.
+    Own,
+    /// The extents of other windows' layers below it.
+    Moved,
+    /// None of these: something else the key folds (an opacity, a source, a corner radius, the
+    /// glass's own rectangle or radii, the display).
+    Drew,
+}
+
+/// Three prints of what lies below a glass within its reach, and the wallpaper epoch (W5): the
+/// layers' identities (key, occurrence) in order; the identities and drawn extents of the other
+/// windows' layers; the same of the glass's own window's layers. Kept with the rows at a write.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Prints {
+    set: u64,
+    others: u64,
+    own: u64,
+    epoch: u32,
+}
+
+impl Prints {
+    /// What differs from `was`, the prints the rows were written with.
+    fn differs(self, was: Option<Self>) -> Miss {
+        match was {
+            None => Miss::Set,
+            Some(w) if w.epoch != self.epoch => Miss::Epoch,
+            Some(w) if w.set != self.set => Miss::Set,
+            Some(w) if w.others != self.others => Miss::Moved,
+            Some(w) if w.own != self.own => Miss::Own,
+            Some(_) => Miss::Drew,
+        }
+    }
+}
+
+/// Folds an area into a print.
+fn fold_area(h: u64, a: Area) -> u64 {
+    match a {
+        Area::Rect { x0, y0, x1, y1 } => fold(
+            fold(h, (u64::from(x0) << 32) | u64::from(y0)),
+            (u64::from(x1) << 32) | u64::from(y1),
+        ),
+        Area::Full => fold(h, u64::MAX),
+        Area::None => fold(h, 0),
+    }
+}
+
 /// What a glass layer does this frame. A row counts through the planes: plane `row /
 /// plane_rows`, its row `row % plane_rows`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -107,9 +167,12 @@ pub enum CacheStep {
 
 /// What one slot holds: its backdrop's key, its first row and how many (`h == 0`: none), what
 /// its rows still owe — the backdrop changes a write was put off for — and whether the last
-/// plan kept them through a motion. `last`: the key and base ([`GlassCache::current`]) the last
-/// plan computed for its glass; `now`: this plan's, handed on by [`GlassCache::carry`] — a glass
-/// the last plan did not reach has none.
+/// plan kept them through a motion. `last`: the key and base the last plan computed for its
+/// glass; `now`: this plan's, handed on by [`GlassCache::carry`] — a glass the last plan did not
+/// reach has none. `base`: the base its rows were blurred from, recorded at their write
+/// ([`GlassCache::same_base`]). `displaced`: what changed below the glass outside its owe through
+/// the plans that kept its rows ([`GlassCache::displace`]). `prints`: what lay below the glass
+/// when its rows were last written (W5, a counter's input only).
 #[derive(Clone, Copy, Default)]
 struct Slot {
     key: u64,
@@ -119,6 +182,17 @@ struct Slot {
     kept: bool,
     last: Option<(u64, u64)>,
     now: Option<(u64, u64)>,
+    base: Option<u64>,
+    displaced: Area,
+    prints: Option<Prints>,
+}
+
+impl Slot {
+    /// The rows start over from this plan's backdrop: the base `computed` named (none for a
+    /// write no plan computed), nothing displaced, nothing owed.
+    fn written(&mut self) {
+        (self.base, self.displaced, self.owed) = (self.now.map(|(_, b)| b), Area::None, Area::None);
+    }
 }
 
 /// The cache's bookkeeping, a slot per layer index — windowd encodes the scene back to front
@@ -187,21 +261,84 @@ impl GlassCache {
         }));
     }
 
-    /// Whether `slot`'s rows were current one plan ago (TASK-0351 P6, C-c): the last plan
-    /// computed the very key they were blurred for, from the same `base` — the frame's seed
-    /// (display, wallpaper epoch) and the glass's own rest rectangle and radii
-    /// (`glass_key(seed, rest)`). Then a key miss is a change of the layers below alone.
-    /// Asked before [`Self::computed`].
-    pub(super) fn current(&self, slot: usize, base: u64) -> bool {
-        let held = self.held(slot);
-        held.last == Some((held.key, base))
+    /// Whether `slot`'s rows were blurred from `base` (TASK-0351 P6/P19, C-c and C-r): the
+    /// frame's seed (display, wallpaper epoch) and the glass's own rest rectangle and radii
+    /// (`glass_key(seed, rest)`) as they were at the write — then a key miss is a change of the
+    /// layers below alone. Asked before the step that may write them.
+    pub(super) fn same_base(&self, slot: usize, base: u64) -> bool {
+        self.held(slot).base == Some(base)
     }
 
-    /// The key and base this plan computed for `slot`'s glass (`current` asks them next plan).
+    /// What changed below `slot`'s glass outside its owe since its rows were blurred: the
+    /// layers the plans that kept them moved, opened, closed or reordered (`displace`). Taken
+    /// once a plan, with [`Self::rested`]: a plan that keeps the rows again hands it back. `Full`
+    /// when the last plan did not compute the glass — nothing followed what changed there.
+    pub(super) fn take_displaced(&mut self, slot: usize) -> Area {
+        self.slots.get_mut(slot).map_or(Area::Full, |held| {
+            let displaced = core::mem::take(&mut held.displaced);
+            if held.last.is_some() {
+                displaced
+            } else {
+                Area::Full
+            }
+        })
+    }
+
+    /// `slot`'s rows are kept through a plan whose layers below changed in `area` — where they
+    /// will differ from the backdrop once the hold ends (C-r).
+    pub(super) fn displace(&mut self, slot: usize, area: Area) {
+        if let Some(held) = self.slots.get_mut(slot) {
+            held.displaced = held.displaced.union(area);
+        }
+    }
+
+    /// The key and base this plan computed for `slot`'s glass (the write records the base).
     pub(super) fn computed(&mut self, slot: usize, key: u64, base: u64) {
         if let Some(held) = self.slots.get_mut(slot) {
             held.now = Some((key, base));
         }
+    }
+
+    /// The prints of a glass of window `own` whose reach is `reach` (W5): the plan's `steps`
+    /// below it with their identities `ids`, those whose `extent` touches the reach — the
+    /// layers its key folds.
+    pub(super) fn prints(
+        &self,
+        steps: &[LayerStep],
+        ids: &[Ident],
+        reach: Area,
+        own: u32,
+        extent: fn(&FrameLayer) -> Area,
+    ) -> Prints {
+        let mut p = Prints {
+            set: FNV_OFFSET,
+            others: FNV_OFFSET,
+            own: FNV_OFFSET,
+            epoch: self.wallpaper_epoch,
+        };
+        for (s, &(key, n)) in steps.iter().zip(ids) {
+            let at = extent(&s.layer);
+            if !at.touches(reach) {
+                continue;
+            }
+            let id = (u64::from(key) << 16) | u64::from(n);
+            p.set = fold(p.set, id);
+            let side = if s.layer.layer_id == own { &mut p.own } else { &mut p.others };
+            *side = fold_area(fold(*side, id), at);
+        }
+        p
+    }
+
+    /// `slot`'s glass took `step` with this plan's prints `now`: kept with rows written, or
+    /// with none yet (`Off`, placed later); for a write, what differs from the prints its rows
+    /// were last written with. A read keeps the rows' prints.
+    pub(super) fn printed(&mut self, slot: usize, now: Prints, step: CacheStep) -> Option<Miss> {
+        if matches!(step, CacheStep::Read(_)) {
+            return None;
+        }
+        let held = self.slots.get_mut(slot)?;
+        let was = core::mem::replace(&mut held.prints, Some(now));
+        matches!(step, CacheStep::Write(_)).then(|| now.differs(was))
     }
 
     /// What `slot` holds: nothing for a slot the plan has not reached.
@@ -272,7 +409,8 @@ impl GlassCache {
             return None;
         }
         let held = self.slots.get_mut(slot).filter(|s| s.h == h)?;
-        (held.key, held.owed) = (key, owed);
+        // The owe now names what the rows miss of this plan's backdrop: nothing is displaced.
+        (held.key, held.owed, held.displaced) = (key, owed, Area::None);
         Some(CacheStep::Read(held.y))
     }
 
@@ -296,7 +434,7 @@ impl GlassCache {
         let (ready, plane_rows) = (self.ready, self.plane_rows);
         let Some(held) = self.slot_mut(slot) else { return CacheStep::Off };
         if !ready || h == 0 || h > plane_rows {
-            (held.h, held.owed) = (0, Area::None);
+            (held.h, held.owed, held.base) = (0, Area::None, None);
             return CacheStep::Off;
         }
         if held.h == h {
@@ -305,8 +443,8 @@ impl GlassCache {
             if hit {
                 return CacheStep::Read(held.y);
             }
-            // The write pays what the rows owed.
-            held.owed = Area::None;
+            // The write pays what the rows owed and blurs them from this plan's base.
+            held.written();
             return CacheStep::Write(held.y);
         }
         (held.key, held.h, held.owed) = (key, 0, Area::None);
@@ -329,6 +467,7 @@ impl GlassCache {
         };
         let held = self.slots.get_mut(slot)?;
         (held.y, held.h) = (y, h);
+        held.written();
         Some(y)
     }
 

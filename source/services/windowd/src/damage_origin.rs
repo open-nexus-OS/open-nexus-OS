@@ -19,10 +19,17 @@
 //! OWNERS: @ui
 //! STATUS: Functional
 //! API_STABILITY: Internal
+//! A rect queued with key `0`, from any call site, is named by its cause in a doubling series
+//! (`windowd: damage zero (…)`, TASK-0351 P19 W4 — an instrument, a measurement in the proof
+//! manifest).
 //! TEST_COVERAGE: unit tests below
 //! INVARIANTS: an origin is a layer that draws the change, or unknown — never a layer below
 //!   another one of its surface that draws the same change.
 
+use alloc::string::String;
+use core::sync::atomic::{AtomicU32, Ordering};
+
+use crate::damage_rects::{Cause, DamageRect, Origin};
 use crate::layer_geometry::{pieces, Piece, StoreLayer, SurfaceLayers, MAX_PIECES};
 use crate::motion_geometry::{region_owner, scroll_owner};
 use crate::surface_presentation::SHELL_TOPBAR_H;
@@ -141,10 +148,46 @@ pub(crate) fn motion_of_key(layers: &SurfaceLayers, owner: u32, key: u32) -> Opt
     }
 }
 
+/// The causes the zero line tells apart: every [`Cause`] (the last one today is `Solid`). A
+/// cause past them is never named — the line is an instrument, never a count anything reads.
+const ZERO_CAUSES: usize = Cause::COUNT;
+
+/// The zero line of a rect queued with key `0` — no layer named for it, so it reaches every glass
+/// within its reach (TASK-0351 P19, W4: gpud counts those writes as `zero=`) — at its cause's
+/// 1st, 2nd, 4th, … time with the count: it names who queues key 0 without a line a frame.
+/// Pixel areas and counts only.
+pub(crate) fn zero_line(rect: DamageRect, origin: Origin) -> Option<String> {
+    static SEEN: [AtomicU32; ZERO_CAUSES] = [const { AtomicU32::new(0) }; ZERO_CAUSES];
+    if origin.key != 0 {
+        return None;
+    }
+    let n = SEEN.get(origin.cause as usize)?.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
+    n.is_power_of_two().then(|| {
+        alloc::format!(
+            "windowd: damage zero (px={} cause={} n={n})",
+            rect.area(),
+            origin.cause.name()
+        )
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use alloc::vec::Vec;
+
+    #[test]
+    fn the_zero_line_names_a_key_0_rect_at_its_first_second_and_fourth_time() {
+        let r = DamageRect { x: 4, y: 8, width: 10, height: 20 };
+        assert_eq!(zero_line(r, Origin::of(0x1_0100, Cause::Caret)), None, "a named layer");
+        let said: [bool; 5] =
+            core::array::from_fn(|_| zero_line(r, Origin::unknown(Cause::Caret)).is_some());
+        assert_eq!(said, [true, true, false, true, false]);
+        assert_eq!(
+            zero_line(r, Origin::unknown(Cause::Hidden)).as_deref(),
+            Some("windowd: damage zero (px=200 cause=hidden n=1)")
+        );
+    }
     use nexus_display_proto::client_surface::LayerDesc;
     use nexus_display_proto::surface_layers::{MotionLayerDesc, ScrollLayerDesc, AXIS_VERTICAL};
 

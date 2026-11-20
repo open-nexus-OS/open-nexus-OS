@@ -107,6 +107,16 @@ pub(crate) trait Display {
         false
     }
 
+    /// Whether a present whose ack is deferred has finished reading every client slot once its
+    /// passes waited (RFC-0114 §5): `true` sends windowd the DRAWN notice then, and windowd frees
+    /// the slots before the landing. Every display today composes client slots into its own
+    /// planes, so their reads end at draw. Future direct scanout (TASK-0351 P9) must answer
+    /// `false` for a frame that scans a client slot out: that slot is read until the frame
+    /// replacing it lands — past its own landing, so P9 also owns what frees that slot then.
+    fn reads_done_at_draw(&self) -> bool {
+        true
+    }
+
     /// Every pass of the loop: a display with a flip interrupt drains it and returns the present
     /// whose flip landed — its ack, the compositor's frame clock, and when it reached the glass
     /// (a flip latched while gpud drew lands at the next pass, woken or not). `None` when nothing

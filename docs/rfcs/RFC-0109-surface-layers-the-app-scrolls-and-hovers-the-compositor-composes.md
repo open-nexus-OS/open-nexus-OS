@@ -299,7 +299,13 @@ woken between the motion's start and its end and paints nothing per frame.
   (`Command::LayerTransform`, the window transitions' path, TASK-0336/0338): the planner redraws
   where the layer was and is, and a moving glass keeps its last blur. At rest the layer's parts are
   the surface's own again (the desktop's glass is its own content — no blur for its own change).
-  A window's moving layer rides the window's transform too.
+  A window's moving layer rides the window's transform too. Amended 2026-11-20 (TASK-0354 P4):
+  a layer's own pixels are drawn as the pieces of its rectangle around the LARGEST region it
+  claims that the frame draws, inset by that region's corner radius (`occlude::cut`, at most four);
+  inside the inset only the region draws them, over its back — a claimed glass blurs what lies
+  below the layer, never the layer (the launcher's single pass drew it twice, 10.3 Mpx, 41 ms).
+  The pieces are taken only while the surface's share covers its whole demand (the pieces
+  counted); otherwise the layer is drawn whole — a double draw, never a hole.
 - *In front and backdrop (amendment 2026-11-05).* A layer declared in front — and what is its own:
   its backdrop, the regions and scroll layers it claims, its washes — is drawn after everything
   else of its surface's place in the frame: on the desktop in a pass of its own above the windows,

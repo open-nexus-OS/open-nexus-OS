@@ -338,3 +338,38 @@ fn z_normalization_preserves_order() {
     assert!(s.z_of(WindowId::App(1)) < Z_NORMALIZE_LIMIT);
     assert!(s.z_of(WindowId::App(0)) < Z_NORMALIZE_LIMIT);
 }
+
+#[test]
+fn test_reject_a_raise_of_the_desktop_base() {
+    // TASK-0355 P2: a press on the desktop with windows open raised it — every window was damaged
+    // as one key-0 rectangle. The base is alone in its band: focus only, no order change.
+    let mut s = WindowStack::new(&[WindowId::Desktop, WindowId::App(1), WindowId::App(0)]);
+    s.show(WindowId::Desktop);
+    s.show(WindowId::App(1));
+    s.show(WindowId::App(0));
+    let before = s.order(false);
+    let z = s.z_of(WindowId::Desktop);
+    assert!(!s.raise(WindowId::Desktop));
+    assert_eq!(s.focused(), Some(WindowId::Desktop));
+    assert_eq!(s.order(false), before);
+    assert_eq!(s.z_of(WindowId::Desktop), z);
+}
+
+#[test]
+fn a_raise_behind_a_fullscreen_window_still_reorders_its_band() {
+    let mut s = WindowStack::new(&[WindowId::App(2), WindowId::App(1), WindowId::App(0)]);
+    s.show(WindowId::App(2));
+    s.show(WindowId::App(1));
+    s.show(WindowId::App(0));
+    s.set_fullscreen(WindowId::App(0), true);
+    // App(2) lies under App(1) in the floating band: raising it reorders the band.
+    let bottom = if s.z_of(WindowId::App(2)) < s.z_of(WindowId::App(1)) {
+        WindowId::App(2)
+    } else {
+        WindowId::App(1)
+    };
+    assert!(s.raise(bottom));
+    // Top of its band, under the fullscreen window: raising it again changes nothing.
+    assert!(!s.raise(bottom));
+    assert_eq!(s.focused(), Some(bottom));
+}

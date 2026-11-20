@@ -700,6 +700,10 @@ proves = "TASK-0373: how windowd's hops spread over a second with traffic, the s
 phase = "end"
 proves = "TASK-0373: what one frame's record costs windowd, once after boot"
 
+[marker."windowd: damage zero ("]
+phase = "end"
+proves = "TASK-0351 P19 (W4): a damage rect queued with key 0 (no layer named: it reaches every glass in its reach) named by its cause and pixels at its cause's 1st, 2nd, 4th, … time; a measurement"
+
 [marker."apphost: hops hover ("]
 phase = "end"
 proves = "TASK-0353 P7: of 16 hovers that changed the hovered control, how many asked for a raster — a hover is a layer the compositor fades (RFC-0116), so `rastered=0`; a measurement, judged by the phase gate on the board"

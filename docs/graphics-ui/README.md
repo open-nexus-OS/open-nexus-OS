@@ -5,7 +5,7 @@ role: guide
 subsystem: ui
 sources: [source/services/windowd, source/drivers/gpud, source/services/app-host, userspace/apps/window-kit, source/services/imed, source/services/memd]
 contracts: [RFC-0067, RFC-0108, RFC-0109, RFC-0110, RFC-0113, RFC-0114, ADR-0068, ADR-0069, ADR-0071, ADR-0072, ADR-0075, ADR-0076, ADR-0078, ADR-0083, ADR-0086, ADR-0090, ADR-0092]
-verified: 2026-11-19
+verified: 2026-11-20
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -53,8 +53,8 @@ hidrawd ──HID batch──► inputd ──pointer / keys──► windowd �
 1. windowd asks gpud for the framebuffer (`OP_FRAMEBUFFER_REQUEST`); gpud decides the mode. windowd opens its GPU context with a pipeline library from `tools/nxgpu/` ([display-chain.md](display-chain.md)).
 2. An app creates a surface (`OP_SURFACE_CREATE`); windowd asks gpud for its buffer (`OP_SURFACE_ALLOC`), made for the app's kernel id and charged to it, and moves the capability to the app (`OP_SURFACE_BUFFERS`).
 3. app-host draws into the free slot, cleans the caches over it (`vmo_clean`) and presents it by number (`OP_SURFACE_PRESENT`); no pixel crosses a syscall (`source/services/app-host/src/probe/surface_mem.rs`).
-4. windowd composes by reference — a layer names (buffer, slot, rows) — and sends gpud one present (`OP_PRESENT_DAMAGE`, a serialized `nexus_gfx` command buffer), at most two in flight (`compositor/runtime/gpud.rs`).
-5. gpud's frame planner (`userspace/nexus-gfx/src/frame/`) turns the layers into GPU passes (QEMU's 2D device: the CPU executor) and scans out. Its ack is windowd's frame clock; an app's present is acked once no frame in flight reads its other slot.
+4. windowd composes by reference — a layer names (buffer, slot, rows) — and sends gpud one present (`OP_PRESENT_DAMAGE`, a serialized `nexus_gfx` command buffer), one in flight, one gate.
+5. gpud's frame planner (`userspace/nexus-gfx/src/frame/`) turns the layers into GPU passes (QEMU's 2D device: the CPU executor) and scans out. Its ack is windowd's frame clock; an app's present is acked, and its slot released, once gpud reports the frame drawn.
 
 Scroll physics and hover run in the app; windowd composes declared layers (ADR-0076). The boundary is written atop `source/services/windowd/src/compositor/mod.rs`; leftover UI code in windowd: [../dev/ui/windowd-cleanup-map.md](../dev/ui/windowd-cleanup-map.md).
 

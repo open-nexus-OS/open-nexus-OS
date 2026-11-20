@@ -273,7 +273,21 @@ impl WindowStack {
             return false;
         };
         self.focused = Some(id);
-        if self.is_top(id) && self.entries[i].visible {
+        // The composite order changes only when an on-screen entry of the raised one's band (its
+        // role and fullscreen group) lies above it. The desktop base is alone in its band: a press
+        // on it sets focus and raises nothing (TASK-0355 P2 — every desktop press with windows
+        // open damaged all of them as one key-0 rectangle and re-blurred every glass, 74-89 ms,
+        // board 2026-11-20T12-38-17).
+        let me = &self.entries[i];
+        let band = me.order_key() - i32::from(me.z);
+        let covered = self.entries.iter().any(|w| {
+            w.id != id
+                && w.visible
+                && !w.minimized
+                && w.order_key() - i32::from(w.z) == band
+                && w.order_key() > me.order_key()
+        });
+        if me.visible && !covered {
             return false;
         }
         self.entries[i].z = self.next_z;

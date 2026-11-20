@@ -7,8 +7,9 @@
 //! cross-check against the one mode source), the present ack `[status, seq]` with the time its
 //! frame reached the glass (RFC-0110: a landed flip's boundary, or the time a present acked at
 //! once completed), the 5-byte `[status, magic]` of a cursor reply (a magic no present seq ever
-//! equals), and the bare status byte of a fire-and-forget control op. Split out of `service.rs`
-//! under the module-size ratchet.
+//! equals), the 5-byte DRAWN notice of a present whose ack waits for its landing (RFC-0114 §5:
+//! its reads of client slots are done) and the bare status byte of a fire-and-forget control op.
+//! Split out of `service.rs` under the module-size ratchet.
 //! OWNERS: @ui @runtime
 //! STATUS: Functional
 //! API_STABILITY: Internal
@@ -16,7 +17,8 @@
 use crate::backend::display::{Display, Landed};
 use nexus_display_proto::frame_time::{encode_present_ack_shown, Shown};
 use nexus_display_proto::{
-    encode_attach_ack, encode_present_ack, AttachAck, OP_PRESENT_DAMAGE, OP_SET_FRAMEBUFFER_VMO,
+    encode_attach_ack, encode_present_ack, encode_present_drawn, AttachAck, OP_PRESENT_DAMAGE,
+    OP_SET_FRAMEBUFFER_VMO,
 };
 use nexus_ipc::{KernelServer, Server as _, Wait};
 
@@ -70,6 +72,33 @@ pub(crate) fn send(
     } else {
         let _ = server.send(&[status], Wait::Blocking);
     }
+}
+
+/// After a present's passes waited (RFC-0101 §8): whether its ack waits for the landing — the
+/// display's [`Display::present_ack_deferred`], unchanged. A deferred OK/REVEALED present whose
+/// display reads no client slot past its draw ([`Display::reads_done_at_draw`]) is reported
+/// DRAWN now (RFC-0114 §5), before its ack; a present acked at once needs no notice.
+pub(crate) fn ack_deferred(
+    server: &KernelServer,
+    display: &mut dyn Display,
+    seq: u32,
+    status: u8,
+    received_ns: u64,
+) -> bool {
+    if !display.present_ack_deferred(seq, status, received_ns) {
+        return false;
+    }
+    let ok =
+        matches!(status, nexus_display_proto::STATUS_OK | nexus_display_proto::STATUS_REVEALED);
+    if ok && display.reads_done_at_draw() {
+        send_drawn(server, seq);
+    }
+    true
+}
+
+/// Present `seq`'s reads of client slots are done: `[STATUS_DRAWN, seq]`, never an ack.
+fn send_drawn(server: &KernelServer, seq: u32) {
+    let _ = server.send(&encode_present_drawn(seq), Wait::Blocking);
 }
 
 /// A present whose flip landed (RFC-0101 §8, RFC-0110): its ack, with the frame boundary it

@@ -61,11 +61,24 @@ pub(crate) use crate::damage_rects::DamageRect;
 use crate::damage_rects::{wide_line, Origin, PendingDamage};
 
 /// One rect into the present's pending damage, with the layer that draws it: counted on the loop
-/// line, named when it is a megapixel or more, and counted again when the list was full and it
-/// cost an origin (`degraded`).
+/// line, named when it is a megapixel or more, named by its cause when it has no layer (key 0,
+/// TASK-0351 P19 W4 — every call site queues through here), and counted again when the list was
+/// full and it cost an origin (`degraded`).
+/// A rect the blit path queues names no layer: its zero line (`cause=blit`, TASK-0351 P19 W4) —
+/// the board's key-0 writes came from it, unseen by the queue's line.
+pub(crate) fn note_blit(rect: DamageRect) {
+    let origin = Origin::unknown(crate::damage_rects::Cause::Blit);
+    if let Some(line) = crate::damage_origin::zero_line(rect, origin) {
+        let _ = nexus_abi::debug_println(&line);
+    }
+}
+
 pub(crate) fn queue(pending: &mut PendingDamage, rect: DamageRect, origin: Origin) {
     super::frame_causes::queued(rect.area());
     if let Some(line) = wide_line(rect, origin) {
+        let _ = nexus_abi::debug_println(&line);
+    }
+    if let Some(line) = crate::damage_origin::zero_line(rect, origin) {
         let _ = nexus_abi::debug_println(&line);
     }
     if pending.queue(rect, origin) {

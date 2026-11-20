@@ -27,8 +27,41 @@ use alloc::vec::Vec;
 
 use super::damage::Area;
 use super::layers::FrameLayer;
-use super::plan::Holds;
 use super::reach::{GlassAt, GLASS_REACH};
+
+/// The hold's decisions over a plan's glasses (`Frame::plan`, `gpud: glass holds (`), counted
+/// by the reason that decided — counters beside the rule, never an input to it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Holds {
+    /// Held: read from the rows its blur was kept in.
+    pub held: u16,
+    /// Not held: nothing in motion — its own window rests and no mover lies within its reach.
+    pub rest: u16,
+    /// Not held: the movers below it travelled past its blur radius.
+    pub drift: u16,
+    /// Not held: held `HOLD_MAX` plans in a row.
+    pub bound: u16,
+    /// Not held: no rows to keep — a full present, no rows yet, or rows of another rectangle.
+    pub full: u16,
+    /// Of the held: made to owe the whole glass by a change made while the layers below it are
+    /// displaced (`Changes::foreign`) — the write after the hold is whole for it.
+    pub foreign: u16,
+}
+
+impl Holds {
+    /// No glass decided yet.
+    pub const NONE: Self = Self { held: 0, rest: 0, drift: 0, bound: 0, full: 0, foreign: 0 };
+
+    /// `other`'s decisions added (a window of plans).
+    pub fn add(&mut self, other: Self) {
+        self.held = self.held.saturating_add(other.held);
+        self.rest = self.rest.saturating_add(other.rest);
+        self.drift = self.drift.saturating_add(other.drift);
+        self.bound = self.bound.saturating_add(other.bound);
+        self.full = self.full.saturating_add(other.full);
+        self.foreign = self.foreign.saturating_add(other.foreign);
+    }
+}
 
 /// The plans a glass is held in a row before it pays what it owes.
 pub(super) const HOLD_MAX: u8 = 64;

@@ -7,12 +7,17 @@
 //! This replaces the in-flight LEASE: `frames_in_flight` used to be a counter that any 5-byte
 //! `STATUS_OK` reply decremented, with a wall-clock lease that reset it to zero when acks went
 //! quiet — a "credit without evidence" path that could never tell a lost ack from a slow one.
+//! Beside the ack, gpud reports a present DRAWN when its reads of client slots are done
+//! (RFC-0114 §5, TASK-0355 P2): the READ floor — every present up to it drawn or acked — is when
+//! a client's other slots are free; the ack stays the frame clock and the in-flight gate, and a
+//! drawn notice is never a completion (`is_frame_completion`).
 //! OWNERS: @ui @runtime
 //! STATUS: Production (host-tested)
 //! API_STABILITY: Internal
-//! TEST_COVERAGE: unit tests below (`cargo test -p windowd`). A crate-root module like
-//! `presentation_state`: the compositor is OS-only, and a negative test that never compiles
-//! proves nothing.
+//! TEST_COVERAGE: unit tests below and `present_acks_tests.rs` (the read floor, the drawn
+//! notice's rejects, its release through the slot ledger) — `cargo test -p windowd`. A crate-root
+//! module like `presentation_state`: the compositor is OS-only, and a negative test that never
+//! compiles proves nothing.
 
 /// Presents that may be outstanding at once (RFC-0093 §5: "window ≤ 64 outstanding").
 pub(crate) const WINDOW: usize = 64;
@@ -55,14 +60,21 @@ impl RevealGate {
     }
 }
 
-/// What an ack did.
+/// Whether a gpud reply is a display-ring COMPLETION — the compositor loop's frame clock
+/// (TASK-0324 P7-c): every reply but a drawn notice, which says only that a present's reads are
+/// done (RFC-0114 §5) — it never ticks an animation, flushes a pulse or moves the clock.
+pub(crate) fn is_frame_completion(reply: &[u8]) -> bool {
+    nexus_display_proto::decode_present_drawn(reply).is_none()
+}
+
+/// What an ack (or a drawn notice) did.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Verdict {
-    /// The seq was outstanding: one credit returned.
+    /// The seq was outstanding (undrawn, for a drawn notice): credited once.
     Credited,
-    /// The seq was never issued, or lies outside the window.
+    /// The seq was never issued, lies outside the window, or before the last reset.
     Unknown,
-    /// The seq was issued and already acked once.
+    /// The seq was issued and already acked once (or reported drawn, or acked, before).
     Duplicate,
 }
 
@@ -74,6 +86,9 @@ pub(crate) struct PresentWindow {
     /// Bit `i` set ⇔ seq `base + i` is outstanding, where `base = last_issued − WINDOW + 1`
     /// clamped to 1. Presents older than the window are, by construction, acked or lost.
     outstanding: u64,
+    /// Same bit layout: seq `base + i` is neither reported drawn nor acked — a frame that may
+    /// still read the slots it names. A subset of `outstanding` (the ack clears both).
+    undrawn: u64,
     /// Seqs at or below this were issued before the last client reset: nothing on a client
     /// that is gone can be acked, so an ack for them is `Unknown` — never a stale credit.
     floor: u32,
@@ -87,6 +102,7 @@ impl PresentWindow {
         Self {
             last_issued: 0,
             outstanding: 0,
+            undrawn: 0,
             floor: 0,
             reveal_requested: false,
             reveal_seen: false,
@@ -116,8 +132,8 @@ impl PresentWindow {
             return None;
         }
         let seq = self.next_seq();
-        self.outstanding <<= 1;
-        self.outstanding |= 1;
+        self.outstanding = (self.outstanding << 1) | 1;
+        self.undrawn = (self.undrawn << 1) | 1;
         self.last_issued = seq;
         Some(seq)
     }
@@ -140,6 +156,22 @@ impl PresentWindow {
             return Verdict::Duplicate;
         }
         self.outstanding &= !bit;
+        self.undrawn &= !bit;
+        Verdict::Credited
+    }
+
+    /// Apply gpud's drawn notice for `seq` (RFC-0114 §5): its reads are done. Credited once, only
+    /// for an outstanding undrawn present; never touches the in-flight gate or `retired()` — the
+    /// ack stays the frame clock.
+    pub(crate) fn drawn(&mut self, seq: u32) -> Verdict {
+        let Some(age) = self.slot(seq) else {
+            return Verdict::Unknown;
+        };
+        let bit = 1u64 << age;
+        if self.undrawn & bit == 0 {
+            return Verdict::Duplicate;
+        }
+        self.undrawn &= !bit;
         Verdict::Credited
     }
 
@@ -152,15 +184,29 @@ impl PresentWindow {
         self.last_issued
     }
 
-    /// The newest present every present up to which has been acked — its frame and all before
-    /// it are read no more (RFC-0114 §5: a slot no later frame read is free). With nothing
-    /// outstanding, and after a reset, the last issued.
+    /// The newest present every present up to which has been acked (landed). With nothing
+    /// outstanding, and after a reset, the last issued. The runtime releases at the read floor
+    /// (`read_floor`); this ack floor is the tests' oracle that the read floor never falls below
+    /// it.
+    #[cfg(test)]
     pub(crate) fn retired(&self) -> u32 {
-        if self.outstanding == 0 {
+        self.floor_below(self.outstanding)
+    }
+
+    /// The READ floor (RFC-0114 §5): the newest present every present up to which gpud reported
+    /// drawn or acked — no frame up to it reads a client slot any more. With nothing undrawn, and
+    /// after a reset, the last issued. Never below `retired()` (`undrawn ⊆ outstanding`).
+    pub(crate) fn read_floor(&self) -> u32 {
+        self.floor_below(self.undrawn)
+    }
+
+    /// The present just before the oldest one set in `mask`; with none set, the last issued.
+    fn floor_below(&self, mask: u64) -> u32 {
+        if mask == 0 {
             return self.last_issued;
         }
-        // The oldest outstanding present is the highest set bit's age.
-        let oldest_age = 63 - self.outstanding.leading_zeros();
+        // The oldest present set is the highest set bit's age.
+        let oldest_age = 63 - mask.leading_zeros();
         self.last_issued.wrapping_sub(oldest_age).wrapping_sub(1)
     }
 
@@ -184,9 +230,14 @@ impl PresentWindow {
     /// climbing; nothing is ever reused.
     pub(crate) fn reset(&mut self) {
         self.outstanding = 0;
+        self.undrawn = 0;
         self.floor = self.last_issued;
     }
 }
+
+#[cfg(test)]
+#[path = "present_acks_tests.rs"]
+mod read_floor_tests;
 
 #[cfg(test)]
 mod tests {

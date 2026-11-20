@@ -29,9 +29,9 @@ phases:
     note: "2026-11-19 board board--2026-11-19T22-09-42: the instrument works on all three processes, cost 4-7 us a frame. Outliers = windowd stamped sent AFTER the non-blocking send (gpud stamped its receipt first): fixed, sent stamped before the send (compositor/runtime/gpud.rs). Decoder fixes: gap = span - hops (waits are inside the hops), windowd measured against gpud rx with its hops up to sent, no windowd gap without a gpud record. Done when the next cycle shows every joined frame >= 95 % named and --check green."
   - id: P2
     story: "the time a frame's thread was runnable but did not run is named: the kernel counts, per task, the time runnable and the time blocked, and the hop line shows it instead of a gap"
-    state: blocked
+    state: planned
     gate: "RFC seed first (a kernel counter read by userspace); host: the counter's tests; board: nx hops names run-queue time per slow frame, the gap below 5 %"
-    note: "2026-11-20: needs its RFC seed first (a new kernel count per task, CLAUDE.md workflow 2) — the next package decides when"
+    note: "2026-11-20: needs its RFC seed first (a new kernel count per task, CLAUDE.md workflow 2) — the next package decides when 2026-11-20 backlog: the RFC seed is its first step, not a blocker (the earlier 'blocked' only satisfied the old rule 8)."
 ---
 
 <!-- `nx ledger new task` copies everything below this line; the frontmatter above shows the

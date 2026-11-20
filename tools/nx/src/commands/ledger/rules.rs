@@ -279,16 +279,19 @@ fn task_rules(doc: &Doc, out: &mut Vec<String>) {
                 ));
             }
         }
-        // Rule 8: the work in progress is always in a phase the board can show — a planned phase
-        // waits while none is open. Every phase finished is the closing, not a gap.
+        // Rule 8: an in_progress task has started — a phase done or open. A started task whose
+        // rest all waits is paused: its planned phases are the backlog, and the board shows only
+        // what is built, proved or blocked (operator, 2026-11-20: the old rule — an open phase
+        // whenever one waits — made sessions park placeholder `building`/`blocked` states).
         fn state_of(p: &[(String, Value)]) -> &str {
             get_text(p, "state").unwrap_or("planned")
         }
-        let open = phases.iter().any(|p| OPEN_PHASE.contains(&state_of(p)));
-        let waiting = phases.iter().any(|p| state_of(p) == "planned");
-        if status == "in_progress" && waiting && !open {
+        let started = phases
+            .iter()
+            .any(|p| matches!(state_of(p), "done") || OPEN_PHASE.contains(&state_of(p)));
+        if status == "in_progress" && !phases.is_empty() && !started {
             out.push(String::from(
-                "an in_progress task with a planned phase needs one in building, proving or blocked (rule 8): start the next phase",
+                "an in_progress task has started: a phase done, building, proving or blocked (rule 8) — else it is a draft",
             ));
         }
         // Rule 9: the consumer is something the gate can look up, never the task itself.

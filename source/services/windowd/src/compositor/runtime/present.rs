@@ -333,6 +333,7 @@ impl DisplayServerRuntime {
     /// (translate_x, opacity) changed. Plane 1 is already current — no CPU
     /// recomposite. The rect still needs a display-plane refresh from Plane 1.
     pub(super) fn queue_gpu_blit_rect(&mut self, rect: DamageRect) {
+        crate::compositor::damage::note_blit(rect);
         self.note_frame_owed();
         self.pending_gpu_blit_rect = Some(match self.pending_gpu_blit_rect {
             Some(existing) => existing.merge(rect),

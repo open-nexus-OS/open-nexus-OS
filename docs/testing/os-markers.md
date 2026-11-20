@@ -5,7 +5,7 @@ role: reference
 subsystem: devx
 sources: [source/apps/selftest-client/proof-manifest/markers, source/apps/selftest-client/proof-manifest/phases.toml, tools/nx/chains/markers.txt, scripts/qemu-test.sh, scripts/check-chain-markers.sh, config/fail-marker-allow.txt, config/fail-marker-allow-mttcg.txt]
 contracts: [RFC-0013, RFC-0014, RFC-0038, RFC-0108]
-verified: 2026-11-18
+verified: 2026-11-20
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -46,9 +46,9 @@ verified: 2026-11-18
 | 9 | `vfs` | 29 | vfs.toml |
 | 10 | `net` | 80 | net.toml |
 | 11 | `remote` | 21 | remote.toml |
-| 12 | `end` | 207 | board.toml, end.toml, ui.toml, usb.toml |
+| 12 | `end` | 209 | board.toml, end.toml, ui.toml, usb.toml |
 
-1301 markers in 15 files.
+1303 markers in 15 files.
 <!-- /gen:markers -->
 
 ## Declaring a marker
@@ -105,13 +105,15 @@ Check a chain group against any log: `just check-markers build/logs/<run>/uart.l
   clock read between a row's stages — the ground fill, the boxes, the text runs, the straight-alpha
   conversion — each sum stated with the clock reads taken off (`clock_ns` a read, one per row and
   stage). No rung names it.
+  `windowd: damage zero (… cause=blit …)` and `gpud: glass rest misses (… band=)` are measurements too, in the proof manifest's
+  `ui` and `board` files; no rung names them.
 - **Chain hops** — `<svc>: chain <X><n> …`, once per boot per hop, in groups the contract names
   (`input-route` I5–I6, `input-live` I1–I2, `input-chord` K1–K4: a keyboard chord from hidrawd
   through inputd to windowd on the key channel). A `hops` line times a hop with numbers only, e.g.
   `inputd: hops chord (code= report>push=`, `windowd: hops input (staged>applied=`,
   `apphost: hops motion (pulse>sent= ticks= paint_us= rows= px= tokens=`,
   `apphost: hops hover (n= rastered=` (hovers that changed the control, how many asked for a
-  raster — a hover is motion, so 0); RFC-0108 §hops lists them all. On the board the
+  raster — a hover is motion, so 0); RFC-0108 §hops lists them all. A slow frame in app-host, windowd or gpud prints its record once when the process is idle (`<svc>: hops one/hist/cost`); `nx hops <uart.log>` joins them into one timeline per frame. On the board the
   last hop present names where a human's input stopped.
 - **Judged measurement** (RFC-0108) — `<service>: ux <name> <ok|warn|FAIL> (… budget_<unit>=<n>)`.
   Budgets live only in `source/libs/nexus-ux-budgets/src/lib.rs`; the rung is the prefix

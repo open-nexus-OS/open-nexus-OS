@@ -193,9 +193,21 @@ constraints and hand the client a capability to the memory.
   when windowd holds its ack. windowd's retired floor is the newest frame with no older frame
   still in flight (an ack out of order retires nothing past the oldest outstanding; a lost gpud
   retires everything). No field is added to the ack.
+- **Drawn** (amended 2026-11-20, TASK-0355 P2): a frame's reads end before it lands — on the
+  board when its last pass waited (the scanout reads gpud's own ring plane, never a client slot).
+  gpud reports that point on the same reply route as its own 5-byte frame `[STATUS_DRAWN, seq]`
+  (`nexus-display-proto`: `encode_present_drawn` / `decode_present_drawn`; `decode_present_ack`
+  refuses it, so no reader takes it for an ack), sent only for a present whose ack waits for its
+  landing, once its passes waited and its backend says its reads are done
+  (`Display::reads_done_at_draw`, false for a future direct scanout of a client slot). windowd
+  keeps a **read floor** beside the retired floor: the newest frame such that every frame up to
+  it is drawn or acked. A drawn notice is never a completion — the ack stays the frame clock,
+  the in-flight gate and the retirement of everything else. Measured cause (board
+  2026-11-20T10-20-46): 98 % of an app's input→dispatch hop (p50 29.8 ms) was this credit,
+  released at the landing 10.5-16 ms after gpud stopped reading.
 - windowd records, per frame, the slots it referenced (at the send, with the frame's seq). A
   slot is **free** when it is not its surface's latest presented slot and every frame that
-  referenced it has retired. windowd sends present `n`'s ack when the surface's other slots are
+  referenced it is drawn or retired (the read floor). windowd sends present `n`'s ack when the surface's other slots are
   free — at once when they already are, else on the gpud ack that frees them — and names the
   wait on its loop line (`work(released= held_us_max=)`).
 - A surface its client destroyed owes no ack; a present to it is refused (`BAD_SURFACE`) — it is

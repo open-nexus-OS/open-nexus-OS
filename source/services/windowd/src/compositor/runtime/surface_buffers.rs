@@ -5,7 +5,8 @@
 //! makes it for the app (`OP_SURFACE_ALLOC`: the app's kernel id is the owner, charged for it),
 //! windowd moves its capability to the app with the create's answer (`OP_SURFACE_BUFFERS`), the
 //! frames name the surface's buffer and newest slot, and a present's ack — the release — leaves
-//! once no frame still in flight reads any other slot (`release_presents`). A surface its client
+//! once every frame that read another slot is drawn or acked (`release_presents` at the read
+//! floor: gpud's drawn notice, RFC-0114 §5, comes before the landing). A surface its client
 //! dropped shows its last frame until its successor presents (a resize never flashes an empty
 //! window); then its buffer goes back (`OP_SURFACE_FREE`: gpud unbinds it once the last frame
 //! that read it retired). windowd never waits on gpud (ADR-0075): a request its queue cannot
@@ -342,7 +343,7 @@ impl DisplayServerRuntime {
         self.buffers.frame_reads.clear();
     }
 
-    /// The frame left for gpud as present `seq`: what it reads is read until `seq` retired.
+    /// The frame left for gpud as present `seq`: what it reads is read until `seq` is drawn.
     pub(super) fn frame_reads_sent(&mut self, seq: u32) {
         let reads = core::mem::take(&mut self.buffers.frame_reads);
         if let Some(&first) = reads.first() {
@@ -380,13 +381,14 @@ impl DisplayServerRuntime {
         self.note_covered();
     }
 
-    /// The release (RFC-0114 §5): every present whose other slots no frame in flight reads any
-    /// more is acked to its client now — the client draws its next frame into one of them.
+    /// The release (RFC-0114 §5): every present whose other slots no frame reads any more —
+    /// each that read them drawn or acked, the read floor — is acked to its client now; the
+    /// client draws its next frame into one of them.
     pub(super) fn release_presents(&mut self) {
-        let retired = self.presents.retired();
+        let read_floor = self.presents.read_floor();
         let mut due = core::mem::take(&mut self.buffers.releases);
         due.clear();
-        self.client_surfaces.take_releases(retired, &mut due);
+        self.client_surfaces.take_releases(read_floor, &mut due);
         let now = nexus_abi::nsec().unwrap_or(0);
         for &(id, seq, since) in &due {
             crate::compositor::frame_causes::work_release(now.saturating_sub(since) / 1000);

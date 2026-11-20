@@ -1,11 +1,12 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! A key miss is a band (TASK-0351 P6, C-c): a glass whose rows were current one plan ago and
-//! whose key changed only through the layers below it — one drawn otherwise, one that came or
-//! went, layers that swapped their order — blurs where those layers were and are within its
-//! reach, never the whole glass. The first write after a hold, a new wallpaper and a change of
-//! the glass itself stay whole. The rows against a full re-blur: `frame_reach_oracle.rs`.
+//! A key miss is a band (TASK-0351 P6, C-c): a glass whose rows were blurred from the same base
+//! and whose key changed only through the layers below it — one drawn otherwise, one that came
+//! or went, layers that swapped their order — blurs where those layers were and are within its
+//! reach, never the whole glass. A new wallpaper, a change of the glass itself and a write after
+//! a hold some plan did not follow stay whole (the hold's band, C-r: `frame_rest_band.rs`). The
+//! rows against a full re-blur: `frame_reach_oracle.rs`.
 
 #[path = "frame_support.rs"]
 mod support;
@@ -111,14 +112,17 @@ fn a_key_miss_from_a_layer_that_came_or_went_writes_its_extent() {
 }
 
 #[test]
-fn test_reject_a_band_for_the_first_write_after_a_hold() {
-    // The window below moves by its transform (the pane is held), then rests where it went:
-    // the write after the hold is the whole glass — the rows missed what the hold kept.
+fn test_reject_a_band_for_the_first_write_after_a_hold_a_plan_did_not_follow() {
+    // The window below moves by its transform (the pane is held), but one plan of the hold
+    // plans no glass (the executor's cache was not ready): nothing followed what changed below
+    // the pane there, so the write after the hold is the whole glass (C-r's band is the
+    // `frame_rest_band.rs` case without the gap).
     let mut f = ready_frame(4096);
     present(&mut f, &[base(), window(100, 320), pane()]);
     for dx in 1..=8 {
+        f.glass.ready = dx != 4;
         let p = present(&mut f, &[transform(1, dx), no_damage()]);
-        assert_eq!((p.writes.total(), p.holds.held), (0, 1), "held at {dx}");
+        assert_eq!((p.writes.total(), p.holds.held), (0, u16::from(dx != 4)), "held at {dx}");
     }
     let p = present(&mut f, &[transform(1, 0), base(), window(108, 320), pane(), no_damage()]);
     let g = glass_of(&f, 2);

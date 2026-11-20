@@ -580,3 +580,8 @@ emit_when = { profile = "board-headless" }
 phase = "end"
 proves = "TASK-0373 / TASK-0351 P6: per 32 frames the glasses held through a motion, the rest writes, the drift and bound ends and the whole writes — the planner's hold counted, never changed"
 emit_when = { profile = "board-headless" }
+
+[marker."gpud: glass rest misses ("]
+phase = "end"
+proves = "TASK-0351 P19 (W5): per 32 frames the glass writes that end a hold with a key miss, by the first print that differs from the rows' — layers came or went, only its own window's moved, another window's moved, drawn otherwise, a new wallpaper; a measurement, the planner counted, never changed"
+emit_when = { profile = "board-headless" }

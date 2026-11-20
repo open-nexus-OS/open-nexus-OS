@@ -176,11 +176,80 @@ pub(crate) fn holder(tree: &SurfaceTree, r: (u32, u32, u32, u32)) -> Option<usiz
     })
 }
 
+/// Most pieces a motion layer's own pixels are drawn in ([`own_pieces`]).
+pub(crate) const OWN_PIECES: usize = 4;
+const _: () = assert!(OWN_PIECES == 4, "occlude::cut leaves at most four bands");
+
+/// A motion layer's own pixels (`whole`, surface coordinates) as the pieces around the LARGEST
+/// region it claims that this frame draws (`claimed`: its rectangle and corner radius), inset by
+/// that radius — inside the inset only the region draws the pixels, over its back (RFC-0109
+/// §Contract, amended 2026-11-20, TASK-0354 P4: the launcher's single pass drew the layer twice,
+/// below and in the region — five layers deep, 10.3 Mpx, 41 ms — and the panel's frost blurred
+/// itself). The inset keeps the rounded corners drawn by the pieces, so a scale shows no hole.
+/// Without a claimed region (or one thinner than its corners) the layer is one whole piece.
+pub(crate) fn own_pieces(
+    whole: (u32, u32, u32, u32),
+    claimed: impl Iterator<Item = ((u32, u32, u32, u32), u32)>,
+) -> ([Option<(u32, u32, u32, u32)>; OWN_PIECES], usize) {
+    let largest = claimed.max_by_key(|((_, _, w, h), _)| u64::from(*w) * u64::from(*h));
+    let inset = largest.and_then(|((x, y, w, h), r)| {
+        // Lazily: a region thinner than its corners has no inset (and would underflow).
+        (w > 2 * r && h > 2 * r).then(|| (x + r, y + r, w - 2 * r, h - 2 * r))
+    });
+    let cut = nexus_gfx::frame::occlude::cut(whole, inset);
+    let mut out = [None; OWN_PIECES];
+    let mut n = 0;
+    for p in cut.into_iter().flatten() {
+        out[n] = Some(p);
+        n += 1;
+    }
+    (out, n)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     const MS: u64 = 1_000_000;
+
+    fn area(p: (u32, u32, u32, u32)) -> u64 {
+        u64::from(p.2) * u64::from(p.3)
+    }
+
+    #[test]
+    fn test_reject_a_piece_inside_the_claimed_inset() {
+        let whole = (100, 50, 400, 300);
+        let (pieces, n) = own_pieces(whole, [((120, 60, 360, 280), 16)].into_iter());
+        let inset = (136, 76, 328, 248);
+        assert_eq!(n, 4);
+        for p in pieces.iter().flatten() {
+            assert!(!nexus_gfx::frame::occlude::intersects(*p, inset), "{p:?} inside the inset");
+        }
+    }
+
+    #[test]
+    fn a_scaled_layer_and_its_region_leave_no_gap() {
+        // The pieces and the inset tile the layer exactly: every pixel once, none twice.
+        let whole = (0, 0, 782, 582);
+        let (pieces, n) = own_pieces(whole, [((10, 10, 762, 562), 24)].into_iter());
+        let inset = area((34, 34, 714, 514));
+        assert_eq!(pieces.iter().flatten().map(|p| area(*p)).sum::<u64>() + inset, area(whole));
+        assert!(n <= OWN_PIECES);
+        // The largest claimed region decides; a small one changes nothing.
+        let (_, m) = own_pieces(whole, [((10, 10, 762, 562), 24), ((5, 5, 20, 20), 2)].into_iter());
+        assert_eq!(m, n);
+    }
+
+    #[test]
+    fn test_reject_a_cut_by_a_region_not_drawn() {
+        // No claimed region drawn this frame (the encoder passes none): the layer whole.
+        let whole = (100, 50, 400, 300);
+        let (pieces, n) = own_pieces(whole, core::iter::empty());
+        assert_eq!((n, pieces[0]), (1, Some(whole)));
+        // A region thinner than its corners cuts nothing either.
+        let (pieces, n) = own_pieces(whole, [((100, 50, 30, 300), 16)].into_iter());
+        assert_eq!((n, pieces[0]), (1, Some(whole)));
+    }
 
     /// A sheet sliding up 16 px from transparent over 400 ms (`slideUp`: the design's entrance
     /// curve, a fast arrival and a long settle).

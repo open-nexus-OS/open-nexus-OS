@@ -368,11 +368,14 @@ fn a_glass_scaling_in_is_written_once_at_its_rest_rectangle() {
 #[test]
 fn a_glass_over_a_layer_of_its_own_window_is_blurred_again_at_rest() {
     // The window's own body below its glass was blurred as the first frame drew it — scaled:
-    // the rows are not the rest state's, and the one write at rest is the whole glass.
+    // the rows are not the rest state's, and the one write at rest is where the body was drawn
+    // through the hold (C-r) — its rest rectangle, the glass's own: all of the glass.
     let body = with(layer(1500, 40, 352, 566), |l| (l.layer_id, l.key) = (9, 0x9_0001));
     let (writes, reads, f, p) = scale_in(&[base(), body], None);
     assert_eq!((writes, reads), (2, 16));
-    assert_eq!((glass_of(&f, 2).band, p.writes.backdrop, p.by.rest), (Area::Full, 1, 1));
+    let all = Area::rect(1500, 40, 352, 566);
+    assert_eq!((glass_of(&f, 2).band, p.writes.backdrop, p.by.rest), (all, 1, 1));
+    assert_eq!((p.writes.backdrop_band, p.by.misses.band), (1, 0), "as wide as the glass");
 }
 
 #[test]

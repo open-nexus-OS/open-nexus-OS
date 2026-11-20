@@ -5,7 +5,7 @@ title: "The top bar and the launcher answer at once — the tap's feedback and t
 status: in_progress
 owner: ["@ui"]
 created: 2026-11-03
-updated: 2026-11-19
+updated: 2026-11-20
 subsystem: ui
 components: [desktop-shell, app-host, windowd]
 kind: ui
@@ -44,11 +44,11 @@ phases:
     note: "re-measured on the board 2026-11-05T13-12-18 after TASK-0354 P2: a panel's open costs one layer raster in app-host (Control Center 486 ms, launcher 599 ms, a top-bar panel 283 ms), now the dominant hop ahead of gpud's frame (TASK-0351 P5/P6); the operator put TASK-0353 first BOARD build/logs/board--2026-11-19T10-18-04 (2026-11-19, windowd: motion layer tap_us — new instrument): tap to the transition's first frame p50 61 ms over 27 opens, 9 at or below 50 ms, max 493 ms; the big launcher 104-116 ms (its layer raster 35 ms + GPU passes, TASK-0351 P6). Before the package the shell's opens painted the whole base (800 rows) and re-created the desktop's surface (0.3-0.45 s). 2026-11-19 DONE (board--2026-11-19T15-50-37): the dominant hop (gpud's frame) cut by the damage origin package (TASK-0351 P6/P15, TASK-0343 P7 measurement)."
   - id: P2
     story: "the top bar and the launcher open and page without a hitch"
-    state: blocked
+    state: planned
     gate: "board: tap to frame <= 50 ms; 0 of 32 frames dropped on every open and on paging"
     started: 2026-11-19
     evidence: "board board--2026-11-19T12-13-37: paging 18 drags, every glide 500 ms rastered=0 (the paging half holds); tap to open p50 58 ms max 502 ms (n=36; regression guard p50 <= 61 ms holds, the 50 ms gate not); 3-14 of 32 frames dropped per open (gpud dc present avg 24.9 ms)"
-    note: "2026-11-19: judged in the motion package's board cycle (launcher paging with the rubber band, TASK-0354 P12). 2026-11-19 blocked: paging costs no raster (TASK-0354 P12), but tap to frame p50 58 ms > 50 and every open drops 3-14 of 32 frames: the GPU glass/blur passes (TASK-0351 P6) and the open path, not paging. Unblocks with TASK-0351 P6. 2026-11-19 (board--2026-11-19T15-50-37, after the damage origin): tap p50 48.5 ms over 70 opens (the 50 ms half holds); every open still drops frames — 105 ok / 16 warn / 58 FAIL windows, transitions show 8-9 of 17 frames: one glass write per dropped frame (~15 ms each, glass_w 11-17 per 32 frames). Stays blocked on TASK-0351 P6."
+    note: "2026-11-19: judged in the motion package's board cycle (launcher paging with the rubber band, TASK-0354 P12). 2026-11-19 blocked: paging costs no raster (TASK-0354 P12), but tap to frame p50 58 ms > 50 and every open drops 3-14 of 32 frames: the GPU glass/blur passes (TASK-0351 P6) and the open path, not paging. Unblocks with TASK-0351 P6. 2026-11-19 (board--2026-11-19T15-50-37, after the damage origin): tap p50 48.5 ms over 70 opens (the 50 ms half holds); every open still drops frames — 105 ok / 16 warn / 58 FAIL windows, transitions show 8-9 of 17 frames: one glass write per dropped frame (~15 ms each, glass_w 11-17 per 32 frames). Stays blocked on TASK-0351 P6. 2026-11-20 package A: the gate was red, not blocked — cycle 4 panel taps 61-83 ms (gate <= 50); the trace names app-host's in>disp one blocking wait 26-36 ms as the tap's largest hop. 2026-11-20 board--2026-11-20T12-38-17 (W1 credit at drawn): app-host credit wait on tap frames p50 30.6 → 0 ms, in>disp 26-36 → 2.5-3 ms, slow app frames 19 → 5 bare / 85 → 16 loaded, 0 FAIL present drawn; panel taps 61-83 → 50-84 ms (gate <= 50 not yet): the tap now waits in windowd (owed>scene p50 30-32 ms for its one slot) behind frames whose GPU time passes a period (sub>gpu p50 17-21 ms on slow frames). 2026-11-20 board--2026-11-20T15-34-30 (D2 desktop never raised, D1 pieces, D3 rest band): panel taps 50-84 → 46-57 ms (six of seven panel kinds <= 50, one at 57), fullscreen launcher 99 → 88 ms; drops 9.9 → 6.5 %; operator: 'fühlt sich alles gut an'. Gate (<= 50 ms and 0 of 32 dropped on every open) not reached in full."
 ---
 
 ## The ask

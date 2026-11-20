@@ -6,7 +6,7 @@ status: in_progress
 status_note: "Phase 1 delivered 2026-08-25 as OTA-lane package 1; Phases 2+ open behind TASK-0197"
 owner: ["@security"]
 created: 2025-12-27
-updated: 2026-11-13
+updated: 2026-11-20
 subsystem: updates
 started: 2025-12-27
 dates_source: git-reconstructed
@@ -35,9 +35,9 @@ phases:
     evidence: "build/logs/reset--2026-08-25T13-44-37 (pruned; recorded in the task body, just test-all EXIT=0)"
   - id: P2
     story: "the device enforces the signature chain, the transparency log's inclusion and the provenance of what it installs, and a rotation record extends the baked publishers"
-    state: blocked
+    state: planned
     gate: "host core from TASK-0197 first; QEMU: SELFTEST markers for a reject of a bundle without inclusion proof and of an unrotated key (test_reject_*), named with TASK-0197's contract"
-    note: "behind TASK-0197 (draft, the host core: sigchain, translog, SBOM, provenance)"
+    note: "behind TASK-0197 (draft, the host core: sigchain, translog, SBOM, provenance) 2026-11-20 backlog (operator: blocked and not worked on = backlog); still needs TASK-0197 first."
 ---
 
 ## Phase 1 DELIVERED 2026-08-25 (test-all green; lane package 1)

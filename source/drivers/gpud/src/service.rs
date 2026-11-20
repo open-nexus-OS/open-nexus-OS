@@ -448,8 +448,8 @@ fn service_requests(
                         let status =
                             crate::reply::present_status(display, status, seq, &mut reveal);
                         // RFC-0101 §8: a display with a ring acks the present when its flip
-                        // lands (`vblank_wake` at the loop's top), never before.
-                        if display.present_ack_deferred(seq, status, received_ns) {
+                        // lands (`vblank_wake`), never before — and reports it DRAWN now.
+                        if crate::reply::ack_deferred(&server, display, seq, status, received_ns) {
                             continue;
                         }
                         (status, Some(seq))

@@ -48,6 +48,8 @@ pub use readback::{OP_READBACK, READBACK_FREEZE};
 /// RFC-0109 §motion layers: a declared layer the compositor moves (TASK-0354 P2).
 pub mod motion_layer;
 /// Screen capture on windowd's surface endpoint + the capture-key push (RFC-0095).
+pub mod present_drawn;
+pub use present_drawn::{decode_present_drawn, encode_present_drawn};
 pub mod present_parts;
 pub mod surface_capture;
 /// RFC-0113 §5: the focused field's caret, drawn and blinked by the compositor.
@@ -261,6 +263,8 @@ pub const STATUS_REFUSED: u8 = 6;
 /// No room: a surface object past the GPU share's ceiling or its owner's limit
 /// ([`surface_alloc`], RFC-0114 §2).
 pub const STATUS_QUOTA: u8 = 7;
+/// Not an ack: present `seq`'s reads of client slots are done ([`present_drawn`], RFC-0114 §5).
+pub const STATUS_DRAWN: u8 = 8;
 
 // ── Cursor-upload reply magics (reply u32 at bytes [1..5]) ───────────────────
 //
@@ -352,10 +356,11 @@ pub fn encode_present_ack(status: u8, seq: u32) -> [u8; PRESENT_ACK_LEN] {
 }
 
 /// Decode a present ack → `(status, seq)`; `None` when the frame cannot carry a
-/// seq — an ack WITHOUT a seq can never be credited (RFC-0093 §5).
+/// seq — an ack WITHOUT a seq can never be credited (RFC-0093 §5) — and for a drawn notice,
+/// which is never an ack ([`present_drawn`]).
 #[must_use]
 pub fn decode_present_ack(frame: &[u8]) -> Option<(u8, u32)> {
-    if frame.len() < PRESENT_ACK_LEN {
+    if frame.len() < PRESENT_ACK_LEN || frame[0] == STATUS_DRAWN {
         return None;
     }
     Some((frame[0], u32::from_le_bytes([frame[1], frame[2], frame[3], frame[4]])))

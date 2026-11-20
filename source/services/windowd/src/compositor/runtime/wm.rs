@@ -366,3 +366,21 @@ impl DisplayServerRuntime {
         self.set_cursor_shape(shape);
     }
 }
+
+impl DisplayServerRuntime {
+    /// A window's band was reordered (`WindowStack::raise`): a structure change (RFC-0101 §8).
+    /// Where the GPU composes the present carries the new order and the planner redraws the
+    /// overlap — no rect is named; the CPU path blits every window again, as before. The GPU path
+    /// once queued all windows as one key-0 box and every glass in it blurred again (TASK-0355 P2).
+    pub(super) fn raised_damage(&mut self) {
+        if self.gpu_composes {
+            self.owe_frame();
+            return;
+        }
+        let (order, n) = self.windows.order(self.capture.frozen());
+        for &wid in &order[..n] {
+            let rect = self.window_damage_rect(wid);
+            self.queue_gpu_blit_rect(rect);
+        }
+    }
+}

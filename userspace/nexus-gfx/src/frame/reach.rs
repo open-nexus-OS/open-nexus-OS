@@ -18,8 +18,11 @@
 //! OWNERS: @gpu @ui
 //! STATUS: Functional
 //! API_STABILITY: Internal
+//! The writes are counted by what reached the glass (`WritesBy`: an unknown origin split into
+//! `zero` and `stray`, the key misses at rest by what differs — counters, TASK-0351 P19).
 //! TEST_COVERAGE: unit tests below; `tests/frame_reach.rs` (the rules' write counts),
-//!   `tests/frame_reach_oracle.rs` (a planned frame against a full redraw, 200 presents)
+//!   `tests/frame_reach_oracle.rs` (a planned frame against a full redraw, 200 presents),
+//!   `tests/frame_rest_misses.rs` (the counters through a plan)
 //! INVARIANTS: a change is kept from a glass only by a proof (its step is the glass or above it,
 //!   or a cover holds it) — an unknown origin and an uncertain cover always reach; the list is
 //!   the plan's own storage (reserved once a plan, never grown in the walk), and a change it
@@ -28,7 +31,7 @@
 use alloc::vec::Vec;
 
 use super::damage::Area;
-use super::glass::{CacheStep, WriteCause};
+use super::glass::{CacheStep, Miss, WriteCause};
 use super::layers::{FrameLayer, RetainedLayers, MAX_DAMAGE, ORIGIN_ABOVE};
 use super::occlude::{self, Px};
 use super::plan::LayerStep;
@@ -84,7 +87,8 @@ pub(super) struct Touch {
     pub(super) band: Area,
     /// A change of origin 0 is among them (`Writes::band_base`).
     pub(super) base: bool,
-    unknown: bool,
+    /// A change of a key the set does not hold is among them.
+    stray: bool,
     below: bool,
     glass: bool,
     order: bool,
@@ -95,7 +99,7 @@ impl Touch {
     const NONE: Self = Self {
         band: Area::None,
         base: false,
-        unknown: false,
+        stray: false,
         below: false,
         glass: false,
         order: false,
@@ -115,26 +119,84 @@ pub struct WritesBy {
     /// A band: a glass below it was blurred again (R3), and nothing named reached it.
     pub glass: u16,
     /// A band: a change of origin 0 or of a key the set does not hold reached it — a call site
-    /// that queues damage without its layer.
+    /// that queues damage without its layer. The sum of `zero` and `stray`.
     pub unknown: u16,
+    /// Of `unknown`: a change of origin 0 reached it (TASK-0351 P19, W4: windowd queued it
+    /// without its layer — `windowd: damage zero (…)` names where).
+    pub zero: u16,
+    /// Of `unknown`: only a change of a key no layer of the set carries reached it (a culled or
+    /// gone layer's key).
+    pub stray: u16,
     /// The backdrop: a layer below the glass came, went or moved.
     pub moved: u16,
     /// Layers below the glass swapped their order (R4).
     pub order: u16,
     /// The one write after the glass kept its rows through a motion.
     pub rest: u16,
+    /// Of the `rest` writes, those of a key miss, by what differs (TASK-0351 P19, W5).
+    pub misses: RestMisses,
+}
+
+/// The writes that end a hold with a key miss, by the first of the glass's prints that differs
+/// from the ones its rows were written with (TASK-0351 P19, W5: `gpud: glass rest misses`) —
+/// counters, never an input to a rule.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RestMisses {
+    /// Layers below within its reach came, went or changed their order (or the rows carry no
+    /// prints).
+    pub set: u16,
+    /// Only layers of the glass's own window moved or resized.
+    pub own: u16,
+    /// Layers of other windows below it moved or resized.
+    pub moved: u16,
+    /// The same layers at the same places: something else the key folds changed (an opacity, a
+    /// source, a corner radius, the glass's own rectangle or radii).
+    pub drew: u16,
+    /// The wallpaper the frames start from was uploaded again.
+    pub epoch: u16,
+    /// Of all of these, the ones written as a band (C-r: what changed below while the rows
+    /// were kept, `Frame::plan`) that blurs less than the whole glass — a band that reaches all
+    /// of it costs the whole glass and is not counted. Never more than their sum.
+    pub band: u16,
+}
+
+impl RestMisses {
+    fn note(&mut self, m: Miss) {
+        let n = match m {
+            Miss::Set => &mut self.set,
+            Miss::Own => &mut self.own,
+            Miss::Moved => &mut self.moved,
+            Miss::Drew => &mut self.drew,
+            Miss::Epoch => &mut self.epoch,
+        };
+        *n = n.saturating_add(1);
+    }
 }
 
 impl WritesBy {
     /// Counts one write of `cause` for what `touch` says reached the glass; `rested`: the last
-    /// plan kept the glass's rows through a motion.
-    pub(super) fn note(&mut self, touch: &Touch, cause: WriteCause, rested: bool) {
+    /// plan kept the glass's rows through a motion; `differs`: what differs from the prints the
+    /// rows were written with (`GlassCache::printed`), counted for a key miss at rest.
+    pub(super) fn note(
+        &mut self,
+        touch: &Touch,
+        cause: WriteCause,
+        rested: bool,
+        differs: Option<Miss>,
+    ) {
+        if let (true, WriteCause::Backdrop, Some(m)) = (rested, cause, differs) {
+            self.misses.note(m);
+        }
         let n = match cause {
             WriteCause::Full => return,
             _ if rested => &mut self.rest,
             WriteCause::Backdrop if touch.order => &mut self.order,
             WriteCause::Backdrop => &mut self.moved,
-            WriteCause::Band if touch.unknown => &mut self.unknown,
+            WriteCause::Band if touch.base || touch.stray => {
+                let split = if touch.base { &mut self.zero } else { &mut self.stray };
+                *split = split.saturating_add(1);
+                &mut self.unknown
+            }
             WriteCause::Band if touch.below => &mut self.below,
             WriteCause::Band if touch.glass => &mut self.glass,
             WriteCause::Band if touch.order => &mut self.order,
@@ -294,8 +356,8 @@ impl Changes {
             }
             t.band = t.band.union(within);
             match c.from {
-                Origin::Zero => (t.base, t.unknown) = (true, true),
-                Origin::Stray => t.unknown = true,
+                Origin::Zero => t.base = true,
+                Origin::Stray => t.stray = true,
                 Origin::Layer(_) => t.below = true,
                 Origin::Glass(_) => t.glass = true,
                 Origin::Order(_) => t.order = true,
@@ -378,9 +440,9 @@ mod tests {
         let wide = Area::rect(310, 350, 40, 10);
         assert_eq!(touched(&changes(&[(wide, Origin::Layer(0))]), &steps).band, wide);
         // An unknown origin may lie above the cover: it always reaches.
-        for unknown in [Origin::Zero, Origin::Stray] {
+        for (unknown, zero) in [(Origin::Zero, true), (Origin::Stray, false)] {
             let t = touched(&changes(&[(r, unknown)]), &steps);
-            assert_eq!((t.band, t.unknown), (r, true), "{unknown:?}");
+            assert_eq!((t.band, t.base, t.stray), (r, zero, !zero), "{unknown:?}");
         }
         // A faded cover shows what is below it; a glass covers with its drawn back alone.
         let faded = [steps[0], step(320, 320, 200, 100, |l| (l.opaque, l.opacity) = (true, 200))];
@@ -436,15 +498,58 @@ mod tests {
             f(&mut t);
             t
         };
-        by.note(&t(|t| (t.unknown, t.below) = (true, true)), WriteCause::Band, false);
-        by.note(&t(|t| (t.below, t.glass) = (true, true)), WriteCause::Band, false);
-        by.note(&t(|t| t.glass = true), WriteCause::Band, false);
-        by.note(&t(|t| t.order = true), WriteCause::Backdrop, false);
-        by.note(&t(|_| {}), WriteCause::Backdrop, false);
-        by.note(&t(|t| t.below = true), WriteCause::Backdrop, true);
-        by.note(&Touch::FULL, WriteCause::Full, true);
-        by.note(&t(|_| {}), WriteCause::New, false);
-        let all = WritesBy { below: 1, glass: 1, unknown: 1, moved: 1, order: 1, rest: 1 };
+        by.note(&t(|t| (t.base, t.below) = (true, true)), WriteCause::Band, false, None);
+        by.note(&t(|t| (t.below, t.glass) = (true, true)), WriteCause::Band, false, None);
+        by.note(&t(|t| t.glass = true), WriteCause::Band, false, None);
+        by.note(&t(|t| t.order = true), WriteCause::Backdrop, false, None);
+        by.note(&t(|_| {}), WriteCause::Backdrop, false, None);
+        by.note(&t(|t| t.below = true), WriteCause::Backdrop, true, None);
+        by.note(&Touch::FULL, WriteCause::Full, true, None);
+        by.note(&t(|_| {}), WriteCause::New, false, None);
+        let all = WritesBy {
+            below: 1,
+            glass: 1,
+            unknown: 1,
+            zero: 1,
+            moved: 1,
+            order: 1,
+            rest: 1,
+            ..Default::default()
+        };
         assert_eq!(by, all);
+    }
+
+    #[test]
+    fn an_unknown_origin_is_counted_as_zero_or_stray_and_their_sum_is_unknown() {
+        let mut by = WritesBy::default();
+        let (zero, stray, both) = (
+            Touch { base: true, ..Touch::NONE },
+            Touch { stray: true, ..Touch::NONE },
+            Touch { base: true, stray: true, below: true, ..Touch::NONE },
+        );
+        for t in [zero, stray, both, stray] {
+            by.note(&t, WriteCause::Band, false, None);
+        }
+        assert_eq!((by.zero, by.stray, by.unknown, by.below), (2, 2, 4, 0));
+        // A write at rest is `rest` whatever reached it: neither zero nor stray.
+        by.note(&zero, WriteCause::Band, true, None);
+        assert_eq!((by.zero + by.stray, by.unknown, by.rest), (4, 4, 1));
+    }
+
+    #[test]
+    fn a_key_miss_at_rest_is_counted_by_what_differs_and_no_other_write_is() {
+        let mut by = WritesBy::default();
+        let none = Touch::NONE;
+        for m in [Miss::Set, Miss::Own, Miss::Moved, Miss::Drew, Miss::Epoch, Miss::Set] {
+            by.note(&none, WriteCause::Backdrop, true, Some(m));
+        }
+        // Not at rest, not a key miss, or nothing to compare: not a rest miss.
+        by.note(&none, WriteCause::Backdrop, false, Some(Miss::Own));
+        by.note(&none, WriteCause::Band, true, Some(Miss::Own));
+        by.note(&none, WriteCause::New, true, Some(Miss::Own));
+        by.note(&none, WriteCause::Full, true, Some(Miss::Own));
+        by.note(&none, WriteCause::Backdrop, true, None);
+        let misses = RestMisses { set: 2, own: 1, moved: 1, drew: 1, epoch: 1, band: 0 };
+        assert_eq!((by.misses, by.rest), (misses, 9));
     }
 }

@@ -216,9 +216,13 @@ task started under the new process.
 6. Milestones: unique step keys, every step names a known section, a `done` milestone has only
    `done`/`dropped` steps.
 7. Referenced ids that do not exist are reported, not fatal (history mentions retired ledgers).
-8. **An open phase while one waits.** An `in_progress` task with a `planned` phase has a phase in
-   `building`, `proving` or `blocked`; the board always shows where the work is. Every phase
-   finished is the closing, not a gap.
+8. **Started means started.** An `in_progress` task has a phase `done`, `building`, `proving` or
+   `blocked`; one that never started is a draft. A started task whose rest all waits is paused:
+   its `planned` phases are the backlog, and the board shows only what is built, proved or
+   blocked (amended 2026-11-20, operator: "eigentlich sollte alles im backlog sein, außer es ist
+   tatsächlich in arbeit oder testing" — the earlier form, an open phase whenever one waits, made
+   sessions park placeholder `building` and `blocked` states). Every phase finished is the
+   closing, not a gap.
 9. **The consumer is a reference**: a task, a phase (`TASK-NNNN/P3`) or a milestone step
    (`<milestone>/<KEY>`), never prose and never the task itself.
 10. **`done` closes the goal with its result**: a done task with a goal carries `goal.result`,

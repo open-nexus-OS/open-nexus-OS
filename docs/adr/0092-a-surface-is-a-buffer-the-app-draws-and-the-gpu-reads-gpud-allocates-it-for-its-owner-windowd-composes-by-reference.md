@@ -33,7 +33,8 @@ quiescent. ADR-0078 already named "one object per window surface" the end state.
    same memory**; the app cleans the caches over what it drew (`vmo_clean`, syscall 74) before it
    presents; the kernel cleans frames it zeroes for a non-coherent device.
 3. **The present ack is the release**: windowd acks a present when the surface's other slot is
-   free — no longer its latest and read by no frame still in flight (gpud reports retirement).
+   free — no longer its latest and read by no frame still in flight (gpud reports the frame drawn,
+   its reads done — amended 2026-11-20, RFC-0114 §5: the ack at the landing stays the frame clock).
 4. **windowd composes by reference** — a layer names `(source, slot, rows)`; the source's
    generation, not a global epoch, decides uploads; a slot flip is never a backdrop change.
 5. **windowd's tables grow with the windows**: stable `u16` window keys on every wire, growable
