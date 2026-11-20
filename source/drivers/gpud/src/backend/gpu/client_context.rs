@@ -309,4 +309,8 @@ impl FrameGpu for BoardGpu {
             desktop.forget_layers();
         }
     }
+
+    fn take_hop(&mut self) -> Option<crate::backend::hop_trace::FrameHop> {
+        self.desktop.as_mut()?.take_hop()
+    }
 }

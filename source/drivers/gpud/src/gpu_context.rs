@@ -88,6 +88,12 @@ pub(crate) trait FrameGpu {
     /// A new compositor runs (RFC-0112): the layer set the GPU's frames keep goes — it names the
     /// old compositor's surfaces — and every slot is drawn whole next.
     fn forget_layers(&mut self);
+
+    /// What the last [`Self::draw_frame`] knows of its frame for the display's timeline
+    /// (RFC-0108 §hops, TASK-0373), taken; `None` where the GPU keeps none.
+    fn take_hop(&mut self) -> Option<crate::backend::hop_trace::FrameHop> {
+        None
+    }
 }
 
 /// What a display without a GPU answers.

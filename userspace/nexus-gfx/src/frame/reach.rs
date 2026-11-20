@@ -67,8 +67,6 @@ enum Origin {
 struct Change {
     area: Area,
     from: Origin,
-    /// Its layer's window is in motion (TASK-0336 P3).
-    moving: bool,
 }
 
 /// A glass as the walk reaches it: its step, its rectangle and its window's transform id.
@@ -86,8 +84,6 @@ pub(super) struct Touch {
     pub(super) band: Area,
     /// A change of origin 0 is among them (`Writes::band_base`).
     pub(super) base: bool,
-    /// Every one of them comes from a window in motion (blur at rest).
-    pub(super) motion_only: bool,
     unknown: bool,
     below: bool,
     glass: bool,
@@ -99,7 +95,6 @@ impl Touch {
     const NONE: Self = Self {
         band: Area::None,
         base: false,
-        motion_only: true,
         unknown: false,
         below: false,
         glass: false,
@@ -107,7 +102,7 @@ impl Touch {
     };
 
     /// A full present: everything blurs again, whatever was named.
-    pub(super) const FULL: Self = Self { band: Area::Full, motion_only: false, ..Self::NONE };
+    pub(super) const FULL: Self = Self { band: Area::Full, ..Self::NONE };
 }
 
 /// The glass writes of a frame by what reached the glass (TASK-0351 P6: `gpud: glass writes
@@ -206,15 +201,15 @@ impl Changes {
         drawn: &[FrameLayer],
     ) {
         for &(area, origin) in named {
-            let (from, moving) = match origin {
-                ORIGIN_ABOVE => (Origin::Above, false),
-                0 => (Origin::Zero, false),
-                key => match layers.index_of_key(key).and_then(|i| Some((i, drawn.get(i)?))) {
-                    Some((i, l)) => (Origin::Layer(i), layers.in_motion(l.layer_id)),
-                    None => (Origin::Stray, false),
+            let from = match origin {
+                ORIGIN_ABOVE => Origin::Above,
+                0 => Origin::Zero,
+                key => match layers.index_of_key(key).filter(|i| *i < drawn.len()) {
+                    Some(i) => Origin::Layer(i),
+                    None => Origin::Stray,
                 },
             };
-            self.push(Change { area, from, moving });
+            self.push(Change { area, from });
         }
     }
 
@@ -249,14 +244,14 @@ impl Changes {
             }
         }
         if let Some(p) = lowest {
-            self.push(Change { area, from: Origin::Order(p), moving: false });
+            self.push(Change { area, from: Origin::Order(p) });
         }
         area
     }
 
     /// R3: glass `index` was blurred again and shows it in `area`.
     pub(super) fn written(&mut self, index: usize, area: Area) {
-        self.push(Change { area, from: Origin::Glass(index), moving: false });
+        self.push(Change { area, from: Origin::Glass(index) });
     }
 
     /// What reaches glass `g`. `steps`: the plan's steps below it, as decided this frame;
@@ -298,7 +293,6 @@ impl Changes {
                 continue;
             }
             t.band = t.band.union(within);
-            t.motion_only &= c.moving;
             match c.from {
                 Origin::Zero => (t.base, t.unknown) = (true, true),
                 Origin::Stray => t.unknown = true,
@@ -309,6 +303,23 @@ impl Changes {
             }
         }
         t
+    }
+
+    /// Whether the frame changes anything that may be part of a backdrop of the glass of
+    /// window `id` in ANOTHER scene than this frame's (`drawn`: the set as drawn) — asked for a
+    /// glass held while what lies below it is displaced. A change is named where its layer is
+    /// drawn now and ends at the covers that stand now: once the layers are back where the
+    /// glass's rows were blurred, it may lie anywhere. Only the pointer's changes and those of
+    /// the glass's own window are none of its backdrop wherever they lie.
+    pub(super) fn foreign(&self, id: u32, drawn: &[FrameLayer]) -> bool {
+        self.lost
+            || self.list.iter().any(|c| match c.from {
+                Origin::Above => false,
+                Origin::Layer(i) | Origin::Glass(i) => {
+                    id == 0 || drawn.get(i).is_none_or(|l| l.layer_id != id)
+                }
+                Origin::Zero | Origin::Stray | Origin::Order(_) => true,
+            })
     }
 }
 
@@ -328,7 +339,7 @@ mod tests {
         let mut c = Changes::new();
         assert!(c.begin(8));
         for &(area, from) in list {
-            c.push(Change { area, from, moving: false });
+            c.push(Change { area, from });
         }
         c
     }
@@ -376,7 +387,8 @@ mod tests {
         assert_eq!(touched(&changes(&[(r, Origin::Layer(0))]), &faded).band, r);
         let mut pane = step(320, 320, 200, 100, |l| l.backdrop_blur = 40);
         assert_eq!(touched(&changes(&[(r, Origin::Layer(0))]), &[steps[0], pane]).band, r);
-        pane.glass = Some(Glass { cache: CacheStep::Read(0), rows: 27, band: Area::None });
+        let at = (320, 320, 200, 100);
+        pane.glass = Some(Glass { cache: CacheStep::Read(0), rows: 27, band: Area::None, at });
         assert_eq!(touched(&changes(&[(r, Origin::Layer(0))]), &[steps[0], pane]), Touch::NONE);
     }
 

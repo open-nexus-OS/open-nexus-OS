@@ -154,6 +154,9 @@ pub(super) struct DslApp {
     /// `probe/band.rs`), and the input chain's hop in the app: received → answered.
     pub(super) input_rx_ns: Option<u64>,
     pub(super) hop_input: nexus_ux_budgets::Hop,
+    /// One frame's timeline (RFC-0108 §hops, TASK-0373, `probe/hop_trace.rs`): its ring on the
+    /// heap, allocated once at the mount.
+    pub(super) hops: alloc::boxed::Box<crate::hop_record::AppHops>,
     /// The hovers that changed the hovered control in this window, and how many of them asked
     /// for a raster (`probe/drag.rs`, `apphost: hops hover`): a hover is motion, so 0.
     pub(super) hover_window: (u32, u32),

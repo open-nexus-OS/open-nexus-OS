@@ -1,0 +1,3 @@
+windowd: hops one (f=7 from=3.11 t0=1001200 rx>owed=50 owed>scene=300 scene>sent=500 sent>acked=2000 shown=1011700 w=1/20 y=0 cp=0 layers=4 rects=2)
+gpud: hops one (f=7 t0=1002100 rx>plan=100 plan>emit=200 emit>sub=300 sub>gpu=4000 gpu>latch=3000 latch>shown=2000 w=3/100 y=2 cp=128 passes=3 draws=9 gw=1 whole=0 wpx=500 by=1/2/3/4/5/6 slot_px=100 scene_px=200)
+gpud: hops one (f=8 t0=1002100 rx>plan=100 plan>emit=200 emit>sub=300 sub>gpu=4000 gpu>latch=3000 latch>shown=2000 w=3/100 y=2 cp=128 passes=3 draws=9 gw=1 whole=0 wpx=500 by=1/2/3/4/5/6 slot_px=100 scene_pxXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX

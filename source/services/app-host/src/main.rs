@@ -80,6 +80,10 @@ mod band_math;
 // viewport, else transparent. Same one-cfg shape: the raster is in `probe/band.rs`.
 #[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
 mod band_ground;
+// app-host's part of one frame's timeline (RFC-0108 §hops, TASK-0373). Same one-cfg shape: the
+// stamps are taken and the lines printed in `probe/hop_trace.rs`.
+#[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
+mod hop_record;
 // A `.transition` node as a motion layer the compositor moves (TASK-0354 P2): its subtree, its
 // extent, where its enter starts. Same one-cfg shape: the raster is in `probe/motion_layers.rs`.
 #[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]

@@ -473,9 +473,12 @@ impl super::DslApp {
             if first {
                 let (w, h) = m.size();
                 let us = nsec_now().saturating_sub(t0) / 1000;
+                // TASK-0367 P4: the raster's cost per pixel, without arithmetic in the reader.
+                let px = u64::from(w).saturating_mul(u64::from(h)).max(1);
+                let ns_px = us.saturating_mul(1000) / px;
                 raw_marker(&alloc::format!(
                     "apphost: motion layer (id={} token={} w={w} h={h} front={} backdrop={} \
-                     paint_us={us})",
+                     paint_us={us} ns_px={ns_px})",
                     m.id,
                     m.token,
                     u8::from(m.front),

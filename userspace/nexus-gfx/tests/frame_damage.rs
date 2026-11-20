@@ -252,9 +252,11 @@ fn a_change_under_a_cached_glass_names_the_band_it_blurs_again() {
     ]);
     f.plan(DISPLAY, &every_blur);
     assert_eq!(cache_of(&f, 2), Some(CacheStep::Read(0)));
-    // The window below moves (the key changes): the whole glass again.
+    // The window below moves (the key changes, C-c): where it was and where it is, within the
+    // glass's reach.
     f.layers.take_frame(&[base, layer(210, 200, 600, 400), pane, damage(0, 0, 1, 1)]);
     f.plan(DISPLAY, &every_blur);
     assert_eq!(cache_of(&f, 2), Some(CacheStep::Write(0)));
-    assert_eq!(band_of(&f, 2), Some(Area::Full));
+    let moved = Area::rect(200, 200, 610, 400).intersect(Area::rect(300, 300, 400, 200).grown(66));
+    assert_eq!(band_of(&f, 2), Some(moved));
 }

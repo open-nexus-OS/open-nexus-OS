@@ -35,6 +35,53 @@ const WIDTH: u32 = STRIDE_BYTES / 4;
 const STRIDE: u64 = STRIDE_BYTES as u64;
 /// Wait iterations a pass trace keeps.
 const TRACE_STEPS: usize = 24;
+/// A single-pass frame waiting longer than this arms the next frame's pass trace.
+const SLOW_WAIT_US: u64 = 20_000;
+/// Slow single-pass frames traced in a 32-frame window, at most.
+const SLOW_TRACES: u8 = 4;
+/// Frames in the window the traces are counted over.
+const SLOW_WINDOW: u8 = 32;
+
+/// The trace of the single-pass frames stuck at ~21 or ~41 ms (TASK-0373, 21 % of the heavy
+/// slow frames on board--2026-11-19T22-09-42 and …2026-11-20T08-55-45, no glass write): one
+/// waiting past [`SLOW_WAIT_US`] arms the next frame's `gpu pass fw`/`gpu pass trace` lines —
+/// the runs are 3-6 frames long — so the firmware's clock says whether the GPU was busy or the
+/// completion's wake came late. At most [`SLOW_TRACES`] a window; the gate and sweep frames
+/// (`quiet`) never arm it.
+pub(super) struct SlowTrace {
+    armed: bool,
+    left: u8,
+    frames: u8,
+}
+
+impl SlowTrace {
+    pub(super) const fn new() -> Self {
+        Self { armed: false, left: SLOW_TRACES, frames: 0 }
+    }
+
+    /// Whether this frame's pass is traced — the arm spent, the lines named `single`.
+    pub(super) fn take(&mut self, trace_of: &mut &'static str) -> bool {
+        let armed = core::mem::take(&mut self.armed);
+        if armed {
+            *trace_of = "single";
+        }
+        armed
+    }
+
+    /// A frame's passes and its last pass's wait (µs): a slow single pass arms the next frame.
+    pub(super) fn note(&mut self, quiet: bool, passes: usize, wait_us: u64) {
+        if quiet {
+            return;
+        }
+        self.frames += 1;
+        if self.frames >= SLOW_WINDOW {
+            (self.frames, self.left) = (0, SLOW_TRACES);
+        }
+        if passes == 1 && wait_us > SLOW_WAIT_US && self.left > 0 {
+            (self.armed, self.left) = (true, self.left - 1);
+        }
+    }
+}
 
 fn now_ns() -> u64 {
     nexus_abi::nsec().unwrap_or(0)
@@ -123,8 +170,18 @@ impl Sink for FrameSink<'_> {
             Region::Pds => (PDS_ARENA, pds_at(PDS_ARENA, offset)),
             Region::General | Region::Stream | Region::Vertex => (FRAME_VA, offset),
         };
+        UPLOADED.fetch_add(bytes.len() as u64, core::sync::atomic::Ordering::Relaxed);
         write_bound(self.dev, self.who.0, self.who.1, va, at, bytes).is_ok()
     }
+}
+
+/// Bytes written into the frame's pass memory — its streams, vertices, PDS lines and descriptors
+/// (TASK-0373: the frame's `cp=` on `gpud: hops one`). Relaxed: a count, never a synchronisation.
+static UPLOADED: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+
+/// The bytes written into the pass memory since the last call, and a fresh count.
+pub(super) fn take_uploaded() -> u64 {
+    UPLOADED.swap(0, core::sync::atomic::Ordering::Relaxed)
 }
 
 /// `tex`'s descriptor written into fresh lines of the frame's buffer: its address (`none`, the
@@ -157,6 +214,7 @@ fn descriptor(
         Image { address, width, height, stride, format: format::U8U8U8U8, swizzle: swizzle::BGRA };
     let bytes = descriptor_bytes(&image, &Sampler::BILINEAR_CLAMP).map_err(|_| "a descriptor")?;
     let off = rings.place(0, Need::Descriptor).ok_or("no line for a descriptor")?;
+    UPLOADED.fetch_add(bytes.len() as u64, core::sync::atomic::Ordering::Relaxed);
     write_bound(dev, who.0, who.1, FRAME_VA, off, &bytes).map_err(|_| "a descriptor's write")?;
     Ok(FRAME_VA + u64::from(off))
 }

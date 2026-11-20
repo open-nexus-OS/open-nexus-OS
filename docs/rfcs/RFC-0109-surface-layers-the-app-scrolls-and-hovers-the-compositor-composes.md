@@ -197,7 +197,14 @@ by key, never by its place in the list.
 
 **The planner (RFC-0101 §8 amended):** a layer keeps its glass cache slot, its cleaned rectangle
 and its damage history by key; a glass's backdrop key folds only the layers whose extent reaches
-it — a slice moving elsewhere re-blurs no glass.
+it — a slice moving elsewhere re-blurs no glass. Amended 2026-11-19 (TASK-0351 P6/P15 — every
+dropped transition frame was a glass written anew): a glass's rows hold the blur of its layer's
+REST rectangle (`Glass.at`), whatever size or place the motion draws it at; the executors sample a
+stretched draw from those rows only. A glass in motion, or at rest over a layer that moves, is
+HELD — read, never written — for at most 64 plans and, at rest over a mover, at most one blur
+radius of drift; the plan that ends the hold writes it once, with every change that reached it
+meanwhile (`frame/hold.rs`). A glass the set moved or re-blurred is not held. During a motion the
+glass shows its last blur — the design's accepted look; at rest its pixels equal a full redraw.
 
 **The app (app-host):** one `ScrollMomentum` per vertical or horizontal scroll layer (wheel,
 fling, `EndReached` scoped to the container that reached its end) and a **paged track** per paged

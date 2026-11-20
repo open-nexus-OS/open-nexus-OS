@@ -266,6 +266,7 @@ impl DcDisplay {
         }
         let at_ns = self.pace.taken_at(self.latched_ns, self.boundary_now());
         let received_ns = landed.drawn.ack.map_or(0, |_| landed.drawn.stamps.received_ns);
+        let (latched_ns, late) = (self.latched_ns, self.pace.late);
         self.pace.note_shown(at_ns, received_ns);
         match landed.next {
             Some(next) => self.latch_or_hold(next),
@@ -280,12 +281,24 @@ impl DcDisplay {
         let pace = (self.pace.cadence(), self.pace.late, self.pace.restarts);
         self.flip_irq.as_mut()?.note_landed(woke, stamps, now, pace);
         let (seq, status) = landed.drawn.ack?;
+        self.hop_landed(seq, (latched_ns, at_ns), self.pace.late > late);
         let shown = nexus_display_proto::frame_time::Shown {
             at_ns,
             period_ns: u32::try_from(self.pace.timing().period_ns).unwrap_or(u32::MAX),
             cadence: self.pace.cadence(),
         };
         Some(Landed { seq, status, shown })
+    }
+
+    /// The present `seq` landed now — latched and shown at `at` (ns; 0: acked when drawn, no
+    /// flip of its own), `missed` its slot: its record completes (`hop_trace`, TASK-0373); a full
+    /// window prints the histogram, the slow frames and — once — the cost.
+    pub(super) fn hop_landed(&mut self, seq: u32, at: (u64, u64), missed: bool) {
+        let (now, period_ns) = (nsec().unwrap_or(0), self.pace.timing().period_ns);
+        if self.hops.landed(seq, at, (missed, period_ns), now) {
+            let clock = || nsec().unwrap_or(0);
+            self.hops.window(&clock, &mut emit);
+        }
     }
 
     /// Drains the flip interrupt's notifications: `Some(true)` when it woke the loop (what

@@ -4,11 +4,12 @@
 //! The planner and motion (TASK-0336, TASK-0338): why each glass is written (the cause line), a
 //! glass of a window in motion keeps its blur and writes once at rest, a present carries the
 //! window's transform with its layers, and a present owed for what moved alone (it names no
-//! damage) redraws only that.
+//! damage) redraws only that. The hold (TASK-0351 P6, `frame::hold`): rows of the rest
+//! rectangle, what a held glass owes, the hold's two bounds.
 
 use nexus_gfx::command::buffer::Command;
 use nexus_gfx::core::types::TileRect;
-use nexus_gfx::frame::{Area, CacheStep, Frame, FrameLayer};
+use nexus_gfx::frame::{Area, CacheStep, Frame, FrameLayer, Glass, Planned};
 
 const DISPLAY: (u32, u32) = (1920, 1080);
 
@@ -139,7 +140,7 @@ fn every_glass_write_names_its_cause() {
         damage(0, 0, 1, 1),
     ]);
     let p = f.plan(DISPLAY, &every_blur);
-    assert_eq!(p.writes, Writes { backdrop: 1, ..Default::default() });
+    assert_eq!(p.writes, Writes { backdrop: 1, backdrop_band: 1, ..Default::default() });
     // A second glass below it, within its reach: new rows for the newcomer, and the pane's key
     // folds it (a glass below is a backdrop like any layer) — the pane keeps its rows.
     let other = with(glass(layer(250, 250, 100, 100), 40), |l| (l.layer_id, l.key) = (3, 0x3_0100));
@@ -151,7 +152,7 @@ fn every_glass_write_names_its_cause() {
         damage(0, 0, 1, 1),
     ]);
     let p = f.plan(DISPLAY, &every_blur);
-    assert_eq!(p.writes, Writes { new: 1, backdrop: 1, ..Default::default() });
+    assert_eq!(p.writes, Writes { new: 1, backdrop: 1, backdrop_band: 1, ..Default::default() });
     // A full present: everything, named full.
     f.layers.take_frame(&[base, layer(210, 200, 600, 400), other, pane]);
     let p = f.plan(DISPLAY, &every_blur);
@@ -182,8 +183,9 @@ fn a_glass_of_a_window_in_motion_keeps_its_blur_and_writes_once_at_rest() {
     let p = f.plan(DISPLAY, &every_blur);
     assert_eq!(cache_of(&f, 2), Some(CacheStep::Read(0)), "in motion: the last blur, kept");
     assert_eq!(p.writes.total(), 0);
-    // Another glass elsewhere, touched only by the moving window's damage, keeps too.
-    let dock = with(glass(layer(100, 900, 400, 100), 40), |l| l.layer_id = 3);
+    // Another glass, at rest over the moving window (its body lies within the reach), keeps
+    // too — through a change the window names meanwhile.
+    let dock = with(glass(layer(100, 620, 400, 100), 40), |l| l.layer_id = 3);
     f.layers.take_frame(&[
         moving.clone(),
         base.clone(),
@@ -198,10 +200,10 @@ fn a_glass_of_a_window_in_motion_keeps_its_blur_and_writes_once_at_rest() {
         body.clone(),
         chrome.clone(),
         dock.clone(),
-        damage_from(BODY, 120, 920, 20, 10),
+        damage_from(BODY, 300, 580, 20, 10),
     ]);
     let p = f.plan(DISPLAY, &every_blur);
-    assert!(matches!(cache_of(&f, 3), Some(CacheStep::Read(_))), "touched by motion only: kept");
+    assert!(matches!(cache_of(&f, 3), Some(CacheStep::Read(_))), "over a mover: kept");
     assert_eq!(p.writes.total(), 0);
     // At rest (the identity): one write for the changed backdrop.
     let rest = transform(2, 0, 0, 255, 100);
@@ -281,4 +283,199 @@ fn a_scrolled_body_is_redrawn_alone_and_its_glass_keeps_its_blur() {
     assert_eq!(p.damage, Area::rect(200, 260, 600, 340));
     assert_eq!(p.writes.total(), 0, "no glass blurred again");
     assert!(matches!(cache_of(&f, 1), Some(CacheStep::Read(_))));
+}
+
+// The hold (TASK-0351 P6, RFC-0109; `build/agents/arch-transition-every-frame-2026-11-19.md`,
+// Decision 2: T6, T8, T9, T10): a glass's rows are of its REST rectangle, and one bounded rule
+// keeps them through a motion.
+
+const BASE: u32 = 0xFFFF_0000;
+/// The plans a glass is held in a row (`frame::hold::HOLD_MAX`).
+const HOLD_MAX: u32 = 64;
+
+fn base() -> Command {
+    with(layer(0, 0, 1920, 1080), |l| (l.opaque, l.key) = (true, BASE))
+}
+
+fn present(f: &mut Frame, cmds: &[Command]) -> Planned {
+    f.layers.take_frame(cmds);
+    f.plan(DISPLAY, &every_blur)
+}
+
+fn glass_of(f: &Frame, i: usize) -> Glass {
+    f.step(i).and_then(|s| s.glass).expect("a glass step")
+}
+
+/// Window `id` scaled to `scale` ten-thousandths about `origin`.
+fn scaled(id: u32, scale: u32, origin: (i32, i32)) -> Command {
+    Command::LayerTransform {
+        layer_id: id,
+        dx: 0,
+        dy: 0,
+        opacity: 255,
+        scale,
+        origin_x: origin.0,
+        origin_y: origin.1,
+    }
+}
+
+fn at_rest(id: u32) -> Command {
+    transform(id, 0, 0, 255, 100)
+}
+
+/// A panel scaling in from 96 % over seventeen plans, then at rest: `scene` before the panel's
+/// glass (step `scene.len()`), `during` named on the ninth plan. The writes and reads of the
+/// glass, and the frame as the rest plan left it.
+fn scale_in(scene: &[Command], during: Option<Command>) -> (u32, u32, Frame, Planned) {
+    let panel = with(glass(layer(1500, 40, 352, 566), 40), |l| (l.layer_id, l.key) = (9, 9 << 16));
+    let (mut f, at, mut counts) = (ready_frame(4096), scene.len(), (0, 0));
+    let mut tally = |f: &Frame, p: Planned| {
+        counts.0 += p.writes.total();
+        counts.1 += u32::from(matches!(glass_of(f, at).cache, CacheStep::Read(_)));
+    };
+    for n in 0..17 {
+        let mut cmds = vec![scaled(9, 9_600 + 24 * n, (1676, 40))];
+        if n == 0 {
+            cmds.extend(scene.iter().cloned().chain([panel.clone()]));
+        }
+        cmds.push(during.clone().filter(|_| n == 8).unwrap_or_else(no_damage));
+        let p = present(&mut f, &cmds);
+        // Whatever size it is drawn at, its rows are the rest rectangle's.
+        let (g, drawn) = (glass_of(&f, at), f.step(at).expect("the panel").layer);
+        assert_eq!((g.at, g.rows), ((1500, 40, 352, 566), 144), "plan {n}");
+        assert!(drawn.width < 352 && drawn.height < 566, "plan {n}: drawn scaled");
+        assert_eq!(matches!(g.cache, CacheStep::Write(_)), n == 0, "plan {n}");
+        tally(&f, p);
+    }
+    let p = present(&mut f, &[at_rest(9), no_damage()]);
+    tally(&f, p);
+    (counts.0, counts.1, f, p)
+}
+
+#[test]
+fn a_glass_scaling_in_is_written_once_at_its_rest_rectangle() {
+    // T6: nothing else changes — the first frame's rows are the rows it rests with.
+    let (writes, reads, f, _) = scale_in(&[base()], None);
+    assert_eq!((writes, reads), (1, 17));
+    assert_eq!(f.step(1).map(|s| s.layer.width), Some(352), "at rest: drawn as it rests");
+    // A change below it during the motion is owed and paid at rest: a band, not the glass.
+    let change = Area::rect(1600, 300, 20, 10);
+    let (writes, reads, f, p) = scale_in(&[base()], Some(damage_from(BASE, 1600, 300, 20, 10)));
+    assert_eq!((writes, reads), (2, 16));
+    assert_eq!((glass_of(&f, 1).band, p.writes.band, p.by.rest), (change, 1, 1));
+}
+
+#[test]
+fn a_glass_over_a_layer_of_its_own_window_is_blurred_again_at_rest() {
+    // The window's own body below its glass was blurred as the first frame drew it — scaled:
+    // the rows are not the rest state's, and the one write at rest is the whole glass.
+    let body = with(layer(1500, 40, 352, 566), |l| (l.layer_id, l.key) = (9, 0x9_0001));
+    let (writes, reads, f, p) = scale_in(&[base(), body], None);
+    assert_eq!((writes, reads), (2, 16));
+    assert_eq!((glass_of(&f, 2).band, p.writes.backdrop, p.by.rest), (Area::Full, 1, 1));
+}
+
+#[test]
+fn test_reject_losing_a_change_made_during_a_motion() {
+    // T8: a window fades out and back; what changed below its glass meanwhile is in its rows
+    // at rest, though the glass rests exactly as it was blurred.
+    let pane = with(glass(layer(300, 300, 400, 200), 40), |l| l.layer_id = 2);
+    let mut f = ready_frame(4096);
+    present(&mut f, &[base(), pane]);
+    let p = present(&mut f, &[transform(2, 0, 0, 128, 100), damage_from(BASE, 350, 350, 20, 10)]);
+    assert_eq!((p.writes.total(), cache_of(&f, 1)), (0, Some(CacheStep::Read(0))), "held");
+    let p = present(&mut f, &[transform(2, 0, 0, 0, 100), damage_from(BASE, 600, 480, 30, 10)]);
+    assert_eq!(p.writes.total(), 0);
+    let p = present(&mut f, &[at_rest(2), no_damage()]);
+    assert_eq!((p.writes.band, p.by.rest), (1, 1), "at rest: what it owes");
+    let g = glass_of(&f, 1);
+    assert_eq!((g.cache, g.band), (CacheStep::Write(0), Area::rect(350, 350, 280, 140)));
+    // Paid: the next plan reads.
+    assert_eq!(present(&mut f, &[at_rest(2), no_damage()]).writes.total(), 0);
+}
+
+const WINDOW: u32 = 0x1_0000;
+
+/// The base, a window (transform id 1) at `x` and a glass pane of another window over it.
+fn pane_over_a_window(x: u32) -> [Command; 3] {
+    let window = with(layer(x, 200, 600, 400), |l| (l.layer_id, l.key) = (1, WINDOW));
+    [base(), window, with(glass(layer(300, 300, 400, 200), 40), |l| l.layer_id = 2)]
+}
+
+#[test]
+fn a_glass_at_rest_over_a_moving_layer_is_blurred_when_the_layer_rests() {
+    // T9: the window below moves 16 pixels by its transform — less than the blur hides.
+    let mut f = ready_frame(4096);
+    present(&mut f, &pane_over_a_window(200));
+    for dx in 1..=16 {
+        let p = present(&mut f, &[transform(1, dx, 0, 255, 100), no_damage()]);
+        assert_eq!((p.writes.total(), cache_of(&f, 2)), (0, Some(CacheStep::Read(0))), "{dx}");
+    }
+    // It rests where it went: one write.
+    let mut dropped = vec![at_rest(1)];
+    dropped.extend(pane_over_a_window(216));
+    dropped.push(no_damage());
+    let p = present(&mut f, &dropped);
+    assert_eq!((p.writes.total(), p.writes.backdrop, p.by.rest), (1, 1, 1));
+    // A drag of 400 pixels re-blurs it every blur radius of travel: not every frame, not
+    // never.
+    let mut writes = 0;
+    for step in 1..=100 {
+        writes +=
+            present(&mut f, &[transform(1, 4 * step, 0, 255, 100), no_damage()]).writes.total();
+    }
+    let mut dropped = vec![at_rest(1)];
+    dropped.extend(pane_over_a_window(616));
+    dropped.push(no_damage());
+    writes += present(&mut f, &dropped).writes.total();
+    assert!((9..=11).contains(&writes), "{writes} writes over a 400 px drag at radius 40");
+}
+
+#[test]
+fn a_change_made_while_the_layers_below_are_displaced_owes_the_whole_glass() {
+    // The window below moves away and comes back to where it was: nothing to blur again.
+    let mut f = ready_frame(4096);
+    present(&mut f, &pane_over_a_window(200));
+    present(&mut f, &[transform(1, 30, 0, 255, 100), no_damage()]);
+    let p = present(&mut f, &[at_rest(1), no_damage()]);
+    assert_eq!((p.writes.total(), cache_of(&f, 2)), (0, Some(CacheStep::Read(0))));
+    // It changes its content while displaced: the change is named where the window is drawn
+    // then, not where it shows at rest — no band can hold it, the glass owes all of itself.
+    present(&mut f, &[transform(1, 30, 0, 255, 100), damage_from(WINDOW, 380, 350, 20, 10)]);
+    assert_eq!(cache_of(&f, 2), Some(CacheStep::Read(0)), "held");
+    let p = present(&mut f, &[at_rest(1), no_damage()]);
+    assert_eq!((p.writes.total(), p.by.rest), (1, 1));
+    assert_eq!(glass_of(&f, 2).band, Area::Full);
+}
+
+#[test]
+fn test_reject_holding_a_glass_past_the_bound() {
+    // T10: a client parks its window's transform. A change below its glass is owed while the
+    // glass is held, and paid after `HOLD_MAX` plans without a write — not at a rest that
+    // never comes.
+    let pane = with(glass(layer(300, 300, 400, 200), 40), |l| l.layer_id = 2);
+    let mut f = ready_frame(4096);
+    present(&mut f, &[base(), pane]);
+    let parked = transform(2, 40, 10, 255, 100);
+    for n in 1..=HOLD_MAX {
+        let change = if n == 1 { damage_from(BASE, 350, 350, 20, 10) } else { no_damage() };
+        let p = present(&mut f, &[parked.clone(), change]);
+        assert_eq!((p.writes.total(), cache_of(&f, 1)), (0, Some(CacheStep::Read(0))), "{n}");
+    }
+    let p = present(&mut f, &[parked.clone(), no_damage()]);
+    let (g, drawn) = (glass_of(&f, 1), f.step(1).expect("the pane").layer);
+    assert_eq!((g.cache, g.band), (CacheStep::Write(0), Area::rect(350, 350, 20, 10)));
+    // Paid at its rest rectangle, shown where it is drawn.
+    assert_eq!((g.at, (drawn.dst_x, drawn.dst_y)), ((300, 300, 400, 200), (340, 310)));
+    assert_eq!((p.writes.band, p.damage), (1, Area::rect(340, 310, 400, 200)));
+    // The hold starts again.
+    assert_eq!(present(&mut f, &[parked, no_damage()]).writes.total(), 0);
+}
+
+#[test]
+fn without_a_transform_a_glass_rests_where_it_is_drawn() {
+    let mut f = ready_frame(4096);
+    present(&mut f, &pane_over_a_window(200));
+    let (g, drawn) = (glass_of(&f, 2), f.step(2).expect("the pane").layer);
+    assert_eq!(g.at, (drawn.dst_x, drawn.dst_y, drawn.width, drawn.height));
 }

@@ -108,6 +108,9 @@ impl VirtioGpuBackend {
     /// rectangle drawn over the glass.
     pub(crate) fn glass_draw(&mut self, l: &FrameLayer, glass: Glass) {
         let (x, y, w, h) = (l.dst_x, l.dst_y, l.width, l.height);
+        // RFC-0109: the rows hold the blur of the REST rectangle (`Glass.at`, the window's
+        // transform not applied); a write blurs that, the draw spreads it over the layer.
+        let at = glass.at;
         // The plan asks only for radii the library blurs.
         let Some(pair) = self.pipelines.blur(l.backdrop_blur) else { return };
         let mut s = Submit3d::new();
@@ -115,25 +118,27 @@ impl VirtioGpuBackend {
         let (view, tex_h, row) = match step {
             CacheStep::Read(row) => (H_SV_BLUR_CACHE, BLUR_CACHE_TEX_H, row),
             CacheStep::Write(row) => {
-                self.emit_blur_chain(&mut s, pair, (x, y, w, h), H_BLUR_CACHE_SURF, row);
+                self.emit_blur_chain(&mut s, pair, at, H_BLUR_CACHE_SURF, row);
                 (H_SV_BLUR_CACHE, BLUR_CACHE_TEX_H, row)
             }
             CacheStep::Off => {
-                self.emit_blur_chain(&mut s, pair, (x, y, w, h), H_BACKDROP_SURF, 0);
+                self.emit_blur_chain(&mut s, pair, at, H_BACKDROP_SURF, 0);
                 (H_SV_BACKDROP, self.display_h, 0)
             }
         };
-        // The glass's half-resolution rectangle (inside the margin) over the glass, its corners
-        // cut, premultiplied over what is beneath — at the layer's opacity, as its content is
-        // (`virgl_composite`): a glass fading with its motion layer fades its frost (TASK-0354
-        // P9; the board's executor does the same, `frame::pieces::Back`).
+        // The rest rectangle's half-resolution result (inside the margin) over the glass as
+        // drawn, its corners cut, premultiplied over what is beneath — at the layer's opacity,
+        // as its content is (`virgl_composite`): a glass fading with its motion layer fades its
+        // frost (TASK-0354 P9; the board's executor does the same, `frame::pieces::Back`). The
+        // texture window is `at.w / s` x `at.h / s` from the margin: columns and rows of the
+        // slot's own result, whatever size the glass is drawn at.
         let r = l.corner_radius.min(w / 2).min(h / 2) as f32;
         let sf = nexus_gfx::frame::blur_scale(pair.radius) as f32;
         let (tw, th) = (self.display_w as f32, tex_h as f32);
         let tint = [1.0, 1.0, 1.0, l.opacity.min(255) as f32 / 255.0];
         let q = Quad::layer(x as f32, y as f32, w as f32, h as f32, tint, r).with_texture([
-            w as f32 / sf / tw,
-            h as f32 / sf / th,
+            at.2 as f32 / sf / tw,
+            at.3 as f32 / sf / th,
             1.0 / tw,
             (row + 1) as f32 / th,
         ]);
@@ -146,7 +151,8 @@ impl VirtioGpuBackend {
         }
     }
 
-    /// The glass (`x`, `y`, `w`, `h`) blurred at half resolution with one texel of margin into
+    /// The glass's rest rectangle (`x`, `y`, `w`, `h`: `Glass.at`) blurred at half resolution
+    /// with one texel of margin into
     /// `target` at (0, `row`): the back RT beneath it and the halo the passes reach copied into
     /// the snapshot; the horizontal pass into the scratch — its taps a two-texel step, each fetch
     /// at the corner of four texels, `taps` half-resolution rows more above and below for the

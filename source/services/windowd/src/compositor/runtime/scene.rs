@@ -291,7 +291,7 @@ impl DisplayServerRuntime {
         let caret_owner = caret.map(|c| c.owner);
         let desktop_quota = app_snaps.len();
         let quotas = &mut scratch.quotas;
-        layer_quotas(
+        let layers = layer_quotas(
             (app_snaps, &win_order[..win_n], culled),
             desktop_surface.as_ref(),
             caret_owner,
@@ -533,6 +533,7 @@ impl DisplayServerRuntime {
         self.buffers.frame_windows = drawn;
         self.buffers.frame_occluded = occluded;
         crate::compositor::frame_causes::windows(drawn as u32, occluded as u32);
+        self.hop_scene(layers, rects.len());
         self.scene_cb.serialize_into(out).map_err(|_| WindowdError::BufferLengthMismatch)
     }
 }

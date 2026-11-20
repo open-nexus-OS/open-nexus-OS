@@ -21,6 +21,7 @@
 use super::*;
 use crate::client_surface::Delivery;
 use crate::frame_clock::FrameClock;
+use crate::hop_trace::HopTrace;
 use nexus_display_proto::frame_time::{decode_present_ack_shown, encode_surface_frame_at, FrameAt};
 
 /// The pulses armed outside the windows' own flags, the display's timeline they name, and the
@@ -32,15 +33,19 @@ pub(crate) struct Pulses {
     stepped_ns: u64,
     /// The shown time each client was pulsed for last: the desktop's, then the apps' by slot.
     pulsed: alloc::vec::Vec<u64>,
+    /// One frame's timeline (RFC-0108 §hops, TASK-0373): the presents in flight beside the
+    /// clock's predictions, their ring on the heap (windowd's stack is eight pages).
+    hops: alloc::boxed::Box<HopTrace>,
 }
 
 impl Pulses {
-    pub(crate) const fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             desktop: false,
             clock: FrameClock::new(),
             stepped_ns: 0,
             pulsed: alloc::vec::Vec::new(),
+            hops: alloc::boxed::Box::new(HopTrace::new()),
         }
     }
 
@@ -107,19 +112,56 @@ impl DisplayServerRuntime {
         self.pulses.pace()
     }
 
-    /// gpud credited the present `seq` with `reply`: a timed ack moves the timeline on.
+    /// gpud credited the present `seq` with `reply`: a timed ack moves the timeline on. Its
+    /// record lands (`hop_trace`): acked now, shown when the ack says — or refused, and the
+    /// next frame draws its presents again; a frame owed meanwhile waited for this ack.
     pub(super) fn note_present_shown(&mut self, seq: u32, reply: &[u8]) {
-        if let Some(shown) = decode_present_ack_shown(reply) {
+        let shown = decode_present_ack_shown(reply);
+        if let Some(shown) = shown {
             self.pulses.clock.note_shown(seq, shown);
         }
+        let status = nexus_display_proto::decode_present_ack(reply).map(|(s, _)| s);
+        let ok = matches!(status, Some(GPUD_STATUS_OK | nexus_display_proto::STATUS_REVEALED));
+        let timed = shown.map(|s| (s.at_ns, s.step_ns() / 1000, u64::from(s.period_ns) / 1000));
+        let (now, owed) = (nexus_abi::nsec().unwrap_or(0), self.ux_input.owed_since());
+        self.pulses.hops.acked(seq, now, (ok, timed), owed);
     }
 
-    /// windowd sends the present `seq` now: the landing predicted for it, kept to judge.
+    /// windowd sends the present `seq` now: the landing predicted for it, kept to judge; its
+    /// record starts with the client presents it folded in (`hop_trace`).
     pub(super) fn note_present_sent(&mut self, seq: u32, now_ns: u64) {
         if let Some((at, _)) = self.next_frame_shown(now_ns) {
             let in_flight = self.frames_in_flight();
             self.pulses.clock.note_sent(seq, at, in_flight);
         }
+        let copied = crate::compositor::frame_causes::take_frame_copied();
+        self.pulses.hops.sent(seq, self.ux_input.owed_since(), now_ns, copied);
+    }
+
+    /// A client present of `surface_id` with `seq`, accepted at `rx_ns` (`hop_trace`).
+    pub(super) fn hop_client_present(&mut self, surface_id: u32, seq: u32, rx_ns: u64) {
+        self.pulses.hops.client_present(surface_id, seq, rx_ns);
+    }
+
+    /// The scene of the frame about to leave is built: `layers` drawn, `rects` named.
+    pub(super) fn hop_scene(&mut self, layers: usize, rects: usize) {
+        self.pulses.hops.scene(nexus_abi::nsec().unwrap_or(0), layers, rects);
+    }
+
+    /// The loop's pass at `now_ns`: idle for `hop_trace::IDLE_NS`, the slow frames print.
+    pub(crate) fn hops_idle(&mut self, now_ns: u64) {
+        let in_flight = self.frames_in_flight();
+        self.pulses.hops.idle(now_ns, in_flight, &mut |l| {
+            let _ = nexus_abi::debug_println(l);
+        });
+    }
+
+    /// The window line of a second with traffic: the histogram, the slow frames, the cost once.
+    pub(crate) fn hops_window(&mut self) {
+        let clock = || nexus_abi::nsec().unwrap_or(0);
+        self.pulses.hops.window(&clock, &mut |l| {
+            let _ = nexus_abi::debug_println(l);
+        });
     }
 
     /// Whether the client `who` (0 the desktop, an app's slot + 1) is owed a pulse now: the

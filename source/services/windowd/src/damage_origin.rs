@@ -98,7 +98,7 @@ pub(crate) fn origins(
         let drawn = l.material == MATERIAL_GLASS || (!desktop && l.material == MATERIAL_OPAQUE);
         let rect = (u32::from(l.x), u32::from(l.y), u32::from(l.w), u32::from(l.h));
         (drawn && region_owner(tree, i) == claimed_by)
-            .then(|| Some((region_key(owner, i), cut(all, rect)?)))
+            .then(|| Some((region_key(owner, layers.region_id(i) as usize), cut(all, rect)?)))
             .flatten()
     });
     if !desktop {
@@ -136,7 +136,7 @@ pub(crate) fn motion_of_key(layers: &SurfaceLayers, owner: u32, key: u32) -> Opt
             Some((index - MOTION_KEY_BASE) as usize).filter(|k| *k < tree.motions().len())
         }
         LAYER_KIND_SLICE => scroll_owner(tree, index as usize / MAX_PIECES),
-        LAYER_KIND_REGION => region_owner(tree, index as usize),
+        LAYER_KIND_REGION => layers.region_of_id(index).and_then(|i| region_owner(tree, i)),
         _ => None,
     }
 }

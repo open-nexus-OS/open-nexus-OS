@@ -54,6 +54,7 @@ impl DcDisplay {
             slot_stale: self.slot_cpu[slot],
         };
         let drawn = frames.draw_frame(commands, &target);
+        self.hops.drawn(frames.take_hop());
         if let Some(area) = drawn {
             self.slot_cpu[slot] = false;
             self.slot_gpu[slot] = true;

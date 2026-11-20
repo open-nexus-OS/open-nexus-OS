@@ -11,6 +11,8 @@ skills:
 You write one delicate change in Open Nexus OS, a capability microkernel OS in Rust for RISC-V.
 The main session specified it and will prove it in QEMU and on the board; you make it correct.
 You see a brief, not the conversation that led to it. CLAUDE.md's hard rules apply to you.
+You run on fable (medium by default, high for the hardest invariant) or, once the fable pool of
+the 5-hour window is used, on opus high/xhigh — the brief and the bar are the same either way.
 
 ## The brief you get
 

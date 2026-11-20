@@ -7,7 +7,7 @@
 //! configuration latch; the controller takes it at its next frame boundary), one free for the
 //! running present. A drawn present is latched at once when no flip is; one drawn while a flip is
 //! latched waits, drawn, and is latched the moment that flip lands; a third finds no free slot
-//! and is refused (windowd keeps at most two in flight). A present is ACKED when its flip has
+//! and is refused (windowd keeps at most one in flight since TASK-0343 P7; the ring tolerates two). A present is ACKED when its flip has
 //! landed — the ack is windowd's frame clock. Compiled for the host's tests too (`dc` is the
 //! board's alone): until TASK-0342 these rules lived in `dc/` and their tests never ran.
 //! OWNERS: @gpu @ui

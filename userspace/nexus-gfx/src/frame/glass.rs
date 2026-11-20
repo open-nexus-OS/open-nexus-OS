@@ -107,7 +107,9 @@ pub enum CacheStep {
 
 /// What one slot holds: its backdrop's key, its first row and how many (`h == 0`: none), what
 /// its rows still owe — the backdrop changes a write was put off for — and whether the last
-/// plan kept them through a motion.
+/// plan kept them through a motion. `last`: the key and base ([`GlassCache::current`]) the last
+/// plan computed for its glass; `now`: this plan's, handed on by [`GlassCache::carry`] — a glass
+/// the last plan did not reach has none.
 #[derive(Clone, Copy, Default)]
 struct Slot {
     key: u64,
@@ -115,6 +117,8 @@ struct Slot {
     h: u32,
     owed: Area,
     kept: bool,
+    last: Option<(u64, u64)>,
+    now: Option<(u64, u64)>,
 }
 
 /// The cache's bookkeeping, a slot per layer index — windowd encodes the scene back to front
@@ -168,6 +172,7 @@ impl GlassCache {
     /// The slots follow their layers into a new plan (RFC-0109): slot `i` takes what slot
     /// `carried[i]` held in the last plan — the same layer's key and rows — and nothing when the
     /// layer is new. There are as many slots as `carried` names: the others' rows are free.
+    /// What the last plan computed for a glass becomes its `last`; this plan computes anew.
     pub fn carry(&mut self, carried: &[Option<usize>]) {
         core::mem::swap(&mut self.slots, &mut self.last);
         self.short = 0;
@@ -176,11 +181,27 @@ impl GlassCache {
         let _ = self.slots.try_reserve(n);
         let room = self.slots.capacity().min(n);
         let last = &self.last;
-        self.slots.extend(
-            carried[..room]
-                .iter()
-                .map(|from| from.and_then(|j| last.get(j)).copied().unwrap_or_default()),
-        );
+        self.slots.extend(carried[..room].iter().map(|from| {
+            let s = from.and_then(|j| last.get(j)).copied().unwrap_or_default();
+            Slot { last: s.now, now: None, ..s }
+        }));
+    }
+
+    /// Whether `slot`'s rows were current one plan ago (TASK-0351 P6, C-c): the last plan
+    /// computed the very key they were blurred for, from the same `base` — the frame's seed
+    /// (display, wallpaper epoch) and the glass's own rest rectangle and radii
+    /// (`glass_key(seed, rest)`). Then a key miss is a change of the layers below alone.
+    /// Asked before [`Self::computed`].
+    pub(super) fn current(&self, slot: usize, base: u64) -> bool {
+        let held = self.held(slot);
+        held.last == Some((held.key, base))
+    }
+
+    /// The key and base this plan computed for `slot`'s glass (`current` asks them next plan).
+    pub(super) fn computed(&mut self, slot: usize, key: u64, base: u64) {
+        if let Some(held) = self.slots.get_mut(slot) {
+            held.now = Some((key, base));
+        }
     }
 
     /// What `slot` holds: nothing for a slot the plan has not reached.
@@ -222,10 +243,12 @@ impl GlassCache {
         (self.ready && h != 0 && held.h == h).then_some(CacheStep::Read(held.y))
     }
 
-    /// `slot`'s rows are kept through a motion this plan ([`Self::keep`] was taken).
-    pub(super) fn hold(&mut self, slot: usize) {
+    /// `slot`'s rows are kept through a motion this plan ([`Self::keep`] was taken): the key
+    /// stays the one they were blurred for, and `owed` is everything they miss of it by now —
+    /// the write that ends the hold pays it (`hold`).
+    pub(super) fn hold(&mut self, slot: usize, owed: Area) {
         if let Some(held) = self.slots.get_mut(slot) {
-            held.kept = true;
+            (held.kept, held.owed) = (true, owed);
         }
     }
 

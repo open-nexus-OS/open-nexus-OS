@@ -52,6 +52,9 @@ impl DslApp {
         if changed && self.diffs == diffs {
             self.pending.whole();
         }
+        if changed {
+            self.hop_dispatched(self.diffs != diffs);
+        }
         changed
     }
 
@@ -180,7 +183,7 @@ impl DslApp {
         }
         if rows > 0 {
             // A motion episode's raster cost and its damage, once a present.
-            self.motion_hops.painted(nsec_now().saturating_sub(t0) / 1000, rows);
+            self.note_painted(nsec_now().saturating_sub(t0) / 1000, rows, px);
             self.motion_hops.damaged(px);
         }
         let (runs, n) = rects.row_intervals();

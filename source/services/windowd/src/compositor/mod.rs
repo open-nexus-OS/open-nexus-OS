@@ -453,7 +453,7 @@ pub fn service_main_loop() -> Result<(), &'static str> {
         // 1. Completions first: they clock every animation and free ring slots.
         let completed = runtime.drain_gpud_replies();
         #[cfg(nexus_env = "os")]
-        loop_stats.tick(nexus_abi::nsec().unwrap_or(0), &runtime);
+        loop_stats.tick(nexus_abi::nsec().unwrap_or(0), &mut runtime);
         #[cfg(nexus_env = "os")]
         let _ = runtime.process_deferred_framebuffer_write();
         if completed {

@@ -50,14 +50,16 @@ impl SlotLayout {
 
 /// Copies `rects` of slot `from` into slot `to` (the newer slot's pixels where the last present
 /// changed them: `to` then holds the newest frame everywhere). A rect is cut to the slot.
+/// Returns the bytes copied (the frame's `cp=`, TASK-0373).
 pub(crate) fn copy_forward(
     bytes: &mut [u8],
     layout: &SlotLayout,
     (from, to): (u8, u8),
     rects: &[Rect],
-) {
+) -> u64 {
+    let mut copied = 0;
     if from == to {
-        return;
+        return copied;
     }
     for &(x, y, w, h) in rects {
         let x0 = x.min(layout.width) as usize * 4;
@@ -73,9 +75,11 @@ pub(crate) fn copy_forward(
             };
             if dst + x1 <= bytes.len() && src + x1 <= bytes.len() {
                 bytes.copy_within(src + x0..src + x1, dst + x0);
+                copied += (x1 - x0) as u64;
             }
         }
     }
+    copied
 }
 
 /// The byte spans of slot `slot` the `rects` cover — whole rows, overlapping and touching rows
@@ -145,7 +149,7 @@ mod tests {
             let at = L.row_at(1, row).expect("row");
             bytes[at..at + 48].fill(row as u8 + 1);
         }
-        copy_forward(&mut bytes, &L, (1, 0), &[(2, 3, 4, 2)]);
+        assert_eq!(copy_forward(&mut bytes, &L, (1, 0), &[(2, 3, 4, 2)]), 2 * 4 * 4, "bytes");
         let row3 = L.row_at(0, 3).expect("row");
         assert_eq!(&bytes[row3 + 8..row3 + 24], &[4u8; 16], "x 2..6 of row 3");
         assert_eq!(bytes[row3 + 4], 0, "x 1: outside the rect");
@@ -153,10 +157,10 @@ mod tests {
         let row5 = L.row_at(0, 5).expect("row");
         assert_eq!(bytes[row5 + 8], 0, "row 5: outside the rect");
         // A rect past the slot is cut to it; one slot onto itself is nothing.
-        copy_forward(&mut bytes, &L, (1, 0), &[(10, 9, 100, 100)]);
+        assert_eq!(copy_forward(&mut bytes, &L, (1, 0), &[(10, 9, 100, 100)]), 8, "cut");
         let row9 = L.row_at(0, 9).expect("row");
         assert_eq!(&bytes[row9 + 40..row9 + 48], &[10u8; 8]);
-        copy_forward(&mut bytes, &L, (0, 0), &[(0, 0, 12, 10)]);
+        assert_eq!(copy_forward(&mut bytes, &L, (0, 0), &[(0, 0, 12, 10)]), 0);
     }
 
     /// One clean per run of rows, whole rows of the stride, inside the slot.

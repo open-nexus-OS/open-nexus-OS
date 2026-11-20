@@ -5,7 +5,7 @@ role: reference
 subsystem: devx
 sources: [scripts/qemu-test.sh, scripts/qemu-launcher.sh, scripts/build.sh, scripts/hypothesis-log.sh, tools/os2vm.sh, tools/uart-filter.py]
 contracts: [RFC-0107, ADR-0063]
-verified: 2026-11-18
+verified: 2026-11-20
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -102,6 +102,25 @@ hypotheses (`DNS`, `N*`, `B`–`F`). Rerun a slice with `RUN_PHASE=<phase>`.
 
 **Input lane stuck:** `H4` records from the injector name the scenario step and the missing
 marker.
+
+## A slow frame's timeline
+
+A frame that missed its budget is not read from window averages: each process of the frame chain
+prints its own slow frames once, when idle (`apphost: hops one (s=…)`, `windowd: hops one (f=…
+from=…)`, `gpud: hops one (f=…)` — board only, QEMU runs another GPU path), with a histogram per
+window (`<svc>: hops hist (…)`) and the record's cost once (`<svc>: hops cost (…)`; RFC-0108 §hops,
+TASK-0373). Stitch them:
+
+```bash
+cargo run -q -p nx -- hops build/logs/<run>/uart.log            # per frame: hops, the longest, the gap
+cargo run -q -p nx -- hops build/logs/<run>/uart.log --frame 8607
+cargo run -q -p nx -- hops build/logs/<run>/uart.log --check    # exit 3: stamps disagree, a line cut
+```
+
+Each frame shows every process's hops (`a>b=µs`), its waits (`w=count/µs`), yields, bytes copied
+and counts; `gap` is the time no hop names — runnable and not run, IPC between processes, or a
+stamp missing. The summary gives p50/p90 per hop for bare, mid and loaded scenes. Unjoined lines
+are normal: each process prints only the frames it judged slow.
 
 ## Troubleshooting
 

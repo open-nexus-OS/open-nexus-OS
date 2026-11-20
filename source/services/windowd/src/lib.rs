@@ -142,8 +142,15 @@ mod damage_rects;
 /// consumed by the OS-only compositor.
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod frame_clock;
+/// One frame's timeline in windowd (RFC-0108 §hops, TASK-0373): pure, host-TESTED, fed and
+/// printed by the OS-only compositor.
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
+mod hop_trace;
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod presentation_state;
+/// A surface's regions keep their layer key while they stay what they are (TASK-0351 P6).
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
+mod region_ids;
 // RFC-0093 §5 (TASK-0324 P6-b): sequence-tracked present-ack window — pure, host-TESTED
 // (its negative tests are the security invariant), consumed by the OS-only compositor runtime.
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]

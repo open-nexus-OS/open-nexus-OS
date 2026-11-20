@@ -34,6 +34,7 @@ pub mod chain;
 pub mod clip;
 pub mod damage;
 pub mod glass;
+mod hold;
 pub mod kernels;
 pub mod layers;
 pub mod merge;
@@ -42,6 +43,7 @@ pub mod oracle;
 pub mod pieces;
 pub mod plan;
 mod reach;
+mod rest;
 pub mod scanout;
 pub mod walk;
 

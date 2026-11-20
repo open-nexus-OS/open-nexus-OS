@@ -62,7 +62,7 @@ impl DslApp {
         self.view_scratch = views;
         split.px = u64::from(split.rows) * u64::from(self.w);
         let done = nsec_now();
-        self.motion_hops.painted(done.saturating_sub(t0) / 1000, split.rows);
+        self.note_painted(done.saturating_sub(t0) / 1000, split.rows, split.px);
         // What a clock read costs here, measured after the pass (its caches are the pass's).
         let c0 = nsec_now();
         for _ in 0..CLOCK_READS {

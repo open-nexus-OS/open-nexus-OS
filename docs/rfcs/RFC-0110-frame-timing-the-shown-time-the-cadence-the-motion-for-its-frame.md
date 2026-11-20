@@ -124,7 +124,13 @@ landing gpud reports for it: on time (within half a period), late, early
 with traffic; amended 2026-11-19, TASK-0343 P7: an early landing is split by whether nothing
 (`early0`) or something (`early1`) was in flight when its present was sent — the half-period floor
 for an idle display misses in the first, a landing judged against the wrong prediction in the
-second; the split names which before either is changed).
+second; the split names which before either is changed). Amended again 2026-11-19 (TASK-0343
+P7, the board's split: early0 115, early1 333): a prediction chains on the newest present still
+in flight — a step after its predicted landing — and only with none in flight on the last
+landing; the floor comes after. A second present after an idle display, or after the cadence
+changed, is no longer predicted onto the boundary of the first. Amended 2026-11-20 (TASK-0343 P7): windowd keeps ONE present in flight (RFC-0101 §8), so a scene is built with none in flight and predicted one step after the last landing (the floor after idle); a pulse asked while one is in flight names two steps ahead; `early1` is zero by construction. gpud is unchanged: the board tied
+only 42 % of `early1` to a cadence change, below the 80 % that would have carried a gpud-side
+announced cadence.
 The frame pulse (`OP_SURFACE_FRAME`, the Choreographer contract) names that prediction:
 
 ```

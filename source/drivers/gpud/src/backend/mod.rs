@@ -53,6 +53,9 @@ pub(crate) mod dc;
 mod flip_ring;
 #[cfg(any(test, all(feature = "os-lite", target_os = "none")))]
 mod frame_pace;
+// One frame's timeline on the board's display (RFC-0108 §hops, TASK-0373); host-tested.
+#[cfg(any(test, all(feature = "os-lite", target_os = "none")))]
+pub(crate) mod hop_trace;
 // What the request loop drives: the virtio GPU or the board's display controller.
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 pub(crate) mod display;

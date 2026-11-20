@@ -17,13 +17,15 @@
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: `tests/frame_board.rs`, `tests/frame_occlusion.rs`; the parts below
 //! INVARIANTS: a piece samples exactly the texels its pixels showed in the whole draw (the
-//!   atlas one to one; the cache rows on their scale's grid); only a corner square holds a pixel
-//!   the rounded rectangle covers partly or its shadow's knockout lets through; a content
+//!   atlas one to one; the cache rows on their scale's grid — a glass drawn at another size than
+//!   its rest rectangle: the piece's image in the rest rows, `rest`); only a corner square holds
+//!   a pixel the rounded rectangle covers partly or its shadow's knockout lets through; a content
 //!   spread over a larger layer is one draw, never cut (its texels are not one to one).
 
 use super::board::{blur_radius, blur_scale, DrawSpec, Pipe, Tex};
 use super::layers::FrameLayer;
 use super::occlude::{self, Px};
+use super::rest;
 use crate::backend::gpu::quads::Quad;
 
 /// A part of a rounded layer: its rectangle, and whether a corner of the layer is in it.
@@ -244,7 +246,9 @@ impl Shadow {
 
 /// A glass's blurred backdrop drawn back over it from its cache rows (the reduced result inside
 /// its one-texel margin), its corners cut — at its layer's opacity: a glass fading with its
-/// motion layer fades its frost too (TASK-0354 P9: a closed panel left its frost standing).
+/// motion layer fades its frost too (TASK-0354 P9: a closed panel left its frost standing). The
+/// rows hold the blur of the layer's REST rectangle (`Glass.at`); drawn at another size they
+/// are spread over the drawn rectangle (`rest::texels`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Back {
     rect: Px,
@@ -252,17 +256,20 @@ struct Back {
     /// The cache rows' scale and the rows' first row.
     scale: u32,
     row: u32,
+    /// The size of the rest rectangle the rows hold the blur of.
+    at: (u32, u32),
     /// The layer's opacity (`1.0`: drawn whole — the opaque program, as before).
     alpha: f32,
 }
 
 impl Back {
-    fn of(l: &FrameLayer, row: u32) -> Self {
+    fn of(l: &FrameLayer, row: u32, at: (u32, u32)) -> Self {
         Self {
             rect: (l.dst_x, l.dst_y, l.width, l.height),
             radius: l.corner_radius.min(l.width / 2).min(l.height / 2),
             scale: blur_scale(blur_radius(l.backdrop_blur)),
             row,
+            at,
             alpha: l.opacity.min(255) as f32 / 255.0,
         }
     }
@@ -279,7 +286,6 @@ impl Back {
     /// glass back (`rounded`: a corner square).
     fn draw(&self, rounded: bool, p: Px) -> DrawSpec {
         let (x, y, w, h) = self.rect;
-        let s = self.scale;
         let f = |v: u32| v as f32;
         let tint = [1.0, 1.0, 1.0, self.alpha];
         let (pipe, quad) = if rounded {
@@ -291,16 +297,7 @@ impl Back {
             let pipe = if self.alpha >= 1.0 { Pipe::Opaque } else { Pipe::Straight };
             (pipe, Quad::layer(f(p.0), f(p.1), f(p.2), f(p.3), tint, 0.0))
         };
-        DrawSpec {
-            pipe,
-            quad,
-            tex: Tex::Cache {
-                x: 1 + (p.0 - x) / s,
-                row: self.row + 1 + (p.1 - y) / s,
-                w: p.2.div_ceil(s),
-                h: p.3.div_ceil(s),
-            },
-        }
+        DrawSpec { pipe, quad, tex: rest::texels(self.rect, self.at, self.scale, self.row, p) }
     }
 }
 
@@ -316,14 +313,16 @@ pub(super) struct LayerDraws {
 }
 
 impl LayerDraws {
+    /// `back`: the glass's cache rows (their first row) and the size of the rest rectangle they
+    /// hold the blur of.
     pub(super) fn new(
         l: &FrameLayer,
-        back_row: Option<u32>,
+        back: Option<(u32, (u32, u32))>,
         content: Content,
         occluder: Option<Px>,
     ) -> Self {
         Self {
-            back: back_row.map(|row| Back::of(l, row)),
+            back: back.map(|(row, at)| Back::of(l, row, at)),
             shadow: Shadow::of(l),
             content,
             occluder,
@@ -452,7 +451,7 @@ mod tests {
                 opacity,
                 ..FrameLayer::default()
             };
-            Back::of(&l, 7)
+            Back::of(&l, 7, (l.width, l.height))
         };
         let whole = back(255);
         for (part, rounded) in whole.parts().into_iter().flatten() {

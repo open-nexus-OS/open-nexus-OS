@@ -676,6 +676,30 @@ proves = "the frame chain's hops in windowd over a 1 s window: a frame owed (the
 phase = "end"
 proves = "the input chain's hop in an app over 16 inputs: an input that asked for work (a repaint, a motion) received → its answer sent, the wait for the previous present's credit included"
 
+[marker."apphost: hops one ("]
+phase = "end"
+proves = "TASK-0373 (RFC-0108 §hops amended): one slow frame of an app — input to present above a period — its stamps (dispatch, layout, raster, sent), waits, yields and bytes copied, printed once when idle; a measurement, joined by `nx hops`"
+
+[marker."apphost: hops hist ("]
+phase = "end"
+proves = "TASK-0373: how an app's hops spread over its input window (eight buckets from 1 ms to 66.7 ms), the slow-frame lines printed and the ones the ring lost; a measurement"
+
+[marker."apphost: hops cost ("]
+phase = "end"
+proves = "TASK-0373: what one frame's record costs an app (the clock, the record, a line), once after boot — the instrument's bound is 50 us a frame"
+
+[marker."windowd: hops one ("]
+phase = "end"
+proves = "TASK-0373: one slow frame in windowd — its present received, owed, the scene built, sent, acked and shown, the client presents folded into it, waits, yields, bytes copied; a measurement, joined by `nx hops`"
+
+[marker."windowd: hops hist ("]
+phase = "end"
+proves = "TASK-0373: how windowd's hops spread over a second with traffic, the slow-frame lines printed and lost; a measurement"
+
+[marker."windowd: hops cost ("]
+phase = "end"
+proves = "TASK-0373: what one frame's record costs windowd, once after boot"
+
 [marker."apphost: hops hover ("]
 phase = "end"
 proves = "TASK-0353 P7: of 16 hovers that changed the hovered control, how many asked for a raster — a hover is a layer the compositor fades (RFC-0116), so `rastered=0`; a measurement, judged by the phase gate on the board"

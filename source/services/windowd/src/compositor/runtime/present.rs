@@ -14,6 +14,12 @@
 
 use super::*;
 
+// The scanned plane plus one per present in flight must fit gpud's ring (TASK-0343 P7).
+const _: () = assert!(
+    DisplayServerRuntime::max_in_flight() as usize + 1
+        <= nexus_display_proto::layout::RING_ROWS.len()
+);
+
 impl DisplayServerRuntime {
     /// C1 (RFC-0067 closure): the proof/target-test panel was deleted, so there
     /// are no target-test rects to damage. Retained as a no-op for the input
@@ -197,10 +203,8 @@ impl DisplayServerRuntime {
             u64::from(self.mode.width).saturating_mul(u64::from(end_y.saturating_sub(start_y))),
             ns,
         );
-        crate::compositor::frame_causes::work_base(
-            u64::from(end_y.saturating_sub(start_y)),
-            ns / 1000,
-        );
+        let rows = u64::from(end_y.saturating_sub(start_y));
+        crate::compositor::frame_causes::work_base(rows, rows * row_len as u64, ns / 1000);
         self.telemetry.record_present();
         self.refresh_observer_state();
         Ok(())
@@ -279,15 +283,10 @@ impl DisplayServerRuntime {
         }
         self.state.cursor_overlay_visible = self.state.cursor_svg_visible;
         let ns = nsec().unwrap_or(render_start_ns).saturating_sub(render_start_ns);
-        self.telemetry.record_compose_timed(
-            u64::from(end_x.saturating_sub(start_x))
-                .saturating_mul(u64::from(end_y.saturating_sub(start_y))),
-            ns,
-        );
-        crate::compositor::frame_causes::work_base(
-            u64::from(end_y.saturating_sub(start_y)),
-            ns / 1000,
-        );
+        let rows = u64::from(end_y.saturating_sub(start_y));
+        let px = u64::from(end_x.saturating_sub(start_x)).saturating_mul(rows);
+        self.telemetry.record_compose_timed(px, ns);
+        crate::compositor::frame_causes::work_base(rows, px * 4, ns / 1000);
         self.telemetry.record_present();
         self.refresh_observer_state();
         Ok(())
@@ -558,9 +557,11 @@ impl DisplayServerRuntime {
         self.present_retry_exhausted = false;
     }
 
-    /// Phase 7: maximum in-flight frames before backpressure.
+    /// Presents in flight to gpud — the ONE bound for the flush gate and `send_present` (TASK-0343
+    /// P7). One: a second waited behind the latched flip (`behind` 4528/4992, drawn>shown 32.6 ms,
+    /// board--2026-11-19T22-09-42); two gates built 2-14 scenes per present (…2026-11-20T08-55-45).
     pub(crate) const fn max_in_flight() -> u32 {
-        2
+        1
     }
 
     /// Phase 7: current frames in flight to gpud (exposed for pacing).

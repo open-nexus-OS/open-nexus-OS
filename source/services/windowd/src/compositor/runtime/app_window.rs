@@ -280,6 +280,7 @@ impl DisplayServerRuntime {
         match self.client_surfaces.present(surface_id, (seq, p.slot), p.damage(), now) {
             Ok((surface, rects, count)) => {
                 let rects = &rects[..count];
+                self.hop_client_present(surface_id, seq, now);
                 match self.owner_of(surface_id) {
                     Some(Owner::Desktop) => {
                         let place = crate::surface_place::SurfacePlace::display((

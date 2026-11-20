@@ -34,6 +34,8 @@ pub(crate) struct SurfaceMem {
     copied: PresentDamage,
     /// The slot being drawn holds the newest frame (forwarded, or the frame draws everything).
     forwarded: bool,
+    /// Bytes copied into the slots since the last present (TASK-0373: the frame's `cp=`).
+    copied_bytes: u64,
 }
 
 impl SurfaceMem {
@@ -56,7 +58,13 @@ impl SurfaceMem {
             forward: PresentDamage::default(),
             copied: PresentDamage::default(),
             forwarded: false,
+            copied_bytes: 0,
         })
+    }
+
+    /// Bytes copied into the slots since the last call (the frame's `cp=`), and a fresh count.
+    pub(crate) fn take_copied(&mut self) -> u64 {
+        core::mem::take(&mut self.copied_bytes)
     }
 
     /// Bytes mapped (the line that says the surface is mapped).
@@ -73,7 +81,8 @@ impl SurfaceMem {
         }
         if let Some(shown) = self.shown.filter(|s| *s != self.draw) {
             let rects = self.forward;
-            copy_forward(self.map.bytes_mut(), &self.layout, (shown, self.draw), rects.rects());
+            let (slots, rs) = ((shown, self.draw), rects.rects());
+            self.copied_bytes += copy_forward(self.map.bytes_mut(), &self.layout, slots, rs);
             self.copied = rects;
         }
         self.forwarded = true;
@@ -94,6 +103,7 @@ impl SurfaceMem {
             let (from, to) = (old.layout.row_at(shown, y)?, self.layout.row_at(self.draw, y)?);
             let src = old.map.bytes().get(from..from + len)?;
             self.map.bytes_mut().get_mut(to..to + len)?.copy_from_slice(src);
+            self.copied_bytes += len as u64;
         }
         Some(rows)
     }
@@ -111,6 +121,7 @@ impl SurfaceMem {
         match self.row_mut(y).and_then(|row| row.get_mut(at..at + bytes.len())) {
             Some(dst) => {
                 dst.copy_from_slice(bytes);
+                self.copied_bytes += bytes.len() as u64;
                 true
             }
             None => false,

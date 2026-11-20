@@ -12,10 +12,12 @@ mod cli;
 mod cli_app;
 mod cli_image;
 mod cli_ledger;
+mod cli_recovery;
 mod cli_ui;
 mod cli_update;
 mod commands;
 mod error;
+mod hops;
 mod output;
 mod runtime;
 

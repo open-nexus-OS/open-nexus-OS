@@ -419,6 +419,12 @@ impl RetainedLayers {
         self.dirty = true;
     }
 
+    /// Layer `i` at rest: as the present encoded it, its window's transform not applied — the
+    /// rectangle a glass's rows hold the blur of (RFC-0109).
+    pub(super) fn rest(&self, i: usize) -> Option<FrameLayer> {
+        self.layers.get(i).copied()
+    }
+
     /// Layer `i` as the frame draws it: its window's transform applied.
     pub fn effective(&self, i: usize) -> Option<FrameLayer> {
         let mut l = *self.layers.get(i)?;

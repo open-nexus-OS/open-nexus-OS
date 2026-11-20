@@ -156,6 +156,26 @@ held the frame — a hop line is that stage's measurement, never judged (no verd
   bytes (`DEBUG_LINE_CAP`): the first cycle's `last=` line was cut there.
 - Like the budget lines, a hop line carries times and counts only — no identity, no input's
   content.
+- **One frame's timeline** (amended 2026-11-19, TASK-0373 — a regression read from window sums
+  was misjudged twice in one day): every process of the frame chain takes a record per frame
+  into a ring of 32 (`nexus_ux_budgets::timeline`): its stamps (all `nsec()`, the one kernel
+  clock), its blocking waits and the time in them (`w=`), its yields (`y=`), the bytes it copied
+  for the frame (`cp=`) and a few counts of its own. A frame its process judges slow — app-host:
+  input to present above a period; windowd: sent to shown above two steps and a half period, or
+  received to sent above a period; gpud: a missed slot, received to shown above two periods, or
+  its work above the cadence threshold of 14.67 ms — prints its record once, when the process
+  is idle or at its window line, at most eight a window: `apphost: hops one (s=<surface>.<seq> …)`,
+  `windowd: hops one (f=<seq> from=<surface>.<seq>,… …)`, `gpud: hops one (f=<seq> …)`, joined by
+  the ids already on the wire (the client present's seq, windowd's present seq, gpud's ack); a
+  hop prints saturated at one second. `<svc>: hops hist (…)` spreads each hop over eight buckets
+  (below 1, 2, 4, 8, 16.7, 33.3, 66.7 ms and above) per window, with the lines printed (`one=`) and
+  the slow frames the ring lost (`lost=`); `<svc>: hops cost (…)` prices the record once after
+  boot (bound: 50 µs a frame). No allocation and no print on the frame path; field names from
+  one vocabulary only. `nx hops <uart.log> [--check]` stitches the lines into one timeline per
+  frame, names the hop that holds it and the `gap` (a span minus its hops and waits: time the
+  process was runnable and not run, or a stamp missing), per-hop p50/p90 bare and loaded, and
+  fails `--check` when stamps disagree across processes. The time runnable and not run is named
+  only by a kernel count per task — TASK-0373 P2, with its own RFC.
 
 ### Proof gates
 

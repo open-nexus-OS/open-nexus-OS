@@ -165,7 +165,8 @@ impl super::DslApp {
         let t0 = nsec_now();
         let ok = self.render_rows(mem, (0, self.h as i32), None);
         // A motion episode's raster cost (`apphost: hops motion paint_us= rows=`).
-        self.motion_hops.painted(nsec_now().saturating_sub(t0) / 1000, self.h);
+        let px = u64::from(self.h) * u64::from(self.w);
+        self.note_painted(nsec_now().saturating_sub(t0) / 1000, self.h, px);
         ok
     }
 

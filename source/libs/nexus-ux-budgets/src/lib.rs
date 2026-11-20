@@ -25,6 +25,9 @@ pub mod chains;
 /// A text field's input session: counts and key → present latencies, one aggregate per session
 /// (RFC-0113 §6).
 pub mod session;
+/// One frame's timeline across the frame chain: stamps, waits, yields, copies, printed once when
+/// slow (RFC-0108 §hops amended, TASK-0373).
+pub mod timeline;
 
 /// A frame at 60 Hz: the panel's period. A frame past it is a dropped one (a stutter).
 pub const FRAME_US: u64 = 16_667;

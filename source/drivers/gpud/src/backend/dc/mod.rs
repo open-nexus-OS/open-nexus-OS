@@ -135,6 +135,9 @@ pub(crate) struct DcDisplay {
     frozen: bool,
     /// The CPU wrote the base plane since the GPU's last frame (the reveal, a freeze, a thaw).
     base_dirty: bool,
+    /// One frame's timeline (RFC-0108 §hops, TASK-0373): drawn, received, landed — its ring on
+    /// the heap, made once at bring-up.
+    hops: alloc::boxed::Box<super::hop_trace::GpudHops>,
 }
 
 struct Live {
@@ -196,6 +199,7 @@ impl DcDisplay {
             gpu_area: None,
             frozen: false,
             base_dirty: true,
+            hops: alloc::boxed::Box::new(super::hop_trace::GpudHops::new()),
         }
     }
 

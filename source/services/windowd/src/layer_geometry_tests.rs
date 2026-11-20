@@ -463,7 +463,7 @@ fn an_exited_layer_is_not_drawn_and_owes_no_frame() {
     layers.stage(sliding(true));
     let _ = layers.activate();
     let e = 3_000 * MS;
-    let note = FrameNote { period_ns: 100 * MS, damage_px: 7 };
+    let note = FrameNote { period_ns: 100 * MS, damage_px: 7, paced: false };
     assert_eq!(layers.stamp(e, note)[0], Said::Started, "the close starts with its frame");
     let (m, seg) = (layers.tree.motions[0], layers.motion_states[0].seg);
     assert_eq!(seg.turn, None, "the enter was over: the design curve from its rest");

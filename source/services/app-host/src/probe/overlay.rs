@@ -63,7 +63,9 @@ impl super::DslApp {
         let clock = self.clock_deadline_ns();
         let transient = self.transient_armed.as_ref().map(|(_, deadline)| *deadline);
         // A leaving layer's drop (TASK-0354 P9): its exit is over, the structure lets it go.
-        [clock, transient, self.ghost_deadline_ns()].into_iter().flatten().min().unwrap_or(0)
+        // A slow frame's line once app-host is idle (TASK-0373, `hop_trace`).
+        let hops = self.hop_idle_deadline();
+        [clock, transient, self.ghost_deadline_ns(), hops].into_iter().flatten().min().unwrap_or(0)
     }
 
     /// The one-shot fired: run whichever deadline is due (both, when they coincide). Returns
@@ -80,6 +82,7 @@ impl super::DslApp {
         let timed_out = self.transient_armed.as_ref().is_some_and(|(_, deadline)| now >= *deadline)
             && self.dispatched(Self::transient_timeout);
         let dropped = self.drop_due_ghosts(super::boot_env::nsec_now());
+        self.hop_idle_fired(super::boot_env::nsec_now());
         ticked || timed_out || dropped
     }
 

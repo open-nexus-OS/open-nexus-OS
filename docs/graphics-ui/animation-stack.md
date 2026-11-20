@@ -50,7 +50,7 @@ The frame pulse (`compositor/runtime/frame_pulse.rs`): an animating client sends
 
 ## The artifacts' transitions
 
-They run on the tokens, the loops, exits, `.motion`, `.rotate` and the press roles (TASK-0354); `motion_samples.golden` pins every token's curve (`UPDATE_MOTION_SAMPLES=1`).
+They run on the tokens, the loops, exits, `.motion`, `.rotate` and the press roles (TASK-0354); gpud halves its cadence when two of eight draws pass 14.67 ms; `motion_samples.golden` pins every token's curve (`UPDATE_MOTION_SAMPLES=1`).
 
 ## Layers 2 and 3 — NexusGfx and the backend
 
@@ -68,6 +68,6 @@ They run on the tokens, the loops, exits, `.motion`, `.rotate` and the press rol
 
 ## Proof
 
-- `windowd: transition open` (proof manifest, `source/apps/selftest-client/proof-manifest/markers/ui.toml`) — an app window's open transition began; the usb-visible and lowmem scenarios expect it.
+- `windowd: transition open` (`proof-manifest/markers/ui.toml`): a window open began.
 - `scripts/qemu-test.sh` keeps the TASK-0062 guard: `SELFTEST: ui v5 transition ok` counts only after the gpud and animation bridge markers (`uiruntime: on`, `uianim: timeline on`, `windowd: implicit transitions on`, `windowd: live transition ok`).
 - `cargo test -p animation`.

@@ -206,6 +206,7 @@ impl super::DslApp {
         &mut self,
     ) -> Option<(crate::layout_diff::Changed, alloc::vec::Vec<nexus_layout::LayoutBox>)> {
         self.diffs = self.diffs.wrapping_add(1);
+        self.hop_relayout(false);
         let (held, shown) = (self.held_spans(), self.base_shows());
         self.damage_animated();
         let old_boxes = core::mem::take(&mut self.layout.boxes);
@@ -219,6 +220,7 @@ impl super::DslApp {
         let changed = self.layout_change((&old_boxes, &old_texts), &held);
         self.damage_animated();
         self.damage_views(&shown, changed.shifted);
+        self.hop_relayout(true);
         Some((changed, old_boxes))
     }
 

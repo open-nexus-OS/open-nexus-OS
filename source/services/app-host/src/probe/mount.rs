@@ -172,6 +172,7 @@ impl DslApp {
             diffs: 0,
             input_rx_ns: None,
             hop_input: nexus_ux_budgets::Hop::new(),
+            hops: alloc::boxed::Box::new(crate::hop_record::AppHops::new()),
             hover_window: (0, 0),
             motion_hops: nexus_ux_budgets::chains::MotionHops::new(),
             split_done: false,

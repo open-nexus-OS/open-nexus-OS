@@ -50,6 +50,8 @@ static RELEASED: AtomicU64 = AtomicU64::new(0);
 static HELD_MAX_US: AtomicU64 = AtomicU64::new(0);
 static BASE_ROWS: AtomicU64 = AtomicU64::new(0);
 static BASE_US: AtomicU64 = AtomicU64::new(0);
+/// The base bytes rewritten for the frame being built (TASK-0373: its `hops one` `cp=`).
+static FRAME_COPIED: AtomicU64 = AtomicU64::new(0);
 /// RFC-0109: the surface structures and motions refused — each is said once per surface, the
 /// count of all of them rides the loop line (a refused motion drops its offsets too).
 static LAYERS_REFUSED: AtomicU32 = AtomicU32::new(0);
@@ -169,10 +171,16 @@ pub(super) fn work_release(us: u64) {
     HELD_MAX_US.fetch_max(us, Ordering::Relaxed);
 }
 
-/// `rows` wallpaper rows were rewritten into the retained plane in `us`.
-pub(super) fn work_base(rows: u64, us: u64) {
+/// `rows` wallpaper rows — `bytes` of them — were rewritten into the retained plane in `us`.
+pub(super) fn work_base(rows: u64, bytes: u64, us: u64) {
     BASE_ROWS.fetch_add(rows, Ordering::Relaxed);
     BASE_US.fetch_add(us, Ordering::Relaxed);
+    FRAME_COPIED.fetch_add(bytes, Ordering::Relaxed);
+}
+
+/// The base bytes rewritten since the last frame left, and a fresh count (the frame's `cp=`).
+pub(super) fn take_frame_copied() -> u64 {
+    FRAME_COPIED.swap(0, Ordering::Relaxed)
 }
 
 /// Present `seq` left for gpud at `now_ns`.

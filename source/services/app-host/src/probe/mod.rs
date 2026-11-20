@@ -31,6 +31,7 @@ mod damage;
 mod drag;
 mod env;
 mod frame_arena;
+mod hop_trace;
 mod interaction;
 mod layers;
 mod locale;
@@ -397,6 +398,7 @@ pub(super) fn run() -> Result<(), &'static str> {
             // the next frame may be drawn there. Any other seq names no present of this surface.
             if acked == seq {
                 present_in_flight = false;
+                hop_trace::acked(app.as_mut());
             }
             marker::present_nack(status, acked, &mut odd_frame_markers);
         } else if let Some((_, inset, rw, rh)) = wire::decode_surface_rect(&event_frame[..len]) {

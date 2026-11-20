@@ -161,11 +161,13 @@ fn layers_that_swap_their_order_damage_their_overlap() {
         present(&mut f, &[base(), two.clone(), one.clone(), no_damage()]).damage,
         Area::None
     );
-    // A glass over the overlap blurs again — its backdrop's order changed (the class says so).
+    // A glass over the overlap blurs again — its backdrop's order changed (the class says so) —
+    // where they overlap alone (C-c: the reorder explains the key).
     let pane = with(glass(layer(450, 350, 200, 200), 40), |l| (l.layer_id, l.key) = (3, 3 << 16));
     let mut f = settled(&[base(), one.clone(), two.clone(), pane.clone()]);
     let p = present(&mut f, &[base(), two, one, pane, no_damage()]);
-    assert_eq!(p.writes, Writes { backdrop: 1, ..Default::default() });
+    assert_eq!(p.writes, Writes { backdrop: 1, backdrop_band: 1, ..Default::default() });
+    assert_eq!(band_of(&f, 3), Some(Area::rect(500, 400, 100, 100)));
     assert_eq!(p.by, WritesBy { order: 1, ..Default::default() });
     assert!(Area::rect(500, 400, 100, 100).inside(p.damage));
 }

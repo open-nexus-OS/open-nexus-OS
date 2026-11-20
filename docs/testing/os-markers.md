@@ -46,9 +46,9 @@ verified: 2026-11-18
 | 9 | `vfs` | 29 | vfs.toml |
 | 10 | `net` | 80 | net.toml |
 | 11 | `remote` | 21 | remote.toml |
-| 12 | `end` | 197 | board.toml, end.toml, ui.toml, usb.toml |
+| 12 | `end` | 207 | board.toml, end.toml, ui.toml, usb.toml |
 
-1291 markers in 15 files.
+1301 markers in 15 files.
 <!-- /gen:markers -->
 
 ## Declaring a marker

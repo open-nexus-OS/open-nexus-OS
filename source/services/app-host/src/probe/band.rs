@@ -222,6 +222,7 @@ impl super::DslApp {
         // as a motion layer changes no base row, and its `modal.on` and `apphost: modal open`
         // waited for the next paint — the clock's minute, 40 s on the usb-visible lane.
         self.overlay_sync();
+        self.hop_raster(Some(false));
         let mut damage = PresentDamage::default();
         // A store re-created at the same size kept what it drew (`SurfaceMem::carry_from`): all
         // of it, named once — the other slot takes it from this present.
@@ -245,6 +246,7 @@ impl super::DslApp {
             return Err("apphost: FAIL interactive render");
         }
         self.fill_bands(mem, Some(FILL_BUDGET_NS), &mut damage);
+        self.hop_raster(Some(true));
         // Regions an animation moved (or let rest) are declared anew with this frame's pixels.
         if !self.tree_dirty && self.regions_moved() {
             self.tree_dirty = true;
@@ -255,6 +257,7 @@ impl super::DslApp {
             if !self.motion_dirty {
                 self.input_rx_ns = None;
             }
+            self.hop_raster(None);
             return Ok(false);
         }
         if self.tree_dirty {
@@ -267,6 +270,7 @@ impl super::DslApp {
         let slot = mem.end_frame(&damage);
         *seq = seq.wrapping_add(1);
         self.send_present(client, surface_id, (*seq, slot), &damage)?;
+        self.hop_sent((surface_id, *seq), mem);
         self.note_input_answered();
         self.motion_answered();
         // RFC-0113 §6: the keys this present shows are answered; a field the focus left says
@@ -420,6 +424,7 @@ impl super::DslApp {
         if self.hop_input.count() >= nexus_ux_budgets::INPUT_WINDOW {
             let (n, avg, max) = self.hop_input.take();
             raw_marker(&alloc::format!("apphost: hops input (rx>sent={avg}/{max}/{n})"));
+            self.hop_window();
         }
     }
 

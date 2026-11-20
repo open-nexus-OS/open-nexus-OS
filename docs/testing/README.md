@@ -5,7 +5,7 @@ role: guide
 subsystem: devx
 sources: [scripts/qemu-test.sh, source/apps/selftest-client/proof-manifest, tests, ".github/workflows/ci.yml"]
 contracts: [RFC-0013, RFC-0014, RFC-0038, ADR-0025, ADR-0063]
-verified: 2026-11-18
+verified: 2026-11-20
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -117,7 +117,8 @@ names each fix. The toolchain is pinned in `rust-toolchain.toml` (targets
 
 Every run writes `build/logs/<profile>--<timestamp>/` (`uart.log`, `hypothesis.json`,
 `qemu.stderr`, boot-disk trace files); the board writes `build/logs/board--<timestamp>/`. Layout, the
-`hypothesisId` grid and troubleshooting: [run-logs.md](run-logs.md). Prune with `just logs-gc`.
+`hypothesisId` grid, a slow frame's timeline (`nx hops`) and troubleshooting: [run-logs.md](run-logs.md).
+Prune with `just logs-gc`.
 
 ## Pages
 

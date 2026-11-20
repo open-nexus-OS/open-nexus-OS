@@ -160,9 +160,21 @@ impl DisplayServerRuntime {
         // TASK-0351 P15 / TASK-0354 P2: a region that moved damages where it was and is, a region
         // or a motion layer that came or went where it is or was — never the whole surface. A
         // region still there draws its own change; what went is no layer: its origin is unknown.
-        for (i, r) in change.rects().iter().enumerate() {
-            let key = change.region_of(i).map_or(0, |region| region_key(owner, region));
-            queue(self, *r, key, Cause::MovedRegion);
+        // On the GPU path such a structure change names no rectangle (TASK-0351 P6/P15): the
+        // present carries the layers, and the planner damages every layer that came, went or is
+        // drawn otherwise by its key — a whole-screen `moved-region` of key 0 made every glass
+        // blur again. The CPU path keeps the rectangles.
+        if self.gpu_composes {
+            if !change.rects().is_empty() {
+                self.owe_frame();
+            }
+        } else {
+            for (i, r) in change.rects().iter().enumerate() {
+                let key = change
+                    .region_of(i)
+                    .map_or(0, |region| region_key(owner, layers.region_id(region) as usize));
+                queue(self, *r, key, Cause::MovedRegion);
+            }
         }
         for (k, s) in layers.tree.scrolls().iter().enumerate() {
             if change.bands & (1 << k) != 0 {

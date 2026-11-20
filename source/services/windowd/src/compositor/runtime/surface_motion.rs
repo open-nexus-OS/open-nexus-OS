@@ -52,17 +52,21 @@ fn stamp(
     layers: &mut SurfaceLayers,
     owner: u32,
     at: u64,
-    period_ns: u64,
+    (period_ns, paced): (u64, bool),
     rects: &[(DamageRect, u32)],
 ) {
     let drawn = *layers;
+    // The bounding box of the motion's rectangles, not their sum: one change named under two
+    // keys (CW2's per-layer origins) counted its pixels twice (TASK-0351 P15).
     let said = layers.stamp_by(at, |k| FrameNote {
         period_ns,
         damage_px: rects
             .iter()
             .filter(|(_, key)| motion_of_key(&drawn, owner, *key) == Some(k))
-            .map(|(r, _)| r.area())
-            .sum(),
+            .map(|(r, _)| *r)
+            .reduce(|a, b| a.merge(b))
+            .map_or(0, |r| u64::from(r.area())),
+        paced,
     });
     for (m, said) in layers.tree.motions().iter().zip(said) {
         match said {
@@ -87,13 +91,14 @@ fn stamp(
             Said::Done(d) => {
                 let _ = debug_println(&alloc::format!(
                     "windowd: motion done (owner={owner} id={} exit={} frames={} of={} \
-                     late_max_us={} damage_px_max={})",
+                     late_max_us={} damage_px_max={} paced={})",
                     m.id,
                     u8::from(m.exit),
                     d.frames,
                     d.of,
                     d.late_max_us,
-                    d.damage_px_max
+                    d.damage_px_max,
+                    d.paced
                 ));
             }
         }
@@ -132,11 +137,12 @@ impl DisplayServerRuntime {
     /// Every surface's motion layers drawn for the first time start with this frame, shown at
     /// `at` and redrawing `rects` (each with its origin's key); flips turn, ends are said.
     pub(super) fn stamp_motions(&mut self, at: u64, rects: &[(DamageRect, u32)]) {
-        let period_ns = u64::from(self.frame_pace().2);
-        stamp(&mut self.desktop_layers, DESKTOP_OWNER, at, period_ns, rects);
+        let (_, cadence, period) = self.frame_pace();
+        let timing = (u64::from(period), cadence > 1);
+        stamp(&mut self.desktop_layers, DESKTOP_OWNER, at, timing, rects);
         for idx in 0..self.apps.len() {
             let key = self.window_key(idx);
-            stamp(&mut self.apps[idx].layers, key, at, period_ns, rects);
+            stamp(&mut self.apps[idx].layers, key, at, timing, rects);
         }
     }
 

@@ -15,20 +15,41 @@
 //! TEST_COVERAGE: `Board::work_px` on the host (`tests/frame_board.rs`), the write causes in
 //!   `tests/frame_motion.rs`; the lines on the board
 
-use nexus_gfx::frame::{Target, Writes, WritesBy, PROGRAM_KINDS};
+use nexus_gfx::frame::plan::Holds;
+use nexus_gfx::frame::{Area, CacheStep, Frame, Planned, Target, Writes, WritesBy, PROGRAM_KINDS};
 
 use super::contexts::Holdings;
 use super::emit_fmt;
 use super::series::LAST;
+use crate::backend::hop_trace::FrameHop;
 
 /// Textured pixels by pass kind: the slot's, the glass scenes' (scratch), the blurs' (half and
 /// cache rows); the glass writes by cause (TASK-0336 P0: band, backdrop, new, full, the band
 /// writes the base's change reached — and the glasses whose rows owed a hidden change,
-/// TASK-0351 P6); and the pixels by program (TASK-0335 P4: opaque, straight, rounded, shadow,
+/// TASK-0351 P6; the backdrop writes blurred as a band, C-c); and the pixels by program
+/// (TASK-0335 P4: opaque, straight, rounded, shadow,
 /// blur); and the layers the frames composed (TASK-0351 P0); and the glass writes by the origin
-/// class of what caused them (TASK-0351 P6: below, glass, unknown, moved, order, rest).
+/// class of what caused them (TASK-0351 P6: below, glass, unknown, moved, order, rest); and the
+/// glasses written by layer key (`(key, writes)`, the first eight keys a window writes); and what
+/// the glass hold decided (TASK-0373: held, rest, drift, bound, full; foreign, TASK-0351 P6).
 #[derive(Clone, Copy, Debug, Default)]
-pub(super) struct Work([u64; 3], [u64; 6], [u64; PROGRAM_KINDS], u64, [u64; 8], [u64; 6]);
+pub(super) struct Work(
+    [u64; 3],
+    [u64; 7],
+    [u64; PROGRAM_KINDS],
+    u64,
+    [u64; 8],
+    [u64; 6],
+    [(u32, u32); GLASS_KEYS],
+    Holds,
+);
+
+/// The glass keys a window tells apart (`gpud: glass top`).
+const GLASS_KEYS: usize = 8;
+/// A window names its most-written glass past this many writes.
+const GLASS_TOP_FROM: u32 = 4;
+/// The origin classes of `gpud: glass writes by`, in their order.
+const CLASSES: [&str; 6] = ["below", "glass", "unknown", "moved", "order", "rest"];
 
 impl Work {
     /// The slot pass's blended pixels by layer kind (`Board::blended_by_kind`, TASK-0351 P14);
@@ -55,11 +76,12 @@ impl Work {
         }
     }
 
-    /// A frame's plan: its glass writes by cause and by origin class, and the layers it composes.
-    pub(super) fn note_plan(&mut self, w: Writes, by: WritesBy, layers: usize) {
-        for (acc, n) in
-            self.1.iter_mut().zip([w.band, w.backdrop, w.new, w.full, w.band_base, w.hidden])
-        {
+    /// A frame's plan: its glass writes by cause and by origin class, the layers it composes and
+    /// what the hold decided for its glasses.
+    pub(super) fn note_plan(&mut self, w: Writes, by: WritesBy, layers: usize, holds: Holds) {
+        self.7.add(holds);
+        let causes = [w.band, w.backdrop, w.new, w.full, w.band_base, w.hidden, w.backdrop_band];
+        for (acc, n) in self.1.iter_mut().zip(causes) {
             *acc += u64::from(n);
         }
         for (acc, n) in
@@ -68,6 +90,15 @@ impl Work {
             *acc += u64::from(n);
         }
         self.3 += layers as u64;
+    }
+
+    /// A frame wrote the glass of layer `key`.
+    pub(super) fn note_glass_key(&mut self, key: u32) {
+        if let Some(slot) = self.6.iter_mut().find(|(k, n)| *k == key && *n > 0) {
+            slot.1 = slot.1.saturating_add(1);
+        } else if let Some(slot) = self.6.iter_mut().find(|(_, n)| *n == 0) {
+            *slot = (key, 1);
+        }
     }
 
     /// Folds a frame's work into the window's.
@@ -88,6 +119,12 @@ impl Work {
         for (acc, w) in self.5.iter_mut().zip(frame.5) {
             *acc += w;
         }
+        for (key, n) in frame.6.into_iter().filter(|(_, n)| *n > 0) {
+            for _ in 0..n {
+                self.note_glass_key(key);
+            }
+        }
+        self.7.add(frame.7);
     }
 
     /// The window's lines: pixels per frame by kind and by program, the GPU's wait per pixel and
@@ -129,8 +166,8 @@ impl Work {
         // TASK-0336 P0: why the glasses were blurred again — the cause each cut aims at.
         let w = self.1;
         emit_fmt(format_args!(
-            "gpud: glass writes (band={} backdrop={} new={} full={} band_base={} hidden={})",
-            w[0], w[1], w[2], w[3], w[4], w[5]
+            "gpud: glass writes (band={} backdrop={} new={} full={} band_base={} hidden={} backdrop_band={})",
+            w[0], w[1], w[2], w[3], w[4], w[5], w[6]
         ));
         // TASK-0351 P6: what the glass writes came from — `unknown` is a change queued without
         // its layer (windowd's origin 0), the share the damage origin aims to bring to 0.
@@ -139,6 +176,23 @@ impl Work {
             "gpud: glass writes by (below={} glass={} unknown={} moved={} order={} rest={})",
             b[0], b[1], b[2], b[3], b[4], b[5]
         ));
+        // TASK-0373: what the hold decided for the window's glasses — counters, never the rule.
+        let h = self.7;
+        emit_fmt(format_args!(
+            "gpud: glass holds (held={} rest={} drift={} bound={} full={} foreign={})",
+            h.held, h.rest, h.drift, h.bound, h.full, h.foreign
+        ));
+        // TASK-0351 P6: the glass written most in a window that wrote more than a few — the
+        // glass a transition's halved cadence comes from — and the window's dominant class.
+        let writes: u32 = self.6.iter().map(|(_, n)| *n).sum();
+        if let Some(&(key, n)) =
+            self.6.iter().max_by_key(|(_, n)| *n).filter(|_| writes > GLASS_TOP_FROM)
+        {
+            let class = (0..CLASSES.len()).max_by_key(|&k| b[k]).map_or("none", |k| CLASSES[k]);
+            emit_fmt(format_args!(
+                "gpud: glass top (key={key:#x} n={n} of={writes} class={class})"
+            ));
+        }
     }
 }
 
@@ -154,4 +208,69 @@ pub(super) fn emit_ux(ux: &nexus_ux_budgets::FrameWindow) {
         nexus_ux_budgets::FRAME_US,
         LAST.map_or(0, |l| l.ux_max_us)
     ));
+}
+
+/// The glasses a frame blurred again (`glass_idx`: by step, of its first `layers`), named with
+/// the present's damage and its origins — what touched them (`gpud: gpu glass damage (`,
+/// `gpud: gpu glass written (`, K3 — moved here from `desktop.rs`, the module-size ratchet).
+pub(super) fn name_glass_writes(frame: &Frame, layers: usize, glass_idx: u32) {
+    let (named, count, full) = frame.layers.last_damage();
+    let mut line = alloc::string::String::new();
+    for (r, o) in named.iter().take(count) {
+        use core::fmt::Write as _;
+        if let Area::Rect { x0, y0, x1, y1 } = r {
+            let _ = write!(line, " {x0},{y0},{}x{}@{o}", x1 - x0, y1 - y0);
+        }
+    }
+    emit_fmt(format_args!("gpud: gpu glass damage (full={full} rects={line})"));
+    for i in 0..layers.min(32) {
+        if glass_idx & (1 << i) == 0 {
+            continue;
+        }
+        if let Some(l) = frame.step(i).map(|s| s.layer) {
+            emit_fmt(format_args!(
+                "gpud: gpu glass written (i={i} rect={},{},{}x{} key={} id={} blur={} src_row={} in_motion={})",
+                l.dst_x,
+                l.dst_y,
+                l.width,
+                l.height,
+                l.key,
+                l.layer_id,
+                l.backdrop_blur,
+                l.src_row_abs,
+                u8::from(frame.layers.in_motion(l.layer_id))
+            ));
+        }
+    }
+}
+
+/// What a frame hands the display's timeline (TASK-0373): its stamps and waits (`at`), the bytes
+/// written into its pass memory, its passes, draws and glass writes (`counts`) — of them the
+/// writes of a whole glass (band `Full`) with their pixels (`Glass.at`) — and the writes by
+/// origin class. A walk over the plan's steps, no allocation.
+pub(super) fn frame_hop(
+    frame: &Frame,
+    planned: &Planned,
+    (at, waits): ([u64; 4], (u32, u64)),
+    (passes, draws, gw): (usize, usize, u32),
+) -> FrameHop {
+    let (mut whole, mut wpx) = (0u32, 0u64);
+    for g in (0..planned.layers).filter_map(|i| frame.step(i)?.glass) {
+        if matches!(g.cache, CacheStep::Write(_)) && g.band == Area::Full {
+            whole += 1;
+            wpx += u64::from(g.at.2) * u64::from(g.at.3);
+        }
+    }
+    let b = planned.by;
+    FrameHop {
+        at,
+        waits,
+        copied: super::desktop_pass::take_uploaded(),
+        passes: u32::try_from(passes).unwrap_or(u32::MAX),
+        draws: u32::try_from(draws).unwrap_or(u32::MAX),
+        gw,
+        whole,
+        wpx,
+        by: [b.below, b.glass, b.unknown, b.moved, b.order, b.rest],
+    }
 }

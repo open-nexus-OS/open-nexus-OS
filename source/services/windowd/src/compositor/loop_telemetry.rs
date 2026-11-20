@@ -59,8 +59,10 @@ impl LoopTelemetry {
     /// the 1s window. Every window with traffic (a present) reports — the old
     /// gate of eight presents hid the board, which presents fewer (cycle 51);
     /// boots and idle periods stay quiet.
-    pub(super) fn tick(&mut self, now_ns: u64, runtime: &DisplayServerRuntime) {
+    pub(super) fn tick(&mut self, now_ns: u64, runtime: &mut DisplayServerRuntime) {
         self.iters += 1;
+        // One frame's timeline (TASK-0373): a slow frame prints once windowd is idle.
+        runtime.hops_idle(now_ns);
         if self.window_start_ns == 0 {
             self.rebase(now_ns, runtime);
             return;
@@ -133,6 +135,8 @@ impl LoopTelemetry {
                     period_ns / 1000
                 ));
             }
+            // TASK-0373: the window's hops histogram, its slow frames, the cost once.
+            runtime.hops_window();
             // TASK-0333 6b-2 P0: the atlas rows a lazy atlas holds — on a new high only.
             let (peak, used, of) = runtime.atlas_rows();
             if peak > self.atlas_peak {

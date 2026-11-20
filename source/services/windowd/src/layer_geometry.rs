@@ -35,6 +35,8 @@ pub(crate) struct SurfaceLayers {
     pub(crate) motion_states: [MotionState; MAX_MOTION_LAYERS],
     /// The shown time of the last frame that drew these layers (`motion_geometry::frame_owed`).
     pub(crate) drawn_at: u64,
+    /// Each region's id — its layer key's index, kept while it stays what it is (`region_ids`).
+    region_ids: crate::region_ids::RegionIds,
 }
 
 /// The most rectangles a structure change names before it counts as the whole surface: every
@@ -146,6 +148,7 @@ impl SurfaceLayers {
         refusal_said: false,
         motion_states: [MotionState::EMPTY; MAX_MOTION_LAYERS],
         drawn_at: 0,
+        region_ids: crate::region_ids::IDENTITY,
     };
 
     /// A new surface: nothing declared yet (fail-closed — no region, no band, no wash).
@@ -160,8 +163,21 @@ impl SurfaceLayers {
         let Some(next) = self.pending.take() else { return TreeChange::NONE };
         let change = structure_change(&self.tree, &next);
         self.motion_states = carry(&self.tree, &self.motion_states, &next);
+        self.region_ids =
+            crate::region_ids::carry(self.tree.regions(), &self.region_ids, next.regions());
         self.tree = next;
         change
+    }
+
+    /// Region `i`'s id: the index its layer key carries (`damage_origin::region_key`).
+    pub(crate) fn region_id(&self, i: usize) -> u32 {
+        u32::from(self.region_ids.get(i).copied().unwrap_or(i as u8))
+    }
+
+    /// The region whose id is `id`.
+    pub(crate) fn region_of_id(&self, id: u32) -> Option<usize> {
+        let n = self.tree.regions().len();
+        self.region_ids[..n.min(self.region_ids.len())].iter().position(|&k| u32::from(k) == id)
     }
 
     /// The frame shown at `at` (it redraws `note`) draws these layers: a flip waiting for it

@@ -75,13 +75,16 @@ impl DisplayServerRuntime {
         // Drain completed present replies first so queue pressure and in-flight accounting
         // stay bounded during sustained cursor/input traffic.
         self.drain_gpud_replies();
-        // Phase 6d: in-flight bound — if 2+ frames outstanding, skip this present.
-        // Damage accumulates; the next successful present covers the merged region.
-        const MAX_IN_FLIGHT: u32 = 2;
-        if self.presents.in_flight() >= MAX_IN_FLIGHT {
+        // The one in-flight bound (`max_in_flight`, TASK-0343 P7): above it damage accumulates
+        // and the next present covers the merged region.
+        if self.presents.in_flight() >= Self::max_in_flight() {
             return false;
         }
         let seq = self.presents.next_seq();
+        // Stamped BEFORE the send (TASK-0373): a non-blocking send can switch to gpud, which then
+        // stamps its receipt first — `nx hops --check` caught a frame "sent" 2.7 ms after gpud
+        // received it (board--2026-11-19T22-09-42).
+        let sent_ns = nsec().unwrap_or(0);
         let send_result = {
             let Some(client) = self.gpud_client.as_ref() else {
                 return false;
@@ -100,7 +103,7 @@ impl DisplayServerRuntime {
         };
         match send_result {
             Ok(()) => {
-                let now = nsec().unwrap_or(0);
+                let now = sent_ns;
                 let seq = self.presents.next_seq();
                 // RFC-0110: the landing predicted for it (behind the presents in flight), judged
                 // when its timed ack comes.

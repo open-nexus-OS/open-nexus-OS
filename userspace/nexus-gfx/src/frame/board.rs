@@ -425,11 +425,13 @@ impl<'a> Board<'a> {
     /// The draws of layer `j` in a scene pass up to `upto`: its glass back, its shadow, its
     /// content — in pieces around the opaque layer above it.
     pub(super) fn layer_draws(&self, j: usize, upto: usize) -> Option<LayerDraws> {
-        let (l, cache) = self.layer(j)?;
-        let back = match cache {
-            Some(CacheStep::Read(row) | CacheStep::Write(row)) => Some(row),
-            _ => None,
-        };
+        let step = self.frame.step(j)?;
+        let l = step.layer;
+        // The back from its rows, which hold the blur of the rest rectangle (`Glass.at`).
+        let back = step.glass.and_then(|g| match g.cache {
+            CacheStep::Read(row) | CacheStep::Write(row) => Some((row, (g.at.2, g.at.3))),
+            CacheStep::Off => None,
+        });
         let pad =
             if l.shadow_blur > 0 { l.shadow_blur + l.shadow_offset_y.unsigned_abs() } else { 0 };
         let extent = (
@@ -493,14 +495,16 @@ impl<'a> Board<'a> {
     }
 
     /// The re-blur of written glass `j` placed at half rows `half_row`, for the band the plan
-    /// recorded (`chain::chain`); `None` when it is not a write or the half scratch cannot
-    /// hold it there.
+    /// recorded (`chain::chain`) — of its REST rectangle (`Glass.at`), wherever its layer is
+    /// drawn; `None` when it is not a write or the half scratch cannot hold it there.
     fn chain_of(&self, j: usize, half_row: u32) -> Option<Chain> {
-        let (l, cache) = self.layer(j)?;
-        let Some(CacheStep::Write(row)) = cache else { return None };
-        let band = self.frame.step(j).and_then(|s| s.glass).map_or(Area::Full, |g| g.band);
+        let step = self.frame.step(j)?;
+        let g = step.glass?;
+        let CacheStep::Write(row) = g.cache else { return None };
+        let (dst_x, dst_y, width, height) = g.at;
+        let l = FrameLayer { dst_x, dst_y, width, height, ..step.layer };
         let rows = (row, self.frame.glass.plane_rows());
-        chain(&l, band, rows, half_row, self.display, self.half_rows)
+        chain(&l, g.band, rows, half_row, self.display, self.half_rows)
     }
 
     /// The walk's index of write `w`: the `w`-th glass the plan writes.

@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-11-20 (one frame's timeline, one present in flight, a key miss is a band — TASK-0373 P1, TASK-0343 P7, TASK-0351 P6)
+
+- **One frame's timeline.** app-host, windowd and gpud record every frame into a ring of 32
+  (`nexus_ux_budgets::timeline`): stamps, waits, yields, bytes copied; a slow frame prints its
+  record once when the process is idle (`<svc>: hops one/hist/cost`), and `nx hops <uart.log>`
+  stitches them into one timeline per frame across the processes (RFC-0108 §hops amended). On the
+  board 290 of 290 joined frames had at least 95 % of their time named; a record costs 4-7 us.
+- **One present in flight.** The trace showed a drawn frame waiting a period behind the latched
+  one (`behind` 4528 of 4992 flips, drawn→shown 32.6 ms for a 9.9 ms draw). windowd now keeps one
+  present in flight, one bound for its flush and its send, tied to gpud's ring by a const-assert
+  (RFC-0101 §8, RFC-0110 amended): drawn→shown 13.4 ms, no scene built and thrown away.
+- **A glass key miss is a band.** A glass whose blur key changed because layers below it changed
+  blurs the band those changes explain, not the whole glass (`nexus-gfx` frame planner, the blur
+  oracle and a mutation test): slow frames with a whole glass write 122 → 51 on the board. A
+  single-pass frame waiting past 20 ms traces the next frame's pass (`gpu pass trace (of=single`).
+
 ### Changed - 2026-11-19 (a change is damage where its layer draws it — TASK-0351 P6/P15, TASK-0343 P7, TASK-0355 P1, TASK-0335 P5)
 
 - **Damage carries its origin.** Each rectangle windowd sends to gpud names the topmost layer

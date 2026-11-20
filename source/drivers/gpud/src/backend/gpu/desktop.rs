@@ -36,6 +36,7 @@ use super::render_template::{
     render_streams, Captured, Target, Targets, RENDER_BUNDLE, TARGET_PDS,
 };
 use super::surface_buffers::SurfaceBuffers;
+use crate::backend::hop_trace::FrameHop;
 use crate::gpu_context::FrameTarget;
 
 /// Where the context takes what the frames touch, clear of the render bundle's heaps: the
@@ -200,11 +201,17 @@ pub(crate) struct Desktop {
     gated: bool,
     /// The last pass's wait (µs), the wait's iterations and the interrupts it saw.
     pub(super) pass_witness: [u64; 3],
+    /// What the last frame hands the display's timeline (`hop_trace`, TASK-0373), until taken.
+    hop: Option<FrameHop>,
     /// What the traced pass's lines are of (`gpu pass trace (of=…)`, TASK-0351 P12).
     pub(super) trace_of: &'static str,
+    slow_trace: super::desktop_pass::SlowTrace,
     /// The glasses blurred again are named (`gpud: gpu glass written (`) by the first frame
     /// that writes glass with this many layers: once, and again as the scene grows by eight.
     glass_named: usize,
+    /// A 32-frame window wrote glass more than eight times: the next frame that writes glass is
+    /// named again whatever the scene's size (TASK-0351 P6 — the loaded writes went unnamed).
+    glass_rearm: bool,
     /// What the open cost (the bindings walk every page of the layout), for the first line.
     open_us: u64,
 }
@@ -298,8 +305,11 @@ impl Desktop {
             shown: false,
             gated: false,
             pass_witness: [0; 3],
+            hop: None,
             trace_of: "hover",
+            slow_trace: super::desktop_pass::SlowTrace::new(),
             glass_named: 0,
+            glass_rearm: false,
             open_us: now_ns().saturating_sub(t0) / 1000,
         })
     }
@@ -318,6 +328,11 @@ impl Desktop {
         self.cleaned.forget();
     }
 
+    /// What the last frame knows of itself for the display's timeline, taken.
+    pub(crate) fn take_hop(&mut self) -> Option<FrameHop> {
+        self.hop.take()
+    }
+
     /// One frame of windowd's commands into the slot `target` names: planned, its textures
     /// cleaned where the CPU wrote them, its passes drawn and waited. The gate scene first,
     /// once (5c-4).
@@ -333,7 +348,8 @@ impl Desktop {
             self.gate(dev, target)?;
         }
         // The frame's passes pipelined: one wait at the end (cycle 39's pass latency).
-        self.frame_of(dev, cmds, target, (false, false, true), (target.base_dirty, buffers))
+        let trace = self.slow_trace.take(&mut self.trace_of);
+        self.frame_of(dev, cmds, target, (false, trace, true), (target.base_dirty, buffers))
             .map(|(rect, _, _)| rect)
     }
 
@@ -348,6 +364,7 @@ impl Desktop {
         (base_dirty, buffers): (bool, &SurfaceBuffers),
     ) -> Result<(nexus_gfx::backend::types::Rect, u64, usize), Refusal> {
         let t0 = now_ns();
+        super::desktop_pass::take_uploaded(); // the frame's `cp=` counts from here
         let k = RING_ROWS
             .iter()
             .position(|&r| r == target.slot_row)
@@ -372,45 +389,24 @@ impl Desktop {
         self.cache.fill(dev, who, &self.captured, &mut self.frame, &mut planned);
         let plan_ns = now_ns().saturating_sub(p0);
         let mut glass_idx = 0u32;
+        let (mut written_keys, mut n_written) = ([0u32; 32], 0usize);
         for i in 0..planned.layers.min(32) {
             let written = self.frame.step(i).and_then(|s| s.glass).map(|g| g.cache);
             if matches!(written, Some(CacheStep::Write(_))) {
                 glass_idx |= 1 << i;
+                if let Some(key) = self.frame.step(i).map(|s| s.layer.key) {
+                    written_keys[n_written] = key;
+                    n_written += 1;
+                }
             }
         }
         // The glasses blurred again, named once past the first frames (the settled desktop's
         // writes are the question, cycles 35–37: `glass_idx=0x6` every frame while typing).
-        if !quiet && glass_idx != 0 && planned.layers >= self.glass_named && self.stats.frames >= 8
-        {
+        let named_due = planned.layers >= self.glass_named || self.glass_rearm;
+        if !quiet && glass_idx != 0 && named_due && self.stats.frames >= 8 {
             self.glass_named = planned.layers + 8;
-            // The present's damage this frame, with its origins: what touched them.
-            let (named, count, full) = self.frame.layers.last_damage();
-            let mut line = alloc::string::String::new();
-            for (r, o) in named.iter().take(count) {
-                use core::fmt::Write as _;
-                if let Area::Rect { x0, y0, x1, y1 } = r {
-                    let _ = write!(line, " {x0},{y0},{}x{}@{o}", x1 - x0, y1 - y0);
-                }
-            }
-            emit_fmt(format_args!("gpud: gpu glass damage (full={full} rects={line})"));
-            for i in 0..planned.layers.min(32) {
-                if glass_idx & (1 << i) == 0 {
-                    continue;
-                }
-                if let Some(l) = self.frame.step(i).map(|s| s.layer) {
-                    emit_fmt(format_args!(
-                        "gpud: gpu glass written (i={i} rect={},{},{}x{} key={} id={} blur={} src_row={})",
-                        l.dst_x,
-                        l.dst_y,
-                        l.width,
-                        l.height,
-                        l.key,
-                        l.layer_id,
-                        l.backdrop_blur,
-                        l.src_row_abs
-                    ));
-                }
-            }
+            self.glass_rearm = false;
+            super::desktop_work::name_glass_writes(&self.frame, planned.layers, glass_idx);
         }
         // What the slot lacks: the frames since it was last drawn (everything when the CPU
         // drew it since, or it never was) and this frame's damage.
@@ -456,9 +452,12 @@ impl Desktop {
         let t = captured.template(FRAME_VA, FRAME_VA, FRAME_VA);
         let mut draws = 0;
         let mut split = [plan_ns, 0, 0, 0, 0];
-        let mut witness = [0u64; 3];
+        let (mut witness, mut waits) = ([0u64; 3], 0u32);
         let mut work = super::desktop_work::Work::default();
-        work.note_plan(planned.writes, planned.by, planned.layers);
+        work.note_plan(planned.writes, planned.by, planned.layers, planned.holds);
+        for &key in &written_keys[..n_written] {
+            work.note_glass_key(key);
+        }
         // At most two passes in flight: the context's two render-target data alternate per
         // pass (the firmware's, `render.rs`); a third pass in the queue would reuse the data of
         // one still drawing — cycle 40's lockup. Pass p waits for pass p − 2 before it is
@@ -476,7 +475,9 @@ impl Desktop {
             work.note(spec.target, board.work_by_program(&spec));
             work.note_kinds(spec.target, || board.blended_by_kind(&spec));
             let wait = !pipelined || p + 1 == passes;
+            waits += u32::from(wait);
             if let Some(two_back) = points[p % 2] {
+                waits += 1;
                 let q0 = now_ns();
                 super::desktop_pass::wait_point(dev, who, two_back)?;
                 split[3] += now_ns().saturating_sub(q0);
@@ -504,8 +505,15 @@ impl Desktop {
             witness = [stamps[2] / 1000, stamps[4], stamps[5]];
         }
         self.pass_witness = witness;
-        let us = now_ns().saturating_sub(t0) / 1000;
+        self.slow_trace.note(quiet, passes, witness[0]);
+        let done_ns = now_ns();
+        let us = done_ns.saturating_sub(t0) / 1000;
         let glass = board.glass;
+        // The frame's timeline (TASK-0373): its split laid end to end after the plan.
+        let at = (FrameHop::laid(p0 + plan_ns, split, done_ns), (waits, split[3] / 1000));
+        let counts = (passes, draws, glass.writes);
+        self.hop =
+            (!quiet).then(|| super::desktop_work::frame_hop(&self.frame, &planned, at, counts));
         let area_px =
             area.map_or(0, |(x0, y0, x1, y1)| u64::from(x1 - x0 + 1) * u64::from(y1 - y0 + 1));
         if !quiet {
@@ -548,6 +556,8 @@ impl Desktop {
             }
             if s.frames == WINDOW {
                 let n = u64::from(WINDOW);
+                // Past eight glass writes the next writing frame names its glasses again.
+                self.glass_rearm |= s.glass[0] > 8;
                 emit_fmt(format_args!(
                     "gpud: gpu frame us (n={n} avg={} max={} clean={} enter={}/{} passes={}.{} draws={} area_px={} glass_w={} glass_r={} glass_off={} glass_idx={:#x} split=plan {}/emit {}/submit {}/wait {}/retire {})",
                     s.us / n,

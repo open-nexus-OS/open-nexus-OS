@@ -19,7 +19,10 @@ enforces the checkable part:
     fable medium). Each needs the sections of its brief form (a brief is facts, sources and a
     question — not a hand-over of the chat), one strong agent per BURST_WINDOW, and its own cap
     per TOTAL_WINDOW. The call may pick the model and effort per task within STRONG_COMBOS
-    (operator, 2026-11-18: "opus xhigh, max, and fable medium, depending on the task").
+    (operator, 2026-11-18: "opus xhigh, max, and fable medium, depending on the task"). The
+    critical-writer has a second pool on opus (high|xhigh, operator 2026-11-19): when its fable
+    cap is used, a writer runs on opus from that pool, outside the fable burst rule. The
+    architect likewise has an opus pool, at max only (operator 2026-11-20).
   * any other agent on a model that is not sonnet/haiku ASKS the user — never silent.
   * the caps count per user across sessions (the quota is per account, not per session).
     A follow-up to a living agent (SendMessage) is not a spawn and is not counted.
@@ -51,10 +54,19 @@ STRONG_TYPES = {
     "architect": {
         "total": 3,
         "sections": ("Facts", "Sources", "Question"),
+        # Operator 2026-11-20: when fable is used up, the architect runs on opus max from its own
+        # pool, outside the fable burst rule.
+        "opus_total": 3,
+        "opus_efforts": ("max",),
     },
     "critical-writer": {
         "total": 3,
         "sections": ("Change", "Invariant", "Files", "Gates"),
+        # Operator 2026-11-19: more writers, not all on fable — once the fable pool is used, a
+        # writer runs on opus (high|xhigh; max when the brief says why) from its own pool, outside
+        # the fable burst rule.
+        "opus_total": 4,
+        "opus_efforts": ("high", "xhigh", "max"),
     },
 }
 BRIEF_EXEMPT_TYPES = ("web-fetch", "claude-code-guide", "statusline-setup")
@@ -109,8 +121,20 @@ def wait_minutes(window, times, now):
     return int(window - (now - min(times))) // 60 + 1
 
 
-def rate_check(kind, now):
+def rate_check(kind, now, model=None):
     spawns = load_spawns(now)
+    if model == "opus" and STRONG_TYPES.get(kind, {}).get("opus_total"):
+        # The opus pool: its own cap, no fable burst rule (it spends no fable quota).
+        pool = f"{kind}@opus"
+        mine = spawns.get(pool, [])
+        total = STRONG_TYPES[kind]["opus_total"]
+        if len(mine) >= total:
+            return (f"agent budget: {total} `{kind}` agents on opus already started in this "
+                    f"{TOTAL_WINDOW // 3600}-hour window (~{wait_minutes(TOTAL_WINDOW, mine, now)} min "
+                    f"until the next). Decide in the main session.")
+        spawns.setdefault(pool, []).append(now)
+        save_spawns(spawns)
+        return None
     mine = spawns.get(kind, [])
     if kind == "legwork":
         recent = [t for t in mine if now - t < BURST_WINDOW]
@@ -133,10 +157,14 @@ def rate_check(kind, now):
                     f"or wait ~{wait_minutes(BURST_WINDOW, recent, now)} min.")
         total = STRONG_TYPES[kind]["total"]
         if len(mine) >= total:
-            return (f"agent budget: {total} `{kind}` agents already started in this "
+            fallback = ""
+            if STRONG_TYPES[kind].get("opus_total"):
+                efforts = "|".join(STRONG_TYPES[kind]["opus_efforts"])
+                fallback = (f" The fable pool is used: run it with `model: opus`, `effort: {efforts}` "
+                            f"(its own pool of {STRONG_TYPES[kind]['opus_total']}),")
+            return (f"agent budget: {total} `{kind}` agents on fable already started in this "
                     f"{TOTAL_WINDOW // 3600}-hour window (~{wait_minutes(TOTAL_WINDOW, mine, now)} min "
-                    f"until the next). Decide in the main session, or tell the user that the package "
-                    f"needs a session on fable.")
+                    f"until the next).{fallback} or decide in the main session.")
     spawns.setdefault(kind, []).append(now)
     save_spawns(spawns)
     return None
@@ -184,7 +212,11 @@ def check_agent(ti):
                             f"{', '.join('## ' + m for m in missing)}. The form is in "
                             f".claude/agents/{sub}.md — fable gets facts, sources and a question, "
                             "not a summary of the chat.")
-        reason = rate_check(sub, time.time())
+        opus_efforts = STRONG_TYPES[sub].get("opus_efforts")
+        if model == "opus" and opus_efforts and effort not in opus_efforts:
+            return "deny", (f"agent budget: `{sub}` on opus runs at {', '.join(opus_efforts)}, "
+                            f"not `{effort or 'unset'}`.")
+        reason = rate_check(sub, time.time(), model)
         if reason:
             return "deny", reason
         return None, None

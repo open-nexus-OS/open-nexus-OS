@@ -13,12 +13,13 @@ use crate::layer_quota::fair_shares;
 /// index `slot` a window, `snaps.len()` the desktop — into `quotas`. The caret is its surface's
 /// last layer and counts in that surface's demand (`caret`: its window slot, `Some(None)` the
 /// desktop) — left out, every share was exactly the declared layers and the caret the one dropped.
+/// Returns the layers the frame draws: the bodies and every share.
 pub(super) fn layer_quotas(
     (snaps, order, culled): (&[AppSceneSnap], &[WindowId], &[bool]),
     desktop: Option<&super::surface_layers_encode::LayerSnap>,
     caret: Option<Option<u16>>,
     (demand, share, quotas): (&mut Vec<usize>, &mut Vec<usize>, &mut Vec<LayerQuota>),
-) {
+) -> usize {
     let n = snaps.len() + 1;
     demand.clear();
     demand.resize(n, 0);
@@ -43,4 +44,5 @@ pub(super) fn layer_quotas(
     fair_shares(crate::layer_quota::FRAME_LAYERS.saturating_sub(bodies), demand, share);
     quotas.clear();
     quotas.extend(share.iter().map(|s| LayerQuota::new(*s)));
+    bodies + share.iter().sum::<usize>()
 }

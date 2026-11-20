@@ -290,7 +290,7 @@ fn service_requests(
     // while the chain is broken so a headless run shows exactly HOW FAR we get.
     let mut chain_trace_done = false;
     // gpud draws a frame only for a present (TASK-0338): a scroll or a window's move rides in
-    // windowd's present, inside its budget of two in flight — the ring's three planes never
+    // windowd's present, inside its budget of one in flight (TASK-0343 P7) — the ring's three planes never
     // hold a frame the compositor did not send.
     loop {
         // Reactive by default: BLOCK until windowd sends a command (framebuffer VMO,

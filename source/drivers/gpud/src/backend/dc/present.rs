@@ -284,12 +284,19 @@ impl Display for DcDisplay {
         if received_ns != 0 {
             self.pace.note_draw(stamps.drawn_ns.saturating_sub(received_ns));
         }
-        self.flip_irq.is_some() && self.ring.attach_ack((seq, status), stamps)
+        let deferred = self.flip_irq.is_some() && self.ring.attach_ack((seq, status), stamps);
+        // The frame's timeline (TASK-0373): it starts drawn; acked now, it has landed too.
+        self.hops.received(seq, received_ns, stamps.drawn_ns);
+        if !deferred {
+            self.hop_landed(seq, (0, 0), false);
+        }
+        deferred
     }
 
     /// The loop's pass over the display: a flip the controller took has landed — its present's
-    /// ack and when it reached the glass (`flip.rs`).
+    /// ack and when it reached the glass (`flip.rs`); idle, the slow frames' lines.
     fn vblank_wake(&mut self) -> Option<crate::backend::display::Landed> {
+        self.hops.idle(nsec().unwrap_or(0), &mut emit);
         self.flip_wake()
     }
 

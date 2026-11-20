@@ -198,7 +198,13 @@ fn a_glass_reads_its_cache_until_something_below_it_changes() {
     f.plan(DISPLAY, &every_blur);
     f.plan(DISPLAY, &every_blur);
     assert_eq!(cache_of(&f, 2), Some(CacheStep::Read(0)));
+    // …once it shows (R6/T9, `build/agents/arch-transition-every-frame-2026-11-19.md`): a
+    // layer moving below holds the glass while it travelled less than the blur hides…
     f.layers.set_transform(1, Transform { dx: 5, ..Transform::IDENTITY });
+    f.plan(DISPLAY, &every_blur);
+    assert_eq!(cache_of(&f, 2), Some(CacheStep::Read(0)));
+    // …and the glass is blurred again once it moved further than that (radius 20).
+    f.layers.set_transform(1, Transform { dx: 40, ..Transform::IDENTITY });
     f.plan(DISPLAY, &every_blur);
     assert_eq!(cache_of(&f, 2), Some(CacheStep::Write(0)));
 }
@@ -302,7 +308,8 @@ fn the_atlas_uploads_once_per_generation() {
             writes: Default::default(),
             by: Default::default(),
             upload: true,
-            damage: Area::Full
+            damage: Area::Full,
+            holds: Default::default()
         }
     );
     // A pointer move: nothing new to upload.

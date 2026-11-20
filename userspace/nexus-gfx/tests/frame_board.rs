@@ -396,21 +396,28 @@ fn a_glass_written_for_a_band_blurs_the_band_alone() {
     let b = Board::new(&f, p, DISPLAY, LAYOUT_ROWS, HALF_ROWS);
     assert_eq!(b.glass, GlassCount { writes: 1, reads: 0, off: 0 });
     let (taps, s) = (10, 4);
-    let reach = s * taps + s;
-    // The scene below over the band's reach.
-    let scene = b.pass(0).unwrap();
-    assert_eq!(scene.area, (500 - reach, 300 - reach, 520 + reach - 1, 310 + reach - 1));
-    // The horizontal pass: the band's half-resolution columns (origin x − 4), one of margin;
-    // its rows plus the vertical taps (origin y − 4 − halo).
-    let half = b.pass(1).unwrap();
-    let (c0, c1) = ((500 - 296) / s - 1, (519 - 296) / s + 1);
-    let (h0, h1) = ((300 + 40 - 196) / s - taps - 1, (309 + 40 - 196) / s + taps + 1);
-    assert_eq!(half.area, (c0, h0, c1, h1));
-    // The vertical pass: the band's cache rows, one of margin.
+    // The vertical pass: the cache texels the change reaches — the band's (origin x − 4, y − 4)
+    // ± taps, the horizontal pass spreading it across and the vertical one down — one of margin
+    // (CW1 Finding 5: the band's own texels alone kept a stale fringe).
     let rows = b.pass(2).unwrap();
-    assert_eq!(rows.area, (c0, (300 - 196) / s - 1, c1, (309 - 196) / s + 1));
-    // Far less work than the whole glass's chain.
-    assert!(b.work_px(&scene) < 100 * 1000 / 2);
+    let (c0, c1) = ((500 - 296) / s - taps - 1, (519 - 296) / s + taps + 1);
+    let (v0, v1) = ((300 - 196) / s - taps - 1, (309 - 196) / s + taps + 1);
+    assert_eq!(rows.area, (c0, v0, c1, v1));
+    // Inside the damage the plan names for the glass: the band grown by 66.
+    assert!(296 + s * c0 >= 500 - 66 && 296 + s * (c1 + 1) <= 520 + 66);
+    assert!(196 + s * v0 >= 300 - 66 && 196 + s * (v1 + 1) <= 310 + 66);
+    // The horizontal pass: the half rows those read (row v: v ..= v + 2·taps).
+    let half = b.pass(1).unwrap();
+    assert_eq!(half.area, (c0, v0, c1, v1 + 2 * taps));
+    // The scene below: what those half texels fetch — each at the pixel corner
+    // (296 + 4c + 2, 196 − 40 + 4h + 2), its taps 4 pixels across, the pixels on both sides.
+    let scene = b.pass(0).unwrap();
+    let (sx0, sx1) = (296 + s * c0 + 1 - s * taps, 296 + s * c1 + 2 + s * taps);
+    let (sy0, sy1) = (156 + s * v0 + 1, 156 + s * (v1 + 2 * taps) + 2);
+    assert_eq!(scene.area, (sx0, sy0, sx1, sy1));
+    assert_eq!(scene.area, (417, 217, 602, 394));
+    // Less than a quarter of the whole glass's scene: 488 x 288 pixels, two draws.
+    assert!(4 * b.work_px(&scene) < 2 * 488 * 288);
 }
 
 #[test]

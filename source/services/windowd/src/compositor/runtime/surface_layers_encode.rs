@@ -316,7 +316,7 @@ impl LayerSnap {
                     blur_radius: region_blur(l),
                     layer_id: self.id_of(owner),
                     opaque: l.material == MATERIAL_OPAQUE,
-                    key: key(self.owner, KIND_REGION, i as u32),
+                    key: key(self.owner, KIND_REGION, self.layers.region_id(i)),
                     source: (self.regions.source, self.regions.slot, self.regions.generation),
                 },
                 mode.0,

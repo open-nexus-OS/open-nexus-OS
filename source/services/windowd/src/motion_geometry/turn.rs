@@ -203,12 +203,14 @@ pub(crate) fn turn_from(old: &MotionLayerDesc, prev: &Segment, at: u64) -> Optio
     Some((bounded(q, Q_MIN, Q_MAX), bounded(v, -V_MAX, V_MAX)))
 }
 
-/// What the frame being built knows of itself: the refresh period (ns; `0`: not timed yet) and
-/// the pixels it redraws.
+/// What the frame being built knows of itself: the refresh period (ns; `0`: not timed yet), the
+/// pixels it redraws, and whether gpud's last ack named a cadence above one (the display
+/// shows every second frame or fewer: a halved motion, not a dropped frame).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct FrameNote {
     pub(crate) period_ns: u64,
     pub(crate) damage_px: u64,
+    pub(crate) paced: bool,
 }
 
 /// A segment's instrument while it moves.
@@ -222,13 +224,15 @@ struct Run {
     late_max_us: u64,
     /// The most pixels a frame drawn while it moved redrew.
     damage_px_max: u64,
+    /// Frames drawn while it moved at a cadence above one.
+    paced: u32,
     /// Its end was said.
     said: bool,
 }
 
 impl Run {
     const NONE: Self =
-        Self { frames: 0, last_at: 0, late_max_us: 0, damage_px_max: 0, said: false };
+        Self { frames: 0, last_at: 0, late_max_us: 0, damage_px_max: 0, paced: 0, said: false };
 
     fn note(&mut self, at: u64, note: FrameNote) {
         self.frames = self.frames.saturating_add(1);
@@ -238,6 +242,7 @@ impl Run {
         }
         self.last_at = at;
         self.damage_px_max = self.damage_px_max.max(note.damage_px);
+        self.paced = self.paced.saturating_add(u32::from(note.paced));
     }
 }
 
@@ -249,6 +254,8 @@ pub(crate) struct Done {
     pub(crate) of: u64,
     pub(crate) late_max_us: u64,
     pub(crate) damage_px_max: u64,
+    /// Of `frames`, those drawn at a cadence above one (TASK-0343: halved, not dropped).
+    pub(crate) paced: u32,
 }
 
 /// What a frame did to a motion layer.
@@ -291,5 +298,6 @@ pub(crate) fn stamp(m: &MotionLayerDesc, s: &mut MotionState, at: u64, note: Fra
         of,
         late_max_us: s.run.late_max_us,
         damage_px_max: s.run.damage_px_max,
+        paced: s.run.paced,
     })
 }

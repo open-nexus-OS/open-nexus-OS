@@ -85,5 +85,6 @@ pub(crate) fn execute(cli: Cli, cfg: &RuntimeConfig) -> ExecResult {
         Commands::Ui(args) => ui::handle_ui(args),
         Commands::App(args) => app::handle_app(args),
         Commands::Ledger(args) => ledger::handle_ledger(args),
+        Commands::Hops(args) => crate::hops::handle_hops(args),
     }
 }

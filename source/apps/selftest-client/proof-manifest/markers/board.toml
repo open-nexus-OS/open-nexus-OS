@@ -560,3 +560,23 @@ emit_when = { profile = "board-headless" }
 phase = "bringup"
 proves = "a measurement (TASK-0328 U3): every MPMU word of the stock dump that reads unlike it after our loader"
 emit_when = { profile = "board-headless" }
+
+[marker."gpud: hops one ("]
+phase = "end"
+proves = "TASK-0373: one slow frame in gpud — a missed slot, received to shown above two periods, or work past the cadence threshold — its plan, emit, submit, GPU, latch and shown, waits, bytes uploaded, passes, draws and glass writes by class; a measurement, joined by `nx hops`"
+emit_when = { profile = "board-headless" }
+
+[marker."gpud: hops hist ("]
+phase = "end"
+proves = "TASK-0373: how gpud's hops spread over 32 frames, the slow-frame lines printed and lost; a measurement"
+emit_when = { profile = "board-headless" }
+
+[marker."gpud: hops cost ("]
+phase = "end"
+proves = "TASK-0373: what one frame's record costs gpud, once after boot"
+emit_when = { profile = "board-headless" }
+
+[marker."gpud: glass holds ("]
+phase = "end"
+proves = "TASK-0373 / TASK-0351 P6: per 32 frames the glasses held through a motion, the rest writes, the drift and bound ends and the whole writes — the planner's hold counted, never changed"
+emit_when = { profile = "board-headless" }

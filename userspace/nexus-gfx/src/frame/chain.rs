@@ -66,34 +66,22 @@ pub fn chain(
         (0, half_row, vw - 1, half_row + hh - 1),
         (0, row, vw - 1, row + vh - 1),
     );
-    // TASK-0335 P1: a write for a band blurs the band alone — the scene below it over the
-    // band's reach, the horizontal pass over the band's half-resolution columns and the rows
-    // the vertical taps read, the vertical pass over the band's cache rows; the rest of the
-    // rows keep. One texel of margin each side for the bilinear fetches.
+    // TASK-0335 P1: a write for a band blurs again only what the band's change reaches; the
+    // rest of the rows keep — and must be what a whole write of the same scene would leave
+    // (CW1 Finding 5: the rows of the band alone kept a stale fringe one blur radius wide).
     if let Area::Rect { x0: bx0, y0: by0, x1: bx1, y1: by1 } = band {
-        let clamp = |lo: u32, hi: u32, a: u32, b: u32| (a.max(lo).min(hi), b.min(hi).max(lo));
-        let (sx0, sy0) = (bx0.saturating_sub(reach), by0.saturating_sub(reach));
-        let (sx1, sy1) = ((bx1 + reach).min(x1), (by1 + reach).min(y1));
-        let (cx0, cx1) = clamp(scene_area.0, scene_area.2, sx0, sx1.max(sx0 + 1) - 1);
-        let (cy0, cy1) = clamp(scene_area.1, scene_area.3, sy0, sy1.max(sy0 + 1) - 1);
-        scene_area = (cx0, cy0, cx1, cy1);
-        // Half-resolution columns and rows of the band in the horizontal pass's frame (its
-        // origin `x - s`, `y - s - halo`, at `half_row`) and the cache's (`y - s`, at `row`).
-        let (ox, oy) = (x.saturating_sub(s), y.saturating_sub(s));
-        let col = |px: u32| px.saturating_sub(ox) / s;
-        let (c0, c1) = clamp(0, vw - 1, col(bx0).saturating_sub(1), col(bx1 - 1) + 1);
-        let hrow = |py: u32| (py + halo).saturating_sub(oy) / s;
-        let (h0, h1) = clamp(
-            half_row,
-            half_row + hh - 1,
-            half_row + hrow(by0).saturating_sub(taps + 1),
-            half_row + hrow(by1 - 1) + taps + 1,
+        let (scene, half, rows) =
+            band_areas((bx0, by0, bx1, by1), (x, y), (s, taps), (vw, vh, hh), (row, half_row));
+        // The half and the result areas lie inside the whole write's by construction; the
+        // scene is held to the whole write's (the display's edge).
+        let (whole, clamp) = (scene_area, |lo: u32, hi: u32, v: u32| v.max(lo).min(hi));
+        scene_area = (
+            clamp(whole.0, whole.2, scene.0),
+            clamp(whole.1, whole.3, scene.1),
+            clamp(whole.0, whole.2, scene.2),
+            clamp(whole.1, whole.3, scene.3),
         );
-        half_area = (c0, h0, c1, h1);
-        let vrow = |py: u32| py.saturating_sub(oy) / s;
-        let (v0, v1) =
-            clamp(row, row + vh - 1, row + vrow(by0).saturating_sub(1), row + vrow(by1 - 1) + 1);
-        rows_area = (c0, v0, c1, v1);
+        (half_area, rows_area) = (half, rows);
     }
     let (fw, fh, sf, hr) = (dw as f32, dh as f32, s as f32, half_rows as f32);
     let (ox, oy) = (x as f32 - sf, y as f32 - sf);
@@ -113,6 +101,55 @@ pub fn chain(
         rows_quad,
         rows_area,
     })
+}
+
+/// The areas a write for the band `(bx0, by0)..(bx1, by1)` runs over (inclusive corners: the
+/// scene in display pixels, the half rows from `half_row`, the result from `row`), worked out
+/// backward from what each pass reads, in the result's own frame — its origin `(x − s, y − s)`,
+/// off the display for a glass at its edge:
+/// - the result texels the change reaches: the band's texels ± `taps` (the horizontal pass
+///   spreads it across, the vertical one down), one more of margin;
+/// - the half rows those read: result row `v` reads half rows `v ..= v + 2·taps` (its taps
+///   about half row `v + taps`, below the halo);
+/// - the scene pixels those read: half texel `(c, h)` fetches at the pixel corner
+///   `(ox + c·s + s/2, oy − halo + h·s + s/2)`, its taps `s` pixels across, each fetch the
+///   pixels on both sides of the corner.
+///
+/// So every texel the band's write puts down is computed from inputs drawn in this frame, and a
+/// texel it leaves is one the change cannot reach. The scene is not yet held to the whole
+/// write's area.
+fn band_areas(
+    (bx0, by0, bx1, by1): (u32, u32, u32, u32),
+    (x, y): (u32, u32),
+    (s, taps): (u32, u32),
+    (vw, vh, hh): (u32, u32, u32),
+    (row, half_row): (u32, u32),
+) -> (PassArea, PassArea, PassArea) {
+    let (s, taps) = (i64::from(s.max(1)), i64::from(taps));
+    let (ox, oy, halo, corner) = (i64::from(x) - s, i64::from(y) - s, s * taps, s / 2);
+    let texel = |p: u32, o: i64| (i64::from(p) - o).div_euclid(s);
+    let within = |v: i64, n: u32| v.clamp(0, i64::from(n.max(1)) - 1);
+    let (c0, c1) = (
+        within(texel(bx0, ox) - taps - 1, vw),
+        within(texel(bx1.saturating_sub(1), ox) + taps + 1, vw),
+    );
+    let (v0, v1) = (
+        within(texel(by0, oy) - taps - 1, vh),
+        within(texel(by1.saturating_sub(1), oy) + taps + 1, vh),
+    );
+    let (h0, h1) = (v0, within(v1 + 2 * taps, hh));
+    let scene = (
+        ox + c0 * s + corner - 1 - halo,
+        oy - halo + h0 * s + corner - 1,
+        ox + c1 * s + corner + halo,
+        oy - halo + h1 * s + corner,
+    );
+    let u = |v: i64| u32::try_from(v.max(0)).unwrap_or(u32::MAX);
+    (
+        (u(scene.0), u(scene.1), u(scene.2), u(scene.3)),
+        (u(c0), half_row + u(h0), u(c1), half_row + u(h1)),
+        (u(c0), row + u(v0), u(c1), row + u(v1)),
+    )
 }
 
 /// A blur quad cut to `area` (inclusive corners): the quad's rectangle clipped, its source
