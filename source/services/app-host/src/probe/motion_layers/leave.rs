@@ -118,7 +118,8 @@ impl crate::probe::DslApp {
         }
         let k = crate::motion_exit::revives(&layers, identity)?;
         let m = self.motion_layers[k].as_mut()?;
-        (m.root, m.end, m.leaving, m.painted) = (first, end, None, false);
+        // Its store still holds what it held: compared once re-resolved (`revive_as`).
+        (m.root, m.end, m.leaving, m.announce) = (first, end, None, true);
         Some(k)
     }
 
@@ -134,16 +135,20 @@ impl crate::probe::DslApp {
         let span = crate::motion_math::subtree_span(self.view.scene(), node_id)?;
         let k = self.revive(identity, span)?;
         let shape = self.layer_shape(span, k);
+        let mut grew = false;
         if let (Some(m), Some((rect, backdrop))) = (self.motion_layers[k].as_mut(), shape) {
             let size = |r: crate::motion_math::Span| (r.2 - r.0, r.3 - r.1);
-            let grew = size(rect) != size(m.rect);
+            grew = size(rect) != size(m.rect);
             (m.rect, m.backdrop, m.token, m.duration_ms) =
                 (rect, backdrop, token.id(), duration_ms);
             m.declared_ns = nsec_now();
-            if grew {
-                let plan = self.plan_store();
-                self.store_wanted = Some(plan);
-            }
+        }
+        // The same subtree at the same place keeps its store; changed rows paint again; a new
+        // size or anything not comparable paints whole (`reuse_store`).
+        self.reuse_store(k);
+        if grew {
+            let plan = self.plan_store();
+            self.store_wanted = Some(plan);
         }
         self.tree_dirty = true;
         Some(self.motion_layers[k].and_then(|m| m.store).map(|_| ()).ok_or("store"))
@@ -154,16 +159,22 @@ impl crate::probe::DslApp {
         self.motion_layers.iter().flatten().filter_map(|m| m.leaving.map(|l| l.until_ns)).min()
     }
 
-    /// Drops every ghost whose exit is over at `now`. Whether one went.
+    /// Drops every ghost whose exit is over at `now`: its store parks for a re-enter of the same
+    /// identity and size (`crate::motion_reuse`), its place kept. Whether one went.
     pub(in crate::probe) fn drop_due_ghosts(&mut self, now: u64) -> bool {
         let mut any = false;
-        for slot in self.motion_layers.iter_mut() {
-            if slot.is_some_and(|m| {
+        for k in 0..MAX_MOTION_LAYERS {
+            let Some(m) = self.motion_layers[k].filter(|m| {
                 m.leaving.is_some_and(|l| crate::motion_exit::ghost_due(l.until_ns, now))
-            }) {
-                *slot = None;
-                any = true;
+            }) else {
+                continue;
+            };
+            self.motion_layers[k] = None;
+            if let Some(place) = m.store {
+                self.park_store(k, (m.identity, m.size(), place));
             }
+            self.motion_cache.forget(k);
+            any = true;
         }
         if any {
             self.tree_dirty = true;
@@ -176,6 +187,9 @@ impl crate::probe::DslApp {
     /// Every ghost goes at once (`why`: a whole redraw, a surface re-create, a full store) —
     /// nothing may paint over a ghost's pixels while windowd still draws them.
     pub(in crate::probe) fn cut_ghosts(&mut self, why: &str) {
+        // A parked store gives way before any ghost, and goes with every cut (a whole redraw, a
+        // re-create).
+        self.motion_cache.drop_parked();
         let mut n = 0;
         for slot in self.motion_layers.iter_mut() {
             if slot.is_some_and(|m| m.leaving.is_some()) {

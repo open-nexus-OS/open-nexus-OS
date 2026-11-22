@@ -8,22 +8,132 @@
 //! from the plan by any thread, byte-equal to painting the rows one after another — the ground
 //! fill, the boxes by the shared painter (`nexus-scene-raster`), the glyph runs with their
 //! selection and shadows, the straight-alpha conversion (RFC-0109). P2 hands the bands to the
-//! workpool; until then the probe paints them in order on its own thread.
+//! workpool (`BandPass`, `nexus_workpool::paint_bands`): every hart the process has paints them,
+//! in place where the pixels live — the base's slot rows, a scroll band's or a motion layer's
+//! store columns — the UI thread among the painters.
 //! NOT target-gated (compiled for the OS build and for host tests), so the band parity runs on
 //! the host.
 //! OWNERS: @ui @runtime
 //! STATUS: Functional
 //! API_STABILITY: Internal
 //! TEST_COVERAGE: `pass_plan_tests.rs` (host): band parity over splits 1..8 painted on threads,
-//!   bands in any order, a row alone equal to its row in the whole; the plan is `Sync`
+//!   bands in any order, a row alone equal to its row in the whole; the plan is `Sync`.
+//!   `pass_plan_band_tests.rs` (host): the three in-place passes equal today's scratch rows for
+//!   1..8 painters, every split and band order; a row allocates nothing
 //! INVARIANTS: painting reads the plan only; a row's pixels depend on its row index and the plan,
-//!   never on which rows were painted before it
+//!   never on which rows were painted before it; a band painter writes only its row's
+//!   `[x, x + len)` bytes and allocates nothing
 
 use nexus_layout::LayoutBox;
 use nexus_scene_raster::{NodeAnim, ScrollView};
 
 use crate::layout_diff::TextRun;
 use crate::straight_alpha::unpremultiply;
+
+/// A pass of fewer pixels is painted by the UI thread alone — waking the workers costs more
+/// than they save — and the pool starts on the first pass of at least this many (lazy: a small
+/// app never spawns a worker).
+pub(crate) const PAR_MIN_PX: u64 = 16 * 1024;
+
+/// How a band's rows are inked.
+#[derive(Clone, Copy, Debug)]
+enum Ink {
+    /// The base over its ground, left straight ([`PassPlan::paint_ground_row`]); with columns,
+    /// only those ([`PassPlan::paint_ground_cols`]).
+    Ground([u8; 4], Option<(i32, i32)>),
+    /// A layer — a scroll band, a motion layer's rest — from its opaque ground (premultiplied)
+    /// or from transparent, the canvas shifted by `shift`, left straight.
+    Layer { ground: Option<[u8; 4]>, shift: i32 },
+}
+
+/// One pass's rows as its band painters see them (TASK-0367 P2): the plan, which pass row the
+/// slice's first row is, how far apart its rows lie and which bytes of each row it paints.
+/// Copied values and the plan's borrows: shared by every painter, written by none.
+#[derive(Clone, Copy)]
+pub(crate) struct BandPass<'a> {
+    plan: PassPlan<'a>,
+    /// The pass row (the base's surface row, a layer's layout row) of the slice's first row.
+    y0: i32,
+    /// Bytes from one row's start to the next (RFC-0114 §1).
+    stride: usize,
+    /// The bytes of each row this pass paints: `[x, x + len)`.
+    x: usize,
+    len: usize,
+    ink: Ink,
+}
+
+impl<'a> BandPass<'a> {
+    /// The base's rows from surface row `y0`: each row's first `row_bytes` over `ground`; with
+    /// `cols`, only those columns.
+    pub(crate) fn base(
+        plan: PassPlan<'a>,
+        (y0, stride): (i32, usize),
+        row_bytes: usize,
+        ground: [u8; 4],
+        cols: Option<(i32, i32)>,
+    ) -> Self {
+        Self { plan, y0, stride, x: 0, len: row_bytes, ink: Ink::Ground(ground, cols) }
+    }
+
+    /// A layer's rows from layout row `y0`: bytes `[x, x + len)` of each, from `ground` (opaque,
+    /// premultiplied) or transparent, the canvas shifted by `shift` so content column `shift`
+    /// lands on byte `x`.
+    pub(crate) fn layer(
+        plan: PassPlan<'a>,
+        (y0, stride): (i32, usize),
+        (x, len): (usize, usize),
+        ground: Option<[u8; 4]>,
+        shift: i32,
+    ) -> Self {
+        Self { plan, y0, stride, x, len, ink: Ink::Layer { ground, shift } }
+    }
+
+    /// Whether every row of `rows` holds this pass's bytes (the last row is the shortest).
+    pub(crate) fn fits(&self, rows: &[u8]) -> bool {
+        let Some(n) = rows.len().checked_sub(1).map(|l| l / self.stride.max(1)) else {
+            return true;
+        };
+        let last = rows.len() - n * self.stride;
+        self.x.checked_add(self.len).is_some_and(|end| end <= last)
+    }
+
+    /// The pixels this pass paints in `rows`.
+    pub(crate) fn px(&self, rows: &[u8]) -> u64 {
+        rows.len().div_ceil(self.stride.max(1)) as u64 * (self.len / 4) as u64
+    }
+
+    /// Paints `rows` (this pass's rows, `stride` apart) on every hart the pool has, the caller
+    /// among them; one band below [`PAR_MIN_PX`]. Returns once every row is painted
+    /// (`nexus_workpool::paint_bands`: `Err` only for a worker's dead canary — fatal).
+    pub(crate) fn paint(&self, rows: &mut [u8]) -> Result<usize, nexus_workpool::PoolError> {
+        let n = rows.len().div_ceil(self.stride.max(1));
+        let ask = if self.px(rows) < PAR_MIN_PX { n } else { nexus_workpool::MIN_BAND_ROWS };
+        nexus_workpool::paint_bands(rows, self.stride, ask, self, paint_band)
+    }
+}
+
+/// The band painter (`nexus_workpool::paint_bands`' `f`): rows `first_row..` of `pass` held in
+/// `band`, each exactly as painting it alone paints it — in place, no scratch, no allocation.
+pub(crate) fn paint_band(pass: &BandPass<'_>, first_row: usize, band: &mut [u8]) {
+    let end = pass.x.saturating_add(pass.len);
+    for (i, row) in band.chunks_mut(pass.stride.max(1)).enumerate() {
+        // `fits` was asked before the pass: a row without the bytes is past the slice's end.
+        let Some(px) = row.get_mut(pass.x..end) else { continue };
+        let y = pass.y0 + (first_row + i) as i32;
+        match pass.ink {
+            Ink::Ground(ground, None) => pass.plan.paint_ground_row(px, y, ground),
+            Ink::Ground(ground, Some(cols)) => pass.plan.paint_ground_cols(px, y, ground, cols),
+            Ink::Layer { ground, shift } => {
+                match ground {
+                    Some(g) => nexus_paint_kernels::fill(px, g),
+                    None => px.fill(0),
+                }
+                pass.plan.paint_row(px, y, shift);
+                unpremultiply(px);
+            }
+        }
+    }
+}
 
 /// The focused field's selection for the row painters (TASK-0067B): the text node it belongs
 /// to, the selection's x span (relative to the run's origin) and its highlight (accent,
@@ -120,6 +230,10 @@ impl PassPlan<'_> {
         shift: i32,
         cols: Option<(i32, i32)>,
     ) {
+        // The canvas's width stays the surface's (`RowCanvas::width`: a clip in MODEL columns at
+        // three sites of the shared painter — a raster's and a shadow's right edge), never the
+        // slice's: a band's slice is narrower and shifted, and every write is bounded by the
+        // slice itself (`RowCanvas::blend`/`set`/`visible`), so the bytes are the scratch row's.
         let mut canvas = nexus_scene_raster::RowCanvas::new(row, y, self.width);
         canvas.shift_x = shift;
         canvas.clip_x = cols;
@@ -339,6 +453,10 @@ fn paint_selection_row(
     }
 }
 
+/// TASK-0367 P2: the in-place band passes equal today's scratch rows, on any number of painters.
+#[cfg(test)]
+#[path = "pass_plan_band_tests.rs"]
+mod band_tests;
 /// TASK-0354 P8: a diff's rectangles, painted by the column pass, are the full frame.
 #[cfg(test)]
 #[path = "pass_plan_diff_tests.rs"]

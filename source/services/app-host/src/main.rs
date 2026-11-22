@@ -114,6 +114,14 @@ mod store_alloc;
 // A motion layer's exit: its fate, its revival, its drop (TASK-0354 P9).
 #[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
 mod motion_exit;
+// A motion layer's store as a cache of its subtree's rest image: keep, rows or whole; parked
+// stores (package B 1a). Same one-cfg shape.
+#[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
+mod motion_reuse;
+// Where a clear base holds pixels (RFC-0121): the ink the structure declares. Same one-cfg
+// shape: `probe/base_ink.rs` computes it after a relayout.
+#[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
+mod ink;
 // Where a painted row's time goes (TASK-0367 P0): one staged pass's sums and its line. Same
 // one-cfg shape: `probe/paint/split.rs` runs the pass.
 #[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]

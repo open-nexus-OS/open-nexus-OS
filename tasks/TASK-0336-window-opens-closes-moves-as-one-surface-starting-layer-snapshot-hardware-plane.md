@@ -6,7 +6,7 @@ status: in_progress
 status_note: "P0–P3 built 2026-10-21, board cycles 52–53 read; the frame throttle cycle 53 found is TASK-0338's; P4 at its measurement"
 owner: ["@ui", "@gpu"]
 created: 2026-10-21
-updated: 2026-11-13
+updated: 2026-11-20
 subsystem: ui
 started: 2026-10-21
 dates_source: git-reconstructed
@@ -59,8 +59,10 @@ phases:
     evidence: docs/board/measurements/2026-10-21-gpu-vendor-per-pixel/README.md
   - id: P4
     story: "a dragged window rides a display-controller plane: the scene under it is not redrawn during the drag (the stock driver's overlay-plane register sequence measured first)"
-    state: planned
+    state: dropped
     gate: "board: gpud: gpu work slot_px near 0 in a drag window; a drag window and an open/close window read gpud: ux frame ok"
+    started: 2026-11-20
+    note: "2026-11-20 dropped (operator, measured): superseded by the GPU-transform drag (windowd: drag gpu-transform) — board--2026-11-20T15-34-30 drag windows: gpu frame avg 5.6/6.4/6.3 ms, max 11.9/8.1/7.7 ms, 0 of 32 dropped, ~52k px a frame (the window's old and new rect, not the scene). Written before glass and motion moved into the compositor; a display plane would save frames that already fit."
 ---
 
 ## Context (cycle 51, read line by line)

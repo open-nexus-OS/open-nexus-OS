@@ -6,7 +6,7 @@ status: in_progress
 status_note: "board cycle 62 2026-10-22"
 owner: ["@ui", "@gpu"]
 created: 2026-10-22
-updated: 2026-11-20
+updated: 2026-11-22
 subsystem: ui
 kind: service
 novelty: variant
@@ -88,7 +88,7 @@ phases:
     state: planned
     gate: "board: gpud: dc flips late <= 2 % of flips (cycle 4: 179 of 5120 = 3.5 %) through the scroll and paging blocks; windowd: frame pace early1 = 0"
     started: 2026-11-20
-    note: "2026-11-20 board--2026-11-20T12-38-17: late 171 of 4544 = 3.8 % (cycle 4 3.5 %), drops 9.9 % — unchanged as the architect predicted; the causes are the GPU classes named on TASK-0351 P19. 2026-11-20 board--2026-11-20T15-34-30: late 171 → 110 of 4544 flips = 2.4 % (gate <= 2 %)."
+    note: "2026-11-20 board--2026-11-20T12-38-17: late 171 of 4544 = 3.8 % (cycle 4 3.5 %), drops 9.9 % — unchanged as the architect predicted; the causes are the GPU classes named on TASK-0351 P19. 2026-11-20 board--2026-11-20T15-34-30: late 171 → 110 of 4544 flips = 2.4 % (gate <= 2 %). 2026-11-21 board--2026-11-21T07-37-47: late 167 of 4992 = 3.3 % (2.4 % before); the ink flips (full-screen structure changes) are the suspected cause, fixed for B2. 2026-11-22 board--2026-11-22T11-03-14: late 136 of 4352 = 3.1 % (gate <= 2 %), restarts 219 -> 144; the late frames are the loaded desktop's glass passes."
 ---
 
 > Status (migrated 2026-11-02): In Progress (board cycle 62 2026-10-22 — the operator follows the scroll, typing's frames carry pixels, the underflows timed; open: the prediction lands early — 62–72 % on time while scrolling against the 90 % line; parked to layer 8's closing by the operator 2026-10-22)

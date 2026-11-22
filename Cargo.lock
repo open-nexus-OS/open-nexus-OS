@@ -208,6 +208,7 @@ dependencies = [
  "nexus-ux-budgets",
  "nexus-vfs-types",
  "nexus-wire",
+ "nexus-workpool",
  "shortcuts",
  "statefs",
  "tz-lite",

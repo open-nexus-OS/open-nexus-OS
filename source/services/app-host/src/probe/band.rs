@@ -145,11 +145,9 @@ impl super::DslApp {
         let pass = super::paint::Pass::Band(layer.root);
         if layer.vertical() {
             self.prepare_picks(pass, (vy0 + p0 as i32, vy0 + p1 as i32), None);
-            for i in 0..n {
-                let y = vy0 + (p0 + i) as i32;
-                if !self.paint_band_row(mem, y, 0, (vx0, vx1), (sy + i, sx), layer.ground) {
-                    return false;
-                }
+            let rows = (vy0 + p0 as i32, n);
+            if !self.paint_band_rows(mem, rows, 0, (vx0, vx1), (sy, sx), layer.ground) {
+                return false;
             }
             damage.add((sx, sy, (vx1 - vx0) as u32, n));
         } else {
@@ -158,11 +156,9 @@ impl super::DslApp {
             let shift = vx0 + p0 as i32;
             let rows = layer.band_rows();
             self.prepare_picks(pass, (vy0, vy0 + rows), Some((shift, shift + n as i32)));
-            for r in 0..rows as u32 {
-                let y = vy0 + r as i32;
-                if !self.paint_band_row(mem, y, shift, (0, n as i32), (sy + r, sx), layer.ground) {
-                    return false;
-                }
+            let cut = (vy0, rows.max(0) as u32);
+            if !self.paint_band_rows(mem, cut, shift, (0, n as i32), (sy, sx), layer.ground) {
+                return false;
             }
             damage.add((sx, sy, n, rows as u32));
         }
@@ -251,6 +247,8 @@ impl super::DslApp {
         if !self.tree_dirty && self.regions_moved() {
             self.tree_dirty = true;
         }
+        // RFC-0121: where the base holds pixels, declared anew with this frame's pixels.
+        self.sync_ink();
         if damage.is_empty() && !self.tree_dirty {
             // Nothing to show: an input that asked for a repaint alone was answered with nothing
             // (no hop); one that moved a layer is answered by the motion.
@@ -370,6 +368,8 @@ impl super::DslApp {
         let claims = (&region_nodes[..tree.region_count], &roots[..n]);
         tree.motion_count = self.motion_descs(claims, &ghosts, &mut tree.motions);
         super::motion_layers::keep_claims_inside(&mut tree);
+        // RFC-0121: the base's ink as the present path computed it (`sync_ink`).
+        self.ink.put(&mut tree);
         let mut buf = [0u8; lw::SURFACE_TREE_MAX_LEN];
         let len = lw::encode_surface_tree(surface_id, &tree, &mut buf);
         let _ = client.send(&buf[..len], Wait::Blocking);

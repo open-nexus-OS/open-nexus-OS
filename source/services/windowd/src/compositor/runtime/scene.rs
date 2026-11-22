@@ -22,7 +22,7 @@ use crate::surface_regions::SurfaceRegions;
 use crate::window_scene::WindowId;
 
 mod quotas;
-use quotas::layer_quotas;
+use quotas::{body_pieces, layer_quotas};
 
 /// The frame-bound line was said (once per windowd: a heavy frame recurs every frame).
 static LAYER_BOUND_SAID: core::sync::atomic::AtomicBool =
@@ -424,20 +424,31 @@ impl DisplayServerRuntime {
                         // present paint-only spans — the composite itself is a
                         // band→display draw, not a client repaint.
                         if let Some((sh, (w, h))) = desktop_layer {
-                            let _ = encoder.composite_layer_full(
-                                &Layer {
-                                    content_epoch: sh.generation,
-                                    source: sh.buffer.source,
-                                    slot: sh.slot,
-                                    key: super::surface_layers_encode::key(
-                                        super::surface_layers_encode::DESKTOP_OWNER,
-                                        super::surface_layers_encode::KIND_BODY,
-                                        0,
-                                    ),
-                                    ..Layer::opaque(0, 0, w, h, 0, 0)
-                                },
-                                (mode.width, mode.height),
-                            );
+                            // RFC-0121: only where the base holds pixels — one piece per ink
+                            // rectangle, each cut to the surface; the whole base as the one
+                            // full-screen piece when it declares none or the share is short.
+                            let mut pieces =
+                                [(0, 0, 0, 0); nexus_display_proto::surface_layers::MAX_INK];
+                            let n = match desktop_surface.as_ref() {
+                                Some(l) => body_pieces(l, &mut quotas[desktop_quota], &mut pieces),
+                                None => crate::body_ink::pieces(None, (w, h), &mut pieces),
+                            };
+                            for (i, &(x, y, pw, ph)) in pieces[..n].iter().enumerate() {
+                                let _ = encoder.composite_layer_full(
+                                    &Layer {
+                                        content_epoch: sh.generation,
+                                        source: sh.buffer.source,
+                                        slot: sh.slot,
+                                        key: super::surface_layers_encode::key(
+                                            super::surface_layers_encode::DESKTOP_OWNER,
+                                            super::surface_layers_encode::KIND_BODY,
+                                            i as u32,
+                                        ),
+                                        ..Layer::opaque(y, x, pw, ph, x, y)
+                                    },
+                                    (mode.width, mode.height),
+                                );
+                            }
                             // Frosted regions: blur the wallpaper behind each declared glass
                             // rect, then draw the band content (tint + text) over it — the
                             // liquid-glass look. The shell's PANEL-level glass composites above

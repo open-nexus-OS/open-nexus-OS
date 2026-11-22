@@ -22,6 +22,8 @@ pub use crate::motion_layer::{
     MotionLayerDesc, MAX_MOTION_LAYERS, MAX_MOTION_MS, MOTION_EXIT, MOTION_FRONT, MOTION_PARENT,
     SCALE_MAX, SCALE_MIN, SCALE_ONE,
 };
+use crate::surface_ink;
+pub use crate::surface_ink::{Rect16, INK_WHOLE, MAX_INK};
 pub use crate::surface_layers_motion::{
     decode_surface_motion, encode_surface_motion, validate_motion, MotionError, SurfaceMotion,
     Wash, SURFACE_MOTION_MAX_LEN,
@@ -150,6 +152,10 @@ pub struct SurfaceTree {
     pub patch_count: usize,
     pub motions: [MotionLayerDesc; MAX_MOTION_LAYERS],
     pub motion_count: usize,
+    /// Where the base holds pixels (RFC-0121): `ink[..ink_count]`, or the whole base when
+    /// `ink_count` is [`INK_WHOLE`] (not declared — every window's).
+    pub ink: [Rect16; MAX_INK],
+    pub ink_count: u8,
 }
 
 impl SurfaceTree {
@@ -185,7 +191,16 @@ impl SurfaceTree {
         patch_count: 0,
         motions: [MotionLayerDesc::EMPTY; MAX_MOTION_LAYERS],
         motion_count: 0,
+        ink: [Rect16::ZERO; MAX_INK],
+        ink_count: INK_WHOLE,
     };
+
+    /// The declared ink (RFC-0121): `None` = the whole base (not declared, or a count past the
+    /// bound — never a hole); `Some(&[])` = the base holds no pixel.
+    #[must_use]
+    pub fn ink(&self) -> Option<&[Rect16]> {
+        self.ink.get(..usize::from(self.ink_count))
+    }
 
     pub fn motions(&self) -> &[MotionLayerDesc] {
         &self.motions[..self.motion_count.min(MAX_MOTION_LAYERS)]
@@ -214,12 +229,13 @@ const REGION_BYTES: usize = 12;
 const SCROLL_BYTES: usize = 24;
 const PATCH_BYTES: usize = 4;
 const TREE_HEAD: usize = HEADER_LEN + 8;
-/// The longest structure frame.
+/// The longest structure frame (the ink's tail included, RFC-0121).
 pub const SURFACE_TREE_MAX_LEN: usize = TREE_HEAD
     + MAX_SURFACE_LAYERS * REGION_BYTES
     + MAX_SCROLL_LAYERS * SCROLL_BYTES
     + MAX_PATCHES * PATCH_BYTES
-    + MAX_MOTION_LAYERS * MOTION_BYTES;
+    + MAX_MOTION_LAYERS * MOTION_BYTES
+    + surface_ink::INK_MAX_LEN;
 
 pub(crate) fn put16(out: &mut [u8], at: usize, v: u16) {
     out[at..at + 2].copy_from_slice(&v.to_le_bytes());
@@ -288,11 +304,13 @@ pub fn encode_surface_tree(
         motion_layer::put(out, pos, m);
         pos += MOTION_BYTES;
     }
-    pos
+    // RFC-0121: the ink's tail, none for the whole base (the frame of before the field).
+    pos + surface_ink::put(out, pos, &tree.ink, tree.ink_count)
 }
 
 /// Decodes a structure frame into `out`: length-exact, counts within their bounds, reserved
-/// bytes zero. Returns the surface id. The geometry is [`validate_tree`]'s.
+/// bytes zero; a frame without the ink's tail is [`INK_WHOLE`] (RFC-0121). Returns the surface
+/// id. The geometry is [`validate_tree`]'s.
 #[must_use]
 pub fn decode_surface_tree(frame: &[u8], out: &mut SurfaceTree) -> Option<u32> {
     if !has_op(frame, OP_SURFACE_TREE) || frame.len() < TREE_HEAD {
@@ -308,16 +326,17 @@ pub fn decode_surface_tree(frame: &[u8], out: &mut SurfaceTree) -> Option<u32> {
         || scrolls > MAX_SCROLL_LAYERS
         || patches > MAX_PATCHES
         || motions > MAX_MOTION_LAYERS
-        || frame.len()
-            != TREE_HEAD
-                + regions * REGION_BYTES
-                + scrolls * SCROLL_BYTES
-                + patches * PATCH_BYTES
-                + motions * MOTION_BYTES
     {
         return None;
     }
-    let mut tree = SurfaceTree::EMPTY;
+    let tail = TREE_HEAD
+        + regions * REGION_BYTES
+        + scrolls * SCROLL_BYTES
+        + patches * PATCH_BYTES
+        + motions * MOTION_BYTES;
+    // The ink's tail (RFC-0121), bounded and length-exact before anything is read.
+    let (ink, ink_count) = surface_ink::get(frame, tail)?;
+    let mut tree = SurfaceTree { ink, ink_count, ..SurfaceTree::EMPTY };
     let mut pos = TREE_HEAD;
     for slot in tree.regions.iter_mut().take(regions) {
         *slot = LayerDesc {
@@ -389,8 +408,10 @@ pub enum TreeError {
     /// A patch reaches outside the store.
     PatchOutside,
     /// Two bands, two patches, motion layers' pixels or a band and a patch share pixels in the
-    /// store.
+    /// store — or two ink rectangles share pixels of the base (RFC-0121).
     Overlap,
+    /// An ink rectangle is empty or reaches outside the base layer (RFC-0121).
+    InkOutside,
     /// A motion layer rests outside the base layer (or has no area).
     MotionOutside,
     /// A motion layer's pixels reach outside the store, or over the base layer's rows.
@@ -422,8 +443,9 @@ fn overlaps(a: Rect, b: Rect) -> bool {
 /// The geometry check of a structure against its surface (`width × rows`, the first `height`
 /// rows the base, columns `[0, store_w)` of the rows below it the store): every region and
 /// viewport inside the base, every band, patch and motion layer's pixels in the store and none
-/// sharing a pixel with another, every motion within its bounds (`motion_layer::check`). A
-/// structure that passes makes windowd sample only this surface's own atlas regions.
+/// sharing a pixel with another, every motion within its bounds (`motion_layer::check`), every
+/// ink rectangle inside the base and none sharing a pixel with another (RFC-0121). A structure
+/// that passes makes windowd sample only this surface's own atlas regions.
 pub fn validate_tree(
     tree: &SurfaceTree,
     width: u16,
@@ -433,6 +455,9 @@ pub fn validate_tree(
 ) -> Result<(), TreeError> {
     let (w, h, rows) = (u32::from(width), u32::from(height), u32::from(rows));
     let store_w = u32::from(store_w).min(w);
+    if let Some(ink) = tree.ink() {
+        surface_ink::check(ink, w, h)?;
+    }
     for r in tree.regions() {
         let rect = (u32::from(r.x), u32::from(r.y), u32::from(r.w), u32::from(r.h));
         if !inside(rect, w, h) {

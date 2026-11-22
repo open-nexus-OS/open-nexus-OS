@@ -54,7 +54,7 @@ pub(super) fn run(node: usize, content: &str, align: TextAlign) -> TextRun {
 }
 
 /// The scene a pass paints, every box picked (node ids are pre-order, `boxes[id - 1]`).
-struct Scene {
+pub(super) struct Scene {
     boxes: Vec<LayoutBox>,
     texts: Vec<TextRun>,
     picks: Vec<u32>,
@@ -64,7 +64,7 @@ struct Scene {
     views: Vec<ScrollView>,
 }
 
-fn scene() -> Scene {
+pub(super) fn scene() -> Scene {
     let mut boxes = vec![
         // 1: the glass panel with its drop shadow.
         boxed(
@@ -183,7 +183,7 @@ fn scene() -> Scene {
 }
 
 impl Scene {
-    fn plan(&self) -> PassPlan<'_> {
+    pub(super) fn plan(&self) -> PassPlan<'_> {
         PassPlan {
             width: W,
             boxes: &self.boxes,

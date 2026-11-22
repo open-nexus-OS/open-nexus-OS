@@ -11,18 +11,20 @@
 //! R2 a change ends at a cover — where the opaque rectangles of the steps between its own and
 //!    the glass hold every pixel of it within the glass's reach, the glass's backdrop is those
 //!    steps' pixels and did not change. Never asked for an unknown origin: its layer may lie
-//!    above the cover.
+//!    above the cover. Not asked for a glass held while the layers below it are displaced
+//!    (`Changes::uncovered`, P19-e): the covers that stand now need not stand at rest.
 //! R3 a glass blurred again is a change of its own step for the glasses above it.
 //! R4 layers that swapped their order changed the screen where they overlap, though neither is
 //!    drawn otherwise.
 //! OWNERS: @gpu @ui
 //! STATUS: Functional
 //! API_STABILITY: Internal
-//! The writes are counted by what reached the glass (`WritesBy`: an unknown origin split into
-//! `zero` and `stray`, the key misses at rest by what differs — counters, TASK-0351 P19).
+//! The writes are counted by what reached the glass (`by`: `WritesBy`, an unknown origin split
+//! into `zero` and `stray`, the key misses at rest by what differs — counters, TASK-0351 P19).
 //! TEST_COVERAGE: unit tests below; `tests/frame_reach.rs` (the rules' write counts),
 //!   `tests/frame_reach_oracle.rs` (a planned frame against a full redraw, 200 presents),
-//!   `tests/frame_rest_misses.rs` (the counters through a plan)
+//!   `tests/frame_rest_misses.rs` (the counters through a plan), `tests/frame_hold_owe.rs` (the
+//!   uncovered owe of a held glass against pixels)
 //! INVARIANTS: a change is kept from a glass only by a proof (its step is the glass or above it,
 //!   or a cover holds it) — an unknown origin and an uncertain cover always reach; the list is
 //!   the plan's own storage (reserved once a plan, never grown in the walk), and a change it
@@ -31,10 +33,15 @@
 use alloc::vec::Vec;
 
 use super::damage::Area;
-use super::glass::{CacheStep, Miss, WriteCause};
+use super::glass::CacheStep;
 use super::layers::{FrameLayer, RetainedLayers, MAX_DAMAGE, ORIGIN_ABOVE};
 use super::occlude::{self, Px};
 use super::plan::LayerStep;
+
+mod by;
+
+pub(super) use by::OweFull;
+pub use by::{OweWhole, RestMisses, RestWhole, WritesBy};
 
 /// How far a glass's blur reads beyond its rectangle: the widest blur a layer may ask (64, the
 /// buffer's bound) and the chain's own margin.
@@ -107,103 +114,6 @@ impl Touch {
 
     /// A full present: everything blurs again, whatever was named.
     pub(super) const FULL: Self = Self { band: Area::Full, ..Self::NONE };
-}
-
-/// The glass writes of a frame by what reached the glass (TASK-0351 P6: `gpud: glass writes
-/// by`) — beside [`super::plan::Writes`], which counts them by cause. A write has one class or
-/// none: a full present, new rows and a put-off write paid later carry none.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct WritesBy {
-    /// A band: a named change of a layer below the glass.
-    pub below: u16,
-    /// A band: a glass below it was blurred again (R3), and nothing named reached it.
-    pub glass: u16,
-    /// A band: a change of origin 0 or of a key the set does not hold reached it — a call site
-    /// that queues damage without its layer. The sum of `zero` and `stray`.
-    pub unknown: u16,
-    /// Of `unknown`: a change of origin 0 reached it (TASK-0351 P19, W4: windowd queued it
-    /// without its layer — `windowd: damage zero (…)` names where).
-    pub zero: u16,
-    /// Of `unknown`: only a change of a key no layer of the set carries reached it (a culled or
-    /// gone layer's key).
-    pub stray: u16,
-    /// The backdrop: a layer below the glass came, went or moved.
-    pub moved: u16,
-    /// Layers below the glass swapped their order (R4).
-    pub order: u16,
-    /// The one write after the glass kept its rows through a motion.
-    pub rest: u16,
-    /// Of the `rest` writes, those of a key miss, by what differs (TASK-0351 P19, W5).
-    pub misses: RestMisses,
-}
-
-/// The writes that end a hold with a key miss, by the first of the glass's prints that differs
-/// from the ones its rows were written with (TASK-0351 P19, W5: `gpud: glass rest misses`) —
-/// counters, never an input to a rule.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct RestMisses {
-    /// Layers below within its reach came, went or changed their order (or the rows carry no
-    /// prints).
-    pub set: u16,
-    /// Only layers of the glass's own window moved or resized.
-    pub own: u16,
-    /// Layers of other windows below it moved or resized.
-    pub moved: u16,
-    /// The same layers at the same places: something else the key folds changed (an opacity, a
-    /// source, a corner radius, the glass's own rectangle or radii).
-    pub drew: u16,
-    /// The wallpaper the frames start from was uploaded again.
-    pub epoch: u16,
-    /// Of all of these, the ones written as a band (C-r: what changed below while the rows
-    /// were kept, `Frame::plan`) that blurs less than the whole glass — a band that reaches all
-    /// of it costs the whole glass and is not counted. Never more than their sum.
-    pub band: u16,
-}
-
-impl RestMisses {
-    fn note(&mut self, m: Miss) {
-        let n = match m {
-            Miss::Set => &mut self.set,
-            Miss::Own => &mut self.own,
-            Miss::Moved => &mut self.moved,
-            Miss::Drew => &mut self.drew,
-            Miss::Epoch => &mut self.epoch,
-        };
-        *n = n.saturating_add(1);
-    }
-}
-
-impl WritesBy {
-    /// Counts one write of `cause` for what `touch` says reached the glass; `rested`: the last
-    /// plan kept the glass's rows through a motion; `differs`: what differs from the prints the
-    /// rows were written with (`GlassCache::printed`), counted for a key miss at rest.
-    pub(super) fn note(
-        &mut self,
-        touch: &Touch,
-        cause: WriteCause,
-        rested: bool,
-        differs: Option<Miss>,
-    ) {
-        if let (true, WriteCause::Backdrop, Some(m)) = (rested, cause, differs) {
-            self.misses.note(m);
-        }
-        let n = match cause {
-            WriteCause::Full => return,
-            _ if rested => &mut self.rest,
-            WriteCause::Backdrop if touch.order => &mut self.order,
-            WriteCause::Backdrop => &mut self.moved,
-            WriteCause::Band if touch.base || touch.stray => {
-                let split = if touch.base { &mut self.zero } else { &mut self.stray };
-                *split = split.saturating_add(1);
-                &mut self.unknown
-            }
-            WriteCause::Band if touch.below => &mut self.below,
-            WriteCause::Band if touch.glass => &mut self.glass,
-            WriteCause::Band if touch.order => &mut self.order,
-            _ => return,
-        };
-        *n = n.saturating_add(1);
-    }
 }
 
 /// Whether the opaque rectangles of the steps above `from` hold every pixel of `area`: a
@@ -319,6 +229,24 @@ impl Changes {
     /// What reaches glass `g`. `steps`: the plan's steps below it, as decided this frame;
     /// `covers`: scratch with room for a rectangle of each.
     pub(super) fn touch(&self, g: &GlassAt, steps: &[LayerStep], covers: &mut Vec<Px>) -> Touch {
+        self.reaching(g, steps, Some(covers))
+    }
+
+    /// What reaches glass `g` with no change ended at a cover (P19-e) — asked for a glass held
+    /// while the layers below it are displaced: a change is named where its layer is drawn
+    /// now, and a layer that does not move rests there, but the covers above it may move. A
+    /// layer that moves is paid where it rests by the displacement (`Moves::below`).
+    pub(super) fn uncovered(&self, g: &GlassAt, steps: &[LayerStep]) -> Touch {
+        self.reaching(g, steps, None)
+    }
+
+    /// `touch`, a change ended at a cover only when `covers` (scratch) is given (R2).
+    fn reaching(
+        &self,
+        g: &GlassAt,
+        steps: &[LayerStep],
+        mut covers: Option<&mut Vec<Px>>,
+    ) -> Touch {
         if self.lost {
             return Touch::FULL;
         }
@@ -327,6 +255,7 @@ impl Changes {
         let mut t = Touch::NONE;
         for c in self.list.iter().filter(|c| c.area.touches(reach)) {
             let within = c.area.intersect(reach);
+            let mut ends = |i: usize| covers.as_mut().is_some_and(|v| covered(within, i, steps, v));
             let hit = match c.from {
                 Origin::Above => false,
                 // The desktop's own glass regions (id 0: the dock's buttons, the bar's pills)
@@ -342,12 +271,10 @@ impl Changes {
                     i < g.index
                         && id_of(i)
                             .is_some_and(|id| !(id == g.id && (id != 0 || c.area.inside(g.rect))))
-                        && !covered(within, i, steps, covers)
+                        && !ends(i)
                 }
                 Origin::Glass(i) => {
-                    i < g.index
-                        && id_of(i).is_some_and(|id| id == 0 || id != g.id)
-                        && !covered(within, i, steps, covers)
+                    i < g.index && id_of(i).is_some_and(|id| id == 0 || id != g.id) && !ends(i)
                 }
                 Origin::Order(i) => i < g.index,
             };
@@ -365,23 +292,6 @@ impl Changes {
             }
         }
         t
-    }
-
-    /// Whether the frame changes anything that may be part of a backdrop of the glass of
-    /// window `id` in ANOTHER scene than this frame's (`drawn`: the set as drawn) — asked for a
-    /// glass held while what lies below it is displaced. A change is named where its layer is
-    /// drawn now and ends at the covers that stand now: once the layers are back where the
-    /// glass's rows were blurred, it may lie anywhere. Only the pointer's changes and those of
-    /// the glass's own window are none of its backdrop wherever they lie.
-    pub(super) fn foreign(&self, id: u32, drawn: &[FrameLayer]) -> bool {
-        self.lost
-            || self.list.iter().any(|c| match c.from {
-                Origin::Above => false,
-                Origin::Layer(i) | Origin::Glass(i) => {
-                    id == 0 || drawn.get(i).is_none_or(|l| l.layer_id != id)
-                }
-                Origin::Zero | Origin::Stray | Origin::Order(_) => true,
-            })
     }
 }
 
@@ -435,6 +345,9 @@ mod tests {
         let steps = [step(0, 0, 1920, 1080, |_| {}), cover];
         let r = Area::rect(350, 350, 20, 10);
         assert_eq!(touched(&changes(&[(r, Origin::Layer(0))]), &steps), Touch::NONE, "covered");
+        // Uncovered (a held glass over displaced layers, P19-e): the cover is not asked.
+        let raw = changes(&[(r, Origin::Layer(0))]).uncovered(&GLASS, &steps);
+        assert_eq!((raw.band, raw.below), (r, true));
         // The cover's own change is not behind itself; half a cover covers nothing.
         assert_eq!(touched(&changes(&[(r, Origin::Layer(1))]), &steps).band, r);
         let wide = Area::rect(310, 350, 40, 10);
@@ -461,13 +374,14 @@ mod tests {
         c.written(1, Area::rect(100, 300, 180, 100));
         let t = touched(&c, &steps);
         assert_eq!((t.band, t.glass, t.base), (Area::rect(234, 300, 46, 100), true, false));
-        // Past its room the list says so, and every glass blurs whole.
+        // Past its room the list says so, and every glass blurs whole — uncovered too.
         let mut c = Changes::new();
         assert!(c.begin(0));
         for _ in 0..=c.list.capacity() {
             c.written(1, Area::rect(0, 0, 1, 1));
         }
         assert_eq!(touched(&c, &steps), Touch::FULL);
+        assert_eq!(c.uncovered(&GLASS, &steps), Touch::FULL);
     }
 
     #[test]
@@ -491,65 +405,16 @@ mod tests {
     }
 
     #[test]
-    fn a_write_is_counted_once_by_what_reached_it() {
-        let mut by = WritesBy::default();
-        let t = |f: fn(&mut Touch)| {
-            let mut t = Touch::NONE;
-            f(&mut t);
-            t
-        };
-        by.note(&t(|t| (t.base, t.below) = (true, true)), WriteCause::Band, false, None);
-        by.note(&t(|t| (t.below, t.glass) = (true, true)), WriteCause::Band, false, None);
-        by.note(&t(|t| t.glass = true), WriteCause::Band, false, None);
-        by.note(&t(|t| t.order = true), WriteCause::Backdrop, false, None);
-        by.note(&t(|_| {}), WriteCause::Backdrop, false, None);
-        by.note(&t(|t| t.below = true), WriteCause::Backdrop, true, None);
-        by.note(&Touch::FULL, WriteCause::Full, true, None);
-        by.note(&t(|_| {}), WriteCause::New, false, None);
-        let all = WritesBy {
-            below: 1,
-            glass: 1,
-            unknown: 1,
-            zero: 1,
-            moved: 1,
-            order: 1,
-            rest: 1,
-            ..Default::default()
-        };
-        assert_eq!(by, all);
-    }
-
-    #[test]
-    fn an_unknown_origin_is_counted_as_zero_or_stray_and_their_sum_is_unknown() {
-        let mut by = WritesBy::default();
-        let (zero, stray, both) = (
-            Touch { base: true, ..Touch::NONE },
-            Touch { stray: true, ..Touch::NONE },
-            Touch { base: true, stray: true, below: true, ..Touch::NONE },
-        );
-        for t in [zero, stray, both, stray] {
-            by.note(&t, WriteCause::Band, false, None);
+    fn a_desktop_glass_s_own_region_stays_its_own_content_uncovered() {
+        // The id-0 exceptions of R1 hold in the uncovered mode: a change of the desktop inside
+        // its own glass region is the region's content, one beside it reaches.
+        let desk = GlassAt { id: 0, ..GLASS };
+        let steps = [step(0, 0, 1920, 1080, |_| {}), step(0, 0, 1920, 40, |l| l.opaque = true)];
+        let inside = Area::rect(350, 350, 20, 10);
+        let beside = Area::rect(250, 350, 20, 10);
+        for from in [Origin::Zero, Origin::Layer(0)] {
+            assert_eq!(changes(&[(inside, from)]).uncovered(&desk, &steps), Touch::NONE);
+            assert_eq!(changes(&[(beside, from)]).uncovered(&desk, &steps).band, beside);
         }
-        assert_eq!((by.zero, by.stray, by.unknown, by.below), (2, 2, 4, 0));
-        // A write at rest is `rest` whatever reached it: neither zero nor stray.
-        by.note(&zero, WriteCause::Band, true, None);
-        assert_eq!((by.zero + by.stray, by.unknown, by.rest), (4, 4, 1));
-    }
-
-    #[test]
-    fn a_key_miss_at_rest_is_counted_by_what_differs_and_no_other_write_is() {
-        let mut by = WritesBy::default();
-        let none = Touch::NONE;
-        for m in [Miss::Set, Miss::Own, Miss::Moved, Miss::Drew, Miss::Epoch, Miss::Set] {
-            by.note(&none, WriteCause::Backdrop, true, Some(m));
-        }
-        // Not at rest, not a key miss, or nothing to compare: not a rest miss.
-        by.note(&none, WriteCause::Backdrop, false, Some(Miss::Own));
-        by.note(&none, WriteCause::Band, true, Some(Miss::Own));
-        by.note(&none, WriteCause::New, true, Some(Miss::Own));
-        by.note(&none, WriteCause::Full, true, Some(Miss::Own));
-        by.note(&none, WriteCause::Backdrop, true, None);
-        let misses = RestMisses { set: 2, own: 1, moved: 1, drew: 1, epoch: 1, band: 0 };
-        assert_eq!((by.misses, by.rest), (misses, 9));
     }
 }

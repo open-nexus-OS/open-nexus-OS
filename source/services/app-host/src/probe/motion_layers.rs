@@ -21,6 +21,7 @@
 //!   bounds in `nexus-display-proto::surface_layers` (host); the lanes' `apphost: motion layer (`
 
 mod leave;
+mod reuse;
 mod wire;
 
 use super::band::PATCH_ROWS;
@@ -42,6 +43,7 @@ use nexus_layout_types::Rgba8;
 /// Motion layers a surface keeps (the wire's bound).
 pub(super) const MAX_MOTION_LAYERS: usize = lw::MAX_MOTION_LAYERS;
 use crate::motion_exit::Fate;
+use crate::motion_reuse::Reuse;
 use leave::Leaving;
 
 /// One motion layer.
@@ -69,6 +71,10 @@ pub(super) struct MotionLayer {
     declared_ns: u64,
     /// Its store rows hold its subtree.
     painted: bool,
+    /// What the last decision on its store was (`crate::motion_reuse`), and whether an enter
+    /// waits to say it in its line.
+    reused: Reuse,
+    announce: bool,
     /// A modal's or a toast's layer: drawn in front of everything else of the surface.
     front: bool,
     /// Its root's flat fill over the whole surface (a scrim): the compositor draws it.
@@ -166,6 +172,11 @@ impl super::DslApp {
             let m = self.motion_layers[k].as_mut().ok_or("slot")?;
             (m.id, m.declared_ns, m.token, m.duration_ms, m.from) =
                 (id, now, token.id(), duration_ms, from);
+            // The store is not touched: what it holds is said once more.
+            if m.painted {
+                m.reused = Reuse::Keep;
+            }
+            m.announce = true;
             self.tree_dirty = true;
             return m.store.map(|_| ()).ok_or("store");
         }
@@ -181,6 +192,11 @@ impl super::DslApp {
         let slot = free.filter(|_| taken.is_none()).ok_or(taken.unwrap_or("slots"))?;
         let (rect, backdrop) = self.layer_shape((first, end), slot).ok_or("empty")?;
         let from = self.from_anchor(token, from, (first, end), rect, backdrop.is_some());
+        // A store parked by a ghost of the same identity and size is this layer's place, its
+        // snapshot compared once placed (`place_motions`); else the slot holds nothing known.
+        let size = ((rect.2 - rect.0) as u32, (rect.3 - rect.1) as u32);
+        self.motion_cache.forget(slot);
+        self.adopt_parked(slot, (identity, size), id);
         self.motion_layers[slot] = Some(MotionLayer {
             root: first,
             end,
@@ -194,6 +210,8 @@ impl super::DslApp {
             id,
             declared_ns: now,
             painted: false,
+            reused: Reuse::Whole,
+            announce: true,
             front,
             backdrop,
         });
@@ -327,14 +345,21 @@ impl super::DslApp {
                 replan = true;
                 continue;
             };
-            m.root = span.map_or(m.root, |s| s.0);
-            if (rect, end, backdrop) != (m.rect, m.end, m.backdrop) {
+            let root = span.map_or(m.root, |s| s.0);
+            // Re-resolved (renumbered, moved, another backdrop): its store is compared with
+            // what it holds, never thrown away (`reuse_store`).
+            let resolved = (rect, root, end, backdrop) != (m.rect, m.root, m.end, m.backdrop);
+            if resolved {
                 replan |= (rect.2 - rect.0, rect.3 - rect.1)
                     != (m.rect.2 - m.rect.0, m.rect.3 - m.rect.1);
-                (m.rect, m.end, m.backdrop, m.painted) = (rect, end, backdrop, false);
+                (m.rect, m.end, m.backdrop) = (rect, end, backdrop);
             }
+            m.root = root;
             m.front = self.front_overlay(m.root);
             self.motion_layers[k] = Some(m);
+            if resolved {
+                self.reuse_store(k);
+            }
         }
         if replan {
             let plan = self.plan_store();
@@ -350,14 +375,18 @@ impl super::DslApp {
             if m.leaving.is_some() {
                 // A ghost's pixels never move under its exit: one that lost its place goes.
                 self.motion_layers[k] = None;
+                self.motion_cache.forget(k);
                 self.tree_dirty = true;
                 continue;
             }
             if m.store.is_some() && place.is_none() {
                 self.damage_layer(m.rest((self.w, self.h)));
             }
-            (m.store, m.painted) = (place, false);
+            // A new place is compared with what the slot's snapshot says lies there (a parked
+            // store taken over); a place lost or unknown paints whole.
+            m.store = place;
             self.motion_layers[k] = Some(m);
+            self.reuse_store(k);
         }
     }
 
@@ -433,15 +462,22 @@ impl super::DslApp {
         changed
     }
 
-    /// Whether a motion layer owes its store a paint: a change inside one, one not painted yet.
+    /// Whether a motion layer owes its store a paint: a change inside one, one not painted yet,
+    /// an enter not said yet (its backdrop's patch).
     pub(super) fn motion_paint_owed(&self) -> bool {
         self.motion_rows.is_some()
-            || self.motion_layers.iter().flatten().any(|m| m.store.is_some() && !m.painted)
+            || self
+                .motion_layers
+                .iter()
+                .flatten()
+                .any(|m| m.store.is_some() && m.leaving.is_none() && (!m.painted || m.announce))
     }
 
     /// Paints each placed motion layer that does not hold its subtree yet — every one for `all` —
-    /// into its store rows (and its backdrop's patch), named in `damage`; once per layer, its cost
-    /// said. `false` when the surface refused a write.
+    /// into its store rows (and its backdrop's patch), named in `damage`; every enter said once
+    /// with its cost and how its store was reused (a kept store paints only its backdrop's
+    /// patch: a parked store may come back in another slot). Then each layer whose rows were
+    /// written is snapshotted (`crate::motion_reuse`). `false` when the surface refused a write.
     pub(super) fn paint_motion_layers(
         &mut self,
         mem: &mut SurfaceMem,
@@ -450,14 +486,14 @@ impl super::DslApp {
     ) -> bool {
         for k in 0..MAX_MOTION_LAYERS {
             // Nothing writes a ghost's store pixels while windowd draws its exit.
-            let Some(m) = self.motion_layers[k]
-                .filter(|m| m.store.is_some() && m.leaving.is_none() && (all || !m.painted))
-            else {
+            let Some(m) = self.motion_layers[k].filter(|m| {
+                m.store.is_some() && m.leaving.is_none() && (all || !m.painted || m.announce)
+            }) else {
                 continue;
             };
-            let first = !m.painted;
+            let (first, paint) = (!m.painted, all || !m.painted);
             let t0 = nsec_now();
-            if !self.redraw_motion(mem, k, (m.rect.1, m.rect.3), damage)
+            if (paint && !self.redraw_motion(mem, k, (m.rect.1, m.rect.3), damage))
                 || !self.paint_backdrop(mem, k, damage)
             {
                 return false;
@@ -465,20 +501,21 @@ impl super::DslApp {
             // Its motion's time runs from here: the structure that carries it leaves with this
             // present (a first frame may take a second to paint — never counted as the motion).
             if let Some(l) = self.motion_layers[k].as_mut() {
-                l.painted = true;
+                (l.painted, l.announce) = (true, false);
                 if first {
                     l.declared_ns = nsec_now();
                 }
             }
-            if first {
+            if first || m.announce {
                 let (w, h) = m.size();
                 let us = nsec_now().saturating_sub(t0) / 1000;
                 // TASK-0367 P4: the raster's cost per pixel, without arithmetic in the reader.
                 let px = u64::from(w).saturating_mul(u64::from(h)).max(1);
                 let ns_px = us.saturating_mul(1000) / px;
+                let (reused, rows) = if paint { Reuse::Whole } else { m.reused }.said(h);
                 raw_marker(&alloc::format!(
                     "apphost: motion layer (id={} token={} w={w} h={h} front={} backdrop={} \
-                     paint_us={us} ns_px={ns_px})",
+                     paint_us={us} ns_px={ns_px} reused={reused} rows={rows})",
                     m.id,
                     m.token,
                     u8::from(m.front),
@@ -486,6 +523,7 @@ impl super::DslApp {
                 ));
             }
         }
+        self.hold_painted();
         true
     }
 
@@ -545,6 +583,8 @@ impl super::DslApp {
         if y1 <= y0 {
             return true;
         }
+        // The one writer of a layer's store rows: its snapshot no longer describes them.
+        self.motion_cache.forget(k);
         if !self.render_motion_rows(mem, k, (y0, y1)) {
             return false;
         }

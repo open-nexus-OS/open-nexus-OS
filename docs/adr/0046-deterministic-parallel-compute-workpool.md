@@ -28,7 +28,12 @@ scheduling ABI.
 - **Determinism contract**: `chunk_bounds(total, workers, idx)` is pure —
   chunk boundaries depend only on the inputs, so for pure per-element jobs
   `workers = 1 ≡ workers = N` (proven by a host equality matrix with real
-  threads and by QEMU markers).
+  threads and by QEMU markers). An entry whose outputs are positional may hand
+  out its chunks by load; reductions stay canonical (TASK-0367 P2: `paint_bands`
+  takes a pass's bands from one atomic cursor, the caller among the painters).
+- **A scoped entry joins before it returns**: it waits for every worker's
+  check-in without a deadline, so the caller's borrows cannot outlive the call;
+  a retryable error comes only before the first chunk is taken.
 - **Bounded everything, fail closed**:
   - depth-1 submission (`Busy` while a job is in flight);
   - a run TIMEOUT **poisons** the pool: worker state is unknown, so every

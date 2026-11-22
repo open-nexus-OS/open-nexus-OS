@@ -115,6 +115,18 @@ impl SurfaceMem {
         self.map.bytes_mut().get_mut(at..end)
     }
 
+    /// Rows `[y0, y1)` of the slot being drawn as one slice, rows `stride` bytes apart (RFC-0114
+    /// §1) — each row's `width × 4` bytes at the start of its stride, the slice ending with the
+    /// last row's — and the stride: what a pass's band painters share out (TASK-0367 P2).
+    /// `None` for no rows or rows past the slot.
+    pub(crate) fn rows_mut(&mut self, y0: u32, y1: u32) -> Option<(&mut [u8], usize)> {
+        let last = y1.checked_sub(1).filter(|&l| l >= y0)?;
+        let at = self.layout.row_at(self.draw, y0)?;
+        let end = self.layout.row_at(self.draw, last)? + self.layout.width as usize * 4;
+        let stride = self.layout.stride;
+        self.map.bytes_mut().get_mut(at..end).map(|rows| (rows, stride))
+    }
+
     /// `bytes` at column `x` of row `y` of the slot being drawn; `false` past the slot.
     pub(crate) fn write(&mut self, y: u32, x: u32, bytes: &[u8]) -> bool {
         let at = x as usize * 4;

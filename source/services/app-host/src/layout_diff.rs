@@ -121,6 +121,17 @@ fn unmatched(b: &LayoutBox, runs: &[&TextRun], boxes: &[LayoutBox], out: Out<'_>
     }
 }
 
+/// Where box `b` and its run `run` paint, the margin included — the rectangles a change of them
+/// names, at their layout place (RFC-0121: the base's ink, `crate::ink`). `None`: nothing.
+pub(crate) fn paints_within(b: &LayoutBox, run: Option<&TextRun>) -> Option<Edges> {
+    let own = if paints_nothing(&b.visual) { None } else { painted(b) };
+    let r = match (own, run.and_then(|t| painted_run(b, t))) {
+        (Some(a), Some(t)) => (a.0.min(t.0), a.1.min(t.1), a.2.max(t.2), a.3.max(t.3)),
+        (a, t) => a.or(t)?,
+    };
+    Some((r.0 - MARGIN, r.1 - MARGIN, r.2 + MARGIN, r.3 + MARGIN))
+}
+
 /// Whether two boxes differ in geometry only (rect / viewport clip), so
 /// [`geometry`] may bound their damage.
 fn geometry_only(a: &LayoutBox, b: &LayoutBox) -> bool {

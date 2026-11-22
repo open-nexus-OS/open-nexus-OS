@@ -583,5 +583,5 @@ emit_when = { profile = "board-headless" }
 
 [marker."gpud: glass rest misses ("]
 phase = "end"
-proves = "TASK-0351 P19 (W5): per 32 frames the glass writes that end a hold with a key miss, by the first print that differs from the rows' — layers came or went, only its own window's moved, another window's moved, drawn otherwise, a new wallpaper; a measurement, the planner counted, never changed"
+proves = "TASK-0351 P19 (W5): per 32 frames the glass writes that end a hold with a key miss, by the first print that differs from the rows' — layers came or went, only its own window's moved, another window's moved, drawn otherwise, a new wallpaper; whole=base/owe/new/shape names why a write was the whole glass, owe=full/lost/owed/displaced the owe that made it whole (P19-e: a held glass owes only the frame's changes within its reach plus its displacement so far) and owed_by=put_off/lost/placed/displaced the first rule that did; a measurement, the planner counted, never changed"
 emit_when = { profile = "board-headless" }

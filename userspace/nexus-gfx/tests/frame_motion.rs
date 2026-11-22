@@ -435,7 +435,7 @@ fn a_glass_at_rest_over_a_moving_layer_is_blurred_when_the_layer_rests() {
 }
 
 #[test]
-fn a_change_made_while_the_layers_below_are_displaced_owes_the_whole_glass() {
+fn a_change_made_while_the_layers_below_are_displaced_owes_it_with_the_displacement() {
     // The window below moves away and comes back to where it was: nothing to blur again.
     let mut f = ready_frame(4096);
     present(&mut f, &pane_over_a_window(200));
@@ -443,12 +443,14 @@ fn a_change_made_while_the_layers_below_are_displaced_owes_the_whole_glass() {
     let p = present(&mut f, &[at_rest(1), no_damage()]);
     assert_eq!((p.writes.total(), cache_of(&f, 2)), (0, Some(CacheStep::Read(0))));
     // It changes its content while displaced: the change is named where the window is drawn
-    // then, not where it shows at rest — no band can hold it, the glass owes all of itself.
+    // then, not where it shows at rest — the glass owes it with what moved below it since its
+    // rows were blurred (P19-e): here the window's spans fill the reach, never `Full`. The
+    // pixels: `frame_hold_owe.rs`.
     present(&mut f, &[transform(1, 30, 0, 255, 100), damage_from(WINDOW, 380, 350, 20, 10)]);
     assert_eq!(cache_of(&f, 2), Some(CacheStep::Read(0)), "held");
     let p = present(&mut f, &[at_rest(1), no_damage()]);
     assert_eq!((p.writes.total(), p.by.rest), (1, 1));
-    assert_eq!(glass_of(&f, 2).band, Area::Full);
+    assert_eq!(glass_of(&f, 2).band, Area::rect(234, 234, 532, 332));
 }
 
 #[test]

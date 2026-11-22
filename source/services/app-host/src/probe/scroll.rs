@@ -498,6 +498,8 @@ impl super::DslApp {
         if !self.relayout_in_generation() {
             return false;
         }
+        self.ink_stale = true; // RFC-0121: the base's ink follows the new boxes
+
         // OUTSIDE the generation: the animation driver's Vecs are DURABLE state.
         // Synced inside it, their pushes landed in arena memory the layout two
         // frames later reset under a running fade (ADR-0065 amendment, 2026-10-06).

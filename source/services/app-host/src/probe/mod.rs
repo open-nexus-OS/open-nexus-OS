@@ -25,6 +25,7 @@ use nexus_ipc::{Client as _, KernelClient, Wait};
 
 mod anim;
 mod band;
+mod base_ink;
 mod boot;
 mod clock;
 mod damage;
@@ -229,6 +230,7 @@ pub(super) fn run() -> Result<(), &'static str> {
     //    composite is the whole window with its layers — then SURFACE_PRESENT seq=1 of slot 0
     //    naming every row drawn, strictly one in flight, and the motion (offsets, no wash yet).
     let slot = mem.end_frame(&first);
+    dsl.sync_ink(); // RFC-0121: the first frame's ink rides its structure
     dsl.send_tree(&client, surface_id);
     dsl.send_present(&client, surface_id, (1, slot), &first)?;
     let _ = recv_ack(&events, wire::OP_SURFACE_PRESENT, &mut pending_rect, &mut boot_region)?;

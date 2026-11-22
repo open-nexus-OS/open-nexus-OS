@@ -101,7 +101,7 @@ fn a_glass_under_a_faded_or_rowless_layer_is_blurred() {
 }
 
 #[test]
-fn a_new_backdrop_under_a_wholly_covered_glass_waits_whole() {
+fn a_new_backdrop_under_a_wholly_covered_glass_waits_as_its_band() {
     let mut f = ready_frame(2048);
     // A small glass wholly under an opaque pane.
     let small = body(1, 400, 300, 200, 150);
@@ -119,13 +119,15 @@ fn a_new_backdrop_under_a_wholly_covered_glass_waits_whole() {
     f.layers.take_frame(&covered(390));
     let p = f.plan(DISPLAY, &every_blur);
     assert_eq!(p.writes, Writes { hidden: 1, ..Default::default() });
-    // Uncovered: written whole.
+    // Uncovered: written as the band C-c explained when it was put off (P19-e) — where the
+    // layer was and is, not the whole glass.
     let mut shown = scene(390);
     shown.push(damage(0, 0, 1, 1));
     f.layers.take_frame(&shown);
     let p = f.plan(DISPLAY, &every_blur);
     assert_eq!(p.writes.total(), 1);
-    assert_eq!(f.step(2).and_then(|s| s.glass).map(|g| g.band), Some(Area::Full));
+    let band = Area::rect(380, 250, 60, 50);
+    assert_eq!(f.step(2).and_then(|s| s.glass).map(|g| g.band), Some(band));
 }
 
 #[test]

@@ -26,6 +26,7 @@
 use alloc::vec::Vec;
 
 use super::damage::Area;
+use super::glass::FullBy;
 use super::layers::FrameLayer;
 use super::reach::{GlassAt, GLASS_REACH};
 
@@ -43,8 +44,8 @@ pub struct Holds {
     pub bound: u16,
     /// Not held: no rows to keep — a full present, no rows yet, or rows of another rectangle.
     pub full: u16,
-    /// Of the held: made to owe the whole glass by a change made while the layers below it are
-    /// displaced (`Changes::foreign`) — the write after the hold is whole for it.
+    /// Of the held: made to owe a change made while the layers below it are displaced — its
+    /// area within the reach, uncovered (`Changes::uncovered`, P19-e).
     pub foreign: u16,
 }
 
@@ -61,6 +62,23 @@ impl Holds {
         self.full = self.full.saturating_add(other.full);
         self.foreign = self.foreign.saturating_add(other.foreign);
     }
+}
+
+/// What a glass held while the layers below it are displaced (a key miss) owes after this plan
+/// (TASK-0351 P19-e), and the rule named should that be the whole glass. `owed`: what it owed;
+/// `raw`: this plan's changes within its reach, no cover asked (`Changes::uncovered`) — a layer
+/// that does not move rests where its change is named, only the covers above it may move;
+/// `moved`: what the layers below changed since the rows' key (the displacement so far and this
+/// plan's `Moves::below`; `None`: nothing followed them). A layer that moves rests elsewhere:
+/// at a key miss the write's band holds the displacement (C-r), but back where the rows were
+/// blurred (a key hit) only the owe is paid — so once any change is owed, so is `moved`. Whole
+/// for a lost change list (`raw` whole) or a displacement not followed.
+pub(super) fn displaced_owe(owed: Area, raw: Area, moved: Option<Area>) -> (Area, FullBy) {
+    if raw == Area::None {
+        return (owed, FullBy::Lost);
+    }
+    let by = if raw == Area::Full { FullBy::Lost } else { FullBy::Displaced };
+    (owed.union(raw).union(moved.unwrap_or(Area::Full)), by)
 }
 
 /// The plans a glass is held in a row before it pays what it owes.
@@ -186,8 +204,8 @@ impl Hold {
         held.is_some()
     }
 
-    /// A glass held this plan owes the whole glass for a change made while the layers below
-    /// are displaced (`Changes::foreign`) — counted (TASK-0351 P6, `Holds::foreign`), no rule.
+    /// A glass held this plan owes a change made while the layers below are displaced
+    /// (`Changes::uncovered`) — counted (TASK-0351 P6, `Holds::foreign`), no rule.
     pub(super) fn foreign(&mut self) {
         self.counts.foreign = self.counts.foreign.saturating_add(1);
     }
@@ -308,6 +326,20 @@ mod tests {
             let _ = hold.holds(&GLASS, true, true, 40);
         }
         assert_eq!(hold.counts(), Holds { bound: 1, ..Holds::NONE }, "held HOLD_MAX in a row");
+    }
+
+    #[test]
+    fn test_reject_a_bounded_owe_after_a_lost_change_list() {
+        let (owed, change) = (Area::rect(320, 320, 10, 10), Area::rect(400, 400, 20, 10));
+        let moved = Some(Area::rect(250, 350, 80, 60));
+        // A lost list (`Changes::uncovered` is whole for it) owes the whole glass.
+        assert_eq!(displaced_owe(owed, Area::Full, moved), (Area::Full, FullBy::Lost));
+        // A change owes its area and the displacement so far — whole when nothing followed it.
+        let all = owed.union(change).union(Area::rect(250, 350, 80, 60));
+        assert_eq!(displaced_owe(owed, change, moved).0, all);
+        assert_eq!(displaced_owe(owed, change, None), (Area::Full, FullBy::Displaced));
+        // No change: the owe stays what it was.
+        assert_eq!(displaced_owe(owed, Area::None, None).0, owed);
     }
 
     #[test]

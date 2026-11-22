@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-11-22 (a panel answers in 31-45 ms: the app paints on every hart and only what changed, the desktop's base where it has pixels — TASK-0367 P2, TASK-0355 P2, TASK-0354 P4, TASK-0351 P19, TASK-0336 P4 dropped)
+
+- **The app paints on every hart.** A safe scoped band entry in `nexus-workpool`
+  (`paint_bands`: bands taken by load, the caller painting too, joined before return) paints the
+  base, the bands and the motion layers byte-equal for 1..8 painters; ns per painted pixel on the
+  board 17 → 3 (fullscreen launcher), 29 → 5 (782x582), 67-113 → 12-18 (small panels).
+- **A panel that comes back paints only what changed**: its store is a cache of its rest image,
+  compared against a snapshot of what its own pass paints (a scroll band's content excluded); a
+  dropped panel parks its store for the next open.
+- **RFC-0121: a surface says where its base holds pixels.** The shell declares at most eight ink
+  rectangles; windowd draws the desktop body only there (2.07 Mpx → ~0.16-0.19 Mpx). A press or a
+  fade no longer counts as a moving base box.
+- **A held glass owes only what changed within its reach** (P19-e): whole rest writes from the owe
+  165 → 0, rest misses written as a band 5 → 120 of 202.
+- Board, two cycles: every panel tap 31-45 ms (46-57 before), the fullscreen launcher 50 ms (88).
+  The drag on a display plane was dropped: the GPU-transform drag already holds the frame (0 of
+  32 dropped, ~6 ms).
+
 ### Changed - 2026-11-20 (a tap answers sooner: the credit at drawn, the desktop never raised, a motion layer drawn once — TASK-0355 P2, TASK-0354 P4, TASK-0343 P8, TASK-0351 P19)
 
 - **An app's credit leaves when gpud has drawn.** gpud reports a present `STATUS_DRAWN` once its

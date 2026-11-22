@@ -11,12 +11,14 @@
 use alloc::vec::Vec;
 
 use super::damage::Area;
-use super::glass::{fold_layer, glass_key, glass_rows, seed, CacheStep, GlassCache, WriteCause};
-use super::hold::Hold;
+use super::glass::{
+    fold_layer, glass_key, glass_rows, seed, CacheStep, FullBy, GlassCache, WriteCause,
+};
 pub use super::hold::Holds;
+use super::hold::{displaced_owe, Hold};
 use super::layers::{FrameLayer, RetainedLayers, MAX_LAYERS};
 use super::occlude::{self, Px};
-use super::reach::{px, Changes, GlassAt, Touch, WritesBy, GLASS_REACH};
+use super::reach::{px, Changes, GlassAt, OweFull, Touch, WritesBy, GLASS_REACH};
 
 /// Whether `a` and `b` draw the same pixels at the same place — the layer as drawn, its content
 /// generation and its buffer's slot left out (a content change, a slot flip included, reaches
@@ -375,10 +377,15 @@ impl Frame {
                 // below alone; the plans that kept the rows since (`displaced`) and this one
                 // (`Moves::below`) say where: a write blurs that band with the owe when it is a
                 // rectangle — never for a glass new to the plan, a Full owe or displacement.
-                let same = self.glass.same_base(i, base) && !full;
+                let same_base = self.glass.same_base(i, base);
+                let same = same_base && !full;
                 self.glass.computed(i, key, base);
+                let placed = moves.below(i, reach);
+                // A counter: what made the owe whole, should a rest miss be written whole.
+                let owe_full =
+                    OweFull::of(full, touch.band, owed, displaced, self.glass.full_by(i));
                 let explained = (miss == WriteCause::Backdrop && same)
-                    .then(|| moves.below(i, reach))
+                    .then_some(placed)
                     .flatten()
                     .map(|b| b.union(band).union(displaced))
                     .filter(|b| matches!(b, Area::Rect { .. }));
@@ -400,19 +407,23 @@ impl Frame {
                 };
                 let mut shows = shows_of(band);
                 let cache = if let Some(read) = kept.filter(|_| held) {
-                    // What the held rows owe. While the layers below stand as the rows were
-                    // blurred (the key), this frame's changes lie where they will lie at rest:
-                    // the band. Displaced, a change lies and is covered as nothing says it
-                    // will be once they are back: any makes the rows owe the whole glass.
-                    let placed = miss == WriteCause::Band;
-                    let foreign = !placed && self.changes.foreign(layer.layer_id, &drawn);
-                    if foreign {
-                        self.hold.foreign();
-                    }
-                    self.glass.hold(i, if placed || foreign { band } else { owed });
+                    // What the held rows owe (P19-e). While the layers below stand as the rows
+                    // were blurred (the key), this frame's changes lie where they will lie at
+                    // rest: the band. Displaced, a change is owed within the reach, uncovered,
+                    // with the displacement so far (`hold::displaced_owe`).
+                    let (owe, by) = if miss == WriteCause::Band {
+                        (band, FullBy::Placed)
+                    } else {
+                        let raw = self.changes.uncovered(&at, &self.steps).band;
+                        if raw != Area::None {
+                            self.hold.foreign();
+                        }
+                        displaced_owe(owed, raw, placed.map(|b| b.union(displaced)))
+                    };
+                    self.glass.hold(i, owe, by);
                     // C-r: where the layers below changed this plan is kept for the write
                     // that ends the hold (a glass not carried: anywhere).
-                    let moved = moves.below(i, reach).map(|b| b.union(touch.band));
+                    let moved = placed.map(|b| b.union(touch.band));
                     self.glass.displace(i, moved.map_or(Area::Full, |b| b.union(displaced)));
                     read
                 } else {
@@ -439,8 +450,10 @@ impl Frame {
                             }
                             occlude::covered(q, &above)
                         });
-                    let put_off =
-                        if hidden { self.glass.put_off(i, key, rows, band) } else { None };
+                    // A key miss put off owes the band C-c explains (P19-e: the rows differ from
+                    // this backdrop exactly where those layers changed), else the whole glass.
+                    let owe = explained.unwrap_or(band);
+                    let put_off = if hidden { self.glass.put_off(i, key, rows, owe) } else { None };
                     match put_off {
                         Some(read) => {
                             writes.hidden = writes.hidden.saturating_add(1);
@@ -448,8 +461,7 @@ impl Frame {
                         }
                         None => {
                             let step = self.glass.step(i, key, rows, touched);
-                            // The write a key miss C-c explained blurs its band alone; one
-                            // put off owes the whole glass as before.
+                            // The write a key miss C-c explained blurs its band alone.
                             if let (CacheStep::Write(_), Some(b)) = (step, explained) {
                                 (band, shows) = (b, shows_of(b));
                                 writes.backdrop_band = writes.backdrop_band.saturating_add(1);
@@ -457,6 +469,10 @@ impl Frame {
                                 if rested && b.grown(GLASS_REACH).intersect(rect) != rect {
                                     by.misses.band = by.misses.band.saturating_add(1);
                                 }
+                            } else if let (CacheStep::Write(_), true) =
+                                (step, rested && miss == WriteCause::Backdrop)
+                            {
+                                by.whole.note(same_base, owe_full, placed.is_some());
                             }
                             step
                         }

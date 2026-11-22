@@ -5,7 +5,7 @@ role: guide
 subsystem: ui
 sources: [userspace/ui/paint-kernels, userspace/ui/scene_raster/src/shapes.rs, source/services/app-host/src/probe/boot_env.rs, source/services/app-host/src/probe/paint.rs, source/services/app-host/src/pass_plan.rs, source/apps/selftest-client/src/os_lite/probes/paintkernels.rs]
 contracts: [ADR-0099, RFC-0119]
-verified: 2026-11-20
+verified: 2026-11-22
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -29,7 +29,7 @@ A kernel is a loop a frame spends its pixels in, as one function of a span of a 
 | `blend(row, bgra)` | the straight colour laid over it, source over: each channel `(dst · (255 − a) + colour · a) / 255`, the alpha channel with colour 255 | the row painter's translucent spans (`blend_span`: a box's interior between its corners, a border's straight run) |
 
 Apps, motion layers and animations are painted row by row through `nexus-scene-raster`, so
-they reach the kernels without knowing them. What a row computes per pixel — a corner's
+they reach the kernels without knowing them; app-host paints a pass's bands on every hart (`nexus-workpool`'s `paint_bands`: bands taken by load, the caller painting too, `apphost: workpool on (workers=)`). What a row computes per pixel — a corner's
 coverage, a shadow, a gradient, a glyph — is not a kernel of this crate. Under a rounded clip
 (`xform.rs`) the soft columns at a span's ends are set or blended pixel by pixel; the rest of the span is the kernel's.
 

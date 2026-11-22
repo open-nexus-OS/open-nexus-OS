@@ -14,8 +14,9 @@
 //! TEST_COVERAGE: unit tests below
 
 /// The most items a store holds: every scroll layer's band and every motion layer's pixels, with
-/// room for the ghosts of layers leaving beside their successors.
-pub(crate) const MAX_ITEMS: usize = 12;
+/// room for the ghosts of layers leaving beside their successors and for the stores parked by
+/// dropped ghosts (`crate::motion_reuse::MAX_PARKED`; `probe/store.rs` asserts the sum).
+pub(crate) const MAX_ITEMS: usize = 16;
 
 /// One item asked for: its identity (stable across plans) and its size.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

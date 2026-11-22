@@ -172,7 +172,8 @@ pub enum CacheStep {
 /// reach has none. `base`: the base its rows were blurred from, recorded at their write
 /// ([`GlassCache::same_base`]). `displaced`: what changed below the glass outside its owe through
 /// the plans that kept its rows ([`GlassCache::displace`]). `prints`: what lay below the glass
-/// when its rows were last written (W5, a counter's input only).
+/// when its rows were last written (W5, a counter's input only). `full_by`: the rule that made
+/// `owed` the whole glass, while it is (P19-e, a counter's input only).
 #[derive(Clone, Copy, Default)]
 struct Slot {
     key: u64,
@@ -185,13 +186,41 @@ struct Slot {
     base: Option<u64>,
     displaced: Area,
     prints: Option<Prints>,
+    full_by: Option<FullBy>,
+}
+
+/// The rule that made a slot's owe the whole glass (TASK-0351 P19-e: `gpud: glass rest misses
+/// (… owed_by=put_off/lost/placed/displaced)`) — a counter's input, never a rule's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum FullBy {
+    /// A write put off on a key miss that nothing explained (`GlassCache::put_off`).
+    PutOff,
+    /// A hold on a key miss whose change list was lost (`GlassCache::hold`).
+    Lost,
+    /// A hold on a key hit whose change list was lost.
+    Placed,
+    /// A hold on a key miss owing a change while what changed below was not followed
+    /// (`hold::displaced_owe`).
+    Displaced,
 }
 
 impl Slot {
     /// The rows start over from this plan's backdrop: the base `computed` named (none for a
     /// write no plan computed), nothing displaced, nothing owed.
     fn written(&mut self) {
-        (self.base, self.displaced, self.owed) = (self.now.map(|(_, b)| b), Area::None, Area::None);
+        (self.base, self.displaced) = (self.now.map(|(_, b)| b), Area::None);
+        self.owe(Area::None, None);
+    }
+
+    /// The rows owe `owed`; when that makes the owe the whole glass, `by` is named the rule
+    /// that did — one already whole keeps the rule that made it so.
+    fn owe(&mut self, owed: Area, by: Option<FullBy>) {
+        self.full_by = match owed {
+            Area::Full if self.owed == Area::Full => self.full_by,
+            Area::Full => by,
+            _ => None,
+        };
+        self.owed = owed;
     }
 }
 
@@ -382,10 +411,12 @@ impl GlassCache {
 
     /// `slot`'s rows are kept through a motion this plan ([`Self::keep`] was taken): the key
     /// stays the one they were blurred for, and `owed` is everything they miss of it by now —
-    /// the write that ends the hold pays it (`hold`).
-    pub(super) fn hold(&mut self, slot: usize, owed: Area) {
+    /// the write that ends the hold pays it (`hold`); `by`: the rule named should that make the
+    /// owe the whole glass.
+    pub(super) fn hold(&mut self, slot: usize, owed: Area, by: FullBy) {
         if let Some(held) = self.slots.get_mut(slot) {
-            (held.kept, held.owed) = (true, owed);
+            held.kept = true;
+            held.owe(owed, Some(by));
         }
     }
 
@@ -400,17 +431,24 @@ impl GlassCache {
         self.held(slot).owed
     }
 
+    /// The rule that made `slot`'s owe the whole glass, while it is (P19-e, a counter's input).
+    pub(super) fn full_by(&self, slot: usize) -> Option<FullBy> {
+        self.held(slot).full_by
+    }
+
     /// A write put off (TASK-0351 P6): what it would change of the glass lies under the layers
     /// above it, so the rows are kept and drawn as they are — the key taken, the change `owed`
-    /// kept for the frame that shows it (a band, or `Full` for a new backdrop). `None` when the
-    /// slot holds no rows of `h`: a glass without rows is written like any other.
+    /// kept for the frame that shows it (a band; on a key miss the band C-c explains, P19-e, or
+    /// `Full` when nothing does). `None` when the slot holds no rows of `h`: a glass without
+    /// rows is written like any other.
     pub fn put_off(&mut self, slot: usize, key: u64, h: u32, owed: Area) -> Option<CacheStep> {
         if !self.ready || h == 0 {
             return None;
         }
         let held = self.slots.get_mut(slot).filter(|s| s.h == h)?;
         // The owe now names what the rows miss of this plan's backdrop: nothing is displaced.
-        (held.key, held.owed, held.displaced) = (key, owed, Area::None);
+        (held.key, held.displaced) = (key, Area::None);
+        held.owe(owed, Some(FullBy::PutOff));
         Some(CacheStep::Read(held.y))
     }
 
@@ -434,7 +472,8 @@ impl GlassCache {
         let (ready, plane_rows) = (self.ready, self.plane_rows);
         let Some(held) = self.slot_mut(slot) else { return CacheStep::Off };
         if !ready || h == 0 || h > plane_rows {
-            (held.h, held.owed, held.base) = (0, Area::None, None);
+            (held.h, held.base) = (0, None);
+            held.owe(Area::None, None);
             return CacheStep::Off;
         }
         if held.h == h {
@@ -447,7 +486,8 @@ impl GlassCache {
             held.written();
             return CacheStep::Write(held.y);
         }
-        (held.key, held.h, held.owed) = (key, 0, Area::None);
+        (held.key, held.h) = (key, 0);
+        held.owe(Area::None, None);
         match self.retry(slot, h) {
             Some(y) => CacheStep::Write(y),
             None => CacheStep::Off,

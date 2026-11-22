@@ -12,8 +12,8 @@
 
 use super::surface_mem::SurfaceMem;
 use super::*;
-use crate::pass_plan::{CaretPaint, PassPlan};
-use crate::straight_alpha::{premultiplied, unpremultiply};
+use crate::pass_plan::{BandPass, CaretPaint, PassPlan, PAR_MIN_PX};
+use crate::straight_alpha::premultiplied;
 
 mod collect;
 mod split;
@@ -23,6 +23,34 @@ pub(super) use collect::dump_text_runs as collect_dump_text_runs;
 
 /// The scroll views a pass places covered content at.
 type Views<'a> = &'a [nexus_scene_raster::ScrollView];
+
+/// The exit status of an app-host whose workpool overflowed a stack: its memory is suspect, so
+/// it exits for execd to respawn instead of painting again.
+const EXIT_POOL_STACK: i32 = 87;
+
+/// Paints `rows` as `pass` says on every hart the pool has (TASK-0367 P2). The pool starts on
+/// the first pass of at least [`PAR_MIN_PX`] (lazy, once: a pool that does not start leaves the
+/// UI thread painting alone). `false` when the rows do not hold the pass's columns (past the
+/// slot). A worker's dead canary is fatal: a marker and an exit, never a repaint.
+fn paint_pass(pass: &BandPass<'_>, rows: &mut [u8]) -> bool {
+    static ASKED: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+    if !pass.fits(rows) {
+        return false;
+    }
+    if pass.px(rows) >= PAR_MIN_PX && !ASKED.swap(true, core::sync::atomic::Ordering::Relaxed) {
+        match nexus_workpool::init() {
+            Ok(n) => raw_marker(&alloc::format!("apphost: workpool on (workers={n})")),
+            Err(e) => raw_marker(&alloc::format!("apphost: workpool off ({e:?})")),
+        }
+    }
+    match pass.paint(rows) {
+        Ok(_) => true,
+        Err(e) => {
+            raw_marker(&alloc::format!("APPHOST: FAIL workpool ({e:?}) - exiting"));
+            nexus_abi::exit(EXIT_POOL_STACK)
+        }
+    }
+}
 
 /// What a pass's rows read beside the picked boxes, resolved once per pass: the animated nodes'
 /// transforms and the focused field's caret.
@@ -187,24 +215,22 @@ impl super::DslApp {
         if !self.split_done && y0 == 0 && y1 == self.h as i32 && cols.is_none() {
             return self.render_rows_split(mem); // once: where a row's time goes (TASK-0367 P0)
         }
+        if y1 <= y0 {
+            return true;
+        }
         let mut views = core::mem::take(&mut self.view_scratch);
         self.base_views(&mut views);
         self.prepare_picks_with(Pass::Base, (y0, y1), cols, &views);
         let row_bytes = self.w as usize * 4;
-        let mut ok = true;
-        let plan = self.plan(&views);
-        for y in y0..y1 {
-            // The row in the buffer itself: painted where the GPU reads it, no copy; left in the
-            // straight alpha the compositor reads (RFC-0109), like every row.
-            let Some(row) = mem.row_mut(y as u32).and_then(|r| r.get_mut(..row_bytes)) else {
-                ok = false;
-                break;
-            };
-            match cols {
-                Some(cols) => plan.paint_ground_cols(row, y, base, cols),
-                None => plan.paint_ground_row(row, y, base),
+        // The rows in the buffer itself: painted where the GPU reads them, no copy, by every hart
+        // the pool has (TASK-0367 P2); left in the straight alpha the compositor reads (RFC-0109).
+        let ok = match mem.rows_mut(y0 as u32, y1 as u32) {
+            Some((rows, stride)) => {
+                let pass = BandPass::base(self.plan(&views), (y0, stride), row_bytes, base, cols);
+                paint_pass(&pass, rows)
             }
-        }
+            None => false,
+        };
         self.view_scratch = views;
         ok
     }
@@ -221,68 +247,63 @@ impl super::DslApp {
         (y0, y1): (i32, i32),
     ) -> bool {
         let Some((rect, (sx, sy))) = self.motion_place(k) else { return true };
+        let (y0, y1) = (y0.max(rect.1), y1.min(rect.3));
+        if y1 <= y0 {
+            return true;
+        }
         let mut views = core::mem::take(&mut self.view_scratch);
         self.base_views(&mut views);
         self.prepare_picks_with(Pass::Motion(k), (rect.1, rect.3), Some((rect.0, rect.2)), &views);
-        let row_bytes = self.w as usize * 4;
-        let mut row = core::mem::take(&mut self.row_scratch);
-        if row.len() < row_bytes {
-            row.resize(row_bytes, 0);
-        }
+        // In place on the store rows' columns `[sx, sx + span)`: the canvas starts where the
+        // layer's pixels go, shifted to its rest's left edge — byte for byte the scratch row
+        // the pass painted and copied before (`pass_plan_band_tests.rs`).
         let span = (rect.2 - rect.0).max(0) as usize * 4;
-        let mut ok = true;
-        for y in y0.max(rect.1)..y1.min(rect.3) {
-            row[..row_bytes].fill(0);
-            self.paint_row(&mut row[..row_bytes], y, rect.0, &views);
-            unpremultiply(&mut row[..span]);
-            let at = u32::from(sy) + (y - rect.1) as u32;
-            if !mem.write(at, u32::from(sx), &row[..span]) {
-                ok = false;
-                break;
+        let at = u32::from(sy) + (y0 - rect.1) as u32;
+        let ok = match mem.rows_mut(at, at + (y1 - y0) as u32) {
+            Some((rows, stride)) => {
+                let place = (usize::from(sx) * 4, span);
+                let pass = BandPass::layer(self.plan(&views), (y0, stride), place, None, rect.0);
+                paint_pass(&pass, rows)
             }
-        }
-        self.row_scratch = row;
+            None => false,
+        };
         self.view_scratch = views;
         ok
     }
 
-    /// One row of a band: content row `model_y` (layout coordinates) painted from transparent at
+    /// Rows of a band: content rows `[model_y, model_y + n)` (layout coordinates) painted at
     /// identity, the canvas shifted by `shift` (a horizontal band's run of columns), its columns
-    /// `[cols.0, cols.1)` turned from the painter's premultiplied pixels into the straight alpha
-    /// the compositor samples, and written at `(row, col)` of the slot being drawn. `false` past
-    /// the slot.
-    pub(super) fn paint_band_row(
-        &mut self,
+    /// `[cols.0, cols.1)` left in the straight alpha the compositor samples, in place at
+    /// `(row, col)` of the slot being drawn and down. `false` past the slot.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn paint_band_rows(
+        &self,
         mem: &mut SurfaceMem,
-        model_y: i32,
+        (model_y, n): (i32, u32),
         shift: i32,
         cols: (i32, i32),
         (row_at, col): (u32, u32),
         ground: Option<nexus_layout_types::Rgba8>,
     ) -> bool {
-        let row_bytes = self.w as usize * 4;
-        let mut row = core::mem::take(&mut self.row_scratch);
-        if row.len() < row_bytes {
-            row.resize(row_bytes, 0);
+        if n == 0 {
+            return true;
         }
         // TASK-0351 P14: a band on a ground starts from the pane's opaque pixel (the painter's
         // premultiplied order b, g, r, a — an opaque pixel is its own premultiplication), so
         // the slice composes without a blend; else from transparent.
-        match ground {
-            Some(c) => {
-                let ground = premultiplied(c, c.a);
-                nexus_paint_kernels::fill(&mut row[..row_bytes], ground);
+        let ground = ground.map(|c| premultiplied(c, c.a));
+        let w = self.w as i32;
+        let (c0, c1) = (cols.0.clamp(0, w), cols.1.clamp(0, w));
+        let place = (col as usize * 4, (c1 - c0).max(0) as usize * 4);
+        // The canvas starts at column `c0` of the row the painter saw: shifted by it.
+        match mem.rows_mut(row_at, row_at + n) {
+            Some((rows, stride)) => {
+                let plan = self.plan(&[]);
+                let pass = BandPass::layer(plan, (model_y, stride), place, ground, shift + c0);
+                paint_pass(&pass, rows)
             }
-            None => row[..row_bytes].fill(0),
+            None => false,
         }
-        self.paint_row(&mut row[..row_bytes], model_y, shift, &[]);
-        let (c0, c1) =
-            (cols.0.clamp(0, self.w as i32) as usize, cols.1.clamp(0, self.w as i32) as usize);
-        let span = &mut row[c0 * 4..c1.max(c0) * 4];
-        unpremultiply(span);
-        let ok = mem.write(row_at, col, span);
-        self.row_scratch = row;
-        ok
     }
 
     /// The visibility index of a pass over layout rows `rows` (and, for a horizontal band, the
@@ -409,11 +430,6 @@ impl super::DslApp {
             caret: self.pass_ctx.caret,
             views,
         }
-    }
-
-    /// Row `y` of the planned pass over what `row` holds (`PassPlan::paint_row`).
-    fn paint_row(&self, row: &mut [u8], y: i32, shift: i32, views: Views<'_>) {
-        self.plan(views).paint_row(row, y, shift);
     }
 
     /// Caret geometry for the row painters: `(node_id, content_width_px,

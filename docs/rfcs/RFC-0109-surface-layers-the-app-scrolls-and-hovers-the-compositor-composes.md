@@ -202,8 +202,10 @@ dropped transition frame was a glass written anew): a glass's rows hold the blur
 REST rectangle (`Glass.at`), whatever size or place the motion draws it at; the executors sample a
 stretched draw from those rows only. A glass in motion, or at rest over a layer that moves, is
 HELD — read, never written — for at most 64 plans and, at rest over a mover, at most one blur
-radius of drift; the plan that ends the hold writes it once, with every change that reached it
-meanwhile (`frame/hold.rs`). A glass the set moved or re-blurred is not held. During a motion the
+radius of drift; the plan that ends the hold writes only what the glass owes: the frame's changes
+within its reach, plus the displacement of the layers below so far once it owes any (a lost change
+list or an unfollowed displacement owes the whole glass); a write put off on a key miss owes the
+band the miss explains (`frame/hold.rs`). A glass the set moved or re-blurred is not held. During a motion the
 glass shows its last blur — the design's accepted look; at rest its pixels equal a full redraw.
 
 **The app (app-host):** one `ScrollMomentum` per vertical or horizontal scroll layer (wheel,
@@ -239,7 +241,7 @@ rectangles where the scene draws the surface — the frame's corner, cut at the 
 moved every rectangle up to 75 px up and left of what changed).
 
 **Motion layers (amendment 2026-11-04, TASK-0354 P2).** A **motion layer** is a part of the
-surface the compositor moves: the app paints a subtree once, at rest, into the store (the base is
+surface the compositor moves: the app paints a subtree once, at rest, into the store (a layer that comes back paints only what changed since; the base is
 painted without it — what lies under a panel shows while the panel fades in) and declares it with
 the structure; windowd evaluates its motion for the time each frame is shown (RFC-0110) and draws
 the layer — and the regions, scroll layers and washes it claims — moved and faded. The app is not

@@ -128,6 +128,9 @@ mod surface_place;
 mod wake_clock;
 // ADR-0075 (TASK-0339): the compositor never waits on a client — the bounded per-client
 // outbox, pure and host-TESTED, consumed by the OS-only compositor runtime.
+/// The desktop body as pieces where its base holds pixels (RFC-0121) — pure, host-TESTED.
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
+mod body_ink;
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod client_outbox;
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]

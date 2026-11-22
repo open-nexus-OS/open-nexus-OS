@@ -137,6 +137,11 @@ impl DisplayServerRuntime {
         let layers = idx.map_or(self.desktop_layers, |i| self.apps[i].layers);
         let base_h = u32::from(surface.height);
         let display = (self.mode.width, self.mode.height);
+        // RFC-0121: the desktop's body is drawn where its ink is — said on each change.
+        if idx.is_none() && change.ink {
+            let base = (u32::from(surface.width).min(display.0), base_h.min(display.1));
+            let _ = debug_println(&crate::body_ink::line(layers.tree.ink(), base));
+        }
         // Each rectangle goes with its origin (RFC-0101 §8): the layer of this surface that
         // draws the change, as `damage_origin::origins` names it.
         let owner = idx.map_or(encode::DESKTOP_OWNER, |i| self.window_key(i));

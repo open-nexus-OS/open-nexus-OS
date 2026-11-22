@@ -89,6 +89,12 @@ pub(super) struct DslApp {
     pub(super) tree_dirty: bool,
     /// The structure last sent — what windowd checks a motion against (`probe/band.rs`).
     pub(super) sent_tree: nexus_display_proto::surface_layers::SurfaceTree,
+    /// Where the base holds pixels (RFC-0121, `probe/base_ink.rs`): sent with the structure.
+    pub(super) ink: crate::ink::Ink,
+    /// A relayout ran since the ink was computed.
+    pub(super) ink_stale: bool,
+    /// A base box was moving when the ink was computed (it is the whole base then).
+    pub(super) ink_moving: bool,
     /// The motion changed since the last `OP_SURFACE_MOTION` (an offset, the wash).
     pub(super) motion_dirty: bool,
     /// The store's latest plan since the surface was made (TASK-0354 P8): the surface is made
@@ -190,6 +196,9 @@ pub(super) struct DslApp {
     /// compositor moves — painted once into the store, their enter stated once.
     pub(super) motion_layers:
         [Option<super::motion_layers::MotionLayer>; super::motion_layers::MAX_MOTION_LAYERS],
+    /// What each motion layer's store holds and the stores parked by dropped ghosts (package B
+    /// 1a, `crate::motion_reuse`): a store is kept or repainted where it changed, never thrown away.
+    pub(super) motion_cache: crate::motion_reuse::Cache,
     /// The last motion id stated (a new one starts a motion in windowd).
     pub(super) motion_seq: u16,
     /// Layout rows a change inside the motion layers named (TASK-0354 P5): painted again into

@@ -104,6 +104,14 @@ impl AnimState {
         }
     }
 
+    /// The nodes whose transform this frame may paint outside their layout box (RFC-0121: such a
+    /// base box declares the whole base, `probe/base_ink.rs`). A press or a fade stays inside
+    /// (`stays_inside`): it once flipped the desktop's ink to whole at every panel's tap, two
+    /// full-screen structure changes a panel (board 2026-11-21T07-37-47).
+    pub(super) fn moving(&self) -> impl Iterator<Item = usize> + '_ {
+        self.anims.iter().filter(|a| !a.is_identity() && !a.stays_inside()).map(|a| a.node_id)
+    }
+
     /// Token motion duration in ns for the active theme. A reduced-motion theme
     /// zeroes `motion_ms`; the keyframe track treats 0 as "jump to the final
     /// frame" (`KeyframeTrack::new` clamps to 1ns) — so reduced motion is honored

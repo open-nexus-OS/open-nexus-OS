@@ -33,7 +33,10 @@ use crate::backend::hop_trace::FrameHop;
 /// P19 W4 — moved, order, rest); and the glasses written by layer key (`(key, writes)`, the first
 /// eight keys a window writes); and what the glass hold decided (TASK-0373: held, rest, drift,
 /// bound, full; foreign, TASK-0351 P6); and the key misses at rest by what differs (P19 W5:
-/// set, own, moved, drew, epoch; of them written as a band, P19 C-r).
+/// set, own, moved, drew, epoch; of them written as a band, P19 C-r; written whole, by the first
+/// condition: base, owe, new, shape — package B 2b; the whole owe by its source: full, lost,
+/// owed, displaced, and owed by the rule that made it whole: put_off, lost, placed, displaced —
+/// P19-e).
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct Work(
     [u64; 3],
@@ -44,7 +47,7 @@ pub(super) struct Work(
     [u64; 7],
     [(u32, u32); GLASS_KEYS],
     Holds,
-    [u64; 6],
+    [u64; 18],
 );
 
 /// The glass keys a window tells apart (`gpud: glass top`).
@@ -91,8 +94,28 @@ impl Work {
         for (acc, n) in self.5.iter_mut().zip(classes) {
             *acc += u64::from(n);
         }
-        let m = by.misses;
-        for (acc, n) in self.8.iter_mut().zip([m.set, m.own, m.moved, m.drew, m.epoch, m.band]) {
+        let (m, w, o) = (by.misses, by.whole, by.whole.owe_by);
+        let counts = [
+            m.set,
+            m.own,
+            m.moved,
+            m.drew,
+            m.epoch,
+            m.band,
+            w.base,
+            w.owe,
+            w.new,
+            w.shape,
+            o.full,
+            o.lost,
+            o.owed,
+            o.displaced,
+            o.owed_put_off,
+            o.owed_lost,
+            o.owed_placed,
+            o.owed_displaced,
+        ];
+        for (acc, n) in self.8.iter_mut().zip(counts) {
             *acc += u64::from(n);
         }
         self.3 += layers as u64;
@@ -196,12 +219,31 @@ impl Work {
         // TASK-0351 P19 (W5): why a glass's key missed when its hold ended — the first of its
         // prints that differs from its rows' (layers came or went, its own window's moved,
         // another's moved, drawn otherwise, a new wallpaper) — and how many of them were
-        // written as the band of what changed below during the hold (C-r). Counters, never
-        // the rule.
+        // written as the band of what changed below during the hold (C-r); written whole, by
+        // the first condition, and a whole owe by its source and the rule that made it whole
+        // (P19-e). Counters, never the rule.
         let m = self.8;
         emit_fmt(format_args!(
-            "gpud: glass rest misses (set={} own={} moved={} drew={} epoch={} band={})",
-            m[0], m[1], m[2], m[3], m[4], m[5]
+            "gpud: glass rest misses (set={} own={} moved={} drew={} epoch={} band={} \
+             whole={}/{}/{}/{} owe={}/{}/{}/{} owed_by={}/{}/{}/{})",
+            m[0],
+            m[1],
+            m[2],
+            m[3],
+            m[4],
+            m[5],
+            m[6],
+            m[7],
+            m[8],
+            m[9],
+            m[10],
+            m[11],
+            m[12],
+            m[13],
+            m[14],
+            m[15],
+            m[16],
+            m[17]
         ));
         // TASK-0351 P6: the glass written most in a window that wrote more than a few — the
         // glass a transition's halved cadence comes from — and the window's dominant class.

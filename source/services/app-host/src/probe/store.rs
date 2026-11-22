@@ -15,6 +15,7 @@
 use super::band::{Band, PATCH_ROWS};
 use super::motion_layers::MAX_MOTION_LAYERS;
 use super::*;
+use crate::motion_reuse::{give_way, parked_for, GiveWay, MAX_PARKED};
 use crate::store_alloc::{Item, Outcome, StoreAlloc, MAX_ITEMS};
 use nexus_display_proto::surface_layers as lw;
 
@@ -38,7 +39,17 @@ type Places = [Option<(u16, u16)>; MAX_MOTION_LAYERS];
 const BAND_KEY: u32 = 1 << 16;
 /// A motion layer's key: its id (the layer's life — a leaving layer keeps its place).
 const LAYER_KEY: u32 = 1 << 17;
-const _: () = assert!(super::scroll::MAX_SCROLL_LAYERS + MAX_MOTION_LAYERS <= MAX_ITEMS);
+/// A parked store's key (`crate::motion_reuse`): its parking's sequence number.
+const PARKED_KEY: u32 = 1 << 19;
+const _: () = {
+    /// The ghost bands the bound holds room for beside every live item and parked store (past
+    /// it the parked stores go, then the ghosts: `bound`).
+    const GHOST_BANDS: usize = 4;
+    assert!(
+        super::scroll::MAX_SCROLL_LAYERS + MAX_MOTION_LAYERS + GHOST_BANDS + MAX_PARKED
+            <= MAX_ITEMS
+    );
+};
 
 /// Scroll layer `l`'s band with `margin_pct` of its viewport as margin each way, in a store `w`
 /// wide: `(strip_len, strips, width, height)` — vertical: one strip of the ring's rows, the
@@ -78,6 +89,7 @@ impl super::DslApp {
     pub(super) fn plan_store(&mut self) -> StorePlan {
         let (w, h) = (self.w, self.h);
         if self.store_refused {
+            self.motion_cache.drop_parked();
             for k in 0..super::scroll::MAX_SCROLL_LAYERS {
                 self.flatten(k);
             }
@@ -89,7 +101,11 @@ impl super::DslApp {
         let top = h + PATCH_ROWS;
         if self.store_alloc.bounds() != (w, top, max_rows) {
             self.store_alloc = StoreAlloc::new(w, top, max_rows);
+            // A new allocator holds no place: no parked store is where it was.
+            self.motion_cache.drop_parked();
         }
+        // A store painted under another theme is not this one's.
+        self.motion_cache.drop_parked_off_theme(self.theme_mode);
         let mut motions = self.motion_items();
         let mut layers = self.scroll_layers;
         let mut shapes = [None; super::scroll::MAX_SCROLL_LAYERS];
@@ -103,7 +119,20 @@ impl super::DslApp {
                     ng += 1;
                 }
             });
+            // A parked store keeps its place too — the first to give way (`give_way`).
+            let mut parked_items = [Item { key: 0, w: 0, h: 0 }; MAX_PARKED];
+            let mut np = 0;
+            self.motion_cache.parked_items(|key, w, h| {
+                if let Some(slot) = parked_items.get_mut(np) {
+                    *slot = Item { key, w, h };
+                    np += 1;
+                }
+            });
             let live = layers.iter().flatten().count() + motions.iter().flatten().count();
+            if np > 0 && live + ng + np > MAX_ITEMS {
+                self.motion_cache.drop_parked();
+                continue;
+            }
             if live + ng > MAX_ITEMS {
                 self.cut_ghosts("bound");
                 ng = 0;
@@ -136,43 +165,41 @@ impl super::DslApp {
                     n += 1;
                 }
                 items[n..n + ng].copy_from_slice(&ghost_items[..ng]);
-                outcome = alloc.plan(&items[..n + ng]);
+                items[n + ng..n + ng + np].copy_from_slice(&parked_items[..np]);
+                outcome = alloc.plan(&items[..n + ng + np]);
                 if outcome != Outcome::Full {
                     break;
                 }
             }
-            // A compaction moved every place: a ghost's pixels are no longer where windowd draws
-            // them — the ghosts go, and the rest is planned again.
-            if outcome == Outcome::Compacted && self.has_ghosts() {
-                self.cut_ghosts("store");
-                motions = self.motion_items();
-                continue;
-            }
-            let fits = outcome != Outcome::Full;
-            if fits {
-                break;
-            }
-            // A ghost gives way before anything live: the big launcher entering as the small one
-            // leaves must be a layer, not the app's paint (board--2026-11-19T09-18-34: four
-            // `motion in app (token=4 why=store)` beside a leaving launcher).
-            if self.has_ghosts() {
-                self.cut_ghosts("room");
-                motions = self.motion_items();
-                continue;
-            }
-            // The motion layers give way next: the app paints them in the base again.
-            if motions.iter().any(Option::is_some) {
-                motions = [None; MAX_MOTION_LAYERS];
-                continue;
-            }
-            let longest = (0..layers.len())
-                .filter(|&k| layers[k].is_some())
-                .max_by_key(|&k| layers[k].map_or(0, |l| l.viewport_len()));
-            match longest {
-                Some(k) => layers[k] = None,
-                None => {
-                    let _ = self.store_alloc.plan(&[]);
-                    break;
+            // A compaction moved every place: a parked store's or a ghost's pixels are no longer
+            // where a re-enter or windowd would find them — they go, the rest is planned again.
+            // No room: the parked stores give way first, then a ghost — before anything live: the
+            // big launcher entering as the small one leaves must be a layer, not the app's paint
+            // (board--2026-11-19T09-18-34: four `motion in app (token=4 why=store)` beside a
+            // leaving launcher) — then the motion layers (the app paints them in the base again),
+            // then the band with the longest viewport.
+            let present = (np > 0, self.has_ghosts(), motions.iter().any(Option::is_some));
+            match give_way(outcome, present) {
+                GiveWay::Placed => break,
+                GiveWay::Parked => {
+                    self.motion_cache.drop_parked();
+                }
+                GiveWay::Ghosts(why) => {
+                    self.cut_ghosts(why);
+                    motions = self.motion_items();
+                }
+                GiveWay::Motions => motions = [None; MAX_MOTION_LAYERS],
+                GiveWay::Band => {
+                    let longest = (0..layers.len())
+                        .filter(|&k| layers[k].is_some())
+                        .max_by_key(|&k| layers[k].map_or(0, |l| l.viewport_len()));
+                    match longest {
+                        Some(k) => layers[k] = None,
+                        None => {
+                            let _ = self.store_alloc.plan(&[]);
+                            break;
+                        }
+                    }
                 }
             }
         }
@@ -236,6 +263,32 @@ impl super::DslApp {
     /// Each motion layer's store item: its id and its size (one of no area takes none).
     fn motion_items(&self) -> [Option<(u16, (u32, u32))>; MAX_MOTION_LAYERS] {
         self.motion_store_items()
+    }
+
+    /// Motion slot `k`'s ghost of `identity` and `size` is dropped: its store at `place` parks
+    /// under a parked key (`crate::motion_reuse::Cache::park`) — its place kept by the next plan
+    /// — when the slot's snapshot describes it; else the place is freed.
+    pub(super) fn park_store(&mut self, k: usize, at: (i32, (u32, u32), (u16, u16))) {
+        let alloc = &mut self.store_alloc;
+        self.motion_cache.park(k, at, PARKED_KEY, |(x, y), key| {
+            alloc.rekey_at((u32::from(x), u32::from(y)), key)
+        });
+    }
+
+    /// A new motion layer `id` of `identity` and `size` in slot `slot` takes a store parked for
+    /// them: the item is the layer's (its place kept by the next plan) and the snapshot the
+    /// slot's (an item no longer where it was parked leaves the slot unknown).
+    pub(super) fn adopt_parked(
+        &mut self,
+        slot: usize,
+        (identity, size): (i32, (u32, u32)),
+        id: u16,
+    ) {
+        let Some(j) = parked_for(self.motion_cache.parked(), identity, size) else { return };
+        let Some((x, y)) = self.motion_cache.unpark(j, slot) else { return };
+        if !self.store_alloc.rekey_at((u32::from(x), u32::from(y)), LAYER_KEY | u32::from(id)) {
+            self.motion_cache.forget(slot);
+        }
     }
 
     /// Layer `k` goes flat: no band — its content paints in the base unscrolled, clipped to its

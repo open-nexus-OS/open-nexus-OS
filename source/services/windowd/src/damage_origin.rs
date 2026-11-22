@@ -34,6 +34,7 @@ use crate::layer_geometry::{pieces, Piece, StoreLayer, SurfaceLayers, MAX_PIECES
 use crate::motion_geometry::{region_owner, scroll_owner};
 use crate::surface_presentation::SHELL_TOPBAR_H;
 use nexus_display_proto::client_surface::{MATERIAL_GLASS, MATERIAL_OPAQUE};
+use nexus_display_proto::surface_layers::Rect16;
 use nexus_gfx::command::layer_wire::{
     layer_key, layer_key_kind, layer_key_owner, LAYER_KIND_BAR, LAYER_KIND_BODY, LAYER_KIND_REGION,
     LAYER_KIND_SLICE,
@@ -86,9 +87,18 @@ pub(crate) fn origins(
     let tree = &layers.tree;
     let desktop = owner == DESKTOP_OWNER;
     let (first, all, claimed_by) = match changed {
-        Changed::Base(r) => (layer_key(owner, LAYER_KIND_BODY, 0), r, None),
+        // The desktop's body is drawn only where its ink is (RFC-0121): its pieces are one run
+        // of steps at the bottom, none a glass nor a cover, so the change is named once, for the
+        // lowest piece it meets, where the pieces draw it — and not at all where none does (no
+        // pixel there: a piece that came or went is the planner's, by its key).
+        Changed::Base(r) if desktop => match body_origin(tree.ink(), r) {
+            Some((i, drawn)) => (Some((layer_key(owner, LAYER_KIND_BODY, i), drawn)), r, None),
+            None => (None, r, None),
+        },
+        Changed::Base(r) => (Some((layer_key(owner, LAYER_KIND_BODY, 0), r)), r, None),
         Changed::Store(StoreLayer::Motion(k), r) => {
-            (layer_key(owner, LAYER_KIND_SLICE, MOTION_KEY_BASE + k as u32), r, Some(k))
+            let key = layer_key(owner, LAYER_KIND_SLICE, MOTION_KEY_BASE + k as u32);
+            (Some((key, r)), r, Some(k))
         }
         // A band's rows are its slices' alone, drawn one after the other: the last of them.
         Changed::Store(StoreLayer::Scroll(k), r) => {
@@ -109,7 +119,8 @@ pub(crate) fn origins(
             .flatten()
     });
     if !desktop {
-        return each(regions.last().map_or(first, |(key, _)| key), all);
+        let body = first.map_or(0, |(key, _)| key);
+        return each(regions.last().map_or(body, |(key, _)| key), all);
     }
     // The bar strip draws the base's first rows again, above the windows.
     let bar = match changed {
@@ -125,10 +136,36 @@ pub(crate) fn origins(
         }
         n += 1;
     }
-    each(first, all);
+    if let Some((key, rect)) = first {
+        each(key, rect);
+    }
     for (key, rect) in &above[..n] {
         each(*key, *rect);
     }
+}
+
+/// Where the desktop's body draws change `r` (RFC-0121): the lowest piece it meets and the
+/// bounds of its cuts with every piece; `r` itself at piece 0 for the whole base (no ink
+/// declared); `None` where no piece draws it.
+fn body_origin(ink: Option<&[Rect16]>, r: Rect) -> Option<(u32, Rect)> {
+    let Some(ink) = ink else { return Some((0, r)) };
+    let mut out: Option<(u32, Rect)> = None;
+    for (i, piece) in ink.iter().enumerate() {
+        let Some(c) = cut(r, piece.wide()) else { continue };
+        out = Some(match out {
+            None => (i as u32, c),
+            Some((first, b)) => (first, bounds(b, c)),
+        });
+    }
+    out
+}
+
+/// The least rectangle holding `a` and `b`.
+fn bounds(a: Rect, b: Rect) -> Rect {
+    let (x0, y0) = (a.0.min(b.0), a.1.min(b.1));
+    let x1 = a.0.saturating_add(a.2).max(b.0.saturating_add(b.2));
+    let y1 = a.1.saturating_add(a.3).max(b.1.saturating_add(b.3));
+    (x0, y0, x1 - x0, y1 - y0)
 }
 
 /// The motion layer of surface `owner` the layer of `key` belongs to: its own pixels, a scroll
@@ -356,5 +393,42 @@ mod tests {
         assert_eq!(named(&layers, DESKTOP_OWNER, Changed::Base((0, 0, 50, 10))).len(), 3);
         // The whole surface: the body, the bar, three regions — one rectangle, origin unknown.
         assert_eq!(named(&layers, DESKTOP_OWNER, Changed::Base(WHOLE)), [(0, WHOLE)]);
+    }
+
+    /// RFC-0121: the desktop's body is its ink's pieces — a change is named once for the lowest
+    /// piece it meets, where the pieces draw it, and for none where no piece draws it; a window
+    /// ignores the field (its body is its whole surface).
+    #[test]
+    fn a_desktop_change_is_named_for_the_body_pieces_that_draw_it() {
+        let mut layers = SurfaceLayers::EMPTY;
+        let ink = [
+            Rect16 { x: 0, y: 0, w: 1920, h: 40 },
+            Rect16 { x: 500, y: 900, w: 900, h: 100 },
+            Rect16 { x: 100, y: 200, w: 200, h: 200 },
+        ];
+        layers.tree.ink[..3].copy_from_slice(&ink);
+        layers.tree.ink_count = 3;
+        let piece = |i| layer_key(DESKTOP_OWNER, LAYER_KIND_BODY, i);
+        // In the dock: piece 1 alone, cut to it.
+        let r = (450, 950, 200, 100);
+        assert_eq!(
+            named(&layers, DESKTOP_OWNER, Changed::Base(r)),
+            [(piece(1), (500, 950, 150, 50))]
+        );
+        // Across the card and the dock: the lowest piece, the bounds of both cuts.
+        let r = (150, 300, 400, 650);
+        assert_eq!(
+            named(&layers, DESKTOP_OWNER, Changed::Base(r)),
+            [(piece(1), (150, 300, 400, 650))]
+        );
+        // In the wallpaper's part: no piece draws it.
+        assert!(named(&layers, DESKTOP_OWNER, Changed::Base((800, 500, 10, 10))).is_empty());
+        // An empty ink: nothing of the body is drawn.
+        layers.tree.ink_count = 0;
+        assert!(named(&layers, DESKTOP_OWNER, Changed::Base((100, 300, 10, 10))).is_empty());
+        // A window's ink is not read: its body draws the change.
+        layers.tree.ink_count = 3;
+        let r = (800, 500, 10, 10);
+        assert_eq!(named(&layers, WINDOW, Changed::Base(r)), [(body(WINDOW), r)]);
     }
 }

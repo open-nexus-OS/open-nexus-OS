@@ -5,7 +5,7 @@ title: "Layer 8 on the GPU: an occluded window costs nothing, bindings grow, a f
 status: in_progress
 owner: ["@ui", "@gpu"]
 created: 2026-11-03
-updated: 2026-11-20
+updated: 2026-11-22
 subsystem: ui
 components: [gpud, windowd, nexus-gfx, app-host]
 kind: service
@@ -95,6 +95,8 @@ phases:
     story: "a fullscreen opaque app goes to the display plane: windowd allocates a contiguous scanout-class surface for a window entering fullscreen, gpud flips it instead of a slot of the ring when the planner names it, the compositor's passes are 0 while it presents"
     state: planned
     gate: "board: gpud: gpu direct scanout ok (frames= passes=0) while a fullscreen app presents; test_reject_a_flip_of_a_paged_surface"
+    started: 2026-11-20
+    note: "2026-11-20 back to the backlog (operator): no consumer yet — no fullscreen opaque app draws without compositor layers (architect build/agents/arch-package-b-2026-11-20.md: P9 also needs the overlay plane for the bar strip). Revisit when such an app exists."
   - id: P10
     story: "the emit costs what its draws write: a pass's draws are walked once per frame (the plan's wallpaper pieces and each layer's draws in order) and the emitter indexes a kept list instead of asking the plan per draw"
     state: done
@@ -160,7 +162,7 @@ phases:
     state: planned
     gate: "board: slow frames with a whole glass write <= 45 (cycle 4: 51); glass-writing frames' GPU p50 <= 19 ms (cycle 4: 29.2); every single-pass frame waiting > 20 ms has a gpu pass trace line inside the console cap"
     started: 2026-11-20
-    note: "2026-11-20 board--2026-11-20T12-38-17 instruments: 53 single-pass traces, all readable (cut 0); the 41 ms ones cover 10.3 Mpx in one pass (5x the 2.07 Mpx screen) at 4 ns/px with gap_us ~1 ms — the GPU is busy with overdraw, not a late wake. glass writes by: zero 342 (key-0 damage, the largest cause; windowd damage zero from present-rect and present-whole), stray 79, moved 231, rest 230, below 134. rest misses: moved 139, set 51, own 4, drew 4, epoch 0 → C-r is the moved band. 2026-11-20 board--2026-11-20T15-34-30: windowd raise id=desktop 81 → 0; glass writes zero 342 → 83 (gate <= 30), stray 79 → 26, below 134 → 277 (named now); rest misses set 51 → 83, moved 136, band 17 (D3's rest bands); launcher single pass 10.3 → 9.65 Mpx, 41.4 → 35.2 ms; one 24.9 Mpx / 64 ms pass in the 22-window block."
+    note: "2026-11-20 board--2026-11-20T12-38-17 instruments: 53 single-pass traces, all readable (cut 0); the 41 ms ones cover 10.3 Mpx in one pass (5x the 2.07 Mpx screen) at 4 ns/px with gap_us ~1 ms — the GPU is busy with overdraw, not a late wake. glass writes by: zero 342 (key-0 damage, the largest cause; windowd damage zero from present-rect and present-whole), stray 79, moved 231, rest 230, below 134. rest misses: moved 139, set 51, own 4, drew 4, epoch 0 → C-r is the moved band. 2026-11-20 board--2026-11-20T15-34-30: windowd raise id=desktop 81 → 0; glass writes zero 342 → 83 (gate <= 30), stray 79 → 26, below 134 → 277 (named now); rest misses set 51 → 83, moved 136, band 17 (D3's rest bands); launcher single pass 10.3 → 9.65 Mpx, 41.4 → 35.2 ms; one 24.9 Mpx / 64 ms pass in the 22-window block. 2026-11-21 board--2026-11-21T07-37-47: rest misses set 110, moved 74, own 11, band 5; whole rest writes by first condition base 2 / owe 165 / new 0 / shape 0 — the owe (the hold's collected change or the owe is the whole glass) decides the rule for B2. Launcher-class single passes 9.68 -> 8.72 Mpx, 36.6 -> 33.1 ms. 2026-11-22 board--2026-11-22T11-03-14: whole rest writes from the owe 165 -> 0 (P19-e), rest misses written as a band 5 -> 120 of 202, slow frames with a whole glass write 79 -> 40 (gate <= 45 met); glass-writing frames' GPU p50 37.6 ms (gate <= 19 not met: the loaded desktop's glass passes); single-pass traces readable (met)."
 ---
 
 ## The ask

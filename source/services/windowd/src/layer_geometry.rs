@@ -15,7 +15,7 @@
 use crate::motion_geometry::{carry, stamp, FrameNote, MotionState, Said};
 use nexus_display_proto::client_surface::{LayerDesc, MAX_SURFACE_LAYERS};
 use nexus_display_proto::surface_layers::{
-    self as proto, MotionLayerDesc, ScrollLayerDesc, SurfaceMotion, SurfaceTree, Wash,
+    self as proto, MotionLayerDesc, Rect16, ScrollLayerDesc, SurfaceMotion, SurfaceTree, Wash,
     AXIS_VERTICAL, MAX_MOTION_LAYERS,
 };
 
@@ -40,12 +40,14 @@ pub(crate) struct SurfaceLayers {
 }
 
 /// The most rectangles a structure change names before it counts as the whole surface: every
-/// region, every motion layer and every scroll layer of the structure before it and after it.
+/// region, every motion layer, every scroll layer and every ink rectangle (RFC-0121) of the
+/// structure before it and after it.
 pub(crate) const CHANGED_MAX: usize =
-    2 * (MAX_SURFACE_LAYERS + MAX_MOTION_LAYERS + proto::MAX_SCROLL_LAYERS);
+    2 * (MAX_SURFACE_LAYERS + MAX_MOTION_LAYERS + proto::MAX_SCROLL_LAYERS + proto::MAX_INK);
 
 // `unmatched` marks the second list's entries in one table: every list it pairs fits in it.
 const _: () = assert!(proto::MAX_SCROLL_LAYERS <= MAX_SURFACE_LAYERS + MAX_MOTION_LAYERS);
+const _: () = assert!(proto::MAX_INK <= MAX_SURFACE_LAYERS + MAX_MOTION_LAYERS);
 // `TreeChange::bands` holds one bit per scroll layer.
 const _: () = assert!(proto::MAX_SCROLL_LAYERS <= u8::BITS as usize);
 
@@ -66,6 +68,8 @@ pub(crate) struct TreeChange {
     regions: [Option<u8>; CHANGED_MAX],
     count: usize,
     pub(crate) bands: u8,
+    /// The base's ink changed (RFC-0121): its pieces that came or went are among the rectangles.
+    pub(crate) ink: bool,
 }
 
 impl TreeChange {
@@ -75,6 +79,7 @@ impl TreeChange {
         regions: [None; CHANGED_MAX],
         count: 0,
         bands: 0,
+        ink: false,
     };
     pub(crate) const STRUCTURE: Self = Self { whole: true, ..Self::NONE };
 
@@ -309,6 +314,14 @@ fn structure_change(now: &SurfaceTree, next: &SurfaceTree) -> TreeChange {
         Some(_) => change.whole = true,
         None => change.push(m.rest()),
     });
+    // RFC-0121: a body piece whose rectangle changed draws where it was and is (R4: old ∪ new);
+    // the whole base stands for the one full-screen piece of an ink not declared.
+    if now.ink() != next.ink() {
+        change.ink = true;
+        let whole = [Rect16 { x: 0, y: 0, w: u16::MAX, h: u16::MAX }];
+        let (old, new) = (now.ink().unwrap_or(&whole), next.ink().unwrap_or(&whole));
+        unmatched(old, new, |r| change.push(r.wide()));
+    }
     change
 }
 

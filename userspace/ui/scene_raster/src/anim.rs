@@ -118,6 +118,22 @@ impl NodeAnim {
         self
     }
 
+    /// True when the transform paints only inside the node's own layout box: no offset, no
+    /// rotation, no scale past 100 % — a smaller scale only around the box's own center — while
+    /// opacity, a clip and a base opacity change only how much of the box shows (RFC-0121: such
+    /// a node keeps its base's declared ink; a press, a fade).
+    #[must_use]
+    pub fn stays_inside(&self) -> bool {
+        let scale_y = self.scale_y_pct.unwrap_or(self.scale_pct);
+        let own_center = self.anchor_x == SELF_ANCHOR && self.anchor_y == SELF_ANCHOR;
+        self.dx == 0
+            && self.dy == 0
+            && self.rot_deg == 0
+            && self.scale_pct <= 100
+            && scale_y <= 100
+            && (own_center || (self.scale_pct == 100 && scale_y == 100))
+    }
+
     /// True when the transform has no visible effect (skip the anim path).
     #[must_use]
     pub fn is_identity(&self) -> bool {
@@ -254,5 +270,25 @@ mod tests {
         assert_eq!(fade(c, 255).a, 200);
         assert_eq!(fade(c, 0).a, 0);
         assert_eq!(fade(c, 128).a, (200u32 * 128 / 255) as u8);
+    }
+}
+
+#[cfg(test)]
+mod stays_inside_tests {
+    use super::*;
+
+    #[test]
+    fn a_press_and_a_fade_stay_inside_a_move_and_a_grow_do_not() {
+        let id = NodeAnim::identity(1);
+        assert!(id.stays_inside());
+        assert!(NodeAnim { scale_pct: 94, ..id }.stays_inside(), "a press");
+        assert!(NodeAnim { opacity: 120, ..id }.stays_inside(), "a fade");
+        assert!(!NodeAnim { dy: 16, ..id }.stays_inside(), "a slide");
+        assert!(!NodeAnim { scale_pct: 104, ..id }.stays_inside(), "a grow");
+        assert!(!NodeAnim { rot_deg: 45, ..id }.stays_inside(), "a turn");
+        assert!(
+            !NodeAnim { scale_pct: 94, ..id.anchored_at(0, 0) }.stays_inside(),
+            "a scale toward another anchor"
+        );
     }
 }

@@ -5,7 +5,7 @@ role: guide
 subsystem: ui
 sources: [source/drivers/gpud/src/backend, source/drivers/gpud/src/service.rs, source/drivers/gpud/src/present_chain.rs, source/services/windowd/src/compositor, source/libs/nexus-display-proto/src]
 contracts: [RFC-0093, RFC-0098, RFC-0101, RFC-0110, RFC-0114, ADR-0038, ADR-0078, ADR-0092]
-verified: 2026-11-20
+verified: 2026-11-22
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -61,7 +61,7 @@ On the board the ring is one contiguous object made for the controller (it canno
 3. The ack echoes the seq and status and carries `frame_time::Shown`: shown time, refresh period, cadence. windowd's `frame_clock.rs` predicts the next shown time from it; clients waiting on `OP_SURFACE_FRAME_REQ` get that time. gpud also reports a present drawn (`STATUS_DRAWN`) when its reads of client slots are done; it is no ack, and windowd frees a client's other slots at that read floor, not at the landing (RFC-0114 §5). A slow frame prints its hops once the process is idle (`gpud: hops one/hist/cost`); `nx hops` joins them (RFC-0108).
 4. A present the device lost (`present_lost`) is NACKed and re-sent.
 
-App surfaces are composed by reference: windowd asks for a buffer per surface (`OP_SURFACE_ALLOC` 18, `OP_SURFACE_FREE` 19). Their pixels are straight-alpha BGRA (RFC-0109; app-host converts, `straight_alpha.rs`). gpud makes it for the sampling device and charges the owner (`surface_serve.rs`, `surfaces.rs`). On the board each surface is bound whole in windowd's GPU context; the binding table grows from the heap (ADR-0093); `gpud: bindings (in_use= of=)` counts them. A freed buffer closes after the last present that could read it retired. Across a compositor restart (RFC-0112) gpud keeps every object as an orphan; the new windowd adopts the shown ones before its first frame (`OP_SURFACE_ADOPT` 20) as ghost windows until each app presents again; the rest are released.
+App surfaces are composed by reference: windowd asks for a buffer per surface (`OP_SURFACE_ALLOC` 18, `OP_SURFACE_FREE` 19). Their pixels are straight-alpha BGRA (RFC-0109; app-host converts, `straight_alpha.rs`). gpud makes it for the sampling device and charges the owner (`surface_serve.rs`, `surfaces.rs`). On the board each surface is bound whole in windowd's GPU context; the binding table grows from the heap (ADR-0093); `gpud: bindings (in_use= of=)` counts them. A freed buffer closes after the last present that could read it retired. Across a compositor restart (RFC-0112) gpud keeps every object as an orphan; the new windowd adopts the shown ones before its first frame (`OP_SURFACE_ADOPT` 20) as ghost windows until each app presents again; the rest are released. Base ink: RFC-0121.
 
 ## The three displays
 

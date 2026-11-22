@@ -25,7 +25,9 @@ pub(super) fn layer_quotas(
     demand.resize(n, 0);
     share.clear();
     share.resize(n, 0);
-    let mut bodies = if desktop.is_some() { 2 } else { 0 };
+    // The desktop's bar strip and its body's one slot (none for an empty ink, RFC-0121).
+    let mut bodies =
+        desktop.map_or(0, |l| 1 + usize::from(crate::body_ink::drawn(l.layers.tree.ink())));
     for wid in order {
         let WindowId::App(slot) = *wid else { continue };
         let Some(sn) = snaps.get(usize::from(slot)) else { continue };
@@ -40,9 +42,30 @@ pub(super) fn layer_quotas(
         }
     }
     let desktop_caret = usize::from(caret == Some(None));
-    demand[n - 1] = desktop.map_or(0, |l| l.layers.demand() + desktop_caret);
+    // The body's pieces past its slot (RFC-0121) are the desktop's demand too: drawn only when
+    // its share covers all of it (`body_pieces`), else the one full-screen piece.
+    demand[n - 1] = desktop.map_or(0, |l| {
+        l.layers.demand() + desktop_caret + crate::body_ink::extra(l.layers.tree.ink(), l.base)
+    });
     fair_shares(crate::layer_quota::FRAME_LAYERS.saturating_sub(bodies), demand, share);
     quotas.clear();
     quotas.extend(share.iter().zip(demand.iter()).map(|(s, d)| LayerQuota::new(*s).covering(*d)));
     bodies + share.iter().sum::<usize>()
+}
+
+/// The desktop body's pieces this frame draws (RFC-0121), into `out`: the ink's pieces when the
+/// desktop's share (`quota`, before its declared layers spend it) covers its whole demand and
+/// takes the pieces past the body slot — all or none; otherwise the one full-screen piece of
+/// before, and the share stays its declared layers'. A declared empty ink draws no piece.
+pub(super) fn body_pieces(
+    l: &super::surface_layers_encode::LayerSnap,
+    quota: &mut LayerQuota,
+    out: &mut crate::body_ink::Pieces,
+) -> usize {
+    let ink = l.layers.tree.ink();
+    let n = crate::body_ink::pieces(ink, l.base, out);
+    if n <= 1 || quota.take_all(n - 1) {
+        return n;
+    }
+    crate::body_ink::pieces(None, l.base, out)
 }

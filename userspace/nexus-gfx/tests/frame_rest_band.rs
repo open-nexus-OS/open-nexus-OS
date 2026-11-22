@@ -4,9 +4,9 @@
 //! A key miss at rest is a band (TASK-0351 P19, C-r — C-c and C-r are one rule): while a glass
 //! is held, every plan's change of the layers below it (`Moves::below`) is kept with its rows,
 //! and the write that ends the hold blurs that band with what the rows owe — when the rows were
-//! blurred from the same base and the band is a rectangle. A foreign change while the layers
-//! are displaced (a Full owe) and a new wallpaper (another base) stay whole. The rows against a
-//! full re-blur: `frame_reach_oracle.rs`.
+//! blurred from the same base and the band is a rectangle. A change while the layers are
+//! displaced is owed within the reach (P19-e, `frame_hold_owe.rs`); a new wallpaper (another
+//! base) stays whole. The rows against a full re-blur: `frame_reach_oracle.rs`.
 
 #[path = "frame_support.rs"]
 mod support;
@@ -130,10 +130,11 @@ fn a_layer_that_came_below_a_held_glass_is_its_rest_band() {
 }
 
 #[test]
-fn test_reject_a_rest_band_across_a_foreign_change() {
+fn a_rest_band_across_a_displaced_change_owes_its_area() {
     // Held while the window is displaced, the window changes (another window than the pane's):
-    // where that change lies once the layers are back nothing says — the rows owe the whole
-    // glass, and the write after the hold is the whole glass.
+    // the change is owed where it is named, within the reach, with what moved below since the
+    // rows were blurred (P19-e) — the write after the hold is a band, not the whole glass. The
+    // pixels: `frame_hold_owe.rs`.
     let mut f = held_over_the_mover(6, |_, dx| {
         let rect = TileRect { x: 260, y: 330, width: 10, height: 10 };
         if dx == 3 {
@@ -144,10 +145,10 @@ fn test_reject_a_rest_band_across_a_foreign_change() {
     });
     let p = present(&mut f, &[transform(1, 0, 255), base(), window(106, 320), pane(), no_damage()]);
     let g = glass_of(&f, 2);
-    assert_eq!((g.cache, g.band), (CacheStep::Write(0), Area::Full));
+    assert_eq!((g.cache, g.band), (CacheStep::Write(0), Area::rect(234, 320, 36, 100)));
     assert_eq!(
         (p.by.rest, p.writes.backdrop, p.writes.backdrop_band, p.by.misses.band),
-        (1, 1, 0, 0)
+        (1, 1, 1, 1)
     );
     // The same for a change of the desktop's base below the pane.
     let mut f =
@@ -158,7 +159,7 @@ fn test_reject_a_rest_band_across_a_foreign_change() {
     let p = present(&mut f, &[transform(1, 0, 255), base(), window(106, 320), pane(), no_damage()]);
     assert_eq!(
         (glass_of(&f, 2).band, p.writes.backdrop_band, p.by.misses.band),
-        (Area::Full, 0, 0)
+        (Area::rect(234, 320, 186, 100), 1, 1)
     );
 }
 

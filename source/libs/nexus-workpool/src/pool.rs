@@ -18,8 +18,11 @@
 //!     (a woken thread runs where it runs soonest); it pins itself nowhere.
 //!   - The workers' stacks are one mapping of one object committed on first touch:
 //!     sized by the worker count, one region of the address space, no page before use.
-//!   - Exactly one job in flight (`run` is synchronous); a concurrent submit
-//!     is REJECTED, never queued unbounded (TASK-0276 backpressure).
+//!   - Exactly one job in flight (`run` is synchronous; a scoped job from
+//!     `submit` is joined by `join_scoped` before its caller returns); a
+//!     concurrent submit is REJECTED, never queued unbounded (TASK-0276 backpressure).
+//!   - A scoped job (`bands.rs`) is joined without a deadline: the caller returns only
+//!     after every worker checked in. A failed job signal poisons the pool (no seq skew).
 //!   - Workers park in `fence_wait` (kernel-blocked) between jobs.
 //!   - Determinism: chunk boundaries are pure (partition.rs); the caller's
 //!     worker fn must write only its chunk's outputs; reduce = reading the
@@ -377,12 +380,8 @@ pub fn init() -> Result<usize, PoolError> {
     }
 }
 
-/// Runs one job synchronously: splits `[0, total)` into the pool's fixed
-/// deterministic chunks, lets every worker process its chunk, returns when
-/// all are done (or fails loudly after `deadline_ns`, never hangs). The
-/// canonical reduce is the caller reading its outputs in index order after
-/// this returns.
-pub fn run(total: usize, f: JobFn, ctx: *mut u8, deadline_ns: u64) -> Result<(), PoolError> {
+/// Takes the pool for one job (`READY → RUNNING`), or says why not — nothing changes then.
+fn take_pool() -> Result<(), PoolError> {
     if SHARED
         .state
         .compare_exchange(STATE_READY, STATE_RUNNING, Ordering::AcqRel, Ordering::Acquire)
@@ -394,23 +393,79 @@ pub fn run(total: usize, f: JobFn, ctx: *mut u8, deadline_ns: u64) -> Result<(),
             _ => Err(PoolError::NotReady),
         };
     }
+    Ok(())
+}
+
+/// Hands the taken pool a job and wakes the workers; returns the job's sequence number.
+///
+/// A failed signal POISONS the pool: the sequence number has advanced while the fence has not,
+/// so the next signal would wake the workers for two jobs at once — they would run one job twice
+/// and check in twice, and a scoped job ([`join_scoped`]) would be joined while a worker still
+/// paints. `Err(Abi)` is then still "nothing started": no worker saw this job.
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+fn post(total: usize, f: JobFn, ctx: *mut u8) -> Result<u64, PoolError> {
+    SHARED.job_fn.store(f as usize, Ordering::Release);
+    SHARED.job_ctx.store(ctx as usize, Ordering::Release);
+    SHARED.job_total.store(total, Ordering::Release);
+    SHARED.done_count.store(0, Ordering::Release);
+    let seq = SHARED.seq.fetch_add(1, Ordering::AcqRel) + 1;
+    let job_slot = SHARED.parent_job_slot.load(Ordering::Acquire) as u32;
+    if nexus_abi::fence_signal(job_slot, seq).is_err() {
+        SHARED.state.store(STATE_POISONED, Ordering::Release);
+        return Err(PoolError::Abi);
+    }
+    Ok(seq)
+}
+
+/// Starts a scoped job (the band entry, `bands.rs`): takes the pool and wakes the workers.
+/// Returns `(workers, seq)`. `Err`: nothing was published — no worker will touch `ctx`.
+/// The caller MUST [`join_scoped`] the returned `seq` before `ctx` goes away.
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+pub(crate) fn submit(total: usize, f: JobFn, ctx: *mut u8) -> Result<(usize, u64), PoolError> {
+    take_pool()?;
+    let seq = post(total, f, ctx)?;
+    Ok((SHARED.workers.load(Ordering::Acquire), seq))
+}
+
+/// Joins scoped job `seq` WITHOUT a deadline (ADR-0046: a scoped entry joins before it
+/// returns): returns only once every worker has checked in — none will touch the job again, and
+/// the Acquire load of the check-ins orders their writes before the caller's next step (a cache
+/// clean among them). The done fence is how the caller sleeps; a fence that fails degrades to a
+/// yield loop on the same count and poisons the pool afterwards — it never returns early.
+/// Returns whether every worker's stack canary survived; a dead one poisons the pool.
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+pub(crate) fn join_scoped(seq: u64) -> bool {
+    let workers = SHARED.workers.load(Ordering::Acquire);
+    let done_slot = SHARED.parent_done_slot.load(Ordering::Acquire) as u32;
+    let mut fence = true;
+    while SHARED.done_count.load(Ordering::Acquire) < workers {
+        if fence && nexus_abi::fence_wait(done_slot, seq, 0).is_err() {
+            fence = false;
+        }
+        if !fence {
+            let _ = nexus_abi::yield_();
+        }
+    }
+    if !canaries_intact() {
+        SHARED.state.store(STATE_POISONED, Ordering::Release);
+        return false;
+    }
+    SHARED.state.store(if fence { STATE_READY } else { STATE_POISONED }, Ordering::Release);
+    true
+}
+
+/// Runs one job synchronously: splits `[0, total)` into the pool's fixed
+/// deterministic chunks, lets every worker process its chunk, returns when
+/// all are done (or fails loudly after `deadline_ns`, never hangs). The
+/// canonical reduce is the caller reading its outputs in index order after
+/// this returns.
+pub fn run(total: usize, f: JobFn, ctx: *mut u8, deadline_ns: u64) -> Result<(), PoolError> {
+    take_pool()?;
 
     #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
     {
-        SHARED.job_fn.store(f as usize, Ordering::Release);
-        SHARED.job_ctx.store(ctx as usize, Ordering::Release);
-        SHARED.job_total.store(total, Ordering::Release);
-        SHARED.done_count.store(0, Ordering::Release);
-        let seq = SHARED.seq.fetch_add(1, Ordering::AcqRel) + 1;
-
-        let job_slot = SHARED.parent_job_slot.load(Ordering::Acquire) as u32;
+        let seq = post(total, f, ctx)?;
         let done_slot = SHARED.parent_done_slot.load(Ordering::Acquire) as u32;
-
-        if nexus_abi::fence_signal(job_slot, seq).is_err() {
-            // Signal never reached the workers: no job started, READY is safe.
-            SHARED.state.store(STATE_READY, Ordering::Release);
-            return Err(PoolError::Abi);
-        }
         let deadline = if deadline_ns == 0 {
             0
         } else {

@@ -235,6 +235,8 @@ impl Surfaces {
                 content_w,
                 content_h,
                 key,
+                src_x,
+                src_row_abs,
                 ..
             } = c
             else {
@@ -248,11 +250,31 @@ impl Surfaces {
                 if *content_w > 0 { *content_w } else { *width },
                 if *content_h > 0 { *content_h } else { *height },
             );
+            // The ghost draws the object from its origin (RFC-0112): a body drawn in pieces (the
+            // desktop's ink, RFC-0121) names the surface's origin (`dst - src`, slot-relative
+            // rows) and the extent of all its pieces — one body at its source's origin stays as
+            // it was.
+            let (sx, sy) = (*src_x, *src_row_abs);
+            let (ox, oy, ex, ey) = if *dst_x >= sx && *dst_y >= sy {
+                (*dst_x - sx, *dst_y - sy, sx.saturating_add(w), sy.saturating_add(h))
+            } else {
+                (*dst_x, *dst_y, w, h)
+            };
+            let window_key = layer_key_owner(*key);
+            let (ox, oy, ex, ey) = match s.place.filter(|p| p.window_key == window_key) {
+                Some(p) => (
+                    ox.min(u32::from(p.dst_x)),
+                    oy.min(u32::from(p.dst_y)),
+                    ex.max(u32::from(p.w)),
+                    ey.max(u32::from(p.h)),
+                ),
+                None => (ox, oy, ex, ey),
+            };
             let fits = |v: u32| u16::try_from(v).ok();
             if let (Some(dst_x), Some(dst_y), Some(w), Some(h)) =
-                (fits(*dst_x), fits(*dst_y), fits(w), fits(h))
+                (fits(ox), fits(oy), fits(ex), fits(ey))
             {
-                let window_key = layer_key_owner(*key);
+                let z = s.place.map_or(z, |p| p.z);
                 s.place =
                     Some(Place { dst_x, dst_y, w, h, slot: layer_slot(*flags), z, window_key });
             }
@@ -552,5 +574,24 @@ mod tests {
         assert_eq!(table.orphan_all(&mut |s| gone.push(s.buffer)), 0);
         assert_eq!(gone, [c, b, a]);
         assert_eq!(table.bytes(), 0);
+    }
+
+    #[test]
+    fn a_body_drawn_in_pieces_is_placed_at_its_surface_s_origin() {
+        // RFC-0121: the desktop's body in two ink pieces — the ghost after a compositor restart
+        // shows the whole surface from its origin, not the last piece.
+        let mut table = Surfaces::new();
+        let g = Geometry::for_request(&request(640, 480));
+        let a = table.insert(OWNER, 11, g).expect("insert");
+        table.note_places(&[
+            body(a, 0, (100, 200, 50, 40), (100, 200), body_key(0)),
+            body(a, 0, (300, 50, 20, 20), (300, 50), body_key(0)),
+        ]);
+        let p = table.live.iter().find(|s| s.buffer == a).and_then(|s| s.place()).expect("placed");
+        assert_eq!((p.dst_x, p.dst_y, p.w, p.h), (0, 0, 320, 240));
+        // One body at its source's origin is placed where it is drawn, as before.
+        table.note_places(&[body(a, 0, (0, 0, 64, 64), (10, 10), body_key(0))]);
+        let p = table.live.iter().find(|s| s.buffer == a).and_then(|s| s.place()).expect("placed");
+        assert_eq!((p.dst_x, p.dst_y, p.w, p.h), (10, 10, 64, 64));
     }
 }

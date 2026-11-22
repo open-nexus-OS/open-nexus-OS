@@ -54,6 +54,11 @@ pub mod present_parts;
 pub mod surface_capture;
 /// RFC-0113 §5: the focused field's caret, drawn and blinked by the compositor.
 pub mod surface_caret;
+/// RFC-0121: where a surface's base holds pixels (the structure's ink), re-exported by
+/// `surface_layers`.
+pub mod surface_ink;
+#[cfg(test)]
+mod surface_ink_tests;
 pub mod surface_input;
 /// RFC-0109: the surface's structure and motion (scroll layers, wash layers, motion layers).
 pub mod surface_layers;

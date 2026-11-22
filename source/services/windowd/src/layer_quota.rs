@@ -98,6 +98,17 @@ impl LayerQuota {
         true
     }
 
+    /// Takes `n` layers at once when the share covers the surface's whole demand and holds them
+    /// (all or none, RFC-0121: the desktop body's pieces); `false` takes nothing and counts
+    /// nothing dropped — the caller draws its fallback in the slot it keeps.
+    pub(crate) fn take_all(&mut self, n: usize) -> bool {
+        if !self.whole || self.left < n {
+            return false;
+        }
+        self.left -= n;
+        true
+    }
+
     /// The layers the surface lost to its share this frame.
     pub(crate) const fn dropped(&self) -> usize {
         self.dropped
@@ -219,5 +230,20 @@ mod tests {
         assert!(!LayerQuota::new(5).covering(6).whole());
         assert!(LayerQuota::new(6).covering(6).whole());
         assert!(!LayerQuota::new(6).whole(), "a share never told its demand is not whole");
+    }
+
+    /// RFC-0121: the desktop body's pieces are taken all or none — a share short of the whole
+    /// demand takes none of them and drops nothing (the one full-screen piece is drawn in the
+    /// body's own slot), so its declared layers keep the share.
+    #[test]
+    fn test_reject_a_body_drawn_from_part_of_its_pieces() {
+        let mut short = LayerQuota::new(9).covering(10);
+        assert!(!short.take_all(3), "a share short of the demand");
+        assert_eq!((short.dropped(), (0..9).filter(|_| short.take()).count()), (0, 9));
+        let mut whole = LayerQuota::new(10).covering(10);
+        assert!(whole.take_all(3), "the pieces past the body slot");
+        assert_eq!((0..10).filter(|_| whole.take()).count(), 7, "the rest for the declared");
+        let mut tight = LayerQuota::new(2).covering(2);
+        assert!(!tight.take_all(3), "more than the share holds");
     }
 }

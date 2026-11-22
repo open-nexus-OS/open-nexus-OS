@@ -14,14 +14,17 @@
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: host tests (partition math, the sizing rule, equality matrix); QEMU markers
 //!   `SELFTEST: workpool determinism ok` / `… bounded ok` / `… sized ok`.
-//! PUBLIC API: init(), run(), workers(), workers_for(), chunk_bounds(), PoolError
+//! PUBLIC API: init(), run(), paint_bands() (the safe scoped band entry, TASK-0367 P2),
+//!   MIN_BAND_ROWS, MAX_BANDS, workers(), workers_for(), chunk_bounds(), PoolError
 //! DEPENDS_ON: nexus-abi (thread spawn, fences, cap transfer, the kernel's CPU answers),
 //!   nexus-sched (the CPU set)
 //! ADR: docs/adr/0046-deterministic-parallel-compute-workpool.md
 
+pub mod bands;
 pub mod partition;
 pub mod pool;
 
+pub use bands::{paint_bands, MAX_BANDS, MIN_BAND_ROWS};
 pub use partition::chunk_bounds;
 pub use pool::{init, run, workers, workers_for, JobFn, PoolError};
 
