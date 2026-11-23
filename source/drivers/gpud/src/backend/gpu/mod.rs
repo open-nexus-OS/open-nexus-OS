@@ -58,6 +58,7 @@ mod desktop;
 mod desktop_cache;
 mod desktop_gate;
 mod desktop_pass;
+mod desktop_runs;
 mod desktop_surface;
 mod desktop_sweep;
 mod desktop_work;

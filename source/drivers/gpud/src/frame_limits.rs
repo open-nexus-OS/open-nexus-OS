@@ -39,9 +39,52 @@ pub(crate) const fn left_out(in_area: usize) -> usize {
     in_area.saturating_sub(MAX_DRAWS)
 }
 
+/// The half-resolution scratch's rows: the tallest glass's half and the vertical taps' halo.
+pub(crate) const HALF_ROWS: u32 = 600;
+
+/// The textured pixels of a slot's pass above which the below run is taken while a layer moves
+/// (RFC-0101 §8, TASK-0351 P19): the architect's number from the board's fill rate (package
+/// C, F1: a fade over open windows took 17-24 ms a frame; a slot pass under this fits a
+/// period). A board cycle that moves the fill rate moves this.
+pub(crate) const PASS_BUDGET_PX: u64 = 3_500_000;
+/// A run plane's bytes: the display's rows and the transparent rows a group's pass clears from
+/// (the planner's formula, `run_plane_rows`: past the display's last tile).
+///
+/// Whole pages: the device binds a buffer page by page — the first board cycle of the runs
+/// refused both planes as `Vm(Unaligned)` (8 386 560 bytes, half a page over; board
+/// 2026-11-23T17-39-14), and the frames went on without runs.
+pub(crate) const RUN_PLANE_BYTES: u64 =
+    (nexus_gfx::frame::run_plane_rows(nexus_display_proto::layout::PLANE_ROWS) as u64
+        * nexus_display_proto::layout::STRIDE_BYTES as u64)
+        .div_ceil(RUN_PAGE)
+        * RUN_PAGE;
+/// The page a run plane is bound in.
+const RUN_PAGE: u64 = 4096;
+const _: () = assert!(RUN_PLANE_BYTES % RUN_PAGE == 0);
+
+// The run planes against the ledger's ceiling (`gpu_share`, a share of the machine's memory
+// known at run time): on a machine of one GiB — the smallest `gpu_share` is tested for — the
+// planner's `RUN_TARGETS` planes take at most a thirty-second of what the GPU may hold. A
+// third plane, or a larger display, is decided here and not by a refusal on the board. At run
+// time each plane is a buffer the ledger counts; one it has no room for leaves the runs short.
+const _: () = assert!(
+    nexus_gfx::frame::RUN_TARGETS as u64
+        * RUN_PLANE_BYTES
+        * 32
+        * crate::gpu_share::CEILING_OF_RAM.1
+        <= (1 << 30) * crate::gpu_share::CEILING_OF_RAM.0
+);
+
 // One bound of a frame's bytes: what a present carries is what the scene serializes to.
 const _: () =
     assert!(nexus_display_proto::PRESENT_BODY_MAX == nexus_gfx::command::buffer::MAX_SERIALIZED);
+// A glass as large as the display has its place in the scratches at every radius (TASK-0351
+// P19): a write then always has a wave of its own to run in, and a wave's writes are laid
+// out inside these rows (`nexus_gfx::frame` — a write that finds no room starts a wave).
+const _: () = assert!(nexus_gfx::frame::chain::largest_fits(
+    (nexus_display_proto::layout::STRIDE_BYTES / 4, nexus_display_proto::layout::PLANE_ROWS),
+    HALF_ROWS
+));
 
 #[cfg(test)]
 mod tests {
@@ -53,7 +96,9 @@ mod tests {
         PRESENT_PART_HEADER_LEN,
     };
     use nexus_gfx::backend::gpu::quads::{stream_bytes, Arena, Need, Placer, Rings};
-    use nexus_gfx::frame::{clip_draw, Board, Frame};
+    use nexus_gfx::frame::{
+        clip_draw, Board, Frame, RunKind, RunLimits, RunsShort, Transform, RUN_TARGETS,
+    };
     use nexus_gfx::{
         BackdropCache, CommandBuffer, CommittedBuffer, Layer, LayerBackdrop, LayerShadow,
         RenderPassDesc,
@@ -181,7 +226,7 @@ mod tests {
         }
         // The board's passes: this cascade's first frame asks more draws of the scene's pass
         // than a pass holds (about 44 a window) — the pass draws its topmost, never nothing.
-        let board = Board::new(&frame, planned, DISPLAY, 14_040, 600);
+        let board = Board::new(&frame, planned, DISPLAY, 14_040, HALF_ROWS);
         let most = (0..board.pass_count())
             .filter_map(|p| board.pass(p))
             .map(|spec| board.walk(&spec).filter(|d| clip_draw(d, spec.area).is_some()).count())
@@ -189,5 +234,57 @@ mod tests {
             .unwrap_or(0);
         assert!((2048..4096).contains(&most), "{most} draws in the largest pass");
         assert_eq!(most - left_out(most), MAX_DRAWS);
+    }
+
+    /// The below run at the board's budget (RFC-0101 §8): a window moved over a full desktop
+    /// asks more of the slot's pass than `PASS_BUDGET_PX` — the layers under it are taken as a
+    /// run in a plane of `RUN_PLANE_BYTES` and the pass fits again; over an empty desktop the
+    /// pass is under the budget, nothing is taken and nothing is short. Under 48 windows the
+    /// run's own pass would ask more than `MAX_DRAWS`: a pass draws its topmost draws alone,
+    /// so the plane would keep a picture short of its lowest layers — the run is not taken,
+    /// the want is counted and the frame is drawn as layers.
+    #[test]
+    fn a_window_moved_over_a_full_desktop_takes_the_below_run_at_the_boards_budget() {
+        let whole = (0, 0, DISPLAY.0 - 1, DISPLAY.1 - 1);
+        let slot_px = |frame: &Frame, planned| {
+            let board = Board::new(frame, planned, DISPLAY, 14_040, HALF_ROWS).with_area(whole);
+            let spec = board.pass(board.pass_count() - 1).expect("the slot's pass");
+            board.work_by_program(&spec).iter().sum::<u64>()
+        };
+        let limits =
+            RunLimits { targets: RUN_TARGETS, budget_px: PASS_BUDGET_PX, draws: MAX_DRAWS };
+        for (windows, taken, wanted) in [(16, true, true), (1, false, false), (48, false, true)] {
+            let mut body = alloc::vec![0u8; PRESENT_BODY_MAX];
+            let n = scene(windows, &mut body);
+            let mut cb = CommittedBuffer::with_capacity(32);
+            assert_eq!(cb.reload_from(&body[..n]), Ok(n));
+            let mut frame = Frame::new(1024);
+            frame.glass.ready = true;
+            assert_eq!(frame.layers.take_frame(cb.commands()).dropped, 0);
+            frame.plan(DISPLAY, &|_| true);
+            while frame.glass.short() != 0 {
+                frame.place_short();
+            }
+            // The topmost window slides: every layer under it is at rest.
+            assert!(frame
+                .layers
+                .set_transform(windows, Transform { dx: 8, ..Transform::IDENTITY }));
+            let planned = frame.plan(DISPLAY, &|_| true);
+            let before = slot_px(&frame, planned);
+            let rows = (14_040, HALF_ROWS);
+            let short = frame.take_runs(planned, (DISPLAY, rows), Some(whole), limits);
+            assert_eq!(short, RunsShort { below: wanted && !taken, ..RunsShort::default() });
+            let below = frame.runs().into_iter().flatten().find(|r| r.kind == RunKind::Below);
+            assert_eq!(below.map(|r| r.to), taken.then_some(4 * (windows as usize - 1)));
+            assert_eq!(before > PASS_BUDGET_PX, wanted, "{before} px of {windows} windows");
+            let after = slot_px(&frame, planned);
+            assert_eq!(after <= PASS_BUDGET_PX, taken || !wanted, "{after} px after the runs");
+        }
+        // A plane holds the display and the rows a group's pass clears from, in its addresses.
+        let rows = RUN_PLANE_BYTES / u64::from(nexus_display_proto::layout::STRIDE_BYTES);
+        assert_eq!(rows, 1092);
+        assert!(
+            rows > u64::from(DISPLAY.1) && RUN_PLANE_BYTES <= crate::surface_va::RUN_PLANE_SPAN
+        );
     }
 }

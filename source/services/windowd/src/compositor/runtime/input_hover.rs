@@ -64,14 +64,12 @@ impl DisplayServerRuntime {
         use nexus_display_proto::surface_layers::MAX_MOTION_LAYERS;
         let mut panels = [(0i32, 0i32, 0u32, 0u32); wire::MAX_SURFACE_LAYERS + MAX_MOTION_LAYERS];
         let mut n = 0;
-        // The glass drawn above the windows is the shell's (`surface_layers_encode::
-        // above_windows`): a panel-level glass, or one a motion layer claims (the launcher in
-        // either size) — the pointer follows the paint.
+        // The glass drawn above the windows is the shell's — the paint's one rule
+        // (`motion_geometry::above_the_windows`): the pointer follows the paint.
         let tree = &self.desktop_layers.tree;
+        let dock_above = self.windows.fullscreen_active().is_none();
         for (i, l) in tree.regions().iter().enumerate() {
-            let claimed = crate::motion_geometry::region_owner(tree, i).is_some();
-            if l.material == wire::MATERIAL_GLASS && (l.glass_level == wire::GLASS_PANEL || claimed)
-            {
+            if crate::motion_geometry::above_the_windows(tree, i, l, dock_above) {
                 panels[n] = (i32::from(l.x), i32::from(l.y), u32::from(l.w), u32::from(l.h));
                 n += 1;
             }

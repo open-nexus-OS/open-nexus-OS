@@ -117,13 +117,83 @@ fn test_reject_cutting_a_spread_band_a_blur_or_a_quad_off_the_grid() {
     assert_eq!(clip_draw(&spread, (150, 150, 169, 169)), Some(spread));
     // A blur draw was cut by its chain; its source window is not a texel rectangle.
     let blur = DrawSpec {
-        pipe: Pipe::BlurH(20),
+        pipe: Pipe::Blur(20),
         quad: Quad::blur(0.0, 0.0, 1920.0, 540.0, [1.0, 0.5, 0.0, 0.0], [0.001, 0.0], 1.0),
-        tex: Tex::Scratch,
+        tex: Tex::Scratch { x: 0, row: 0, w: 480, h: 270 },
     };
     assert_eq!(clip_draw(&blur, (10, 10, 19, 19)), Some(blur));
     // A quad between pixels keeps its whole band.
     let between =
         straight((100.5, 100.0, 200.0, 200.0), Tex::Layout { x: 0, row: 0, w: 200, h: 200 });
     assert_eq!(clip_draw(&between, (150, 150, 169, 169)), Some(between));
+}
+
+/// The cache texel coordinate the pixel centre `(x, y)` of `d` samples (bilinear: before the
+/// filter picks its neighbours).
+fn cache_coord(d: &DrawSpec, (x, y): (u32, u32)) -> (f32, f32) {
+    let Tex::Cache { x: tx, row, w, h } = d.tex else { panic!("a cache texture") };
+    let (u, v) = uv(&d.quad, (x, y));
+    (tx as f32 + u * w as f32, row as f32 + v * h as f32)
+}
+
+/// A glass back: its 480x270 rows at the blur's half resolution drawn over its 960x540 glass.
+fn glass_back() -> DrawSpec {
+    straight((200.0, 100.0, 960.0, 540.0), Tex::Cache { x: 40, row: 12, w: 480, h: 270 })
+}
+
+#[test]
+fn a_cut_glass_back_samples_what_the_whole_one_did() {
+    let whole = glass_back();
+    // Areas at all four phases of the 2-px texel grid, a 1-px hover among them.
+    for (ax, ay) in [(600, 300), (601, 300), (600, 301), (601, 301)] {
+        for (aw, ah) in [(1, 1), (7, 5), (40, 33)] {
+            let area = (ax, ay, ax + aw - 1, ay + ah - 1);
+            let part = clip_draw(&whole, area).expect("the part");
+            assert!(
+                part.quad.w * part.quad.h < 64.0 * 64.0,
+                "a part, not the whole back: {part:?}"
+            );
+            for y in ay..ay + ah {
+                for x in ax..ax + aw {
+                    let (a, b) = (cache_coord(&part, (x, y)), cache_coord(&whole, (x, y)));
+                    assert!((a.0 - b.0).abs() < 1e-3 && (a.1 - b.1).abs() < 1e-3, "pixel {x},{y}");
+                }
+            }
+        }
+    }
+    // A back drawn at another size than a whole multiple of its texels stays whole.
+    let odd = straight((200.0, 100.0, 961.0, 540.0), Tex::Cache { x: 0, row: 0, w: 480, h: 270 });
+    assert_eq!(clip_draw(&odd, (600, 300, 600, 300)), Some(odd));
+}
+
+#[test]
+fn test_reject_a_cut_without_its_apron() {
+    // Every bilinear neighbour of a pixel inside the area lies inside the cut's texels: a cut
+    // snapped to the area's texels alone loses the neighbour at its edge.
+    let whole = glass_back();
+    for (ax, ay) in [(600, 300), (601, 301), (203, 101)] {
+        let area = (ax, ay, ax + 9, ay + 9);
+        let part = clip_draw(&whole, area).expect("the part");
+        let Tex::Cache { x: tx, row, w, h } = part.tex else { panic!("a cache texture") };
+        let Tex::Cache { x: wx, row: wrow, w: ww, h: wh } = whole.tex else { unreachable!() };
+        for y in ay..ay + 10 {
+            for x in ax..ax + 10 {
+                let (u, v) = cache_coord(&whole, (x, y));
+                let (lo_x, lo_y) = ((u - 0.5).floor() as i64, (v - 0.5).floor() as i64);
+                for (nx, ny) in [(lo_x, lo_y), (lo_x + 1, lo_y + 1)] {
+                    let inside_whole = nx >= i64::from(wx)
+                        && nx < i64::from(wx + ww)
+                        && ny >= i64::from(wrow)
+                        && ny < i64::from(wrow + wh);
+                    if inside_whole {
+                        assert!(nx >= i64::from(tx) && nx < i64::from(tx + w), "x {nx} at {x},{y}");
+                        assert!(
+                            ny >= i64::from(row) && ny < i64::from(row + h),
+                            "y {ny} at {x},{y}"
+                        );
+                    }
+                }
+            }
+        }
+    }
 }

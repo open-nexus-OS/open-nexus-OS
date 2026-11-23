@@ -121,9 +121,11 @@ fn a_frozen_frame_is_the_base_every_scene_starts_from() {
         })],
     );
     let b = Board::new(&f, p, DISPLAY, LAYOUT_ROWS, HALF_ROWS).with_base(1080);
-    let frozen = Tex::Layout { x: 0, row: 1080, w: 1920, h: 1080 };
+    // The scene below the glass (radius 20 at quarter resolution, five taps): 87 x 62 texels
+    // for the pixels from (176, 76) — the frozen frame cut to them (TASK-0351 P19).
+    let frozen = Tex::Layout { x: 176, row: 1080 + 76, w: 4 * 87, h: 4 * 62 };
     let scene = b.pass(0).expect("the scene below the glass");
-    assert_eq!(scene.target, Target::Scratch);
+    assert_eq!((scene.target, scene.area), (Target::Scratch, (0, 0, 86, 61)));
     assert_eq!(b.draw(&scene, 0).map(|d| d.tex), Some(frozen));
     // In the slot the glass's back hides the plane under it: the plane's first piece, the band
     // above the glass, samples the frozen frame where it lies.
@@ -238,38 +240,45 @@ fn a_glass_to_write_draws_its_scene_below_then_blurs_it_into_its_rows() {
     let b = Board::new(&f, p, DISPLAY, LAYOUT_ROWS, HALF_ROWS);
     assert_eq!(b.glass, GlassCount { writes: 1, reads: 0, off: 0 });
     assert_eq!(b.pass_count(), 4);
-    // The scene below the glass, over the reach of the horizontal taps (radius 40 at quarter
-    // resolution: 10 taps four pixels apart).
+    // The scene below the glass at the blur's resolution (TASK-0351 P19; radius 40 at quarter:
+    // 10 taps): one texel per tap — the result's 102 columns and 10 a side, its 52 rows and
+    // 10 a side — for the pixels from (300 − 44, 200 − 44), four a texel.
     let scene = b.pass(0).unwrap();
     assert_eq!(scene.target, Target::Scratch);
     assert_eq!(scene.kind, PassKind::Scene { upto: 1 });
     let (vw, vh, taps) = (102, 52, 10);
-    let reach = 4 * taps + 4;
-    assert_eq!(
-        scene.area,
-        (300 - reach, 200 - reach, 300 + 4 * vw + 4 * taps - 5, 200 + 4 * vh + 4 * taps - 5)
-    );
-    assert_eq!(
-        draws(&b, &scene).iter().map(|d| d.pipe).collect::<Vec<_>>(),
-        [Pipe::Opaque, Pipe::Straight]
-    );
-    // The horizontal pass from the scratch into the reduced scratch (the QEMU geometry).
+    let (tw, th) = (vw + 2 * taps, vh + 2 * taps);
+    assert_eq!(scene.area, (0, 0, tw - 1, th - 1));
+    // The wallpaper and the window, each cut to those pixels and drawn at a quarter: its
+    // texels four to one, so a texel is the mean of the four pixels at its middle.
+    let d = draws(&b, &scene);
+    assert_eq!(d.iter().map(|d| d.pipe).collect::<Vec<_>>(), [Pipe::Opaque, Pipe::Straight]);
+    for (draw, tex) in d.iter().zip([
+        Tex::Layout { x: 256, row: 156, w: 4 * tw, h: 4 * th },
+        Tex::Layout { x: 256 - 100, row: ATLAS + 156 - 100, w: 4 * tw, h: 4 * th },
+    ]) {
+        let q = draw.quad;
+        assert_eq!(((q.x, q.y, q.w, q.h), draw.tex), ((0.0, 0.0, tw as f32, th as f32), tex));
+    }
+    // The horizontal pass from the scene into the reduced scratch: half texel (c, h) centred
+    // on scene texel (c + taps, h), a tap one texel across — the paired program.
     let half = b.pass(1).unwrap();
     let hh = vh + 2 * taps;
     assert_eq!((half.target, half.area), (Target::Half, (0, 0, vw - 1, hh - 1)));
-    let (fw, fh) = (1920.0, 1080.0);
+    let (fw, tf) = (1920.0, (tw as f32, th as f32));
     let across = Quad::blur(
         0.0,
         0.0,
         vw as f32,
         hh as f32,
-        [4.0 * vw as f32 / fw, 4.0 * hh as f32 / fh, 296.0 / fw, (196.0 - 40.0) / fh],
-        [4.0 / fw, 0.0],
+        [vw as f32 / tf.0, hh as f32 / tf.1, taps as f32 / tf.0, 0.0],
+        [1.0 / tf.0, 0.0],
         1.0,
     );
+    let scene_tex = Tex::Scratch { x: 0, row: 0, w: tw, h: th };
     assert_eq!(
         half.kind,
-        PassKind::One(DrawSpec { pipe: Pipe::BlurH(40), quad: across, tex: Tex::Scratch })
+        PassKind::One(DrawSpec { pipe: Pipe::Blur(40), quad: across, tex: scene_tex })
     );
     // The vertical pass into the glass's cache rows.
     let rows = b.pass(2).unwrap();
@@ -287,7 +296,7 @@ fn a_glass_to_write_draws_its_scene_below_then_blurs_it_into_its_rows() {
     let half_tex = Tex::Half { rows: HALF_ROWS };
     assert_eq!(
         rows.kind,
-        PassKind::One(DrawSpec { pipe: Pipe::BlurV(40), quad: down, tex: half_tex })
+        PassKind::One(DrawSpec { pipe: Pipe::Blur(40), quad: down, tex: half_tex })
     );
     // The slot: the wallpaper and the window around the glass (its back hides what lies below
     // it inside its corners), the glass drawn back from its rows — its cross the opaque program,
@@ -409,19 +418,26 @@ fn a_glass_written_for_a_band_blurs_the_band_alone() {
     // The horizontal pass: the half rows those read (row v: v ..= v + 2·taps).
     let half = b.pass(1).unwrap();
     assert_eq!(half.area, (c0, v0, c1, v1 + 2 * taps));
-    // The scene below: what those half texels fetch — each at the pixel corner
-    // (296 + 4c + 2, 196 − 40 + 4h + 2), its taps 4 pixels across, the pixels on both sides.
+    // The scene below: the texels those half texels read — half texel (c, h) reads scene
+    // texels (c ..= c + 2·taps, h), the scene's first texel the pixels from (256, 156).
     let scene = b.pass(0).unwrap();
-    let (sx0, sx1) = (296 + s * c0 + 1 - s * taps, 296 + s * c1 + 2 + s * taps);
-    let (sy0, sy1) = (156 + s * v0 + 1, 156 + s * (v1 + 2 * taps) + 2);
-    assert_eq!(scene.area, (sx0, sy0, sx1, sy1));
-    assert_eq!(scene.area, (417, 217, 602, 394));
-    // Less than a quarter of the whole glass's scene: 488 x 288 pixels, two draws.
-    assert!(4 * b.work_px(&scene) < 2 * 488 * 288);
+    assert_eq!(scene.area, (c0, v0, c1 + 2 * taps, v1 + 2 * taps));
+    assert_eq!(scene.area, (40, 15, 86, 59));
+    // Those texels stand for the pixels the full-resolution scene pass drew (417..=602 across,
+    // 217..=394 down), out to their blocks' edges — and the two draws are cut to them.
+    for d in draws(&b, &scene) {
+        let q = d.quad;
+        assert_eq!((q.x, q.y, q.w, q.h), (40.0, 15.0, 47.0, 45.0));
+        let Tex::Layout { w, h, .. } = d.tex else { panic!("a layout texture") };
+        assert_eq!((w, h), (4 * 47, 4 * 45));
+    }
+    // A sixteenth of the pixels the band's scene took at full resolution (186 x 178, two
+    // draws), and a small part of the whole glass's scene.
+    assert_eq!(b.work_px(&scene), 2 * 47 * 45);
 }
 
 #[test]
-fn two_glasses_written_apart_share_one_scene_and_two_blur_passes() {
+fn two_glasses_written_apart_share_a_wave_and_its_horizontal_pass() {
     let mut f = ready(2048);
     let window = layer(|l| {
         rect(100, 100, 800, 600)(l);
@@ -435,26 +451,47 @@ fn two_glasses_written_apart_share_one_scene_and_two_blur_passes() {
         rect(560, 980, 800, 90)(l);
         (l.backdrop_blur, l.layer_id) = (40, 3);
     });
-    // The first frame writes both (new rows): the chains share passes — four in all.
+    // The first frame writes both (new rows), in one wave: each its scene at its own rows of
+    // the scratch, ONE horizontal pass, each its vertical — six passes where one by one ran
+    // seven.
     let p = planned(&mut f, &[window.clone(), bar.clone(), dock.clone()]);
     let b = Board::new(&f, p, DISPLAY, LAYOUT_ROWS, HALF_ROWS);
     assert_eq!(b.glass, GlassCount { writes: 2, reads: 0, off: 0 });
-    assert_eq!(b.pass_count(), 4);
-    let scene = b.pass(0).unwrap();
-    assert_eq!((scene.target, scene.kind), (Target::Scratch, PassKind::Scene { upto: 1 }));
-    assert_eq!(scene.area, (0, 0, 1919, 1079), "both reaches: the bar's top, the dock's bottom");
-    let half = b.pass(1).unwrap();
-    assert_eq!((half.target, half.kind), (Target::Half, PassKind::Blurs { vertical: false }));
-    assert_eq!(b.draws(&half), 2);
-    let (d0, d1) = (b.draw(&half, 0).unwrap(), b.draw(&half, 1).unwrap());
-    assert_eq!((d0.pipe, d1.pipe), (Pipe::BlurH(40), Pipe::BlurH(40)));
-    // The dock's horizontal result lies below the bar's in the half scratch: its rows follow.
-    assert!(d1.quad.y >= d0.quad.y + d0.quad.h, "{} {} {}", d0.quad.y, d0.quad.h, d1.quad.y);
-    let rows = b.pass(2).unwrap();
-    assert_eq!((rows.target, rows.kind), (Target::Cache(0), PassKind::Blurs { vertical: true }));
-    assert_eq!(b.draws(&rows), 2);
-    assert_eq!(b.pass(3).unwrap().target, Target::Slot);
-    assert_eq!(b.pass(4), None);
+    assert_eq!((b.wave_count(), b.pass_count()), (1, 6));
+    let pass = |i: usize| b.pass(i).unwrap();
+    // The bar's scene: the taps on the display — 480 across, 21 of its 32 rows. The dock's
+    // below it: 222 across, the 36 rows above the display's lower edge.
+    assert_eq!(
+        (pass(0).target, pass(0).kind, pass(0).area),
+        (Target::Scratch, PassKind::Scene { upto: 1 }, (0, 0, 479, 20))
+    );
+    assert_eq!(
+        (pass(1).target, pass(1).kind, pass(1).area),
+        (Target::Scratch, PassKind::Scene { upto: 2 }, (0, 21, 221, 56))
+    );
+    // One pass across both: the bar's 482 x 32 half texels, the dock's 202 x 45 below them,
+    // each quad cut to its own, each reading its own scene.
+    let across = pass(2);
+    assert_eq!(
+        (across.target, across.kind, across.area),
+        (Target::Half, PassKind::Blurs { from: 0, count: 2 }, (0, 0, 481, 76))
+    );
+    assert_eq!(b.draws(&across), 2);
+    let quads: Vec<_> = b.walk(&across).map(|d| (d.quad.x, d.quad.y, d.quad.w, d.quad.h)).collect();
+    assert_eq!(quads, [(0.0, 0.0, 482.0, 32.0), (0.0, 32.0, 202.0, 45.0)]);
+    let scene = |i: usize| b.draw(&across, i).map(|d| d.tex);
+    assert_eq!(scene(0), Some(Tex::Scratch { x: 0, row: 0, w: 480, h: 21 }));
+    assert_eq!(scene(1), Some(Tex::Scratch { x: 0, row: 21, w: 222, h: 36 }));
+    assert_eq!(scene(2), None);
+    // Down, a pass a glass: the cache plane holds what must stay beside its rows.
+    for (i, rows) in [(3, 12), (4, 25)] {
+        let down = pass(i);
+        assert_eq!(down.target, Target::Cache(0));
+        assert!(matches!(down.kind, PassKind::One(d) if d.tex == Tex::Half { rows: HALF_ROWS }));
+        assert_eq!(down.area.3 - down.area.1 + 1, rows);
+    }
+    assert_eq!(pass(5).target, Target::Slot);
+    assert_eq!(b.pass(6), None);
 }
 
 #[test]
@@ -471,8 +508,11 @@ fn a_glass_over_another_written_glass_keeps_its_own_chain() {
     let p = planned(&mut f, &[dock, pill]);
     let b = Board::new(&f, p, DISPLAY, LAYOUT_ROWS, HALF_ROWS);
     assert_eq!(b.glass.writes, 2);
-    assert_eq!(b.pass_count(), 7, "the pill's backdrop is the dock's fresh blur: one by one");
+    // The pill's backdrop is the dock's fresh blur: its scene runs after the dock's vertical
+    // pass — a wave each.
+    assert_eq!((b.wave_count(), b.pass_count()), (2, 7));
     assert_eq!(b.pass(0).unwrap().kind, PassKind::Scene { upto: 0 });
+    assert_eq!(b.pass(2).unwrap().target, Target::Cache(0));
     assert_eq!(b.pass(3).unwrap().kind, PassKind::Scene { upto: 1 });
 }
 

@@ -8,22 +8,24 @@
 //! every texel no pass drew this frame stale, so a read of it shows); T12 — a glass drawn at any
 //! size, written or read, cut or clipped, samples only its own slot's result.
 
+#[path = "frame_exec.rs"]
+mod exec;
+
+use exec::{Gpu, DISPLAY, HALF_ROWS, W};
 use nexus_gfx::command::buffer::Command;
 use nexus_gfx::core::types::TileRect;
 use nexus_gfx::frame::chain::PassArea;
 use nexus_gfx::frame::{
-    blur_radius, blur_scale, clip_draw, Area, Board, CacheStep, DrawSpec, Frame, FrameLayer,
-    Gaussian, Glass, PassKind, PassSpec, Pipe, Target, Tex,
+    blur_radius, blur_scale, clip_draw, Area, Board, CacheStep, Frame, FrameLayer, Glass, PassSpec,
+    Target, Tex,
 };
 
-const DISPLAY: (u32, u32) = (1920, 1080);
 const LAYOUT_ROWS: u32 = 14_040;
-const HALF_ROWS: u32 = 600;
-const W: usize = DISPLAY.0 as usize;
-const H: usize = DISPLAY.1 as usize;
+/// The layout row the layers' bands start at.
+const ATLAS: u32 = 5400;
 
 fn layer(f: impl FnOnce(&mut FrameLayer)) -> Command {
-    let mut l = FrameLayer { src_row_abs: 5400, opacity: 255, ..FrameLayer::default() };
+    let mut l = FrameLayer { src_row_abs: ATLAS, opacity: 255, ..FrameLayer::default() };
     f(&mut l);
     Command::CompositeLayer {
         src_row_abs: l.src_row_abs,
@@ -82,98 +84,21 @@ fn glass_of(f: &Frame, i: usize) -> Glass {
 }
 
 /// The chain of the frame's one write: its scene, horizontal and vertical passes.
-fn chain(f: &Frame, p: nexus_gfx::frame::Planned) -> [PassSpec; 3] {
-    let b = Board::new(f, p, DISPLAY, LAYOUT_ROWS, HALF_ROWS);
+fn chain(b: &Board<'_>) -> [PassSpec; 3] {
     assert_eq!(b.pass_count(), 4, "one write: three chain passes and the slot's");
-    [0, 1, 2].map(|i| b.pass(i).expect("a chain pass"))
+    let passes = [0, 1, 2].map(|i| b.pass(i).expect("a chain pass"));
+    let targets = passes.map(|p| p.target);
+    assert_eq!(targets, [Target::Scratch, Target::Half, Target::Cache(0)]);
+    passes
 }
 
-/// What a texel holds where no pass drew it this frame: any read of it shows in the rows.
-const STALE: f32 = 1000.0;
-
-/// The board's three targets, modelled: the scratch and the half scratch (stale at every
-/// frame's start) and the first cache plane (kept).
-struct Gpu {
-    scratch: Vec<f32>,
-    half: Vec<f32>,
-    cache: Vec<f32>,
-}
-
-impl Gpu {
-    fn new(cache_rows: usize) -> Self {
-        Self {
-            scratch: vec![STALE; W * H],
-            half: vec![STALE; W * HALF_ROWS as usize],
-            cache: vec![STALE; W * cache_rows],
-        }
-    }
-
-    /// One chain run over `scene` (a pixel's value).
-    fn run(&mut self, passes: &[PassSpec; 3], scene: &dyn Fn(u32, u32) -> f32) {
-        self.scratch.fill(STALE);
-        self.half.fill(STALE);
-        let (x0, y0, x1, y1) = passes[0].area;
-        assert_eq!(passes[0].target, Target::Scratch);
-        for y in y0..=y1 {
-            for x in x0..=x1 {
-                self.scratch[y as usize * W + x as usize] = scene(x, y);
-            }
-        }
-        let (PassKind::One(h), PassKind::One(v)) = (passes[1].kind, passes[2].kind) else {
-            panic!("one write runs its blurs one draw each");
-        };
-        assert_eq!((passes[1].target, passes[2].target), (Target::Half, Target::Cache(0)));
-        blur(&self.scratch, (W, H), &mut self.half, passes[1].area, h);
-        blur(&self.half, (W, HALF_ROWS as usize), &mut self.cache, passes[2].area, v);
-    }
-}
-
-/// The texture `src` (`w` x `h`) sampled at `(x, y)` in texels as the GPU does: bilinear,
-/// clamped to its edge, the fraction held to eight bits.
-fn bilinear(src: &[f32], (w, h): (usize, usize), x: f64, y: f64) -> f32 {
-    let axis = |c: f64, n: usize| {
-        let c = c - 0.5;
-        let (i, f) = (c.floor(), ((c - c.floor()) * 256.0).round() / 256.0);
-        let (i, f) = if f >= 1.0 { (i + 1.0, 0.0) } else { (i, f) };
-        let at = |k: f64| (k.max(0.0) as usize).min(n - 1);
-        (at(i), at(i + 1.0), f as f32)
-    };
-    let ((x0, x1, fx), (y0, y1, fy)) = (axis(x, w), axis(y, h));
-    let row = |y: usize| {
-        let (a, b) = (src[y * w + x0], src[y * w + x1]);
-        if fx == 0.0 {
-            a
-        } else {
-            a * (1.0 - fx) + b * fx
-        }
-    };
-    if fy == 0.0 {
-        row(y0)
-    } else {
-        row(y0) * (1.0 - fy) + row(y1) * fy
-    }
-}
-
-/// The blur draw `d` run over the texels of `area` its quad covers, reading `src` (`dims`) into
-/// `dst` (the display's width a row).
-fn blur(src: &[f32], dims: (usize, usize), dst: &mut [f32], area: PassArea, d: DrawSpec) {
-    let (Pipe::BlurH(r) | Pipe::BlurV(r)) = d.pipe else { panic!("a blur draw") };
-    let weights = Gaussian::library(r).weights();
-    let (q, (tw, th)) = (d.quad, (dims.0 as f64, dims.1 as f64));
-    let p = |i: usize| f64::from(q.push[i]);
-    let (x1, y1) = ((q.x + q.w) as u32, (q.y + q.h) as u32);
-    for ty in area.1.max(q.y as u32)..=area.3.min(y1 - 1) {
-        for tx in area.0.max(q.x as u32)..=area.2.min(x1 - 1) {
-            let u = (f64::from(tx) + 0.5 - f64::from(q.x)) / f64::from(q.w);
-            let v = (f64::from(ty) + 0.5 - f64::from(q.y)) / f64::from(q.h);
-            let (sx, sy) = ((p(2) + u * p(0)) * tw, (p(3) + v * p(1)) * th);
-            let mut acc = 0.0f32;
-            for (j, w) in weights.iter() {
-                let j = f64::from(j);
-                acc += w * bilinear(src, dims, sx + j * p(4) * tw, sy + j * p(5) * th);
-            }
-            dst[ty as usize * W + tx as usize] = acc;
-        }
+/// One chain run on the modelled GPU (`frame_exec.rs`) over `scene` — the window's pixel at a
+/// display position, over a flat wallpaper.
+fn run(gpu: &mut Gpu, b: &Board<'_>, passes: &[PassSpec; 3], scene: &dyn Fn(u32, u32) -> f32) {
+    let layout = |x: u32, row: u32| if row >= ATLAS { scene(x, row - ATLAS) } else { 0.25 };
+    gpu.begin();
+    for p in passes {
+        gpu.pass(b, p, &layout);
     }
 }
 
@@ -208,17 +133,6 @@ fn a_band_write_after_a_whole_write_leaves_the_rows_a_whole_write_would() {
                     CacheStep::Write(row) => row,
                     other => panic!("the first frame writes the glass: {other:?}"),
                 };
-                let whole = chain(&f, whole);
-                let change = Command::Damage {
-                    rect: TileRect { x: cx, y: cy, width: cw, height: ch },
-                    origin: 0,
-                };
-                let cmds = scene(at, blur_at, 12);
-                let band = present(&mut f, &[cmds[0].clone(), cmds[1].clone(), change]);
-                let g = glass_of(&f, 1);
-                assert_eq!(g.cache, CacheStep::Write(row), "r{r} {at:?} {cx},{cy}: a write");
-                assert!(matches!(g.band, Area::Rect { .. }), "r{r} {at:?}: a band, {:?}", g.band);
-                let band = chain(&f, band);
                 let inside =
                     |px: u32, py: u32| px >= cx && px < cx + cw && py >= cy && py < cy + ch;
                 let after = |px: u32, py: u32| {
@@ -228,15 +142,27 @@ fn a_band_write_after_a_whole_write_leaves_the_rows_a_whole_write_would() {
                         before(px, py)
                     }
                 };
+                // The rows as the board leaves them after the whole write, and the rows a
+                // whole write of the changed scene leaves.
+                let b = Board::new(&f, whole, DISPLAY, LAYOUT_ROWS, HALF_ROWS);
+                let whole = chain(&b);
                 let (_, _, c1, v1) = whole[2].area;
-                // The rows as the board leaves them: the whole write, then the band's.
-                let mut board = Gpu::new(v1 as usize + 1);
-                board.run(&whole, &before);
+                let (mut board, mut truth) = (Gpu::new(v1 as usize + 1), Gpu::new(v1 as usize + 1));
+                run(&mut board, &b, &whole, &before);
+                run(&mut truth, &b, &whole, &after);
                 let old = board.cache.clone();
-                board.run(&band, &after);
-                // The rows a whole write of the changed scene leaves.
-                let mut truth = Gpu::new(v1 as usize + 1);
-                truth.run(&whole, &after);
+                let change = Command::Damage {
+                    rect: TileRect { x: cx, y: cy, width: cw, height: ch },
+                    origin: 0,
+                };
+                let cmds = scene(at, blur_at, 12);
+                let band = present(&mut f, &[cmds[0].clone(), cmds[1].clone(), change]);
+                let g = glass_of(&f, 1);
+                assert_eq!(g.cache, CacheStep::Write(row), "r{r} {at:?} {cx},{cy}: a write");
+                assert!(matches!(g.band, Area::Rect { .. }), "r{r} {at:?}: a band, {:?}", g.band);
+                // Then the band's write over the whole one's rows.
+                let b = Board::new(&f, band, DISPLAY, LAYOUT_ROWS, HALF_ROWS);
+                run(&mut board, &b, &chain(&b), &after);
                 let (mut moved, mut worst) = (0, (0.0f32, 0, 0));
                 for v in row..=v1 {
                     for c in 0..=c1 {
@@ -353,12 +279,19 @@ fn test_reject_sampling_past_a_glass_s_rows() {
         }
         // A write blurs the rest rectangle wherever the glass is drawn.
         if let CacheStep::Write(row) = g.cache {
-            let passes = chain(&f, p);
+            let b = Board::new(&f, p, DISPLAY, LAYOUT_ROWS, HALF_ROWS);
+            let passes = [0, 2].map(|i| b.pass(i).expect("a chain pass"));
             let (vw, vh) = (w.div_ceil(s) + 2, h.div_ceil(s) + 2);
             let r0 = row % f.glass.plane_rows();
-            assert_eq!(passes[2].area, (0, r0, vw - 1, r0 + vh - 1), "case {case}");
-            let reach = blur_radius(blur_at) / s * s + s;
-            assert_eq!(passes[0].area.0, at.0.saturating_sub(reach), "case {case}");
+            assert_eq!(passes[1].area, (0, r0, vw - 1, r0 + vh - 1), "case {case}");
+            // Its scene: a texel per tap whose middle lies inside the display — the result's
+            // columns and `taps` a side, from the rest rectangle's left less `reach`.
+            let (taps, reach) = (blur_radius(blur_at) / s, blur_radius(blur_at) / s * s + s);
+            let seen = (0..vw + 2 * taps)
+                .map(|u| i64::from(at.0) - i64::from(reach) + i64::from(u * s + s / 2))
+                .filter(|middle| (1..i64::from(DISPLAY.0)).contains(middle))
+                .count() as u32;
+            assert_eq!((passes[0].area.0, passes[0].area.2), (0, seen - 1), "case {case}");
         }
         // Held at another size: read from the same rows.
         let p = present(

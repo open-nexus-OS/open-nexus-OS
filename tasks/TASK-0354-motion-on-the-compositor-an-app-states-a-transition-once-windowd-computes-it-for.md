@@ -5,7 +5,7 @@ title: "Compositor motion: a transition stated once, moved by windowd for every 
 status: in_progress
 owner: ["@ui"]
 created: 2026-11-03
-updated: 2026-11-22
+updated: 2026-11-23
 subsystem: ui
 components: [windowd, app-host, animation]
 kind: ui
@@ -63,7 +63,7 @@ phases:
     state: planned
     gate: "board: panel, launcher and window open/close each 0 of 32 frames dropped, gpud: ux frame ok"
     started: 2026-11-20
-    note: "blocked on TASK-0351/P6: since P2 the frames a transition drops are the GPU passes' cost (board 2026-11-05T13-12-18: 3-12 of 32, max 19-37 ms), no app raster 2026-11-20 package A (tap at once): unblocked — TASK-0351 P6 done; cycle 4: 28 of 80 motions with exactly their frames, drops 9.0 % of windows. 2026-11-20 board--2026-11-20T15-34-30: drops 6.5 % of 143 windows (9.9 before); the launcher's see-through fade still ~35 ms a frame (architect: needs the desktop body's clear texels declared, 1b, an RFC seed, and the translucent program's cost). 2026-11-22 board--2026-11-22T11-03-14: drops 8.0 % — loaded desktop; the bare desktop's transitions nearly clean (2 slow frames)."
+    note: "blocked on TASK-0351/P6: since P2 the frames a transition drops are the GPU passes' cost (board 2026-11-05T13-12-18: 3-12 of 32, max 19-37 ms), no app raster 2026-11-20 package A (tap at once): unblocked — TASK-0351 P6 done; cycle 4: 28 of 80 motions with exactly their frames, drops 9.0 % of windows. 2026-11-20 board--2026-11-20T15-34-30: drops 6.5 % of 143 windows (9.9 before); the launcher's see-through fade still ~35 ms a frame (architect: needs the desktop body's clear texels declared, 1b, an RFC seed, and the translucent program's cost). 2026-11-22 board--2026-11-22T11-03-14: drops 8.0 % — loaded desktop; the bare desktop's transitions nearly clean (2 slow frames). 2026-11-23 cycle 2 (board--2026-11-23T17-39-14): drops 7.4 % of 128 windows; runs inactive (planes refused, fixed). 2026-11-23 package C close (board--2026-11-23T18-35-25): drops 9.1 % of 121 windows (7.4 % in cycle 2, lighter series); the group fade that should cut the launcher's fade never formed (see TASK-0351 P19)."
   - id: P5
     story: "opening a motion layer paints the layer alone: a relayout names the base's rows and the layers' rows apart, so a panel's open and a modal's scrim repaint no base row"
     state: done

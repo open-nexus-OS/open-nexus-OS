@@ -13,7 +13,8 @@
 //! STATUS: Functional
 //! API_STABILITY: Internal
 //! TEST_COVERAGE: tests below incl. `test_reject_a_range_past_the_window`,
-//!   `test_reject_a_cache_plane_past_its_range`, `no_two_ranges_of_the_context_overlap`
+//!   `test_reject_a_cache_plane_past_its_range`, `no_two_ranges_of_the_context_overlap`,
+//!   `test_reject_a_run_plane_past_its_range_or_inside_the_window`
 
 use alloc::vec::Vec;
 
@@ -31,6 +32,28 @@ pub(crate) const CACHE_VA: u64 = PRIVATE_VA + 0x0C00_0000;
 pub(crate) const FRAME_VA: u64 = PRIVATE_VA + 0x0E00_0000;
 /// Planes the cache's addresses hold: the first and those below the scratch (68 windows' glass).
 pub(crate) const CACHE_PLANES: u32 = 1 + ((SCRATCH_VA - CACHE_GROWN_VA) / CACHE_PLANE_SPAN) as u32;
+/// The run planes (RFC-0109, RFC-0101 §8: the below run, a group run — `nexus_gfx::frame`'s
+/// `RUN_TARGETS`): the upper half of the pass memory's 32 MiB, which holds 1.5 MiB; 8 MiB of
+/// addresses each (a plane and its transparent rows are 1092 rows, 8 KiB under 8 MiB), up to
+/// the window's start.
+pub(crate) const RUN_VA: u64 = FRAME_VA + 0x0100_0000;
+pub(crate) const RUN_PLANE_SPAN: u64 = 8 << 20;
+pub(crate) const RUN_PLANES: u32 = nexus_gfx::frame::RUN_TARGETS as u32;
+const _: () = assert!(RUN_VA + RUN_PLANES as u64 * RUN_PLANE_SPAN <= VA_START);
+const _: () = {
+    use crate::frame_limits::{GENERAL_BYTES, RUN_PLANE_BYTES, STREAM_BYTES, VERTEX_BYTES};
+    assert!(FRAME_VA + (GENERAL_BYTES + STREAM_BYTES + VERTEX_BYTES) as u64 <= RUN_VA);
+    assert!(RUN_PLANE_BYTES <= RUN_PLANE_SPAN);
+};
+
+/// Where run plane `slot` is bound; `None` past the run planes — no other address is one.
+pub(crate) const fn run_plane_va(slot: u32) -> Option<u64> {
+    if slot < RUN_PLANES {
+        Some(RUN_VA + slot as u64 * RUN_PLANE_SPAN)
+    } else {
+        None
+    }
+}
 
 /// Where cache plane `plane` is bound; `None` past the planes' addresses.
 pub(crate) const fn cache_plane_va(plane: u32) -> Option<u64> {
@@ -86,7 +109,10 @@ mod tests {
         let fixed = 32 << 20;
         let mut ranges: Vec<(u64, u64)> = (0..CACHE_PLANES)
             .map(|p| (cache_plane_va(p).expect("a plane"), CACHE_PLANE_SPAN))
-            .chain([(SCRATCH_VA, fixed), (HALF_VA, fixed), (FRAME_VA, fixed)])
+            .chain([(SCRATCH_VA, fixed), (HALF_VA, fixed)])
+            // The pass memory keeps the lower half of its range, the run planes the upper.
+            .chain([(FRAME_VA, RUN_VA - FRAME_VA)])
+            .chain((0..RUN_PLANES).map(|s| (run_plane_va(s).expect("a run plane"), RUN_PLANE_SPAN)))
             .chain([(VA_START, VA_END - VA_START)])
             .collect();
         ranges.sort_unstable();
@@ -105,6 +131,23 @@ mod tests {
         );
         assert_eq!(cache_plane_va(CACHE_PLANES), None);
         assert_eq!(cache_plane_va(u32::MAX), None);
+    }
+
+    /// RFC-0101 §8: no command reaches a run target. A layer's source is a surface buffer,
+    /// bound in the window (`surface_va`); a run plane lies below the window's start, so no
+    /// buffer's range is one — and a slot past the planes has no address at all.
+    #[test]
+    fn test_reject_a_run_plane_past_its_range_or_inside_the_window() {
+        assert_eq!((RUN_PLANES, run_plane_va(0)), (2, Some(0x20_0F00_0000)));
+        assert_eq!(run_plane_va(RUN_PLANES), None);
+        assert_eq!(run_plane_va(u32::MAX), None);
+        for slot in 0..RUN_PLANES {
+            let va = run_plane_va(slot).expect("a run plane");
+            assert!(va % VA_ALIGN == 0 && va + RUN_PLANE_SPAN <= VA_START);
+            // A surface object of any size is placed past every run plane.
+            let placed = surface_va(&[], 2 << 20).expect("a range");
+            assert!(placed >= va + RUN_PLANE_SPAN);
+        }
     }
 
     #[test]

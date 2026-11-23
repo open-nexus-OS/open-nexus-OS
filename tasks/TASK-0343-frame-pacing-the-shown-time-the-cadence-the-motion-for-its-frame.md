@@ -2,22 +2,26 @@
 schema: 1
 id: TASK-0343
 title: "Frame pacing — when a frame reaches the glass, the cadence the driver holds, the motion computed for the time a frame is shown; typing's frames without pixels; the underflows timed"
-status: in_progress
+status: done
 status_note: "board cycle 62 2026-10-22"
 owner: ["@ui", "@gpu"]
 created: 2026-10-22
-updated: 2026-11-22
+updated: 2026-11-23
 subsystem: ui
 kind: service
 novelty: variant
 estimate: 1
 started: 2026-10-22
+done: 2026-11-23
+active_days: 4
 dates_source: git-reconstructed
+variance_note: "estimate 1d against 4 active days (the recorded phase dates 2026-10-22, 11-19, 11-20, 11-23): the late flips were not a pacing rule but the glass passes passing the period and a second present queued behind the latched one — found by the frame trace (TASK-0373), cut by one present in flight (P7) and the glass at the blur's resolution (TASK-0351, package C)"
 goal:
   metric: "presents that land late while the screen moves"
   baseline: "gpud: dc flips late=502 of 3712 (13.5 %), behind=3038 (board--2026-11-19T13-14-36)"
   target: "late <= 2 % of flips while scrolling and paging"
   instrument: "gpud: dc flips (late=, behind=) · windowd: frame pace (on_time=, late=)"
+  result: "late flips 1.4 % (71 of 5120) through the board series, early1 = 0 (board 2026-11-23T11-02-57); 13.5 % at the start"
 consumer: TASK-0355/P2
 depends_on: [TASK-0342]
 implements: [RFC-0110, RFC-0093]
@@ -85,9 +89,11 @@ phases:
     note: "2026-11-19 measurement built and read (board--2026-11-19T15-50-37): windowd frame pace on_time 4716 late 556 early 448 = early0 115 (nothing in flight: the half-period floor) + early1 333 (something in flight): the story's cause (a landing judged against the wrong prediction) carries the misses, not the floor. gpud dc flips late 247 of 6201 (4.0 %, was 13.5 %) with restarts=343 counted apart (an idle display's first frame). Next: the fix for early1 (frame_clock note_shown with presents in flight). 2026-11-19 architect: the transitions 8-9 of 17 are gpud's cadence 2 (frame_pace.rs:94-111: 30 Hz once two of the last eight draws exceed 14.67 ms; paced=423 of 1088 flips, L:3940), not dropped frames. early1: windowd's predictions chain on the present in flight, gpud slots a present by the cadence announced at receipt — the gpud half only if the digest ties >= 80 % of early1 to cadence changes (build/agents/leg-early1-cadence-2026-11-19.md). 2026-11-19 MEASURED (board--2026-11-19T22-09-42, frame trace TASK-0373): over ALL frames gpud draws in 9.9 ms avg, then drawn>shown 32.6 ms avg = two periods. dc flips: behind=4528 of 4992 landings (91 % of drawn frames wait behind the latched one), cadence 1 in 65 of 78 lines (the cadence hold is not the cause). Structure: windowd MAX_IN_FLIGHT=2 (compositor/runtime/gpud.rs:80), gpud acks at the landing, a drawn frame latches only when the latched one lands (dc/flip.rs queue_flip/flip_wake) → a frame sent at boundary k shows at k+2 at the earliest; the tap path carries ~2 periods of queue. Levers (a design decision, RFC-0110): a mailbox latch (the newest drawn frame replaces the waiting one), the ack at the latch, or one in flight with the draw timed to the boundary. Architect blocked (Fable limit until 2026-11-23). 2026-11-20 CYCLE 3 board--2026-11-20T08-55-45, windowd MAX_IN_FLIGHT 2→1 (only change): gpud drawn>shown 32.6 → 13.8 ms over all frames, dc flips behind 4528/4992 → 0, gpu>latch p50 ~0, windowd sent>acked p50 bare 67 → 33 ms / loaded 100 → 50 ms; drops 10.3 → 8.9 %, FAIL windows 36 → 34; panel taps 49-91 → 46-69 ms (fullscreen launcher 76 → 83). COST: shell transitions full 61/68 → 60/82 (22 short, 10-15 of 17): a frame whose draw + wake passes a period now costs a whole period, nothing is pipelined behind it; windowd owed>scene still 32 ms bare / 48 ms loaded (waiting for the one slot). nx hops --check ok. Next: architect (opus max) on the latch rule — pipelining only when the draw needs it, or latest-wins at the latch. 2026-11-20 ARCHITECT (opus max, build/agents/arch-flip-queue-2026-11-20.md): cycle 3 was half applied — gpud.rs used 1, present.rs max_in_flight() stayed 2 → windowd built 2-14 scenes per present and threw them away, motion counts inflated (the 'full transitions' metric was wrong too). DECISION: one present in flight, ONE gate (max_in_flight()=1 for flush and send, const-assert against RING_ROWS); adaptive depth, latest-wins, ack-at-latch rejected with numbers. BUILT W1 (present.rs, gpud.rs, doc lines frame_clock/flip_ring/service.rs; RFC-0101 §8 + RFC-0110 amended). Gates next board: loop frames <= 1.3x present, motion done frames <= of+1, bare panel motions 17/17, behind 0, drawn>shown bare <= 14 ms / run <= 16.7 ms. 2026-11-20 CYCLE 4 board--2026-11-20T10-20-46 (W1 one gate): motion done with frames > of+1 63 → 0 (no scene thrown away), frames == of 4/85 → 28/80, gpud drawn>shown 13.4 ms over all frames (gate <= 16.7 ✓), behind 0 ✓; drops 8.9 → 9.0 %; panel taps 46-69 → 61-83 ms, fullscreen launcher 83 → 94 ms (worse, cause not named: apphost in>disp loaded p50 26 → 36 ms)."
   - id: P8
     story: "presents land when predicted while the screen moves: the late flips the goal names fall to its target while scrolling and paging"
-    state: planned
+    state: done
     gate: "board: gpud: dc flips late <= 2 % of flips (cycle 4: 179 of 5120 = 3.5 %) through the scroll and paging blocks; windowd: frame pace early1 = 0"
     started: 2026-11-20
+    done: 2026-11-23
+    evidence: "build/logs/board--2026-11-23T11-02-57: gpud: dc flips late 71 of 5120 = 1.4 % (gate <= 2 %; 3.1 % before), windowd: frame pace on_time 4842 / late 165 / early 138, early1 = 0; with package C's C1+C2 (the glass passes at the blur's resolution)"
     note: "2026-11-20 board--2026-11-20T12-38-17: late 171 of 4544 = 3.8 % (cycle 4 3.5 %), drops 9.9 % — unchanged as the architect predicted; the causes are the GPU classes named on TASK-0351 P19. 2026-11-20 board--2026-11-20T15-34-30: late 171 → 110 of 4544 flips = 2.4 % (gate <= 2 %). 2026-11-21 board--2026-11-21T07-37-47: late 167 of 4992 = 3.3 % (2.4 % before); the ink flips (full-screen structure changes) are the suspected cause, fixed for B2. 2026-11-22 board--2026-11-22T11-03-14: late 136 of 4352 = 3.1 % (gate <= 2 %), restarts 219 -> 144; the late frames are the loaded desktop's glass passes."
 ---
 

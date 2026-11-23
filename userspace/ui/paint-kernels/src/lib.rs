@@ -1,15 +1,18 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: the painter's kernels — the two loops a frame spends its flat pixels in: a span set
-//! to one pixel ([`fill`]) and one colour laid over a span, source over ([`blend`]). Each is a
-//! scalar function ([`reference`]) and, on a hart with the vector unit, a vector form that
-//! leaves the same bytes (ADR-0099 rule 4). A program states once what the kernel reported
+//! CONTEXT: the painter's kernels — the loops a frame spends its pixels in: a span set to one
+//! pixel ([`fill`]), one colour laid over a span, source over ([`blend`]), one colour through a
+//! row of alphas ([`cover`]), a row of straight pixels laid over a span ([`over`]), and the
+//! division into straight alpha every row leaves through ([`unpremultiply`], TASK-0367 P4).
+//! Each is a scalar function ([`reference`]) and, on a hart with the vector unit, a vector form
+//! that leaves the same bytes (ADR-0099 rule 4). A program states once what the kernel reported
 //! ([`choose`]); until it does, and on every other machine, the scalar form runs.
 //!
-//! WHO CALLS: the row painter's spans (`nexus-scene-raster`: a box's interior, a glass reset)
-//! and app-host's grounds (the base a row starts from) — so apps, motion layers and animations
-//! are painted through here without knowing it.
+//! WHO CALLS: the row painter's spans (`nexus-scene-raster`: a box's interior, a glass reset,
+//! a shadow's falloff, a circle's and a polygon's anti-aliased pixels, a 1:1 sprite) and
+//! app-host's grounds and its straight-alpha stage — so apps, motion layers and animations are
+//! painted through here without knowing it.
 //!
 //! WHAT A VECTOR FORM COSTS: the first vector instruction of a thread makes the kernel keep 32
 //! registers of the hart's width for it (RFC-0119). A span shorter than [`SHORT`] never asks
@@ -19,7 +22,9 @@
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: the unit tests below (the reference against the painter's per-pixel
 //! arithmetic over every alpha, destination and colour; the division the vector form uses over
-//! every sum); the vector forms against the reference on the machine: `SELFTEST: paint kernels
+//! every sum); `tests/kernels.rs` (cover, over and the straight-alpha stage against the painter's
+//! and app-host's pixel, and the vector forms' 32-bit lane arithmetic against the reference, for
+//! every input); the vector forms against the reference on the machine: `SELFTEST: paint kernels
 //! ok` (QEMU 16-byte registers, the board 32) and the measurement program under the user-mode
 //! emulator at 16, 32, 64 and 128 bytes.
 //! ADR: docs/adr/0099-every-userspace-program-is-built-for-one-hard-float-target-vectors-are-asked-for-at-run-time.md
@@ -100,6 +105,40 @@ pub fn blend(row: &mut [u8], bgra: [u8; 4]) {
             reference::blend(row, bgra);
         }
     }
+}
+
+/// The colour `bgr` (blue, green, red) source-over the whole pixels of `row`, pixel `i` at the
+/// alpha `alpha[i]` the caller's coverage left ([`reference::cover`]) — a shadow's falloff, an
+/// anti-aliased edge, a circle.
+#[inline]
+pub fn cover(row: &mut [u8], bgr: [u8; 3], alpha: &[u8]) {
+    #[cfg(target_arch = "riscv64")]
+    if row.len().min(4 * alpha.len()) >= SHORT && chosen() == Unit::Vector {
+        return riscv::cover(row, bgr, alpha);
+    }
+    reference::cover(row, bgr, alpha);
+}
+
+/// The straight pixels of `src` (red lowest, a sprite's order) source-over the whole BGRA pixels
+/// of `row` ([`reference::over`]) — a sprite laid 1:1.
+#[inline]
+pub fn over(row: &mut [u8], src: &[u8]) {
+    #[cfg(target_arch = "riscv64")]
+    if row.len().min(src.len()) >= SHORT && chosen() == Unit::Vector {
+        return riscv::over(row, src);
+    }
+    reference::over(row, src);
+}
+
+/// The whole pixels of a premultiplied BGRA span turned into straight alpha, in place
+/// ([`reference::unpremultiply`]) — the stage every row leaves app-host through.
+#[inline]
+pub fn unpremultiply(span: &mut [u8]) {
+    #[cfg(target_arch = "riscv64")]
+    if span.len() >= SHORT && chosen() == Unit::Vector {
+        return riscv::unpremultiply(span);
+    }
+    reference::unpremultiply(span);
 }
 
 #[cfg(test)]

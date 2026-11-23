@@ -227,6 +227,38 @@ fn a_glass_back_under_a_pane_is_cut_on_its_cache_grid() {
     assert!(drawn >= (800 * 600 - 400 * 300) as f32 && drawn < (800 * 600) as f32);
 }
 
+/// R-own (TASK-0351 P19): a back's texels are spread over its pixels and a piece's sampler
+/// clamps at the piece, so a cut shows — only a layer of the glass's own window cuts it.
+#[test]
+fn test_reject_a_glass_back_cut_around_a_pane_of_another_window() {
+    let back_of = |ids: (u32, u32), pane: (u32, u32, u32, u32)| {
+        let mut f = ready(2048);
+        let window = layer(|l| {
+            rect(100, 100, 800, 600)(l);
+            (l.backdrop_blur, l.layer_id) = (40, ids.0);
+        });
+        let pane = layer(|l| {
+            rect(pane.0, pane.1, pane.2, pane.3)(l);
+            (l.src_x, l.opaque, l.layer_id) = (1000, true, ids.1);
+        });
+        let p = planned(&mut f, &[window, pane]);
+        let b = Board::new(&f, p, DISPLAY, LAYOUT_ROWS, HALF_ROWS);
+        let d = draws(&b, &slot(&b));
+        let back = d.iter().filter(|x| matches!(x.tex, Tex::Cache { .. }));
+        (back.map(|x| (x.quad.w * x.quad.h) as u32).collect::<Vec<_>>(), b.uncut_px(&slot(&b)))
+    };
+    // Its own pane: four bands, nothing drawn under the pane's texels (396 x 296 on the grid).
+    let (own, uncut) = back_of((1, 1), (303, 251, 400, 300));
+    assert_eq!((own.len(), own.iter().sum::<u32>(), uncut), (4, 800 * 600 - 396 * 296, 0));
+    // Another window's pane, and layers of no window: the back whole, the cost counted.
+    for ids in [(1, 2), (0, 0), (0, 2), (1, 0)] {
+        let (back, uncut) = back_of(ids, (303, 251, 400, 300));
+        assert_eq!((back, uncut), (vec![800 * 600], 396 * 296), "windows {ids:?}");
+    }
+    // A pane over the whole back leaves nothing of it to draw, whoever's it is.
+    assert_eq!(back_of((1, 2), (100, 100, 800, 600)), (Vec::new(), 0));
+}
+
 #[test]
 fn a_solid_patch_spread_over_a_rounded_layer_is_its_parts_each_sampling_the_patch() {
     let mut f = Frame::new(2048);

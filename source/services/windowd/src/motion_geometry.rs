@@ -160,6 +160,22 @@ pub(crate) fn region_owner(tree: &SurfaceTree, k: usize) -> Option<usize> {
     tree.motions().iter().position(|m| m.claims_region(k))
 }
 
+/// Whether desktop glass region `i` is drawn above the windows — the one rule the paint
+/// (`surface_layers_encode`) and the pointer (`input_hover::shell_owns_point`) follow: a
+/// panel-level glass; the dock and the taskbar while no window is fullscreen (`dock_above`: a
+/// window moved down never covers them — operator, 2026-11-23 — and a fullscreen app keeps the
+/// screen); a glass a motion layer claims (a shell overlay: a panel, the launcher, a menu).
+pub(crate) fn above_the_windows(
+    tree: &nexus_display_proto::surface_layers::SurfaceTree,
+    i: usize,
+    l: &nexus_display_proto::client_surface::LayerDesc,
+    dock_above: bool,
+) -> bool {
+    use nexus_display_proto::client_surface::{GLASS_DOCK, GLASS_PANEL, MATERIAL_GLASS};
+    let level = l.glass_level == GLASS_PANEL || (dock_above && l.glass_level == GLASS_DOCK);
+    l.material == MATERIAL_GLASS && (level || region_owner(tree, i).is_some())
+}
+
 /// The motion layer scroll layer `k` moves with, if one claims it.
 pub(crate) fn scroll_owner(tree: &SurfaceTree, k: usize) -> Option<usize> {
     tree.motions().iter().position(|m| m.claims_scroll(k))
@@ -209,6 +225,26 @@ pub(crate) fn own_pieces(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The taskbar and the dock stay above the windows (operator, 2026-11-23) — except while a
+    /// window is fullscreen, which keeps the screen; a panel's glass is above in both cases.
+    #[test]
+    fn the_dock_stays_above_the_windows_unless_one_is_fullscreen() {
+        use nexus_display_proto::client_surface::{
+            LayerDesc, GLASS_DOCK, GLASS_PANEL, GLASS_THIN, MATERIAL_GLASS,
+        };
+        use nexus_display_proto::surface_layers::SurfaceTree;
+        let glass = |level| LayerDesc {
+            material: MATERIAL_GLASS,
+            glass_level: level,
+            ..LayerDesc::default()
+        };
+        let tree = SurfaceTree::default();
+        assert!(above_the_windows(&tree, 0, &glass(GLASS_DOCK), true));
+        assert!(!above_the_windows(&tree, 0, &glass(GLASS_DOCK), false));
+        assert!(above_the_windows(&tree, 0, &glass(GLASS_PANEL), false));
+        assert!(!above_the_windows(&tree, 0, &glass(GLASS_THIN), true), "a window-level glass");
+    }
 
     const MS: u64 = 1_000_000;
 

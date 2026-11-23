@@ -73,7 +73,8 @@ impl Work {
     pub(super) fn note(&mut self, target: Target, px: [u64; PROGRAM_KINDS]) {
         let k = match target {
             Target::Slot => 0,
-            Target::Scratch => 1,
+            // A run's pass draws the scene's layers, as a write's scene pass does.
+            Target::Scratch | Target::Run(_) => 1,
             Target::Half | Target::Cache(_) => 2,
         };
         self.0[k] += px.iter().sum::<u64>();

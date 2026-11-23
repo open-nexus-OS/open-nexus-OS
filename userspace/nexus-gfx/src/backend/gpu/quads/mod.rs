@@ -148,6 +148,37 @@ impl Quad {
         q
     }
 
+    /// This layer quad (`layer`, `part`, `part_of`) drawn at `k` of its size, the point `origin`
+    /// going to the plane's first pixel (TASK-0351 P19: the scene below a glass drawn at the
+    /// blur's resolution): its place, its size and every push constant in pixels — the size,
+    /// the offset from the shape's centre, the half extents, the radius — times `k`; the tint
+    /// and the texture's rectangle as they are. The shape's distance at a pixel is then `k`
+    /// times what it was at the point the pixel stands for: its coverage band is one pixel of
+    /// the smaller plane.
+    pub const fn scaled(&self, k: f32, origin: (f32, f32)) -> Self {
+        let mut q = *self;
+        q.x = (self.x - origin.0) * k;
+        q.y = (self.y - origin.1) * k;
+        q.w = self.w * k;
+        q.h = self.h * k;
+        let mut i = 4;
+        while i <= 10 {
+            q.push[i] = self.push[i] * k;
+            i += 1;
+        }
+        q
+    }
+
+    /// [`Self::scaled`] for a shadow quad (`shadow`, and its parts): one over the blur and the
+    /// offset are in pixels too.
+    pub const fn scaled_shadow(&self, k: f32, origin: (f32, f32)) -> Self {
+        let mut q = self.scaled(k, origin);
+        q.push[11] = self.push[11] / k;
+        q.push[12] = self.push[12] * k;
+        q.push[13] = self.push[13] * k;
+        q
+    }
+
     /// A filled rounded rectangle at (`x`, `y`, `w`, `h`) with a vertical gradient
     /// (`resources/gpu/shaders/gradient.wgsl`, its `Gradient` block): the straight colours at the
     /// top and at the bottom, the size and minus half of it, half the size less the corner radius

@@ -206,6 +206,7 @@ impl DisplayServerRuntime {
                     owner: key,
                     layer_id: key,
                     live: super::surface_motion::live(&layers, at),
+                    dock_above: false,
                 }),
                 solid: super::solid_surface::SolidSnap::of(&self.apps[idx], fullscreen, shape),
             };
@@ -244,6 +245,7 @@ impl DisplayServerRuntime {
                 owner: super::surface_layers_encode::DESKTOP_OWNER,
                 layer_id: 0,
                 live: super::surface_motion::live(&desktop_layers, at),
+                dock_above: self.windows.fullscreen_active().is_none(),
             }
         });
         // Back-to-front window order from the z/focus stack (window_scene SSOT):

@@ -13,47 +13,14 @@
 //! TEST_COVERAGE: the unit tests below (the painter's pixel, the round trip, the reciprocal, the
 //! untouched ends, runs against pixels one by one, a base that never outshines its alpha).
 
-/// `255 · 2¹⁶ / a`, rounded, for every alpha: a channel is divided out by one multiply — the
-/// board's divide costs tens of cycles, and a glass tint makes every pixel of a bar partial.
-const RECIP: [u32; 256] = {
-    let mut t = [0u32; 256];
-    let mut a = 1;
-    while a < 256 {
-        t[a] = ((255u32 << 16) + (a as u32) / 2) / a as u32;
-        a += 1;
-    }
-    t
-};
-
-/// Turns a span of premultiplied BGRA pixels into straight alpha, in place. An opaque or a
-/// transparent pixel is its own straight form and stays as it is; four of them in a row — a
-/// pane, the desktop's clear ground — are passed by one test. Four partial pixels equal to the
-/// four last divided take their result (TASK-0367: a glass tint is one pixel over a whole
-/// surface, and dividing each cost the board 30 ns a pixel — 62 of a first frame's 92 ms).
+/// Turns a span of premultiplied BGRA pixels into straight alpha, in place: `c · 255 / a`,
+/// rounded, by one multiply a channel; an opaque or a transparent pixel stays as it is. The
+/// stage is a paint kernel (TASK-0367 P4): the scalar form passes opaque and clear quads by one
+/// test and repeats the last quad's result for an equal quad (a glass tint is one pixel over a
+/// whole surface, and dividing each cost the board 30 ns a pixel); on a hart with the vector unit
+/// every pixel is divided in its 32-bit lane (`nexus_paint_kernels::unpremultiply`).
 pub(crate) fn unpremultiply(span: &mut [u8]) {
-    // The last quad divided and its result, as words: an equal quad is two compares and two
-    // stores (a slice compare is a call per quad on the OS target).
-    let (mut seen, mut straight, mut known) = (0u128, 0u128, false);
-    let mut quads = span.chunks_exact_mut(16);
-    for q in &mut quads {
-        let Ok(q) = <&mut [u8; 16]>::try_from(q) else { continue };
-        let (a0, a1, a2, a3) = (q[3], q[7], q[11], q[15]);
-        if a0 & a1 & a2 & a3 == 255 || a0 | a1 | a2 | a3 == 0 {
-            continue;
-        }
-        let word = u128::from_ne_bytes(*q);
-        if known && word == seen {
-            *q = straight.to_ne_bytes();
-            continue;
-        }
-        for px in q.chunks_exact_mut(4) {
-            divide(px);
-        }
-        (seen, straight, known) = (word, u128::from_ne_bytes(*q), true);
-    }
-    for px in quads.into_remainder().chunks_exact_mut(4) {
-        divide(px);
-    }
+    nexus_paint_kernels::unpremultiply(span);
 }
 
 /// `c` at alpha `a` as the painter's premultiplied BGRA pixel — what a row is cleared to before
@@ -64,19 +31,6 @@ pub(crate) fn unpremultiply(span: &mut [u8]) {
 pub(crate) fn premultiplied(c: nexus_layout_types::Rgba8, a: u8) -> [u8; 4] {
     let pm = |v: u8| ((u32::from(v) * u32::from(a) + 127) / 255) as u8;
     [pm(c.b), pm(c.g), pm(c.r), a]
-}
-
-/// One pixel divided out by its alpha (`c · 255 / a`, rounded, by [`RECIP`]).
-#[inline]
-fn divide(px: &mut [u8]) {
-    let a = px[3];
-    if a == 0 || a == 255 {
-        return;
-    }
-    let r = RECIP[usize::from(a)];
-    for c in &mut px[..3] {
-        *c = ((u32::from(*c) * r + (1 << 15)) >> 16).min(255) as u8;
-    }
 }
 
 #[cfg(test)]

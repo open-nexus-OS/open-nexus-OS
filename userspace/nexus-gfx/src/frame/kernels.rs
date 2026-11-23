@@ -13,7 +13,7 @@
 //! STATUS: Functional
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: unit tests below (the weights sum to one, the reduced weights are the full
-//!   ones at their distances, the taps a pass fetches); `tools/nxgpu/tests/blur.rs` (the
+//!   ones at their distances, the fetches a pass makes); `tools/nxgpu/tests/blur.rs` (the
 //!   shader run on the host against the full-resolution kernel); `tests/frame_oracle.rs`
 //! INVARIANTS: pure, allocation-free; a library radius's reduced kernel has at most `MAX_TAPS`
 //!   taps a side (the shader's override count), a full one at most `MAX_FULL_TAPS`.
@@ -108,11 +108,15 @@ impl Gaussian {
         Weights { side, taps }
     }
 
-    /// The fetches a pass makes per output pixel: the horizontal pass one a tap, the vertical
-    /// one the centre and one per pair of taps (two taps a bilinear fetch).
+    /// The fetches a pass of the frame's chain makes per output pixel, across and down: the
+    /// centre and one per pair of taps (two taps a bilinear fetch, placed between them by
+    /// their weights). Both passes read a source at this resolution — the scene below a glass
+    /// is drawn at it (TASK-0351 P19) — so both pair. (An executor whose horizontal pass reads
+    /// a full-resolution backdrop — the virtual GPU's chain, the board's blur probe — fetches
+    /// once a tap there, `2 * taps + 1`: a tap is then a mean of four texels, not a pair.)
     pub const fn fetches(&self) -> (u32, u32) {
-        let taps = self.taps();
-        (2 * taps + 1, 1 + 2 * taps.div_ceil(2))
+        let paired = 1 + 2 * self.taps().div_ceil(2);
+        (paired, paired)
     }
 }
 
@@ -178,9 +182,11 @@ mod tests {
 
     #[test]
     fn a_pass_s_fetches_are_its_taps_and_its_pairs() {
-        // Radius 20 at quarter: five a side — eleven across, the centre and three pairs down.
-        assert_eq!(Gaussian::library(20).fetches(), (11, 7));
-        assert_eq!(Gaussian::library(8).fetches(), (9, 5));
-        assert_eq!(Gaussian::library(40).fetches(), (21, 11));
+        // Radius 20 at quarter: five a side — the centre and three pairs, across and down
+        // (eleven across while the horizontal pass read the backdrop at full resolution).
+        assert_eq!(Gaussian::library(20).fetches(), (7, 7));
+        assert_eq!(Gaussian::library(8).fetches(), (5, 5));
+        assert_eq!(Gaussian::library(30).fetches(), (9, 9));
+        assert_eq!(Gaussian::library(40).fetches(), (11, 11));
     }
 }

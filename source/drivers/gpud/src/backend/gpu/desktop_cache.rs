@@ -94,6 +94,18 @@ impl CachePlanes {
         Ok(())
     }
 
+    /// A target of the desktop's own beside the cache's planes (a run plane, `desktop_runs`),
+    /// placed in the same table: the arenas' room is one bound for all of them.
+    pub(super) fn target_at(
+        &mut self,
+        dev: &mut Device,
+        who: (ClientId, ContextId),
+        captured: &Captured,
+        (va, rows): (u64, u32),
+    ) -> Result<Target, Refusal> {
+        self.targets.at(dev, who, captured, va, rows).map_err(|_| "a run plane's target".into())
+    }
+
     /// The plan `planned` of `frame` found the cache short of rows: planes are added until its
     /// glasses have theirs (each takes rows in this frame, a write of cause `new`) or the device
     /// refuses one — then those glasses stay off, as before, and the refusal is named.

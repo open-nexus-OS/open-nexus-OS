@@ -5,7 +5,7 @@ title: "Placement by load: the display chain holds a time right, no program name
 status: in_progress
 owner: ["@kernel-team", "@runtime"]
 created: 2026-11-10
-updated: 2026-11-18
+updated: 2026-11-23
 subsystem: kernel
 kind: service
 novelty: variant
@@ -35,10 +35,10 @@ phases:
     evidence: build/logs/board--2026-11-18T10-33-10
   - id: P3
     story: "a frame's threads run side by side: the chain on several harts of one cluster, background work on the other"
-    state: blocked
+    state: planned
     gate: "board: >= 3 harts busy with the chain in a frame window (utilisation line); windowd: hops frame owed>sent mean <= 2 ms; gpud: ux frame ok in the idle-desktop windows"
     started: 2026-11-18
-    note: "queued behind the sprint's open phases (operator, 2026-11-18: first the ones in progress and in testing); nothing built. Starts with a measurement: the IPC round trip per CPU (board 56-57 us since P1, 28-49 before, 62 on the one-hart lane throughout)."
+    note: "queued behind the sprint's open phases (operator, 2026-11-18: first the ones in progress and in testing); nothing built. Starts with a measurement: the IPC round trip per CPU (board 56-57 us since P1, 28-49 before, 62 on the one-hart lane throughout). 2026-11-23 backlog (operator: blocked and not worked on = backlog); it waits on threads of a process (TASK-0364) and the runtime (TASK-0366)."
   - id: P4
     story: "the supervision path holds a time right of its own and an exhausted budget is an event its supervisor receives"
     state: planned

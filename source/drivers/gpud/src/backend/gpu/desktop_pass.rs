@@ -10,8 +10,9 @@
 //! the frame's time split.
 
 use alloc::vec::Vec;
-use nexus_display_proto::layout::{self, PLANE_ROWS, STRIDE_BYTES};
+use nexus_display_proto::layout::{self, STRIDE_BYTES};
 use nexus_driverkit::gpu::{GpuVa, QueueKind, TimelinePoint};
+use nexus_gfx::backend::gpu::pipelines::Placed;
 use nexus_gfx::backend::gpu::quads::{
     emit_draws, Draw, EmitError, Need, Placer, Quad, Region, Rings, Sink, Template,
 };
@@ -19,10 +20,10 @@ use nexus_gfx::backend::gpu::texstate::{descriptor_bytes, format, swizzle, Image
 use nexus_gfx::backend::v2::{
     Batch, ClientId, ContextId, GfxDevice, RenderStreams, RenderTarget, Stream,
 };
-use nexus_gfx::frame::{clip_draw, Board, DrawSpec, PassSpec, Tex};
+use nexus_gfx::frame::{clip_draw, Board, DrawSpec, PassSpec, Pipe, Tex, BLUR_RADII};
 
 use super::desktop::{
-    Pipes, Refusal, FRAME_VA, HALF_VA, LAYOUT_VA, MAX_DRAWS, PASS_TIMEOUT_NS, SCRATCH_VA,
+    Refusal, FRAME_VA, HALF_VA, LAYOUT_VA, MAX_DRAWS, PASS_TIMEOUT_NS, SCRATCH_VA,
 };
 use super::device_v2::Device;
 use super::emit_fmt;
@@ -39,6 +40,54 @@ const SLOW_WAIT_US: u64 = 20_000;
 const SLOW_TRACES: u8 = 4;
 /// Frames in the window the traces are counted over.
 const SLOW_WINDOW: u8 = 32;
+
+/// The blur's names in the library, by [`BLUR_RADII`]'s order: the paired program (a frame's
+/// passes both read a source at the blur's resolution; the step says across or down).
+const BLUR: [&str; 4] =
+    ["blur-vertical-8", "blur-vertical-20", "blur-vertical-30", "blur-vertical-40"];
+
+/// The library's pipelines a frame draws with.
+pub(super) struct Pipes {
+    opaque: Placed,
+    straight: Placed,
+    rounded: Placed,
+    /// A run drawn back (RFC-0109 "Runs and group opacity"): its texels hold colour times
+    /// coverage, so the group fades as one — `desktop·(1 − a) + group·a`.
+    premultiplied: Placed,
+    shadow: Placed,
+    blur: [Placed; 4],
+}
+
+impl Pipes {
+    pub(super) fn named(
+        dev: &Device,
+        client: ClientId,
+        ctx: ContextId,
+    ) -> Result<Self, &'static str> {
+        let get = |name: &str| dev.pipeline(client, ctx, name).ok_or("a pipeline of the library");
+        let [a, b, c, d] = BLUR.map(get);
+        Ok(Self {
+            opaque: get("layer-opaque")?,
+            straight: get("layer-straight")?,
+            rounded: get("layer-rounded")?,
+            premultiplied: get("layer-premultiplied")?,
+            shadow: get("shadow")?,
+            blur: [a?, b?, c?, d?],
+        })
+    }
+
+    fn get(&self, p: Pipe) -> Option<&Placed> {
+        let blur = |r: u32| BLUR_RADII.iter().position(|&x| x == r);
+        match p {
+            Pipe::Opaque => Some(&self.opaque),
+            Pipe::Straight => Some(&self.straight),
+            Pipe::Rounded => Some(&self.rounded),
+            Pipe::Premultiplied => Some(&self.premultiplied),
+            Pipe::Shadow => Some(&self.shadow),
+            Pipe::Blur(r) => blur(r).map(|i| &self.blur[i]),
+        }
+    }
+}
 
 /// The trace of the single-pass frames stuck at ~21 or ~41 ms (TASK-0373, 21 % of the heavy
 /// slow frames on board--2026-11-19T22-09-42 and …2026-11-20T08-55-45, no glass write): one
@@ -195,11 +244,18 @@ fn descriptor(
     let (address, width, height, stride) = match tex {
         Tex::None => return Ok(none),
         Tex::Layout { x, row, w, h } => (at(LAYOUT_VA, x, row), w, h, WIDTH),
-        Tex::Scratch => (SCRATCH_VA, WIDTH, PLANE_ROWS, WIDTH),
+        // The scene below a glass: its own rectangle, so a tap past the display's edge clamps
+        // at the scene's edge texel (TASK-0351 P19).
+        Tex::Scratch { x, row, w, h } => (at(SCRATCH_VA, x, row), w, h, WIDTH),
         Tex::Half { rows } => (HALF_VA, WIDTH, rows, WIDTH),
         Tex::Cache { x, row, w, h } => {
             let va = super::desktop_cache::texel_va(x, row).ok_or("a cache row past the planes")?;
             (va, w, h, WIDTH)
+        }
+        // A run's plane (RFC-0101 §8): the planner's own texture, never a command's source.
+        Tex::Run { slot, x, row, w, h } => {
+            let va = crate::surface_va::run_plane_va(u32::from(slot)).ok_or("a run plane")?;
+            (at(va, x, row), w, h, WIDTH)
         }
         // RFC-0114: an app's buffer at its own address and stride, where the app drew it.
         Tex::Buffer { source, slot, x, row, w, h } => {

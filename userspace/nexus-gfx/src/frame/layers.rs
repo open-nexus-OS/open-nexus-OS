@@ -407,7 +407,7 @@ impl RetainedLayers {
     }
 
     /// The transform of layer id `layer_id`, if a present named one.
-    fn transform_of(&self, layer_id: u32) -> Option<Transform> {
+    pub(super) fn transform_of(&self, layer_id: u32) -> Option<Transform> {
         self.transforms.iter().find(|(id, _)| *id == layer_id && layer_id != 0).map(|(_, t)| *t)
     }
 

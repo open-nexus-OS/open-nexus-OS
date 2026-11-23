@@ -19,16 +19,16 @@
 
 use nexus_display_proto::layout::{self, PLANE_BYTES, PLANE_ROWS, RING_ROWS, STRIDE_BYTES};
 use nexus_driverkit::gpu::{Access, CacheMode};
-use nexus_gfx::backend::gpu::pipelines::Placed;
 use nexus_gfx::backend::gpu::quads::{Arena, Rings};
 use nexus_gfx::backend::gpu::scene::Scene;
 use nexus_gfx::backend::gpu::CoreId;
 use nexus_gfx::backend::v2::{BoId, ClientId, ContextId, DeviceError, GfxDevice, RenderStreams};
 use nexus_gfx::command::buffer::Command;
-use nexus_gfx::frame::{Area, Board, CacheStep, Frame, History, Pipe, Target as To, BLUR_RADII};
+use nexus_gfx::frame::{Area, Board, CacheStep, Frame, History, Target as To};
 
 use super::desktop_cache::{CachePlanes, CACHE_ROWS};
-use super::desktop_pass::{clean_rows, run_pass, Kept};
+use super::desktop_pass::{clean_rows, run_pass, Kept, Pipes};
+use super::desktop_runs::RunPlanes;
 use super::desktop_surface::{bind, buffer};
 use super::device_v2::Device;
 use super::emit_fmt;
@@ -48,11 +48,10 @@ pub(super) const LAYOUT_VA: u64 = 0x40_0000_0000;
 pub(super) use crate::surface_va::{CACHE_VA, FRAME_VA, HALF_VA, SCRATCH_VA};
 const WIDTH: u32 = STRIDE_BYTES / 4;
 const STRIDE: u64 = STRIDE_BYTES as u64;
-/// The half-resolution scratch's rows: the tallest glass's half and the vertical taps' halo.
-pub(crate) const HALF_ROWS: u32 = 600;
-/// The frame's buffer and the PDS heap's lines its draws take (`frame_limits`, host-tested).
+/// The frame's buffer, the PDS heap's lines its draws take and the half-resolution scratch's
+/// rows (`frame_limits`, host-tested).
 pub(super) use crate::frame_limits::MAX_DRAWS;
-use crate::frame_limits::{GENERAL_BYTES, PDS_LINES, STREAM_BYTES, VERTEX_BYTES};
+use crate::frame_limits::{GENERAL_BYTES, HALF_ROWS, PDS_LINES, STREAM_BYTES, VERTEX_BYTES};
 const FRAME_BYTES: u32 = GENERAL_BYTES + STREAM_BYTES + VERTEX_BYTES;
 const _: () = assert!(PDS_LINES.0 == TARGET_PDS.1);
 pub(super) const PASS_TIMEOUT_NS: u64 = 500_000_000;
@@ -78,52 +77,6 @@ impl core::fmt::Display for Refusal {
         match self.1 {
             Some(e) => write!(f, "{} {e:?}", self.0),
             None => f.write_str(self.0),
-        }
-    }
-}
-
-/// The blur passes' names in the library, by [`BLUR_RADII`]'s order.
-const ACROSS: [&str; 4] =
-    ["blur-horizontal-8", "blur-horizontal-20", "blur-horizontal-30", "blur-horizontal-40"];
-const DOWN: [&str; 4] =
-    ["blur-vertical-8", "blur-vertical-20", "blur-vertical-30", "blur-vertical-40"];
-
-/// The library's pipelines a frame draws with.
-pub(super) struct Pipes {
-    pub(super) opaque: Placed,
-    straight: Placed,
-    rounded: Placed,
-    shadow: Placed,
-    across: [Placed; 4],
-    down: [Placed; 4],
-}
-
-impl Pipes {
-    fn named(dev: &Device, client: ClientId, ctx: ContextId) -> Result<Self, &'static str> {
-        let get = |name: &str| dev.pipeline(client, ctx, name).ok_or("a pipeline of the library");
-        let blur = |names: [&str; 4]| -> Result<[Placed; 4], &'static str> {
-            let [a, b, c, d] = names.map(get);
-            Ok([a?, b?, c?, d?])
-        };
-        Ok(Self {
-            opaque: get("layer-opaque")?,
-            straight: get("layer-straight")?,
-            rounded: get("layer-rounded")?,
-            shadow: get("shadow")?,
-            across: blur(ACROSS)?,
-            down: blur(DOWN)?,
-        })
-    }
-
-    pub(super) fn get(&self, p: Pipe) -> Option<&Placed> {
-        let blur = |r: u32| BLUR_RADII.iter().position(|&x| x == r);
-        match p {
-            Pipe::Opaque => Some(&self.opaque),
-            Pipe::Straight => Some(&self.straight),
-            Pipe::Rounded => Some(&self.rounded),
-            Pipe::Shadow => Some(&self.shadow),
-            Pipe::BlurH(r) => blur(r).map(|i| &self.across[i]),
-            Pipe::BlurV(r) => blur(r).map(|i| &self.down[i]),
         }
     }
 }
@@ -179,6 +132,8 @@ pub(crate) struct Desktop {
     scratch: Target,
     half: Target,
     cache: CachePlanes,
+    /// The planes the planner's runs are kept in (RFC-0101 §8), made when a layer first moves.
+    runs: RunPlanes,
     pipes: Pipes,
     rings: Rings,
     /// The draws the pass being emitted keeps (TASK-0351 P10).
@@ -292,6 +247,7 @@ impl Desktop {
             scratch: scratch_t,
             half: half_t,
             cache: CachePlanes::new(cache_t, targets),
+            runs: RunPlanes::new(),
             pipes,
             rings,
             kept: Kept::new(),
@@ -318,12 +274,14 @@ impl Desktop {
     pub(crate) fn release(mut self, dev: &mut Device) {
         give_back(dev, self.client, &mut self.bos);
         self.cache.release(dev, self.client);
+        self.runs.release(dev, self.client);
     }
 
     /// A new compositor runs (RFC-0112): its layers are not the old one's — the set goes and
-    /// every slot is drawn whole next (no slot's pixels are the new compositor's).
+    /// every slot is drawn whole next (no slot's pixels are the new compositor's), and no run
+    /// holds a picture of them.
     pub(crate) fn forget_layers(&mut self) {
-        self.frame.layers.clear();
+        self.frame.forget();
         self.drawn = [0; 3];
         self.cleaned.forget();
     }
@@ -443,7 +401,10 @@ impl Desktop {
         let clean_us = (now_ns().saturating_sub(c0) / 1000).saturating_sub(enter_us);
         let (display, layout_rows, scratch, half) =
             (self.display, self.layout_rows, self.scratch, self.half);
-        let Self { frame, rings, kept, pipes, captured, streams, cache, .. } = self;
+        let Self { frame, rings, kept, pipes, captured, streams, cache, runs, .. } = self;
+        // The runs this frame draws from, decided now that the slot's area is known.
+        let (own, of) = ((&*captured, &mut *cache), (&mut *frame, planned));
+        runs.take(dev, who, own, of, (display, layout_rows), area);
         let board = Board::new(frame, planned, display, layout_rows, HALF_ROWS)
             .with_base(target.base_row)
             .with_area(area.unwrap_or((0, 0, 0, 0)));
@@ -471,6 +432,7 @@ impl Desktop {
                 To::Scratch => scratch,
                 To::Half => half,
                 To::Cache(plane) => cache.target(plane).ok_or("a cache plane")?,
+                To::Run(i) => runs.target(i).ok_or("a run plane")?,
             };
             work.note(spec.target, board.work_by_program(&spec));
             work.note_kinds(spec.target, || board.blended_by_kind(&spec));

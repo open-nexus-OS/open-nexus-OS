@@ -308,6 +308,17 @@ woken between the motion's start and its end and paints nothing per frame.
   below the layer, never the layer (the launcher's single pass drew it twice, 10.3 Mpx, 41 ms).
   The pieces are taken only while the surface's share covers its whole demand (the pieces
   counted); otherwise the layer is drawn whole — a double draw, never a hole.
+- *Runs and group opacity (amendment 2026-11-23, TASK-0354 P4 / TASK-0351 P19; the design's
+  launcher spec: the container enters with "Opacity 0→1, translateY, leichter Scale", its backdrop
+  fades separately).* A run is a contiguous range of a frame's layers drawn once into a retained
+  target of gpud's own and drawn from it as one quad while it holds: the *below run* (the wallpaper
+  and every layer under the lowest layer that moves, kept while no layer of it changes) and the
+  *group run* (a motion group at rest, drawn back with the group's transform and opacity,
+  premultiplied). A motion group's opacity is the group's: desktop·(1 − a) + group·a — its parts no
+  longer show through each other mid-fade, as the reference's container opacity does; the backdrop
+  and the scrim stay see-through. A frame drawn with a run equals the frame drawn without it where
+  no group fades; at most two run targets, a third group is drawn as layers and named, nothing is
+  refused; no wire field and no client names a run.
 - *In front and backdrop (amendment 2026-11-05).* A layer declared in front — and what is its own:
   its backdrop, the regions and scroll layers it claims, its washes — is drawn after everything
   else of its surface's place in the frame: on the desktop in a pass of its own above the windows,

@@ -12,6 +12,7 @@
 //! row of every repaint, so it allocates nothing.
 
 use super::RowCanvas;
+use crate::runs::covered_alpha;
 use nexus_layout_types::{PathShape, Rgba8};
 
 /// `no_std` floor (core `f32` has none; trunc-and-adjust is exact for the pixel-coordinate range
@@ -411,11 +412,10 @@ impl RowCanvas<'_> {
         if py < y - 1.0 || py > y + h + 1.0 {
             return;
         }
-        let (x0, x1) = self.visible(floor_i32(x), ceil_i32(x + w));
-        for xx in x0..x1 {
-            let cov = ellipse_coverage(xx as f32 + 0.5, py, rect);
-            self.blend_covered(xx, c, cov);
-        }
+        // One run through the cover kernel: `blend_covered` on each pixel (TASK-0367 P4).
+        self.cover_run(floor_i32(x), ceil_i32(x + w), c, |xx| {
+            covered_alpha(c, ellipse_coverage(xx as f32 + 0.5, py, rect))
+        });
     }
 
     /// This row's slice of an even-odd polygon fill, anti-aliased: four sub-scanlines, each
@@ -462,8 +462,7 @@ impl RowCanvas<'_> {
         if min_x > max_x {
             return;
         }
-        let (x0, x1) = self.visible(floor_i32(min_x), ceil_i32(max_x));
-        for xx in x0..x1 {
+        self.cover_run(floor_i32(min_x), ceil_i32(max_x), c, |xx| {
             let (l, r) = (xx as f32, xx as f32 + 1.0);
             let mut area = 0.0f32;
             for (row_spans, &count) in spans.iter().zip(counts.iter()) {
@@ -471,8 +470,8 @@ impl RowCanvas<'_> {
                     area += (b.min(r) - a.max(l)).max(0.0);
                 }
             }
-            self.blend_covered(xx, c, area / SUB as f32);
-        }
+            covered_alpha(c, area / SUB as f32)
+        });
     }
 
     /// One normalized `0..1000` contour mapped into a box, filled for this row (the

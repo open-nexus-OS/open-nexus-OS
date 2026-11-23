@@ -46,7 +46,9 @@ pub(crate) fn paint_kernels_proof() {
             emit_hex_u64(digest);
         }
         Err(d) => {
-            emit_bytes(if d.blend { b" differs=blend span=" } else { b" differs=fill span=" });
+            emit_bytes(b" differs=");
+            emit_bytes(d.kernel.name().as_bytes());
+            emit_bytes(b" span=");
             emit_u64(u64::from(d.span));
             emit_bytes(b" at=");
             emit_u64(d.at as u64);

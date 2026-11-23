@@ -16,7 +16,7 @@
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: `tests/frame_clip.rs` (the cut draw shades the same distance and samples the
 //!   same texels at every pixel it keeps; a spread draw is refused the cut)
-//! INVARIANTS: a pixel the cut draw covers gets what the whole draw gave it; a draw outside the
+//! INVARIANTS: a pixel inside the pass area gets what the whole draw gave it; a draw outside the
 //!   area is `None`; a draw inside it is itself.
 
 use super::board::{DrawSpec, Pipe, Tex};
@@ -52,8 +52,41 @@ fn cut_tex(tex: Tex, q: &Quad, (dx, dy, w, h): (u32, u32, u32, u32)) -> Option<T
         Tex::Buffer { source, slot, x, row, w: tw, h: th } if one_to_one(tw, th) => {
             Some(Tex::Buffer { source, slot, x: x + dx, row: row + dy, w, h })
         }
+        Tex::Run { slot, x, row, w: tw, h: th } if one_to_one(tw, th) => {
+            Some(Tex::Run { slot, x: x + dx, row: row + dy, w, h })
+        }
         _ => None,
     }
+}
+
+/// A cache texture drawn at an exact integer scale `k` (a glass back: its rows at the blur's
+/// resolution, its quad the glass) cut to the part `(dx, dy, w, h)` of its quad: the part snapped
+/// outward to whole texels from the quad's origin, grown by one texel — the bilinear apron, so
+/// every sample inside the part reads the neighbours the whole draw read — and held inside the
+/// quad; the texture the same texels (TASK-0351 P13: a 1-px hover drew the whole 2 Mpx back).
+/// `None` when the texture is not a cache drawn at an integer scale past one.
+fn cut_scaled(d: &DrawSpec, (dx, dy, w, h): (u32, u32, u32, u32)) -> Option<DrawSpec> {
+    let Tex::Cache { x, row, w: tw, h: th } = d.tex else { return None };
+    let (qw, qh) = (d.quad.w as u32, d.quad.h as u32);
+    if tw == 0 || th == 0 || qw % tw != 0 || qh % th != 0 || (qw == tw && qh == th) {
+        return None;
+    }
+    let (kx, ky) = (qw / tw, qh / th);
+    let span = |p0: u32, len: u32, k: u32, whole: u32| {
+        let lo = (p0 / k).saturating_sub(1);
+        let hi = ((p0 + len).div_ceil(k) + 1).min(whole);
+        (lo, hi - lo)
+    };
+    let (t0x, tnw) = span(dx, w, kx, tw);
+    let (t0y, tnh) = span(dy, h, ky, th);
+    let part = (
+        d.quad.x + (t0x * kx) as f32,
+        d.quad.y + (t0y * ky) as f32,
+        (tnw * kx) as f32,
+        (tnh * ky) as f32,
+    );
+    let tex = Tex::Cache { x: x + t0x, row: row + t0y, w: tnw, h: tnh };
+    Some(DrawSpec { pipe: d.pipe, quad: d.quad.part_of(part), tex })
 }
 
 /// `d` cut to `area`: `None` when its quad lies outside; itself when inside, when it is a blur
@@ -67,14 +100,17 @@ pub fn clip_draw(d: &DrawSpec, area: PassArea) -> Option<DrawSpec> {
         return Some(*d);
     }
     match d.pipe {
-        Pipe::BlurH(_) | Pipe::BlurV(_) => Some(*d),
+        Pipe::Blur(_) => Some(*d),
         Pipe::Shadow => Some(DrawSpec { quad: q.part_of(part), ..*d }),
-        Pipe::Opaque | Pipe::Straight | Pipe::Rounded => {
+        Pipe::Opaque | Pipe::Straight | Pipe::Rounded | Pipe::Premultiplied => {
             if !on_the_grid(q) {
                 return Some(*d);
             }
             let shift =
                 ((part.0 - q.x) as u32, (part.1 - q.y) as u32, part.2 as u32, part.3 as u32);
+            if let Some(cut) = cut_scaled(d, shift) {
+                return Some(cut);
+            }
             match cut_tex(d.tex, q, shift) {
                 Some(tex) => Some(DrawSpec { pipe: d.pipe, quad: q.part_of(part), tex }),
                 None => Some(*d),

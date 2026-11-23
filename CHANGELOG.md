@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-11-23 (the loaded desktop: glass at the blur's resolution, vector kernels, runs, the taskbar above the windows — TASK-0343 done, TASK-0351 P5/P13 done, package C)
+
+- **A glass costs its band, at the blur's resolution.** A glass back drawn at an integer scale
+  is cut to the pass area on its texel grid with a bilinear apron (a 1-px hover drew the whole
+  2 Mpx back: gate scene hover 2831 → 437 µs); the scene below a written glass is drawn at the
+  blur's resolution so the horizontal pass pairs its taps (radius 40: 21 → 11 fetches) and a
+  frame's writes share a horizontal pass per wave; the unused merge is gone. Glass-writing frames
+  on the board 37.6 → 19-22 ms.
+- **Frame pacing closed (TASK-0343):** late flips 13.5 % → 1.4 %.
+- **Vector kernels for cover, over and the alpha conversion** beside the existing fill and blend,
+  byte-equal to their scalar references at every vector width (first frame alpha 22.2 → 8.7 ms).
+- **Runs** (RFC-0109): a below run and a group run in retained targets of gpud's own, a glass
+  back cut only around its own window's layers so a run is byte-equal to the frame without it.
+  On the board the run planes live, but the group run did not yet form on the launcher.
+- **The taskbar and the dock stay above the windows** (one rule for paint and pointer) while no
+  window is fullscreen.
+
 ### Changed - 2026-11-22 (a panel answers in 31-45 ms: the app paints on every hart and only what changed, the desktop's base where it has pixels — TASK-0367 P2, TASK-0355 P2, TASK-0354 P4, TASK-0351 P19, TASK-0336 P4 dropped)
 
 - **The app paints on every hart.** A safe scoped band entry in `nexus-workpool`

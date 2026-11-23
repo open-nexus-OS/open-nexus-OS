@@ -81,7 +81,9 @@ fn a_scene_of_two_hundred_layers_is_planned_whole_and_every_glass_has_rows() {
 }
 
 #[test]
-fn more_writes_than_share_their_passes_run_one_by_one() {
+fn windows_over_one_another_write_a_wave_each() {
+    // A cascade, more windows than a wave holds: each one's glass shows the one below it, so
+    // each runs in a wave of its own — three passes a write, as one by one.
     let mut f = ready_frame(PLANE_ROWS);
     let windows = MERGE_MAX as u32 + 4;
     f.layers.take_frame(&cascade(windows));
@@ -91,6 +93,7 @@ fn more_writes_than_share_their_passes_run_one_by_one() {
     }
     let b = Board::new(&f, p, DISPLAY, 14_040, 600);
     assert_eq!(b.glass.writes as u32, windows);
+    assert_eq!(b.wave_count(), windows as usize);
     assert_eq!(b.pass_count(), 3 * windows as usize + 1);
     // Every write's chain ends in its own rows of its plane; the slot's pass is the last.
     for w in 0..windows as usize {

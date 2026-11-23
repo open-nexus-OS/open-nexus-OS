@@ -708,6 +708,10 @@ proves = "TASK-0351 P19 (W4): a damage rect queued with key 0 (no layer named: i
 phase = "end"
 proves = "RFC-0121: the desktop's base declared where it holds pixels — the body pieces windowd draws (`n=`, `n=whole` for the full-screen piece) and their pixels (`px=`), said on each change; a measurement"
 
+[marker."apphost: band opaque ("]
+phase = "end"
+proves = "TASK-0351 P14 (package C): why scroll bands are or are not declared BAND_OPAQUE, over every 16 band grounds that changed — yes, no_pane, corner, translucent, other; a measurement that names the rule a cut must change"
+
 [marker."apphost: hops hover ("]
 phase = "end"
 proves = "TASK-0353 P7: of 16 hovers that changed the hovered control, how many asked for a raster — a hover is a layer the compositor fades (RFC-0116), so `rastered=0`; a measurement, judged by the phase gate on the board"

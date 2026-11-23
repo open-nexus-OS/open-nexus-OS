@@ -10,7 +10,8 @@
 //! shadow is drawn as its ring — its quad less the layer's shape, plus the shape's corner
 //! squares: inside the shape's cross its knockout leaves nothing (`shadow.wgsl`). Every one of
 //! those is cut to the pieces around the opaque layer above it (`occlude`): the piece's quad is
-//! the layer's part, its texels the part's. Split out of `board.rs` (the module-size ratchet);
+//! the layer's part, its texels the part's — the glass back around a layer of its own window
+//! alone (R-own, `LayerDraws::back_pieces`). Split out of `board.rs` (the module-size ratchet);
 //! pure.
 //! OWNERS: @gpu @ui
 //! STATUS: Functional
@@ -302,44 +303,71 @@ impl Back {
 }
 
 /// The draws of one layer in a scene pass: its glass back, its shadow, its content's parts —
-/// each cut to its pieces around `occluder`, the opaque rectangle above it (if one touches
-/// it).
+/// the shadow and the content each cut to its pieces around `occluder`, the opaque rectangle
+/// above it (if one touches it); the back around `own`, the one of its own window (R-own).
 #[derive(Clone, Copy, Debug)]
 pub(super) struct LayerDraws {
     back: Option<Back>,
     shadow: Option<Shadow>,
     content: Content,
     occluder: Option<Px>,
+    own: Option<Px>,
 }
 
 impl LayerDraws {
     /// `back`: the glass's cache rows (their first row) and the size of the rest rectangle they
-    /// hold the blur of.
+    /// hold the blur of. `own`: the opaque rectangle above the layer that is its own window's.
     pub(super) fn new(
         l: &FrameLayer,
         back: Option<(u32, (u32, u32))>,
         content: Content,
-        occluder: Option<Px>,
+        (occluder, own): (Option<Px>, Option<Px>),
     ) -> Self {
         Self {
             back: back.map(|(row, at)| Back::of(l, row, at)),
             shadow: Shadow::of(l),
             content,
             occluder,
+            own,
         }
     }
 
-    /// The glass back's occluder on its scale's grid.
-    fn back_occluder(&self, b: &Back) -> Option<Px> {
-        self.occluder.and_then(|o| occlude::on_grid(o, (b.rect.0, b.rect.1), b.scale))
+    /// An occluder of the glass back on its scale's grid.
+    fn on_grid(b: &Back, occ: Option<Px>) -> Option<Px> {
+        occ.and_then(|o| occlude::on_grid(o, (b.rect.0, b.rect.1), b.scale))
+    }
+
+    /// The pieces the glass back is drawn as, each with whether a corner is in it (R-own,
+    /// TASK-0351 P19): a back's texels are spread over its pixels and a piece's sampler clamps
+    /// at the piece, so where it is cut shows — it is cut around the opaque layer of its OWN
+    /// window alone, which every pass that draws the window holds; any other layer above only
+    /// leaves out the pieces it covers whole, which changes no pixel that is seen.
+    fn back_pieces(&self, b: Back) -> impl Iterator<Item = (Px, bool)> + '_ {
+        let around = Self::on_grid(&b, self.own);
+        b.parts()
+            .into_iter()
+            .flatten()
+            .flat_map(move |(part, rounded)| {
+                occlude::cut(part, around).into_iter().flatten().map(move |p| (p, rounded))
+            })
+            .filter(|&(p, _)| !self.occluder.is_some_and(|o| occlude::covers(o, p)))
+    }
+
+    /// R-own's cost inside `clip`: the pixels the back draws under the opaque layer above it
+    /// that a cut around that layer would have left out.
+    pub(super) fn uncut_px(&self, clip: Px) -> u64 {
+        let Some(b) = self.back else { return 0 };
+        let under = Self::on_grid(&b, self.occluder).and_then(|g| occlude::intersection(g, clip));
+        let Some(under) = under else { return 0 };
+        self.back_pieces(b)
+            .filter_map(|(p, _)| occlude::intersection(p, under))
+            .map(occlude::area)
+            .sum()
     }
 
     /// How many draws the layer takes.
     pub(super) fn count(&self) -> usize {
-        let back = self.back.map_or(0, |b| {
-            let occ = self.back_occluder(&b);
-            b.parts().iter().flatten().map(|&(p, _)| occlude::count(p, occ)).sum()
-        });
+        let back = self.back.map_or(0, |b| self.back_pieces(b).count());
         let shadow = self.shadow.map_or(0, |s| {
             s.ring().iter().flatten().map(|&p| occlude::count(p, self.occluder)).sum()
         });
@@ -359,13 +387,11 @@ impl LayerDraws {
     /// Draw `k` of the layer.
     pub(super) fn draw(&self, mut k: usize) -> Option<DrawSpec> {
         if let Some(b) = self.back {
-            let occ = self.back_occluder(&b);
-            for (part, rounded) in b.parts().into_iter().flatten() {
-                let n = occlude::count(part, occ);
-                if k < n {
-                    return Some(b.draw(rounded, occlude::piece(part, occ, k)?));
+            for (p, rounded) in self.back_pieces(b) {
+                if k == 0 {
+                    return Some(b.draw(rounded, p));
                 }
-                k -= n;
+                k -= 1;
             }
         }
         if let Some(s) = self.shadow {

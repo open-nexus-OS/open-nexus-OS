@@ -18,6 +18,8 @@
 use nexus_layout::LayoutBox;
 use nexus_layout_types::{Rgba8, ShapeKind};
 
+extern crate alloc;
+
 /// A viewport in layout coordinates: x0, y0, x1, y1 (exclusive).
 type Rect = (i32, i32, i32, i32);
 
@@ -51,6 +53,65 @@ pub(crate) fn ground(boxes: &[LayoutBox], container: usize, viewport: Rect) -> O
         return flat_opaque(b).filter(|_| covers(b, viewport));
     }
     None
+}
+
+/// Why a band's ground is what it is (TASK-0351 P14 — the board's scroll blocks blended the
+/// region and the slice at the same pixel count, so BAND_OPAQUE did not take effect, and no line
+/// said why): `yes` a flat opaque ground; `no_pane` nothing paints under the viewport; `corner` the
+/// box under it is rounded or does not cover the viewport inside its straight cross; `translucent`
+/// its fill is see-through, a gradient or a shine; `other` it paints no fill (a border alone).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Why {
+    Yes,
+    NoPane,
+    Corner,
+    Translucent,
+    Other,
+}
+
+/// The reason `ground` gives for the scroll container at `container` (its same walk).
+pub(crate) fn why(boxes: &[LayoutBox], container: usize, viewport: Rect) -> Why {
+    if ground(boxes, container, viewport).is_some() {
+        return Why::Yes;
+    }
+    let Some(c) = boxes.get(container) else { return Why::Other };
+    let under = boxes[..container]
+        .iter()
+        .rev()
+        .find(|b| b.scroll_root.is_none() && paints(b) && intersects(b, viewport));
+    let Some(b) = Some(c).filter(|c| paints(c)).or(under) else { return Why::NoPane };
+    let v = &b.visual;
+    if v.background_gradient.is_some()
+        || v.inset_highlight.is_some()
+        || v.opacity.is_some_and(|o| o.0 < 255)
+        || v.background.is_some_and(|c| c.a < 255)
+    {
+        Why::Translucent
+    } else if v.background.is_none() {
+        Why::Other
+    } else {
+        Why::Corner
+    }
+}
+
+/// The reasons counted over the band grounds that changed, and the line once 16 more came:
+/// `apphost: band opaque (yes= no_pane= corner= translucent= other=)`.
+#[cfg(nexus_env = "os")]
+pub(crate) fn note(w: Why) -> Option<alloc::string::String> {
+    use core::sync::atomic::{AtomicU32, Ordering};
+    static SEEN: [AtomicU32; 5] = [const { AtomicU32::new(0) }; 5];
+    SEEN[w as usize].fetch_add(1, Ordering::Relaxed);
+    let n: [u32; 5] = core::array::from_fn(|i| SEEN[i].load(Ordering::Relaxed));
+    (n.iter().sum::<u32>() % 16 == 0).then(|| {
+        alloc::format!(
+            "apphost: band opaque (yes={} no_pane={} corner={} translucent={} other={})",
+            n[0],
+            n[1],
+            n[2],
+            n[3],
+            n[4]
+        )
+    })
 }
 
 /// Whether the box puts any pixel on the base.
@@ -201,5 +262,20 @@ mod tests {
     #[test]
     fn a_band_over_the_translucent_window_alone_stays_transparent() {
         assert_eq!(ground(&page(), 2, (20, 20, 200, 100)), None);
+    }
+
+    #[test]
+    fn a_band_ground_names_why_it_is_not_opaque() {
+        let pane = boxed(0, 0, 400, 600, Some(PANE), 0);
+        let viewport = (20, 20, 380, 580);
+        assert_eq!(why(&[pane.clone(), boxed(20, 20, 360, 560, None, 0)], 1, viewport), Why::Yes);
+        assert_eq!(why(&[boxed(20, 20, 360, 560, None, 0)], 0, viewport), Why::NoPane);
+        let glass = boxed(0, 0, 400, 600, Some(Rgba8 { a: 180, ..PANE }), 0);
+        assert_eq!(why(&[glass, boxed(20, 20, 360, 560, None, 0)], 1, viewport), Why::Translucent);
+        let rounded = boxed(0, 0, 400, 600, Some(PANE), 40);
+        assert_eq!(
+            why(&[rounded, boxed(0, 0, 400, 600, None, 0)], 1, (0, 0, 400, 600)),
+            Why::Corner
+        );
     }
 }

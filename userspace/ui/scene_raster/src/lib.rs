@@ -31,6 +31,9 @@ pub use scrolled::{
     paint_row, paint_row_picked, paint_row_picked_animated, paint_row_picked_indexed, ScrollView,
 };
 
+mod runs;
+#[cfg(test)]
+mod runs_identity;
 mod shapes;
 use shapes::{ceil_i32, floor_i32, sqrt_f32};
 #[cfg(test)]
@@ -297,7 +300,15 @@ pub(crate) fn paint_box_row_at(
                     let sy = ((canvas.y - y).clamp(0, h - 1) as i64 * sh as i64 / h as i64)
                         .clamp(0, (sh - 1) as i64) as i32;
                     let (x0, x1) = canvas.visible(x.max(0), (x + w).min(canvas.width));
-                    for px in x0..x1 {
+                    // A 1:1 sprite at full opacity is its source row: one run through the
+                    // over kernel (TASK-0367 P4), pixel for pixel the loop below.
+                    let src = (sw == w && op == 255)
+                        .then(|| {
+                            ((sy * sw + x0 - x) * 4) as usize..((sy * sw + x1 - x) * 4) as usize
+                        })
+                        .and_then(|run| rgba.get(run));
+                    let laid = src.is_some_and(|src| canvas.over_run(x0, src));
+                    for px in (x0..x1).filter(|_| !laid) {
                         let sx = ((px - x) as i64 * sw as i64 / w as i64).clamp(0, (sw - 1) as i64)
                             as i32;
                         let o = ((sy * sw + sx) * 4) as usize;
@@ -437,7 +448,8 @@ fn paint_shadow_row(
     let (k0, k1) = if k1 > k0 { (k0, k1) } else { (x1.max(x0), x1.max(x0)) };
     // Only the columns the scissor lets through are asked (TASK-0367 P3).
     let (v0, v1) = canvas.visible(x0, x1);
-    for px in (x0.max(v0)..k0.min(v1)).chain(k1.max(v0)..x1.min(v1)) {
+    // Each pixel's alpha (0: untouched), laid as runs through the cover kernel (TASK-0367 P4).
+    let alpha = |px: i32| {
         let pxf = px as f32 + 0.5;
         let dx = (pxf - cx).abs() - hw;
         let dxc = if dx > 0.0 { dx } else { 0.0 };
@@ -448,7 +460,7 @@ fn paint_shadow_row(
         // Linear falloff across [-blur/2, +blur/2] around the rect edge.
         let t = 0.5 - dist / blur;
         if t <= 0.0 {
-            continue;
+            return 0;
         }
         let mut f = if t >= 1.0 { 1.0 } else { t };
         // Knock out the element's own footprint (1px feather at the edge).
@@ -457,25 +469,16 @@ fn paint_shadow_row(
         let kin = if kdx.max(kdy) < 0.0 { kdx.max(kdy) } else { 0.0 };
         let kdist = sqrt_f32(kdxc * kdxc + kdyc * kdyc) + kin - radius;
         if kdist <= 0.0 {
-            continue;
+            return 0;
         }
         if kdist < 1.0 {
             f *= kdist;
         }
-        let a = (shadow.color.a as f32 * f) as u8;
-        if a == 0 {
-            continue;
-        }
-        canvas.blend(
-            px,
-            nexus_layout_types::Rgba8 {
-                r: shadow.color.r,
-                g: shadow.color.g,
-                b: shadow.color.b,
-                a,
-            },
-        );
-    }
+        (shadow.color.a as f32 * f) as u8
+    };
+    let c = shadow.color;
+    canvas.cover_run(x0.max(v0), k0.min(v1), c, alpha);
+    canvas.cover_run(k1.max(v0), x1.min(v1), c, alpha);
 }
 
 #[cfg(test)]

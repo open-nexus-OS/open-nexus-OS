@@ -20,6 +20,11 @@ use super::layers::{FrameLayer, RetainedLayers, MAX_LAYERS};
 use super::occlude::{self, Px};
 use super::reach::{px, Changes, GlassAt, OweFull, Touch, WritesBy, GLASS_REACH};
 
+#[path = "runs.rs"]
+mod runs;
+pub(super) use runs::{run_clear_row, RUN_CLEAR_ROWS};
+pub use runs::{run_plane_rows, RunKind, RunLimits, RunSpec, Runs, RunsShort, RUN_TARGETS};
+
 /// Whether `a` and `b` draw the same pixels at the same place — the layer as drawn, its content
 /// generation and its buffer's slot left out (a content change, a slot flip included, reaches
 /// the screen as the present's damage — RFC-0114 §6: a flip is never a backdrop change). Every
@@ -202,6 +207,8 @@ pub struct Frame {
     changes: Changes,
     /// The layers in motion and the glasses held through it (`hold`).
     hold: Hold,
+    /// The ranges of layers kept drawn in targets of the executor's own (`runs`).
+    runs: Runs,
 }
 
 /// `v` emptied with room for `n` entries; how many it has room for (all of them unless the
@@ -228,6 +235,7 @@ impl Frame {
             above: Vec::new(),
             changes: Changes::new(),
             hold: Hold::new(),
+            runs: Runs::new(),
         }
     }
 
@@ -512,6 +520,7 @@ impl Frame {
         self.idents.extend_from_slice(&ids);
         (self.drawn, self.ids, self.carried, self.kept) = (drawn, ids, carried, kept);
         self.above = above;
+        self.track_runs(fits);
         self.layers.dirty = false;
         self.layers.buffers_lost = false;
         if upload && set_epoch != 0 {

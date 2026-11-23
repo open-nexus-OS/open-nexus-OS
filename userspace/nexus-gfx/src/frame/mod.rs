@@ -15,12 +15,16 @@
 //! path's virgl executor and the board's GPU executor draw the same plan — the board's through
 //! `board`, the plan lowered into its passes, the slot's pass limited to what the slot lacks
 //! (`damage::History`, buffer age); the CPU path's own recipe commands (`BlitSurface`,
-//! `BlurBackdrop`, `BlitAbsolute`) are not the planner's.
+//! `BlurBackdrop`, `BlitAbsolute`) are not the planner's. An executor that keeps planes of its
+//! own may ask for runs (`Frame::take_runs`, `plan`'s `runs`; RFC-0109 "Runs and group
+//! opacity"): the layers under the lowest one in motion, or a fading group, drawn once and
+//! from then on as one quad — the board's executor does, the virgl one draws the layers.
 //! OWNERS: @ui @gpu
 //! STATUS: Functional
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: `tests/frame_plan.rs`, `tests/frame_motion.rs`, `tests/frame_reach.rs`,
-//!   `tests/frame_reach_oracle.rs` (host); the QEMU lanes' composite markers
+//!   `tests/frame_reach_oracle.rs`, `tests/frame_runs.rs` (host); the QEMU lanes' composite
+//!   markers
 //! INVARIANTS: no allocation (the plan is the frame's own storage); a frame is planned only for a
 //!   present (TASK-0338: a scroll or a move is a present — no executor draws a frame of its own);
 //!   a present without layers keeps the set; a transform holds until a present carries another;
@@ -37,7 +41,6 @@ pub mod glass;
 mod hold;
 pub mod kernels;
 pub mod layers;
-pub mod merge;
 pub mod occlude;
 pub mod oracle;
 pub mod pieces;
@@ -46,6 +49,7 @@ mod reach;
 mod rest;
 pub mod scanout;
 pub mod walk;
+mod waves;
 
 pub use board::{
     drawn_px, Board, DrawSpec, GlassCount, PassKind, PassSpec, Pipe, Target, Tex, MERGE_MAX,
@@ -56,7 +60,10 @@ pub use damage::{Area, History, HISTORY};
 pub use glass::{CacheStep, GlassCache, WriteCause};
 pub use kernels::{blur_radius, blur_scale, Gaussian, Weights, BLUR_RADII};
 pub use layers::{FrameLayer, RetainedLayers, Taken, Transform, MAX_LAYERS};
-pub use plan::{Frame, Glass, LayerStep, Planned, Writes};
+pub use plan::{
+    run_plane_rows, Frame, Glass, LayerStep, Planned, RunKind, RunLimits, RunSpec, RunsShort,
+    Writes, RUN_TARGETS,
+};
 pub use reach::{OweWhole, RestMisses, RestWhole, WritesBy};
 pub use scanout::direct;
 pub use walk::Draws;

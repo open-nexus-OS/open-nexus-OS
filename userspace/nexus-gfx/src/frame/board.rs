@@ -2,10 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! A frame's plan as the board GPU's passes (TASK-0215 5c-3 P4b). Per glass whose cache step is
-//! a write, three passes first: the scene below it drawn again into the scratch (over its reach
-//! only), the horizontal blur into the half-resolution scratch, the vertical blur into its cache
-//! rows. Then the slot's pass: the wallpaper (or the frame a capture freeze holds, the base the
-//! executor names), per layer its glass drawn back from the cache, its shadow, its content. A
+//! a write, three steps first: the scene below it drawn again into the scratch at the blur's
+//! resolution (over its reach only — `chain::Reduced` places each draw, TASK-0351 P19), the
+//! horizontal blur into the half-resolution scratch, the vertical blur into its cache rows —
+//! the writes in waves that share the horizontal pass (`waves`). Then the passes that draw a
+//! run's plane again (`plan::runs`, RFC-0109), and the slot's pass: the wallpaper (or the frame
+//! a capture freeze holds, the base the executor names), per layer its glass drawn back from the
+//! cache, its shadow, its content — a run's quad in place of its layers. A
 //! pass clears its area, so the slot's pass draws the whole scene. A
 //! rounded layer's content is its unrounded bands and its four corner squares (the rounded
 //! program for those alone, a part's push constants naming the whole layer); a content band
@@ -13,24 +16,22 @@
 //! path's. Pure and allocation-free: the executor names the pipelines and writes the textures'
 //! descriptors.
 
-use super::chain::{chain, clip_blur, Chain, PassArea};
+use super::chain::{chain, clip_blur, Chain, PassArea, Reduced};
 use super::damage::Area;
 use super::glass::CacheStep;
 use super::layers::{FrameLayer, MAX_LAYERS};
-use super::merge::{mergeable, Written};
 use super::occlude::{self, Px};
 use super::pieces::{Content, LayerDraws};
-use super::plan::{Frame, Planned};
+use super::plan::{Frame, Planned, RunSpec, RUN_TARGETS};
 use super::walk::Draws;
+use super::waves::{Fit, Step, Waves, PLACED};
 use crate::backend::gpu::quads::Quad;
 
 pub use super::kernels::{blur_radius, blur_scale, BLUR_RADII};
+pub use super::waves::MERGE_MAX;
 
 /// The program kinds `Board::work_by_program` counts: opaque, straight, rounded, shadow, blur.
 pub const PROGRAM_KINDS: usize = 5;
-
-/// The most glass writes that share their passes in one frame (`merge::mergeable`).
-pub const MERGE_MAX: usize = 32;
 
 /// The pixels of `d`'s quad inside the pass area `area` (inclusive corners): what it shades.
 pub fn drawn_px(d: &DrawSpec, area: (u32, u32, u32, u32)) -> u64 {
@@ -49,8 +50,11 @@ pub enum Pipe {
     Straight,
     Rounded,
     Shadow,
-    BlurH(u32),
-    BlurV(u32),
+    /// A blur pass at a library radius: the kernel table's paired program, across or down as
+    /// its quad's step says (both passes of a write read a source at the blur's resolution).
+    Blur(u32),
+    /// A group run drawn back: its premultiplied texels times the tint, over the target.
+    Premultiplied,
 }
 
 /// What a draw samples.
@@ -65,8 +69,15 @@ pub enum Tex {
         w: u32,
         h: u32,
     },
-    /// The scratch the scene below a glass is drawn into (the display's size).
-    Scratch,
+    /// A rectangle of the scratch (a plane of the display's size): the scene below a glass at
+    /// the blur's resolution. The sampler clamps at the rectangle, so a tap past the display's
+    /// edge reads the scene's edge texel.
+    Scratch {
+        x: u32,
+        row: u32,
+        w: u32,
+        h: u32,
+    },
     /// The half-resolution scratch: the display's width, `rows` high.
     Half {
         rows: u32,
@@ -83,6 +94,14 @@ pub enum Tex {
     /// buffer's own base and stride; gpud checked the rectangle against the buffer at intake.
     Buffer {
         source: u32,
+        slot: u8,
+        x: u32,
+        row: u32,
+        w: u32,
+        h: u32,
+    },
+    /// A rectangle of run plane `slot`; its rows past the display hold transparent texels.
+    Run {
         slot: u8,
         x: u32,
         row: u32,
@@ -107,6 +126,8 @@ pub enum Target {
     Half,
     /// A plane of the glass cache.
     Cache(u32),
+    /// A run's plane.
+    Run(u8),
 }
 
 /// A pass's draws.
@@ -116,9 +137,11 @@ pub enum PassKind {
     Scene { upto: usize },
     /// One draw.
     One(DrawSpec),
-    /// The blur pass of every glass written this frame, in one (TASK-0335 P3): the horizontal
-    /// passes into their half rows, or the vertical ones into their cache rows.
-    Blurs { vertical: bool },
+    /// The horizontal blur of a wave's writes in one pass (TASK-0351 P19): the `count` writes
+    /// from `from`, each into its own half rows.
+    Blurs { from: usize, count: usize },
+    /// A group run's plane: transparent texels, then the plan's layers `from..to` at rest.
+    Rest { from: usize, to: usize },
 }
 
 /// One pass: its target, its area (inclusive corners) and its draws.
@@ -153,18 +176,12 @@ pub struct Board<'a> {
     /// it to what the slot lacks.
     area: (u32, u32, u32, u32),
     /// Glass layers written this frame (`write_at` finds each in the walk).
-    pub(super) write_count: usize,
+    write_count: usize,
+    /// The writes in waves: where each one's scene and half rows lie.
+    waves: Waves,
+    /// The runs the slot's pass draws from, by target (`Frame::take_runs` decided them).
+    pub(super) runs: [Option<RunSpec>; RUN_TARGETS],
     pub glass: GlassCount,
-    /// The half rows each write's re-blur is packed to when the writes share their passes
-    /// (TASK-0335 P3) — at most `MERGE_MAX` do. The geometry itself (`chain_at`) is worked out
-    /// where a pass asks for it, and the writes are found in the plan: the board lies on its
-    /// executor's stack and holds no table that grows with the scene.
-    half_at: [u32; MERGE_MAX],
-    /// The writes share one scene pass, one horizontal and one vertical (`merge::mergeable`,
-    /// and every chain fit the half scratch).
-    merged: bool,
-    /// The shared passes' areas: the scenes' union, the half areas', the cache rows'.
-    unions: [PassArea; 3],
 }
 
 impl<'a> Board<'a> {
@@ -186,10 +203,9 @@ impl<'a> Board<'a> {
             base_row: 0,
             area: (0, 0, display.0.saturating_sub(1), display.1.saturating_sub(1)),
             write_count: 0,
+            waves: Waves::lay_out(0, |_, _, _| None),
+            runs: frame.runs(),
             glass: GlassCount::default(),
-            half_at: [0; MERGE_MAX],
-            merged: false,
-            unions: [(0, 0, 0, 0); 3],
         };
         for j in 0..b.layers {
             match frame.cache_step(j) {
@@ -202,8 +218,31 @@ impl<'a> Board<'a> {
                 None => {}
             }
         }
-        b.lay_out_chains();
+        b.waves = b.lay_out();
         b
+    }
+
+    /// The frame's writes in waves (`waves`): a write joins the wave while the scratches hold
+    /// its scene and its half rows there and its scene shows no glass the wave writes.
+    fn lay_out(&self) -> Waves {
+        // Write `w`'s layer, found once.
+        let mut index = [0usize; PLACED];
+        for (w, j) in (0..self.layers).filter(|j| self.written(*j)).take(PLACED).enumerate() {
+            index[w] = j;
+        }
+        let drawn = |w: usize| {
+            self.layer(index[w], false)
+                .map_or(Area::None, |(l, _)| Area::rect(l.dst_x, l.dst_y, l.width, l.height))
+        };
+        Waves::lay_out(self.write_count, |w, first, at| {
+            let c = self.chain_of(index[w], at)?;
+            let (x0, y0, x1, y1) = c.scene.pixels(c.scene_area);
+            let scene = Area::Rect { x0, y0, x1: x1.saturating_add(1), y1: y1.saturating_add(1) };
+            Some(Fit {
+                rows: (c.scene_rows_used, c.half_rows_used),
+                shows: (first..w).any(|k| drawn(k).touches(scene)),
+            })
+        })
     }
 
     /// The scene starts from the plane at layout row `row`: the wallpaper plane's 0 unless the
@@ -222,16 +261,15 @@ impl<'a> Board<'a> {
         self
     }
 
-    /// Passes of the frame: the writes' chains — three shared when the writes may share them
-    /// (TASK-0335 P3), three per write otherwise — then the slot's.
+    /// Passes of the frame: a scene and a vertical blur a write, a horizontal blur a wave, one
+    /// a run drawn again, then the slot's.
     pub fn pass_count(&self) -> usize {
-        if self.write_count == 0 {
-            1
-        } else if self.merged {
-            4
-        } else {
-            3 * self.write_count + 1
-        }
+        self.waves.passes() + self.run_passes() + 1
+    }
+
+    /// Waves the frame's writes run in.
+    pub fn wave_count(&self) -> usize {
+        self.waves.count()
     }
 
     /// Pass `p` of the frame.
@@ -243,69 +281,84 @@ impl<'a> Board<'a> {
                 kind: PassKind::Scene { upto: self.layers },
             });
         }
-        if self.merged {
-            let low = self.write_at(0)?;
-            return Some(match p {
-                0 => PassSpec {
-                    target: Target::Scratch,
-                    area: self.unions[0],
-                    kind: PassKind::Scene { upto: low },
-                },
-                1 => PassSpec {
-                    target: Target::Half,
-                    area: self.unions[1],
-                    kind: PassKind::Blurs { vertical: false },
-                },
-                2 => PassSpec {
-                    target: Target::Cache(self.chain_at(0)?.plane),
-                    area: self.unions[2],
-                    kind: PassKind::Blurs { vertical: true },
-                },
-                _ => return None,
-            });
+        if let Some(r) = p.checked_sub(self.waves.passes()) {
+            return self.run_pass(r);
         }
-        let w = p / 3;
-        let (j, c) = (self.write_at(w)?, self.chain_at(w)?);
-        Some(match p % 3 {
-            0 => PassSpec {
+        Some(match self.waves.step(p)? {
+            Step::Scene(w) => PassSpec {
                 target: Target::Scratch,
-                area: c.scene_area,
-                kind: PassKind::Scene { upto: j },
+                area: self.chain_at(w)?.scene_area,
+                kind: PassKind::Scene { upto: self.write_at(w)? },
             },
-            1 => PassSpec {
+            Step::Across { from, count: 1 } => {
+                let c = self.chain_at(from)?;
+                PassSpec {
+                    target: Target::Half,
+                    area: c.half_area,
+                    kind: PassKind::One(Self::blur_draw(&c, false, None)),
+                }
+            }
+            // One rectangle around every write's half rows: what it clears beside them is the
+            // half scratch's, which holds nothing a wave did not draw.
+            Step::Across { from, count } => PassSpec {
                 target: Target::Half,
-                area: c.half_area,
-                kind: PassKind::One(Self::blur_draw(&c, false, None)),
+                area: (from..from + count)
+                    .filter_map(|w| self.chain_at(w))
+                    .map(|c| c.half_area)
+                    .reduce(|a, b| (a.0.min(b.0), a.1.min(b.1), a.2.max(b.2), a.3.max(b.3)))?,
+                kind: PassKind::Blurs { from, count },
             },
-            _ => PassSpec {
-                target: Target::Cache(c.plane),
-                area: c.rows_area,
-                kind: PassKind::One(Self::blur_draw(&c, true, None)),
-            },
+            // A pass a write: the cache plane holds what must stay beside its rows.
+            Step::Down(w) => {
+                let c = self.chain_at(w)?;
+                PassSpec {
+                    target: Target::Cache(c.plane),
+                    area: c.rows_area,
+                    kind: PassKind::One(Self::blur_draw(&c, true, None)),
+                }
+            }
         })
     }
 
     /// Draws of pass `pass`.
     pub fn draws(&self, pass: &PassSpec) -> usize {
         match pass.kind {
+            _ if self.by_walk(pass) => self.walk(pass).count(),
             PassKind::Scene { upto } => self.scene_draws(upto.min(self.layers)),
             PassKind::One(_) => 1,
-            PassKind::Blurs { .. } => self.write_count,
+            PassKind::Rest { .. } => 0,
+            PassKind::Blurs { count, .. } => count,
         }
     }
 
     /// Draw `i` of pass `pass`.
     pub fn draw(&self, pass: &PassSpec, i: usize) -> Option<DrawSpec> {
         match pass.kind {
+            _ if self.by_walk(pass) => self.walk(pass).nth(i),
+            PassKind::Rest { .. } => None,
             PassKind::One(d) => (i == 0).then_some(d),
-            PassKind::Blurs { vertical } => {
-                let c = self.chain_at(i)?;
+            PassKind::Blurs { from, count } => {
+                let c = (i < count).then(|| self.chain_at(from + i)).flatten()?;
                 // Each write's quad cut to its own band: one scissor serves them all.
-                let own = if vertical { c.rows_area } else { c.half_area };
-                Some(Self::blur_draw(&c, vertical, Some(own)))
+                Some(Self::blur_draw(&c, false, Some(c.half_area)))
             }
-            PassKind::Scene { upto } => self.scene_draw(upto.min(self.layers), i),
+            PassKind::Scene { upto } => {
+                let d = self.scene_draw(upto.min(self.layers), i)?;
+                Some(self.reduction(pass).map_or(d, |r| r.place(&d, pass.area)))
+            }
         }
+    }
+
+    /// How `pass` places its draws when it is a write's scene pass into the scratch: at the
+    /// blur's resolution (`chain::Reduced`); `None` for every other pass — its draws are the
+    /// display's pixels.
+    pub(super) fn reduction(&self, pass: &PassSpec) -> Option<Reduced> {
+        let (Target::Scratch, PassKind::Scene { upto }) = (pass.target, pass.kind) else {
+            return None;
+        };
+        // The scene below write `w` is the layers before it: the writes before `upto`.
+        let w = (0..upto.min(self.layers)).filter(|j| self.written(*j)).count();
+        self.chain_at(w).map(|c| c.scene)
     }
 
     /// The pass's draws walked once, in the indexed walk's order (TASK-0351 P10): the executor
@@ -314,16 +367,16 @@ impl<'a> Board<'a> {
         Draws::new(self, pass)
     }
 
-    /// A chain's blur draw: horizontal into the half scratch, vertical into the cache rows;
-    /// `cut` clips the quad to that area (a shared pass).
+    /// A chain's blur draw: across the scene into the half scratch, or down the half rows into
+    /// the cache rows; `cut` clips the quad to that area (a shared pass).
     fn blur_draw(c: &Chain, vertical: bool, cut: Option<PassArea>) -> DrawSpec {
-        let (pipe, quad, tex) = if vertical {
-            (Pipe::BlurV(c.radius), c.rows_quad, Tex::Half { rows: c.half_rows_total })
+        let (quad, tex) = if vertical {
+            (c.rows_quad, Tex::Half { rows: c.half_rows_total })
         } else {
-            (Pipe::BlurH(c.radius), c.half_quad, Tex::Scratch)
+            (c.half_quad, c.scene_tex)
         };
         let quad = cut.map_or(quad, |a| clip_blur(quad, a));
-        DrawSpec { pipe, quad, tex }
+        DrawSpec { pipe: Pipe::Blur(c.radius), quad, tex }
     }
 
     /// The textured work of a pass in pixels: every draw's quad clipped to the pass's area,
@@ -340,10 +393,10 @@ impl<'a> Board<'a> {
         for d in self.walk(pass) {
             let k = match d.pipe {
                 Pipe::Opaque => 0,
-                Pipe::Straight => 1,
+                Pipe::Straight | Pipe::Premultiplied => 1,
                 Pipe::Rounded => 2,
                 Pipe::Shadow => 3,
-                Pipe::BlurH(_) | Pipe::BlurV(_) => 4,
+                Pipe::Blur(_) => 4,
             };
             px[k] += drawn_px(&d, pass.area);
         }
@@ -357,13 +410,14 @@ impl<'a> Board<'a> {
     pub fn blended_by_kind(&self, pass: &PassSpec) -> [u64; 8] {
         let mut px = [0u64; 8];
         let PassKind::Scene { upto } = pass.kind else { return px };
-        let upto = upto.min(self.layers);
-        for j in 0..upto {
-            let Some((l, _)) = self.layer(j) else { continue };
-            let Some(d) = self.layer_draws(j, upto) else { continue };
+        let (upto, reduce) = (upto.min(self.layers), self.reduction(pass));
+        for j in (0..upto).filter(|j| !self.in_run(pass, *j)) {
+            let Some((l, _)) = self.layer(j, false) else { continue };
+            let Some(d) = self.layer_draws(j, upto, false) else { continue };
             let kind = (crate::command::layer_wire::layer_key_kind(l.key) as usize).min(7);
             for i in 0..d.count() {
                 if let Some(s) = d.draw(i) {
+                    let s = reduce.map_or(s, |r| r.place(&s, pass.area));
                     if matches!(s.pipe, Pipe::Straight | Pipe::Rounded) {
                         px[kind] += drawn_px(&s, pass.area);
                     }
@@ -400,11 +454,20 @@ impl<'a> Board<'a> {
 
     /// The largest opaque rectangle (`occlude::opaque_rect`: an opaque layer's, or a glass's
     /// whose back is drawn) of the layers `from..upto` that touches `target`: what hides part
-    /// of a draw of `target` in a scene pass up to `upto`.
-    pub(super) fn occluder(&self, target: Px, from: usize, upto: usize) -> Option<Px> {
+    /// of a draw of `target` in a scene pass up to `upto` (`rest`: the layers at rest).
+    pub(super) fn occluder(&self, target: Px, from: usize, upto: usize, rest: bool) -> Option<Px> {
+        self.occluder_of(0, (target, from, upto), rest)
+    }
+
+    /// `occluder` among the layers of window `id` alone (`0`: of every layer).
+    fn occluder_of(&self, id: u32, at: (Px, usize, usize), rest: bool) -> Option<Px> {
+        let (target, from, upto) = at;
         let mut best: Option<Px> = None;
         for k in from..upto.min(self.layers) {
-            let Some((l, cache)) = self.layer(k) else { continue };
+            let Some((l, cache)) = self.layer(k, rest) else { continue };
+            if id != 0 && l.layer_id != id {
+                continue;
+            }
             let back = matches!(cache, Some(CacheStep::Read(_) | CacheStep::Write(_)));
             let Some(o) = occlude::opaque_rect(&l, back) else { continue };
             if !occlude::intersects(o, target) {
@@ -417,16 +480,19 @@ impl<'a> Board<'a> {
         best
     }
 
-    fn layer(&self, j: usize) -> Option<(FrameLayer, Option<CacheStep>)> {
+    /// Layer `j` as drawn, or at `rest` (as its present encoded it), and its glass's step.
+    fn layer(&self, j: usize, rest: bool) -> Option<(FrameLayer, Option<CacheStep>)> {
         let s = self.frame.step(j)?;
-        Some((s.layer, s.glass.map(|g| g.cache)))
+        let l = if rest { self.frame.layers.rest(j)? } else { s.layer };
+        Some((l, s.glass.map(|g| g.cache)))
     }
 
     /// The draws of layer `j` in a scene pass up to `upto`: its glass back, its shadow, its
-    /// content — in pieces around the opaque layer above it.
-    pub(super) fn layer_draws(&self, j: usize, upto: usize) -> Option<LayerDraws> {
-        let step = self.frame.step(j)?;
-        let l = step.layer;
+    /// content — in pieces around the opaque layer above it, its back around the one of its own
+    /// window (R-own, `pieces`). At `rest` (a group run's pass): the layer as its present
+    /// encoded it, around the layers of its group at rest.
+    pub(super) fn layer_draws(&self, j: usize, upto: usize, rest: bool) -> Option<LayerDraws> {
+        let (step, (l, _)) = (self.frame.step(j)?, self.layer(j, rest)?);
         // The back from its rows, which hold the blur of the rest rectangle (`Glass.at`).
         let back = step.glass.and_then(|g| match g.cache {
             CacheStep::Read(row) | CacheStep::Write(row) => Some((row, (g.at.2, g.at.3))),
@@ -440,27 +506,32 @@ impl<'a> Board<'a> {
             l.width + 2 * pad,
             l.height + 2 * pad,
         );
-        let occluder = self.occluder(extent, j + 1, upto);
-        Some(LayerDraws::new(&l, back, self.content(&l), occluder))
+        let occluder = self.occluder(extent, j + 1, upto, rest);
+        // Asked for a glass with a window alone: no other layer's draws are cut around it.
+        let own = occluder
+            .filter(|_| back.is_some() && l.layer_id != 0)
+            .and_then(|_| self.occluder_of(l.layer_id, (extent, j + 1, upto), rest));
+        Some(LayerDraws::new(&l, back, self.content(&l), (occluder, own)))
     }
 
     /// The wallpaper's pieces and every layer's, in walk order.
     fn scene_draws(&self, upto: usize) -> usize {
         let (w, h) = self.display;
-        let wall = occlude::count((0, 0, w, h), self.occluder((0, 0, w, h), 0, upto));
-        wall + (0..upto).filter_map(|j| self.layer_draws(j, upto)).map(|d| d.count()).sum::<usize>()
+        let wall = occlude::count((0, 0, w, h), self.occluder((0, 0, w, h), 0, upto, false));
+        let layer = |j| self.layer_draws(j, upto, false).map(|d| d.count());
+        wall + (0..upto).filter_map(layer).sum::<usize>()
     }
 
     fn scene_draw(&self, upto: usize, mut i: usize) -> Option<DrawSpec> {
         let (w, h) = self.display;
-        let occ = self.occluder((0, 0, w, h), 0, upto);
+        let occ = self.occluder((0, 0, w, h), 0, upto, false);
         let wall = occlude::count((0, 0, w, h), occ);
         if i < wall {
             return Some(self.wallpaper_piece(upto, occlude::piece((0, 0, w, h), occ, i)?));
         }
         i -= wall;
         for j in 0..upto {
-            let Some(d) = self.layer_draws(j, upto) else { continue };
+            let Some(d) = self.layer_draws(j, upto, false) else { continue };
             let n = d.count();
             if i < n {
                 return d.draw(i);
@@ -494,82 +565,32 @@ impl<'a> Board<'a> {
         }
     }
 
-    /// The re-blur of written glass `j` placed at half rows `half_row`, for the band the plan
-    /// recorded (`chain::chain`) — of its REST rectangle (`Glass.at`), wherever its layer is
-    /// drawn; `None` when it is not a write or the half scratch cannot hold it there.
-    fn chain_of(&self, j: usize, half_row: u32) -> Option<Chain> {
+    /// The re-blur of written glass `j` placed at the scene row and the half row `at`, for
+    /// the band the plan recorded (`chain::chain`) — of its REST rectangle (`Glass.at`),
+    /// wherever its layer is drawn; `None` when it is not a write or the scratch or the half
+    /// scratch cannot hold it there.
+    fn chain_of(&self, j: usize, at: (u32, u32)) -> Option<Chain> {
         let step = self.frame.step(j)?;
         let g = step.glass?;
         let CacheStep::Write(row) = g.cache else { return None };
         let (dst_x, dst_y, width, height) = g.at;
         let l = FrameLayer { dst_x, dst_y, width, height, ..step.layer };
         let rows = (row, self.frame.glass.plane_rows());
-        chain(&l, g.band, rows, half_row, self.display, self.half_rows)
+        chain(&l, g.band, rows, at, self.display, self.half_rows)
+    }
+
+    /// Whether the plan writes layer `j`'s glass this frame.
+    fn written(&self, j: usize) -> bool {
+        matches!(self.frame.cache_step(j), Some(CacheStep::Write(_)))
     }
 
     /// The walk's index of write `w`: the `w`-th glass the plan writes.
     fn write_at(&self, w: usize) -> Option<usize> {
-        let written = |j: &usize| matches!(self.frame.cache_step(*j), Some(CacheStep::Write(_)));
-        (0..self.layers).filter(written).nth(w)
+        (0..self.layers).filter(|j| self.written(*j)).nth(w)
     }
 
-    /// The re-blur of write `w`, at the half rows the frame packed it to (the scratch's top
-    /// when the writes run one by one).
+    /// The re-blur of write `w`, at its wave's place in the scratch and the half scratch.
     fn chain_at(&self, w: usize) -> Option<Chain> {
-        let half_row = if self.merged { *self.half_at.get(w)? } else { 0 };
-        self.chain_of(self.write_at(w)?, half_row)
-    }
-
-    /// Lays the writes' chains out (TASK-0335 P3): packed one after another in the half
-    /// scratch when they all fit and may share the scene (`merge::mergeable`) — then the frame
-    /// runs four passes; otherwise each at half row 0, three passes each, as before.
-    fn lay_out_chains(&mut self) {
-        // More writes than `MERGE_MAX` run one by one: so many are windows over one another,
-        // which share no scene (`merge::mergeable`).
-        if self.write_count < 2 || self.write_count > MERGE_MAX {
-            return;
-        }
-        let mut cursor = 0u32;
-        let mut written = [Written { index: 0, scene: Area::None, rect: Area::None }; MERGE_MAX];
-        let mut fits = true;
-        // One vertical pass has one target: the writes share it only inside one cache plane.
-        let mut plane = None;
-        let mut unions = [(u32::MAX, u32::MAX, 0, 0); 3];
-        let mut half_at = [0u32; MERGE_MAX];
-        let writes = (0..self.layers)
-            .filter(|j| matches!(self.frame.cache_step(*j), Some(CacheStep::Write(_))));
-        for (w, j) in writes.enumerate().take(MERGE_MAX) {
-            let Some(c) = self.chain_of(j, cursor) else {
-                fits = false;
-                break;
-            };
-            let (x0, y0, x1, y1) = c.scene_area;
-            let rect = self
-                .layer(j)
-                .map_or(Area::None, |(l, _)| Area::rect(l.dst_x, l.dst_y, l.width, l.height));
-            written[w] =
-                Written { index: j, scene: Area::rect(x0, y0, x1 - x0 + 1, y1 - y0 + 1), rect };
-            fits &= *plane.get_or_insert(c.plane) == c.plane;
-            for (u, a) in unions.iter_mut().zip([c.scene_area, c.half_area, c.rows_area]) {
-                *u = (u.0.min(a.0), u.1.min(a.1), u.2.max(a.2), u.3.max(a.3));
-            }
-            half_at[w] = cursor;
-            cursor += c.half_rows_used;
-        }
-        let top = self.layers;
-        let extent = |i: usize| {
-            self.layer(i).map_or(Area::None, |(l, _)| {
-                let pad = if l.shadow_blur > 0 {
-                    l.shadow_blur + l.shadow_offset_y.unsigned_abs()
-                } else {
-                    0
-                };
-                Area::rect(l.dst_x, l.dst_y, l.width, l.height).grown(pad)
-            })
-        };
-        let low = written[0].index;
-        if fits && mergeable(&written[..self.write_count], low, top, extent) {
-            (self.merged, self.unions, self.half_at) = (true, unions, half_at);
-        }
+        self.chain_of(self.write_at(w)?, self.waves.rows(w))
     }
 }

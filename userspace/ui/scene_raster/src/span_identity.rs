@@ -112,7 +112,7 @@ fn shine_ref(
 }
 
 /// The drop shadow as it was: both distance fields on every pixel of its reach.
-fn shadow_ref(
+pub(super) fn shadow_ref(
     canvas: &mut RowCanvas<'_>,
     shadow: &nexus_layout_types::BoxShadow,
     corner: i32,

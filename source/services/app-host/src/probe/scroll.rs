@@ -210,6 +210,10 @@ impl super::DslApp {
             // The ground its rows start from; rows painted on another ground are painted again.
             let ground = crate::band_ground::ground(&self.layout.boxes, bi, viewport);
             if layer.ground != ground {
+                let why = crate::band_ground::why(&self.layout.boxes, bi, viewport);
+                if let Some(line) = crate::band_ground::note(why) {
+                    raw_marker(&line);
+                }
                 layer.ground = ground;
                 layer.band.valid_len = 0;
             }

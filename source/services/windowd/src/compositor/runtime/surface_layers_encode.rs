@@ -25,8 +25,7 @@ use crate::layer_quota::LayerQuota;
 use crate::motion_geometry::{backdrop_id, layer_id as motion_id, region_owner, scroll_owner};
 use crate::surface_regions::SurfaceRegions;
 use nexus_display_proto::client_surface::{
-    LayerDesc, GLASS_DOCK, GLASS_PANEL, GLASS_THIN, GLASS_ULTRA_THIN, MATERIAL_GLASS,
-    MATERIAL_OPAQUE,
+    LayerDesc, GLASS_DOCK, GLASS_THIN, GLASS_ULTRA_THIN, MATERIAL_GLASS, MATERIAL_OPAQUE,
 };
 use nexus_display_proto::surface_layers::{MAX_SCROLL_LAYERS, PATCH_SIDE};
 use nexus_gfx::command::layer_wire;
@@ -104,6 +103,9 @@ pub(crate) struct LayerSnap {
     pub(crate) layer_id: u32,
     /// The motion layers moving this frame (bit `k`: layer `k`, `surface_motion::live`).
     pub(crate) live: u8,
+    /// Dock glass is drawn above the windows (the desktop while no window is fullscreen — a
+    /// fullscreen app keeps the screen; `above_the_windows`).
+    pub(crate) dock_above: bool,
 }
 
 type Rect = (u32, u32, u32, u32);
@@ -134,13 +136,13 @@ impl LayerSnap {
         motion.and_then(|k| self.layers.tree.motions().get(k)).is_some_and(|m| m.front)
     }
 
-    /// Whether desktop glass region `i` is drawn above the windows: a panel-level glass, or one a
+    /// Whether desktop glass region `i` is drawn above the windows (`above_the_windows`): a
+    /// panel-level glass, the dock and the taskbar, or one a
     /// motion layer claims — a shell overlay (a panel, the launcher in either size, a menu), at
     /// whatever blur its material asks (the fullscreen launcher's thick glass was drawn below the
     /// windows while the windowed one's panel glass was above them, board--2026-11-19T09-44-05).
     fn above_windows(&self, i: usize, l: &LayerDesc) -> bool {
-        l.material == MATERIAL_GLASS
-            && (l.glass_level == GLASS_PANEL || region_owner(&self.layers.tree, i).is_some())
+        crate::motion_geometry::above_the_windows(&self.layers.tree, i, l, self.dock_above)
     }
 
     /// Whether a rectangle of the surface lies inside one of its glass regions above the windows.
