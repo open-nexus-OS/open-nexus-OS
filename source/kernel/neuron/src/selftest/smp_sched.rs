@@ -16,6 +16,7 @@ use crate::task::Pid;
 use crate::types::CpuId;
 use crate::{log_error, log_info};
 
+mod loan;
 mod time_right;
 
 /// TASK-0363 P5: the placement rule (`placement::place`) on this machine's topology — as many
@@ -102,6 +103,7 @@ fn run_meter_selftest(ctx: &mut Context<'_>, boot: CpuId) {
 pub(super) fn run_steal_selftests(ctx: &mut Context<'_>, boot: CpuId, target: CpuId) {
     run_meter_selftest(ctx, boot);
     time_right::run(ctx, boot);
+    loan::run(ctx, boot, target);
     run_spread_selftest(boot);
     // Deterministic work-stealing probe:
     // - put one runnable task only on CPU1
@@ -152,8 +154,7 @@ pub(super) fn run_steal_selftests(ctx: &mut Context<'_>, boot: CpuId, target: Cp
         log_error!(target: "selftest", "KSELFTEST: steal park FAIL enqueue");
         return;
     }
-    let stolen =
-        ctx.scheduler.steal_into_current(QosClass::PerfBurst, |_| false, |_| target.as_index());
+    let stolen = ctx.scheduler.selftest_steal_refused(target);
     // Queue-level truth (schedule_on_cpu would steal cross-queue and mask a
     // wrong park): the task must sit in its HOME queue, and nowhere on boot's.
     let on_home = ctx.scheduler.selftest_queue_len(target, QosClass::Normal) == 1;

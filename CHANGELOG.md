@@ -7,6 +7,201 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed - 2026-11-26 (a busy hart takes its timer interrupt — TASK-0330 P2/P4, ADR-0100)
+
+- Every task started from the scheduler loop rewrote the 10 ms preemption tick, and the arm
+  left a deadline that was already due out. Since IPC blocks off the kernel lock every switch
+  goes through the loop, so one hart switching between two tasks faster than the tick never took
+  its timer interrupt: no timer cap and no deadline for up to 6 s (headless: `SELFTEST: ingress
+  rate FAIL`, `ingress allow FAIL`; several harts hid it, an idle one delivers).
+- The dispatch arm is never later than the hart's own next deadline and arms "now" for one that
+  is due, with interrupts masked until the user code runs (`trap::dispatch_tick_arm`,
+  `deadline_rule::dispatch_arm`). A periodic timer delivered late skips the periods that passed
+  and reports them (`missed`) instead of trailing its deadline.
+- Headless: the rate proof's refusal 3 s (timeout) -> 43 ms; ready latency max 20 ms -> 5.2 ms,
+  waits over 10 ms about 200 -> 0.
+
+### Fixed - 2026-11-25 (a hart that gives a task up off the kernel lock leaves its space — TASK-0330 P2, ADR-0102)
+
+- The leave read the kernel's own space from PID 0's scheduling record, and the boot selftest
+  `address space held by hart` attached its probe space to PID 0 and detached it: the record
+  named no space afterwards and every such leave did nothing. A task that moved between harts
+  and exited could then be reaped while an idle hart was still on its space — the free was
+  refused (`KSELFTEST: address space free FAIL`, about one 8-hart QEMU run in 15), never done.
+- The kernel's space is named once at boot (`HartSpaces::name_kernel`); a hart that cannot
+  leave prints `KSELFTEST: hart leave FAIL`; the selftest's probe owner is a pid without a
+  record, and its verdict now includes the off-lock leave and PID 0's record.
+- The refusal names its path: `KINIT: space held by hart (entered= left=)` (`smp/trail.rs`).
+
+### Changed - 2026-11-25 (a capability's close takes no kernel lock — TASK-0330 P4, ADR-0102)
+
+- `cap_close` is one body for every kind before the kernel lock: an endpoint's EOF verdicts,
+  its death and what forgets it run on their own locks. The closer keeps the dropped
+  capability's header until the judgement ends (`cap::Dropped`); a child-exit binding holds its
+  endpoint, so an endpoint's death no longer walks every task.
+- A locked bind through an endpoint capability (timer create, interrupt bind, pressure bind,
+  waitset add) pins the endpoint and checks it still lives after the store; a dead one is
+  refused (timer: `NoSuchEndpoint`) or dropped, where it used to leave an id the dead slot's
+  next tenant would receive. Interrupt lines and the pressure sink serialize bind and forget.
+- New: `KSELFTEST: stale endpoint binds refused ok (…)`; host test
+  `test_reject_reuse_of_a_dead_slot_while_its_drop_is_judged`.
+
+### Changed - 2026-11-25 (a due timer is delivered without the kernel lock — TASK-0330 P4, ADR-0100)
+
+- The timer table is behind its own lock (`timer.rs`, class `ipc`, the first of the IPC
+  objects). A secondary hart with nothing to run and only timer caps due delivers them itself
+  and looks at its queue again; a delivery is one hold of the table, so a timer's events keep
+  their order and an endpoint's death comes after every fire popped for it. The delivery
+  moved to `trap/timer_events.rs` and wakes through the thread's record, not the task table.
+- QEMU, per window: the idle harts' kernel-lock time 0.76 s -> 0.07 s on four harts and
+  1.8-2.2 s -> 0.12-0.14 s on eight (takes 8 600-11 000 -> about 1 000).
+- A timer's set and cancel and a task's console byte enter before the kernel lock too
+  (`ipc_ctx::body`); on eight harts the lock's `misc` time fell from about 230 ms to about
+  100 ms per window.
+
+### Fixed - 2026-11-25 (a timeout set beside the deadline walk is in a bound — TASK-0330 P2, ADR-0102)
+
+- A thread that blocked with a deadline while another hart walked the deadlines could end up
+  in neither the walk's gate nor its hart's floor (the walk stored its result over what the
+  thread had lowered, under no common lock since the IPC syscalls left the kernel lock): its
+  timeout came with the next walk. The bounds are two words now (`sync::noted_bound`: noted by
+  waiters, walked by the walk, read as their minimum beside no walk), proven over every
+  interleaving on the host; the gate moved from `trap::budgets` to `trap::own_deadlines`.
+- `KINIT: deadline late (pid= late_us= by= blocked_on=)` names a deadline delivered 2 ms or
+  more after its time (the first eight of a boot). QEMU, nine runs: none.
+
+### Changed - 2026-11-25 (`yield` and a capability's clone take no kernel lock — TASK-0330 P4)
+
+- `yield` runs before the kernel lock: the caller is queued behind what waits on its hart under
+  the queue lock alone, or returns at once; a due deadline sends it to the locked path. QEMU:
+  the scheduling syscalls held the lock 1.8 s a window, now 0.07-0.11 s (four and eight harts).
+- A capability's clone, and the close of a memory object's capability or of a kind with no
+  object, run under the process's lock alone (capability takes 8 565 -> 3 989 a window). The
+  close of an endpoint, timer, waitset or fence capability stays under the kernel lock — and is
+  nearly all of what is left (3 900 closes, 0.24-0.29 s a window).
+- `KSELFTEST: sched time right` reports `outside_us=`: the longest the hart spent between two
+  holds of its drive, which `stalled=` does not see (QEMU: 0.33-0.36 ms, once 2.6 ms).
+
+### Changed - 2026-11-25 (the steal takes no kernel lock; a hart leaves the space of a thread it gives up — TASK-0330 P4, ADR-0100, ADR-0102)
+
+- An idle hart steals under the run-queue locks alone: it holds its own queues, tries its
+  victim's, and the task arrives as its running task in the hold that takes it from its queue
+  (`Scheduler::steal_here`). QEMU, eight harts: the secondaries' idle holds of the kernel lock
+  4.12 s in 26 272 takes -> 1.4-2.0 s in 9 100-11 000 a window; what is left is their due timer
+  deliveries (`KINIT: bkl idle split (… due= …)`, formerly `steal=`).
+- Fixed: a hart whose thread blocked or was requeued in a syscall that entered before the kernel
+  lock stayed on that thread's address space; its reap on another hart then kept the space
+  (`KSELFTEST: address space free FAIL`, 2 of 4 eight-hart runs). The hart now enters the
+  kernel's own space in the hold that gives the thread up; the line names what the holding hart
+  runs and the reaping hart. Six lanes clean after (four harts with the rank check, eight harts
+  five times).
+- `irq::rehome` reads the task's home in the hold that moves its lines.
+
+### Changed - 2026-11-25 (a memory object is born held; a copy through it takes no kernel lock — TASK-0330 P4, ADR-0103)
+
+- **Born held.** `vmo::create` and the adoptions answer the id together with the object's
+  first capability (`vmo::Born`); `vmo::mint` and `vmo::mint_read_only` by id are deleted.
+  Creators keep the capability until a slot or a region names the object; the kernel keeps
+  the boot image's for its whole life (its objects are never reclaimed).
+- **Held for a call.** Every syscall that names a memory object by a slot holds a second
+  capability for the call (`syscall/api/pinned.rs`: map, runs, read, write, seal, purge, clean,
+  exec); its drop judges the object. The judge's detour through the kernel lock
+  (`Ipc::judge_object`) and the "being created" mark (`mm/vmo/creating.rs`) are deleted.
+- **`vmo_write` and `vmo_read` run before the kernel lock** (`syscall/api/vmo_copy.rs`, one
+  body for both entries). The copy is counted at the object like a mapping, so a seal, an
+  unlock for purging and a destroy are refused under a copy in flight; the caller's buffer is
+  translated, a page of it not ready filled as its fault would. The debug build's preview of
+  written bytes is gone (it read the caller's memory by pointer, and logged content).
+- **Fixed on the way:** a device's runs asked before the kernel lock answered `EAGAIN` for a
+  swapped page instead of parking the caller; the lock's path takes it now.
+- Measured (QEMU, rank check on): the memory syscalls' takes of the kernel lock per window
+  1046 → 109 on two harts, 696 → 121 on eight; no write call above 10 ms on eight harts,
+  where a 4 MiB fill had held the lock 10–13 ms eight times a boot.
+  Proof: `KSELFTEST: vmo copy ok (reject=seal,unlock,destroy,sealed,unlocked)`.
+
+### Changed - 2026-11-24 (a page fault and a mapping take no kernel lock — TASK-0330 P3, ADR-0103)
+
+- **Every address space behind its own lock.** `AddressSpaceManager` is a table of slots at
+  fixed addresses, each a ranked lock (RFC-0102, rank 3); `get` answers a guard and every
+  method takes `&self`. A space is never held together with a second one.
+- **A user page fault is filled with the thread's own space held and nothing else**
+  (`core/trap/fault_entry.rs`, `mm/populate.rs`): look at the region, take and zero the frame
+  with no lock held, install if the region is still what the look saw. Single frames come from
+  a magazine per hart (`mm/frames/magazine.rs`). Of about 9 100 faults at boot 15 still take
+  the kernel lock (`KINIT: mm faults`).
+- **`vm_map`, `vm_unmap` and `vmo_runs` run before the kernel lock** — zero takes at boot
+  (`KINIT: bkl mm calls`). A mapping holds the object's capability for its call; a device is
+  told the runs only of an object claimed for it in one hold of the object table.
+- **A memory object counts the address spaces that map it** (`cap/held.rs`: `Mapped`;
+  `cap/space_maps.rs`; `mm/space_regions.rs`; `mm/vmo/mapping.rs`): the reclaim, the destroy,
+  the seal, the purge unlock and the squeeze read two counts at the object instead of walking
+  every address space, and a mapping takes its count in the hold of the object table that
+  checks the object's state — a seal and a writable mapping, an unlock and a mapping, can no
+  longer each miss the other now that a mapping runs without the kernel lock.
+- **An unmap reaches the harts that may hold the space** (`smp::tlb::shootdown_of`): a set of
+  CPUs per space, entered by a hart before its `satp` names the space, left by its own flush
+  on another space. On eight harts 28 unmaps reach 21 harts instead of 196.
+- **Fixed on the way:** two threads unmapping one region could forget a third thread's fresh
+  mapping at that address, leaving its page table entries behind (`VaSpace::begin_unmap` marks
+  the region as going; a second unmap is refused); a fault between an unmap's clear and its
+  forget could refill a page of the region. The squeeze and the kernel's own unmap waited for
+  the other harts' acknowledgement with the space held (105 ms in one boot window when a hart
+  answered a round late; 6–9 ms since); the soft-interrupt handler reads the shootdown
+  mailbox again after clearing its doorbell.
+- **Proof:** `KSELFTEST: tlb shootdown targeted ok (harts= ran= reached= left= spared=)` on
+  every lane with two or more harts; `just ci-os-smp8` and the two-hart lane with the rank
+  check; `SELFTEST: fault scale (threads=…)` prints the fault path's scaling (1.6× with two
+  threads under QEMU — the board's number against ≥ 6× with eight decides the shared hold and
+  the lock per object); 421 kernel host tests (the counts against the regions of several
+  spaces, `test_reject_a_mapping_of_an_endpoint`,
+  `test_reject_a_mapper_or_a_writer_the_object_refuses`,
+  `test_reject_a_mapping_while_the_pool_refuses`); `KSELFTEST: exec image reject ok` now has
+  the seal itself refuse a writable mapper and a sealed object refuse a writer. Board cycle
+  open.
+
+### Changed - 2026-11-24 (an IPC between two harts waits for no third — TASK-0330 P2, ADR-0102)
+
+- **The IPC syscalls run without the kernel lock.** Send, receive, call, reply-and-receive, a
+  waitset's wait and a fence's wait and signal are one body each over the caller's scheduling
+  record, the router and the two tables — every endpoint, waitset, fence, capability table and
+  thread behind its own ranked lock (RFC-0102). The trap runs the body before the kernel lock
+  (`core/trap/ipc_entry.rs`); the syscall table runs the same body under it, and a body falls
+  back to it whole when a page of the caller's is not ready or an order waits for its thread.
+  On two harts under QEMU the kernel lock was held for IPC 12.2 s in 172 453 takes before, and
+  0.05 s in about 1 000 takes after (`KINIT: bkl held us`, `bkl takes`).
+- **A thread blocks in two steps and a waker never waits** (`sync/wait_word.rs`): prepare,
+  register on the object, look again, commit — a wake in between is kept, a wake after enqueues
+  in one hold of the thread's lock. User memory is copied without a lock, on the acknowledgement
+  an unmap already waits for (`mm/user_copy.rs`).
+- **What a syscall works on stays what its capability named.** An endpoint's id is reused only
+  when nobody holds its header; a syscall pins it for its length, a waiting `ipc_call` its reply
+  endpoint. A kill or a freeze of a thread that sleeps is decided under the thread's own lock
+  (`TaskTable::park`), since a wake no longer takes the kernel lock.
+- **A call lends the caller's time right** (`sched/loan.rs`, RFC-0120): a server woken by a
+  call of a reservation's holder runs on that reservation — placed on its hart, with its
+  deadline and budget, charged to it — until the lender runs again or the server waits for
+  something else. `KINIT: time rights (… lent=)` counts them.
+- **Proof:** `just ci-os-smp8` — a new lane: the whole ladder on eight harts with the kernel
+  built to check the lock order (`lock_rank_check`): a lock taken against its rank, or held past
+  an IPC syscall, is a panic. Markers `KSELFTEST: time right loan ok`,
+  `KSELFTEST: test_reject_time_right_loan ok`; 406 kernel host tests.
+
+### Changed - 2026-11-24 (a kernel that faults says where, and the words survive — TASK-0330 P7)
+
+- **One hart speaks a dying kernel's last words.** A kernel fault and a panic begin with the
+  same act (`core/trap/fatal.rs`): the hart claims the console, leaves the space of the task it
+  ran for the kernel's own, and sends what the serial line still owed; every other hart falls
+  silent at its next console byte. The fault line then names the hart before the panic text —
+  `KPGF hart= sepc= stval= scause= … satp= pid=` (`KEXC` for another exception, `KILL` for an
+  illegal instruction in S-mode) — the panic names it again and ends with `PANIC: end`. At the
+  2026-11-11 fault the line was missing and the panic's message was four unreadable bytes: the
+  hart had read its own text through a page table freed under it.
+- **Proof:** `just ci-os-kfault` — two boots in one log on two harts. A kernel built with the
+  fixture `selftest_kernel_fault` (in no shipped kernel; armed on a trace's first boot only)
+  raises a real kernel page fault in a user task's timer interrupt on the secondary hart; the
+  harness resets the machine at `PANIC: end`, and the next boot's loader keeps the dead boot's
+  console ring (`nxboot: rescue ok (seq=1 …)`).
+
 ### Changed - 2026-11-23 (the loaded desktop: glass at the blur's resolution, vector kernels, runs, the taskbar above the windows — TASK-0343 done, TASK-0351 P5/P13 done, package C)
 
 - **A glass costs its band, at the blur's resolution.** A glass back drawn at an integer scale

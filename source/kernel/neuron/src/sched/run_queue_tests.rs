@@ -62,6 +62,17 @@ impl Harts for Cells {
     }
 }
 
+/// A steal for hart `thief`, its own queues held as the kernel's thief holds them.
+fn steal_to(
+    m: &Cells,
+    thief: usize,
+    ceiling: QosClass,
+    allow: impl FnMut(u32) -> bool,
+    home_of: impl FnMut(u32) -> usize,
+) -> Option<Stolen> {
+    steal(m, thief, &mut m.harts[thief].borrow_mut(), ceiling, allow, home_of)
+}
+
 fn taken(stolen: Option<Stolen>) -> Option<u32> {
     match stolen {
         Some(Stolen::Taken(task)) => Some(task.id),
@@ -329,10 +340,12 @@ fn bounded_single_task_work_steal() {
     let m = Cells::new(2);
     m.push(1, 42, NORMAL);
     m.push(1, 43, NORMAL);
-    assert_eq!(taken(steal(&m, 0, QosClass::PerfBurst, |_| true, |_| 1)), Some(42));
+    assert_eq!(taken(steal_to(&m, 0, QosClass::PerfBurst, |_| true, |_| 1)), Some(42));
     assert_eq!(m.len(1, NORMAL), 1, "one task a steal");
-    assert_eq!(taken(steal(&m, 0, QosClass::PerfBurst, |_| true, |_| 1)), Some(43));
-    assert_eq!(steal(&m, 0, QosClass::PerfBurst, |_| true, |_| 1), None);
+    let runs = m.harts[0].borrow().current().map(|task| task.id);
+    assert_eq!(runs, Some(42), "it runs on the thief in the hold that took it");
+    assert_eq!(taken(steal_to(&m, 0, QosClass::PerfBurst, |_| true, |_| 1)), Some(43));
+    assert_eq!(steal_to(&m, 0, QosClass::PerfBurst, |_| true, |_| 1), None);
 }
 
 #[test]
@@ -343,7 +356,7 @@ fn a_steal_takes_the_highest_class_first_and_harts_in_order() {
     m.push(3, 30, QosClass::Interactive);
     m.push(0, 99, QosClass::PerfBurst); // the thief's own: never stolen
     let order: Vec<_> =
-        (0..4).map(|_| taken(steal(&m, 0, QosClass::PerfBurst, |_| true, |_| 0))).collect();
+        (0..4).map(|_| taken(steal_to(&m, 0, QosClass::PerfBurst, |_| true, |_| 0))).collect();
     assert_eq!(order, [Some(20), Some(30), Some(10), None]);
     assert_eq!(m.len(0, QosClass::PerfBurst), 1);
 }
@@ -352,7 +365,7 @@ fn a_steal_takes_the_highest_class_first_and_harts_in_order() {
 fn test_reject_steal_higher_qos() {
     let m = Cells::new(2);
     m.push(1, 200, QosClass::Interactive);
-    assert_eq!(steal(&m, 0, NORMAL, |_| true, |_| 1), None);
+    assert_eq!(steal_to(&m, 0, NORMAL, |_| true, |_| 1), None);
     assert_eq!(m.len(1, QosClass::Interactive), 1);
 }
 
@@ -362,8 +375,8 @@ fn test_reject_steal_from_a_hart_that_is_not_online() {
     m.offline.push(1);
     m.push(1, 7, NORMAL);
     m.push(2, 8, NORMAL);
-    assert_eq!(taken(steal(&m, 0, NORMAL, |_| true, |_| 0)), Some(8));
-    assert_eq!(steal(&m, 0, NORMAL, |_| true, |_| 0), None);
+    assert_eq!(taken(steal_to(&m, 0, NORMAL, |_| true, |_| 0)), Some(8));
+    assert_eq!(steal_to(&m, 0, NORMAL, |_| true, |_| 0), None);
     assert_eq!(m.len(1, NORMAL), 1);
 }
 
@@ -373,7 +386,7 @@ fn test_reject_steal_against_affinity() {
     let m = Cells::new(2);
     m.push(1, 5, NORMAL);
     m.push(1, 6, NORMAL);
-    assert_eq!(steal(&m, 0, QosClass::PerfBurst, |_| false, |_| 1), Some(Stolen::Rejected));
+    assert_eq!(steal_to(&m, 0, QosClass::PerfBurst, |_| false, |_| 1), Some(Stolen::Rejected));
     assert_eq!((m.len(0, NORMAL), m.len(1, NORMAL)), (0, 2));
     assert_eq!(m.harts[1].borrow().front(NORMAL).map(|task| task.id), Some(5));
 }
@@ -385,13 +398,19 @@ fn a_refused_task_parks_at_the_front_of_its_home_hart() {
     let m = Cells::new(3);
     m.push(2, 70, NORMAL);
     m.push(1, 71, NORMAL);
-    assert_eq!(steal(&m, 0, QosClass::PerfBurst, |id| id != 71, |_| 2), Some(Stolen::Rejected));
+    assert_eq!(steal_to(&m, 0, QosClass::PerfBurst, |id| id != 71, |_| 2), Some(Stolen::Rejected));
     assert_eq!((m.len(0, NORMAL), m.len(1, NORMAL), m.len(2, NORMAL)), (0, 0, 2));
     assert_eq!(m.harts[2].borrow().front(NORMAL).map(|task| task.id), Some(71));
     // A home beyond the machine is its last hart.
     m.push(1, 72, NORMAL);
-    assert_eq!(steal(&m, 0, QosClass::PerfBurst, |id| id != 72, |_| 99), Some(Stolen::Rejected));
+    assert_eq!(steal_to(&m, 0, QosClass::PerfBurst, |id| id != 72, |_| 99), Some(Stolen::Rejected));
     assert_eq!(m.harts[2].borrow().front(NORMAL).map(|task| task.id), Some(72));
+    // At home on the thief itself (a reservation admitted there): into the queues it holds.
+    let m = Cells::new(2);
+    m.push(1, 73, NORMAL);
+    assert_eq!(steal_to(&m, 0, QosClass::PerfBurst, |_| false, |_| 0), Some(Stolen::Rejected));
+    assert_eq!((m.len(0, NORMAL), m.len(1, NORMAL)), (1, 0));
+    assert_eq!(m.harts[0].borrow().current(), None, "parked, not run");
 }
 
 #[test]
@@ -402,13 +421,13 @@ fn test_reject_a_park_that_would_lose_the_task() {
         m.push(2, 1_000 + id, NORMAL);
     }
     m.push(1, 71, NORMAL);
-    assert_eq!(steal(&m, 0, QosClass::PerfBurst, |_| false, |_| 2), Some(Stolen::Rejected));
+    assert_eq!(steal_to(&m, 0, QosClass::PerfBurst, |_| false, |_| 2), Some(Stolen::Rejected));
     assert_eq!((m.len(1, NORMAL), m.len(2, NORMAL)), (1, CLASS_CAPACITY));
     // The home hart's queues are held (another hart is in them): it stays, too.
     let m = Cells::new(3);
     m.push(1, 71, NORMAL);
     let held = m.harts[2].borrow_mut();
-    assert_eq!(steal(&m, 0, QosClass::PerfBurst, |_| false, |_| 2), Some(Stolen::Rejected));
+    assert_eq!(steal_to(&m, 0, QosClass::PerfBurst, |_| false, |_| 2), Some(Stolen::Rejected));
     drop(held);
     assert_eq!((m.len(1, NORMAL), m.len(2, NORMAL)), (1, 0));
 }
@@ -419,10 +438,10 @@ fn a_thief_never_waits_for_a_hart_whose_queues_are_held() {
     m.push(1, 1, NORMAL);
     m.push(2, 2, NORMAL);
     let held = m.harts[1].borrow_mut();
-    assert_eq!(taken(steal(&m, 0, NORMAL, |_| true, |_| 0)), Some(2), "the free hart's task");
-    assert_eq!(steal(&m, 0, NORMAL, |_| true, |_| 0), None, "the held hart is passed over");
+    assert_eq!(taken(steal_to(&m, 0, NORMAL, |_| true, |_| 0)), Some(2), "the free hart's task");
+    assert_eq!(steal_to(&m, 0, NORMAL, |_| true, |_| 0), None, "the held hart is passed over");
     drop(held);
-    assert_eq!(taken(steal(&m, 0, NORMAL, |_| true, |_| 0)), Some(1));
+    assert_eq!(taken(steal_to(&m, 0, NORMAL, |_| true, |_| 0)), Some(1));
 }
 
 /// Random pushes, picks, yields, requeues, purges and steals over four harts: no task is ever
@@ -472,14 +491,12 @@ fn no_task_is_lost_or_doubled_over_random_steps() {
             }
             _ => {
                 let home = rand(4) as usize;
-                let stolen = steal(&m, cpu, classes[rand(4) as usize], |id| id % 3 != 0, |_| home);
-                if let Some(Stolen::Taken(task)) = stolen {
+                let ran = m.harts[cpu].borrow().current();
+                let stolen =
+                    steal_to(&m, cpu, classes[rand(4) as usize], |id| id % 3 != 0, |_| home);
+                if let (Some(Stolen::Taken(_)), Some(done)) = (stolen, ran) {
                     // The thief runs it in place of what it ran.
-                    let mut queues = m.harts[cpu].borrow_mut();
-                    if let Some(done) = queues.current() {
-                        live.retain(|&id| id != done.id);
-                    }
-                    queues.set_current(Some(task));
+                    live.retain(|&id| id != done.id);
                 }
             }
         }

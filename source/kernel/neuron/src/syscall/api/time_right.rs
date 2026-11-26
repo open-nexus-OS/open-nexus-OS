@@ -51,8 +51,9 @@ fn right_at(ctx: &mut Context<'_>, slot: usize) -> Result<RightId, Error> {
 fn install(ctx: &mut Context<'_>, right: RightId) -> SysResult<usize> {
     let cap =
         Capability { kind: CapabilityKind::TimeRight(right.to_raw()), rights: Rights::MANAGE };
-    let caps = ctx.tasks.current_caps_mut();
-    Held::plain(cap).and_then(|held| caps.allocate(held)).map_err(Error::Capability)
+    Held::plain(cap)
+        .and_then(|held| ctx.tasks.current_caps_mut().allocate(held))
+        .map_err(Error::Capability)
 }
 
 /// The task a bind or an unbind names: the caller (0), or another one for a QoS admin.

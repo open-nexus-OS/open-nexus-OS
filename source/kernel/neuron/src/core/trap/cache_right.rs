@@ -29,8 +29,8 @@ pub(super) fn try_grant(frame: &TrapFrame, stval: usize) -> bool {
     let pid = tasks.current_pid();
     let Some(handle) = tasks.current_task().address_space() else { return false };
     let holds_right = tasks.caps_of(pid).is_some_and(|caps| caps.holds_noncoherent_device());
-    let Ok(space) = spaces.get_mut(handle) else { return false };
-    let inst = if stval != 0 { stval as u32 } else { fetch_instruction(space, frame.sepc) };
+    let Ok(mut space) = spaces.get(handle) else { return false };
+    let inst = if stval != 0 { stval as u32 } else { fetch_instruction(&space, frame.sepc) };
     match decide(
         inst,
         crate::hal::platform::user_cache_maintenance_supported(),

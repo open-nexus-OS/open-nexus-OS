@@ -58,18 +58,84 @@ pub fn log_smp_baseline() {
         n(Group::Fault),
         n(Group::Idle)
     );
+    // TASK-0330 P2 (RFC-0102): what each ranked lock class cost in the window — a class that
+    // left the kernel lock shows here what it holds and waits on its own.
+    for class in crate::sync::lock_rank::Class::ALL {
+        let window = crate::sync::class_stats::take_window(class);
+        if window.takes != 0 {
+            log_info!(
+                target: "smp",
+                "KINIT: lock class {} (takes={} waited={} max_hold_us={} max_wait_us={})",
+                class.name(),
+                window.takes,
+                window.waited,
+                window.max_hold / tpu.max(1),
+                window.max_wait / tpu.max(1)
+            );
+        }
+    }
+    // TASK-0330 P3: single frames the harts took from their magazines against the refills that
+    // asked the pool, and what a dry pool took back.
+    let (harts, held, served, refills, flushed) = crate::mm::frame_pool::magazine_stats();
+    log_info!(
+        target: "mm",
+        "KINIT: mm magazines (harts={} held={} served={} refills={} flushed={})",
+        harts,
+        held,
+        served,
+        refills,
+        flushed
+    );
+    // And the user page faults by the path they took: filled with the thread's own space held
+    // and nothing else, or handed to the kernel lock; the longest fill without it.
+    let (free, locked, longest) = super::fault_entry::take_window();
+    log_info!(
+        target: "mm",
+        "KINIT: mm faults (free={} locked={} longest_free_us={})",
+        free,
+        locked,
+        longest / tpu.max(1)
+    );
+    // What the three calls that run before the kernel lock (a mapping, an unmap, a device's
+    // runs) still took of it: a page of the answer not ready, an order waiting, the judge of an
+    // object nobody holds any more.
+    let (map, unmap, runs) = (
+        lock_share::holder(crate::syscall::SYSCALL_VM_MAP, tpu),
+        lock_share::holder(crate::syscall::SYSCALL_VM_UNMAP, tpu),
+        lock_share::holder(crate::syscall::SYSCALL_VMO_RUNS, tpu),
+    );
+    log_info!(
+        target: "mm",
+        "KINIT: bkl mm calls (map={}us/{} unmap={}us/{} runs={}us/{})",
+        map.0,
+        map.1,
+        unmap.0,
+        unmap.1,
+        runs.0,
+        runs.1
+    );
+    // And the shootdowns: of every hart, for one space, and how many harts the latter reached
+    // (a machine of n harts reaches n - 1 with each of the former).
+    let (all, targeted, reached) = crate::smp::tlb::counts();
+    log_info!(
+        target: "mm",
+        "KINIT: tlb shootdowns (all={} space={} reached={})",
+        all,
+        targeted,
+        reached
+    );
     // TASK-0363 P2 S3: the idle loop's holds by what they are for, and the boot hart's delivery
     // by its two parts (a step that does not move its holder's share is reverted — ADR-0098).
     let held = |id| lock_share::holder(id, tpu);
-    let (dispatch, steal, deliver) =
-        (held(lock_share::IDLE), held(lock_share::IDLE_STEAL), held(lock_share::IDLE_DELIVER));
+    let (dispatch, due, deliver) =
+        (held(lock_share::IDLE), held(lock_share::IDLE_DUE), held(lock_share::IDLE_DELIVER));
     log_info!(
         target: "smp",
-        "KINIT: bkl idle split (dispatch={}us/{} steal={}us/{} deliver={}us/{} events_us={} walk_us={})",
+        "KINIT: bkl idle split (dispatch={}us/{} due={}us/{} deliver={}us/{} events_us={} walk_us={})",
         dispatch.0,
         dispatch.1,
-        steal.0,
-        steal.1,
+        due.0,
+        due.1,
         deliver.0,
         deliver.1,
         lock_share::deliver_us(lock_share::DeliverPart::Events, tpu),
@@ -159,8 +225,9 @@ pub fn log_smp_baseline() {
     // budgets that ran out under their holder (it went on fair) and the periods a runnable holder
     // did not get its budget in (what a guarantee is judged by: zero — claimed by no marker
     // before the kernel lock is gone, RFC-0120 G1). The holders' waits: `class=reserved` above.
-    static LAST_COUNTS: [core::sync::atomic::AtomicUsize; 2] =
-        [const { core::sync::atomic::AtomicUsize::new(0) }; 2];
+    // `lent`: the calls that lent their caller's right to the server they woke (ADR-0102).
+    static LAST_COUNTS: [core::sync::atomic::AtomicUsize; 3] =
+        [const { core::sync::atomic::AtomicUsize::new(0) }; 3];
     let (overruns, misses) = crate::sched::reserve::counts();
     let (reserved_ppm, at) = crate::sched::reserve::load();
     let since = |slot: usize, now: usize| {
@@ -168,12 +235,13 @@ pub fn log_smp_baseline() {
     };
     log_info!(
         target: "smp",
-        "KINIT: time rights (window_ms={} reserved_max_pm={} at=cpu{} overruns={} misses={})",
+        "KINIT: time rights (window_ms={} reserved_max_pm={} at=cpu{} overruns={} misses={} lent={})",
         window_ms,
         reserved_ppm / 1_000,
         at,
         since(0, overruns),
-        since(1, misses)
+        since(1, misses),
+        since(2, crate::sched::loan::count())
     );
     // TASK-0363 P0: the three tasks that yield most (pid, the kernel's service id, yields).
     let (y, yields) = crate::yield_stats::top();

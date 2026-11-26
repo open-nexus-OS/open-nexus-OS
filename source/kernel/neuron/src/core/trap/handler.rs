@@ -255,7 +255,10 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
             unsafe {
                 riscv::register::sip::clear_ssoft();
             }
-            // Shootdown ack already ran at trap entry (above); just resched.
+            // The mailbox again, now that the doorbell is cleared: a request raised between
+            // the poll at the trap's entry and the clear rang a doorbell the clear just ate,
+            // and its initiator would wait a whole round (100 ms, with whatever it holds).
+            let _ = crate::smp::tlb::poll_mailbox(cpu);
             let outcome = crate::smp::handle_ssoft_resched(cpu);
             // A4: an acked resched request PREEMPTS the interrupted user task
             // so a cross-core-woken task runs within IPI latency, not a full
@@ -334,6 +337,10 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
             // idle/boot), we only re-arm the heartbeat and resume untouched.
             const SSTATUS_SPP: usize = 1 << 8;
             let interrupted_user = frame.sstatus & SSTATUS_SPP == 0;
+            #[cfg(feature = "selftest_kernel_fault")]
+            if interrupted_user {
+                super::fault_fixture::tick();
+            }
             if interrupted_user {
                 if let Ok(mut kernel) = KernelGuard::acquire_as(crate::lock_share::TIMER) {
                     // BKL held for the whole delivery+preempt sequence (A2a);
@@ -350,7 +357,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                     crate::syscall::api::expire_deadlines(
                         now, tasks, router, scheduler, waitsets, fences,
                     );
-                    process_expired_timers(timer, hart_timers, router, tasks, scheduler);
+                    process_expired_timers(timer, hart_timers, router, scheduler);
                     // Backstop for device IRQs: the S_EXT handler delivers them
                     // immediately while a task runs, but if one asserted during an
                     // S-mode window (or while every task was blocked) the timer tick
@@ -482,6 +489,12 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
             }
         }
 
+        // TASK-0330 P2 (ADR-0102): an IPC syscall runs on its objects' own locks.
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+        if super::ipc_entry::serve(frame) {
+            return;
+        }
+
         // Acquire the BKL for the full syscall dispatch (A2a).
         let mut kernel = match KernelGuard::acquire_as(frame.x[17]) {
             Ok(kernel) => kernel,
@@ -545,9 +558,10 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
             let pid = tasks.current_pid();
             if let Some(task) = tasks.task(pid) {
                 if let Some(as_handle) = task.address_space() {
-                    if let Ok(space) = spaces.get(as_handle) {
-                        let pt = space.page_table();
-                        let maybe_sepc = pt.translate(frame.sepc);
+                    // The space is held for the one look: the exit below takes it itself.
+                    let looked =
+                        spaces.get(as_handle).ok().map(|s| s.page_table().translate(frame.sepc));
+                    if let Some(maybe_sepc) = looked {
                         if let Some(_pa) = maybe_sepc {
                             uart_dbg_block!({
                                 let mut u = crate::uart::raw_writer();
@@ -912,106 +926,10 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                 return;
             }
 
-            // Kernel page fault - emit minimal diagnostics via raw MMIO then panic
-            {
-                unsafe {
-                    // The console the tree named (RFC-0098 C3), lock-free inside a trap.
-                    let write_byte = crate::hal::platform::console_write_byte;
-                    let write_hex = |val: usize, digits: usize| {
-                        for shift in (0..digits).rev() {
-                            let nibble = ((val >> (shift * 4)) & 0xf) as u8;
-                            let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
-                            write_byte(ch);
-                        }
-                    };
-                    for &b in b"KPGF sepc=0x" {
-                        write_byte(b);
-                    }
-                    write_hex(frame.sepc, 16);
-                    for &b in b" stval=0x" {
-                        write_byte(b);
-                    }
-                    write_hex(stval_now, 16);
-                    for &b in b" scause=0x" {
-                        write_byte(b);
-                    }
-                    write_hex(frame.scause, 16);
-                    for &b in b" ra=0x" {
-                        write_byte(b);
-                    }
-                    write_hex(frame.x[1], 16);
-                    // Optional symbol hint for the return address (best-effort, allocation-free).
-                    #[cfg(all(
-                        target_arch = "riscv64",
-                        target_os = "none",
-                        feature = "trap_symbols"
-                    ))]
-                    {
-                        if let Some((name, off)) = nearest_symbol(frame.x[1]) {
-                            for &b in b" sym=" {
-                                write_byte(b);
-                            }
-                            // Emit up to 64 bytes of the symbol name to keep logs bounded.
-                            let bytes = name.as_bytes();
-                            let n = core::cmp::min(bytes.len(), 64);
-                            for &b in &bytes[..n] {
-                                write_byte(b);
-                            }
-                            for &b in b"+0x" {
-                                write_byte(b);
-                            }
-                            write_hex(off, 4);
-                        }
-                    }
-                    for &b in b" sp=0x" {
-                        write_byte(b);
-                    }
-                    write_hex(frame.x[2], 16);
-                    for &b in b" a7=0x" {
-                        write_byte(b);
-                    }
-                    write_hex(frame.x[17], 16);
-                    for &b in b" a0=0x" {
-                        write_byte(b);
-                    }
-                    write_hex(frame.x[10], 16);
-                    for &b in b" a1=0x" {
-                        write_byte(b);
-                    }
-                    write_hex(frame.x[11], 16);
-                    for &b in b" a2=0x" {
-                        write_byte(b);
-                    }
-                    write_hex(frame.x[12], 16);
-                    for &b in b" sstatus=0x" {
-                        write_byte(b);
-                    }
-                    write_hex(frame.sstatus, 16);
-                    for &b in b" satp=0x" {
-                        write_byte(b);
-                    }
-                    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-                    write_hex(riscv::register::satp::read().bits(), 16);
-                    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
-                    write_hex(0, 16);
-                    // Best-effort task context: current PID and its saved sepc (helps catch corrupted frames).
-                    if let Ok(handles) = runtime_kernel_handles_diagnostic() {
-                        let tasks = handles.tasks.as_ref();
-                        let pid = tasks.current_pid();
-                        for &b in b" pid=0x" {
-                            write_byte(b);
-                        }
-                        write_hex(pid.as_index(), 4);
-                        if let Some(task) = tasks.task(pid) {
-                            for &b in b" t_sepc=0x" {
-                                write_byte(b);
-                            }
-                            write_hex(task.frame().sepc, 16);
-                        }
-                    }
-                    write_byte(b'\n');
-                }
-            }
+            // A kernel page fault is a kernel bug: the hart claims the last words, leaves the
+            // space it faulted on, names where it stood, then panics (`fatal`, TASK-0330 P7).
+            let dying = super::fatal::begin();
+            super::fatal::fault_line("KPGF", &dying, frame, stval_now);
             record(frame);
             panic!("KPGF");
         }
@@ -1046,7 +964,9 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                 return;
             }
 
-            // Kernel fault - this is a bug
+            // Kernel fault - this is a bug: the fault line first, by the hart that speaks.
+            let dying = super::fatal::begin();
+            super::fatal::fault_line("KEXC", &dying, frame, stval_now);
             if stval_now < 0x1000 {
                 panic!("KNULL");
             }

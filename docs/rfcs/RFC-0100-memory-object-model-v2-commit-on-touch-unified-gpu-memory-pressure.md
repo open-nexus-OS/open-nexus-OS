@@ -96,8 +96,9 @@ has, with the GPU in the same pool.
 - **The rule is every kernel object's (ADR-0073, 2026-10-20).** An endpoint, a timer, a waitset
   and a fence die with their last capability too: an exit frees what the task owned like a
   `cap_close` of each would, and an endpoint nothing names (no capability, nothing in flight)
-  is destroyed and forgotten by every waitset, timer, interrupt line and exit binding that
-  held its id; a dead endpoint's slot is reused only once nothing names it. A death is an
+  is destroyed and forgotten by every waitset, timer and interrupt line that held its id (an
+  exit binding holds the endpoint itself since 2026-11-25, TASK-0330 P4); a dead endpoint's
+  slot is reused only once nothing names it. A death is an
   event: the parent's bound endpoint (`child_exit_bind`, syscall 62) receives one
   `OP_CHILD_EXITED` frame per dead child; a receiver's EOF verdict never depends on its wait
   mode; a send into an endpoint no RECV capability names returns `PeerClosed`.

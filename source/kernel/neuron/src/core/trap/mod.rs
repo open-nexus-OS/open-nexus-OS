@@ -143,17 +143,46 @@ pub mod baseline;
 pub mod budgets;
 mod cache_right;
 mod errno;
+/// TASK-0330 P7: a dying kernel's first act — one hart speaks, on the kernel's own space.
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+pub(crate) mod fatal;
 mod fault;
+/// TASK-0330 P3: the user page fault's entry before the kernel lock.
+mod fault_entry;
+/// TASK-0330 P7: the proof lane's forced kernel page fault — in no shipped kernel.
+#[cfg(all(target_arch = "riscv64", target_os = "none", feature = "selftest_kernel_fault"))]
+pub(crate) mod fault_fixture;
 pub mod fp;
 mod fp_regs;
 mod handler;
 mod illegal;
+/// TASK-0330 P2: the IPC syscalls' entry before the kernel lock.
+mod ipc_entry;
 /// TASK-0363 P8: each hart's own deadlines — what it, and only it, wakes for.
 pub mod own_deadlines;
 /// ADR-0082: the kill / freeze orders a hart executes for its current task at a trap entry.
 mod pending;
 mod phased;
 mod runtime;
+/// TASK-0330 P4: fired timer caps delivered under their own locks.
+mod timer_events;
+
+/// Names the objects the two entries before the kernel lock work on (`ipc_entry`,
+/// `fault_entry`), once, when the trap runtime is installed.
+fn install_entries(
+    router: &ipc::Router,
+    waitsets: &crate::waitset::WaitsetTable,
+    fences: &crate::fence::FenceTable,
+    timer: &'static dyn Timer,
+    spaces: &AddressSpaceManager,
+    timers: &crate::timer::HartTimers,
+) {
+    ipc_entry::install(router, waitsets, fences, timer, spaces, timers);
+    fault_entry::install(spaces);
+}
+
+pub(crate) use ipc_entry::deliver_timers;
+pub(crate) use timer_events::{process_expired_timers, OP_TIMER_FIRED};
 
 pub use fault::*;
 // `handle_ecall` (pub, #[allow(dead_code)]) has no external callers yet; keep

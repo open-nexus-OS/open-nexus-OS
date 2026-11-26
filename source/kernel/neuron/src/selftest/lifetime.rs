@@ -39,11 +39,16 @@ fn scratch_space(ctx: &mut Context<'_>, pid: Pid) -> bool {
     use crate::mm::{vmo, PageFlags, PAGE_SIZE};
     let Ok(handle) = ctx.address_spaces.create() else { return false };
     let reach = crate::dma_reach::DmaReach::ALL;
-    let Ok(object) = vmo::create(PAGE_SIZE, vmo::VmoKind::Lazy, &reach) else { return false };
+    // Held here until the region names it; then by the region alone.
+    let Ok((object, first)) = vmo::create(PAGE_SIZE, vmo::VmoKind::Lazy, &reach) else {
+        return false;
+    };
     let flags = (PageFlags::VALID | PageFlags::USER | PageFlags::READ | PageFlags::WRITE).bits();
-    let recorded = ctx.address_spaces.get_mut(handle).is_ok_and(|space| {
-        space.va_space_mut().record_lazy(USER_SCRATCH, PAGE_SIZE, flags, object).is_ok()
+    let recorded = ctx.address_spaces.get(handle).is_ok_and(|mut space| {
+        let (va, len) = (USER_SCRATCH, PAGE_SIZE);
+        crate::mm::space_regions::record_lazy(&mut space, va, len, flags, object).is_ok()
     });
+    drop(first);
     recorded
         && ctx.address_spaces.attach(handle, pid).is_ok()
         && ctx.tasks.task_mut(pid).map(|task| task.address_space = Some(handle)).is_some()
@@ -58,7 +63,7 @@ fn frame(ep: u32) -> Message {
 fn give(ctx: &mut Context<'_>, pid: Pid, slot: usize, ep: u32, rights: Rights) -> bool {
     // Minted at the live endpoint, like every capability to one (RFC-0102).
     let Ok(held) = ctx.router.mint(ep, rights) else { return false };
-    ctx.tasks.caps_of_mut(pid).is_some_and(|caps| caps.set(slot, held).is_ok())
+    ctx.tasks.caps_of_mut(pid).is_some_and(|mut caps| caps.set(slot, held).is_ok())
 }
 
 pub(super) fn run_lifetime_selftests(ctx: &mut Context<'_>) {
@@ -76,6 +81,9 @@ pub(super) fn run_lifetime_selftests(ctx: &mut Context<'_>) {
     // TASK-0333 6e-0 (ADR-0085): the memory pressure sink — bind, the level, the refusal.
     super::pressure::run_pressure_selftests(ctx);
     super::pressure::run_purge_selftest(ctx);
+    // TASK-0330 P4: a copy into or out of an object is counted at it — no seal, unlock or
+    // destroy under a copy in flight; a sealed and an unlocked object refuse the copy.
+    super::vmo_copy::run_vmo_copy_selftest(ctx);
     // TASK-0333 6f-0 (RFC-0100 §5): the page compressor's ratio and cost, measured here.
     super::pressure::run_compress_selftest(ctx);
     // TASK-0333 6f-1 (ADR-0087): the squeeze — the parent's order, a parked child, the way back.
@@ -100,28 +108,49 @@ fn run_space_held_by_hart(ctx: &mut Context<'_>) {
         log_error!(target: "selftest", "KSELFTEST: address space held by hart FAIL (setup)");
         return;
     };
+    // The probe's owner is a pid no task has and no record answers for — never PID 0: an
+    // attach gives the owner's record the space, and PID 0's would lose the kernel's own.
+    let owner = Pid::from_raw(u32::MAX);
     let entered = ctx.address_spaces.activate(probe).is_ok();
     // While a task owns the space the hart stays: a process reaping one of its threads runs on
     // the space it shares with it (the first cut left here and hung every thread proof).
-    let _ = ctx.address_spaces.attach(probe, Pid::KERNEL);
+    let _ = ctx.address_spaces.attach(probe, owner);
     ctx.address_spaces.leave(probe, kernel);
     let kept = ctx.address_spaces.hart_on(probe).is_some();
-    let _ = ctx.address_spaces.detach(probe, Pid::KERNEL);
+    let _ = ctx.address_spaces.detach(probe, owner);
     let refused = ctx.address_spaces.destroy(probe) == Err(AddressSpaceError::HeldByHart);
     ctx.address_spaces.leave(probe, kernel);
-    let left =
-        ctx.address_spaces.hart_on(probe).is_none() && ctx.address_spaces.hart_on(kernel).is_some();
+    let on_kernel = |spaces: &crate::mm::AddressSpaceManager| {
+        spaces.hart_on(probe).is_none() && spaces.hart_on(kernel).is_some()
+    };
+    let left = on_kernel(ctx.address_spaces);
+    // The leave a hart takes off the kernel lock (a block, a yield, a preemption in a syscall
+    // that entered before it): the same hart, on the probe again, by the function they call.
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    let off_lock = {
+        let again = ctx.address_spaces.activate(probe).is_ok();
+        crate::hart_spaces::enter_kernel_space();
+        again && on_kernel(ctx.address_spaces)
+    };
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    let off_lock = true;
+    // PID 0's record still names the kernel's own space: nothing above took it.
+    let record = crate::sched::record::get(Pid::KERNEL)
+        .and_then(|record| record.space())
+        .is_some_and(|view| view.raw == kernel.to_raw());
     let freed = ctx.address_spaces.destroy(probe).is_ok();
-    if entered && kept && refused && left && freed {
+    if entered && kept && refused && left && off_lock && record && freed {
         log_info!(target: "selftest", "KSELFTEST: address space held by hart ok");
     } else {
         log_error!(
             target: "selftest",
-            "KSELFTEST: address space held by hart FAIL (entered={} kept={} refused={} left={} freed={})",
+            "KSELFTEST: address space held by hart FAIL (entered={} kept={} refused={} left={} off_lock={} record={} freed={})",
             entered,
             kept,
             refused,
             left,
+            off_lock,
+            record,
             freed
         );
     }
@@ -344,7 +373,7 @@ fn run_waitset_writable(ctx: &mut Context<'_>) {
             let parked = sys.router.register_send_waiter(ep2, sender.as_raw()).is_ok();
             let waiting = sys.router.register_writable_waiter(ep2, receiver.as_raw()).is_ok();
             let taken = sys.router.recv(ep2).is_ok();
-            api::wake_after_recv(&mut sys, ep2);
+            api::wake_after_recv(sys.router, ep2);
             parked
                 && waiting
                 && taken

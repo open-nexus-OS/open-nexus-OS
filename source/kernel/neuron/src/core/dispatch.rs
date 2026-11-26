@@ -31,7 +31,7 @@ pub(super) fn dispatch_unlocked(cpu: CpuId, pid: Pid) -> Option<*const crate::tr
     crate::sched::set_runs_here(pid);
     crate::trap::fp::now_runs(Some(record.fp()));
     let staged = crate::smp::hart_local_stage_resume(cpu, frame);
-    crate::mm::address_space::enter_space(view);
+    crate::hart_spaces::enter_space(view);
     crate::smp::record_user_dispatch(cpu);
     note_first_user_dispatch(cpu);
     Some(staged)

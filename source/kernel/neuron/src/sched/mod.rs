@@ -10,7 +10,7 @@
 //! API_STABILITY: Stable
 //! TEST_COVERAGE: `sched/run_queue_tests.rs` (host) + QEMU selftests + boot markers
 //! PUBLIC API: Scheduler (new/enqueue/try_enqueue/schedule_next), QosClass, TaskId, EnqueueOutcome
-//! DEPENDS_ON: run_queue (the rules), sync (HartTable, SpinIrqLock), determinism (timeslice)
+//! DEPENDS_ON: run_queue (the rules), sync (HartTable, RankedLock), determinism (timeslice)
 //! INVARIANTS: Bounded queue capacity + deterministic reject on saturation; timeslice
 //!   deterministic; RR per QoS; a hart's queue lock is a leaf — held for one queue operation,
 //!   never while the kernel lock or a second hart's queues are waited for
@@ -21,7 +21,8 @@ use core::sync::atomic::{AtomicU32, Ordering};
 
 use crate::run_queue::{self, weight_of, HartQueues, Harts, Owner, Stolen, Task, CLASS_CAPACITY};
 use crate::sync::hart_table::{HartTable, SizeError};
-use crate::sync::spin_irq::{IrqOffGuard, SpinIrqLock};
+use crate::sync::lock_rank::Class;
+use crate::sync::ranked::RankedLock;
 use crate::types::{CpuId, Pid};
 
 pub use crate::run_queue::QosClass;
@@ -64,8 +65,8 @@ pub enum SetQosOutcome {
 
 /// Every hart's run queues, each behind its own lock: the boot hart's from the first
 /// instruction, the others' sized with the machine (`smp::size_for_machine`).
-static RUN_QUEUES: HartTable<SpinIrqLock<HartQueues>> =
-    HartTable::new(SpinIrqLock::new(HartQueues::new()));
+static RUN_QUEUES: HartTable<RankedLock<HartQueues>> =
+    HartTable::new(RankedLock::new(Class::RunQueue, HartQueues::new()));
 
 /// The task each hart runs (its trap context: a user task, or PID 0 while the hart has none) —
 /// written by that hart only, at a dispatch that may hold no kernel lock (TASK-0363 P2 S3).
@@ -76,10 +77,14 @@ pub fn size(harts: usize) -> Result<(), SizeError> {
     // Built at compile time: a hart's queues are 20 KiB, copied from the image — never built on
     // the boot stack (`HartTable::size`).
     RUN_QUEUES
-        .size(harts, || const { SpinIrqLock::new(HartQueues::new()) })
+        .size(harts, || const { RankedLock::new(Class::RunQueue, HartQueues::new()) })
         .and_then(|()| RUNS.size(harts, || AtomicU32::new(0)))
         .and_then(|()| meter::size(harts))
         .and_then(|()| reserve::size(harts))?;
+    // RFC-0102: two run queues are held together in ascending CPU index only.
+    for (cpu, queues) in RUN_QUEUES.iter().enumerate() {
+        queues.set_key(cpu);
+    }
     // TASK-0363 P3: a fair task asks for one preemption tick at a time.
     let slice = crate::hal::platform::ns_to_ticks(crate::hal::platform::PREEMPT_TICK_NS);
     for cpu in 0..RUN_QUEUES.len() {
@@ -108,13 +113,18 @@ fn weight_for(id: u32, qos: QosClass) -> u32 {
 
 /// The task this hart runs (PID 0 before its first dispatch).
 pub fn runs_here() -> TaskId {
-    let cpu = crate::smp::cpu_current_id().as_index();
+    runs_on(crate::smp::cpu_current_id().as_index())
+}
+
+/// The task hart `cpu` runs (PID 0: its scheduler loop) — for a line that names a breach.
+pub fn runs_on(cpu: usize) -> TaskId {
     Pid::from_raw(RUNS.get(cpu).map_or(0, |slot| slot.load(Ordering::Acquire)))
 }
 
-/// The task hart `cpu` runs (PID 0: none) — a placement's look, read without its lock.
-pub fn runs_on(cpu: usize) -> TaskId {
-    Pid::from_raw(RUNS.get(cpu).map_or(0, |slot| slot.load(Ordering::Acquire)))
+/// The class of the task hart `cpu` runs off its queues; `None` while it runs none (a wake's
+/// placement reads it under the woken thread's lock, where no other thread's is taken).
+pub fn running_class(cpu: usize) -> Option<QosClass> {
+    with(cpu, |q| q.current().map(|task| task.qos)).flatten()
 }
 
 /// Whether hart `cpu` has a task of class `qos` or above queued (TASK-0363 P5: a task woken
@@ -202,6 +212,12 @@ impl Scheduler {
     fn current_cpu_index() -> usize {
         let idx = crate::smp::cpu_current_id().as_index();
         idx * (idx < RUN_QUEUES.len()) as usize
+    }
+
+    /// The run queues for a path that holds no kernel lock (TASK-0330 P2, ADR-0102): every
+    /// operation is a queue's own lock (rank 7) — the handle carries the tick length only.
+    pub fn unlocked() -> Self {
+        Self { timeslice_ns: crate::determinism::fixed_tick_ns(), _not_send_sync: PhantomData }
     }
 
     /// Creates the scheduler: the machine's queues start empty.
@@ -381,8 +397,10 @@ impl Scheduler {
 
     /// Takes `id` off the hart it is queued on, or names the hart that runs it — decided under
     /// that hart's queue lock, so a dispatch without the kernel lock never starts a task that is
-    /// being killed or frozen (TASK-0363 P2 S3). The kernel lock the caller holds keeps a
-    /// queued task on its hart meanwhile (a steal and a wake take it too).
+    /// being killed or frozen (TASK-0363 P2 S3). A steal moves a queued task meanwhile, under
+    /// both harts' queue locks (TASK-0330 P4): it is on one hart at every look, but a walk
+    /// over the harts can pass it — `Absent` for a task whose record is held means look again
+    /// (`TaskTable::park`).
     pub fn withdraw(&mut self, id: TaskId) -> Withdrawn {
         for cpu in 0..RUN_QUEUES.len() {
             match with(cpu, |q| q.withdraw(id.as_raw())) {
@@ -409,22 +427,26 @@ impl Scheduler {
         }
     }
 
-    /// One steal for hart `local` (`run_queue::steal`), counted as the pop it replaces was.
+    /// One steal for hart `local` (`run_queue::steal`) under its own queue lock, the hart
+    /// charged to now first: the task taken is its running task and its record the hart's
+    /// when the lock is dropped. Counted as the pop it replaces was.
     fn steal_for(
         local: usize,
         max_qos: QosClass,
         allow: impl FnMut(u32) -> bool,
         home_of: impl FnMut(u32) -> usize,
     ) -> Option<Task> {
-        match run_queue::steal(&Machine, local, max_qos, allow, home_of)? {
-            Stolen::Taken(task) => {
-                crate::smp::record_work_steal();
-                Some(task)
+        let stolen = meter::metered(local, |own| {
+            let stolen = run_queue::steal(&Machine, local, own, max_qos, allow, home_of);
+            if let Some(Stolen::Taken(task)) = stolen {
+                hand(task.id, Owner::Running(local as u16));
             }
-            Stolen::Rejected => {
-                crate::smp::record_work_steal();
-                None
-            }
+            stolen
+        })??;
+        crate::smp::record_work_steal();
+        match stolen {
+            Stolen::Taken(task) => Some(task),
+            Stolen::Rejected => None,
         }
     }
 
@@ -456,40 +478,52 @@ impl Scheduler {
         Self::push(cpu_idx, id, qos)
     }
 
-    /// Runtime work stealing (A8): bounded single-task steal for the executing
-    /// CPU when its own queues are empty. On success the stolen task becomes
-    /// this CPU's current and its id is returned; the caller migrates the
-    /// task's `home_cpu` (explicit migration). Victims are scanned in
-    /// ascending CPU order; the QoS ceiling is respected.
+    /// Runtime work stealing (A8): one bounded steal for the executing hart when its own
+    /// queues are empty — under the queue locks alone, so the idle loop calls it without the
+    /// kernel lock (TASK-0330 P4). On success the task is this hart's running task, as after
+    /// `pick_here`, and the hart its home (an explicit migration: its device lines follow,
+    /// RFC-0118). Victims are scanned in ascending order; the QoS ceiling is respected.
     ///
-    /// B (TASK-0042) + ADR-0052: a task the thief may not run (`allow`) parks — no loss, no
-    /// reorder — at the FRONT of its HOME CPU's queue (`home_of`); `schedule_next` has no
-    /// affinity check, so a park on the thief would run it there. The task is judged under
-    /// its hart's queue lock and leaves that queue only for a place that took it.
-    pub fn steal_into_current(
-        &mut self,
+    /// B (TASK-0042) + ADR-0052: a task this hart may not run — its affinity, read from its
+    /// record under its hart's queue lock — parks at the FRONT of its home hart's queue (the
+    /// pick has no affinity check, so a park here would run it here). It leaves its queue
+    /// only for a place that took it.
+    pub fn steal_here(max_qos: QosClass) -> Option<TaskId> {
+        let cur = Self::current_cpu_index();
+        let pid = Self::steal_as(
+            max_qos,
+            |pid| record::get(pid).is_some_and(|record| record.affinity().contains(cur)),
+            |pid| record::get(pid).map_or(0, |record| record.home().as_index()),
+        )?;
+        if let Some(record) = record::get(pid) {
+            record.set_home(CpuId::from_raw(cur as u16));
+        }
+        crate::irq::rehome(pid);
+        Some(pid)
+    }
+
+    /// The steal for the executing hart by the caller's rules: `allow` whether it may run a
+    /// task, `home_of` where a refused one belongs.
+    fn steal_as(
         max_qos: QosClass,
         mut allow: impl FnMut(TaskId) -> bool,
         mut home_of: impl FnMut(TaskId) -> usize,
     ) -> Option<TaskId> {
-        // No trap on this hart between the victim's queue and its own: a stolen task is in
-        // neither while it changes hands.
-        let _irq_off = IrqOffGuard::new();
-        let cur = Self::current_cpu_index();
         // TASK-0363 P3: a reservation's holder runs on the hart it is admitted on — never
         // stolen (its home is that hart: a refused one parks there).
         let task = Self::steal_for(
-            cur,
+            Self::current_cpu_index(),
             max_qos,
             |id| !reserve::holds(Pid::from_raw(id)) && allow(Pid::from_raw(id)),
             |id| home_of(Pid::from_raw(id)),
         )?;
         ready::dispatched(&task);
-        let _ = meter::metered(cur, |q| {
-            q.adopt(task);
-            hand(task.id, Owner::Running(cur as u16));
-        });
         Some(Pid::from_raw(task.id))
+    }
+
+    /// A steal by the executing hart that may run nothing: the first task found parks on `home`.
+    pub fn selftest_steal_refused(&mut self, home: CpuId) -> Option<TaskId> {
+        Self::steal_as(QosClass::PerfBurst, |_| false, |_| home.as_index())
     }
 
     pub fn selftest_enqueue_on_cpu(
@@ -510,15 +544,15 @@ impl Scheduler {
         if cpu_idx >= RUN_QUEUES.len() {
             return None;
         }
-        let _irq_off = IrqOffGuard::new();
         for class in QosClass::DESCENDING {
-            let own = with(cpu_idx, |q| q.pop_front(class)).flatten();
-            let task = own.or_else(|| {
+            // Its own queue's front, else a steal — which arrives as the hart's running task.
+            let own =
+                meter::metered(cpu_idx, |q| q.pop_front(class).inspect(|&task| q.adopt(task)));
+            let task = own.flatten().or_else(|| {
                 (0..Self::SELFTEST_STEAL_MAX_PER_TICK)
                     .find_map(|_| Self::steal_for(cpu_idx, class, |_| true, |_| cpu_idx))
             });
             if let Some(task) = task {
-                let _ = meter::metered(cpu_idx, |q| q.adopt(task));
                 return Some(Pid::from_raw(task.id));
             }
         }
@@ -555,6 +589,7 @@ impl Default for Scheduler {
 }
 
 mod class;
+pub mod loan;
 pub mod meter;
 mod ready;
 pub mod record;

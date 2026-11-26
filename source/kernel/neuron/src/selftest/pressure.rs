@@ -49,7 +49,7 @@ fn bind(table: &SyscallTable, ctx: &mut api::Context<'_>, slot: usize) -> Result
 }
 
 /// The one frame waiting on `ep`, decoded.
-fn heard(router: &mut crate::ipc::Router, ep: u32) -> Option<(Level, u64, u64)> {
+fn heard(router: &crate::ipc::Router, ep: u32) -> Option<(Level, u64, u64)> {
     router.recv(ep).ok().and_then(|msg| pressure::decode(msg.payload.as_slice()))
 }
 
@@ -145,7 +145,8 @@ pub(super) fn run_purge_selftest(ctx: &mut Context<'_>) {
     use crate::vmo_lifetime::PurgeRefusal;
     const PAGES: usize = 4;
     let reach = crate::dma_reach::DmaReach::ALL;
-    let (Ok(cache), Ok(bound), Ok(eager)) = (
+    // Held by this test, as a service holds its cache, until the objects go at the end.
+    let (Ok((cache, f0)), Ok((bound, f1)), Ok((eager, f2))) = (
         vmo::create(PAGES * PAGE_SIZE, VmoKind::Lazy, &reach),
         vmo::create(PAGE_SIZE, VmoKind::Lazy, &reach),
         vmo::create(PAGE_SIZE, VmoKind::Anon, &reach),
@@ -156,14 +157,29 @@ pub(super) fn run_purge_selftest(ctx: &mut Context<'_>) {
     let committed =
         (0..PAGES).all(|i| vmo::commit(cache, i).is_ok()) && vmo::commit(bound, 0).is_ok();
     // A device was told the bound object's runs (a GPU binding is the same fact).
-    vmo::mark_device_named(bound);
-    let reject_bound = purge::unlock(bound, false);
-    let reject_eager = purge::unlock(eager, false);
-    let reject_mapped = purge::unlock(cache, true);
+    let _ = vmo::name_for_device(bound);
+    let reject_bound = purge::unlock(bound);
+    let reject_eager = purge::unlock(eager);
+    // Mapped by a space (the object's own count): no unlock until the space is gone.
+    let rw = crate::mm::PageFlags::VALID | crate::mm::PageFlags::USER | crate::mm::PageFlags::READ;
+    let mapper = ctx.address_spaces.create().ok().filter(|&handle| {
+        ctx.address_spaces.get(handle).is_ok_and(|mut space| {
+            let (va, len) = (PAGE_SIZE, PAGES * PAGE_SIZE);
+            crate::mm::space_regions::record_lazy(&mut space, va, len, rw.bits(), cache).is_ok()
+        })
+    });
+    let reject_mapped = match mapper {
+        Some(handle) => {
+            let refused = purge::unlock(cache);
+            let _ = ctx.address_spaces.destroy(handle);
+            refused
+        }
+        None => Ok(()),
+    };
     // Locked, a purge takes nothing from it.
     let kept = purge::purge_unlocked() == 0
         && vmo::committed_in(cache, 0, PAGES * PAGE_SIZE) == PAGES * PAGE_SIZE;
-    let unlocked = purge::unlock(cache, false);
+    let unlocked = purge::unlock(cache);
     let before = purge::purged_pages();
     // The level change delivers the purge (ADR-0085's path), not a call of this test's.
     pressure_endpoint::selftest_inject(Level::Warn);
@@ -172,6 +188,7 @@ pub(super) fn run_purge_selftest(ctx: &mut Context<'_>) {
     let empty = vmo::committed_in(cache, 0, PAGES * PAGE_SIZE) == 0;
     let relocked = purge::lock(cache);
     let bound_kept = vmo::committed_in(bound, 0, PAGE_SIZE) == PAGE_SIZE;
+    drop((f0, f1, f2));
     for id in [cache, bound, eager] {
         let _ = vmo::destroy(id);
     }

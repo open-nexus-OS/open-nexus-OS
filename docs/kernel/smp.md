@@ -5,7 +5,7 @@ role: guide
 subsystem: kernel
 sources: [source/kernel/neuron/src/core/smp, source/kernel/neuron/src/sync, source/kernel/neuron/src/core/cpu_main.rs, source/kernel/neuron/src/core/trap/runtime.rs]
 contracts: [RFC-0021, RFC-0118, ADR-0049, ADR-0052]
-verified: 2026-11-18
+verified: 2026-11-25
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -76,7 +76,7 @@ Every take names its holder (`KernelGuard::acquire_as`), and the boot-end fence 
 the lock's time went in the steady window (`source/kernel/neuron/src/core/trap/lock_share.rs`,
 `baseline.rs`): `KINIT: bkl held us (sched= ipc= mm= task= caps= misc= timer= ipi= ext= fault=
 idle=)`, `KINIT: bkl takes (…)`, `KINIT: bkl top sum` for the three largest holders and
-`KINIT: bkl idle split` (the idle loop's dispatch, steal, delivery);
+`KINIT: bkl idle split` (the idle loop's dispatch, a secondary's due deliveries, the boot hart's);
 `KINIT: ready latency class=…` states how long a runnable task waited for a hart, per QoS class
 (`source/kernel/neuron/src/sched/ready_stats.rs`); a wait above one millisecond is attributed to
 what the task's hart ran when the task became runnable — `late_idle` (no task: the wake did not
@@ -118,6 +118,13 @@ that leave a hart without a task and the proof: [hart-spaces.md](hart-spaces.md)
 
 `vm_unmap` initiates with the BKL dropped. Markers: `KSELFTEST: tlb shootdown ok`,
 `KSELFTEST: tlb shootdown counterfactual ok`, `KSELFTEST: tlb shootdown skipped (smp=1)`.
+
+### One space, the harts that hold it
+
+An unmap in one address space calls `shootdown_of(raw)` and reaches only the harts that may
+hold a translation of that space; the recycling of the ASIDs keeps `shootdown_all`. No lock
+is held across the wait. The set, the marker (`KSELFTEST: tlb shootdown targeted ok (`) and
+the counts: [memory-locks.md](memory-locks.md#one-space-the-harts-that-hold-it).
 
 ## IPI classes
 

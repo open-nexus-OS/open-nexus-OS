@@ -19,6 +19,8 @@
 
 use super::address_space::{AddressSpace, AddressSpaceManager};
 use super::page_table::{MapError, PageFlags, PAGE_SIZE};
+use super::space_regions::{self, RecordError};
+use super::vmo::mapping::MapRefusal;
 use crate::va_space::{superpage_plan, RegionKind, VaError, VaRegion, SUPERPAGE};
 
 /// Executor failure: either the policy refused (errno keeps VaError identity
@@ -28,6 +30,18 @@ use crate::va_space::{superpage_plan, RegionKind, VaError, VaRegion, SUPERPAGE};
 pub enum VmOpError {
     Va(VaError),
     Map(MapError),
+    /// The memory object refused this mapper (`vmo::mapping`): gone, sealed against a writer,
+    /// or unlocked for purging.
+    Object(MapRefusal),
+}
+
+impl From<RecordError> for VmOpError {
+    fn from(value: RecordError) -> Self {
+        match value {
+            RecordError::Va(err) => Self::Va(err),
+            RecordError::Object(refusal) => Self::Object(refusal),
+        }
+    }
 }
 
 /// Maps `[pa, pa+len)` at a kernel-chosen VA inside this space's managed
@@ -80,9 +94,10 @@ pub fn map_runs(
     };
     // RECORD-THEN-MAP: reserve the bookkeeping slot before touching the page
     // table, so "mapped but unrecorded" cannot exist even across a failure.
-    let region = VaRegion { va, len, pa, flags: flags.bits(), kind, vmo, offset, lazy: false };
-    space.va_space_mut().insert(region).map_err(|err| {
-        if err == VaError::TableFull {
+    let (lazy, going) = (false, false);
+    let region = VaRegion { va, len, pa, flags: flags.bits(), kind, vmo, offset, lazy, going };
+    space_regions::record(space, region).map_err(|err| {
+        if err == RecordError::Va(VaError::TableFull) {
             log_error!(
                 target: "vm",
                 "VM-MAP-FAIL reason=table-full regions={} peak={}",
@@ -90,7 +105,7 @@ pub fn map_runs(
                 space.va_space().peak_regions()
             );
         }
-        VmOpError::Va(err)
+        VmOpError::from(err)
     })?;
     let mut mapped_end = va;
     let mut at = va;
@@ -101,7 +116,7 @@ pub fn map_runs(
     });
     if let Err(err) = planned {
         rollback(space, va, mapped_end);
-        let _ = space.va_space_mut().remove_exact(va, len);
+        let _ = space_regions::forget(space, va, len);
         log_error!(
             target: "vm",
             "VM-MAP-FAIL reason=pte va=0x{:x} mapped_to=0x{:x} err={:?}",
@@ -133,8 +148,9 @@ pub fn map_lazy(
         .va_space()
         .find_hole(len, PAGE_SIZE, 0)
         .ok_or(VmOpError::Va(VaError::WindowExhausted))?;
-    let region = VaRegion { va, len, pa: 0, flags: flags.bits(), kind, vmo, offset, lazy: true };
-    space.va_space_mut().insert(region).map_err(VmOpError::Va)?;
+    let (pa, lazy, going) = (0, true, false);
+    let region = VaRegion { va, len, pa, flags: flags.bits(), kind, vmo, offset, lazy, going };
+    space_regions::record(space, region)?;
     Ok(va)
 }
 
@@ -163,7 +179,9 @@ pub(crate) fn fence_asid(_asid: crate::types::Asid) {}
 /// BKL DROPPED (phased like VMO_CREATE; a BKL-held shootdown wait tripped the
 /// 10ms `bkl budget ok` gate at SMP≥2), then calls [`forget_range`].
 pub fn clear_range(space: &mut AddressSpace, va: usize, len: usize) -> Result<(), VmOpError> {
-    let region = space.va_space().peek_exact(va, len).map_err(VmOpError::Va)?;
+    // From here on no fault fills the region and no second unmap takes it: the space is free
+    // again before `forget_range`.
+    let region = space_regions::begin_unmap(space, va, len).map_err(VmOpError::Va)?;
     let end = region.va + region.len;
     let mut cursor = region.va;
     while cursor < end {
@@ -193,43 +211,32 @@ pub fn clear_range(space: &mut AddressSpace, va: usize, len: usize) -> Result<()
 /// its last unmap).
 pub fn forget_range(space: &mut AddressSpace, va: usize, len: usize) -> u32 {
     space.page_table_mut().free_retired((va, len));
-    space.va_space_mut().remove_exact(va, len).map_or(0, |region| region.vmo)
+    space_regions::forget(space, va, len).map_or(0, |region| region.vmo)
 }
 
-/// Unmaps the exact region `(va, len)` previously returned by [`map_range`]:
-/// clear, ONE shootdown, forget. In-kernel callers only (selftest) — the
-/// vm_unmap SYSCALL phases the shootdown outside the BKL instead. Answers the
-/// object the region mapped, as [`forget_range`].
-pub fn unmap_range(space: &mut AddressSpace, va: usize, len: usize) -> Result<u32, VmOpError> {
-    clear_range(space, va, len)?;
-    crate::smp::tlb::shootdown_all();
-    Ok(forget_range(space, va, len))
-}
-
-/// Does ANY live address space still map part of `[pa, pa+len)` through a
-/// `vm_map`/`mmio_map_auto` region? The `vmo_destroy` EBUSY guard — a
-/// destroy that left live PTEs onto recycled arena pages would hand the next
-/// owner's memory to the old mapper.
-#[must_use]
-pub fn any_space_maps_vmo(manager: &AddressSpaceManager, id: u32) -> bool {
-    manager.spaces.iter().flatten().any(|space| space.va_space().any_backed_by_vmo(id))
-}
-
-/// Does ANY live address space map the VMO `id` writably? The seal's guard (ADR-0080).
-#[must_use]
-pub fn any_space_maps_vmo_writable(manager: &AddressSpaceManager, id: u32) -> bool {
-    let write = PageFlags::WRITE.bits();
-    manager
-        .spaces
-        .iter()
-        .flatten()
-        .any(|space| space.va_space().any_backed_by_vmo_writable(id, write))
-}
-
-/// How many live address spaces map the VMO `id` — an image's `mappers` (ADR-0080).
-#[must_use]
-pub fn spaces_mapping_vmo(manager: &AddressSpaceManager, id: u32) -> usize {
-    manager.spaces.iter().flatten().filter(|space| space.va_space().any_backed_by_vmo(id)).count()
+/// Unmaps the exact region `(va, len)` of the space `handle`, previously returned by
+/// [`map_range`]: clear with the space held, ONE shootdown with nothing held — it reaches the
+/// harts that may hold this space — then forget. Between the steps the region is `going`
+/// (`VaSpace::begin_unmap`). The `vm_unmap` syscall's body and the kernel's own callers.
+/// Answers the object the region mapped, as [`forget_range`].
+pub fn unmap_range(
+    spaces: &AddressSpaceManager,
+    handle: super::AsHandle,
+    va: usize,
+    len: usize,
+) -> Result<u32, VmOpError> {
+    // A space that is gone has no such region.
+    let gone = |_| VmOpError::Va(VaError::NotFound);
+    let raw = {
+        let mut space = spaces.get(handle).map_err(gone)?;
+        clear_range(&mut space, va, len)?;
+        space.raw()
+    };
+    // RFC-0102: no lock across a wait for another hart — a late acknowledgement is a whole
+    // round, and every thread of the process would wait it out at the space.
+    let _ = crate::smp::tlb::shootdown_of(raw);
+    let mut space = spaces.get(handle).map_err(gone)?;
+    Ok(forget_range(&mut space, va, len))
 }
 
 /// Map physically contiguous runs `(pa, len)` back to back at the CALLER-chosen `va` — an exec
@@ -266,8 +273,9 @@ pub fn map_runs_at(
         vmo,
         offset,
         lazy: false,
+        going: false,
     };
-    space.va_space_mut().insert(region).map_err(VmOpError::Va)?;
+    space_regions::record(space, region)?;
     let mut mapped_end = va;
     let mut at = va;
     let planned = runs.iter().try_for_each(|&(run_pa, run_len)| {
@@ -277,7 +285,7 @@ pub fn map_runs_at(
     });
     if let Err(err) = planned {
         rollback(space, va, mapped_end);
-        let _ = space.va_space_mut().remove_exact(va, len);
+        let _ = space_regions::forget(space, va, len);
         log_error!(
             target: "vm",
             "VM-MAP-FAIL reason=pte-fixed va=0x{:x} mapped_to=0x{:x} err={:?}",
@@ -315,24 +323,36 @@ pub fn leaf_span_at(space: &AddressSpace, va: usize) -> Option<usize> {
 }
 
 /// The selftest oracle for the tables an unmap gives back, on a 2 MiB span of
-/// `space`'s window no region uses (direct table edits, nothing recorded): a
+/// the space `handle`'s window no region uses (direct table edits, nothing recorded): a
 /// lone 4 KiB leaf mapped and unmapped, its emptied tables retired and freed
 /// after a shootdown, the table pages as before (`reclaimed`); then a leaf
 /// left behind empty as a failed map leaves one, a superpage over the span
 /// from the 2 MiB-aligned page inside `[pa, pa + 4 MiB)` mapped as 4 KiB
 /// leaves into it, translating, and given back (`fallback`).
 #[must_use]
-pub fn table_reclaim_probe(space: &mut AddressSpace, pa: usize, flags: PageFlags) -> (bool, bool) {
+pub fn table_reclaim_probe(
+    spaces: &AddressSpaceManager,
+    handle: super::AsHandle,
+    pa: usize,
+    flags: PageFlags,
+) -> (bool, bool) {
     // 256 MiB into the window: far past every region the selftest maps.
     let span = (super::USER_VM_WINDOW_BASE + 128 * SUPERPAGE) & !(SUPERPAGE - 1);
     let region = (span, PAGE_SIZE);
     let pa_2m = (pa + SUPERPAGE - 1) & !(SUPERPAGE - 1);
+    // Three holds of the space, a shootdown between two of them with nothing held (RFC-0102:
+    // no lock across a wait for another hart).
+    let Ok(mut space) = spaces.get(handle) else { return (false, false) };
     let pt = space.page_table_mut();
     let before = pt.allocated_pages();
     let mapped = pt.map(span, pa, flags).is_ok() && pt.allocated_pages() > before;
     let unmapped = pt.unmap_leaf(span) == Ok(PAGE_SIZE);
     let retired = pt.retire_empty(span, region);
+    drop(space);
     crate::smp::tlb::shootdown_all();
+
+    let Ok(mut space) = spaces.get(handle) else { return (false, false) };
+    let pt = space.page_table_mut();
     pt.free_retired(region);
     let reclaimed = mapped
         && unmapped
@@ -348,7 +368,11 @@ pub fn table_reclaim_probe(space: &mut AddressSpace, pa: usize, flags: PageFlags
         cleared += usize::from(pt.unmap_leaf(span + i * PAGE_SIZE).is_ok());
     }
     pt.retire_empty(span, region);
+    drop(space);
     crate::smp::tlb::shootdown_all();
+
+    let Ok(mut space) = spaces.get(handle) else { return (false, false) };
+    let pt = space.page_table_mut();
     pt.free_retired(region);
     let fallback = left
         && paged

@@ -161,6 +161,7 @@ fn flush_block(_at: usize, _block: usize) {}
 /// owned them), like the tree's alias (`boot_fdt::init_alias`).
 pub fn init_alias() -> Option<crate::cap::Held> {
     let pa = crate::phys::virt_to_phys(base() as usize);
-    let id = crate::mm::vmo::adopt_fixed(pa, BYTES).ok()?;
-    crate::mm::vmo::mint_read_only(id, crate::cap::Rights::MAP)
+    // The object's first capability makes init's read-only one and goes: nobody writes it.
+    let (_, first) = crate::mm::vmo::adopt_fixed(pa, BYTES).ok()?;
+    first.read_only_alias(crate::cap::Rights::MAP).ok()
 }

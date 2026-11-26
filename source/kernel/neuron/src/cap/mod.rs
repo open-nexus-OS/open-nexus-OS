@@ -24,7 +24,14 @@ use core::fmt;
 use core::marker::PhantomData;
 
 mod held;
-pub use held::{Held, HeldCounts};
+pub use held::{Dropped, Held, HeldCounts};
+// The address spaces live in the kernel proper; a host build compiles this for its tests.
+#[cfg(any(test, target_os = "none"))]
+pub use held::Mapped;
+#[cfg(any(test, target_os = "none"))]
+mod space_maps;
+#[cfg(any(test, target_os = "none"))]
+pub use space_maps::SpaceMaps;
 
 /// The id of a kernel endpoint — what an endpoint capability names.
 pub type EndpointId = u32;
@@ -159,19 +166,46 @@ impl EndpointCapRef {
     }
 }
 
-/// Per-task capability table.
+/// An endpoint a capability named, with its header held (TASK-0330 P2): an endpoint's id goes
+/// to a new endpoint only once no capability names it and nobody holds its header
+/// (`ipc::lifetime`), so for as long as this lives the id is the endpoint the capability named
+/// — whatever happens to the slot meanwhile. What a syscall off the kernel lock works on.
+#[derive(Clone)]
+pub struct PinnedEndpoint {
+    endpoint: EndpointId,
+    _header: Option<alloc::sync::Arc<HeldCounts>>,
+}
+
+impl PinnedEndpoint {
+    #[inline]
+    pub const fn id(&self) -> EndpointId {
+        self.endpoint
+    }
+}
+
+impl fmt::Debug for PinnedEndpoint {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "PinnedEndpoint({})", self.endpoint)
+    }
+}
+
+/// Per-task capability table. A task's lives in its scheduling record behind the process lock
+/// (RFC-0102 rank 2; TASK-0330 P2, ADR-0102): whoever reads or changes it holds that lock.
 #[derive(Default)]
 pub struct CapTable {
     slots: Vec<Option<Held>>,
     /// The task this table belongs to: an endpoint's owner holding a send capability to it is
     /// not its own peer (`Held::enter_table`). `None`: a table of nobody (a dead task's).
     holder: Option<u32>,
-    // Pre-SMP contract: capability tables are task-local and never shared directly.
-    _not_send_sync: PhantomData<*mut ()>,
 }
-static_assertions::assert_not_impl_any!(CapTable: Send, Sync);
 
 impl CapTable {
+    /// A table of nobody without a slot: what a record holds before its task exists and after
+    /// it died.
+    pub const fn empty() -> Self {
+        Self { slots: Vec::new(), holder: None }
+    }
+
     /// Creates an empty table of nobody, sized for `slots` entries.
     pub fn with_capacity(slots: usize) -> Self {
         let mut table: Vec<Option<Held>> = Vec::with_capacity(slots);
@@ -179,7 +213,7 @@ impl CapTable {
             // Avoids potential libc/memset intrinsics on no_std target
             table.push(None);
         }
-        Self { slots: table, holder: None, _not_send_sync: PhantomData }
+        Self { slots: table, holder: None }
     }
 
     /// Default slot count for task capability tables. Raised 128 → 256
@@ -333,6 +367,19 @@ impl CapTable {
         }
     }
 
+    /// The distinct endpoints this table names, each once and pinned — what a dying task's
+    /// exit judges after its table is gone: the ids stay the endpoints' for the judgement
+    /// (`PinnedEndpoint`), whoever else drops or closes beside it.
+    pub fn endpoint_pins(&self, out: &mut alloc::vec::Vec<PinnedEndpoint>) {
+        for held in self.slots.iter().flatten() {
+            if let CapabilityKind::Endpoint(endpoint) = held.cap().kind {
+                if !out.iter().any(|pin| pin.endpoint == endpoint) {
+                    out.push(PinnedEndpoint { endpoint, _header: held.counts().cloned() });
+                }
+            }
+        }
+    }
+
     /// Every VMO this table names (`Vmo` and its `VmoRo` aliases alike), each once — what a
     /// dying task may leave orphaned (TASK-0333 6a, RFC-0100 §1).
     pub fn vmo_ids(&self, out: &mut alloc::vec::Vec<u32>) {
@@ -424,7 +471,23 @@ impl CapTable {
         };
         Ok(EndpointCapRef { slot, endpoint, _tag: PhantomData })
     }
+
+    /// The endpoint `slot` names with `rights` (a subset), pinned — judged and held in one
+    /// look at the slot, under the table's lock.
+    pub fn pin_endpoint(&self, slot: usize, rights: Rights) -> Result<PinnedEndpoint, CapError> {
+        let held = self.held(slot)?;
+        let cap = held.cap();
+        if !cap.rights.contains(rights) {
+            return Err(CapError::PermissionDenied);
+        }
+        let CapabilityKind::Endpoint(endpoint) = cap.kind else {
+            return Err(CapError::PermissionDenied);
+        };
+        Ok(PinnedEndpoint { endpoint, _header: held.counts().cloned() })
+    }
 }
 
+#[cfg(test)]
+mod tests_maps;
 #[cfg(test)]
 mod tests_prop;

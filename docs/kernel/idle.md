@@ -5,7 +5,7 @@ role: reference
 subsystem: kernel
 sources: [source/kernel/neuron/src/core/idle.rs, source/kernel/neuron/src/core/cpu_main.rs, source/kernel/neuron/src/core/trap/own_deadlines.rs, source/kernel/neuron/src/core/trap/runtime.rs, source/kernel/neuron/src/core/trap/baseline.rs, source/kernel/neuron/src/core/smp/runtime.rs, source/kernel/neuron/src/task/deadline_rule.rs, source/kernel/neuron/src/timer.rs, source/kernel/neuron/src/mm/pressure_endpoint.rs, source/kernel/neuron/src/task/wake.rs]
 contracts: [ADR-0052, RFC-0021]
-verified: 2026-11-18
+verified: 2026-11-26
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -16,7 +16,7 @@ verified: 2026-11-18
 > **Purpose** — what wakes a hart that has no task, and how often its timer fires for nothing.
 > **Owns** — `source/kernel/neuron/src/core/idle.rs`, `trap/own_deadlines.rs`, `trap::idle_arm`
 > **Contracts** — [ADR-0052](../adr/0052-per-hart-earliest-deadline-timer-and-affinity-respecting-steal.md), [RFC-0021](../rfcs/RFC-0021-kernel-smp-v1-percpu-runqueues-ipi-contract.md)
-> **Invariants** — no periodic tick while idle. A hart arms only its own deadlines. Writing the compare register never drops a deadline that is due. An arm never pushes a running task's preemption tick out. The safety net is never written to the deadline shadow.
+> **Invariants** — no periodic tick while idle. A hart arms only its own deadlines. Writing the compare register never drops a deadline that is due. An arm never pushes a running task's preemption tick out, and a dispatch never pushes a due own deadline out. The safety net is never written to the deadline shadow.
 > **Read next** — [smp.md](smp.md), [README.md](README.md)
 
 ## What wakes it
@@ -40,10 +40,13 @@ backstop for the other harts' deadlines.
 A deadline belongs to the hart it was armed on: the hart that blocked the task, or ran
 `timer_set` (`Task::blocked_on`, `TimerState::arm_cpu`), armed its timer for it (`arm_wakeup`,
 ADR-0052) — wherever the task runs later. `trap/own_deadlines.rs` keeps each hart's floor: the
-earliest deadline of its blocked tasks and of its timer caps, a lower bound lowered under the
-kernel lock by the block or the arm and set exact by the deadline walk and every timer pop or
-cancel (computed aside, published after, so an unlocked reader never sees a floor above a pending
-deadline). A hart that delivered re-arms to its own floor (`process_expired_timers`); before, it
+earliest deadline of its blocked tasks and of its timer caps, a lower bound lowered by the block
+or the arm and set exact by the deadline walk and every timer pop or cancel. A thread blocks under
+no kernel lock, beside a walk, so each bound is two words (`sync/noted_bound.rs`): what waiters
+noted since the last walk began, and that walk's result — read as their minimum, a read beside a
+walk made again after it. A walk counts a wait still being prepared, and the block lowers its
+bound in the hold that makes the wait visible: no deadline is in neither word. A secondary with only timer caps due delivers them under the timer table's own lock, without
+the kernel lock (`caps_due_alone`, TASK-0330 P4). A hart that delivered re-arms to its own floor (`trap/timer_events.rs`); before, it
 re-armed to the global earliest — another hart's deadline, which then woke two harts, the second
 for nothing.
 
@@ -61,6 +64,14 @@ While a user task runs, the same register carries its preemption tick: `arm_wake
 earlier of the deadline and the 10 ms tick (`hal::platform::PREEMPT_TICK_NS`), the shadow keeps the
 deadline. A re-arm at an own deadline 1 s out left a task unpreempted and an interactive peer
 waiting 25 ms; now a same-class wait ends at the slice (board max 11.5 ms).
+
+A dispatch from the loop arms the tick the same way and never later than the hart's own floor:
+"now" for a deadline already due, with interrupts masked up to the user code, where it fires and
+its handler delivers it (`trap::dispatch_tick_arm`, `deadline_rule::dispatch_arm`). Until
+2026-11-26 every switch wrote the tick and left a due deadline out: one hart switching between two
+tasks of an IPC exchange faster than the tick took no timer interrupt for 6 s — no timer cap, no
+deadline (headless, `SELFTEST: ingress rate FAIL`). A periodic timer delivered late skips the
+periods that passed and says how many (`missed`, `deadline_rule::periodic_rearm`).
 
 ## The count
 

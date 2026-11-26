@@ -24,10 +24,14 @@ pub enum SealError {
     Kind,
     /// A device was told its runs and may write them at any time.
     DeviceNamed,
+    /// An address space holds a writable region of it.
+    MappedWritable,
 }
 
-/// Seal `id` (ADR-0080): the object has no writer for the rest of its life. Idempotent. The
-/// caller has proven no address space maps it writably (`vm_ops::any_space_maps_vmo_writable`).
+/// Seal `id` (ADR-0080): the object has no writer for the rest of its life. Idempotent.
+/// Refused while an address space maps it writably or a write is in flight (`vmo_write`) — the
+/// object's own count, read in the hold that sets the seal: a mapping and a copy take their
+/// count in a hold of the same table (`mapping`).
 pub fn seal(id: VmoId) -> Result<(), SealError> {
     let mut table = TABLE.lock();
     let object = table.get_mut(id).ok_or(SealError::NoSuchObject)?;
@@ -36,6 +40,9 @@ pub fn seal(id: VmoId) -> Result<(), SealError> {
     }
     if object.device_named {
         return Err(SealError::DeviceNamed);
+    }
+    if object.held.as_ref().is_some_and(|counts| counts.mapped_writable() > 0) {
+        return Err(SealError::MappedWritable);
     }
     object.sealed = true;
     Ok(())
@@ -46,9 +53,19 @@ pub fn is_sealed(id: VmoId) -> bool {
     with(id, |o| o.sealed).unwrap_or(false)
 }
 
-/// Record that a device was told `id`'s runs (`vmo_runs`): never sealable from now on.
-pub fn mark_device_named(id: VmoId) {
-    if let Some(object) = TABLE.lock().get_mut(id) {
-        object.device_named = true;
+/// A device is about to be told `id`'s runs (`vmo_runs`): refused (`false`) for a sealed object
+/// (ADR-0080: it has no writer, and the device could write) and for one unlocked for purging
+/// (RFC-0100 §4: a purge would take back frames the device reads); from here on the object is
+/// never sealable, never unlockable, never squeezed. The check and the mark are one hold of
+/// the table: the syscall runs without the kernel lock (TASK-0330 P3), so neither a seal nor
+/// an unlock may slip between them.
+#[must_use]
+pub fn name_for_device(id: VmoId) -> bool {
+    match TABLE.lock().get_mut(id) {
+        Some(object) if !object.sealed && !object.purgeable => {
+            object.device_named = true;
+            true
+        }
+        _ => false,
     }
 }

@@ -25,6 +25,11 @@
 //! caller moves with its request is the endpoint it then waits on. A call that
 //! moves no capability is refused — there would be nowhere for an answer to go.
 //!
+//! OFF THE KERNEL LOCK (TASK-0330 P2, ADR-0102): both bodies run over
+//! `ipc_ctx::Ipc`. The peer may answer on another hart before the caller sleeps,
+//! so the caller looks at its reply endpoint itself after the send — an answer
+//! found there goes home the same way (registers for a short one).
+//!
 //! OWNERS: @kernel-team
 //! STATUS: Functional
 //! API_STABILITY: Stable ABI (syscall 58)
@@ -33,54 +38,91 @@
 //! RFC: docs/rfcs/RFC-0096-ipc-performance-contract-v2-call-reply-recv-fastpath.md
 //! ADR: docs/adr/0064-request-reply-one-trap-per-side-direct-handoff.md
 
+use super::ipc_ctx::{locked, Ipc, IpcResult, Outcome, Slept, Waits};
+use super::ipc_msg::{fill_send_v1, send, send_v1};
+use super::ipc_recv_v2::{fill_recv_v2, recv_v2};
 use super::*;
 use crate::cap::CapabilityKind;
 use crate::ipc::header::MessageHeader;
 use crate::task::completion::CallState;
 use crate::task::BlockReason;
 
+/// Whether the caller has committed its outbound half (a call's request, a reply).
+fn committed(ipc: &Ipc<'_>) -> bool {
+    ipc.rec.thread().call.is_some()
+}
+
+/// The table's entry of `ipc_call`: the caller's pages committed (ADR-0077), then the body.
+pub(super) fn sys_ipc_call(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let (out_ptr, out_max) = (args.get(4), args.get(5));
+    if !committed(&ctx.ipc()?) {
+        fill_send_v1(ctx, &Args::new([args.get(0), args.get(1), args.get(2), args.get(3), 0, 0]))?;
+        if out_max != 0 {
+            ensure_user_range(ctx, out_ptr, out_max, UserAccess::Write)?;
+        }
+    } else if out_max != 0 {
+        // The caller may have been frozen while it waited and its pages squeezed or swapped
+        // since the commit point (ADR-0087/0088): `out` is made writable again before the reply
+        // leaves its queue — a squeezed page comes back here, a swapped one parks this
+        // re-execution (the call stays committed); any other refusal ends the call.
+        match ensure_user_range(ctx, out_ptr, out_max, UserAccess::Write) {
+            Ok(()) => {}
+            Err(err @ Error::PageIn { .. }) => return Err(err),
+            Err(err) => {
+                ctx.ipc()?.rec.thread().call = None;
+                return Err(err);
+            }
+        }
+    }
+    let out = call(&ctx.ipc()?, args);
+    locked(ctx, out)
+}
+
 /// `ipc_call(send_slot, hdr_ptr, payload_ptr, payload_len, out_ptr, out_max)`.
 ///
 /// Returns the reply length. A reply of at most `IPC_SHORT_MAX` arrives in
 /// a1..a4 and `out` is untouched; a longer one is written to `out` (truncated to
-/// `out_max`, with `a0` still the true length) by the re-executed syscall.
-pub(super) fn sys_ipc_call(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
-    let pid = ctx.tasks.current_pid();
+/// `out_max`, with `a0` still the true length).
+pub(super) fn call(ipc: &Ipc<'_>, args: &Args) -> IpcResult {
+    let out = request(ipc, args);
+    // The caller runs on: a time right its request lent is its own again (a reply that was
+    // there before it waited woke nobody).
+    if !matches!(out, Ok(Outcome::Blocked(_))) {
+        crate::sched::loan::take_back(ipc.me);
+    }
+    out
+}
 
-    // Phase 3, the queued-reply tier: this call is already committed, so the
-    // request must NOT be sent again. The answer is on the reply endpoint (or
-    // its last peer died); collect it in our own address space.
-    if let Some(state) = ctx.tasks.task(pid).and_then(|t| t.call_state()) {
-        // The arguments are unchanged on a re-execution, so `out` is re-read here.
-        return collect_queued_reply(ctx, pid, state, args.get(4), args.get(5));
+/// The call's two phases: the request, then the answer.
+fn request(ipc: &Ipc<'_>, args: &Args) -> IpcResult {
+    let (out_ptr, out_max) = (args.get(4), args.get(5));
+    // This call is already committed, so the request must NOT be sent again. The answer is
+    // on the reply endpoint (or its last peer died); the arguments are unchanged on a
+    // re-execution, so `out` is re-read here.
+    let state = ipc.rec.thread().call.clone();
+    if let Some(state) = state {
+        let Some(reply) = state.reply else {
+            // A reply's commit, not a call's: no syscall leaves that behind for this one.
+            ipc.rec.thread().call = None;
+            return Err(AddressSpaceError::InvalidArgs.into());
+        };
+        return collect(ipc, reply.id(), out_ptr, out_max);
     }
 
+    // The round trip starts here, on this hart (`ipc_stats::record_call_round_trip`).
+    let started_ns = ipc.timer.now();
+    let hart = u16::try_from(crate::smp::cpu_current_id().as_index()).unwrap_or(u16::MAX);
     let send_slot = args.get(0);
     let header_ptr = args.get(1);
-    let payload_ptr = args.get(2);
-    let payload_len = args.get(3);
-    let out_ptr = args.get(4);
-    let out_max = args.get(5);
-
-    // Every buffer user memory with its access's right, a lazy page committed before the call
-    // can park (ADR-0077).
-    ensure_user_range(ctx, header_ptr, 16, UserAccess::Read)?;
-    if payload_len > crate::ipc::IPC_PAYLOAD_MAX {
+    if args.get(3) > crate::ipc::IPC_PAYLOAD_MAX {
         return Err(Error::Ipc(ipc::IpcError::TooBig));
-    }
-    if payload_len != 0 {
-        ensure_user_range(ctx, payload_ptr, payload_len, UserAccess::Read)?;
-    }
-    if out_max != 0 {
-        ensure_user_range(ctx, out_ptr, out_max, UserAccess::Write)?;
     }
 
     // The reply endpoint is the endpoint of the capability being moved. Resolve
     // it BEFORE the send consumes the capability.
     let mut hdr_bytes = [0u8; 16];
-    // SAFETY: `ensure_user_range` above proved 16 readable bytes at `header_ptr`.
-    unsafe {
-        core::ptr::copy_nonoverlapping(header_ptr as *const u8, hdr_bytes.as_mut_ptr(), 16);
+    if !ipc.read(header_ptr, &mut hdr_bytes) {
+        return Ok(Outcome::Locked);
     }
     let user_hdr = MessageHeader::from_le_bytes(hdr_bytes);
     const IPC_MSG_FLAG_CAP_MOVE: u16 = 1 << 0;
@@ -88,134 +130,139 @@ pub(super) fn sys_ipc_call(ctx: &mut Context<'_>, args: &Args) -> SysResult<usiz
         // A call with no reply capability has nowhere to be answered.
         return Err(AddressSpaceError::InvalidArgs.into());
     }
-    let reply_ep = {
-        let caps = ctx.tasks.current_caps_mut();
-        let cap = caps
-            .get(user_hdr.src as usize)
-            .map_err(|_| Error::Ipc(ipc::IpcError::PermissionDenied))?;
-        match cap.kind {
-            CapabilityKind::Endpoint(id) => id,
-            _ => return Err(AddressSpaceError::InvalidArgs.into()),
+    let endpoint_of = |slot: usize| ipc.caps().get(slot).map(|cap| cap.kind);
+    let denied = Error::Ipc(ipc::IpcError::PermissionDenied);
+    // Held from here until the call ends: the capability travels, the caller waits on.
+    let reply = {
+        let caps = ipc.caps();
+        let slot = user_hdr.src as usize;
+        match caps.get(slot).map(|cap| cap.kind) {
+            Ok(CapabilityKind::Endpoint(_)) => {
+                caps.pin_endpoint(slot, Rights::empty()).map_err(|_| denied)?
+            }
+            Ok(_) => return Err(AddressSpaceError::InvalidArgs.into()),
+            Err(_) => return Err(denied),
         }
     };
 
     // ADR-0082: a call to a frozen receiver would wait for an answer only a thaw can bring —
     // refused at once (`Frozen`), like a send that would park on it.
-    {
-        let caps = ctx.tasks.current_caps_mut();
-        if let Ok(cap) = caps.get(send_slot) {
-            if let CapabilityKind::Endpoint(id) = cap.kind {
-                if ctx.router.endpoint_frozen(id) {
-                    return Err(Error::Ipc(ipc::IpcError::Frozen));
-                }
-            }
+    if let Ok(CapabilityKind::Endpoint(id)) = endpoint_of(send_slot) {
+        if ipc.router.endpoint_frozen(id) {
+            return Err(Error::Ipc(ipc::IpcError::Frozen));
         }
     }
 
     // Phase 1 — re-entrant. The v1 send owns validation, CAP_MOVE, the payload
     // tier, the byte budgets and the receiver wake; duplicating any of that here
     // is how the two paths would drift. A full queue blocks in `IpcSend` and
-    // this syscall re-executes with `call_state` still empty: nothing committed.
-    let send_args = Args::new([send_slot, header_ptr, payload_ptr, payload_len, 0, 0]);
-    super::ipc_msg::sys_ipc_send_v1(ctx, &send_args)?;
+    // this syscall re-executes with nothing committed.
+    let send_args = Args::new([send_slot, header_ptr, args.get(2), args.get(3), 0, 0]);
+    match send(ipc, &send_args, true)? {
+        Outcome::Done(_) => {}
+        other => return Ok(other),
+    }
 
     // Phase 2 — commit. From here the syscall is never re-executed from the
-    // start; the peer (or the EOF scan) finishes it.
-    if let Some(task) = ctx.tasks.task_mut(pid) {
-        task.set_call_state(CallState { wait_ep: reply_ep });
-    }
-    let _ = ctx.router.register_recv_waiter(reply_ep, pid.as_raw());
-    ctx.tasks.block_current(BlockReason::IpcCall { reply_ep }, ctx.scheduler);
-    if let Some(next) = ctx.scheduler.schedule_next() {
-        ctx.tasks.set_current(next);
-        return Err(Error::Reschedule);
-    }
-    // Nothing runnable on this hart: park it, the same way a blocking receive does.
-    Err(park_hart_or_self_wake(ctx, pid, |ctx| {
-        let _ = ctx.router.remove_recv_waiter(reply_ep, pid.as_raw());
-    }))
+    // start; the peer (or the EOF scan) finishes it, or the caller finds the
+    // answer already there.
+    let endpoint = reply.id();
+    ipc.rec.thread().call = Some(CallState { reply: Some(reply), started_ns, hart });
+    collect(ipc, endpoint, out_ptr, out_max)
 }
 
-/// The queued-reply tier: a reply too large for the registers stayed on the
-/// endpoint and the caller was woken as an ordinary recv-waiter. Copy it out
-/// here, in the caller's own address space, and close the call.
-fn collect_queued_reply(
-    ctx: &mut Context<'_>,
-    pid: crate::task::Pid,
-    state: CallState,
+/// Whether the last peer of a committed call is gone — the SAME host-tested predicate the
+/// receive path uses (inventing a second EOF rule here is how the two would drift).
+fn peer_closed(router: &ipc::Router, endpoint: ipc::EndpointId) -> bool {
+    let any_sender = super::eof_scan::foreign_sender_remains(router, endpoint);
+    if any_sender {
+        router.mark_endpoint_had_sender(endpoint);
+    }
+    crate::ipc_eof::should_disconnect(true, router.endpoint_had_sender(endpoint), any_sender)
+}
+
+/// A committed call takes its answer or waits for it. RFC-0096 says exactly two things end a
+/// call: the reply, or the death of the last peer — a wake with neither (another reader took
+/// the frame, a wake too many) leaves it committed and waiting.
+fn collect(ipc: &Ipc<'_>, endpoint: ipc::EndpointId, out_ptr: usize, out_max: usize) -> IpcResult {
+    let me = ipc.me.as_raw();
+    let end = || ipc.rec.thread().call = None;
+    loop {
+        match ipc.router.recv(endpoint) {
+            Ok(msg) => return take_home(ipc, endpoint, msg, out_ptr, out_max),
+            Err(ipc::IpcError::QueueEmpty) => {}
+            Err(err) => {
+                end();
+                return Err(Error::Ipc(err));
+            }
+        }
+        if peer_closed(ipc.router, endpoint) {
+            // The answer is queued before the peer lets go of the reply capability: a queue
+            // that fills between the look above and this verdict is taken first.
+            if ipc.router.pending(endpoint) {
+                continue;
+            }
+            end();
+            return Err(Error::Ipc(ipc::IpcError::PeerClosed));
+        }
+        ipc.prepare(BlockReason::IpcCall { reply_ep: endpoint });
+        if let Err(err) = ipc.router.register_recv_waiter(endpoint, me) {
+            ipc.abort();
+            end();
+            return Err(Error::Ipc(err));
+        }
+        // The answer, or the peer's death, may have come before the registration.
+        if ipc.router.pending(endpoint) || peer_closed(ipc.router, endpoint) {
+            ipc.abort();
+            let _ = ipc.router.remove_recv_waiter(endpoint, me);
+            continue;
+        }
+        match ipc.sleep() {
+            Slept::Blocked => return Ok(Outcome::Blocked(Waits::Recv(endpoint))),
+            Slept::Order => {
+                let _ = ipc.router.remove_recv_waiter(endpoint, me);
+                return Ok(Outcome::Locked);
+            }
+            Slept::Woken => {
+                let _ = ipc.router.remove_recv_waiter(endpoint, me);
+            }
+        }
+    }
+}
+
+/// The caller takes its own answer home: a short one in a1..a4 of its saved frame — the
+/// registers the peer would have written (`complete_call_waiter_if_any`) — a longer one into
+/// `out`, in the caller's own address space. A page of `out` not ready puts the answer back.
+fn take_home(
+    ipc: &Ipc<'_>,
+    endpoint: ipc::EndpointId,
+    msg: ipc::Message,
     out_ptr: usize,
     out_max: usize,
-) -> SysResult<usize> {
-    // The caller may have been frozen while it waited and its pages squeezed or swapped since
-    // the commit point (ADR-0087/0088): `out` is made writable again before the reply leaves its
-    // queue — a squeezed page comes back here, a swapped one parks this re-execution (the call
-    // stays committed); any other refusal ends the call.
-    if out_max != 0 {
-        match ensure_user_range(ctx, out_ptr, out_max, UserAccess::Write) {
-            Ok(()) => {}
-            Err(err @ Error::PageIn { .. }) => return Err(err),
-            Err(err) => {
-                if let Some(task) = ctx.tasks.task_mut(pid) {
-                    let _ = task.take_call_state();
-                }
-                return Err(err);
+) -> IpcResult {
+    let total = msg.payload.len();
+    if let Some(regs) = crate::ipc_payload::pack_reply_regs(msg.payload.as_slice()) {
+        let frame = ipc.rec.frame_mut();
+        for (i, value) in regs.iter().enumerate() {
+            frame.x[11 + i] = *value;
+        }
+        crate::ipc_stats::record_payload_copy(total);
+    } else {
+        let n = core::cmp::min(total, out_max);
+        if n != 0 {
+            if !ipc.write(out_ptr, &msg.payload.as_slice()[..n]) {
+                let _ = ipc.router.requeue_front(endpoint, msg);
+                return Ok(Outcome::Locked);
             }
+            crate::ipc_stats::record_payload_copy(n);
         }
     }
-    match ctx.router.recv(state.wait_ep) {
-        Ok(msg) => {
-            let total = msg.payload.len();
-            let n = core::cmp::min(total, out_max);
-            if n != 0 {
-                // SAFETY: `ensure_user_range` above proved `out_ptr`/`out_max` writable —
-                // committed and mapped — and this task owns that address space.
-                unsafe {
-                    core::ptr::copy_nonoverlapping(msg.payload.as_ptr(), out_ptr as *mut u8, n);
-                }
-                crate::ipc_stats::record_payload_copy(n);
-            }
-            if let Some(task) = ctx.tasks.task_mut(pid) {
-                let _ = task.take_call_state();
-            }
-            Ok(total)
-        }
-        // Woken with nothing to take. RFC-0096 says exactly two things end a
-        // call: the reply, or the death of the last peer. So decide with the
-        // SAME host-tested predicate the receive path uses — inventing a second
-        // EOF rule here is how the two would drift.
-        Err(ipc::IpcError::QueueEmpty) => {
-            let any_sender = super::eof_scan::foreign_sender_remains(ctx.router, state.wait_ep);
-            if any_sender {
-                ctx.router.mark_endpoint_had_sender(state.wait_ep);
-            }
-            let had_sender = ctx.router.endpoint_had_sender(state.wait_ep);
-            if crate::ipc_eof::should_disconnect(true, had_sender, any_sender) {
-                if let Some(task) = ctx.tasks.task_mut(pid) {
-                    let _ = task.take_call_state();
-                }
-                return Err(Error::Ipc(ipc::IpcError::PeerClosed));
-            }
-            // Neither a frame nor an EOF: a spurious wake, or another reader
-            // took the frame first. The call stays COMMITTED and waits again —
-            // a call never ends on anything but its answer or a dead peer.
-            let _ = ctx.router.register_recv_waiter(state.wait_ep, pid.as_raw());
-            ctx.tasks
-                .block_current(BlockReason::IpcCall { reply_ep: state.wait_ep }, ctx.scheduler);
-            if let Some(next) = ctx.scheduler.schedule_next() {
-                ctx.tasks.set_current(next);
-                return Err(Error::Reschedule);
-            }
-            Err(park_hart_or_self_wake(ctx, pid, |ctx| {
-                let _ = ctx.router.remove_recv_waiter(state.wait_ep, pid.as_raw());
-            }))
-        }
-        Err(err) => {
-            if let Some(task) = ctx.tasks.task_mut(pid) {
-                let _ = task.take_call_state();
-            }
-            Err(Error::Ipc(err))
-        }
+    let state = ipc.rec.thread().call.take();
+    if let Some(state) = state {
+        let ns = ipc.timer.now().saturating_sub(state.started_ns);
+        crate::ipc_stats::record_call_round_trip(usize::from(state.hart), ns);
     }
+    Ok(Outcome::Done(total))
 }
 
 /// Finish a committed `ipc_call` whose answer just landed, when that answer
@@ -228,37 +275,78 @@ fn collect_queued_reply(
 /// with the reply in a1..a4 and never traps again. Anything else is left
 /// untouched: the ordinary wake follows and the re-executed syscall collects a
 /// queued reply itself.
+///
+/// TASK-0330 P2 (ADR-0102): everything here is the waiter's scheduling record and the
+/// endpoint — no task table. A blocked thread's frame is whoever holds its thread lock's: the
+/// verdict "it waits here, blocked" and the write to its frame are one hold, and only a wake
+/// under that lock makes it runnable. The endpoint's lock ranks below the thread's, so the
+/// message is taken between two holds; a waiter that was woken in between (a kill, its last
+/// peer's death) gets the message back at the head of its queue and collects it itself.
 pub(super) fn complete_call_waiter_if_any(
-    ctx: &mut Context<'_>,
+    router: &ipc::Router,
     pid: crate::task::Pid,
     endpoint: ipc::EndpointId,
+    now: u64,
 ) {
-    let waits_here = matches!(
-        ctx.tasks.task(pid).and_then(|t| t.block_reason()),
-        Some(BlockReason::IpcCall { reply_ep }) if reply_ep == endpoint
-    );
-    if !waits_here {
+    use crate::sched::record::Thread;
+    let Some(rec) = crate::sched::record::get(pid) else {
+        return;
+    };
+    let waits_here = |thread: &Thread| {
+        thread.is_blocked()
+            && matches!(thread.reason, Some(BlockReason::IpcCall { reply_ep }) if reply_ep == endpoint)
+    };
+    if !waits_here(&rec.thread()) {
         return;
     }
     // Peek: only take the message if it can go home in registers.
-    let fits = ctx
-        .router
-        .peek_payload_len(endpoint)
-        .is_some_and(|len| len <= crate::ipc_payload::IPC_SHORT_MAX);
-    if !fits {
+    let short = |len: usize| len <= crate::ipc_payload::IPC_SHORT_MAX;
+    if !router.peek_payload_len(endpoint).is_some_and(short) {
         return;
     }
-    let Ok(msg) = ctx.router.recv(endpoint) else {
+    let Ok(msg) = router.recv(endpoint) else {
         return;
     };
     let len = msg.payload.len();
+    let mut thread = rec.thread();
+    if !short(len) || !waits_here(&thread) {
+        drop(thread);
+        let _ = router.requeue_front(endpoint, msg);
+        return;
+    }
     let regs = crate::ipc_payload::pack_reply_regs(msg.payload.as_slice());
     crate::ipc_stats::record_payload_copy(len);
     crate::ipc_stats::record_call_in_regs();
-    if let Some(task) = ctx.tasks.task_mut(pid) {
-        let _ = task.take_call_state();
-        crate::task::completion::complete_in_frame(task.frame_mut(), len, regs);
+    if let Some(state) = thread.call.take() {
+        let ns = now.saturating_sub(state.started_ns);
+        crate::ipc_stats::record_call_round_trip(usize::from(state.hart), ns);
     }
+    crate::task::completion::complete_in_frame(rec.frame_mut(), len, regs);
+}
+
+/// The table's entry of `ipc_reply_recv`: the caller's pages committed, then the body. A
+/// refusal after the reply is out ends the committed state — the next syscall replies again.
+pub(super) fn sys_ipc_reply_recv(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    if !committed(&ctx.ipc()?) {
+        fill_send_v1(ctx, &reply_args(args))?;
+    }
+    if let Err(err) = fill_recv_v2(ctx, args.get(4)) {
+        if !matches!(err, Error::PageIn { .. }) {
+            ctx.ipc()?.rec.thread().call = None;
+        }
+        return Err(err);
+    }
+    let out = reply_recv(&ctx.ipc()?, args);
+    locked(ctx, out)
+}
+
+/// The reply half's arguments as the v1 send takes them. The reply half is NON-BLOCKING, like
+/// the `send_on_cap` it replaces. A server that waits out a client's full reply queue is the
+/// 0049B wedge this task spent five packages removing — and here it would stop the server for
+/// everyone, not just that client. A reply nobody can take is dropped, which is the rule
+/// statefsd's restored `Wait::NonBlocking` enshrines.
+fn reply_args(args: &Args) -> Args {
+    Args::new([args.get(0), args.get(1), args.get(2), args.get(3), IPC_SYS_NONBLOCK, 0])
 }
 
 /// `ipc_reply_recv(reply_slot, hdr_ptr, payload_ptr, payload_len, recv_desc_ptr)`
@@ -277,47 +365,25 @@ pub(super) fn complete_call_waiter_if_any(
 /// reply is out, a re-execution must not send it twice. `CallState` says so,
 /// and the receive half re-reads its own descriptor from the unchanged
 /// arguments.
-pub(super) fn sys_ipc_reply_recv(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
-    let pid = ctx.tasks.current_pid();
-    let recv_args = Args::new([args.get(4), 0, 0, 0, 0, 0]);
-
-    // The reply is already out (this is a re-execution after the receive
-    // blocked): go straight to the receive.
-    if ctx.tasks.task(pid).and_then(|t| t.call_state()).is_some() {
-        let result = super::ipc_recv_v2::sys_ipc_recv_v2(ctx, &recv_args);
-        if !matches!(result, Err(Error::Reschedule)) {
-            if let Some(task) = ctx.tasks.task_mut(pid) {
-                let _ = task.take_call_state();
-            }
+pub(super) fn reply_recv(ipc: &Ipc<'_>, args: &Args) -> IpcResult {
+    // The reply is already out when this is a re-execution after the receive blocked: then
+    // straight to the receive.
+    if !committed(ipc) {
+        // Phase 1 — re-entrant: the reply, on the moved capability's slot. A page of it not
+        // ready: nothing is sent yet, the body asks for the lock.
+        if matches!(send_v1(ipc, &reply_args(args)), Ok(Outcome::Locked)) {
+            return Ok(Outcome::Locked);
         }
-        return result;
+        // One-shot, like `ReplyCap::reply_and_close`: the answer is delivered, the
+        // capability has no second use.
+        let _ = ipc.caps().take(args.get(0));
+        // Phase 2 — commit, then the receive. If it blocks, the re-executed syscall goes
+        // straight to the receive instead of replying again.
+        ipc.rec.thread().call = Some(CallState { reply: None, started_ns: 0, hart: 0 });
     }
-
-    // Phase 1 — re-entrant: the reply, on the moved capability's slot. A full
-    // client queue blocks in `IpcSend` with nothing committed, exactly as an
-    // ordinary send does.
-    // The reply half is NON-BLOCKING, like the `send_on_cap` it replaces. A server that waits
-    // out a client's full reply queue is the 0049B wedge this task spent five packages removing
-    // — and here it would stop the server for everyone, not just that client. A reply nobody can
-    // take is dropped, which is the rule statefsd's restored `Wait::NonBlocking` enshrines.
-    let reply_slot = args.get(0);
-    let send_args =
-        Args::new([reply_slot, args.get(1), args.get(2), args.get(3), IPC_SYS_NONBLOCK, 0]);
-    let _ = super::ipc_msg::sys_ipc_send_v1(ctx, &send_args);
-    // One-shot, like `ReplyCap::reply_and_close`: the answer is delivered, the
-    // capability has no second use.
-    let _ = ctx.tasks.current_caps_mut().take(reply_slot);
-
-    // Phase 2 — commit, then the receive. If it blocks, the re-executed syscall
-    // takes the branch above instead of replying again.
-    if let Some(task) = ctx.tasks.task_mut(pid) {
-        task.set_call_state(CallState { wait_ep: 0 });
+    let out = recv_v2(ipc, args.get(4));
+    if !matches!(out, Ok(Outcome::Blocked(_) | Outcome::Locked)) {
+        ipc.rec.thread().call = None;
     }
-    let result = super::ipc_recv_v2::sys_ipc_recv_v2(ctx, &recv_args);
-    if !matches!(result, Err(Error::Reschedule)) {
-        if let Some(task) = ctx.tasks.task_mut(pid) {
-            let _ = task.take_call_state();
-        }
-    }
-    result
+    out
 }

@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: Memory syscalls split out of the former single-file api.rs:
-//! sys_device_cap_create, sys_vmo_* (create/destroy/read/write/share) over the
+//! sys_device_cap_create, sys_vmo_* (create/destroy/share) over the
 //! page-backed objects of `mm::vmo` (TASK-0286 P3a — the arena and `VmoPool`
-//! are gone) and user-slice validation helpers. (The fixed-VA sys_map/sys_mmio_map
+//! are gone) and user-slice validation helpers; the copies into and out of an object
+//! (`vmo_write`, `vmo_read`) are `vmo_copy`'s. (The fixed-VA sys_map/sys_mmio_map
 //! were retired by RFC-0085 P6; sys_as_create/sys_as_map — a map into ANY space by
 //! raw handle — by ADR-0091.)
 //! OWNERS: @kernel-team
@@ -108,30 +109,6 @@ impl VmoCreateArgsTyped {
     }
 }
 
-#[derive(Copy, Clone)]
-pub(super) struct VmoWriteArgsTyped {
-    slot: SlotIndex,
-    offset: usize,
-    user_ptr: usize,
-    len: usize,
-}
-
-impl VmoWriteArgsTyped {
-    #[inline]
-    pub(super) fn decode(args: &Args) -> Result<Self, Error> {
-        Ok(Self {
-            slot: SlotIndex::decode(args.get(0)),
-            offset: args.get(1),
-            user_ptr: args.get(2),
-            len: args.get(3),
-        })
-    }
-    #[inline]
-    pub(super) fn check(&self) -> Result<(), Error> {
-        Ok(())
-    }
-}
-
 /// `SYSCALL_DEVICE_CAP_CREATE` (30): mint a device capability from init's
 /// descriptor. The kernel keeps one immutable record per register window
 /// (`mm::devices`); the capability names it. Args: (desc_ptr, desc_len, slot).
@@ -192,7 +169,10 @@ pub(super) fn sys_device_cap_create(ctx: &mut Context<'_>, args: &Args) -> SysRe
 /// Phase A (under the BKL): decode + take the frames for `SYSCALL_VMO_CREATE`
 /// — inside the named device's DMA reach when there is one.
 /// Returns `(id, slot_raw)`; the frames are NOT zeroed yet.
-pub(crate) fn vmo_create_reserve(ctx: &Context<'_>, args: &Args) -> Result<(u32, usize), Error> {
+pub(crate) fn vmo_create_reserve(
+    ctx: &Context<'_>,
+    args: &Args,
+) -> Result<(crate::mm::vmo::Born, usize), Error> {
     let typed = VmoCreateArgsTyped::decode(args)?;
     typed.check()?;
     let (reach, noncoherent) = if typed.device_slot == VMO_CREATE_NO_DEVICE {
@@ -208,14 +188,14 @@ pub(crate) fn vmo_create_reserve(ctx: &Context<'_>, args: &Args) -> Result<(u32,
         (reach, crate::mm::devices::noncoherent(dev).unwrap_or(false))
     };
     let aligned = align_len(typed.len).ok_or(Error::Capability(CapError::PermissionDenied))?;
-    let id = crate::mm::vmo::create(aligned, typed.kind(), &reach).map_err(create_error)?;
+    // Born held: the capability this call installs in phase C is the object's first, and it
+    // keeps the object out of the lifetime rule's reach across the phases.
+    let born = crate::mm::vmo::create(aligned, typed.kind(), &reach).map_err(create_error)?;
     if noncoherent {
-        // ADR-0092: its device reads memory, not the CPU caches — before any capability exists.
-        crate::mm::vmo::clean::set_block(id, crate::hal::platform::cbom_block());
+        // ADR-0092: its device reads memory, not the CPU caches — before anyone can map it.
+        crate::mm::vmo::clean::set_block(born.0, crate::hal::platform::cbom_block());
     }
-    // Named by no capability until phase C: out of the lifetime rule's reach meanwhile.
-    crate::mm::vmo::set_creating(id, true);
-    Ok((id, typed.slot_raw))
+    Ok((born, typed.slot_raw))
 }
 
 /// A refused create keeps its cause across the ABI (ADR-0091, as ADR-0054 for maps): a length
@@ -230,20 +210,13 @@ fn create_error(err: crate::mm::vmo::VmoError) -> Error {
     }
 }
 
-/// Phase C (BKL re-acquired): the object's first capability, minted at its header (its length
-/// is the object's own, RFC-0102), installed. On failure the (now zeroed) object goes back to
-/// the pool.
+/// Phase C (BKL re-acquired): the object's first capability (its length is the object's own,
+/// RFC-0102) is installed. On failure the (now zeroed) object goes back to the pool.
 pub(crate) fn vmo_create_finish(
     ctx: &mut Context<'_>,
-    id: u32,
+    (id, held): crate::mm::vmo::Born,
     slot_raw: usize,
 ) -> SysResult<usize> {
-    crate::mm::vmo::set_creating(id, false);
-    let Some(held) = crate::mm::vmo::mint(id, Rights::MAP) else {
-        // The object vanished between the phases: named, so the lane sees it, never silent.
-        log_error!(target: "mm", "VMO-CREATE lost id={} between phases", id);
-        return Err(Error::Capability(CapError::PermissionDenied));
-    };
     // A refused install drops the capability — counted off before the object goes back.
     let result = if slot_raw == usize::MAX {
         ctx.tasks.current_caps_mut().allocate(held)
@@ -251,7 +224,7 @@ pub(crate) fn vmo_create_finish(
         ctx.tasks.current_caps_mut().set(slot_raw, held).map(|_| slot_raw)
     };
     if result.is_err() {
-        let _ = crate::mm::vmo::destroy(id);
+        crate::mm::reclaim::orphans(&[id], "create");
     }
     result.map_err(Into::into)
 }
@@ -259,9 +232,9 @@ pub(crate) fn vmo_create_finish(
 /// Unphased `SYSCALL_VMO_CREATE` (selftest-owned dispatch tables): the three
 /// phases back to back, the zeroing under the BKL.
 pub(super) fn sys_vmo_create(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
-    let (id, slot_raw) = vmo_create_reserve(ctx, args)?;
-    crate::mm::vmo::zero(id);
-    vmo_create_finish(ctx, id, slot_raw)
+    let (born, slot_raw) = vmo_create_reserve(ctx, args)?;
+    crate::mm::vmo::zero(born.0);
+    vmo_create_finish(ctx, born, slot_raw)
 }
 
 /// `SYSCALL_VMO_DESTROY` (44): return a task-owned VMO's frames to the pool
@@ -282,136 +255,21 @@ pub(super) fn sys_vmo_destroy(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
     if crate::mm::vmo::held(id) != 1 {
         return Err(Error::Capability(CapError::PermissionDenied));
     }
-    if crate::mm::vm_ops::any_space_maps_vmo(ctx.address_spaces, id) {
+    if crate::mm::vmo::mapping::spaces(id) > 0 {
         return Err(Error::ResourceBusy);
     }
     let _ = ctx.tasks.current_caps_mut().take(slot)?;
-    crate::mm::vmo::destroy(id).map_err(|_| Error::Capability(CapError::PermissionDenied))?;
-    Ok(0)
-}
-
-/// `SYSCALL_VMO_READ` (47): bounded copy OUT of a VMO into a caller buffer —
-/// the exact mirror of `sys_vmo_write`. Requires the same `Rights::MAP`
-/// derivation on the VMO capability; offsets/lengths are checked against the
-/// VMO span and the destination is validated as a user slice. The ADR-0042
-/// compositor damage-blit is the first consumer (windowd reads app surface
-/// pixels; userspace has no VMO mapping path).
-pub(super) fn sys_vmo_read(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
-    let typed = VmoWriteArgsTyped::decode(args)?;
-    typed.check()?;
-    let cap = ctx.tasks.current_caps_mut().derive(typed.slot.0, Rights::MAP)?;
-    let (id, vmo_len) = match cap.kind {
-        CapabilityKind::Vmo { id, len } => (id, len),
-        _ => return Err(Error::Capability(CapError::PermissionDenied)),
-    };
-    let span_end =
-        typed.offset.checked_add(typed.len).ok_or(Error::Capability(CapError::PermissionDenied))?;
-    if span_end > vmo_len {
-        return Err(Error::Capability(CapError::PermissionDenied));
+    // `destroy` reads both counts again in the hold that takes the object: a mapping begun
+    // since the look above is EBUSY too (the capability is gone with it either way — the
+    // object then dies at its last unmap). A sibling thread's call that held the object
+    // meanwhile (`Held`) lets it go at its own end, and a judge that took it first
+    // (`NoSuchObject`) did this call's work: the caller's object is gone or going.
+    use crate::mm::vmo::VmoError;
+    match crate::mm::vmo::destroy(id) {
+        Ok(_) | Err(VmoError::Held | VmoError::NoSuchObject) => Ok(0),
+        Err(VmoError::Mapped) => Err(Error::ResourceBusy),
+        Err(_) => Err(Error::Capability(CapError::PermissionDenied)),
     }
-    ensure_user_range(ctx, typed.user_ptr, typed.len, UserAccess::Write)?;
-    if crate::mm::vmo::purge::is_unlocked(id) {
-        // RFC-0100 §4: an object unlocked for purging is untouchable until its lock.
-        return Err(Error::Capability(CapError::PermissionDenied));
-    }
-    // Object bytes are runs (a lazy object's: pages, `None` where never touched — those read as
-    // zeros and stay uncommitted); the user buffer is one range: copy piece by piece.
-    let pieces = crate::mm::vmo::span(id, typed.offset, typed.len, false)
-        .map_err(|e| span_error(e, Error::Capability(CapError::PermissionDenied)))?;
-    let mut dst = typed.user_ptr;
-    for (pa, len) in pieces {
-        // SAFETY: `dst..dst+len` lies in the range `ensure_user_range` proved writable; `pa` is
-        // a frame of the object, reached through the direct map.
-        unsafe {
-            match pa {
-                Some(pa) => ptr::copy_nonoverlapping(
-                    crate::phys::phys_to_virt(pa) as *const u8,
-                    dst as *mut u8,
-                    len,
-                ),
-                None => ptr::write_bytes(dst as *mut u8, 0, len),
-            }
-        }
-        dst += len;
-    }
-    Ok(typed.len)
-}
-
-pub(super) fn sys_vmo_write(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
-    let typed = VmoWriteArgsTyped::decode(args)?;
-    typed.check()?;
-    let cap = ctx.tasks.current_caps_mut().derive(typed.slot.0, Rights::MAP)?;
-    let (id, vmo_len) = match cap.kind {
-        CapabilityKind::Vmo { id, len } => (id, len),
-        _ => return Err(Error::Capability(CapError::PermissionDenied)),
-    };
-    if crate::mm::vmo::is_sealed(id) {
-        // ADR-0080: a sealed object has no writer.
-        return Err(Error::Capability(CapError::PermissionDenied));
-    }
-    if crate::mm::vmo::purge::is_unlocked(id) {
-        // RFC-0100 §4: an object unlocked for purging is untouchable until its lock.
-        return Err(Error::Capability(CapError::PermissionDenied));
-    }
-    #[cfg(feature = "debug_uart")]
-    {
-        use core::fmt::Write as _;
-        let mut u = crate::uart::raw_writer();
-        let _ = write!(
-            u,
-            "VMO-WRITE slot=0x{:x} id={} off=0x{:x} len=0x{:x} user=0x{:x}\n",
-            typed.slot.0, id, typed.offset, typed.len, typed.user_ptr
-        );
-    }
-    let span_end =
-        typed.offset.checked_add(typed.len).ok_or(Error::Capability(CapError::PermissionDenied))?;
-    if span_end > vmo_len {
-        return Err(Error::Capability(CapError::PermissionDenied));
-    }
-    ensure_user_range(ctx, typed.user_ptr, typed.len, UserAccess::Read)?;
-    #[cfg(feature = "debug_uart")]
-    let preview_len = core::cmp::min(typed.len, 16);
-    #[cfg(feature = "debug_uart")]
-    let mut preview_bytes = [0u8; 16];
-    #[cfg(feature = "debug_uart")]
-    if preview_len > 0 {
-        unsafe {
-            ptr::copy_nonoverlapping(
-                typed.user_ptr as *const u8,
-                preview_bytes.as_mut_ptr(),
-                preview_len,
-            );
-        }
-        use core::fmt::Write as _;
-        let mut u = crate::uart::raw_writer();
-        let _ =
-            write!(u, "VMO-WRITE DATA slot=0x{:x} off=0x{:x} head=0x", typed.slot.0, typed.offset);
-        for byte in preview_bytes.iter().take(preview_len) {
-            let _ = write!(u, "{:02x}", byte);
-        }
-        let _ = u.write_str("\n");
-    }
-    // A lazy object's pages are committed as they are written (ADR-0077).
-    let pieces = crate::mm::vmo::span(id, typed.offset, typed.len, true)
-        .map_err(|e| span_error(e, Error::Capability(CapError::PermissionDenied)))?;
-    let mut src = typed.user_ptr;
-    for (pa, len) in pieces {
-        let Some(pa) = pa else { return Err(Error::Capability(CapError::PermissionDenied)) };
-        // SAFETY: `src..src+len` lies in the range `ensure_user_range` proved readable; `pa` is
-        // a frame of the object, reached through the direct map.
-        unsafe {
-            ptr::copy_nonoverlapping(
-                src as *const u8,
-                crate::phys::phys_to_virt(pa) as *mut u8,
-                len,
-            );
-        }
-        src += len;
-    }
-    if typed.len != 0 {
-        riscv::asm::fence_i();
-    }
-    Ok(typed.len)
 }
 
 pub(super) use crate::mm::USER_VADDR_LIMIT;
@@ -473,8 +331,8 @@ pub(super) fn ensure_user_range(
     }
     let handle =
         ctx.tasks.current_task().address_space().ok_or(AddressSpaceError::InvalidHandle)?;
-    let space = ctx.address_spaces.get_mut(handle)?;
-    crate::mm::populate::fill_range(space, ptr, len, access).map_err(|e| match e {
+    let mut space = ctx.address_spaces.get(handle)?;
+    crate::mm::populate::fill_range(&mut space, ptr, len, access).map_err(|e| match e {
         crate::mm::populate::FillError::Exhausted => AddressSpaceError::OutOfFrames.into(),
         crate::mm::populate::FillError::Violation(_) | crate::mm::populate::FillError::Damaged => {
             AddressSpaceError::BadUserMemory.into()

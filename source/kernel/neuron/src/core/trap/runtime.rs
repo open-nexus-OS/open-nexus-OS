@@ -1,12 +1,11 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Trap runtime state split out of the former single-file trap.rs:
-//! TRAP_RUNTIME slot + KernelHandles, the kernel big lock (BKL) with the
-//! KernelGuard RAII accessor (A2 lock model), install_runtime/trap-domain
-//! plumbing, SBI timer utilities (timer_arm, default_tick_cycles), trap-vector
-//! install and reactive timer/IPC-deadline delivery (process_expired_timers,
-//! wake_expired_ipc_deadlines).
+//! CONTEXT: Trap runtime state split out of the former single-file trap.rs: TRAP_RUNTIME slot +
+//! KernelHandles, the kernel big lock (BKL) with the KernelGuard RAII accessor (A2 lock model),
+//! install_runtime/trap-domain plumbing, SBI timer utilities (timer_arm, default_tick_cycles),
+//! trap-vector install, and a hart's own wakeup: its armed deadline's shadow, its own floor and
+//! the re-arm after a delivery (the delivery itself is `timer_events`).
 //! OWNERS: @kernel-team
 //! STATUS: Functional
 //! API_STABILITY: Unstable
@@ -81,6 +80,7 @@ impl Drop for KernelGuard {
         // Recorded while the lock is still held (the fields drop after this body).
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]
         {
+            assert!(crate::sync::ranked::holds_none(), "ranked lock held past the kernel lock");
             let held = (riscv::register::time::read() as u64).saturating_sub(self.taken_at);
             crate::lock_share::record(self.holder, self.taken_at, held);
             super::budgets::note_long_hold(held, self.holder);
@@ -226,26 +226,25 @@ impl KernelGuard {
     ) -> (
         &mut Scheduler,
         &mut task::TaskTable,
-        &mut ipc::Router,
+        &ipc::Router,
         &mut AddressSpaceManager,
         &'static dyn Timer,
-        &mut crate::timer::HartTimers,
-        &mut crate::waitset::WaitsetTable,
-        &mut crate::fence::FenceTable,
+        &crate::timer::HartTimers,
+        &crate::waitset::WaitsetTable,
+        &crate::fence::FenceTable,
     ) {
-        // SAFETY: the handles point at 'static kernel state installed by
-        // install_runtime; the BKL is held for the lifetime of these borrows,
-        // and each NonNull targets a distinct object (no aliasing among them).
+        // SAFETY: the handles point at 'static kernel state installed by install_runtime; the BKL
+        // is held for these borrows, and each NonNull targets a distinct object (no aliasing).
         unsafe {
             (
                 self.handles.scheduler.as_mut(),
                 self.handles.tasks.as_mut(),
-                self.handles.router.as_mut(),
+                self.handles.router.as_ref(),
                 self.handles.spaces.as_mut(),
                 &*self.handles.timer,
-                self.handles.hart_timers.as_mut(),
-                self.handles.waitsets.as_mut(),
-                self.handles.fences.as_mut(),
+                self.handles.hart_timers.as_ref(),
+                self.handles.waitsets.as_ref(),
+                self.handles.fences.as_ref(),
             )
         }
     }
@@ -273,6 +272,7 @@ pub fn install_runtime(
     }
     let syscalls_ptr = NonNull::new((syscalls as *const SyscallTable) as *mut SyscallTable)
         .expect("syscall table ptr");
+    super::install_entries(router, waitsets, fences, timer, spaces, hart_timers);
     let runtime = TrapRuntime {
         kernel: KernelHandles {
             scheduler: NonNull::from(scheduler),
@@ -356,6 +356,29 @@ pub fn timer_arm(delta_cycles: u64) {
     let armed = armed_slot().load(Ordering::Relaxed);
     let pending = (armed != 0).then(|| crate::hal::platform::ns_to_ticks(armed));
     let at = pending.filter(|&d| d > now && d < tick).unwrap_or(tick);
+    let before = crate::smp::tlb::swap_activity(crate::smp::tlb::ACT_TIMER_ARM, 0);
+    crate::hal::platform::arm_timer_ticks(at);
+    crate::smp::tlb::restore_activity(before);
+}
+
+/// The preemption tick of a dispatch — user code runs next (TASK-0330 P4): [`timer_arm`]'s
+/// tick, never later than this hart's own pending deadlines, `now` for one already due
+/// (`deadline_rule::dispatch_arm`). The caller masks this hart's interrupts up to the user code:
+/// a due deadline fires there, where the timer handler delivers it — not in the scheduler loop,
+/// whose handler only re-arms its net (`idle::on_timer`).
+#[cfg(all(target_arch = "riscv64", target_os = "none", feature = "timer_irq"))]
+pub fn dispatch_tick_arm(delta_cycles: u64) {
+    use core::sync::atomic::Ordering;
+    let now = riscv::register::time::read() as u64;
+    let tick = now.wrapping_add(delta_cycles).min(budget_end_ticks(now).unwrap_or(u64::MAX));
+    let armed = armed_slot().load(Ordering::Relaxed);
+    let pending = (armed != 0).then(|| crate::hal::platform::ns_to_ticks(armed));
+    let tick = pending.filter(|&d| d > now && d < tick).unwrap_or(tick);
+    let own = match own_floor_ns() {
+        u64::MAX => u64::MAX,
+        ns => crate::hal::platform::ns_to_ticks(ns),
+    };
+    let at = crate::deadline_rule::dispatch_arm(now, tick, own);
     let before = crate::smp::tlb::swap_activity(crate::smp::tlb::ACT_TIMER_ARM, 0);
     crate::hal::platform::arm_timer_ticks(at);
     crate::smp::tlb::restore_activity(before);
@@ -453,8 +476,6 @@ pub unsafe fn disable_timer_interrupts() {
 
 // Intentionally no non-OS stub to avoid dead_code in host builds
 
-pub(crate) const OP_TIMER_FIRED: u8 = 0x30;
-
 // ——— Earliest-deadline timer arming (ADR-0052) ———
 
 /// Per-hart shadow of the armed wakeup deadline (ns; 0 = nothing armed). One
@@ -546,55 +567,18 @@ pub(crate) fn selftest_edt_probe(timer: &dyn Timer) -> bool {
 /// one too, and it is never due while nothing is due globally (an own floor left low by a
 /// cancelled wait cannot keep a hart waking at once).
 pub(crate) fn own_floor_ns() -> u64 {
-    use core::sync::atomic::Ordering;
-    let global =
-        super::budgets::NEXT_DEADLINE_NS.load(Ordering::Relaxed).min(crate::timer::next_cap_ns());
+    let global = super::own_deadlines::blocked_gate().min(crate::timer::next_cap_ns());
     super::own_deadlines::floor(crate::smp::cpu_current_id().as_index()).max(global)
 }
 
-/// Delivers the fired timer caps and re-arms this hart for its own next deadline; returns how
-/// many caps fired.
-pub(crate) fn process_expired_timers(
-    timer: &dyn Timer,
-    hart_timers: &mut crate::timer::HartTimers,
-    router: &mut ipc::Router,
-    tasks: &mut task::TaskTable,
-    scheduler: &mut Scheduler,
-) -> usize {
-    let now = timer.now();
-    let expired = hart_timers.pop_expired(now);
-    let fired = expired.len();
-    for (timer_id, state) in expired {
-        let mut payload = [0u8; 29];
-        payload[0] = OP_TIMER_FIRED;
-        payload[1..5].copy_from_slice(&timer_id.0.to_le_bytes());
-        payload[5..9].copy_from_slice(&(state.seq.wrapping_add(1)).to_le_bytes());
-        payload[9..13].copy_from_slice(&state.missed.to_le_bytes());
-        payload[13..21].copy_from_slice(&state.deadline_ns.to_le_bytes());
-        payload[21..29].copy_from_slice(&now.to_le_bytes());
-        let header = ipc::header::MessageHeader::new(
-            0,
-            state.notify_ep,
-            OP_TIMER_FIRED as u16,
-            0,
-            payload.len() as u32,
-        );
-        let msg = ipc::Message::new(header, ipc::Payload::from_slice(&payload), None);
-        if router.send(state.notify_ep, msg).is_ok() {
-            if let Ok(Some(waiter)) = router.pop_recv_waiter(state.notify_ep) {
-                let _ = tasks.wake(task::Pid::from_raw(waiter), scheduler);
-            }
-        }
-    }
-
-    // ADR-0052: this hart's armed deadline was consumed (timer IRQ) or is being re-evaluated
-    // (idle loop) — clear the shadow, then re-arm to this hart's OWN earliest deadline, timer
-    // caps and blocked tasks alike (TASK-0363 P8: before, the global earliest — another hart's
-    // deadline, which then woke two harts, the second for nothing). The callers walked first, so
-    // the gates are exact; the fallback heartbeat stays the safety net.
+/// After a delivery (`timer_events`), at `now`: ADR-0052 — this hart's armed deadline was
+/// consumed (timer IRQ) or is being re-evaluated (idle loop). The shadow is cleared, then the
+/// hart re-arms to its OWN earliest deadline, timer caps and blocked tasks alike (TASK-0363 P8:
+/// before, the global earliest — another hart's deadline, which then woke two harts, the second
+/// for nothing). The gates are exact after a delivery; the fallback heartbeat stays the net.
+pub(super) fn rearm_own(timer: &dyn Timer, now: u64) {
     armed_slot().store(0, core::sync::atomic::Ordering::Relaxed);
     let own = own_floor_ns();
     let fallback_ns = now.saturating_add(default_tick_cycles().saturating_mul(100));
     arm_wakeup(timer, if own > now && own < fallback_ns { own } else { fallback_ns });
-    fired
 }

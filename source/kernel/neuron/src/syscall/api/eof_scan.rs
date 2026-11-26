@@ -30,7 +30,7 @@ pub(super) fn foreign_sender_remains(router: &ipc::Router, endpoint: ipc::Endpoi
 /// shares feeds the one host-tested verdict (`ipc_eof`). A live peer also latches the
 /// endpoint (belt-and-suspenders with the send path).
 pub(super) fn empty_queue_verdict(
-    router: &mut ipc::Router,
+    router: &ipc::Router,
     endpoint: ipc::EndpointId,
     nonblock: bool,
     eof_opt: bool,
@@ -67,13 +67,17 @@ pub(super) fn standing(router: &ipc::Router, endpoint: ipc::EndpointId) -> Stand
 /// A capability to `endpoint` was dropped (a close, an exit): one reading, three verdicts.
 /// Receivers whose last peer left wake to `PeerClosed` (RFC-0079); senders whose last receiver
 /// left likewise (the mirror); an endpoint nothing names dies and is forgotten by every
-/// waitset, timer, interrupt line and exit binding (RFC-0100 §1). Returns whether it died.
+/// waitset, timer and interrupt line (RFC-0100 §1). Returns whether it died.
+///
+/// No kernel lock and no task table (TASK-0330 P4): the counts are the header's, each step is
+/// one hold of the endpoint, a wake goes through the thread's record. The caller holds the
+/// endpoint's header from before its drop (`cap::Dropped`) — the id is that endpoint's for
+/// the whole judgement. Two drops beside each other each read after their own: whichever
+/// reads last sees what both left, and every step may be done twice.
 pub(super) fn judge_dropped(
-    tasks: &mut task::TaskTable,
-    router: &mut ipc::Router,
-    scheduler: &mut Scheduler,
-    waitsets: &mut crate::waitset::WaitsetTable,
-    hart_timers: &mut crate::timer::HartTimers,
+    router: &ipc::Router,
+    waitsets: &crate::waitset::WaitsetTable,
+    hart_timers: &crate::timer::HartTimers,
     endpoint: ipc::EndpointId,
     by: &'static str,
 ) -> bool {
@@ -82,7 +86,7 @@ pub(super) fn judge_dropped(
     }
     let standing = standing(router, endpoint);
     if !standing.held {
-        return super::ipc_reclaim::destroy(tasks, router, waitsets, hart_timers, endpoint, by);
+        return super::ipc_reclaim::destroy(router, waitsets, hart_timers, endpoint, by);
     }
     if !standing.foreign_sender {
         // Latched for waitset waiters (they wake through the recv-waiter drain like any
@@ -91,12 +95,12 @@ pub(super) fn judge_dropped(
         // (`had_sender` included), the latch only ENDS the wait (P8: init's responder).
         router.set_eof_pending(endpoint);
         for pid in router.drain_recv_waiters(endpoint) {
-            observe_wake_outcome(tasks.wake(task::Pid::from_raw(pid), scheduler));
+            super::ipc_ctx::wake(pid);
         }
     }
     if !standing.receiver {
         for pid in router.mark_receiver_gone(endpoint) {
-            observe_wake_outcome(tasks.wake(task::Pid::from_raw(pid), scheduler));
+            super::ipc_ctx::wake(pid);
         }
     }
     false
@@ -111,20 +115,19 @@ pub(super) fn judge_dropped(
 /// to the end: a judgement may destroy an endpoint whose own queue held more. Timers, waitsets
 /// and fences die with their creator; a dropped capability to one only loses a name.
 pub(super) fn release_in_flight(
-    tasks: &mut task::TaskTable,
-    router: &mut ipc::Router,
-    scheduler: &mut Scheduler,
-    (waitsets, hart_timers): (&mut crate::waitset::WaitsetTable, &mut crate::timer::HartTimers),
-    address_spaces: &AddressSpaceManager,
+    router: &ipc::Router,
+    waitsets: &crate::waitset::WaitsetTable,
+    hart_timers: &crate::timer::HartTimers,
     by: &'static str,
 ) {
-    while let Some(cap) = router.take_in_flight_dropped() {
-        match cap.kind {
+    // `dropped` holds its object's header to the end of the turn: the judgement's pin.
+    while let Some(dropped) = router.take_in_flight_dropped() {
+        match dropped.cap.kind {
             CapabilityKind::Endpoint(id) => {
-                let _ = judge_dropped(tasks, router, scheduler, waitsets, hart_timers, id, by);
+                let _ = judge_dropped(router, waitsets, hart_timers, id, by);
             }
             CapabilityKind::Vmo { id, .. } | CapabilityKind::VmoRo { id, .. } => {
-                crate::mm::reclaim::orphans(address_spaces, &[id], by);
+                crate::mm::reclaim::orphans(&[id], by);
             }
             _ => {}
         }

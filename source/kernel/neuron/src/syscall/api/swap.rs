@@ -91,7 +91,9 @@ pub(super) fn sys_swap_export(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
     let ctx: &Context<'_> = ctx;
     let space = ctx.address_spaces.get(handle)?;
     let mut emit = |at: usize, bytes: &[u8]| write_user(ctx, buf_ptr + at, bytes).is_ok();
-    let done = crate::mm::swap::export(space, from_va, &allowed, buf_len, &mut emit).map_err(
+    // The caller's buffer is written through its own table without a lock (`user_copy`): the
+    // parked process's space is the one space held.
+    let done = crate::mm::swap::export(&space, from_va, &allowed, buf_len, &mut emit).map_err(
         |e| match e {
             ExportError::NoKey | ExportError::Short => Error::from(AddressSpaceError::InvalidArgs),
             ExportError::Fault => Error::from(AddressSpaceError::BadUserMemory),

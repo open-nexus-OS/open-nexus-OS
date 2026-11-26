@@ -1,0 +1,17 @@
+# FAIL markers the eight-hart stress lane (`[profile.smp8]`, `just ci-os-smp8`) tolerates on top
+# of config/fail-marker-allow.txt and config/fail-marker-allow-mttcg.txt (scripts/qemu-test.sh
+# reads `config/fail-marker-allow-<profile>.txt` for the lane it runs). One marker prefix per
+# line; '#' starts a comment. Every entry names why this lane cannot judge the line and the
+# phase that removes the entry.
+#
+# The lane's verdicts are the lock ORDER (the kernel is built with `lock_rank_check`: a lock
+# taken against the order, or held past an IPC syscall or the kernel lock's end, panics) and the
+# multi-hart result proofs of `[profile.smp]`, on the board's number of harts.
+#
+# The kernel lock's wait at eight harts is the number TASK-0330 exists to remove: the board
+# measured 10.7 ms behind `vmo_runs` (build/logs/board--2026-11-23T18-35-25), and this lane
+# 27 ms behind the idle harts' steal, which still takes the lock (smp8--2026-11-24T13-40-41:
+# `bkl long wait … for=86`, `bkl top sum id=86:3441204us/19532`). The two-hart lane keeps the
+# line as a hard gate. Remove this entry with the kernel lock (TASK-0330 P4): the line itself
+# goes then, and `KSELFTEST: lock budgets ok` is this lane's to demand.
+KSELFTEST: bkl budget FAIL

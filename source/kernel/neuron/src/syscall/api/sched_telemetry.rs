@@ -286,6 +286,15 @@ pub(super) fn sched_telemetry_op(
             );
             let by_hart = crate::ipc_stats::sends_by_hart();
             log_info!(target: "ipc", "KINIT: ipc sends by hart {:?}", by_hart);
+            // TASK-0330 P2: the call budget on every hart, from the calls made there.
+            let (fastest, mean, calls) = crate::ipc_stats::call_round_trips_us();
+            log_info!(
+                target: "ipc",
+                "KINIT: ipc call rt by hart (fastest_us={:?} mean_us={:?} n={:?})",
+                fastest,
+                mean,
+                calls
+            );
             let (
                 sweep_us,
                 sweep_tasks,
@@ -353,13 +362,13 @@ fn log_top_spaces(spaces: &AddressSpaceManager, tasks: &TaskTable) {
             let Some(space) = task.address_space().and_then(|h| spaces.get(h).ok()) else {
                 continue;
             };
-            let usage = crate::mm::usage::space_usage(space);
+            let usage = crate::mm::usage::space_usage(&space);
             // Strictly after the previous line in (rss descending, pid ascending) order.
             let after = usage.rss < below.0 || (usage.rss == below.0 && index > below.1);
             let better = best
                 .is_none_or(|(rss, pid, ..)| usage.rss > rss || (usage.rss == rss && index < pid));
             if after && better {
-                let shared = crate::mm::usage::shared_bytes(space, &mappers);
+                let shared = crate::mm::usage::shared_bytes(&space, &mappers);
                 best =
                     Some((usage.rss, index, usage.dma, task.service_id(), usage.reserved, shared));
             }

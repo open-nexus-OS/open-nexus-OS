@@ -73,6 +73,9 @@ pub struct VaRegion {
     /// The VMO is lazy (ADR-0077): its pages are committed and mapped on first touch, so the
     /// region has no physical base (`pa` is 0) and a fault inside it may be a missing page.
     pub lazy: bool,
+    /// An unmap cleared it and has not forgotten it yet (`begin_unmap`): recorded so its va is
+    /// not reused before the shootdown landed, filled no more, and nobody else's to unmap.
+    pub going: bool,
 }
 
 /// Why an operation was refused. Every variant maps to exactly one errno at
@@ -284,6 +287,7 @@ impl VaSpace {
             vmo: 0,
             offset: 0,
             lazy: false,
+            going: false,
         };
         if self.insert(region).is_err() {
             self.untracked = self.untracked.saturating_add(1);
@@ -315,6 +319,7 @@ impl VaSpace {
             vmo,
             offset: 0,
             lazy: true,
+            going: false,
         })
     }
 
@@ -348,6 +353,25 @@ impl VaSpace {
         Ok(region)
     }
 
+    /// The first step of an unmap: the region at exactly `(va, len)` stays recorded — its va
+    /// is not free before the shootdown landed — and is `going`. A fault of another thread
+    /// between the clear and the forget finds no missing page to commit there (it is a touch
+    /// of memory being unmapped: a fault), so no page table entry is written into a region
+    /// that is going away; and a second unmap of it is refused (`NotFound`) — its forget would
+    /// otherwise take whatever was mapped at this va after the first one's (TASK-0330 P3: the
+    /// space is free between the steps). Answers the region as it was.
+    pub fn begin_unmap(&mut self, va: usize, len: usize) -> Result<VaRegion, VaError> {
+        let region = self.peek_exact(va, len)?;
+        if region.going {
+            return Err(VaError::NotFound);
+        }
+        let at = self.regions.partition_point(|r| r.va < va);
+        if let Some(recorded) = self.regions.get_mut(at) {
+            recorded.going = true;
+        }
+        Ok(region)
+    }
+
     /// Unmap bookkeeping: removes the region at exactly `(va, len)`.
     /// Returns the removed region so the shell can clear its PTEs.
     pub fn remove_exact(&mut self, va: usize, len: usize) -> Result<VaRegion, VaError> {
@@ -365,25 +389,10 @@ impl VaSpace {
         let Some(end) = pa.checked_add(len) else {
             return false;
         };
-        // A lazy region has no physical base: its object's id guards it (`any_backed_by_vmo`).
+        // A lazy region has no physical base: its object's own count of mappers guards it.
         self.regions
             .iter()
             .any(|r| r.kind != RegionKind::Fixed && !r.lazy && pa < r.pa + r.len && r.pa < end)
-    }
-
-    /// Does any live region map the VMO `id`? The `vmo_destroy` guard for
-    /// page-backed objects (TASK-0286 P3a): destroying an object this address
-    /// space still maps would leave live PTEs onto recycled frames.
-    #[must_use]
-    pub fn any_backed_by_vmo(&self, id: u32) -> bool {
-        id != 0 && self.regions.iter().any(|r| r.vmo == id)
-    }
-
-    /// Does any live region map the VMO `id` with WRITE? The seal's guard (ADR-0080): a sealed
-    /// object may have no writer, so a writable mapping anywhere refuses the seal.
-    #[must_use]
-    pub fn any_backed_by_vmo_writable(&self, id: u32, write_flag: usize) -> bool {
-        id != 0 && self.regions.iter().any(|r| r.vmo == id && r.flags & write_flag != 0)
     }
 
     /// Every VMO a live region maps, each once (`0` = no object: MMIO, kernel-placed) — what

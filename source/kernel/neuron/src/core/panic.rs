@@ -19,12 +19,10 @@ use crate::{trap, uart};
 #[cfg(not(test))]
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
-    // TASK-0330 S2a, S2b: what the serial line still owes goes out synchronously now, and
-    // everything after it — a dying kernel waits for its own last words.
-    crate::hal::platform::console_async_disable_and_drain();
-    // TASK-0327B P4 H0d: this hart's gathered partial line goes out first, so the trace ends
-    // at the dying hart's last byte before the panic text.
-    crate::hal::platform::console_flush_line();
+    // TASK-0330 P7: this hart speaks the machine's last words (a fault line may already have
+    // begun them): every other hart falls silent, the hart stands on the kernel's own space,
+    // and what the serial line still owes went out — the words are synchronous from here on.
+    let dying = trap::fatal::begin();
     let mut w = uart::raw_writer();
 
     // CRITICAL: Use minimal formatting to avoid triggering another panic
@@ -50,7 +48,9 @@ fn panic(info: &PanicInfo) -> ! {
     {
         let ra: usize;
         unsafe { core::arch::asm!("mv {}, ra", out(reg) ra) };
-        let _ = w.write_str("PANIC ra=0x");
+        let _ = w.write_str("PANIC hart=0x");
+        crate::trap::uart_write_hex(&mut w, dying.cpu);
+        let _ = w.write_str(" ra=0x");
         crate::trap::uart_write_hex(&mut w, ra);
         let _ = w.write_str("\n");
     }
@@ -77,6 +77,9 @@ fn panic(info: &PanicInfo) -> ! {
             );
         });
     }
+    // TASK-0330 P7: the last words end here — a reader of the trace (and the lane's reset)
+    // knows the text is whole.
+    let _ = w.write_str("PANIC: end\n");
 
     // TASK-0260B P3: on a board the LED flickers until reset — a panic reads differently from
     // a stop; without a LED this returns and the hart parks as before.

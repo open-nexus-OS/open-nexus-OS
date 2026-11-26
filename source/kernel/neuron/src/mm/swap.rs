@@ -295,7 +295,7 @@ pub fn pending() -> bool {
 /// rest stays queued); the threads whose page went away are woken. With no sink nothing can come
 /// back: every request is dropped and its threads woken (they retry, find no pager and fail).
 pub fn deliver(
-    router: &mut crate::ipc::Router,
+    router: &crate::ipc::Router,
     tasks: &mut task::TaskTable,
     scheduler: &mut Scheduler,
 ) {

@@ -34,8 +34,8 @@ use nexus_sched::{TimeRightError, TimeRightOp, TIME_RIGHT_OP};
 /// The longest the drive holds the hart for one pick.
 const QUANTUM_US: u64 = 250;
 /// The reservation of the proof: a fifth of the hart every two milliseconds (400 µs).
-const SHARE_PPM: u32 = 200_000;
-const PERIOD_NS: u64 = 2_000_000;
+pub(super) const SHARE_PPM: u32 = 200_000;
+pub(super) const PERIOD_NS: u64 = 2_000_000;
 const PERIODS: usize = 100;
 
 fn clock() -> u64 {
@@ -44,35 +44,46 @@ fn clock() -> u64 {
 
 /// What a drive of the boot hart saw (clock ticks).
 #[derive(Default)]
-struct Drive {
+pub(super) struct Drive {
     span: u64,
     /// The longest one pick held the hart — a quantum at most, unless the host stalled it.
     max_hold: u64,
     /// Periods covered by holds longer than a period less the budget: only a host's stall
     /// holds the hart that long (four times the longest the drive asks for).
     stalled: u64,
+    /// The longest the hart spent between two holds (the pick, `done`): what `stalled` does
+    /// not see. Reported, not judged — a miss with no stalled hold names its place here.
+    outside: u64,
 }
 
 /// Runs the boot hart's queues as its timer does until `done` or `limit` ticks: pick, hold the
 /// hart for a quantum — or to the picked holder's budget end, where the timer is capped — and
 /// preempt.
-fn drive(ctx: &mut Context<'_>, boot: CpuId, limit: u64, mut done: impl FnMut() -> bool) -> Drive {
+pub(super) fn drive(
+    ctx: &mut Context<'_>,
+    boot: CpuId,
+    limit: u64,
+    mut done: impl FnMut() -> bool,
+) -> Drive {
     let quantum = QUANTUM_US * ticks_per_us();
     let (period, budget) = (ns_to_ticks(PERIOD_NS), ns_to_ticks(PERIOD_NS / 5));
     let begin = clock();
     let mut seen = Drive::default();
+    let mut last = begin;
     while !done() && clock().wrapping_sub(begin) < limit {
         if ctx.scheduler.schedule_next().is_none() {
             break;
         }
         let start = clock();
+        seen.outside = seen.outside.max(start.wrapping_sub(last));
         let hold = reserve::budget_end_ns(boot.as_index())
             .map_or(quantum, |end| (ns_to_ticks(end).saturating_sub(start) + 1).min(quantum));
         while clock().wrapping_sub(start) < hold {
             core::hint::spin_loop();
         }
         ctx.scheduler.preempt_current();
-        let held = clock().wrapping_sub(start);
+        last = clock();
+        let held = last.wrapping_sub(start);
         seen.max_hold = seen.max_hold.max(held);
         if held > period - budget {
             seen.stalled += held / period + 1;
@@ -82,7 +93,7 @@ fn drive(ctx: &mut Context<'_>, boot: CpuId, limit: u64, mut done: impl FnMut() 
     seen
 }
 
-fn queued(ctx: &mut Context<'_>, boot: CpuId, pid: Pid, qos: QosClass) -> bool {
+pub(super) fn queued(ctx: &mut Context<'_>, boot: CpuId, pid: Pid, qos: QosClass) -> bool {
     matches!(ctx.scheduler.enqueue_on_cpu(boot, pid, qos), EnqueueOutcome::Enqueued)
 }
 
@@ -172,24 +183,26 @@ fn run_reservation(ctx: &mut Context<'_>, boot: CpuId) {
     {
         log_info!(
             target: "selftest",
-            "KSELFTEST: sched time right ok (budgets={} of_us={} ran_us={} periods={} missed={} stalled={})",
+            "KSELFTEST: sched time right ok (budgets={} of_us={} ran_us={} periods={} missed={} stalled={} outside_us={})",
             overruns,
             budget_us,
             ran_us,
             periods,
             misses,
-            seen.stalled
+            seen.stalled,
+            seen.outside / ticks_per_us()
         );
     } else {
         log_error!(
             target: "selftest",
-            "KSELFTEST: sched time right FAIL (ready={} budgets={} ran_us={} periods={} missed={} stalled={} released={} balanced={})",
+            "KSELFTEST: sched time right FAIL (ready={} budgets={} ran_us={} periods={} missed={} stalled={} outside_us={} released={} balanced={})",
             ready,
             overruns,
             ran_us,
             periods,
             misses,
             seen.stalled,
+            seen.outside / ticks_per_us(),
             released,
             balanced
         );
@@ -202,7 +215,7 @@ const VIEW_SLOT: usize = 61;
 const KIND_SLOT: usize = 62;
 const EMPTY_SLOT: usize = 63;
 
-fn verdict(name: &str, ok: bool) {
+pub(super) fn verdict(name: &str, ok: bool) {
     if ok {
         log_info!(target: "selftest", "KSELFTEST: test_reject_time_right_{} ok", name);
     } else {
@@ -227,7 +240,7 @@ fn run_syscall_rejects(ctx: &mut Context<'_>) {
     };
     let cap = |kind, rights| Held::plain(Capability { kind, rights });
     let time = CapabilityKind::TimeRight(right.to_raw());
-    let staged = ctx.tasks.caps_of_mut(caller).is_some_and(|caps| {
+    let staged = ctx.tasks.caps_of_mut(caller).is_some_and(|mut caps| {
         [
             (RIGHT_SLOT, cap(time, Rights::MANAGE)),
             (VIEW_SLOT, cap(time, Rights::empty())),
@@ -338,7 +351,7 @@ fn run_handed_down(ctx: &mut Context<'_>) {
     let staged = pool.is_ok_and(|pool| {
         let cap =
             Capability { kind: CapabilityKind::TimeRight(pool.to_raw()), rights: Rights::MANAGE };
-        ctx.tasks.caps_of_mut(holder).is_some_and(|caps| {
+        ctx.tasks.caps_of_mut(holder).is_some_and(|mut caps| {
             Held::plain(cap).is_ok_and(|held| caps.set(RIGHT_SLOT, held).is_ok())
         })
     });

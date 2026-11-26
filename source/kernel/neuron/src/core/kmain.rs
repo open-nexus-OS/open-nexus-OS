@@ -81,7 +81,7 @@ impl KernelState {
         // Bring up address-space manager and activate kernel AS before any
         // complex code paths (like task/cap table initialisation) to ensure
         // the kernel text/data mappings are active in SATP.
-        let mut address_spaces = AddressSpaceManager::new();
+        let address_spaces = AddressSpaceManager::new();
         let kernel_as = match address_spaces.create() {
             Ok(handle) => handle,
             Err(err) => {
@@ -91,7 +91,9 @@ impl KernelState {
                 panic!("kernel address space create failed");
             }
         };
-        if let Err(err) = address_spaces.attach(kernel_as, Pid::KERNEL) {
+        if let Err(err) =
+            address_spaces.attach(kernel_as, Pid::KERNEL).and(address_spaces.name_kernel(kernel_as))
+        {
             use core::fmt::Write as _;
             let mut w = crate::uart::raw_writer();
             let _ = writeln!(w, "KS-E: as_attach {:?}", err);
@@ -141,7 +143,7 @@ impl KernelState {
         // Slot 0: bootstrap endpoint loopback — minted at the endpoint, like every capability
         // to one (RFC-0102).
         {
-            let caps = tasks.bootstrap_mut().caps_mut();
+            let mut caps = tasks.bootstrap_mut().caps_mut();
             if let Ok(loopback) = router.mint(0, Rights::SEND | Rights::RECV) {
                 let _ = caps.set(0, loopback);
             }

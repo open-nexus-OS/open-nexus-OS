@@ -45,14 +45,18 @@ pub struct File {
     pub global_pointer: usize,
 }
 
-/// The adopted files, in table order, and the table page's own object.
+/// The adopted files, in table order, and the table page's own object — each with the
+/// kernel's own read-only capability, the object's first (`vmo::Born`): the boot image lives
+/// as long as the kernel, whoever else lets go of it, and every alias is made from these.
 struct Adopted {
-    toc: Option<VmoId>,
+    toc: Option<Held>,
     files: [Option<File>; MAX_FILES],
+    held: [Option<Held>; MAX_FILES],
     count: usize,
 }
 
-static mut ADOPTED: Adopted = Adopted { toc: None, files: [None; MAX_FILES], count: 0 };
+static mut ADOPTED: Adopted =
+    Adopted { toc: None, files: [None; MAX_FILES], held: [const { None }; MAX_FILES], count: 0 };
 
 /// Reads where the loader put the bootfs from `/chosen`. Runs on the boot hart before the frame
 /// pool is built; a bootfs that is absent or mis-described is left unrecorded here and reported
@@ -147,8 +151,9 @@ fn adopt_all(start: usize, len: usize) -> Result<(usize, usize), Fault> {
     if toc.total_len() != len as u64 {
         return Err(Fault::Table(nexus_bootfs::Error::Layout));
     }
-    let toc_vmo = crate::mm::vmo::adopt_sealed(start, PAGE).map_err(|_| Fault::Object)?;
+    let (_, toc_held) = crate::mm::vmo::adopt_sealed(start, PAGE).map_err(|_| Fault::Object)?;
     let mut files = [None; MAX_FILES];
+    let mut held = [const { None }; MAX_FILES];
     let mut count = 0usize;
     let mut bytes = 0usize;
     for (index, file) in toc.files().enumerate() {
@@ -157,7 +162,9 @@ fn adopt_all(start: usize, len: usize) -> Result<(usize, usize), Fault> {
             return Err(Fault::Table(nexus_bootfs::Error::Layout));
         };
         let pages = file_len.div_ceil(PAGE) * PAGE;
-        let vmo = crate::mm::vmo::adopt_sealed(start + offset, pages).map_err(|_| Fault::Object)?;
+        let (vmo, first) =
+            crate::mm::vmo::adopt_sealed(start + offset, pages).map_err(|_| Fault::Object)?;
+        held[index] = Some(first);
         files[index] = Some(File {
             vmo,
             pages,
@@ -169,7 +176,7 @@ fn adopt_all(start: usize, len: usize) -> Result<(usize, usize), Fault> {
     }
     // SAFETY: the boot hart, before any task exists; written once.
     unsafe {
-        core::ptr::addr_of_mut!(ADOPTED).write(Adopted { toc: Some(toc_vmo), files, count });
+        core::ptr::addr_of_mut!(ADOPTED).write(Adopted { toc: Some(toc_held), files, held, count });
     }
     Ok((count, bytes))
 }
@@ -208,14 +215,14 @@ pub fn init_file() -> Option<File> {
 
 /// The read-only capability of the table page init receives (`INIT_BOOTFS_TOC_SLOT`).
 pub fn toc_alias() -> Option<Held> {
-    crate::mm::vmo::mint_read_only(adopted().toc?, Rights::MAP)
+    adopted().toc.as_ref()?.dup(Rights::MAP).ok()
 }
 
 /// Every file's read-only capability with its table index (`INIT_BOOTFS_FILES_SLOT + index`).
 pub fn file_aliases() -> impl Iterator<Item = (usize, Held)> {
     let a = adopted();
-    a.files[..a.count].iter().enumerate().filter_map(|(index, file)| {
-        let file = (*file)?;
-        Some((index, crate::mm::vmo::mint_read_only(file.vmo, Rights::MAP)?))
-    })
+    a.held[..a.count]
+        .iter()
+        .enumerate()
+        .filter_map(|(index, held)| Some((index, held.as_ref()?.dup(Rights::MAP).ok()?)))
 }

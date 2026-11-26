@@ -391,7 +391,8 @@ fn note_long_step(step: &str, t0: u64, pid: u32, va: usize) {
 }
 
 /// A U-mode page fault (`exc` 12/13/15 at `stval`) on a lazy page is a missing page, not an
-/// error (ADR-0077): commit and map it under the kernel lock and resume the instruction. `true`
+/// error (ADR-0077): commit and map it — without the kernel lock when it is only that
+/// (`fault_entry`), under it otherwise — and resume the instruction. `true`
 /// = filled (or spurious) — the trap returns to the same `sepc`; `false` = a real fault, the
 /// caller reports and kills as before. No frame for the page is named here, then killed.
 pub(super) fn fill_user_fault(frame: &mut TrapFrame, exc: usize, stval: usize) -> bool {
@@ -403,15 +404,29 @@ pub(super) fn fill_user_fault(frame: &mut TrapFrame, exc: usize, stval: usize) -
         15 => Access::Write,
         _ => return false,
     };
+    // TASK-0330 P3: a missing lazy page is filled with the thread's own space held and nothing
+    // else. A watermark that fill crossed is delivered by a holder of the kernel lock (ADR-0085).
+    if super::fault_entry::serve(stval, access) {
+        if crate::mm::pressure_endpoint::pending() {
+            if let Ok(mut kernel) = KernelGuard::acquire_as(crate::lock_share::FAULT) {
+                let (scheduler, tasks, router, ..) = kernel.parts();
+                crate::mm::pressure_endpoint::dispatch(router, tasks, scheduler);
+            }
+        }
+        return true;
+    }
     // U-mode fault → this hart holds no BKL; safe to acquire.
     let Ok(mut kernel) = KernelGuard::acquire_as(crate::lock_share::FAULT) else { return false };
     let (scheduler, tasks, router, spaces, _timer, hart_timers, waitsets, fences) = kernel.parts();
     let pid = tasks.current_pid();
     let Some(handle) = tasks.current_task().address_space() else { return false };
-    let Ok(space) = spaces.get_mut(handle) else { return false };
     let mut parked = false;
     let fill_t0 = crate::arch::riscv::read_time();
-    let fill = crate::mm::populate::fill(space, stval, access);
+    // The space is held for the fill alone: a park and the pressure line below take others.
+    let fill = match spaces.get(handle) {
+        Ok(mut space) => crate::mm::populate::fill(&mut space, stval, access),
+        Err(_) => return false,
+    };
     note_long_step("fill", fill_t0, pid.as_raw(), stval);
     let filled = match fill {
         Ok(()) => true,

@@ -31,8 +31,14 @@
 //! that reports it disarms it, the next add re-arms it. So a server never parks on a slow
 //! client and never spins on a client with room it has nothing to send to.
 //!
+//! LOCKING (TASK-0330 P2, ADR-0102): each waitset sits behind its own lock (`sync::slot_table`,
+//! class `ipc`); the table's methods take `&self`. A wait copies the member words out and
+//! visits the endpoints without the waitset's lock — a member added meanwhile is seen by the
+//! next wait.
+//!
 //! INVARIANTS:
 //! - Bounded table: at most `MAX_WAITSETS` live waitsets; over-limit → `ResourceExhausted`.
+//! - An id whose waitset was freed names nothing, also once its slot holds another waitset.
 //! - Bounded members: at most `MAX_WAITSET_MEMBERS` (64) per waitset; over-limit → `ResourceExhausted`.
 //! - Member set is deduplicated: adding an endpoint already present is a no-op (`Ok`); arming a
 //!   writable member already present re-arms it. A receiver's and a sender's member of one
@@ -47,8 +53,10 @@
 #![cfg_attr(not(target_os = "none"), allow(dead_code))]
 
 extern crate alloc;
-use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
+
+use crate::sync::lock_rank::Class;
+use crate::sync::slot_table::SlotTable;
 use core::fmt;
 
 /// Maximum number of concurrent waitsets (matches the timer table bound).
@@ -116,132 +124,122 @@ pub struct WaitsetEntry {
     pub members: Vec<u32>,
 }
 
-/// Per-hart waitset table.
+/// The waitsets: each behind its own lock (class `ipc`), found by its id without a table lock
+/// (TASK-0330 P2, ADR-0102). An id whose waitset was freed names nothing.
 pub struct WaitsetTable {
-    /// waitset_id -> entry.
-    table: BTreeMap<u32, WaitsetEntry>,
-    /// Next available waitset id.
-    next_id: u32,
+    slots: SlotTable<WaitsetEntry>,
 }
 
 impl WaitsetTable {
-    pub const fn new() -> Self {
-        Self { table: BTreeMap::new(), next_id: 1 }
+    pub fn new() -> Self {
+        Self { slots: SlotTable::new(Class::Ipc, MAX_WAITSETS) }
     }
 
     /// Allocate a new, empty waitset owned by `owner_pid`. Returns its id.
-    pub fn alloc(&mut self, owner_pid: u32) -> Result<WaitsetId, WaitsetError> {
-        if self.table.len() >= MAX_WAITSETS {
-            return Err(WaitsetError::ResourceExhausted);
-        }
-        // Wrap-around collision handling: probe until we find a free id (mirror HartTimers).
-        let mut id = self.next_id;
-        loop {
-            self.next_id = self.next_id.wrapping_add(1);
-            if self.next_id == 0 {
-                self.next_id = 1;
-            }
-            if !self.table.contains_key(&id) {
-                break;
-            }
-            id = self.next_id;
-        }
-        self.table.insert(id, WaitsetEntry { owner_pid, members: Vec::new() });
-        Ok(WaitsetId(id))
+    pub fn alloc(&self, owner_pid: u32) -> Result<WaitsetId, WaitsetError> {
+        self.slots
+            .insert(WaitsetEntry { owner_pid, members: Vec::new() })
+            .map(WaitsetId)
+            .ok_or(WaitsetError::ResourceExhausted)
     }
 
     /// Add `endpoint` as a member. Bounded + deduplicated.
     ///
     /// Returns `Ok` if the endpoint is now a member (including the already-present case);
     /// `ResourceExhausted` if the set is full; `InvalidHandle` if the waitset is unknown.
-    pub fn add_member(&mut self, id: WaitsetId, endpoint: u32) -> Result<(), WaitsetError> {
-        let entry = self.table.get_mut(&id.0).ok_or(WaitsetError::InvalidHandle)?;
-        if endpoint & MEMBER_FLAGS != 0 {
-            return Err(WaitsetError::InvalidHandle);
-        }
-        if entry.members.iter().any(|e| *e == endpoint) {
-            return Ok(());
-        }
-        if entry.members.len() >= MAX_WAITSET_MEMBERS {
-            return Err(WaitsetError::ResourceExhausted);
-        }
-        entry.members.push(endpoint);
-        Ok(())
+    pub fn add_member(&self, id: WaitsetId, endpoint: u32) -> Result<(), WaitsetError> {
+        let add = |entry: &mut WaitsetEntry| {
+            if endpoint & MEMBER_FLAGS != 0 {
+                return Err(WaitsetError::InvalidHandle);
+            }
+            if entry.members.iter().any(|e| *e == endpoint) {
+                return Ok(());
+            }
+            if entry.members.len() >= MAX_WAITSET_MEMBERS {
+                return Err(WaitsetError::ResourceExhausted);
+            }
+            entry.members.push(endpoint);
+            Ok(())
+        };
+        self.slots.with(id.0, add).ok_or(WaitsetError::InvalidHandle)?
     }
 
     /// Arms `endpoint` as a WRITABLE member (TASK-0339): the caller found its queue full and is
     /// told once when it has room. The first arm adds the member; a later one re-arms it.
-    pub fn arm_writable(&mut self, id: WaitsetId, endpoint: u32) -> Result<(), WaitsetError> {
-        let entry = self.table.get_mut(&id.0).ok_or(WaitsetError::InvalidHandle)?;
-        if endpoint & MEMBER_FLAGS != 0 {
-            return Err(WaitsetError::InvalidHandle);
-        }
-        let mine = |m: &u32| member_writable(*m) && member_endpoint(*m) == endpoint;
-        if let Some(m) = entry.members.iter_mut().find(|m| mine(m)) {
-            *m |= MEMBER_ARMED;
-            return Ok(());
-        }
-        if entry.members.len() >= MAX_WAITSET_MEMBERS {
-            return Err(WaitsetError::ResourceExhausted);
-        }
-        entry.members.push(endpoint | MEMBER_WRITABLE | MEMBER_ARMED);
-        Ok(())
+    pub fn arm_writable(&self, id: WaitsetId, endpoint: u32) -> Result<(), WaitsetError> {
+        let arm = |entry: &mut WaitsetEntry| {
+            if endpoint & MEMBER_FLAGS != 0 {
+                return Err(WaitsetError::InvalidHandle);
+            }
+            let mine = |m: &u32| member_writable(*m) && member_endpoint(*m) == endpoint;
+            if let Some(m) = entry.members.iter_mut().find(|m| mine(m)) {
+                *m |= MEMBER_ARMED;
+                return Ok(());
+            }
+            if entry.members.len() >= MAX_WAITSET_MEMBERS {
+                return Err(WaitsetError::ResourceExhausted);
+            }
+            entry.members.push(endpoint | MEMBER_WRITABLE | MEMBER_ARMED);
+            Ok(())
+        };
+        self.slots.with(id.0, arm).ok_or(WaitsetError::InvalidHandle)?
     }
 
     /// The wait reported member `index`: a writable member's arm is spent (told once).
-    pub fn disarm(&mut self, id: WaitsetId, index: usize) {
-        if let Some(m) = self.table.get_mut(&id.0).and_then(|e| e.members.get_mut(index)) {
-            *m &= !MEMBER_ARMED;
-        }
+    pub fn disarm(&self, id: WaitsetId, index: usize) {
+        let _ = self.slots.with(id.0, |entry| {
+            if let Some(m) = entry.members.get_mut(index) {
+                *m &= !MEMBER_ARMED;
+            }
+        });
     }
 
-    /// Borrow the member endpoint ids of a waitset.
-    pub fn members(&self, id: WaitsetId) -> Option<&[u32]> {
-        self.table.get(&id.0).map(|e| e.members.as_slice())
+    /// Copies the member words of a waitset into `out` and returns how many: a wait works on
+    /// its own copy and visits the endpoints without the waitset's lock.
+    pub fn members(&self, id: WaitsetId, out: &mut [u32; MAX_WAITSET_MEMBERS]) -> Option<usize> {
+        self.slots.with(id.0, |entry| {
+            let n = entry.members.len().min(out.len());
+            out[..n].copy_from_slice(&entry.members[..n]);
+            n
+        })
     }
 
     /// Check whether a waitset exists and is owned by `pid`.
     pub fn owned_by(&self, id: WaitsetId, pid: u32) -> bool {
-        self.table.get(&id.0).is_some_and(|e| e.owner_pid == pid)
+        self.slots.with(id.0, |entry| entry.owner_pid == pid).unwrap_or(false)
     }
 
     /// Remove a waitset entirely (called on cap close). No dangling members.
-    pub fn free(&mut self, id: WaitsetId) -> Result<(), WaitsetError> {
-        self.table.remove(&id.0).ok_or(WaitsetError::InvalidHandle)?;
-        Ok(())
+    pub fn free(&self, id: WaitsetId) -> Result<(), WaitsetError> {
+        self.slots.remove(id.0).map(|_| ()).ok_or(WaitsetError::InvalidHandle)
     }
 
     /// Frees every waitset `pid` owns — its exit (TASK-0333 6a). Returns how many.
-    pub fn free_owned_by(&mut self, pid: u32) -> usize {
-        let before = self.table.len();
-        self.table.retain(|_, e| e.owner_pid != pid);
-        before - self.table.len()
+    pub fn free_owned_by(&self, pid: u32) -> usize {
+        self.slots.remove_if(|entry| entry.owner_pid == pid, drop)
     }
 
     /// Drops `endpoint` from every member list — the endpoint died, and its slot's next
     /// tenant must not wake a waiter that never named it. Returns the lists it left.
-    pub fn forget_endpoint(&mut self, endpoint: u32) -> usize {
+    pub fn forget_endpoint(&self, endpoint: u32) -> usize {
         let mut touched = 0;
-        for e in self.table.values_mut() {
-            let before = e.members.len();
-            e.members.retain(|m| member_endpoint(*m) != endpoint);
-            touched += usize::from(e.members.len() != before);
-        }
+        self.slots.each(|entry| {
+            let before = entry.members.len();
+            entry.members.retain(|m| member_endpoint(*m) != endpoint);
+            touched += usize::from(entry.members.len() != before);
+        });
         touched
     }
 
     /// Number of live waitsets (the record).
     pub fn len(&self) -> usize {
-        self.table.len()
+        self.slots.len()
     }
 }
 
 impl fmt::Debug for WaitsetTable {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("WaitsetTable")
-            .field("table_len", &self.table.len())
-            .field("next_id", &self.next_id)
-            .finish()
+        f.debug_struct("WaitsetTable").field("len", &self.len()).finish()
     }
 }
 
@@ -264,9 +262,29 @@ mod tests {
         WaitsetTable::new()
     }
 
+    /// A waitset's member words, copied out as a wait does.
+    fn members(t: &WaitsetTable, id: WaitsetId) -> Option<Vec<u32>> {
+        let mut out = [0u32; MAX_WAITSET_MEMBERS];
+        t.members(id, &mut out).map(|n| out[..n].to_vec())
+    }
+
+    /// TASK-0330 P2: a freed waitset's id names nothing once another waitset has its slot.
+    #[test]
+    fn test_reject_a_freed_waitset_id_after_its_slot_is_reused() {
+        let t = new_table();
+        let old = t.alloc(1).unwrap();
+        t.free(old).unwrap();
+        for _ in 0..MAX_WAITSETS {
+            t.alloc(2).unwrap();
+        }
+        assert!(!t.owned_by(old, 1) && !t.owned_by(old, 2));
+        assert_eq!(t.add_member(old, 5), Err(WaitsetError::InvalidHandle));
+        assert_eq!(t.free(old), Err(WaitsetError::InvalidHandle));
+    }
+
     #[test]
     fn alloc_increments_id_and_tracks_owner() {
-        let mut t = new_table();
+        let t = new_table();
         let a = t.alloc(7).unwrap();
         let b = t.alloc(7).unwrap();
         assert_ne!(a, b);
@@ -278,36 +296,36 @@ mod tests {
 
     #[test]
     fn add_member_is_bounded_at_16() {
-        let mut t = new_table();
+        let t = new_table();
         let ws = t.alloc(1).unwrap();
         for ep in 0..MAX_WAITSET_MEMBERS as u32 {
             t.add_member(ws, 100 + ep).unwrap();
         }
-        assert_eq!(t.members(ws).unwrap().len(), MAX_WAITSET_MEMBERS);
+        assert_eq!(members(&t, ws).unwrap().len(), MAX_WAITSET_MEMBERS);
         // The 17th distinct member is rejected, deterministically, with no partial state.
         assert_eq!(t.add_member(ws, 999), Err(WaitsetError::ResourceExhausted));
-        assert_eq!(t.members(ws).unwrap().len(), MAX_WAITSET_MEMBERS);
+        assert_eq!(members(&t, ws).unwrap().len(), MAX_WAITSET_MEMBERS);
     }
 
     #[test]
     fn add_member_dedups() {
-        let mut t = new_table();
+        let t = new_table();
         let ws = t.alloc(1).unwrap();
         t.add_member(ws, 42).unwrap();
         t.add_member(ws, 42).unwrap(); // no-op, still Ok
         t.add_member(ws, 43).unwrap();
-        assert_eq!(t.members(ws).unwrap(), &[42, 43]);
+        assert_eq!(members(&t, ws).unwrap(), &[42, 43]);
     }
 
     #[test]
     fn add_member_to_unknown_waitset_rejected() {
-        let mut t = new_table();
+        let t = new_table();
         assert_eq!(t.add_member(WaitsetId(123), 1), Err(WaitsetError::InvalidHandle));
     }
 
     #[test]
     fn table_is_bounded() {
-        let mut t = new_table();
+        let t = new_table();
         for _ in 0..MAX_WAITSETS {
             t.alloc(1).unwrap();
         }
@@ -317,10 +335,10 @@ mod tests {
 
     #[test]
     fn free_removes_entry_and_is_idempotent_via_error() {
-        let mut t = new_table();
+        let t = new_table();
         let ws = t.alloc(1).unwrap();
         t.free(ws).unwrap();
-        assert!(t.members(ws).is_none());
+        assert!(members(&t, ws).is_none());
         assert!(!t.owned_by(ws, 1));
         // Double free reports InvalidHandle (no panic, no dangling state).
         assert_eq!(t.free(ws), Err(WaitsetError::InvalidHandle));
@@ -328,13 +346,13 @@ mod tests {
 
     #[test]
     fn freeing_one_does_not_disturb_others() {
-        let mut t = new_table();
+        let t = new_table();
         let a = t.alloc(1).unwrap();
         let b = t.alloc(2).unwrap();
         t.add_member(b, 5).unwrap();
         t.free(a).unwrap();
-        assert!(t.members(a).is_none());
-        assert_eq!(t.members(b).unwrap(), &[5]);
+        assert!(members(&t, a).is_none());
+        assert_eq!(members(&t, b).unwrap(), &[5]);
         assert!(t.owned_by(b, 2));
     }
 
@@ -342,33 +360,33 @@ mod tests {
     /// distinct from a receiver's member of the same endpoint.
     #[test]
     fn a_writable_member_is_armed_once_and_rearmed_in_place() {
-        let mut t = new_table();
+        let t = new_table();
         let ws = t.alloc(1).unwrap();
         t.add_member(ws, 7).unwrap();
         t.arm_writable(ws, 7).unwrap();
-        let m = t.members(ws).unwrap();
+        let m = members(&t, ws).unwrap();
         assert_eq!(m.len(), 2, "a receiver's and a sender's member are two");
         assert!(!member_writable(m[0]) && member_writable(m[1]) && member_armed(m[1]));
         assert_eq!(member_endpoint(m[1]), 7);
         t.disarm(ws, 1);
-        assert!(!member_armed(t.members(ws).unwrap()[1]), "a report spends the arm");
+        assert!(!member_armed(members(&t, ws).unwrap()[1]), "a report spends the arm");
         t.arm_writable(ws, 7).unwrap();
-        assert_eq!(t.members(ws).unwrap().len(), 2, "re-arming adds nothing");
-        assert!(member_armed(t.members(ws).unwrap()[1]));
+        assert_eq!(members(&t, ws).unwrap().len(), 2, "re-arming adds nothing");
+        assert!(member_armed(members(&t, ws).unwrap()[1]));
         t.disarm(ws, 0);
-        assert_eq!(t.members(ws).unwrap()[0], 7, "a receiver's member has no arm to spend");
+        assert_eq!(members(&t, ws).unwrap()[0], 7, "a receiver's member has no arm to spend");
     }
 
     /// A dead endpoint leaves every list in both interests.
     #[test]
     fn forget_endpoint_drops_a_writable_member_too() {
-        let mut t = new_table();
+        let t = new_table();
         let ws = t.alloc(1).unwrap();
         t.add_member(ws, 9).unwrap();
         t.arm_writable(ws, 9).unwrap();
         t.arm_writable(ws, 10).unwrap();
         assert_eq!(t.forget_endpoint(9), 1);
-        let m = t.members(ws).unwrap();
+        let m = members(&t, ws).unwrap();
         assert_eq!(m.len(), 1);
         assert_eq!(member_endpoint(m[0]), 10);
     }
@@ -376,11 +394,11 @@ mod tests {
     /// An endpoint id that collides with the member flags is refused in either interest.
     #[test]
     fn test_reject_an_endpoint_id_in_the_flag_bits() {
-        let mut t = new_table();
+        let t = new_table();
         let ws = t.alloc(1).unwrap();
         assert_eq!(t.add_member(ws, MEMBER_ARMED | 3), Err(WaitsetError::InvalidHandle));
         assert_eq!(t.arm_writable(ws, MEMBER_WRITABLE | 3), Err(WaitsetError::InvalidHandle));
-        assert!(t.members(ws).unwrap().is_empty());
+        assert!(members(&t, ws).unwrap().is_empty());
     }
 
     #[test]

@@ -12,11 +12,20 @@
 //! `va_space` pure module
 //! ADR: docs/adr/0054-map-errors-keep-their-identity-across-the-abi.md
 
+use super::ipc_ctx::{locked, Ipc, IpcResult, Outcome};
 use super::*;
 
-/// `SYSCALL_VM_MAP` (53, RFC-0085): whole-range VMO map at a kernel-chosen
-/// va. Args: (vmo_slot, offset, len, flags) → va. Own address space only.
+/// `SYSCALL_VM_MAP` (53) under the kernel lock (the syscall table).
 pub(super) fn sys_vm_map(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let out = vm_map(&ctx.ipc()?, args);
+    locked(ctx, out)
+}
+
+/// `SYSCALL_VM_MAP` (53, RFC-0085): whole-range VMO map at a kernel-chosen
+/// va. Args: (vmo_slot, offset, len, flags) → va. Own address space only. The body of both
+/// entries: it holds the object's capability and the caller's own space, nothing else
+/// (TASK-0330 P3).
+pub(super) fn vm_map(ipc: &Ipc<'_>, args: &Args) -> IpcResult {
     let slot = SlotIndex::decode(args.get(0));
     let offset = args.get(1);
     let len = args.get(2);
@@ -29,7 +38,20 @@ pub(super) fn sys_vm_map(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize>
     if len == 0 || len % PAGE_SIZE != 0 || offset % PAGE_SIZE != 0 {
         return Err(AddressSpaceError::InvalidArgs.into());
     }
-    let cap = ctx.tasks.current_caps_mut().derive(slot.0, Rights::MAP)?;
+    let pinned = super::pinned::pin(&ipc.caps(), slot.0, Rights::MAP, "map")?;
+    let va = map_object(ipc, pinned.cap, offset, len, flags);
+    // With no space held: was the pin the object's last capability, it is judged here.
+    drop(pinned);
+    va.map(Outcome::Done)
+}
+
+fn map_object(
+    ipc: &Ipc<'_>,
+    cap: Capability,
+    offset: usize,
+    len: usize,
+    flags: PageFlags,
+) -> SysResult<usize> {
     let (id, cap_len, read_only) = match cap.kind {
         CapabilityKind::Vmo { id, len } => (id, len, false),
         CapabilityKind::VmoRo { id, len } => (id, len, true),
@@ -60,19 +82,19 @@ pub(super) fn sys_vm_map(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize>
     if read_only {
         flags = PageFlags::from_bits_truncate(crate::vmo_ro::force_readonly(flags.bits()));
     }
-    let handle =
-        ctx.tasks.current_task().address_space().ok_or(AddressSpaceError::InvalidHandle)?;
-    let space = ctx.address_spaces.get_mut(handle)?;
+    let handle = ipc.space()?;
     let kind = crate::va_space::RegionKind::Vmo;
     if crate::mm::vmo::is_lazy(id) {
         // ADR-0077: recorded now, each page mapped by its first touch.
-        let va = crate::mm::vm_ops::map_lazy(space, len, flags, kind, id, offset)
+        let mut space = ipc.spaces.get(handle)?;
+        let va = crate::mm::vm_ops::map_lazy(&mut space, len, flags, kind, id, offset)
             .map_err(Error::from)?;
         return Ok(va);
     }
     let runs = vmo_runs_in(id, offset, len)?;
-    let va =
-        crate::mm::vm_ops::map_runs(space, &runs, flags, kind, id, offset).map_err(Error::from)?;
+    let mut space = ipc.spaces.get(handle)?;
+    let va = crate::mm::vm_ops::map_runs(&mut space, &runs, flags, kind, id, offset)
+        .map_err(Error::from)?;
     Ok(va)
 }
 
@@ -100,26 +122,35 @@ pub(super) fn vmo_runs_in(
     Ok(out)
 }
 
-/// `SYSCALL_VM_UNMAP` (54, RFC-0085): unmap ONE exact `vm_map`/
-/// `mmio_map_auto` region. Args: (va, len). Single-phase fallback path
-/// (selftest-owned dispatch tables); the trap layer routes the live
-/// syscall through the PHASED twins below so the TLB shootdown wait never
-/// holds the BKL.
+/// `SYSCALL_VM_UNMAP` (54) under the kernel lock, in one piece: the syscall table's (a
+/// selftest's dispatch). A live syscall that needs the lock goes through the phased twins
+/// below, so the shootdown's wait never holds it.
 pub(super) fn sys_vm_unmap(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
-    let handle =
-        ctx.tasks.current_task().address_space().ok_or(AddressSpaceError::InvalidHandle)?;
-    let space = ctx.address_spaces.get_mut(handle)?;
-    let vmo =
-        crate::mm::vm_ops::unmap_range(space, args.get(0), args.get(1)).map_err(Error::from)?;
-    reclaim_unmapped(ctx, vmo);
-    Ok(0)
+    let out = vm_unmap(&ctx.ipc()?, args);
+    locked(ctx, out)
+}
+
+/// `SYSCALL_VM_UNMAP` (54, RFC-0085): unmap ONE exact `vm_map`/`mmio_map_auto` region. Args:
+/// (va, len). The body of both entries (TASK-0330 P3): `vm_ops::unmap_range` — clear with the
+/// caller's space held, the shootdown with nothing held, then forget; between the steps the
+/// region is `going`: recorded, filled by no fault, refused to a second unmap.
+pub(super) fn vm_unmap(ipc: &Ipc<'_>, args: &Args) -> IpcResult {
+    let handle = ipc.space()?;
+    let (va, len) = (args.get(0), args.get(1));
+    unmap_stage(1);
+    let vmo = crate::mm::vm_ops::unmap_range(ipc.spaces, handle, va, len).map_err(Error::from)?;
+    unmap_stage(3);
+    // RFC-0100 §1: an object whose last capability closed while a space mapped it dies at its
+    // last unmap.
+    crate::mm::reclaim::judge(vmo, "unmap");
+    Ok(Outcome::Done(0))
 }
 
 /// RFC-0100 §1 (TASK-0333 6b-3): the unmap is the lifetime rule's third caller — an object whose
 /// last capability closed while a space mapped it dies at its last unmap.
-fn reclaim_unmapped(ctx: &Context<'_>, vmo: u32) {
+fn reclaim_unmapped(vmo: u32) {
     if vmo != 0 {
-        crate::mm::reclaim::orphans(ctx.address_spaces, &[vmo], "unmap");
+        crate::mm::reclaim::orphans(&[vmo], "unmap");
     }
 }
 
@@ -128,9 +159,9 @@ fn reclaim_unmapped(ctx: &Context<'_>, vmo: u32) {
 pub(crate) fn vm_unmap_clear(ctx: &mut Context<'_>, args: &Args) -> SysResult<()> {
     let handle =
         ctx.tasks.current_task().address_space().ok_or(AddressSpaceError::InvalidHandle)?;
-    let space = ctx.address_spaces.get_mut(handle)?;
+    let mut space = ctx.address_spaces.get(handle)?;
     unmap_stage(1);
-    crate::mm::vm_ops::clear_range(space, args.get(0), args.get(1)).map_err(Error::from)?;
+    crate::mm::vm_ops::clear_range(&mut space, args.get(0), args.get(1)).map_err(Error::from)?;
     Ok(())
 }
 
@@ -139,11 +170,14 @@ pub(crate) fn vm_unmap_clear(ctx: &mut Context<'_>, args: &Args) -> SysResult<()
 pub(crate) fn vm_unmap_finish(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let handle =
         ctx.tasks.current_task().address_space().ok_or(AddressSpaceError::InvalidHandle)?;
-    let space = ctx.address_spaces.get_mut(handle)?;
     unmap_stage(2);
-    let vmo = crate::mm::vm_ops::forget_range(space, args.get(0), args.get(1));
+    let vmo = crate::mm::vm_ops::forget_range(
+        &mut *ctx.address_spaces.get(handle)?,
+        args.get(0),
+        args.get(1),
+    );
     unmap_stage(3);
-    reclaim_unmapped(ctx, vmo);
+    reclaim_unmapped(vmo);
     Ok(0)
 }
 
@@ -175,9 +209,9 @@ pub(super) fn sys_mmio_map_auto(ctx: &mut Context<'_>, args: &Args) -> SysResult
     let flags = PageFlags::VALID | PageFlags::USER | PageFlags::READ | PageFlags::WRITE;
     let handle =
         ctx.tasks.current_task().address_space().ok_or(AddressSpaceError::InvalidHandle)?;
-    let space = ctx.address_spaces.get_mut(handle)?;
+    let mut space = ctx.address_spaces.get(handle)?;
     let va = crate::mm::vm_ops::map_range(
-        space,
+        &mut space,
         base + offset,
         len,
         flags,

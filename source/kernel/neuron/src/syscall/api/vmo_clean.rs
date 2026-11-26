@@ -16,30 +16,44 @@ use super::*;
 use crate::clean_span::CleanRefusal;
 use crate::mm::vmo::clean::Job;
 
+/// A planned clean and the object's capability it runs under: the clean runs with the kernel
+/// lock dropped, and the frames it walks stay the object's while this is held.
+pub(crate) struct Clean {
+    job: Job,
+    _pinned: super::pinned::Pinned,
+}
+
+impl Clean {
+    /// The clean itself: no lock held.
+    pub(crate) fn run(&self) {
+        crate::mm::vmo::clean::run(&self.job);
+    }
+}
+
 /// Phase A (BKL held): the clean `(vmo_slot, offset, len)` asks for — `None` when there is
 /// nothing to clean (a coherent device's object, an empty range).
-pub(crate) fn vmo_clean_plan(ctx: &mut Context<'_>, args: &Args) -> Result<Option<Job>, Error> {
+pub(crate) fn vmo_clean_plan(ctx: &mut Context<'_>, args: &Args) -> Result<Option<Clean>, Error> {
     let slot = SlotIndex::decode(args.get(0));
     let (offset, len) = (args.get(1), args.get(2));
-    let cap = ctx.tasks.current_caps_mut().derive(slot.0, Rights::MAP)?;
-    let (id, cap_len, writable) = match cap.kind {
-        CapabilityKind::Vmo { id, len } => (id, len, !crate::mm::vmo::is_sealed(id)),
-        CapabilityKind::VmoRo { id, len } => (id, len, false),
-        _ => return Err(Error::Capability(CapError::PermissionDenied)),
+    let pinned = super::pinned::pin(&ctx.tasks.current_caps_mut(), slot.0, Rights::MAP, "clean")?;
+    let Some((id, cap_len, read_only)) = pinned.object() else {
+        return Err(Error::Capability(CapError::PermissionDenied));
     };
+    let writable = !read_only && !crate::mm::vmo::is_sealed(id);
     crate::clean_span::admits(writable, offset, len, cap_len).map_err(|refusal| match refusal {
         CleanRefusal::NotWritable => Error::Capability(CapError::PermissionDenied),
         CleanRefusal::OutOfRange => Error::from(AddressSpaceError::InvalidArgs),
     })?;
     // A frame the pool does not own (a device window) is never cleaned.
-    crate::mm::vmo::clean::plan(id, offset, len)
-        .map_err(|_| Error::Capability(CapError::PermissionDenied))
+    let job = crate::mm::vmo::clean::plan(id, offset, len)
+        .map_err(|_| Error::Capability(CapError::PermissionDenied))?;
+    Ok(job.map(|job| Clean { job, _pinned: pinned }))
 }
 
 /// The unphased `SYSCALL_VMO_CLEAN` (selftest-owned dispatch tables): the clean under the lock.
 pub(super) fn sys_vmo_clean(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
-    if let Some(job) = vmo_clean_plan(ctx, args)? {
-        crate::mm::vmo::clean::run(&job);
+    if let Some(clean) = vmo_clean_plan(ctx, args)? {
+        clean.run();
     }
     Ok(0)
 }

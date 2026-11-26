@@ -268,6 +268,10 @@ Kernel markers (multi-hart lanes and the board; `selftest/smp_sched/time_right.r
   period missed, the books balanced after unbind and revoke.
 - `KSELFTEST: test_reject_time_right_claim_by_stranger ok`, `…_forged_slot ok`,
   `…_beyond_held ok`, `…_bind_other_task ok`, `…_after_revoke ok` — the syscall's refusals.
+- `KSELFTEST: time right loan ok`, `KSELFTEST: test_reject_time_right_loan ok` — a call lends
+  its caller's reservation to the server it wakes (ADR-0102, `selftest/smp_sched/loan.rs`): the
+  server runs its budgets, the loan ends with the reply, the server's next wait, the lender's
+  unbind or exit; nobody is lent what they must not reach.
 - `KSELFTEST: test_reject_an_app_claims_more_than_app_host_holds ok` — a right handed down: the
   child binds and derives no more than it, nothing finer than its grain; a stranger is handed
   nothing; the parent's revoke ends it.

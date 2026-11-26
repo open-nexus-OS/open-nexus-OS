@@ -26,7 +26,7 @@ use crate::{
 };
 use core::slice;
 
-use crate::deadline_rule::{deadline_verdict, next_gate, DeadlineVerdict};
+use crate::deadline_rule::{deadline_verdict, DeadlineVerdict};
 use crate::task::BlockReason;
 
 // Mechanical split of the former single-file api.rs (TASK: god-file split).
@@ -39,10 +39,13 @@ mod exec;
 mod exec_copy;
 mod exec_image;
 mod ipc_call;
+pub(crate) mod ipc_ctx;
 mod ipc_msg;
 mod ipc_reclaim;
 mod ipc_recv_v2;
 mod mm_stats;
+/// A memory object's capability held for one call (RFC-0102).
+mod pinned;
 /// ADR-0082: resume / suspend / kill of a child process (the parentage check).
 mod process_ctl;
 /// ADR-0082: killing a task that is not the current one; a leader's exit taking its threads.
@@ -59,6 +62,7 @@ mod vm_map;
 mod vmo;
 mod vmo_clean;
 pub(crate) use vmo_clean::vmo_clean_plan;
+mod vmo_copy;
 mod vmo_runs;
 mod vmo_seal;
 pub(crate) use vmo_runs::resolve_runs;
@@ -109,12 +113,12 @@ use super::{
 pub struct Context<'a> {
     pub scheduler: &'a mut Scheduler,
     pub tasks: &'a mut task::TaskTable,
-    pub router: &'a mut ipc::Router,
+    pub router: &'a ipc::Router,
     pub address_spaces: &'a mut AddressSpaceManager,
     pub timer: &'a dyn Timer,
-    pub hart_timers: &'a mut crate::timer::HartTimers,
-    pub waitsets: &'a mut crate::waitset::WaitsetTable,
-    pub fences: &'a mut crate::fence::FenceTable,
+    pub hart_timers: &'a crate::timer::HartTimers,
+    pub waitsets: &'a crate::waitset::WaitsetTable,
+    pub fences: &'a crate::fence::FenceTable,
     pub last_message: Option<ipc::Message>,
     /// The syscall asks to give up the hart (`yield`): the trap exit requeues the caller AFTER
     /// its return value is in its frame (TASK-0363 P2 S2 — a requeued task's frame is the hart's
@@ -127,12 +131,12 @@ impl<'a> Context<'a> {
     pub fn new(
         scheduler: &'a mut Scheduler,
         tasks: &'a mut task::TaskTable,
-        router: &'a mut ipc::Router,
+        router: &'a ipc::Router,
         address_spaces: &'a mut AddressSpaceManager,
         timer: &'a dyn Timer,
-        hart_timers: &'a mut crate::timer::HartTimers,
-        waitsets: &'a mut crate::waitset::WaitsetTable,
-        fences: &'a mut crate::fence::FenceTable,
+        hart_timers: &'a crate::timer::HartTimers,
+        waitsets: &'a crate::waitset::WaitsetTable,
+        fences: &'a crate::fence::FenceTable,
     ) -> Self {
         Self {
             scheduler,
@@ -198,7 +202,7 @@ fn observe_wake_outcome(outcome: task::WakeOutcome) {
 /// time. The old "self-wake" fallback enqueued `cur` on its home queue and
 /// then sret'd back into `cur` at the ecall so it would retry — leaving the
 /// task in a run queue WHILE it kept executing on this hart. Any idle hart
-/// could steal that queue entry (`Scheduler::steal_into_current`) and run
+/// could steal that queue entry (`Scheduler::steal_here`) and run
 /// the same task on the same user stack: the init double-run during the
 /// volume spawn pass (two identical `[USER-PF] INST @ sepc=<stack VA>`
 /// dumps for one pid, 2026-09-08). Once THIS hart runs its scheduler loop
@@ -240,17 +244,11 @@ fn park_hart_or_self_wake(
     Error::Reschedule
 }
 
-/// Deadline sweep run at EVERY scheduling transition (`yield`, blocking
-/// `ipc_recv_v1/v2`, `waitset_wait`) — i.e. the one body all three of the
-/// `>10 ms` BKL holders observed on 2026-07-25 have in common
-/// (`KINIT: long ecall nr=0|18|26|40 10..26ms`, 146 waits >10 ms in an
-/// interactive 4-hart boot). It is O(tasks) and each expiry it finds wakes a
-/// task, which can IPI another hart — so its cost is attributed separately
-/// (`trap::budgets::record_sweep`) and, since 2026-07-25, gated: the scan is
-/// skipped outright while `now` is before the earliest armed deadline
-/// (`budgets::NEXT_DEADLINE_NS`, which documents why that cannot lose a
-/// wakeup). Every scan that does run recomputes the exact minimum of the
-/// deadlines still pending, so the gate re-arms itself.
+/// The deadline walk at a scheduling transition (`yield`, a blocking receive, a waitset's
+/// wait). O(tasks), and each expiry wakes a task: its cost is attributed apart
+/// (`trap::budgets::record_sweep`) and gated — skipped while `now` is before the earliest
+/// pending deadline (`trap::own_deadlines::blocked_gate`; `sync::noted_bound` proves that
+/// cannot lose a wakeup beside a thread blocking under no kernel lock).
 fn wake_expired_blocked(ctx: &mut Context<'_>) {
     let now = ctx.timer.now();
     let _ = expire_deadlines(now, ctx.tasks, ctx.router, ctx.scheduler, ctx.waitsets, ctx.fences);
@@ -264,13 +262,13 @@ fn wake_expired_blocked(ctx: &mut Context<'_>) {
 pub(crate) fn expire_deadlines(
     now: u64,
     tasks: &mut task::TaskTable,
-    router: &mut ipc::Router,
+    router: &ipc::Router,
     scheduler: &mut Scheduler,
-    waitsets: &mut crate::waitset::WaitsetTable,
-    fences: &mut crate::fence::FenceTable,
+    waitsets: &crate::waitset::WaitsetTable,
+    fences: &crate::fence::FenceTable,
 ) -> usize {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-    if crate::trap::budgets::sweep_can_skip(now) {
+    if now < crate::trap::own_deadlines::blocked_gate() {
         crate::trap::budgets::record_sweep_skipped();
         return 0;
     }
@@ -284,31 +282,52 @@ pub(crate) fn expire_deadlines(
     let mut wakes = 0usize;
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     let mut wake_ticks = 0u64;
-    // Exact minimum of the deadlines that remain pending after this sweep —
-    // published at the end so the O(1) gate above is precise, not heuristic.
-    let mut next_min = u64::MAX;
     for pid_usize in 0..len {
         let pid = task::Pid::from_raw(pid_usize as u32);
         let Some(t) = tasks.task(pid) else {
             continue;
         };
-        if !t.is_blocked() {
+        // One hold of its thread lock reads what it waits for, where, and whether it is
+        // blocked already: a thread blocks under no kernel lock (ADR-0102), beside this walk.
+        let Some((reason, blocked_on, blocked)) = t.waiting() else {
             continue;
-        }
-        // The decision is `deadline_rule` (host-tested); this loop only acts on it.
-        let reason = t.block_reason();
-        let verdict = deadline_verdict(reason.and_then(BlockReason::deadline_ns), now);
-        next_min = next_gate(next_min, verdict);
+        };
+        // The decision is `deadline_rule` (host-tested); this loop only acts on it. Every
+        // deadline still pending is noted: the earliest is the gate above after this walk, and
+        // its hart's own floor — exact, with what blocks beside the walk kept
+        // (`sync::noted_bound`).
+        let verdict = deadline_verdict(reason.and_then(BlockReason::deadline_ns), now, blocked);
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-        if let DeadlineVerdict::Pending(d) = verdict {
+        if let Some(d) = verdict.pending() {
             use crate::trap::own_deadlines as own;
-            own::note(own::Kind::Blocked, t.blocked_on.as_index(), d);
+            own::note(own::Kind::Blocked, blocked_on.as_index(), d);
         }
+        #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+        let _ = blocked_on;
         if verdict != DeadlineVerdict::Expired {
             continue;
         }
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]
         let arm_t0 = riscv::register::time::read() as u64;
+        // A deadline delivered late names itself (the first few of a boot): how late, by
+        // which hart, for a task that blocked on which — the hart whose timer was armed for it.
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+        {
+            const LATE_NS: u64 = 2_000_000;
+            const NAMED: usize = 8;
+            static LATE: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+            let late = now.saturating_sub(reason.and_then(BlockReason::deadline_ns).unwrap_or(now));
+            if late >= LATE_NS && LATE.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < NAMED {
+                log_info!(
+                    target: "smp",
+                    "KINIT: deadline late (pid={} late_us={} by=cpu{} blocked_on=cpu{})",
+                    pid.as_raw(),
+                    late / 1_000,
+                    crate::smp::cpu_current_id().as_index(),
+                    blocked_on.as_index()
+                );
+            }
+        }
         // Take the timed-out waiter out of what it waits on, then wake it (it returns
         // `TimedOut` on re-entry).
         match reason {
@@ -319,16 +338,10 @@ pub(crate) fn expire_deadlines(
                 let _ = router.remove_send_waiter(endpoint, pid.as_raw());
             }
             Some(BlockReason::Waitset { ws_id, .. }) => {
-                // Every member lists it (a receiver's and a sender's). Snapshot the members to
-                // a stack buffer so the `waitsets` and `router` borrows stay disjoint.
+                // Every member lists it (a receiver's and a sender's): the members are copied
+                // out, the endpoints visited without the waitset's lock.
                 let mut buf = [0u32; crate::waitset::MAX_WAITSET_MEMBERS];
-                let n = waitsets
-                    .members(crate::waitset::WaitsetId(ws_id))
-                    .map(|m| {
-                        buf[..m.len()].copy_from_slice(m);
-                        m.len()
-                    })
-                    .unwrap_or(0);
+                let n = waitsets.members(crate::waitset::WaitsetId(ws_id), &mut buf).unwrap_or(0);
                 sync_objects::deregister_members(router, &buf[..n], pid.as_raw());
             }
             Some(BlockReason::Fence { fence_id, .. }) => {
@@ -345,7 +358,6 @@ pub(crate) fn expire_deadlines(
     }
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
-        crate::trap::budgets::set_next_deadline(next_min);
         crate::trap::own_deadlines::publish(crate::trap::own_deadlines::Kind::Blocked);
         crate::trap::budgets::record_sweep(
             (riscv::register::time::read() as u64).saturating_sub(sweep_t0),
@@ -354,8 +366,6 @@ pub(crate) fn expire_deadlines(
             wake_ticks,
         );
     }
-    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
-    let _ = next_min;
     wakes
 }
 
@@ -371,10 +381,10 @@ pub fn install_handlers(table: &mut SyscallTable) {
     table.register(SYSCALL_CAP_QUERY, sys_cap_query);
     table.register(SYSCALL_DEVICE_CAP_CREATE, sys_device_cap_create);
     table.register(SYSCALL_VMO_CREATE, sys_vmo_create);
-    table.register(SYSCALL_VMO_WRITE, sys_vmo_write);
+    table.register(SYSCALL_VMO_WRITE, vmo_copy::sys_vmo_write);
     table.register(crate::syscall::SYSCALL_VMO_DESTROY, sys_vmo_destroy);
     table.register(crate::syscall::SYSCALL_VMO_SHARE_RO, sys_vmo_share_ro);
-    table.register(crate::syscall::SYSCALL_VMO_READ, sys_vmo_read);
+    table.register(crate::syscall::SYSCALL_VMO_READ, vmo_copy::sys_vmo_read);
     table.register(crate::syscall::SYSCALL_VMO_RUNS, vmo_runs::sys_vmo_runs);
     table.register(crate::syscall::SYSCALL_VMO_CLEAN, vmo_clean::sys_vmo_clean);
     table.register(crate::syscall::SYSCALL_MM_STATS, mm_stats::sys_mm_stats);
@@ -502,10 +512,7 @@ pub(crate) fn lockfree_syscall(nr: usize, _args: &Args) -> Option<SysResult<usiz
 }
 
 fn sys_debug_putc(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
-    let byte = (args.get(0) & 0xff) as u8;
-    // TASK-0333 6f-3: gathered per task, sent as a whole line at its `\n` (no UART lock).
-    crate::hal::console_line::task_write(ctx.tasks.current_pid().as_raw(), &[byte]);
-    Ok(byte as usize)
+    Ok(ipc_ctx::console_byte(ctx.tasks.current_pid(), args))
 }
 
 /// Returns the resolved boot mode for verdict folding: `1` for an interactive boot (services should

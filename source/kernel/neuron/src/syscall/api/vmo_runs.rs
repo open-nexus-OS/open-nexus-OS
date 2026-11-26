@@ -18,6 +18,7 @@
 //!   and `KSELFTEST: vmo reach ok (…)` drive `resolve_runs` on QEMU; every virtio
 //!   driver and gpud take their bases through it on every boot
 
+use super::ipc_ctx::{locked, Ipc, IpcResult, Outcome};
 use super::*;
 use crate::dma_runs::{self, Holding, RunsError, MAX_RUNS, RUN_BYTES};
 
@@ -44,9 +45,42 @@ pub(crate) fn resolve_runs(
     len: usize,
     out: &mut [(u64, u64)],
 ) -> SysResult<usize> {
-    let caps = ctx.tasks.current_caps_mut();
-    let device = caps.device(device_slot).ok();
-    let cap = caps.derive(vmo_slot, Rights::MAP)?;
+    runs_for(&ctx.ipc()?, vmo_slot, device_slot, offset, len, out)
+}
+
+/// [`resolve_runs`] over the caller's record: nothing here is the kernel lock's (TASK-0330
+/// P3). The object is the caller's for the whole call — the capability is held, counted,
+/// until the answer is made (a sibling thread closing the slot meanwhile frees nothing).
+///
+/// The device learns the runs only of an object claimed for it (`vmo::name_for_device`: not
+/// sealed, not unlocked for purging, and neither from then on). A lazy object is claimed before
+/// its pages are committed and named — a purge between the two would take them back; an eager
+/// one after its runs passed the range and the reach, so a refused call leaves it sealable.
+/// A lazy object's call refused after the claim (no frame, out of the device's reach) leaves
+/// it claimed: fail-closed.
+fn runs_for(
+    ipc: &Ipc<'_>,
+    vmo_slot: usize,
+    device_slot: usize,
+    offset: usize,
+    len: usize,
+    out: &mut [(u64, u64)],
+) -> SysResult<usize> {
+    // Both names in one hold of the table; the object's work below runs without its lock.
+    let (device, pinned) = {
+        let caps = ipc.caps();
+        (caps.device(device_slot).ok(), super::pinned::pin(&caps, vmo_slot, Rights::MAP, "runs")?)
+    };
+    runs_of(pinned.cap, device, offset, len, out)
+}
+
+fn runs_of(
+    cap: Capability,
+    device: Option<u16>,
+    offset: usize,
+    len: usize,
+    out: &mut [(u64, u64)],
+) -> SysResult<usize> {
     let (holding, id, object_len) = match cap.kind {
         CapabilityKind::Vmo { id, len } => (Holding::Vmo, id, len),
         CapabilityKind::VmoRo { id, len } => (Holding::ReadOnlyAlias, id, len),
@@ -65,9 +99,15 @@ pub(crate) fn resolve_runs(
         // device told its runs would read frames a purge takes back.
         return Err(Error::Capability(CapError::PermissionDenied));
     }
+    let claim = || {
+        crate::mm::vmo::name_for_device(id)
+            .then_some(())
+            .ok_or(Error::Capability(CapError::PermissionDenied))
+    };
     let count = if crate::mm::vmo::is_lazy(id) {
         // A device cannot fault: the range is committed before it is named (ADR-0078), at most
         // `MAX_NAMED_PAGES` pages a call, and answered as an object of its own from byte 0.
+        claim()?;
         let runs = crate::mm::vmo::named_runs(id, offset, len).map_err(|e| match e {
             crate::mm::vmo::VmoError::Exhausted => {
                 Error::AddressSpace(AddressSpaceError::OutOfFrames)
@@ -77,36 +117,46 @@ pub(crate) fn resolve_runs(
         dma_runs::device_runs(runs, len, 0, len, &reach, out).map_err(runs_error)?
     } else {
         let runs = crate::mm::vmo::runs(id).ok_or(Error::Capability(CapError::PermissionDenied))?;
-        dma_runs::device_runs(runs, object_len, offset, len, &reach, out).map_err(runs_error)?
+        let count = dma_runs::device_runs(runs, object_len, offset, len, &reach, out)
+            .map_err(runs_error)?;
+        // The device has the runs from here on: the object can never be sealed (ADR-0080).
+        claim()?;
+        count
     };
-    // The device has the runs from here on: the object can never be sealed (ADR-0080).
-    crate::mm::vmo::mark_device_named(id);
     Ok(count)
 }
 
-/// `SYSCALL_VMO_RUNS` (60). Args: (vmo_slot, device_slot, offset, len, out_ptr, max).
+/// `SYSCALL_VMO_RUNS` (60) under the kernel lock (the syscall table: a selftest, a kernel-mode
+/// task, the re-run of a body that asked for it): the answer buffer is committed first.
 pub(super) fn sys_vmo_runs(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let max = args.get(5);
+    if max == 0 || max > MAX_RUNS {
+        return Err(AddressSpaceError::InvalidArgs.into());
+    }
+    ensure_user_range(ctx, args.get(4), max * RUN_BYTES, UserAccess::Write)?;
+    let out = vmo_runs(&ctx.ipc()?, args);
+    locked(ctx, out)
+}
+
+/// `SYSCALL_VMO_RUNS` (60). Args: (vmo_slot, device_slot, offset, len, out_ptr, max). The body
+/// of both entries; the answer is written through the caller's page table, and a page of the
+/// buffer that is not ready asks for the lock — the call re-executes whole (a claim it made
+/// stands; the runs are the same).
+pub(super) fn vmo_runs(ipc: &Ipc<'_>, args: &Args) -> IpcResult {
     let (vmo_slot, device_slot, offset, len, out_ptr, max) =
         (args.get(0), args.get(1), args.get(2), args.get(3), args.get(4), args.get(5));
     if max == 0 || max > MAX_RUNS {
         return Err(AddressSpaceError::InvalidArgs.into());
     }
-    ensure_user_range(ctx, out_ptr, max * RUN_BYTES, UserAccess::Write)?;
     let mut out = alloc::vec![(0u64, 0u64); max];
-    let count = resolve_runs(ctx, vmo_slot, device_slot, offset, len, &mut out)?;
-    for (i, (bus, run_len)) in out[..count].iter().enumerate() {
-        let mut bytes = [0u8; RUN_BYTES];
-        bytes[..8].copy_from_slice(&bus.to_le_bytes());
-        bytes[8..].copy_from_slice(&run_len.to_le_bytes());
-        // SAFETY: `out_ptr..out_ptr + max * RUN_BYTES` was checked to be a user
-        // slice above and `i < count ≤ max`.
-        unsafe {
-            ptr::copy_nonoverlapping(
-                bytes.as_ptr(),
-                (out_ptr + i * RUN_BYTES) as *mut u8,
-                RUN_BYTES,
-            );
-        }
+    let count = runs_for(ipc, vmo_slot, device_slot, offset, len, &mut out)?;
+    let mut bytes = alloc::vec![0u8; count * RUN_BYTES];
+    for ((bus, run_len), slot) in out[..count].iter().zip(bytes.chunks_exact_mut(RUN_BYTES)) {
+        slot[..8].copy_from_slice(&bus.to_le_bytes());
+        slot[8..].copy_from_slice(&run_len.to_le_bytes());
     }
-    Ok(count)
+    if !ipc.write(out_ptr, &bytes) {
+        return Ok(Outcome::Locked);
+    }
+    Ok(Outcome::Done(count))
 }

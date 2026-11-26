@@ -220,25 +220,38 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
             .then(crate::sched::Scheduler::pick_here)
             .flatten()
             .map(|pid| dispatch_unlocked(cpu, pid).ok_or(pid));
-        // A8 steal, rate-gated per hart — decided before the lock, so a hart whose gate is
-        // closed does not take the lock to find that out (TASK-0363 P6).
-        let steal_allowed = fast.is_none()
-            && crate::smp::cpu_online().count() > 1
-            && crate::smp::steal_rate_gate(cpu, idle::now_ns(), STEAL_MIN_INTERVAL_NS);
+        // A8 steal, bounded and rate-gated per hart, with nothing of its own to run: under the
+        // queue locks alone (TASK-0330 P4) — the stolen task is this hart's running task as a
+        // picked one is, and is dispatched the same way.
+        let fast = fast.or_else(|| {
+            (crate::trap::runtime_installed()
+                && crate::smp::cpu_online().count() > 1
+                && crate::smp::steal_rate_gate(cpu, idle::now_ns(), STEAL_MIN_INTERVAL_NS))
+            .then(|| crate::sched::Scheduler::steal_here(QosClass::PerfBurst))
+            .flatten()
+            .map(|pid| dispatch_unlocked(cpu, pid).ok_or(pid))
+        });
         let attempt = if let Some(Ok(staged)) = fast {
             Attempt::Switch(staged)
-        } else if fast.is_none() && !steal_allowed && !idle::lock_due(cpu) {
-            // TASK-0363 P6/P4: nothing picked, no steal look, nothing due — no deadline, no
+        } else if fast.is_none() && !idle::lock_due(cpu) {
+            // TASK-0363 P6/P4: nothing picked, nothing stolen, nothing due — no deadline, no
             // timer cap, no stashed line (and on the boot hart no pressure, no heartbeat) — so
             // no kernel lock: sleep.
             Attempt::Idle
+        } else if fast.is_none() && idle::caps_due_alone(cpu) {
+            // TASK-0330 P4: timer caps alone are due — typically ones a task armed here
+            // (windowd's pacer, a driver's poll). This hart delivers them under their own
+            // locks, then looks again: the woken task may be its own.
+            let fired = crate::trap::deliver_timers().unwrap_or(0);
+            idle::note_walk(cpu, true, fired);
+            Attempt::Retry
         } else {
             let pre_picked = fast.and_then(Result::err);
             // The idle loop's holds by what they are for (`KINIT: bkl idle split`).
             let holder = match (pre_picked, cpu.is_boot()) {
                 (Some(_), _) => crate::lock_share::IDLE,
                 (None, true) => crate::lock_share::IDLE_DELIVER,
-                (None, false) => crate::lock_share::IDLE_STEAL,
+                (None, false) => crate::lock_share::IDLE_DUE,
             };
             let Ok(mut kernel) = crate::trap::KernelGuard::acquire_as(holder) else {
                 // Runtime not installed yet — nothing to schedule.
@@ -263,26 +276,9 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
                 panic!("watchdog: no progress");
             }
 
-            // The task the unlocked path picked, else the own queue, then a bounded, rate-gated
-            // steal (A8).
-            let picked = pre_picked.or_else(|| scheduler.schedule_next()).or_else(|| {
-                if steal_allowed {
-                    let stolen = scheduler.steal_into_current(
-                        QosClass::PerfBurst,
-                        // B: never steal a task whose affinity excludes us.
-                        |pid| tasks.task(pid).is_some_and(|t| t.affinity_allows(cpu)),
-                        // ADR-0052: a rejected task parks on its HOME CPU.
-                        |pid| tasks.task(pid).map_or(0, |t| t.home_cpu().as_index()),
-                    );
-                    if let Some(pid) = stolen {
-                        // Explicit migration: the thief becomes the home CPU.
-                        tasks.set_home_cpu(pid, cpu);
-                    }
-                    stolen
-                } else {
-                    None
-                }
-            });
+            // The task the unlocked path picked or stole and could not start, else the own
+            // queue (a task that arrived since the look above).
+            let picked = pre_picked.or_else(|| scheduler.schedule_next());
             stage(2);
 
             // Bounded anomaly probe (A3 bring-up): a non-empty queue that
@@ -416,13 +412,8 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
                     t_events.saturating_sub(t_walk),
                 );
                 stage(5);
-                let fired = crate::trap::process_expired_timers(
-                    timer,
-                    hart_timers,
-                    router,
-                    tasks,
-                    scheduler,
-                );
+                let fired =
+                    crate::trap::process_expired_timers(timer, hart_timers, router, scheduler);
                 idle::note_walk(cpu, due, woke + fired);
                 crate::irq::dispatch_external(router, tasks, scheduler);
                 if crate::mm::pressure_endpoint::pending() {
@@ -463,13 +454,8 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
                 let woke = crate::syscall::api::expire_deadlines(
                     now, tasks, router, scheduler, waitsets, fences,
                 );
-                let fired = crate::trap::process_expired_timers(
-                    timer,
-                    hart_timers,
-                    router,
-                    tasks,
-                    scheduler,
-                );
+                let fired =
+                    crate::trap::process_expired_timers(timer, hart_timers, router, scheduler);
                 idle::note_walk(cpu, true, woke + fired);
                 Attempt::Retry
             } else {
@@ -484,9 +470,18 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
                 if !crate::trap::runtime_installed() {
                     panic!("trap runtime invisible after AS activate");
                 }
-                // A4: guarantee a preemption tick while user code runs.
+                // A4: guarantee a preemption tick while user code runs — never past this hart's
+                // own next deadline (TASK-0330 P4: every switch re-armed the tick, and a hart
+                // switching faster than it never took its timer interrupt). From here to the
+                // user code with interrupts masked: a deadline already due fires in the user
+                // code, whose timer handler delivers it, not in this loop.
                 #[cfg(feature = "timer_irq")]
-                crate::trap::timer_arm(crate::trap::default_tick_cycles());
+                {
+                    // SAFETY: masks this hart's interrupts; the switch to user code re-enables
+                    // them (U-mode always takes S-mode interrupts), and nothing below waits.
+                    unsafe { riscv::register::sstatus::clear_sie() };
+                    crate::trap::dispatch_tick_arm(crate::trap::default_tick_cycles());
+                }
                 // A shootdown that skipped this hart while it was idle
                 // (`CPU_IDLE_MASK`) lands here: flush before any user
                 // translation is used again.

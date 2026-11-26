@@ -16,7 +16,7 @@
 //! INVARIANTS: no entry is reached by a hart id; a CPU the machine does not have has no record
 //! RFC: docs/rfcs/RFC-0118-n-harts-from-the-device-tree-a-64-bit-cpu-set-the-topology-exported.md
 
-use core::sync::atomic::{AtomicU64, AtomicUsize};
+use core::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize};
 
 use crate::sync::hart_table::{HartTable, SizeError};
 use crate::types::CpuId;
@@ -62,12 +62,21 @@ pub(crate) struct HartState {
     pub(super) tlb_requested: AtomicU64,
     /// TLB mailbox: the epoch this CPU has flushed.
     pub(super) tlb_acked: AtomicU64,
+    /// TLB mailbox: the one space the pending requests are for (its raw handle), so a hart
+    /// that is not on it can leave its set after the flush; 0 none, `tlb::MIXED` several
+    /// spaces or every hart's shootdown.
+    pub(super) tlb_space: AtomicU32,
+    /// This CPU is between a translation and the last byte copied through it (`tlb::NoAck`,
+    /// ADR-0102): it must not acknowledge a shootdown until the stretch ends.
+    pub(super) no_ack: AtomicUsize,
     /// What this CPU was doing at its last tag point (evidence, not control).
     pub(super) activity: AtomicUsize,
     /// This CPU entered its scheduler loop.
     pub(crate) sched_loop_entered: AtomicUsize,
     /// The boot hart reported this CPU's first user dispatch.
     pub(crate) exec_proof_emitted: AtomicUsize,
+    /// Where this CPU last entered a space and last stopped running a task (evidence).
+    pub(super) trail: super::trail::Trail,
 }
 
 impl HartState {
@@ -92,9 +101,12 @@ impl HartState {
             last_steal_ns: AtomicU64::new(0),
             tlb_requested: AtomicU64::new(0),
             tlb_acked: AtomicU64::new(0),
+            tlb_space: AtomicU32::new(0),
+            no_ack: AtomicUsize::new(0),
             activity: AtomicUsize::new(0),
             sched_loop_entered: AtomicUsize::new(0),
             exec_proof_emitted: AtomicUsize::new(0),
+            trail: super::trail::Trail::new(),
         }
     }
 }

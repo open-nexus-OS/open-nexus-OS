@@ -38,12 +38,14 @@ pub enum PurgeError {
     Refused(PurgeRefusal),
 }
 
-/// Unlock `id`: its pages may be dropped from here on. The caller says whether any space maps
-/// it (`vm_ops::any_space_maps_vmo`); the object says the rest. Idempotent — a second unlock
-/// keeps what a purge in between recorded.
-pub fn unlock(id: VmoId, mapped: bool) -> Result<(), PurgeError> {
+/// Unlock `id`: its pages may be dropped from here on. Whether any space maps it is the
+/// object's own count, read in the hold that sets the mark (a mapping takes its count in a
+/// hold of the same table, `mapping`). Idempotent — a second unlock keeps what a purge in
+/// between recorded.
+pub fn unlock(id: VmoId) -> Result<(), PurgeError> {
     let mut table = TABLE.lock();
     let object = table.get_mut(id).ok_or(PurgeError::NoSuchObject)?;
+    let mapped = object.held.as_ref().is_some_and(|counts| counts.mapped() > 0);
     purge_unlock_allowed(object.kind == VmoKind::Lazy, object.device_named, mapped)
         .map_err(PurgeError::Refused)?;
     if !object.purgeable {

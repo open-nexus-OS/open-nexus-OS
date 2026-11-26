@@ -46,6 +46,9 @@ pub(super) fn handle(frame: &mut TrapFrame) {
             super::fault::kill_faulting_user_task(frame);
             return;
         }
+        // From S-mode it is a kernel bug: the fault line first, by the hart that speaks.
+        let dying = super::fatal::begin();
+        super::fatal::fault_line("KILL", &dying, frame, inst as usize);
     }
     report_kernel(frame);
     super::fault::record(frame);

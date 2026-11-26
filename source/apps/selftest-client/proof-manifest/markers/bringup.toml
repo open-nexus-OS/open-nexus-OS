@@ -28,6 +28,34 @@ proves = "nxboot parsed the tree it received in a1 and brought its console up fr
 phase = "bringup"
 proves = "the loader found the previous boot's console ring in RAM by its stamped sequence number and appended its unkept tail to that boot's trace slot (marked rescued)"
 
+# TASK-0330 P7: a kernel that faults or panics says where, and the words survive. The `kfault`
+# lane's kernel carries the proof fixture (feature `selftest_kernel_fault`): on a trace's first
+# boot it raises a real kernel page fault, on every later boot it stays idle.
+[marker."KSELFTEST: kernel fault fixture armed (seq=1"]
+phase = "bringup"
+emit_when = { profile = "kfault" }
+proves = "the proof fixture is in this kernel and this is the first boot of its trace: a kernel page fault will be raised in a user task's timer interrupt after the named delay"
+
+[marker."KPGF hart=0x"]
+phase = "bringup"
+emit_when = { profile = "kfault" }
+proves = "a kernel page fault's line is on the console before the panic text and names the hart, sepc, stval and cause — written by the one hart that speaks, from the kernel's own address space"
+
+[marker."PANIC hart=0x"]
+phase = "bringup"
+emit_when = { profile = "kfault" }
+proves = "the panic text follows the fault line and names the hart that panicked"
+
+[marker."PANIC: end"]
+phase = "bringup"
+emit_when = { profile = "kfault" }
+proves = "the panic text was written to its last line: the dying kernel's words are whole in the console ring"
+
+[marker."KSELFTEST: kernel fault fixture idle (seq=2)"]
+phase = "bringup"
+emit_when = { profile = "kfault" }
+proves = "the boot after the reset is the trace's second: the fixture stays idle, so the boot runs on and shows what the loader rescued"
+
 [marker."nxboot: bsb ok (slot=a"]
 phase = "bringup"
 proves = "loader read a valid BSB double block and selected the factory-active slot (RFC-0089 §6)"
@@ -137,6 +165,10 @@ proves = "TASK-0348 (RFC-0112, amendment 2026-11-02): through the real syscall t
 phase = "bringup"
 proves = "TASK-0348 (RFC-0112, amendment 2026-11-02): a reply capability moved with a request still queued when its server dies — the only SEND to the caller's inbox — is released with the server's endpoints like a cap_close: the inbox's receiver learns its last sender is gone (the EOF latch), where it used to wait forever"
 
+[marker."KSELFTEST: stale endpoint binds refused ok ("]
+phase = "bringup"
+proves = "TASK-0330 P4: an endpoint dies off the kernel lock, beside the locked paths that store its id — through the real syscall table, a timer_create, a mem_pressure_bind and a waitset_add through a capability that outlived its endpoint leave no id the dead slot's next tenant would receive (the timer and the sink refused, the member dropped), a child_exit_bind holds the dead slot until it is cleared, and a cap_close of a live endpoint's last capability kills it together with the timer that notified it"
+
 [marker."KSELFTEST: vm unmap reclaim ok ("]
 phase = "bringup"
 proves = "TASK-0333 6b-3 (RFC-0100 §1): the unmap is the lifetime rule's third caller — an object created, mapped by its owner's space and whose last capability was closed while mapped outlives the close, and the vm_unmap of that region frees it: gone from the table, counted by the reclaim with its bytes"
@@ -150,6 +182,11 @@ proves = "two spaces loaded from ONE sealed image map the SAME frames for its re
 [marker."KSELFTEST: exec image reject ok ("]
 phase = "bringup"
 proves = "the loader refuses a segment off the page grid and two segments on one file page; a seal is refused for a lazy object, a device-named object and a writably mapped object (allowed once unmapped); exec_vmo of an unsealed object is refused before any space exists and, sealed, reaches the loader"
+
+# ADR-0102 (TASK-0330 P2): a syscall off the kernel lock copies user memory by its own walk.
+[marker."KSELFTEST: user copy ok"]
+phase = "bringup"
+proves = "the lock-free user copy lands a range that straddles two writable user pages in the two frames the table names and reads it back; a write to a read-only page, either direction on a page without the user bit, an unmapped page, a device window and a kernel-half address are refused and nothing is written"
 
 # ADR-0082 (TASK-0333 6d): a process is its address space; its parent orders it as a whole.
 [marker."KSELFTEST: process ctl ok ("]
@@ -892,6 +929,11 @@ phase = "bringup"
 emit_when = { profile = "smp" }
 proves = "epoch TLB shootdown: cpu1 flushed+acked the exact requested epoch (lock-free from S_SOFT)"
 
+[marker."KSELFTEST: tlb shootdown targeted ok ("]
+phase = "bringup"
+emit_when = { profile = "smp" }
+proves = "a shootdown for one address space reaches the harts that may hold it, counted: none for a space no hart read through, the one hart recorded (it acks and, on another space, leaves the set), none again (TASK-0330 P3)"
+
 [marker."KSELFTEST: sched affinity clamp ok"]
 phase = "bringup"
 emit_when = { profile = "smp" }
@@ -944,6 +986,18 @@ proves = "a revoke ends a right and everything derived from it in one step: the 
 phase = "bringup"
 emit_when = { profile = "smp" }
 proves = "a task holding a right its parent handed down binds and derives no more than that right, takes no part finer than its grain and cannot refine the grain; a task that is not the holder's child is handed nothing; the parent's revoke leaves the child's capability naming nothing and its reservation ended, and the root holds what it held"
+
+# TASK-0330 P2 (ADR-0102): a call lends its caller's time right. Through the kernel's own paths —
+# the lend a call's send makes, the wake and the block's first step, the arrival and the meter.
+[marker."KSELFTEST: test_reject_time_right_loan ok"]
+phase = "bringup"
+emit_when = { profile = "smp" }
+proves = "a time right is lent to nobody it must not reach: a caller that runs with no reservation lends none, a server that holds one of its own borrows none, and a server that may not run on the reservation's hart borrows none"
+
+[marker."KSELFTEST: time right loan ok"]
+phase = "bringup"
+emit_when = { profile = "smp" }
+proves = "a server lent its caller's reservation is placed on that reservation's hart and, against a hog of eight times its weight, runs twenty of its budgets in full, counted where a holder's are — and none once the lender took the right back; the loan ends by the lender's wake, by the borrower's wait for anything but the answer to a call of its own, down a chain of calls, by the lender's unbind and by its exit; the root holds what it held and the books balance"
 
 [marker."KSELFTEST: sched spread ok"]
 phase = "bringup"
@@ -1468,6 +1522,15 @@ phase = "bringup"
 phase = "bringup"
 
 [marker."SELFTEST: thread spawn FAIL"]
+phase = "bringup"
+
+# TASK-0330 P3: the page fault path's scaling over the CPUs — a bench line (one thread's rate
+# against one thread per CPU, `x10=` the factor in tenths), printed on a machine of two or more
+# CPUs and judged on the board (>= 6x with 8 threads), not by a QEMU lane.
+[marker."SELFTEST: fault scale (threads="]
+phase = "bringup"
+
+[marker."SELFTEST: fault scale FAIL"]
 phase = "bringup"
 
 [marker."SELFTEST: thread spawn FAIL (spawn)"]

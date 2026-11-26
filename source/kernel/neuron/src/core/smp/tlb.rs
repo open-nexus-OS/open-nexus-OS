@@ -1,13 +1,19 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: A5 TLB shootdown — epoch-based, allocation-free, deterministic.
+//! CONTEXT: A5 TLB shootdown — epoch-based, allocation-free, deterministic. An unmap in one
+//! address space reaches only the harts that may hold a translation of it (TASK-0330 P3,
+//! `shootdown_of`; the set is `hart_spaces::HartSpaces`'), the recycling of the ASIDs every
+//! hart (`shootdown_all`).
 //! OWNERS: @kernel-team
 //! STATUS: Functional
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: QEMU SMP proofs (tlb shootdown ok / counterfactual / skipped)
-//! PUBLIC API: shootdown_all(), poll_mailbox(), selftest evidence accessors
+//! TEST_COVERAGE: QEMU SMP proofs (tlb shootdown ok / counterfactual / targeted / skipped);
+//!   the sets on the host (`hart_spaces`)
+//! PUBLIC API: shootdown_all(), shootdown_of(), poll_mailbox(), selftest evidence accessors
 //! INVARIANTS:
+//!   - A hart that may hold a translation of a space is in that space's set before it can
+//!     load one, and leaves it only by its own full flush while it runs on another space.
 //!   - Correctness-class IPIs: never throttled, never dropped (docs/
 //!     architecture/smp-ipi-rate-limiting.md §0).
 //!   - Responders ack lock-free from the S_SOFT trap (mailbox atomics +
@@ -173,19 +179,71 @@ pub enum TlbPollOutcome {
     NoPending,
 }
 
+/// The stretch between a translation and the last byte copied through it (ADR-0102): while
+/// one lives, the executing hart takes no lock and orders no shootdown, so it acknowledges
+/// none — and the frames and table pages it reads through are not freed under it.
+pub struct NoAck(Option<&'static hart_state::HartState>);
+
+impl NoAck {
+    /// Begins the stretch on the executing hart (interrupts are off: a trap context).
+    pub fn begin() -> Self {
+        let hart = hart_state::of(cpu_current_id());
+        if let Some(hart) = hart {
+            hart.no_ack.store(1, Ordering::Relaxed);
+        }
+        Self(hart)
+    }
+}
+
+impl Drop for NoAck {
+    fn drop(&mut self) {
+        if let Some(hart) = self.0 {
+            hart.no_ack.store(0, Ordering::Relaxed);
+        }
+    }
+}
+
 /// Responder side, called from the S_SOFT trap (LOCK-FREE — the initiator
 /// may hold the BKL while waiting). Flushes and acks any pending epoch.
 pub fn poll_mailbox(cpu: CpuId) -> TlbPollOutcome {
     let Some(hart) = hart_state::of(cpu) else {
         return TlbPollOutcome::NoPending;
     };
+    // ADR-0102: an unmap frees only after every acknowledgement — a hart inside a user copy
+    // holds a translation and gives none (a lock's spin there is a bug, named here).
+    assert!(hart.no_ack.load(Ordering::Relaxed) == 0, "shootdown polled inside a user copy");
     let requested = hart.tlb_requested.load(Ordering::Acquire);
     if hart.tlb_acked.load(Ordering::Acquire) >= requested {
         return TlbPollOutcome::NoPending;
     }
     local_flush_all();
+    // The flush emptied this hart of every space's translations: of the one space the
+    // requests were for it holds none any more unless it runs on it, and leaves its set.
+    left_after_flush(cpu.as_index(), hart.tlb_space.swap(0, Ordering::AcqRel));
     hart.tlb_acked.store(requested, Ordering::Release);
     TlbPollOutcome::Flushed
+}
+
+/// A mailbox whose pending requests are for several spaces, or for every hart.
+pub(super) const MIXED: u32 = u32::MAX;
+
+fn left_after_flush(cpu: usize, space: u32) {
+    if space != 0 && space != MIXED {
+        if let Some(harts) = crate::hart_spaces::installed() {
+            harts.flushed(cpu, space);
+        }
+    }
+}
+
+/// Shootdowns of every hart, shootdowns for one space, and the harts those reached.
+static ALL: AtomicU64 = AtomicU64::new(0);
+static TARGETED: AtomicU64 = AtomicU64::new(0);
+static REACHED: AtomicU64 = AtomicU64::new(0);
+
+/// `(shootdowns of every hart, shootdowns for one space, harts those reached)` since boot.
+pub fn counts() -> (u64, u64, u64) {
+    let read = |counter: &AtomicU64| counter.load(Ordering::Relaxed);
+    (read(&ALL), read(&TARGETED), read(&REACHED))
 }
 
 /// Initiator side: flushes locally, advances the epoch, requests a flush from
@@ -193,18 +251,58 @@ pub fn poll_mailbox(cpu: CpuId) -> TlbPollOutcome {
 /// for all acks. Callers typically hold the BKL (mm paths) — see the module
 /// invariants for why that is sanctioned.
 pub fn shootdown_all() {
+    ALL.fetch_add(1, Ordering::Relaxed);
+    let _ = shootdown(None);
+}
+
+/// [`shootdown_all`] for the one address space `raw` (TASK-0330 P3): only the harts that may
+/// hold a translation of it are reached (`HartSpaces::reads_through`) — the others never loaded
+/// one, or flushed since. A hart reached while it runs on another space leaves the space's
+/// set. Answers the CPUs reached (the selftest's evidence). A space the table does not know
+/// (`raw` 0: not placed yet) reaches every hart.
+pub fn shootdown_of(raw: u32) -> CpuSet {
+    let known = crate::hart_spaces::installed().is_some_and(|harts| harts.ran(raw).is_some());
+    if !known {
+        shootdown_all();
+        return cpu_online().without(CpuSet::EMPTY.with(cpu_current_id().as_index()));
+    }
+    let reached = shootdown(Some(raw));
+    TARGETED.fetch_add(1, Ordering::Relaxed);
+    REACHED.fetch_add(reached.count() as u64, Ordering::Relaxed);
+    reached
+}
+
+/// The body of both: `space` is the one space the cleared entries belong to, or `None`.
+fn shootdown(space: Option<u32>) -> CpuSet {
     local_flush_all();
 
     let me = cpu_current_id().as_index();
     let online = cpu_online();
+    // The caller cleared its entries before this point. A hart that enters the space's set
+    // from here on set its bit, then read the tables: with a full barrier on both sides it
+    // reads the cleared entries, or its bit is read here.
+    core::sync::atomic::fence(Ordering::SeqCst);
+    let (reach, names) = match space.zip(crate::hart_spaces::installed()) {
+        Some((raw, harts)) => {
+            // This hart flushed too: off the space, it holds nothing of it either.
+            harts.flushed(me, raw);
+            (harts.ran(raw).map_or(online, CpuSet::from_bits), raw)
+        }
+        None => (online, MIXED),
+    };
     let epoch = TLB_EPOCH.fetch_add(1, Ordering::AcqRel).wrapping_add(1);
 
     let mut targets = CpuSet::EMPTY;
     for (cpu, hart) in hart_state::all() {
-        if cpu == me || !online.contains(cpu) {
+        if cpu == me || !online.contains(cpu) || !reach.contains(cpu) {
             continue;
         }
         targets = targets.with(cpu);
+        // The space first, then the epoch: a hart that sees the request sees what it is for.
+        // Requests for two spaces pending at once name none (nobody leaves a set on them).
+        let _ = hart.tlb_space.fetch_update(Ordering::AcqRel, Ordering::Acquire, |pending| {
+            Some(if pending == 0 || pending == names { names } else { MIXED })
+        });
         // Monotonic max: coalesce with a concurrent request. Concurrent
         // initiators ARE possible: `vm_unmap` shoots down in phase B with the
         // BKL dropped while a task exit (AS destroy / ASID recycle) shoots
@@ -212,7 +310,7 @@ pub fn shootdown_all() {
         hart.tlb_requested.fetch_max(epoch, Ordering::AcqRel);
     }
     if targets.is_empty() {
-        return;
+        return targets;
     }
     // Idle harts (parked in WFI, no user translation live) flush at their
     // next dispatch instead of acking now: read AFTER the mailboxes were
@@ -222,7 +320,7 @@ pub fn shootdown_all() {
     if wait_targets.is_empty() {
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]
         let _ = super::send_ipi(targets);
-        return;
+        return targets;
     }
 
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
@@ -238,16 +336,16 @@ pub fn shootdown_all() {
             // Correctness-class IPI: direct send, no rate limiting.
             if not_acked(wait_targets, epoch).is_empty() {
                 restore_activity(before);
-                return;
+                return targets;
             }
             // Doorbell to every target (idle ones ack early when it lands).
-            let _ = super::send_ipi(targets);
+            let sent = super::send_ipi(targets);
             let deadline =
                 (riscv::register::time::read() as u64).saturating_add(ack_budget_ticks());
             while (riscv::register::time::read() as u64) < deadline {
                 if not_acked(wait_targets, epoch).is_empty() {
                     restore_activity(before);
-                    return;
+                    return targets;
                 }
                 // A waiting initiator is also a responder: with two
                 // concurrent initiators (see above) each waits for the
@@ -259,6 +357,7 @@ pub fn shootdown_all() {
                 let _ = poll_mailbox(cpu_current_id());
                 core::hint::spin_loop();
             }
+            note_slow_ack(not_acked(wait_targets, epoch), epoch, sent);
         }
         // Fail closed: silent TLB staleness is never acceptable. Name the
         // evidence — WHICH hart, and how far its mailbox got.
@@ -285,6 +384,34 @@ pub fn shootdown_all() {
             );
         }
     }
+    targets
+}
+
+/// A round of the wait ended without every acknowledgement: the hart it waited for and what
+/// that hart was doing, named for the first few — a round is 100 ms of everyone who shares a
+/// lock the initiator holds.
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+fn note_slow_ack(late: CpuSet, epoch: u64, sent: bool) {
+    static LOGGED: AtomicU64 = AtomicU64::new(0);
+    let Some(cpu) = late.lowest() else { return };
+    if LOGGED.fetch_add(1, Ordering::Relaxed) >= 4 {
+        return;
+    }
+    let Some(hart) = hart_state::at(cpu) else { return };
+    let act = hart.activity.load(Ordering::Relaxed);
+    log_info!(
+        target: "smp",
+        "KINIT: tlb slow ack hart={} epoch={} me={} sent={} soft_traps={} in_loop={} idle=0x{:x} activity=class{}:0x{:x}",
+        cpu,
+        epoch,
+        cpu_current_id().as_index(),
+        sent,
+        hart.resched_ssoft_traps.load(Ordering::Relaxed),
+        hart.sched_loop_entered.load(Ordering::Relaxed),
+        super::cpu_idle().bits(),
+        act & 0xff,
+        act >> 8
+    );
 }
 
 /// Selftest evidence: `(epoch, requested[cpu], acked[cpu])`.

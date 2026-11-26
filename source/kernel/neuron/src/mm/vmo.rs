@@ -31,7 +31,7 @@ use super::frame_pool;
 use crate::cap::{Held, HeldCounts, Rights};
 use crate::dma_reach::{DmaReach, MAX_DMA_WINDOWS};
 use crate::frames::{Block, FrameError, FRAME_SIZE, MAX_ORDER};
-use crate::lazy::{CommitError, LazyPages, PageState, PAGE};
+use crate::lazy::{LazyPages, PAGE};
 
 #[cfg(debug_assertions)]
 type TableLock<T> = crate::sync::dbg_mutex::DbgMutex<T>;
@@ -41,14 +41,22 @@ type TableLock<T> = spin::Mutex<T>;
 /// A live object's id: never 0, the table index plus one.
 pub type VmoId = u32;
 
-/// Objects between a create's phases (RFC-0100 §1): the lifetime rule leaves them alone.
-mod creating;
-pub use creating::{is_creating, set_creating};
+/// A new object: its id and its first capability (`MAP`), made in one hold of the table
+/// (RFC-0102). Whoever made it keeps the capability until the object is named by what it was
+/// made for — a slot, a region — and drops it then; an object nobody holds and nobody maps is
+/// the lifetime rule's (`reclaim`).
+pub type Born = (VmoId, Held);
+
+/// A lazy page gets its frame (ADR-0077): the whole answer, and the part a fault runs unlocked.
+mod commit;
+pub use commit::{commit, commit_fresh};
+/// The address spaces that map an object, counted at it (RFC-0102): the token a space takes.
+pub mod mapping;
 /// Purgeable objects (RFC-0100 §4): the unlock, the lock, the purge at `warn`.
 pub mod purge;
 /// Sealed objects (ADR-0080): the seal, the device-named mark that forbids it.
 mod sealing;
-pub use sealing::{is_sealed, mark_device_named, seal, SealError};
+pub use sealing::{is_sealed, name_for_device, seal, SealError};
 /// An object's bytes as physical pieces; a lazy range as the runs a device is told.
 mod span;
 pub use span::{named_runs, span};
@@ -95,6 +103,9 @@ pub enum VmoError {
     /// A capability is still held to the object (RFC-0102): it is not destroyed under one —
     /// a held capability never names an id the table gave to another object.
     Held,
+    /// An address space still maps the object (its own count, RFC-0102): freeing under a live
+    /// mapping would hand recycled frames to the mapper.
+    Mapped,
 }
 
 /// The largest object a caller may ask for (ADR-0091): the frames the pool was ever given — no
@@ -233,8 +244,14 @@ impl VmoTable {
     /// Stores the object in the lowest free slot, taking it out of `object` only then. Refused —
     /// no heap above the reserve for the table's growth (ADR-0093, ADR-0091) — it stays with the
     /// caller, so its frames can go back (returned inside the error it made every result 224
-    /// bytes wide).
-    fn insert(&mut self, object: &mut Option<VmoObject>) -> Result<VmoId, VmoError> {
+    /// bytes wide). The object's first capability (`read_only`: of an object no writer ever
+    /// had) is made in the same hold: an object is never in the table held by nobody, so
+    /// whoever judges an object nobody holds and nobody maps never meets one being born.
+    fn insert(
+        &mut self,
+        object: &mut Option<VmoObject>,
+        read_only: bool,
+    ) -> Result<Born, VmoError> {
         let index = match self.objects.iter().position(Option::is_none) {
             Some(i) => i,
             None => {
@@ -254,8 +271,13 @@ impl VmoTable {
         // The header first: refused by the heap, the object stays with the caller too.
         let len = object.as_ref().map_or(0, VmoObject::len);
         let held = HeldCounts::vmo(id, len).ok_or(VmoError::HeapExhausted)?;
+        let first = if read_only {
+            held.mint_read_only(Rights::MAP).ok_or(VmoError::NoSuchObject)?
+        } else {
+            held.mint(Rights::MAP)
+        };
         self.objects[index] = object.take().map(|object| VmoObject { held: Some(held), ..object });
-        Ok(id)
+        Ok((id, first))
     }
 
     fn get(&self, id: VmoId) -> Option<&VmoObject> {
@@ -269,8 +291,8 @@ impl VmoTable {
 
 /// A new object of `len` bytes (page-aligned, non-zero) that `reach` can
 /// address (`DmaReach::ALL`: any frame), frames NOT zeroed — the caller zeroes
-/// with the BKL dropped (`zero`).
-pub fn create(len: usize, kind: VmoKind, reach: &DmaReach) -> Result<VmoId, VmoError> {
+/// with no lock held (`zero`). Born held (`Born`).
+pub fn create(len: usize, kind: VmoKind, reach: &DmaReach) -> Result<Born, VmoError> {
     if len == 0 || len % FRAME_SIZE as usize != 0 || kind == VmoKind::Fixed {
         return Err(VmoError::BadLength);
     }
@@ -297,7 +319,7 @@ pub fn create(len: usize, kind: VmoKind, reach: &DmaReach) -> Result<VmoId, VmoE
             held: None,
         };
         // A refused lazy object holds no frame: its words go with it.
-        return TABLE.lock().insert(&mut Some(object));
+        return TABLE.lock().insert(&mut Some(object), false);
     }
     let mut windows = [(0u64, 0u64); MAX_DMA_WINDOWS];
     let mut n = 0;
@@ -349,7 +371,7 @@ pub fn create(len: usize, kind: VmoKind, reach: &DmaReach) -> Result<VmoId, VmoE
         clean_block: 0,
         held: None,
     });
-    let result = TABLE.lock().insert(&mut object);
+    let result = TABLE.lock().insert(&mut object, false);
     if let Some(refused) = object {
         // The table refused it: the frames go back before the error leaves.
         frame_pool::free_blocks(&refused.blocks);
@@ -357,8 +379,8 @@ pub fn create(len: usize, kind: VmoKind, reach: &DmaReach) -> Result<VmoId, VmoE
     result
 }
 
-/// An object over frames the pool does not own (`base`/`len` page-aligned).
-pub fn adopt_fixed(base: usize, len: usize) -> Result<VmoId, VmoError> {
+/// An object over frames the pool does not own (`base`/`len` page-aligned). Born held.
+pub fn adopt_fixed(base: usize, len: usize) -> Result<Born, VmoError> {
     if len == 0 || len % FRAME_SIZE as usize != 0 || base % FRAME_SIZE as usize != 0 {
         return Err(VmoError::BadLength);
     }
@@ -377,14 +399,15 @@ pub fn adopt_fixed(base: usize, len: usize) -> Result<VmoId, VmoError> {
         held: None,
     };
     // A fixed object's frames are not the pool's: nothing goes back on a refusal.
-    TABLE.lock().insert(&mut Some(object))
+    TABLE.lock().insert(&mut Some(object), false)
 }
 
 /// An object over frames the pool does not own, SEALED from birth (ADR-0081): the bootfs the
 /// loader placed and verified beside the kernel — no writer ever existed, so every file of it
 /// is an image a process may run from. The kernel's own call; `seal` keeps refusing a fixed
 /// object, because a fixed object made of a device window or the tree has a writer outside.
-pub fn adopt_sealed(base: usize, len: usize) -> Result<VmoId, VmoError> {
+/// Born held by a read-only capability — the kernel's own, which it keeps (`bootfs`).
+pub fn adopt_sealed(base: usize, len: usize) -> Result<Born, VmoError> {
     if len == 0 || len % FRAME_SIZE as usize != 0 || base % FRAME_SIZE as usize != 0 {
         return Err(VmoError::BadLength);
     }
@@ -402,20 +425,26 @@ pub fn adopt_sealed(base: usize, len: usize) -> Result<VmoId, VmoError> {
         clean_block: 0,
         held: None,
     };
-    TABLE.lock().insert(&mut Some(object))
+    TABLE.lock().insert(&mut Some(object), true)
 }
 
 /// Destroy: the frames go back to the pool (a `Fixed` object frees nothing)
-/// and the id becomes free. The caller has proven nobody maps it; that no capability is held
-/// to it the object answers itself (`Held` otherwise) — so no capability outlives its object
-/// to name the next one that gets the id.
-pub fn destroy(id: VmoId) -> Result<(), VmoError> {
+/// and the id becomes free. That no capability is held to it and no address space maps it the
+/// object answers itself, in this hold of the table (`Held`, `Mapped` otherwise) — so neither
+/// a capability nor a mapping outlives its object to name the next one that gets the id.
+/// Answers the object's bytes (0 for a `Fixed` one): what the caller counts is what this hold
+/// took, not what a second look at the id would find.
+pub fn destroy(id: VmoId) -> Result<usize, VmoError> {
     let object = {
         let mut table = TABLE.lock();
         let slot = table.objects.get_mut(id.checked_sub(1).ok_or(VmoError::NoSuchObject)? as usize);
         let slot = slot.ok_or(VmoError::NoSuchObject)?;
-        if slot.as_ref().and_then(|o| o.held.as_ref()).is_some_and(|held| held.any() > 0) {
+        let counts = slot.as_ref().and_then(|o| o.held.as_ref());
+        if counts.is_some_and(|held| held.any() > 0) {
             return Err(VmoError::Held);
+        }
+        if counts.is_some_and(|held| held.mapped() > 0) {
+            return Err(VmoError::Mapped);
         }
         slot.take().ok_or(VmoError::NoSuchObject)?
     };
@@ -429,7 +458,7 @@ pub fn destroy(id: VmoId) -> Result<(), VmoError> {
         let slots: Vec<u32> = pages.swapped_slots().collect();
         crate::mm::swap::dropped(id, &slots);
     }
-    Ok(())
+    Ok(if object.kind == VmoKind::Fixed { 0 } else { object.len })
 }
 
 /// Run `f` over the live object.
@@ -440,19 +469,6 @@ pub fn with<R>(id: VmoId, f: impl FnOnce(&VmoObject) -> R) -> Option<R> {
 /// The header of the live object `id`: the capabilities held to it (RFC-0102).
 pub fn held_counts(id: VmoId) -> Option<Arc<HeldCounts>> {
     with(id, |o| o.held.clone()).flatten()
-}
-
-/// A new capability to the live object `id` with `rights` — the object's own door (its
-/// creation, the kernel's wiring of a task): a capability to a memory object is made here or
-/// from another one (`Held::dup`, `Held::read_only_alias`), never from the id alone.
-pub fn mint(id: VmoId, rights: Rights) -> Option<Held> {
-    held_counts(id).map(|counts| counts.mint(rights))
-}
-
-/// A new read-only capability to the live object `id` — the kernel's own objects, which
-/// nobody holds writably (the device tree, the console ring, the boot image's files).
-pub fn mint_read_only(id: VmoId, rights: Rights) -> Option<Held> {
-    held_counts(id).and_then(|counts| counts.mint_read_only(rights))
 }
 
 /// How many capabilities are held to the live object `id` (0 for one that is gone).
@@ -469,78 +485,6 @@ pub fn runs(id: VmoId) -> Option<Vec<(usize, usize)>> {
 /// Whether the live object `id` commits its pages on first touch (ADR-0077).
 pub fn is_lazy(id: VmoId) -> bool {
     with(id, |o| o.kind == VmoKind::Lazy).unwrap_or(false)
-}
-
-/// Page `index` of `id`, committed now if it was not: a frame from the pool, zeroed before it
-/// is entered — outside the table lock, which is a leaf and never held across a memset. A
-/// squeezed page is brought back instead (ADR-0087, `squeeze::inflate`); a swapped one answers
-/// `Swapped` — only the pager brings it back (ADR-0088). A page whose word moved
-/// on between the look and the act is looked at once more (under the kernel lock nothing moves
-/// it). Answers the page's physical address; an eager object answers its translation.
-pub fn commit(id: VmoId, index: usize) -> Result<usize, VmoError> {
-    for _ in 0..2 {
-        let (state, within, clean) = with(id, |o| match &o.lazy {
-            Some(pages) => pages
-                .state(index)
-                .map(|s| (s, o.within, usize::from(o.clean_block)))
-                .ok_or(VmoError::BadLength),
-            None => o
-                .translate(index * PAGE)
-                .map(|pa| (PageState::Frame(pa as u64), None, 0))
-                .ok_or(VmoError::BadLength),
-        })
-        .ok_or(VmoError::NoSuchObject)??;
-        let done = match state {
-            PageState::Frame(pa) => Some(pa as usize),
-            PageState::Record(_) => squeeze::inflate(id, index, within)?,
-            PageState::Absent => commit_zeroed(id, index, within, clean)?,
-            PageState::Swapped => return Err(swap::parked_on(id, index)),
-        };
-        if let Some(pa) = done {
-            return Ok(pa);
-        }
-    }
-    // A page that moved on twice under the kernel lock: the table is not what it says.
-    Err(VmoError::Damaged)
-}
-
-/// Commit absent page `index` to a zeroed frame; `None` when it turned out to be a record. For
-/// a non-coherent device (`clean`: its cache block) the zeroes reach memory before the frame is
-/// entered — a device read never sees the frame's previous owner (ADR-0092).
-fn commit_zeroed(
-    id: VmoId,
-    index: usize,
-    within: Option<Within>,
-    clean: usize,
-) -> Result<Option<usize>, VmoError> {
-    let block = match within {
-        None => frame_pool::alloc(0),
-        Some(within) => frame_pool::alloc_within(0, within.ranges()),
-    }
-    .map_err(|_| VmoError::Exhausted)?;
-    // SAFETY: a frame just taken from the pool, reachable by nobody else until it is entered.
-    unsafe {
-        core::ptr::write_bytes(crate::phys::phys_to_virt(block.base as usize) as *mut u8, 0, PAGE);
-    }
-    clean::frame(block.base as usize, PAGE, clean);
-    let entered = match TABLE.lock().get_mut(id).and_then(|o| o.lazy.as_mut()) {
-        Some(pages) => pages.commit(index, block.base).map_err(Some),
-        None => Err(None),
-    };
-    if entered.is_err() {
-        frame_pool::free(block);
-    }
-    match entered {
-        Ok(()) => Ok(Some(block.base as usize)),
-        Err(Some(CommitError::Committed(pa))) => Ok(Some(pa as usize)),
-        // Squeezed (or swapped) between the look and the commit: the caller looks again.
-        Err(Some(CommitError::Squeezed | CommitError::Swapped)) => Ok(None),
-        Err(Some(CommitError::OutOfRange)) => Err(VmoError::BadLength),
-        // The page's chunk of the map found no heap above the reserve (ADR-0093, ADR-0091).
-        Err(Some(CommitError::NoHeap)) => Err(VmoError::HeapExhausted),
-        // The object died between the look and the commit.
-        Err(None) => Err(VmoError::NoSuchObject),
-    }
 }
 
 /// The physical address of byte `offset`, or `None` past the end.
@@ -588,9 +532,4 @@ pub fn committed_in(id: VmoId, offset: usize, len: usize) -> usize {
 /// Whether the live object `id` is one physically contiguous (DMA) block.
 pub fn is_contiguous(id: VmoId) -> bool {
     with(id, |o| o.kind == VmoKind::Contiguous).unwrap_or(false)
-}
-
-/// Whether the live object `id` is over frames the pool does not own (`destroy` frees nothing).
-pub fn is_fixed(id: VmoId) -> bool {
-    with(id, |o| o.kind == VmoKind::Fixed).unwrap_or(false)
 }

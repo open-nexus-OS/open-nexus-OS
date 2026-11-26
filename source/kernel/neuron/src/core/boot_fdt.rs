@@ -97,8 +97,9 @@ pub fn init_alias() -> Option<crate::cap::Held> {
     }
     let pages = len.div_ceil(PAGE) * PAGE;
     // A FIXED object over the tree's frames (excluded from the pool).
-    let id = crate::mm::vmo::adopt_fixed(base, pages).ok()?;
-    crate::mm::vmo::mint_read_only(id, crate::cap::Rights::MAP)
+    // The object's first capability makes init's read-only one and goes: nobody writes it.
+    let (_, first) = crate::mm::vmo::adopt_fixed(base, pages).ok()?;
+    first.read_only_alias(crate::cap::Rights::MAP).ok()
 }
 
 /// The tree as bytes: at its physical address while paging is off, through the
@@ -198,6 +199,9 @@ pub fn report() {
             // boot's ring in RAM and keep what the block owner never wrote.
             if let Some(seq) = nexus("trace").split(' ').nth(1).and_then(|s| s.parse().ok()) {
                 crate::hal::console_ring::stamp(seq);
+                // TASK-0330 P7: the proof lane's forced fault, on a trace's first boot only.
+                #[cfg(feature = "selftest_kernel_fault")]
+                crate::trap::fault_fixture::arm(seq);
             }
             log_info!(target: "selftest",
                 "KSELFTEST: platform from fdt ok (uart=0x{:x} plic=0x{:x} ndev={} tb={}Hz harts={} banks={} boot_hart={} timer={} ticks_per_us={} chosen.slot={} chosen.profile={} chosen.display={})",

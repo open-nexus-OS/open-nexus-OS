@@ -68,9 +68,13 @@ mod pressure;
 mod process_ctl;
 mod smp_sched;
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+mod tlb;
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
 mod vm_alloc;
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 mod vmo_clean;
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+mod vmo_copy;
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 mod vmo_runs;
 
@@ -123,9 +127,9 @@ pub struct Context<'a> {
     pub tasks: &'a mut TaskTable,
     #[cfg_attr(not(all(target_arch = "riscv64", target_os = "none")), allow(dead_code))]
     pub scheduler: &'a mut Scheduler,
-    pub hart_timers: &'a mut crate::timer::HartTimers,
-    pub waitsets: &'a mut crate::waitset::WaitsetTable,
-    pub fences: &'a mut crate::fence::FenceTable,
+    pub hart_timers: &'a crate::timer::HartTimers,
+    pub waitsets: &'a crate::waitset::WaitsetTable,
+    pub fences: &'a crate::fence::FenceTable,
 }
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
@@ -203,9 +207,8 @@ fn ensure_data_cap(tasks: &mut TaskTable) {
     // A FIXED object over the page's frame (RFC-0098 C4): the static lives at
     // its high alias, the object carries the frame, the pool never sees it.
     let base = crate::phys::virt_to_phys(ptr);
-    let id = crate::mm::vmo::adopt_fixed(base, PAGE_SIZE).expect("data page object");
-    let Some(cap) = crate::mm::vmo::mint(id, Rights::MAP) else { return };
-    let caps = tasks.bootstrap_mut().caps_mut();
+    let (_, cap) = crate::mm::vmo::adopt_fixed(base, PAGE_SIZE).expect("data page object");
+    let mut caps = tasks.bootstrap_mut().caps_mut();
     // Reserve bootstrap cap slots:
     // - slot 0: bootstrap endpoint
     // - slot 1: free for PID 0 (init-lite receives the EndpointFactory there)
@@ -727,7 +730,7 @@ fn run_ipc_endpoint_quota_selftest(_ctx: &mut Context<'_>) {
     // IMPORTANT: Do not consume the global router endpoints during boot; init-lite needs to create
     // endpoints for services. An isolated local router; the table itself grows (ADR-0093), so the
     // quota proven is the per-owner valve: one owner's endpoints end in NoSpace, the table does not.
-    let mut local = crate::ipc::Router::new(0);
+    let local = crate::ipc::Router::new(0);
     let mut created: usize = 0;
     loop {
         match local.create_endpoint(1, Some(0x7777)) {
@@ -921,7 +924,6 @@ fn run_timer_cap_selftest(ctx: &mut Context<'_>) {
         timer,
         sys_ctx.hart_timers,
         sys_ctx.router,
-        sys_ctx.tasks,
         sys_ctx.scheduler,
     );
     let fired_ok = match sys_ctx.router.recv(notify_ep) {
@@ -969,7 +971,6 @@ fn run_timer_cap_selftest(ctx: &mut Context<'_>) {
         timer,
         sys_ctx.hart_timers,
         sys_ctx.router,
-        sys_ctx.tasks,
         sys_ctx.scheduler,
     );
     let cancel_ok = matches!(sys_ctx.router.recv(notify_ep), Err(IpcError::QueueEmpty));
@@ -1095,7 +1096,6 @@ fn run_waitset_selftest(ctx: &mut Context<'_>) {
         timer,
         sys_ctx.hart_timers,
         sys_ctx.router,
-        sys_ctx.tasks,
         sys_ctx.scheduler,
     );
 
@@ -1225,7 +1225,7 @@ fn run_resource_sentinel_selftest(_ctx: &mut Context<'_>) {
     }
 
     // 2) Endpoint churn: use a local router to avoid consuming global endpoint quota.
-    let mut local = Router::new(0);
+    let local = Router::new(0);
     for _ in 0..8 {
         let ep = match local.create_endpoint(1, None) {
             Ok(id) => id,
@@ -1575,48 +1575,8 @@ fn run_smp_selftests(ctx: &mut Context<'_>) {
     run_runtime_budget_selftests(target);
     smp_sched::run_steal_selftests(ctx, CpuId::BOOT, target);
 
-    // A5: TLB shootdown — counterfactual first (a poll with no pending epoch
-    // must not flush/ack), then the real epoch round-trip with acked
-    // evidence from cpu1 (which acks lock-free from its S_SOFT trap).
-    {
-        let boot = CpuId::BOOT;
-        let (_, _, ack_before) = crate::smp::tlb::selftest_evidence(boot);
-        let outcome = crate::smp::tlb::poll_mailbox(boot);
-        let (_, _, ack_after) = crate::smp::tlb::selftest_evidence(boot);
-        if outcome == crate::smp::tlb::TlbPollOutcome::NoPending && ack_after == ack_before {
-            log_info!(target: "selftest", "KSELFTEST: tlb shootdown counterfactual ok");
-        } else {
-            log_error!(
-                target: "selftest",
-                "KSELFTEST: tlb shootdown counterfactual FAIL outcome={:?} ack {}->{}",
-                outcome,
-                ack_before,
-                ack_after
-            );
-        }
-
-        let cpu1 = target;
-        let (epoch_before, _, cpu1_ack_before) = crate::smp::tlb::selftest_evidence(cpu1);
-        crate::smp::tlb::shootdown_all();
-        let (epoch_after, cpu1_req, cpu1_ack) = crate::smp::tlb::selftest_evidence(cpu1);
-        if epoch_after == epoch_before + 1
-            && cpu1_req == epoch_after
-            && cpu1_ack == cpu1_req
-            && cpu1_ack > cpu1_ack_before
-        {
-            log_info!(target: "selftest", "KSELFTEST: tlb shootdown ok");
-        } else {
-            log_error!(
-                target: "selftest",
-                "KSELFTEST: tlb shootdown FAIL epoch {}->{} req={} ack={} (before {})",
-                epoch_before,
-                epoch_after,
-                cpu1_req,
-                cpu1_ack,
-                cpu1_ack_before
-            );
-        }
-    }
+    // A5 and TASK-0330 P3: the TLB shootdown, of every hart and for one address space.
+    tlb::run(ctx, target);
     // B (TASK-0042): affinity home-clamp — a boot-homed task whose set names only
     // the other CPU must be routed there (the lowest online CPU of the set).
     {

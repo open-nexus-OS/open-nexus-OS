@@ -20,13 +20,13 @@ impl Router {
     /// this true, so an endpoint that never had a sender never wrongly EOFs.
     #[must_use]
     pub fn endpoint_had_sender(&self, id: EndpointId) -> bool {
-        self.endpoints.get(id as usize).is_some_and(|ep| ep.had_sender)
+        self.ep(id).is_some_and(|ep| ep.had_sender)
     }
 
     /// ADR-0082: marks (or unmarks) `id` as an endpoint whose receiver is frozen — a send that
     /// finds its queue full is refused with `Frozen` instead of parking.
-    pub fn set_endpoint_frozen(&mut self, id: EndpointId, frozen: bool) {
-        if let Some(ep) = self.endpoints.get_mut(id as usize) {
+    pub fn set_endpoint_frozen(&self, id: EndpointId, frozen: bool) {
+        if let Some(mut ep) = self.ep(id) {
             ep.frozen = frozen;
         }
     }
@@ -34,28 +34,28 @@ impl Router {
     /// ADR-0082: whether a receiver of `id` is frozen (an `ipc_call` to it is refused).
     #[must_use]
     pub fn endpoint_frozen(&self, id: EndpointId) -> bool {
-        self.endpoints.get(id as usize).is_some_and(|ep| ep.frozen)
+        self.ep(id).is_some_and(|ep| ep.frozen)
     }
 
     /// RFC-0079: latches endpoint `id` as having had a sender (called when the
     /// recv-block scan observes a live SEND cap, complementing the send path).
-    pub fn mark_endpoint_had_sender(&mut self, id: EndpointId) {
-        if let Some(ep) = self.endpoints.get_mut(id as usize) {
+    pub fn mark_endpoint_had_sender(&self, id: EndpointId) {
+        if let Some(mut ep) = self.ep(id) {
             ep.had_sender = true;
         }
     }
 
     /// TASK-0324 P7-d: latches "the last peer is gone" on `id` (set by the scan that decided
     /// EOF) so `waitset_wait` reports the member ready; see `Endpoint::eof_pending`.
-    pub fn set_eof_pending(&mut self, id: EndpointId) {
-        if let Some(ep) = self.endpoints.get_mut(id as usize) {
+    pub fn set_eof_pending(&self, id: EndpointId) {
+        if let Some(mut ep) = self.ep(id) {
             ep.eof_pending = true;
         }
     }
 
     /// Clears the EOF latch of `id` (a receiver observed the endpoint, or a sender wrote).
-    pub fn clear_eof_pending(&mut self, id: EndpointId) {
-        if let Some(ep) = self.endpoints.get_mut(id as usize) {
+    pub fn clear_eof_pending(&self, id: EndpointId) {
+        if let Some(mut ep) = self.ep(id) {
             ep.eof_pending = false;
         }
     }
@@ -63,7 +63,7 @@ impl Router {
     /// Whether `id` carries the EOF latch (a waitset readiness input).
     #[must_use]
     pub fn eof_pending(&self, id: EndpointId) -> bool {
-        self.endpoints.get(id as usize).is_some_and(|ep| ep.alive && ep.eof_pending)
+        self.ep(id).is_some_and(|ep| ep.alive && ep.eof_pending)
     }
 
     /// Whether a send to `id` would find room — the readiness of a waitset's WRITABLE member
@@ -72,17 +72,15 @@ impl Router {
     /// waiting for room that never comes.
     #[must_use]
     pub fn writable(&self, id: EndpointId) -> bool {
-        self.endpoints
-            .get(id as usize)
-            .is_none_or(|ep| !ep.alive || ep.receiver_gone || ep.queue.len() < ep.depth)
+        self.ep(id).is_none_or(|ep| !ep.alive || ep.receiver_gone || ep.queue.len() < ep.depth)
     }
 
     /// RFC-0079: drains endpoint `id`'s recv-waiters so they re-run recv (used
     /// when the last SEND cap closed — a blocked EOF-opted receiver re-scans
     /// and returns `PeerClosed`). Empty for a missing/dead endpoint.
-    pub fn drain_recv_waiters(&mut self, id: EndpointId) -> Vec<WaiterId> {
-        match self.endpoints.get_mut(id as usize) {
-            Some(ep) if ep.alive => ep.recv_waiters.drain(..).collect(),
+    pub fn drain_recv_waiters(&self, id: EndpointId) -> Vec<WaiterId> {
+        match self.ep(id) {
+            Some(mut ep) if ep.alive => ep.recv_waiters.drain(..).collect(),
             _ => Vec::new(),
         }
     }
@@ -91,11 +89,11 @@ impl Router {
     /// room in `id`. Apart from the parked senders (`register_send_waiter`): a receive wakes
     /// every writable waiter beside the first parked sender, never instead of it.
     pub fn register_writable_waiter(
-        &mut self,
+        &self,
         id: EndpointId,
         pid: WaiterId,
     ) -> Result<(), super::IpcError> {
-        let ep = self.endpoints.get_mut(id as usize).ok_or(super::IpcError::NoSuchEndpoint)?;
+        let mut ep = self.ep(id).ok_or(super::IpcError::NoSuchEndpoint)?;
         if !ep.alive {
             return Err(super::IpcError::NoSuchEndpoint);
         }
@@ -106,15 +104,15 @@ impl Router {
     }
 
     /// Removes `pid` from `id`'s writable waiters (idempotent).
-    pub fn remove_writable_waiter(&mut self, id: EndpointId, pid: WaiterId) {
-        if let Some(ep) = self.endpoints.get_mut(id as usize) {
+    pub fn remove_writable_waiter(&self, id: EndpointId, pid: WaiterId) {
+        if let Some(mut ep) = self.ep(id) {
             ep.writable_waiters.retain(|p| *p != pid);
         }
     }
 
     /// One waitset waiting for room in `id` — a receive takes them all, one at a time (no
     /// allocation on the receive path).
-    pub fn pop_writable_waiter(&mut self, id: EndpointId) -> Option<WaiterId> {
-        self.endpoints.get_mut(id as usize).filter(|ep| ep.alive)?.writable_waiters.pop_front()
+    pub fn pop_writable_waiter(&self, id: EndpointId) -> Option<WaiterId> {
+        self.ep(id).filter(|ep| ep.alive)?.writable_waiters.pop_front()
     }
 }

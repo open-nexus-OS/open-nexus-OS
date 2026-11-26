@@ -7,7 +7,8 @@
 //! left runs first, earliest deadline first; everything else shares the hart fairly by weight —
 //! earliest eligible virtual deadline. Fixed storage: a queue operation never allocates, so a
 //! hart's queues sit behind a lock that is a leaf — nothing is taken while it is held but, by a
-//! try-lock, another hart's queues for a steal's park.
+//! try-lock, another hart's queues: a thief holding its own tries its victim's, and under
+//! those the home hart's of a task it may not run.
 //! NOT target-gated (like `ready_stats`, `waitset`): the hart is a parameter, never read from
 //! `tp`, and the harts of a machine are the [`Harts`] the caller hands in — the kernel's
 //! locked table (`sched::Scheduler`) or a test's cells — so every rule runs on the host.
@@ -19,8 +20,9 @@
 //!   ring, set-qos, purge, steal by class and affinity, the park, the meter
 //! INVARIANTS: a queue holds at most [`CLASS_CAPACITY`] tasks and rejects the next one; no
 //!   operation allocates; a task a thief may not run is never lost — it is moved to its home
-//!   hart's queue or left where it is; a hart's queues are never waited for while another
-//!   hart's are held; a task's virtual time is its hart's — it crosses harts as its lag
+//!   hart's queue or left where it is; a stolen task is in its old queue or runs on the thief,
+//!   never in neither; a hart's queues are never waited for while another hart's are held; a
+//!   task's virtual time is its hart's — it crosses harts as its lag
 //! ADR: docs/adr/0052-per-hart-earliest-deadline-timer-and-affinity-respecting-steal.md
 
 use crate::ready_stats::{behind, Behind};
@@ -532,20 +534,24 @@ pub trait Harts {
 /// What a steal found.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Stolen {
-    /// The thief runs this task (its lag stamped: [`HartQueues::adopt`]); it left its queue.
+    /// The thief runs this task ([`HartQueues::adopt`]: placed by the lag stamped here).
     Taken(Task),
     /// The first task found may not run on the thief: moved to the front of its home hart's
     /// queue when that is another hart with room, left where it is otherwise. Never lost.
     Rejected,
 }
 
-/// One bounded steal for hart `thief`: the first task of class `ceiling` or below, highest
-/// class first and harts in ascending order, in the queues of another online hart. The task is
-/// looked at under its hart's queue lock: `allow(id)` says whether the thief may run it,
-/// `home_of(id)` names the hart a refused task belongs on. `None`: nothing to steal.
+/// One bounded steal for hart `thief`, whose queues `own` the caller holds: the first task of
+/// class `ceiling` or below, highest class first and harts in ascending order, in the queues
+/// of another online hart. The task is looked at under its hart's queue lock: `allow(id)` says
+/// whether the thief may run it, `home_of(id)` names the hart a refused task belongs on. A
+/// taken task arrives on the thief in the hold that takes it from its queue — at no instant on
+/// neither hart, so a look for it under the queue locks (a kill, a freeze) needs no lock above
+/// them to find it (TASK-0330 P4). `None`: nothing to steal.
 pub fn steal(
     harts: &impl Harts,
     thief: usize,
+    own: &mut HartQueues,
     ceiling: QosClass,
     mut allow: impl FnMut(u32) -> bool,
     mut home_of: impl FnMut(u32) -> usize,
@@ -556,13 +562,20 @@ pub fn steal(
             let found = harts.try_with(victim, |queues| {
                 let front = queues.front(class)?;
                 if allow(front.id) {
-                    return queues.pop_front(class).map(Stolen::Taken);
+                    let task = queues.pop_front(class)?;
+                    own.adopt(task);
+                    return Some(Stolen::Taken(task));
                 }
                 let home = home_of(front.id).min(count.saturating_sub(1));
                 let mut leaving = front;
                 leaving.lag = queues.lag_of(&front);
+                // The thief's own queues are held here, not tried.
                 let parked = home != victim
-                    && harts.try_with(home, |h| h.push_front(leaving).is_ok()) == Some(true);
+                    && if home == thief {
+                        own.push_front(leaving).is_ok()
+                    } else {
+                        harts.try_with(home, |h| h.push_front(leaving).is_ok()) == Some(true)
+                    };
                 if parked {
                     queues.queues[class as usize].remove(0);
                 }

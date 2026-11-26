@@ -103,12 +103,12 @@ first time the trap lands while it is held.
 ### 4. O(tasks) under the BKL on a per-transition path
 
 The BKL is global, so work that is cheap per call becomes the machine's ceiling when it runs on every
-scheduling transition. The deadline walk (`expire_deadlines` in
-`source/kernel/neuron/src/syscall/api/mod.rs`, the one walk of syscalls, timer interrupt and idle
-harts; its decision `task/deadline_rule.rs`, host-tested; proof `SELFTEST: wait deadline ok`) once
-held the BKL for seconds per 10 s. The fix: an O(1) gate (`NEXT_DEADLINE_NS`, lowered when a task
-blocks, recomputed by each walk; `timer::next_cap_ns` alike) read without the lock: an idle hart
-takes it only when due. Publish such a bound ([idle](../kernel/idle.md)).
+scheduling transition. The deadline walk (`syscall::api::expire_deadlines`; its decision
+`task/deadline_rule.rs`, host-tested; proof `SELFTEST: wait deadline ok`) once held the BKL for
+seconds per 10 s. The fix: an O(1) gate (`trap::own_deadlines::blocked_gate`, lowered when a task
+blocks, recomputed by each walk) read without the lock. Publish such a bound
+([idle](../kernel/idle.md)) — as two words when the party that lowers it and the walk that sets
+it share no lock (`sync/noted_bound.rs`).
 
 ### 5. A deadline on the path it bounds
 

@@ -5,7 +5,7 @@ role: reference
 subsystem: devx
 sources: [source/apps/selftest-client/proof-manifest/markers, source/apps/selftest-client/proof-manifest/phases.toml, tools/nx/chains/markers.txt, scripts/qemu-test.sh, scripts/check-chain-markers.sh, config/fail-marker-allow.txt, config/fail-marker-allow-mttcg.txt]
 contracts: [RFC-0013, RFC-0014, RFC-0038, RFC-0108]
-verified: 2026-11-23
+verified: 2026-11-25
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -28,14 +28,14 @@ verified: 2026-11-23
 | `source/apps/selftest-client/proof-manifest/profiles/*.toml` | which lane expects what (`emit_when`/`forbidden_when` resolve against these) | the same |
 | `tools/nx/chains/markers.txt` | cross-service chain markers, by group | `cargo test -p nx`, `scripts/check-chain-markers.sh` |
 | `scripts/qemu-test.sh` | lane-only ladders (`USB_MARKERS`, `USB_INPUT_MARKERS`, `LOWMEM_INPUT_MARKERS`, …) and `RUN_PHASE` slices | the harness itself |
-| `config/fail-marker-allow.txt`, `config/fail-marker-allow-board.txt`, `config/fail-marker-allow-mttcg.txt` | tolerated `FAIL` lines, each with its tracking reference; the third holds the timing verdicts a multi-hart QEMU lane (MTTCG, the host's wall clock) cannot judge — one-hart lanes under icount and the board keep judging them | FAIL gate |
+| `config/fail-marker-allow.txt`, `config/fail-marker-allow-board.txt`, `config/fail-marker-allow-mttcg.txt`, `config/fail-marker-allow-<profile>.txt` | tolerated `FAIL` lines, each with its tracking reference; the third holds the timing verdicts a multi-hart QEMU lane (MTTCG, the host's wall clock) cannot judge — one-hart lanes under icount and the board keep judging them; a lane's own list (today `smp8`) names what that one lane cannot judge and the phase that removes the entry | FAIL gate |
 
 ## Phases
 
 <!-- gen:markers -->
 | # | phase | markers | declared in |
 |---|---|---|---|
-| 1 | `bringup` | 612 | board.toml, bringup.toml, ota.toml, ui.toml, usb.toml |
+| 1 | `bringup` | 624 | board.toml, bringup.toml, ota.toml, ui.toml, usb.toml |
 | 2 | `ipc_kernel` | 27 | ipc_kernel.toml |
 | 3 | `mmio` | 17 | mmio.toml |
 | 4 | `routing` | 54 | routing.toml |
@@ -46,9 +46,9 @@ verified: 2026-11-23
 | 9 | `vfs` | 29 | vfs.toml |
 | 10 | `net` | 80 | net.toml |
 | 11 | `remote` | 21 | remote.toml |
-| 12 | `end` | 211 | board.toml, end.toml, ui.toml, usb.toml |
+| 12 | `end` | 212 | board.toml, end.toml, ui.toml, usb.toml |
 
-1305 markers in 15 files.
+1318 markers in 15 files.
 <!-- /gen:markers -->
 
 ## Declaring a marker

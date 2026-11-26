@@ -56,10 +56,10 @@ class states, or never together.
 | 2 | process | a process's capability table, thread list and lifecycle state | parent before child |
 | 3 | address space | a space's regions and page-table edits | never |
 | 4 | memory object | an object's pages, commit state and seals | never |
-| 5 | IPC object | an endpoint's queues and waiters; a waitset; a fence; a timer | by object address |
+| 5 | IPC object | an endpoint's queues and waiters; a waitset; a fence; the timer table | by object address; the timer table first (it sends while it is held) |
 | 6 | thread | a thread's run state, block reason and wait links | never |
 | 7 | run queue | one hart's queues and its current task | ascending CPU index |
-| 8 | leaf | a frame magazine or bank, the kernel heap, the console ring | never; nothing is taken under a leaf |
+| 8 | leaf | a frame magazine or bank, the kernel heap, the console ring, the pressure sink's writers | never; nothing is taken under a leaf |
 
 - A **registry** lock is released before the object's own lock is taken: the lookup returns a
   counted reference (ADR-0073's lifetime), so an object cannot die under its user.
@@ -108,8 +108,8 @@ widening:
 
 | Door | Makes | Refuses |
 |---|---|---|
-| `mint` at the header (the router for a live endpoint, the object table for a live memory object) | the object's capability with the rights the kernel path states | a dead endpoint, an object that is gone — there is no header to mint at |
-| `mint_read_only` at a memory object's header | a read-only capability to an object nobody holds writably (the device tree, the console ring, the boot image's files) | an endpoint |
+| `mint` at the header (the router for a live endpoint; the object table for a memory object at its birth, and only then) | the object's capability with the rights the kernel path states — a memory object's first, answered together with its id | a dead endpoint; a memory object by its id — an object that exists is held or mapped, and a later capability is a `dup` |
+| `mint_read_only` at a memory object's header, at its birth | the read-only first capability of an object nobody ever holds writably (the boot image's files and table page) | an endpoint |
 | `dup` of a held capability | the same kind at the same object, a subset of its rights | any right the source lacks |
 | `read_only_alias` of a held writable memory-object capability | the read-only kind at the same object, a subset of its rights | every other kind — a read-only alias has no alias, and no door leads back to the writable kind |
 | `plain` from a descriptor | a kind that carries no counts (a timer, a waitset, a fence, a device window, an interrupt, a factory, a scheduling right) | an endpoint or a memory object: a counted kind is never made from a number |
@@ -134,6 +134,31 @@ seal's, the squeeze's) are the same sin on the other table; a memory object coun
 mappings when the address spaces leave the lock (TASK-0330 P3). Until then the reclaim's runs
 only when the last capability to an object has gone; the seal's and the squeeze's stay at
 their own syscalls.
+
+State 2026-11-24 (ADR-0103): the address spaces have left the lock — a fault, a mapping, an
+unmap and a device's runs hold the caller's space and nothing else — and a memory object
+counts the address spaces that map it, and those that map it writably, in its header
+(`cap/held.rs`: `Mapped`, one per space, held by the space's record of its objects,
+`cap/space_maps.rs`). The three walks are deleted: the reclaim, the destroy, the seal, the
+purge unlock and the squeeze's rule read the counts, each in the hold of the object table
+that acts on them, and a mapping takes its count in a hold of the same table
+(`mm/vmo/mapping.rs`) — a seal and a writable mapping can no longer each miss the other.
+State 2026-11-25 (ADR-0103, decisions 8 and 9): a memory object is born with its first
+capability (`vmo::Born`), every syscall that names one by a slot holds a second for the call
+(`syscall/api/pinned.rs`), and the judge of an object nobody holds takes the object table's
+lock alone — its detour through the kernel lock is deleted. `vmo_write` and `vmo_read` run
+before the kernel lock as well: the copy takes the object's count through the mapping's door
+for its length, so a seal, an unlock and a destroy see a copy in flight where they used to
+see the kernel lock held.
+
+State 2026-11-25 (ADR-0100, ADR-0102): the idle loop's steal takes the run-queue locks alone —
+the thief's own, then by try its victim's and a refused task's home — and a hart that gives a
+thread up under no kernel lock leaves its address space in that hold. `yield`, a capability's
+clone and the close of a capability whose object the kernel lock does not guard (a memory
+object, a kind with no object) run before the lock; an endpoint's, a timer's, a waitset's and
+a fence's close stay under it — their tables are freed by id there. A deadline's bounds (the
+walk's gate, each hart's floor) are kept by the blocking thread and the walk under no common
+lock (`sync::noted_bound`).
 
 ### What a lock may be held across
 

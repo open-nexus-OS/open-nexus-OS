@@ -44,7 +44,7 @@ impl Mappers {
     /// Count over every space.
     pub fn census(spaces: &AddressSpaceManager) -> Self {
         let mut counts: alloc::vec::Vec<(u32, u32)> = alloc::vec::Vec::new();
-        for space in spaces.iter() {
+        spaces.each(|space| {
             // One space mapping an object twice is still one mapper.
             let mut seen: alloc::vec::Vec<u32> = alloc::vec::Vec::new();
             for region in space.va_space().regions() {
@@ -57,7 +57,7 @@ impl Mappers {
                     None => counts.push((region.vmo, 1)),
                 }
             }
-        }
+        });
         Mappers(counts)
     }
 
@@ -120,7 +120,8 @@ pub fn report_growth(tasks: &crate::task::TaskTable, spaces: &AddressSpaceManage
         let Some(space) = task.address_space().and_then(|h| spaces.get(h).ok()) else {
             continue;
         };
-        let (rss, sid) = (space_usage(space).rss, task.service_id());
+        let (rss, sid) = (space_usage(&space).rss, task.service_id());
+        drop(space);
         if let Some(by) = marks.note(index as u32, sid, rss) {
             log_info!(target: "mm", "KINIT: mm grew (pid={} sid={:#x} rss={} by={})", index, sid, rss, by);
         }
@@ -145,11 +146,15 @@ pub fn snapshot(spaces: &AddressSpaceManager, own: Option<AsHandle>) -> (MmStats
     let (vmos, vmo_bytes, dma_bytes, committed) = super::vmo::stats();
     (stats.vmos, stats.vmo_bytes, stats.dma_bytes, stats.vmo_committed) =
         (vmos as u64, vmo_bytes as u64, dma_bytes as u64, committed as u64);
-    if let Some(space) = own.and_then(|h| spaces.get(h).ok()) {
-        let usage = space_usage(space);
-        (stats.own_rss_bytes, stats.own_dma_bytes, stats.own_reserved_bytes) =
-            (usage.rss, usage.dma, usage.reserved);
-        stats.own_shared_bytes = shared_bytes(space, &Mappers::census(spaces));
+    if let Some(own) = own {
+        // The census holds every space in turn, the caller's too: before the caller's is held.
+        let mappers = Mappers::census(spaces);
+        if let Ok(space) = spaces.get(own) {
+            let usage = space_usage(&space);
+            (stats.own_rss_bytes, stats.own_dma_bytes, stats.own_reserved_bytes) =
+                (usage.rss, usage.dma, usage.reserved);
+            stats.own_shared_bytes = shared_bytes(&space, &mappers);
+        }
     }
     // ADR-0085: the level and its watermarks, from the one tracker over the pool.
     if let Some((level, marks)) = super::pressure_endpoint::state() {
@@ -158,11 +163,11 @@ pub fn snapshot(spaces: &AddressSpaceManager, own: Option<AsHandle>) -> (MmStats
             (marks.warn, marks.critical, marks.emergency);
     }
     let mut summary = SpacesSummary::default();
-    for space in spaces.iter() {
+    spaces.each(|space| {
         let rss = space_usage(space).rss;
         summary.spaces += 1;
         summary.rss_sum += rss;
         summary.rss_max = summary.rss_max.max(rss);
-    }
+    });
     (stats, summary)
 }

@@ -51,6 +51,9 @@ pub(super) struct Endpoint {
     /// ADR-0082: a receiver of this endpoint is frozen. A send that finds the queue full
     /// returns `Frozen` instead of parking; what fits the queue waits for the thaw.
     pub(super) frozen: bool,
+    /// ADR-0102: the owner's queued-byte counter, shared by all its endpoints — what a send
+    /// reserves from under this endpoint's lock, with no table of owners on its way.
+    pub(super) owner_bytes: Option<Arc<core::sync::atomic::AtomicUsize>>,
 }
 
 impl Endpoint {
@@ -82,6 +85,7 @@ impl Endpoint {
             eof_pending: false,
             receiver_gone: false,
             frozen: false,
+            owner_bytes: None,
         }
     }
 
@@ -210,6 +214,6 @@ impl super::Router {
     /// (TASK-0054C P4a). Lives here, with the queue it reads, because
     /// `ipc/mod.rs` is at its structure-gate ceiling.
     pub fn peek_payload_len(&self, id: super::EndpointId) -> Option<usize> {
-        self.endpoints.get(id as usize).and_then(|ep| ep.peek_payload_len())
+        self.ep(id).and_then(|ep| ep.peek_payload_len())
     }
 }

@@ -108,25 +108,31 @@ pub fn bind(irq: IrqId, endpoint: EndpointId, owner: task::Pid, home: CpuId) -> 
     let id = irq.raw() as usize;
     let (word, bit) = binder_bit(owner);
     BINDERS[word].fetch_or(bit, Ordering::AcqRel);
-    IRQ_ENDPOINT[id].store(endpoint, Ordering::Release);
+    // The endpoint and the route change in one hold: an endpoint's death off the kernel lock
+    // (`forget_endpoint`) clears a line in the same lock, never between the two.
     let mut lines = LINES.lock();
+    IRQ_ENDPOINT[id].store(endpoint, Ordering::Release);
     lines.owner[id] = Some(owner.as_raw());
     let steps = lines.route[id].want(Some(cpu));
     carry_out(irq, steps);
     Some(cpu_of(cpu))
 }
 
-/// The task `owner` is homed on `home` now (a pin or a migration): every line it bound
-/// follows — at once, or at its completion when a claim is outstanding.
-pub fn rehome(owner: task::Pid, home: CpuId) {
+/// The task `owner` has a new home (a pin or a migration, written to its record first): every
+/// line it bound follows — at once, or at its completion when a claim is outstanding. The home
+/// is read in the hold that moves the lines: a steal, a wake's placement and a pin migrate one
+/// task under no common lock, and whichever comes last here leaves the lines where the record
+/// says the task is at home.
+pub fn rehome(owner: task::Pid) {
     let (word, bit) = binder_bit(owner);
     if BINDERS[word].load(Ordering::Acquire) & bit == 0 {
         return;
     }
-    let cpu = target_for(home);
+    let Some(record) = crate::sched::record::get(owner) else { return };
     let key = Some(owner.as_raw());
     let last = (crate::hal::platform::plic_ndev() as usize).min(MAX_IRQ as usize);
     let mut lines = LINES.lock();
+    let cpu = target_for(record.home());
     for id in 1..=last {
         if lines.owner[id] != key {
             continue;
@@ -142,18 +148,24 @@ pub fn rehome(owner: task::Pid, home: CpuId) {
 /// line firing into its slot's next tenant would be a message nobody sent. The line is
 /// released at the controller: a claim its dead driver can no longer complete is completed,
 /// the line disabled — the driver's successor binds a line that can fire. Returns the lines.
+///
+/// Called off the kernel lock (an endpoint's last capability closed, TASK-0330 P4): the clear
+/// and the release are one hold of the lines, which a bind takes for its store and its route
+/// too — a line rebound to another endpoint meanwhile is left as its bind made it.
 pub fn forget_endpoint(endpoint: EndpointId) -> usize {
     let mut dropped = 0;
     for (id, slot) in IRQ_ENDPOINT.iter().enumerate().skip(1) {
+        if slot.load(Ordering::Acquire) != endpoint {
+            continue;
+        }
+        let mut lines = LINES.lock();
         if slot.compare_exchange(endpoint, 0, Ordering::AcqRel, Ordering::Acquire).is_ok() {
             dropped += 1;
-            let Some(irq) = IrqId::new(id as u32) else {
-                continue;
-            };
-            let mut lines = LINES.lock();
             lines.owner[id] = None;
-            let steps = lines.route[id].release();
-            carry_out(irq, steps);
+            if let Some(irq) = IrqId::new(id as u32) {
+                let steps = lines.route[id].release();
+                carry_out(irq, steps);
+            }
         }
     }
     dropped
@@ -319,7 +331,7 @@ pub fn drain_undelivered() {
 /// so `router`/`tasks`/`scheduler` are the unique live borrows. Delivers this
 /// hart's stash (sources already claimed by an S-mode trap) first.
 pub fn dispatch_external(
-    router: &mut ipc::Router,
+    router: &ipc::Router,
     tasks: &mut task::TaskTable,
     scheduler: &mut Scheduler,
 ) {
@@ -367,7 +379,7 @@ static OFF_BOOT_NAMED: AtomicBool = AtomicBool::new(false);
 fn deliver(
     irq: IrqId,
     ep: EndpointId,
-    router: &mut ipc::Router,
+    router: &ipc::Router,
     tasks: &mut task::TaskTable,
     scheduler: &mut Scheduler,
 ) {

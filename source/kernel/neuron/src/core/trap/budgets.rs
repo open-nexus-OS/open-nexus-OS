@@ -135,6 +135,26 @@ pub fn note_long_hold(held: u64, holder: usize) {
     }
 }
 
+/// A syscall served before the kernel lock (`ipc_entry`) that ran above 10 ms names itself
+/// (the first few): no other hart waited for the kernel lock through it, but whoever shares
+/// the locks it held did.
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+pub fn note_long_call(t0: u64, nr: usize) {
+    static LOGGED: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+    let ran = (riscv::register::time::read() as u64).saturating_sub(t0);
+    if ran > crate::hal::platform::ns_to_ticks(10_000_000)
+        && LOGGED.fetch_add(1, Ordering::Relaxed) < 12
+    {
+        log_info!(
+            target: "smp",
+            "KINIT: long call {}us cpu{} nr={} (before the kernel lock)",
+            ran / ticks_per_us(),
+            crate::smp::cpu_current_id().as_index(),
+            nr
+        );
+    }
+}
+
 /// Closes an ecall that began at `t0`: records its hold and names the first few above 10 ms.
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 pub fn record_ecall(t0: u64, nr: u64) {
@@ -177,45 +197,7 @@ pub fn reset(now: u64) {
     SWEEP_SKIPPED.store(0, Ordering::Relaxed);
     LONG_WAIT_LOGGED.store(0, Ordering::Relaxed);
     LONG_HOLD_LOGGED.store(0, Ordering::Relaxed);
-    // NEXT_DEADLINE_NS is LIVE state, not accounting — never reset it here.
-}
-
-/// Earliest pending block deadline across all tasks, or `u64::MAX` when none
-/// is armed — the O(1) gate in front of the O(tasks) deadline sweep.
-///
-/// The sweep used to run on EVERY scheduling transition: 242k–389k calls per
-/// 4-hart interactive boot at ~6–7 µs each (measured 2026-07-25 with
-/// `record_sweep`), i.e. **~1.7–2.3 s of BKL held per boot** scanning for
-/// deadlines that had overwhelmingly not expired, plus 6–13 ms outliers that
-/// were the worst BKL holds in the run.
-///
-/// SAFETY OF THE SHORTCUT: skipping the scan while `now < min` can never miss
-/// an expiry, because (a) every task that blocks WITH a deadline lowers this
-/// bound via [`note_block_deadline`] before it can expire, and (b) the scan
-/// itself recomputes the exact minimum of the deadlines still pending, so the
-/// bound is never stale-high. A bound that is too LOW only costs one
-/// unnecessary scan; a bound that is too high would lose a wakeup, which the
-/// two rules above prevent.
-pub static NEXT_DEADLINE_NS: AtomicU64 = AtomicU64::new(u64::MAX);
-
-/// Lowers the sweep gate when a task blocks with a deadline.
-#[inline]
-pub fn note_block_deadline(deadline_ns: u64) {
-    if deadline_ns != 0 {
-        NEXT_DEADLINE_NS.fetch_min(deadline_ns, Ordering::Relaxed);
-    }
-}
-
-/// True if the deadline sweep can be skipped entirely at `now_ns`.
-#[inline]
-pub fn sweep_can_skip(now_ns: u64) -> bool {
-    now_ns < NEXT_DEADLINE_NS.load(Ordering::Relaxed)
-}
-
-/// Publishes the exact minimum the sweep just observed (`u64::MAX` = none).
-#[inline]
-pub fn set_next_deadline(min_ns: u64) {
-    NEXT_DEADLINE_NS.store(min_ns, Ordering::Relaxed);
+    // The walk's gate (`own_deadlines::blocked_gate`) is live state, not accounting.
 }
 
 /// Sweeps actually performed vs skipped by the gate (proof the gate works).

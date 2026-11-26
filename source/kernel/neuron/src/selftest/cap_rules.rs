@@ -8,7 +8,9 @@
 //! live capability, another kind, an occupied slot without the flag and an unknown flag bit.
 //! `KSELFTEST: in-flight caps released ok`: a reply capability moved with a request the server
 //! never read is released at the server's death — the caller's inbox learns its last sender is
-//! gone, where it used to wait forever.
+//! gone, where it used to wait forever. `KSELFTEST: stale endpoint binds refused ok (`
+//! (TASK-0330 P4): a bind through a capability that outlived its endpoint leaves no id the
+//! dead slot's next tenant would receive, and a child-exit binding holds the slot.
 //! OWNERS: @kernel-team
 //! STATUS: Functional
 //! API_STABILITY: Internal
@@ -17,10 +19,12 @@
 
 use super::Context;
 use crate::cap::{CapError, Capability, CapabilityKind, Held, Rights};
-use crate::ipc::{header::MessageHeader, Message, Payload};
+use crate::ipc::{header::MessageHeader, IpcError, Message, Payload};
 use crate::mm::AddressSpaceError;
 use crate::syscall::{
-    api, Args, Error as SysError, SyscallTable, SYSCALL_CAP_TRANSFER, SYSCALL_CAP_TRANSFER_TO,
+    api, Args, Error as SysError, SyscallTable, SYSCALL_CAP_CLOSE, SYSCALL_CAP_TRANSFER,
+    SYSCALL_CAP_TRANSFER_TO, SYSCALL_CHILD_EXIT_BIND, SYSCALL_MEM_PRESSURE_BIND,
+    SYSCALL_TIMER_CREATE, SYSCALL_WAITSET_ADD, SYSCALL_WAITSET_CREATE,
 };
 use crate::task::{ExitReason, Pid, TransferError};
 
@@ -35,6 +39,9 @@ const EMPTY_SLOT: usize = 65;
 const FLAGS_SLOT: usize = 66;
 /// The waiting client's slot of its inbox.
 const INBOX_SLOT: usize = 60;
+/// The binder's capability that outlived its endpoint, and its only one to a live endpoint.
+const STALE_SLOT: usize = 60;
+const LAST_SLOT: usize = 61;
 
 /// A capability into `pid`'s `slot` through the doors every capability comes through
 /// (RFC-0102): one to an endpoint is minted at the LIVE endpoint, a plain kind made as it is.
@@ -44,7 +51,7 @@ fn set(ctx: &mut Context<'_>, pid: Pid, slot: usize, kind: CapabilityKind, right
         _ => Held::plain(Capability { kind, rights }).ok(),
     };
     held.is_some_and(|held| {
-        ctx.tasks.caps_of_mut(pid).is_some_and(|caps| caps.set(slot, held).is_ok())
+        ctx.tasks.caps_of_mut(pid).is_some_and(|mut caps| caps.set(slot, held).is_ok())
     })
 }
 
@@ -63,6 +70,7 @@ pub(super) fn install_endpoint(
 pub(super) fn run_cap_rules_selftests(ctx: &mut Context<'_>) {
     run_transfer_rules(ctx);
     run_in_flight_release(ctx);
+    run_stale_binds(ctx);
     ctx.tasks.set_current(Pid::KERNEL);
 }
 
@@ -148,7 +156,7 @@ fn run_transfer_rules(ctx: &mut Context<'_>) {
     );
     sys.tasks.set_current(Pid::KERNEL);
     // Nothing of the staging stays named: the timer name has no object, the dead id goes free.
-    if let Some(caps) = sys.tasks.caps_of_mut(child) {
+    if let Some(mut caps) = sys.tasks.caps_of_mut(child) {
         let _ = caps.take(KIND_SLOT);
         let _ = caps.take(FLAGLESS_SLOT);
     }
@@ -231,6 +239,117 @@ fn run_in_flight_release(ctx: &mut Context<'_>) {
             queued,
             before,
             after
+        );
+    }
+}
+
+/// TASK-0330 P4: an endpoint dies off the kernel lock, beside the locked paths that store its
+/// id. A bind through a capability that outlived its endpoint leaves nothing that outlives the
+/// call — a timer is refused, the pressure sink refused, a waitset member dropped (each would
+/// reach the dead slot's next tenant); a child-exit binding holds the dead slot until it is
+/// cleared; the close of a live endpoint's last capability kills it with the timer it fed.
+fn run_stale_binds(ctx: &mut Context<'_>) {
+    ctx.tasks.set_current(Pid::KERNEL);
+    let binder = ctx.tasks.selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
+    let dead_owner = ctx.tasks.selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
+    let (Ok(dead), Ok(live)) = (
+        ctx.router.create_endpoint(4, Some(dead_owner.as_raw())),
+        ctx.router.create_endpoint(4, Some(binder.as_raw())),
+    ) else {
+        log_error!(target: "selftest", "KSELFTEST: stale endpoint binds refused FAIL (create)");
+        return;
+    };
+    let both = Rights::SEND | Rights::RECV;
+    let staged = set(ctx, binder, STALE_SLOT, CapabilityKind::Endpoint(dead), both)
+        && set(ctx, binder, LAST_SLOT, CapabilityKind::Endpoint(live), both);
+    let _ = ctx.router.close_endpoints_for_owner(dead_owner.as_raw());
+    let sink_free = crate::mm::pressure_endpoint::holder().is_none();
+    if !staged {
+        log_error!(target: "selftest", "KSELFTEST: stale endpoint binds refused FAIL (stage)");
+        return;
+    }
+
+    let mut table = SyscallTable::new();
+    api::install_handlers(&mut table);
+    let timer = ctx.hal.timer();
+    let mut sys = api::Context::new(
+        ctx.scheduler,
+        ctx.tasks,
+        ctx.router,
+        ctx.address_spaces,
+        timer,
+        ctx.hart_timers,
+        ctx.waitsets,
+        ctx.fences,
+    );
+    sys.tasks.set_current(binder);
+    let slot = |slot: usize| Args::new([slot, 0, 0, 0, 0, 0]);
+    let timers = sys.hart_timers.len();
+    let timer_refused = matches!(
+        table.dispatch(SYSCALL_TIMER_CREATE, &mut sys, &slot(STALE_SLOT)),
+        Err(SysError::Ipc(IpcError::NoSuchEndpoint))
+    ) && sys.hart_timers.len() == timers;
+    let sink_refused =
+        table.dispatch(SYSCALL_MEM_PRESSURE_BIND, &mut sys, &slot(STALE_SLOT)).is_err()
+            && crate::mm::pressure_endpoint::binding().is_none();
+    let ws = table.dispatch(SYSCALL_WAITSET_CREATE, &mut sys, &slot(0)).ok();
+    let added = ws.is_some_and(|ws| {
+        let add = Args::new([ws, STALE_SLOT, 0, 0, 0, 0]);
+        table.dispatch(SYSCALL_WAITSET_ADD, &mut sys, &add).is_ok()
+    });
+    // Asked again, nothing names it: the add's own check forgot it.
+    let member_dropped = added && sys.waitsets.forget_endpoint(dead) == 0;
+    // The binding holds the dead slot past the binder's last capability, until it is cleared.
+    let bound = table.dispatch(SYSCALL_CHILD_EXIT_BIND, &mut sys, &slot(STALE_SLOT)).is_ok();
+    let _ = sys.tasks.current_caps_mut().take(STALE_SLOT);
+    let held = sys.router.revive_endpoint(dead, 4, None).is_err();
+    let cleared = table.dispatch(SYSCALL_CHILD_EXIT_BIND, &mut sys, &slot(usize::MAX)).is_ok();
+    let freed = sys.router.revive_endpoint(dead, 4, None) == Ok(dead);
+    if freed {
+        // Dead again and free: the slot as the staging found it.
+        let _ = sys.router.close_endpoint(dead);
+    }
+    // The last capability of a live endpoint, closed: the endpoint dies, its timer with it.
+    let fed = table.dispatch(SYSCALL_TIMER_CREATE, &mut sys, &slot(LAST_SLOT)).ok();
+    let closed = table.dispatch(SYSCALL_CAP_CLOSE, &mut sys, &slot(LAST_SLOT)).is_ok();
+    let died = fed.is_some()
+        && closed
+        && !sys.router.endpoint_alive(live)
+        && sys.hart_timers.forget_endpoint(live) == 0
+        && sys.hart_timers.len() == timers;
+    // What the binder still names goes too: the waitset, and the timer's name (no object).
+    for named in [ws, fed].into_iter().flatten() {
+        let _ = table.dispatch(SYSCALL_CAP_CLOSE, &mut sys, &slot(named));
+    }
+    sys.tasks.set_current(Pid::KERNEL);
+
+    let ok = timer_refused
+        && sink_free
+        && sink_refused
+        && member_dropped
+        && bound
+        && held
+        && cleared
+        && freed
+        && died;
+    if ok {
+        log_info!(
+            target: "selftest",
+            "KSELFTEST: stale endpoint binds refused ok (timer=1 sink=1 member=1 exit_bind=1 last_close=1)"
+        );
+    } else {
+        log_error!(
+            target: "selftest",
+            "KSELFTEST: stale endpoint binds refused FAIL (timer={} sink_free={} sink={} member={} bound={} held={} cleared={} freed={} died={})",
+            timer_refused,
+            sink_free,
+            sink_refused,
+            member_dropped,
+            bound,
+            held,
+            cleared,
+            freed,
+            died
         );
     }
 }

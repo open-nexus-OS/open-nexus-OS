@@ -28,6 +28,9 @@ use crate::{
 
 pub use crate::types::Pid;
 
+/// A task's capability table under its process lock (RFC-0102 rank 2), in its scheduling record.
+pub type Caps = crate::sync::ranked::RankedGuard<'static, CapTable>;
+
 /// Default scheduling shares (one preemption tick per slice).
 pub const DEFAULT_SHARES: u16 = 100;
 
@@ -92,8 +95,9 @@ pub mod process;
 #[cfg(target_os = "none")]
 mod stack_pool;
 /// Waking a blocked task (TASK-0054C P4c-2: the runqueue half is measured here).
-mod wake;
+pub mod wake;
 pub use process::Pending;
+pub use wake::set_current_here;
 /// The reap: the parent's `wait` and the release of a thread whose process is gone.
 mod reap;
 #[cfg(target_os = "none")]
@@ -275,30 +279,14 @@ pub struct Task {
     exit_code: Option<(i32, ExitReason)>,
     /// The saved frame and its holder (TASK-0363 P2 S2): a fixed address outside this table.
     rec: &'static crate::sched::record::Record,
-    caps: CapTable,
     trap_domain: TrapDomainId,
-    qos: QosClass,
-    blocked: bool,
-    block_reason: Option<BlockReason>,
-    call_state: Option<completion::CallState>, // TASK-0054C P4a
+    // Its class, wait state, freeze and committed call live in `rec` under the thread lock, its
+    // home CPU, affinity and service identity beside them (TASK-0330 P2, ADR-0102): a wake and
+    // a send need them without this table.
     /// Handle referencing the address space bound to this task.
     pub address_space: Option<AsHandle>,
     /// Optional user-mode guard metadata (diagnostics only; RFC-0004 Phase 1).
     user_guard_info: Option<UserGuardInfo>,
-    /// Kernel-derived stable identity for this task's service image (BootstrapInfo v2).
-    ///
-    /// This is set by `exec_v2` (init-lite passes the service name; kernel derives a stable id).
-    service_id: u64,
-    /// CPU where this task was spawned (used by wake() to enqueue on the correct
-    /// per-CPU runqueue, avoiding cross-CPU migration during IPC wakeups).
-    #[cfg_attr(not(test), allow(dead_code))]
-    home_cpu: crate::types::CpuId,
-    /// TASK-0363 P8: the CPU it last blocked on — whose timer its deadline is armed on.
-    pub(crate) blocked_on: crate::types::CpuId,
-    /// B (TASK-0042, RFC-0118): the CPUs this task may run on. Default: every CPU
-    /// the kernel runs. Enforced at wake/resume (home clamp) and in the steal
-    /// predicate; admitted at the syscall boundary (`admit_affinity`).
-    affinity: nexus_sched::CpuSet,
     /// B (TASK-0042): scheduling shares within the QoS class, clamped to
     /// [1, 1000]; 100 = default (one preemption tick per slice).
     shares: u16,
@@ -314,19 +302,19 @@ pub struct Task {
     orphan_vmos: Vec<u32>,
     /// The endpoint this task bound for its children's deaths (TASK-0333 6a, like a timer's
     /// notify endpoint): every child's exit funnel writes one `OP_CHILD_EXITED` frame into it.
-    exit_notify: Option<crate::ipc::EndpointId>,
+    /// Held, not named: while it is bound the id is that endpoint's — dead, it takes no
+    /// frame, and no new endpoint gets the id (so nothing walks the tasks at its death).
+    exit_notify: Option<crate::cap::PinnedEndpoint>,
     /// TASK-0333 6d (ADR-0082): spawned INTO its parent's own address space — a thread of the
     /// process whose leader created the space; it dies and freezes with the process.
     is_thread: bool,
     /// ADR-0082: the parent may `task_kill` it and the kernel's last resort may take it. Set by
     /// the parent at `exec_vmo`, never by the task about itself.
     killable: bool,
-    /// ADR-0082: frozen by its parent (`task_suspend`) — `Suspended` until the thaw, a wake only
-    /// clears its block. `frozen_at` is the proof line's clock.
-    frozen: bool,
+    /// ADR-0082: when its parent froze it (`task_suspend`; the flag is the record's
+    /// `Thread::frozen`) — the proof line's clock.
     frozen_at: u64,
-    /// ADR-0082: an order for a task running on another hart, executed at its next trap entry.
-    pending: Option<process::Pending>,
+    // ADR-0082: an order for a task running on another hart is its record's `pending` word.
     /// ADR-0082: how many threads this leader's exit took (the reap's proof line).
     threads_taken: u8,
 }
@@ -355,24 +343,18 @@ impl Task {
         let zero_frame =
             TrapFrame { sstatus: SSTATUS_SPP | SSTATUS_SPIE | SSTATUS_SUM, ..TrapFrame::EMPTY };
 
+        let rec = crate::sched::record::bootstrap(zero_frame);
+        rec.start(QosClass::PerfBurst, crate::types::CpuId::BOOT, crate::topology::runs(), false);
+        *rec.caps() = caps;
         Self {
             pid: Pid::KERNEL,
             parent: None,
             state: TaskState::Running,
             exit_code: None,
-            rec: crate::sched::record::bootstrap(zero_frame),
-            caps,
+            rec,
             trap_domain: TrapDomainId::default(),
-            qos: QosClass::PerfBurst,
-            blocked: false,
-            block_reason: None,
-            call_state: None,
             address_space: None,
             user_guard_info: None,
-            service_id: 0,
-            home_cpu: crate::types::CpuId::BOOT,
-            blocked_on: crate::types::CpuId::BOOT,
-            affinity: crate::topology::runs(),
             shares: DEFAULT_SHARES,
             last_spawn_fail_reason: None,
             bootstrap_slot: None,
@@ -382,9 +364,7 @@ impl Task {
             exit_notify: None,
             is_thread: false,
             killable: false,
-            frozen: false,
             frozen_at: 0,
-            pending: None,
             threads_taken: 0,
         }
     }
@@ -406,12 +386,12 @@ impl Task {
 
     /// ADR-0082: frozen by its parent, waiting for the thaw.
     pub fn is_frozen(&self) -> bool {
-        self.frozen
+        self.rec.thread().frozen
     }
 
     /// ADR-0082: the order left for this task by another hart, if any.
     pub fn pending(&self) -> Option<process::Pending> {
-        self.pending
+        self.rec.pending()
     }
 
     /// The saved frame, held by the caller (`run_queue::Owner`; breach: `KINIT: FAIL frame owner`).
@@ -433,9 +413,14 @@ impl Task {
         self.rec.fp_mut()
     }
 
-    /// Returns a mutable reference to the capability table.
-    pub fn caps_mut(&mut self) -> &mut CapTable {
-        &mut self.caps
+    /// The task's capability table under its process lock (in its record: TASK-0330 P2).
+    pub fn caps_mut(&mut self) -> Caps {
+        self.rec.caps()
+    }
+
+    /// The task's capability table under its process lock, to read.
+    pub fn caps(&self) -> Caps {
+        self.rec.caps()
     }
 
     /// Returns the parent PID, if any.
@@ -445,11 +430,11 @@ impl Task {
 
     /// The endpoint this task's children's deaths are written to, if it bound one.
     pub fn exit_notify(&self) -> Option<crate::ipc::EndpointId> {
-        self.exit_notify
+        self.exit_notify.as_ref().map(crate::cap::PinnedEndpoint::id)
     }
 
     /// Binds (or clears) the child-death endpoint.
-    pub fn set_exit_notify(&mut self, endpoint: Option<crate::ipc::EndpointId>) {
+    pub fn set_exit_notify(&mut self, endpoint: Option<crate::cap::PinnedEndpoint>) {
         self.exit_notify = endpoint;
     }
 
@@ -483,14 +468,15 @@ impl Task {
         self.user_guard_info = Some(info);
     }
 
-    /// Returns the kernel-derived service identity for this task.
+    /// Returns the kernel-derived service identity for this task (BootstrapInfo v2: `exec_v2`
+    /// derives it from the service name init-lite passes).
     pub fn service_id(&self) -> u64 {
-        self.service_id
+        self.rec.service_id()
     }
 
     /// Sets the kernel-derived service identity for this task.
     pub fn set_service_id(&mut self, id: u64) {
-        self.service_id = id;
+        self.rec.set_service_id(id);
     }
 
     /// Returns the trap domain associated with this task.
@@ -510,28 +496,28 @@ impl Task {
 
     /// Returns the QoS class used by the scheduler.
     pub fn qos(&self) -> QosClass {
-        self.qos
+        self.rec.thread().qos
     }
 
-    /// Sets the scheduler QoS class for this task.
-    /// The task's home CPU (scheduling anchor).
+    /// The task's home CPU (scheduling anchor): where a wake starts looking for a hart.
     pub fn home_cpu(&self) -> crate::types::CpuId {
-        self.home_cpu
+        self.rec.home()
     }
 
-    /// B (TASK-0042): the CPUs this task may run on (bit N = logical CPU N).
+    /// B (TASK-0042, RFC-0118): the CPUs this task may run on (bit N = logical CPU N).
+    /// Enforced at wake/resume (home clamp) and in the steal predicate.
     pub fn affinity(&self) -> nexus_sched::CpuSet {
-        self.affinity
+        self.rec.affinity()
     }
 
     /// Sets the CPU set (the caller admitted it: `admit_affinity`).
     pub fn set_affinity(&mut self, set: nexus_sched::CpuSet) {
-        self.affinity = set;
+        self.rec.set_affinity(set);
     }
 
     /// Whether this task may run on `cpu`.
     pub fn affinity_allows(&self, cpu: crate::types::CpuId) -> bool {
-        self.affinity.contains(cpu.as_index())
+        self.affinity().contains(cpu.as_index())
     }
 
     /// B (TASK-0042): scheduling shares within the QoS class [1, 1000].
@@ -546,8 +532,9 @@ impl Task {
         self.rec.set_shares(shares);
     }
 
+    /// Sets the scheduler QoS class for this task.
     pub fn set_qos(&mut self, qos: QosClass) {
-        self.qos = qos;
+        self.rec.thread().qos = qos;
     }
 
     pub fn set_last_spawn_fail_reason(&mut self, reason: SpawnFailReason) {
@@ -560,22 +547,30 @@ impl Task {
 
     /// Returns whether this task is currently blocked (not runnable).
     pub fn is_blocked(&self) -> bool {
-        self.blocked
+        self.rec.thread().is_blocked()
     }
 
-    /// Returns the current block reason, if any.
+    /// What the task waits for, while it is blocked.
     pub fn block_reason(&self) -> Option<BlockReason> {
-        self.block_reason
+        let thread = self.rec.thread();
+        thread.reason.filter(|_| thread.is_blocked())
     }
 
-    fn set_blocked(&mut self, reason: BlockReason) {
-        self.blocked = true;
-        self.block_reason = Some(reason);
+    /// What a task that waits — blocked, or preparing to — waits for, the CPU it blocks on and
+    /// whether it is blocked already (the deadline walk's reading, one hold); `None` while it
+    /// does neither. A preparing wait has lowered the walk's bounds in the hold that set it.
+    pub fn waiting(&self) -> Option<(Option<BlockReason>, crate::types::CpuId, bool)> {
+        use crate::sync::wait_word::Wait;
+        let thread = self.rec.thread();
+        matches!(thread.wait, Wait::Blocked | Wait::Preparing).then_some((
+            thread.reason,
+            thread.blocked_on,
+            thread.is_blocked(),
+        ))
     }
 
     fn clear_blocked(&mut self) {
-        self.blocked = false;
-        self.block_reason = None;
+        self.rec.thread().end_wait();
     }
 }
 
@@ -601,13 +596,9 @@ impl TaskTable {
     }
 
     /// Changes the task currently running on THIS hart.
+    #[track_caller]
     pub fn set_current(&mut self, pid: Pid) {
-        // ADR-0082: a frozen task is never dispatched — counted, the freeze proof's invariant.
-        if self.tasks.get(pid.as_index()).is_some_and(|t| t.frozen) {
-            process::note_frozen_ran(pid);
-        }
-        crate::sched::set_runs_here(pid);
-        crate::trap::fp::now_runs(self.tasks.get(pid.as_index()).and_then(|t| t.rec.fp_if_held()));
+        set_current_here(pid);
     }
 
     /// Selftest helper: create a minimal task entry without allocating a new address space or stack.
@@ -624,33 +615,31 @@ impl TaskTable {
         let (parent_affinity, parent_shares) = self
             .tasks
             .get(parent_index)
-            .map(|p| (p.affinity, p.shares))
+            .map(|p| (p.affinity(), p.shares))
             .unwrap_or((crate::topology::runs(), DEFAULT_SHARES));
+        let rec = crate::sched::record::claim(pid, TrapFrame::default()).expect("dummy record");
+        // Selftest dummy tasks are used as bookkeeping endpoints for block/wake semantics.
+        // They must never be scheduled to execute (their frame is intentionally minimal):
+        // they start blocked, and only `wake()` enqueues one when a selftest needs it runnable.
+        // A4 initial placement: deterministic round-robin across online CPUs, inside the mask
+        // inherited from the parent (B).
+        let home = clamp_home_to_affinity(
+            parent_affinity,
+            crate::smp::assign_spawn_cpu(),
+            crate::smp::cpu_online(),
+        );
+        rec.start(QosClass::PerfBurst, home, parent_affinity, true);
+        rec.thread().dummy = true;
+        *rec.caps() = CapTable::new_for(pid.as_raw());
         let task = Task {
             pid,
             parent: Some(parent),
             state: TaskState::Running,
             exit_code: None,
-            rec: crate::sched::record::claim(pid, TrapFrame::default()).expect("dummy record"),
-            caps: CapTable::new_for(pid.as_raw()),
+            rec,
             trap_domain: parent_domain,
-            qos: QosClass::PerfBurst,
-            // Selftest dummy tasks are used as bookkeeping endpoints for block/wake semantics.
-            // They must never be scheduled to execute (their frame is intentionally minimal).
-            // Only `wake()` should enqueue them when a selftest needs runnable state.
-            blocked: true,
-            block_reason: None,
-            call_state: None,
             address_space: None,
             user_guard_info: None,
-            service_id: 0,
-            // A4 initial placement: deterministic round-robin across online
-            // CPUs (pre-runtime-ready: spawning hart). See smp::assign_spawn_cpu.
-            home_cpu: crate::smp::assign_spawn_cpu(),
-            blocked_on: crate::types::CpuId::BOOT,
-            // B: inherit scheduling attributes from the parent (reset-on-exec
-            // happens naturally: execd spawns fresh children).
-            affinity: parent_affinity,
             shares: parent_shares,
             last_spawn_fail_reason: None,
             bootstrap_slot: None,
@@ -660,16 +649,9 @@ impl TaskTable {
             exit_notify: None,
             is_thread: false,
             killable: false,
-            frozen: false,
             frozen_at: 0,
-            pending: None,
             threads_taken: 0,
         };
-        // B: the round-robin placement must respect the inherited mask.
-        let clamped =
-            clamp_home_to_affinity(task.affinity, task.home_cpu, crate::smp::cpu_online());
-        let mut task = task;
-        task.home_cpu = clamped;
         task.rec.set_shares(task.shares);
         self.tasks.push(task);
         if let Some(parent_task) = self.tasks.get_mut(parent_index) {
@@ -713,18 +695,18 @@ impl TaskTable {
     }
 
     /// Returns the capability table of the current task.
-    pub fn current_caps_mut(&mut self) -> &mut CapTable {
+    pub fn current_caps_mut(&mut self) -> Caps {
         self.current_task_mut().caps_mut()
     }
 
-    /// Returns a shared reference to the capability table of `pid`.
-    pub fn caps_of(&self, pid: Pid) -> Option<&CapTable> {
-        self.tasks.get(pid.as_index()).map(|task| &task.caps)
+    /// The capability table of `pid` under its process lock, to read.
+    pub fn caps_of(&self, pid: Pid) -> Option<Caps> {
+        self.tasks.get(pid.as_index()).map(Task::caps)
     }
 
-    /// Returns a mutable reference to the capability table of `pid`.
-    pub fn caps_of_mut(&mut self, pid: Pid) -> Option<&mut CapTable> {
-        self.tasks.get_mut(pid.as_index()).map(|task| task.caps_mut())
+    /// The capability table of `pid` under its process lock.
+    pub fn caps_of_mut(&mut self, pid: Pid) -> Option<Caps> {
+        self.tasks.get_mut(pid.as_index()).map(Task::caps_mut)
     }
 
     /// Returns a mutable reference to a task by PID.
@@ -753,7 +735,7 @@ impl TaskTable {
         global_pointer: usize,
         bootstrap_slot: SlotIndex,
         scheduler: &mut Scheduler,
-        _router: &mut Router,
+        _router: &Router,
         address_spaces: &mut AddressSpaceManager,
     ) -> Result<Pid, SpawnError> {
         self.spawn_inner(
@@ -780,7 +762,7 @@ impl TaskTable {
         global_pointer: usize,
         bootstrap_slot: SlotIndex,
         scheduler: &mut Scheduler,
-        _router: &mut Router,
+        _router: &Router,
         address_spaces: &mut AddressSpaceManager,
     ) -> Result<Pid, SpawnError> {
         let parent_index = parent.as_index();
@@ -800,7 +782,7 @@ impl TaskTable {
         let parent_address_space = parent_task.address_space;
 
         let slot = bootstrap_slot.0;
-        let bootstrap_cap = parent_task.caps.get(slot)?;
+        let bootstrap_cap = parent_task.caps().get(slot)?;
         match bootstrap_cap.kind {
             CapabilityKind::Endpoint(_) => {}
             _ => return Err(SpawnError::BootstrapNotEndpoint),
@@ -810,12 +792,12 @@ impl TaskTable {
         // TASK-0363 P2 S2: the record first; a later failure leaves it to this pid's next spawn.
         let rec = crate::sched::record::claim(pid, TrapFrame::default())?;
         let mut child_caps = CapTable::new_for(pid.as_raw());
-        child_caps.set(slot, parent_task.caps.dup(slot, bootstrap_cap.rights)?)?;
+        child_caps.set(slot, parent_task.caps().dup(slot, bootstrap_cap.rights)?)?;
 
         // The kernel's direct userspace child (init) gets its fixed slots — the endpoint
         // factory, the device tree, the console ring — from `init_caps` (the ABI's numbers).
         if parent == Pid::KERNEL && address_space.is_some() {
-            init_caps::inject(&parent_task.caps, &mut child_caps);
+            init_caps::inject(&parent_task.caps(), &mut child_caps);
         }
 
         let mut frame = TrapFrame { sepc: entry_pc.raw(), ..TrapFrame::default() };
@@ -869,31 +851,26 @@ impl TaskTable {
         let (parent_affinity, parent_shares) = self
             .tasks
             .get(parent_index)
-            .map(|p| (p.affinity, p.shares))
+            .map(|p| (p.affinity(), p.shares))
             .unwrap_or((crate::topology::runs(), DEFAULT_SHARES));
         *rec.frame_mut() = frame;
+        // A4 initial placement: deterministic round-robin across online CPUs (pre-runtime-
+        // ready: the spawning hart; see `smp::assign_spawn_cpu`), inside the inherited mask (B).
+        let home = clamp_home_to_affinity(
+            parent_affinity,
+            crate::smp::assign_spawn_cpu(),
+            crate::smp::cpu_online(),
+        );
+        rec.start(QosClass::Normal, home, parent_affinity, false);
         let mut task = Task {
             pid,
             parent: Some(parent),
             state: TaskState::Suspended,
             exit_code: None,
             rec,
-            caps: child_caps,
             trap_domain: parent_domain,
-            qos: QosClass::Normal,
-            blocked: false,
-            block_reason: None,
-            call_state: None,
             address_space: Some(child_as),
             user_guard_info: None,
-            service_id: 0,
-            // A4 initial placement: deterministic round-robin across online
-            // CPUs (pre-runtime-ready: spawning hart). See smp::assign_spawn_cpu.
-            home_cpu: crate::smp::assign_spawn_cpu(),
-            blocked_on: crate::types::CpuId::BOOT,
-            // B: inherit scheduling attributes from the parent (reset-on-exec
-            // happens naturally: execd spawns fresh children).
-            affinity: parent_affinity,
             shares: parent_shares,
             last_spawn_fail_reason: None,
             bootstrap_slot: Some(slot),
@@ -904,21 +881,19 @@ impl TaskTable {
             // ADR-0082: spawned into the parent's own space = a thread of the parent's process.
             is_thread: address_space.is_some() && address_space == parent_address_space,
             killable: false,
-            frozen: false,
             frozen_at: 0,
-            pending: None,
             threads_taken: 0,
         };
         if let Some(block) = stack_block {
             task.image_allocs.push(block);
         }
-        // B: the round-robin placement must respect the inherited mask.
-        task.home_cpu =
-            clamp_home_to_affinity(task.affinity, task.home_cpu, crate::smp::cpu_online());
         task.rec.set_shares(task.shares);
+        // The table enters the record with the task: an earlier failure dropped it here.
+        *rec.caps() = child_caps;
         self.tasks.push(task);
         if let Err(err) = address_spaces.attach(child_as, pid) {
             self.tasks.pop();
+            *rec.caps() = CapTable::empty();
             return Err(err.into());
         }
 
@@ -928,7 +903,7 @@ impl TaskTable {
 
         // Only enqueue if the task is not suspended (parent will resume later).
         let suspended = self.tasks.last().is_some_and(|t| t.state == TaskState::Suspended);
-        let child_home = self.tasks.last().map_or(crate::types::CpuId::BOOT, |t| t.home_cpu);
+        let child_home = home;
         if !suspended {
             let outcome = scheduler.enqueue_on_cpu(child_home, pid, QosClass::Normal);
             if matches!(outcome, EnqueueOutcome::Enqueued)
@@ -971,7 +946,7 @@ impl TaskTable {
         mode: TransferMode,
     ) -> Result<usize, TransferError> {
         let parent_task = self.tasks.get(parent.as_index()).ok_or(TransferError::InvalidParent)?;
-        let derived = parent_task.caps.dup(parent_slot, rights)?;
+        let derived = parent_task.caps().dup(parent_slot, rights)?;
         let child_task = self.tasks.get_mut(child.as_index()).ok_or(TransferError::InvalidChild)?;
         match mode {
             TransferMode::CopyAllocate => {
@@ -1023,17 +998,24 @@ impl TaskTable {
             return ImageAllocs::new();
         };
         task.state = TaskState::Zombie;
-        task.frozen = false;
-        task.pending = None;
-        task.clear_blocked();
+        task.rec.set_pending(None);
+        {
+            let mut thread = task.rec.thread();
+            thread.frozen = false;
+            // A call it had committed holds its reply endpoint no longer.
+            thread.call = None;
+            thread.end_wait();
+        }
         task.exit_code = Some((status, reason));
         // TASK-0333 6f-3: a half console line the task left is ended at its death.
         crate::hal::console_line::task_exited(pid.as_raw());
         // What the table named is remembered for the reap (RFC-0100 §1): the caps go now, the
         // objects nobody else names or maps go with the address space.
         task.orphan_vmos.clear();
-        task.caps.vmo_ids(&mut task.orphan_vmos);
-        task.caps = CapTable::default();
+        task.caps().vmo_ids(&mut task.orphan_vmos);
+        *task.caps_mut() = CapTable::empty();
+        // A zombie hears of no child: the endpoint it bound is held no longer.
+        task.exit_notify = None;
         task.bootstrap_slot = None;
         *task.frame_mut() = TrapFrame::default();
         *task.rec.fp_mut() = crate::trap::fp::Held::NONE;
@@ -1041,34 +1023,12 @@ impl TaskTable {
         task.image_allocs.take()
     }
 
-    /// Blocks the current task and removes it from the scheduler (not runnable).
-    pub fn block_current(&mut self, reason: BlockReason, scheduler: &mut Scheduler) {
-        let (pid, cpu) = (self.current_pid(), crate::smp::cpu_current_id());
-        // Arm the O(1) deadline-sweep gate BEFORE the task can expire: the
-        // sweep skips its O(tasks) scan while `now` is below this bound, so a
-        // deadline that never lowered it would be missed
-        // (`trap::budgets::NEXT_DEADLINE_NS`) — and this hart's own floor (TASK-0363 P8).
-        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-        if let Some(deadline_ns) = reason.deadline_ns() {
-            use crate::trap::own_deadlines as own;
-            crate::trap::budgets::note_block_deadline(deadline_ns);
-            own::lower(own::Kind::Blocked, cpu.as_index(), deadline_ns);
-        }
-        if let Some(task) = self.task_mut(pid) {
-            task.set_blocked(reason);
-            task.blocked_on = cpu;
-        }
-        // Ensure the scheduler does not keep queued references to this PID.
-        scheduler.purge(pid);
-        scheduler.finish_current();
-    }
-
     /// Explicit migration (A8 work stealing, a pin): rebinds a task's home CPU; the device
     /// lines it bound follow it (RFC-0118).
     pub fn set_home_cpu(&mut self, pid: Pid, cpu: crate::types::CpuId) {
         if let Some(task) = self.task_mut(pid) {
-            task.home_cpu = cpu;
-            crate::irq::rehome(pid, cpu);
+            task.rec.set_home(cpu);
+            crate::irq::rehome(pid);
         }
     }
 }

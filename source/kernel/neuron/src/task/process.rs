@@ -32,6 +32,25 @@ pub enum Pending {
     Kill,
 }
 
+impl Pending {
+    /// The order as the scheduling record's word holds it (0: none).
+    pub const fn raw(self) -> u8 {
+        match self {
+            Self::Freeze => 1,
+            Self::Kill => 2,
+        }
+    }
+
+    /// The order a record's word holds.
+    pub const fn from_raw(raw: u8) -> Option<Self> {
+        match raw {
+            1 => Some(Self::Freeze),
+            2 => Some(Self::Kill),
+            _ => None,
+        }
+    }
+}
+
 /// What a freeze order did: how many tasks parked here, how many were handed to their hart.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct FreezeOutcome {
@@ -80,9 +99,9 @@ impl TaskTable {
         members.push(leader);
         members.iter().all(|&pid| {
             self.task(pid).is_some_and(|t| {
-                t.frozen
+                t.is_frozen()
                     && t.state == TaskState::Suspended
-                    && t.pending.is_none()
+                    && t.pending().is_none()
                     && scheduler.running_on(pid).is_none()
             })
         })
@@ -97,7 +116,7 @@ impl TaskTable {
             .tasks
             .iter()
             .filter(|t| t.address_space == Some(space))
-            .map(|t| t.caps.vmo_ref_count(id))
+            .map(|t| t.caps().vmo_ref_count(id))
             .sum();
         crate::mm::vmo::held(id) > own
     }
@@ -128,19 +147,23 @@ impl TaskTable {
             .any(|t| !t.is_thread && t.address_space == Some(space) && t.state != TaskState::Zombie)
     }
 
-    /// Leaves an order for a task running on another hart.
-    pub fn mark_pending(&mut self, pid: Pid, order: Pending) {
-        if let Some(task) = self.task_mut(pid) {
-            // A kill is never downgraded to a freeze.
-            if task.pending != Some(Pending::Kill) {
-                task.pending = Some(order);
-            }
+    /// Leaves an order for a task running on another hart — and wakes it: a task that is
+    /// going to sleep in a syscall off the kernel lock (TASK-0330 P2) either reads the order
+    /// after its `prepare`, or finds this wake at its commit (or after it) and traps again.
+    pub fn mark_pending(&mut self, pid: Pid, order: Pending, scheduler: &mut Scheduler) {
+        let Some(rec) = self.task(pid).map(|task| task.rec) else { return };
+        // A kill is never downgraded to a freeze.
+        if rec.pending() != Some(Pending::Kill) {
+            rec.set_pending(Some(order));
+        }
+        if rec.thread().wait != crate::sync::wait_word::Wait::Running {
+            let _ = super::wake::wake(pid, scheduler);
         }
     }
 
     /// Takes the current task's pending order, if any (the trap entry's question).
     pub fn take_pending(&mut self, pid: Pid) -> Option<Pending> {
-        self.task_mut(pid).and_then(|t| t.pending.take())
+        self.task(pid).and_then(|task| task.rec.take_pending())
     }
 
     /// Records how many threads a leader's exit took (the reap's proof line).
@@ -152,9 +175,12 @@ impl TaskTable {
 
     /// Takes a task that is not running on any hart out of its block (a fence waiter is
     /// removed; IPC and waitset waiters go with the exit funnel's `remove_waiter_from_all`).
-    pub fn detach_blocked(&mut self, pid: Pid, fences: &mut crate::fence::FenceTable) {
+    pub fn detach_blocked(&mut self, pid: Pid, fences: &crate::fence::FenceTable) {
         let Some(task) = self.task_mut(pid) else { return };
-        if let Some(super::BlockReason::Fence { fence_id, .. }) = task.block_reason {
+        // The reason is read in one hold and the fence left in none: a fence's lock ranks
+        // below the thread's (RFC-0102).
+        let reason = task.rec.thread().reason;
+        if let Some(super::BlockReason::Fence { fence_id, .. }) = reason {
             fences.remove_waiter(crate::fence::FenceId(fence_id), pid.as_raw());
         }
         task.clear_blocked();
@@ -165,21 +191,37 @@ impl TaskTable {
     fn freeze_parked(&mut self, pid: Pid, scheduler: &mut Scheduler) {
         if let Some(task) = self.task_mut(pid) {
             task.state = TaskState::Suspended;
-            task.frozen = true;
+            task.rec.thread().frozen = true;
             task.frozen_at = now_ns();
         }
         scheduler.purge(pid);
     }
 
-    /// The hart `pid` is running on right now, other than this one — or, if none, `pid` is off
-    /// its queue already: one decision under that hart's queue lock (TASK-0363 P2 S3).
-    fn running_elsewhere(pid: Pid, scheduler: &mut Scheduler) -> Option<crate::types::CpuId> {
-        match scheduler.withdraw(pid) {
-            crate::sched::Withdrawn::Running(cpu) => {
-                Some(cpu).filter(|cpu| *cpu != crate::smp::cpu_current_id())
+    /// Takes `pid` out of the order for an order another task gives it (a kill, a freeze) — or
+    /// names the hart, other than this one, that runs it. `None`: it is parked — off every
+    /// queue and running nowhere. A wake takes the thread's lock, not the kernel's (TASK-0330
+    /// P2), so a thread found off the order is marked `frozen` in the look that found it: a
+    /// wake from then on only ends its block, and nobody starts a task that is being reaped or
+    /// frozen. A queued task leaves its queue under that hart's queue lock (TASK-0363 P2 S3)
+    /// and is found free at the next look, as is one that blocked since the last.
+    pub(crate) fn park(pid: Pid, scheduler: &mut Scheduler) -> Option<crate::types::CpuId> {
+        /// Looks a consistent owner word never needs; past them the task counts as parked.
+        const LOOKS: usize = 64;
+        let rec = crate::sched::record::get(pid)?;
+        for _ in 0..LOOKS {
+            {
+                let mut thread = rec.thread();
+                if rec.is_free() {
+                    thread.frozen = true;
+                    return None;
+                }
             }
-            _ => None,
+            if let crate::sched::Withdrawn::Running(cpu) = scheduler.withdraw(pid) {
+                return Some(cpu).filter(|cpu| *cpu != crate::smp::cpu_current_id());
+            }
         }
+        rec.thread().frozen = true;
+        None
     }
 
     /// Freezes the process `leader` belongs to: the leader and every thread. A task running on
@@ -189,26 +231,26 @@ impl TaskTable {
         &mut self,
         leader: Pid,
         scheduler: &mut Scheduler,
-        router: &mut crate::ipc::Router,
+        router: &crate::ipc::Router,
     ) -> FreezeOutcome {
         let mut out = FreezeOutcome::default();
         let mut members = self.members_of(leader);
         members.push(leader);
         for pid in members {
             let Some(task) = self.task(pid) else { continue };
-            if task.state == TaskState::Zombie || task.pending == Some(Pending::Kill) {
+            if task.state == TaskState::Zombie || task.pending() == Some(Pending::Kill) {
                 continue;
             }
             let mut recv = Vec::new();
-            task.caps.endpoint_ids_with(crate::cap::Rights::RECV, &mut recv);
+            task.caps().endpoint_ids_with(crate::cap::Rights::RECV, &mut recv);
             for endpoint in recv {
                 router.set_endpoint_frozen(endpoint, true);
             }
-            if task.frozen {
+            if task.is_frozen() {
                 continue;
             }
-            if let Some(cpu) = Self::running_elsewhere(pid, scheduler) {
-                self.mark_pending(pid, Pending::Freeze);
+            if let Some(cpu) = Self::park(pid, scheduler) {
+                self.mark_pending(pid, Pending::Freeze, scheduler);
                 let _ = crate::smp::request_resched(cpu);
                 out.deferred += 1;
             } else {
@@ -233,7 +275,7 @@ impl TaskTable {
         &mut self,
         leader: Pid,
         scheduler: &mut Scheduler,
-        router: &mut crate::ipc::Router,
+        router: &crate::ipc::Router,
     ) -> Result<usize, ResumeOutcome> {
         let mut members = self.members_of(leader);
         members.push(leader);
@@ -241,7 +283,7 @@ impl TaskTable {
         for pid in members {
             if let Some(task) = self.task(pid) {
                 let mut recv = Vec::new();
-                task.caps.endpoint_ids_with(crate::cap::Rights::RECV, &mut recv);
+                task.caps().endpoint_ids_with(crate::cap::Rights::RECV, &mut recv);
                 for endpoint in recv {
                     router.set_endpoint_frozen(endpoint, false);
                 }
@@ -266,39 +308,42 @@ impl TaskTable {
         let Some(task) = self.tasks.get_mut(idx) else {
             return ResumeOutcome::TaskNotFound;
         };
-        if task.pending == Some(Pending::Freeze) {
-            task.pending = None;
+        if task.pending() == Some(Pending::Freeze) {
+            task.rec.set_pending(None);
             return ResumeOutcome::Resumed;
         }
         if task.state != TaskState::Suspended {
             return ResumeOutcome::NotSuspended;
         }
-        let was_frozen = task.frozen;
-        let frozen_at = task.frozen_at;
-        task.frozen = false;
+        let (rec, frozen_at) = (task.rec, task.frozen_at);
         task.state = TaskState::Running;
+        // One hold of the thread lock (ADR-0102): thawed, and either still waiting — its wake
+        // enqueues it — or enqueued here; a wake cannot fall between the two.
+        let mut thread = rec.thread();
+        let was_frozen = core::mem::replace(&mut thread.frozen, false);
+        let mut kick = None;
+        if !thread.is_blocked() {
+            // A4/B: keep resume consistent with home CPU, affinity and online set.
+            let home_cpu =
+                clamp_home_to_affinity(rec.affinity(), rec.home(), crate::smp::cpu_online());
+            if let crate::sched::EnqueueOutcome::Rejected(_) =
+                scheduler.enqueue_on_cpu(home_cpu, pid, thread.qos)
+            {
+                thread.frozen = was_frozen;
+                drop(thread);
+                task.state = TaskState::Suspended;
+                return ResumeOutcome::EnqueueRejected;
+            }
+            kick = Some(home_cpu).filter(|cpu| *cpu != crate::smp::cpu_current_id());
+        }
+        drop(thread);
         if was_frozen {
             prove_freeze(pid, frozen_at);
         }
-        if task.blocked {
-            return ResumeOutcome::Resumed;
+        if let Some(cpu) = kick {
+            let _ = crate::smp::request_resched(cpu);
         }
-        // A4/B: keep resume consistent with home CPU, affinity and online set.
-        let home_cpu =
-            clamp_home_to_affinity(task.affinity, task.home_cpu, crate::smp::cpu_online());
-        match scheduler.enqueue_on_cpu(home_cpu, pid, task.qos) {
-            crate::sched::EnqueueOutcome::Enqueued => {
-                if home_cpu != crate::smp::cpu_current_id() {
-                    let _ = crate::smp::request_resched(home_cpu);
-                }
-                ResumeOutcome::Resumed
-            }
-            crate::sched::EnqueueOutcome::Rejected(_) => {
-                task.state = TaskState::Suspended;
-                task.frozen = was_frozen;
-                ResumeOutcome::EnqueueRejected
-            }
-        }
+        ResumeOutcome::Resumed
     }
 }
 

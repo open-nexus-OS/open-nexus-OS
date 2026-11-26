@@ -48,6 +48,47 @@ impl Scheduler {
         (arrived == Some(true)).then(|| Self::give_way_if(false, true)).flatten()
     }
 
+    /// The switch of a syscall that ran off the kernel lock (ADR-0102): if a queued task goes
+    /// ahead of the running one, the running one is requeued as it stands in the order — without
+    /// a pick, which is the hart's scheduler loop's. `true`: requeued; the caller made its saved
+    /// frame complete before and touches it no more — `left` ran in the hold that queued it,
+    /// before any hart can take it (where the caller's hart leaves its address space).
+    /// `false`: it runs on (nothing goes ahead, or the queue is at its bound).
+    pub fn preempt_if_ready(&mut self, left: impl FnOnce()) -> bool {
+        let cpu = Self::current_cpu_index();
+        with(cpu, HartQueues::take_arrived) == Some(true) && Self::give_up(cpu, false, left)
+    }
+
+    /// The `yield` of a syscall that ran off the kernel lock (TASK-0330 P4): the running task is
+    /// queued behind every task waiting on this hart — without a pick, as `preempt_if_ready`,
+    /// and with its `left`. `false`: it runs on (nothing waits here: the pick would hand it
+    /// straight back; or the queue is at its bound).
+    pub fn yield_if_waiting(&mut self, left: impl FnOnce()) -> bool {
+        crate::liveness::bump();
+        Self::give_up(Self::current_cpu_index(), true, left)
+    }
+
+    /// Requeues the running task of hart `cpu` if another goes ahead of it — any queued one for
+    /// a yield (behind them all), else by the order; `left` runs in the hold that queued it.
+    fn give_up(cpu: usize, yields: bool, left: impl FnOnce()) -> bool {
+        let now = ready::now_ticks();
+        meter::metered(cpu, |q| {
+            let ahead = match yields {
+                true => QosClass::DESCENDING.iter().any(|&class| q.len(class) > 0),
+                false => q.ready_before_current(),
+            };
+            let Some(old) = q.current().filter(|_| ahead) else {
+                return false;
+            };
+            let queued = if yields { q.yield_current(now) } else { q.requeue_current(now) };
+            if queued {
+                hand(old.id, Owner::Queued(cpu as u16));
+                left();
+            }
+            queued
+        }) == Some(true)
+    }
+
     fn give_way_if(behind_all: bool, only_if_ready: bool) -> Option<TaskId> {
         crate::liveness::bump();
         let now = ready::now_ticks();

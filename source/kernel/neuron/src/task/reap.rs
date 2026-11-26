@@ -32,15 +32,6 @@ impl TaskTable {
         self.task(parent)?.exit_notify()
     }
 
-    /// Clears every binding of `endpoint` as a child-death notifier — it died.
-    pub fn forget_exit_notify(&mut self, endpoint: crate::ipc::EndpointId) {
-        for task in self.tasks.iter_mut() {
-            if task.exit_notify == Some(endpoint) {
-                task.exit_notify = None;
-            }
-        }
-    }
-
     /// Wakes `child`'s parent if it is blocked in `wait` for this child.
     pub fn wake_parent_waiter(&mut self, child: Pid, scheduler: &mut Scheduler) {
         let Some(child_task) = self.task(child) else {
@@ -157,7 +148,7 @@ impl TaskTable {
         if let Some(task) = self.tasks.get_mut(pid.as_index()) {
             task.exit_code = None;
             task.parent = None;
-            task.caps = CapTable::default();
+            *task.caps_mut() = CapTable::empty();
             task.bootstrap_slot = None;
             *task.frame_mut() = TrapFrame::default();
             task.children.clear();
@@ -186,12 +177,22 @@ impl TaskTable {
                     // The space is kept, never freed under a hart: a leak is safe, the free is
                     // not. FAIL-shaped — no path may leave a hart on a dead task's space.
                     Err(AddressSpaceError::HeldByHart) => {
+                        // Who holds it: the hart, the task that hart runs (0: its scheduler
+                        // loop, on the space of a task it ran), and the hart reaping here.
+                        let hart = address_spaces.hart_on(handle);
                         log_error!(
                             target: "task",
-                            "KSELFTEST: address space free FAIL (pid={} hart={:?} still runs on it)",
+                            "KSELFTEST: address space free FAIL (pid={} hart={:?} still runs on it; runs={} reaper=cpu{})",
                             pid.as_raw(),
-                            address_spaces.hart_on(handle)
+                            hart,
+                            hart.map_or(0, |hart| crate::sched::runs_on(hart).as_raw()),
+                            crate::smp::cpu_current_id().as_index()
                         );
+                        // How that hart came to be there: where it last entered a space and
+                        // where it last stopped running a task (`smp::trail`).
+                        if let Some(trail) = hart.and_then(crate::smp::trail::of) {
+                            log_error!(target: "task", "KINIT: space held by hart ({})", trail);
+                        }
                     }
                     Err(err) => {
                         log_error!(
@@ -216,7 +217,7 @@ impl TaskTable {
             );
         }
 
-        crate::mm::reclaim::orphans(address_spaces, &orphans, "reap");
+        crate::mm::reclaim::orphans(&orphans, "reap");
         crate::mm::usage::report_growth(self, address_spaces);
         freed
     }

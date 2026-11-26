@@ -353,6 +353,9 @@ pub fn console_flush_line() {
 /// ends in. Once the serial line reads the ring the byte only kicks it, after the ring's lock;
 /// before that (and in a panic) the byte goes to the transmitter under that lock, in order.
 fn console_emit(byte: u8) {
+    // TASK-0330 P7: while another hart speaks the machine's last words this one says nothing.
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    crate::trap::fatal::park_if_silenced();
     let kick = super::console_ring::record_then(byte, |byte| {
         if super::console_queue::enabled() {
             return true;

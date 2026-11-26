@@ -24,6 +24,7 @@ use nexus_sched::{ReservationId, RightId, TimeRightError, TimeRights};
 use super::*;
 use crate::hal::platform::{ns_to_ticks, ticks_to_ns};
 use crate::run_queue::{order::Charge, Res};
+use crate::sync::spin_irq::SpinIrqLock;
 
 /// Rights the table holds (the share floor bounds what one holder can make: RFC-0120).
 pub const RIGHTS: usize = 64;
@@ -58,18 +59,37 @@ fn now_ns() -> u64 {
     ticks_to_ns(ready::now_ticks())
 }
 
+/// The reservation `record`'s task runs with (raw; 0: none): its own, else one a caller lent it
+/// (`loan`).
+pub(super) fn runs_with(record: &record::Record) -> u64 {
+    match record.reservation() {
+        0 => record.loan().borrowed(),
+        own => own,
+    }
+}
+
+/// Reservation `raw` names nothing any more (its right was revoked, its holder unbound it):
+/// `record` runs with it no longer — its own word, or the loan.
+fn forget(record: &record::Record, raw: u64) {
+    if record.reservation() == raw {
+        record.set_reservation(0);
+    } else {
+        let _ = record.loan().end_any();
+    }
+}
+
 /// The reservation task `id` runs with as it arrives on a hart at `now` (queue clock): the
 /// constant-bandwidth rule applied. `None`: none, or one whose right was revoked (cleared).
 pub(super) fn arrive(id: u32, now: u64) -> Option<Res> {
     let record = record::get(Pid::from_raw(id))?;
-    let raw = record.reservation();
+    let raw = runs_with(record);
     if raw == 0 {
         return None;
     }
     let res = ReservationId::from_raw(raw);
     let mut table = TABLE.lock();
     let Ok((deadline, left)) = table.wake(res, ticks_to_ns(now)) else {
-        record.set_reservation(0);
+        forget(record, raw);
         return None;
     };
     let (_, _, _, budget) = table.state(res)?;
@@ -90,14 +110,14 @@ pub(super) fn charged(charge: &Charge, now: u64) {
         OVERRUNS.fetch_add(1, Ordering::Relaxed);
     }
     let Some(record) = record::get(Pid::from_raw(charge.id)) else { return };
-    let raw = record.reservation();
+    let raw = runs_with(record);
     if raw == 0 {
         return;
     }
     let (res, now) = (ReservationId::from_raw(raw), ticks_to_ns(now));
     let mut table = TABLE.lock();
     if table.charge(res, ticks_to_ns(charge.ran), now) == Err(TimeRightError::Revoked) {
-        record.set_reservation(0);
+        forget(record, raw);
         return;
     }
     if table.state(res).is_some_and(|(_, deadline, _, _)| now >= deadline) {
@@ -116,7 +136,10 @@ pub(super) fn runs(cpu: usize, task: Option<Task>, now: u64) {
     }
     #[cfg(all(target_arch = "riscv64", target_os = "none", feature = "timer_irq"))]
     if let Some(left) = left.filter(|_| cpu == crate::smp::cpu_current_id().as_index()) {
-        crate::trap::timer_arm(left.min(crate::trap::default_tick_cycles()));
+        // A dispatch's arm: never past this hart's own next deadline (TASK-0330 P4) — a trap's
+        // switch runs with interrupts masked up to the user code; in the scheduler loop a due
+        // one traps once and the loop's own dispatch arm masks and arms again.
+        crate::trap::dispatch_tick_arm(left.min(crate::trap::default_tick_cycles()));
     }
 }
 
@@ -155,14 +178,19 @@ pub fn selftest_root() -> RightId {
     TABLE.lock().root()
 }
 
-/// Whether task `pid` runs with a reservation.
+/// Whether task `pid` holds a reservation of its own.
 pub fn holds(pid: TaskId) -> bool {
     record::get(pid).is_some_and(|record| record.reservation() != 0)
 }
 
-/// The hart task `pid`'s reservation is admitted on — where it runs.
+/// The hart the reservation task `pid` runs with — its own or one on loan — is admitted on:
+/// where it runs.
 pub fn hart_of(pid: TaskId) -> Option<usize> {
-    let raw = record::get(pid)?.reservation();
+    hart_of_raw(runs_with(record::get(pid)?))
+}
+
+/// The hart reservation `raw` is admitted on.
+pub(super) fn hart_of_raw(raw: u64) -> Option<usize> {
     (raw != 0).then(|| TABLE.lock().state(ReservationId::from_raw(raw)).map(|s| s.0)).flatten()
 }
 
@@ -198,6 +226,8 @@ pub fn bind(
     harts: impl Iterator<Item = usize>,
 ) -> Result<usize, TimeRightError> {
     let record = record::get(pid).ok_or(TimeRightError::Revoked)?;
+    // What it lent of the old one is taken back before the old one ends.
+    loan::take_back(pid);
     let now = now_ns();
     let bound = {
         let mut table = TABLE.lock();
@@ -233,6 +263,7 @@ pub fn bind(
 /// its end). `Err(Revoked)` also when it holds none or another right's.
 pub fn unbind(pid: TaskId, right: RightId) -> Result<(), TimeRightError> {
     let record = record::get(pid).ok_or(TimeRightError::Revoked)?;
+    loan::take_back(pid);
     let raw = record.reservation();
     let res = ReservationId::from_raw(raw);
     {
@@ -249,9 +280,12 @@ pub fn unbind(pid: TaskId, right: RightId) -> Result<(), TimeRightError> {
     Ok(())
 }
 
-/// Task `pid` is gone: its reservation's share is its right's again.
+/// Task `pid` is gone: what it lent is taken back, what it ran with on loan is given back, and
+/// its reservation's share is its right's again.
 pub fn release(pid: TaskId) {
     let Some(record) = record::get(pid) else { return };
+    loan::take_back(pid);
+    loan::give_back(pid);
     let raw = record.reservation();
     if raw != 0 {
         let _ = TABLE.lock().unbind(ReservationId::from_raw(raw), now_ns());

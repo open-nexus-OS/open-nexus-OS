@@ -1,26 +1,30 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Sv39 address-space management with ASID allocation
+//! CONTEXT: Sv39 address-space management with ASID allocation. Every space sits in a slot at a
+//! fixed address behind its own lock (TASK-0330 P3, RFC-0102 rank 3): `get` hands out the space
+//! held, and a path that works on one space waits for no other.
 //! OWNERS: @kernel-mm-team
 //! STATUS: Functional
 //! API_STABILITY: Stable
-//! TEST_COVERAGE: QEMU selftests + boot markers
-//! PUBLIC API: AddressSpaceManager (create/get/activate/as_map), AsHandle
+//! TEST_COVERAGE: QEMU selftests + boot markers (`KSELFTEST: tables grow ok`, `address space
+//!   held by hart ok`, the exec and vm ladders); the lock order on the rank-check lanes
+//! PUBLIC API: AddressSpaceManager (create/get/activate/as_map), Space, AsHandle
 //! DEPENDS_ON: mm::page_table, arch::riscv (satp), hal::platform
-//! INVARIANTS: Map kernel segments; stable SATP value encoding; best-effort W^X for user maps
+//! INVARIANTS: Map kernel segments; stable SATP value encoding; best-effort W^X for user maps;
+//!   a space is never held together with a second one, nor asked for again while it is held
 //! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
-use alloc::{collections::BTreeSet, vec::Vec};
-use core::marker::PhantomData;
+use alloc::{boxed::Box, collections::BTreeSet};
 use core::num::NonZeroU32;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
+use crate::sync::block_table::BlockTable;
+use crate::sync::lock_rank::Class;
+use crate::sync::ranked::{RankedGuard, RankedLock};
 use crate::types::{Asid, Pid};
 
-use super::asid::AsidAllocator;
-#[cfg(test)]
-use super::asid::MAX_ASIDS;
+use super::asid::{AsidAllocator, MAX_ASIDS};
 use super::kernel_layout::map_kernel_segments;
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 use super::page_table::PAGE_SIZE;
@@ -111,14 +115,22 @@ pub struct AddressSpace {
     owners: BTreeSet<Pid>,
     /// RFC-0085: the region table — in the page table's `!Send`/`!Sync`-under-BKL domain.
     va: crate::va_space::VaSpace,
+    /// The memory objects those regions name, each counted at its object (RFC-0102).
+    maps: crate::cap::SpaceMaps,
     /// ADR-0079: user mode in this space may run `cbo.clean`/`cbo.flush` — granted at the
     /// first such instruction of a process holding a non-coherent device's capability, kept
     /// for the space's life; every activation sets the hart's `senvcfg` from it.
     cache_maintenance: bool,
-    // Pre-SMP contract: address-space objects are mutated from one kernel context only.
-    _not_send_sync: PhantomData<*mut ()>,
+    /// Its raw handle, from the moment the manager placed it (0 before): what a shootdown for
+    /// this space names (`smp::tlb::shootdown_of`).
+    raw: u32,
 }
-static_assertions::assert_not_impl_any!(AddressSpace: Send, Sync);
+
+// SAFETY: an address space is reached only through its slot's lock (`AddressSpaceManager::get`,
+// `each`) or by the path that built it and has not placed it yet; the page-table pages it points
+// to are frames it owns, reached through the direct map from any hart.
+unsafe impl Send for AddressSpace {}
+static_assertions::assert_not_impl_any!(AddressSpace: Sync);
 
 impl AddressSpace {
     fn new(asid: Asid) -> Result<Self, MapError> {
@@ -132,9 +144,15 @@ impl AddressSpace {
                 super::USER_VM_WINDOW_BASE,
                 super::USER_VM_WINDOW_LEN,
             ),
+            maps: crate::cap::SpaceMaps::new(),
             cache_maintenance: false,
-            _not_send_sync: PhantomData,
+            raw: 0,
         })
+    }
+
+    /// Its raw handle (0 for a space the manager has not placed).
+    pub fn raw(&self) -> u32 {
+        self.raw
     }
 
     /// Whether user mode in this space may maintain cache lines (ADR-0079).
@@ -174,8 +192,11 @@ impl AddressSpace {
         &self.va
     }
 
-    pub fn va_space_mut(&mut self) -> &mut crate::va_space::VaSpace {
-        &mut self.va
+    /// The region table and the objects it names, written together — by `space_regions` only.
+    pub(super) fn regions_mut(
+        &mut self,
+    ) -> (&mut crate::va_space::VaSpace, &mut crate::cap::SpaceMaps) {
+        (&mut self.va, &mut self.maps)
     }
 
     /// Borrows the page table for read-only inspection.
@@ -215,42 +236,57 @@ impl AddressSpace {
     }
 }
 
-/// Switches this hart to the space `view` names: its `satp`, the machine's table of which hart is
-/// on which space, and user-mode cache maintenance exactly when the space holds it (ADR-0079).
-/// The one switch: the manager's `activate` under the kernel lock and the dispatch that takes no
-/// lock (TASK-0363 P2 S3) both take it.
-pub fn enter_space(view: crate::sched::record::SpaceView) {
-    // CRITICAL: a separate function, so every log and temporary drops BEFORE the switch.
-    #[cfg(all(target_arch = "riscv64", target_os = "none", not(feature = "selftest_no_satp")))]
-    crate::hart_spaces::switch_satp(view.satp);
-    if let Some(harts) = crate::hart_spaces::installed() {
-        harts.enter(crate::smp::cpu_current_id().as_index(), view.raw);
-    }
-    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-    crate::hal::platform::apply_user_cache_maintenance(view.cache);
-    #[cfg(all(target_arch = "riscv64", target_os = "none", feature = "selftest_no_satp"))]
-    {
-        // Skip SATP switch for bring-up; emit post-switch marker directly
-        fence_i();
-        log_debug!(target: "vm", "post-satp OK");
+/// One slot of the table: a space, or free.
+type Slot = RankedLock<Option<Box<AddressSpace>>>;
+
+/// The user address spaces, each at a fixed address behind its own lock (TASK-0330 P3,
+/// RFC-0102 rank 3): a path that works on one space waits for no other. A space is never held
+/// together with a second one. The registry lock (rank 1) hands out the ASIDs and decides which
+/// slot a new space takes; it is never taken while a space is held.
+pub struct AddressSpaceManager {
+    slots: BlockTable<Slot>,
+    asids: RankedLock<AsidAllocator>,
+    harts: &'static crate::hart_spaces::HartSpaces,
+}
+
+/// An address space, held: its regions and its page table are the holder's until this is
+/// dropped. Short holds, interrupts off; nothing of rank 1 or 2 is taken under it, and the
+/// manager is not asked for the same space again while it lives.
+pub struct Space<'a>(RankedGuard<'a, Option<Box<AddressSpace>>>);
+
+impl core::ops::Deref for Space<'_> {
+    type Target = AddressSpace;
+    fn deref(&self) -> &AddressSpace {
+        match self.0.as_deref() {
+            Some(space) => space,
+            // `AddressSpaceManager::get` hands out a guard of a full slot only, and nothing
+            // empties a slot but `destroy`, which holds this lock.
+            None => unreachable!("held address-space slot is empty"),
+        }
     }
 }
 
-/// Manages the collection of user address spaces and allocates ASIDs.
-pub struct AddressSpaceManager {
-    pub(super) spaces: Vec<Option<AddressSpace>>,
-    asids: AsidAllocator,
-    harts: &'static crate::hart_spaces::HartSpaces,
-    // Pre-SMP contract: AS manager is owned by single kernel execution context.
-    _not_send_sync: PhantomData<*mut ()>,
+impl core::ops::DerefMut for Space<'_> {
+    fn deref_mut(&mut self) -> &mut AddressSpace {
+        match self.0.as_deref_mut() {
+            Some(space) => space,
+            None => unreachable!("held address-space slot is empty"),
+        }
+    }
 }
-static_assertions::assert_not_impl_any!(AddressSpaceManager: Send, Sync);
 
 impl AddressSpaceManager {
     /// Creates an empty manager.
     pub fn new() -> Self {
-        let harts = crate::hart_spaces::HartSpaces::new(crate::topology::hart_count()).install();
-        Self { spaces: Vec::new(), asids: AsidAllocator::new(), harts, _not_send_sync: PhantomData }
+        let blocks = MAX_ASIDS.div_ceil(crate::sync::block_table::BLOCK);
+        let spaces = blocks * crate::sync::block_table::BLOCK;
+        let harts =
+            crate::hart_spaces::HartSpaces::new(crate::topology::hart_count(), spaces).install();
+        Self {
+            slots: BlockTable::with_blocks(blocks),
+            asids: RankedLock::new(Class::Registry, AsidAllocator::new()),
+            harts,
+        }
     }
 
     /// A hart whose `satp` names `handle`'s page table, if any.
@@ -269,31 +305,49 @@ impl AddressSpaceManager {
         }
     }
 
-    /// Every live address space (accounting, TASK-0286 P5).
-    pub fn iter(&self) -> impl Iterator<Item = &AddressSpace> {
-        self.spaces.iter().flatten()
+    /// Every live address space in turn, each held for its call (accounting, TASK-0286 P5).
+    pub fn each(&self, mut f: impl FnMut(&AddressSpace)) {
+        for slot in self.slots.iter() {
+            if let Some(space) = slot.lock().as_deref() {
+                f(space);
+            }
+        }
     }
 
-    /// Allocates a fresh address space and returns its handle.
-    pub fn create(&mut self) -> Result<AsHandle, AddressSpaceError> {
-        let asid = self.asids.allocate().ok_or(AddressSpaceError::AsidExhausted)?;
-        let space = match AddressSpace::new(asid) {
+    /// Allocates a fresh address space and returns its handle. The space is built outside
+    /// every lock; the registry lock is held to name its ASID and again to place it.
+    pub fn create(&self) -> Result<AsHandle, AddressSpaceError> {
+        let asid = self.asids.lock().allocate().ok_or(AddressSpaceError::AsidExhausted)?;
+        let built = AddressSpace::new(asid).map_err(AddressSpaceError::from).and_then(|space| {
+            crate::kheap::admits(core::mem::size_of::<AddressSpace>())
+                .then(|| Box::new(space))
+                .ok_or(AddressSpaceError::OutOfFrames)
+        });
+        let space = match built {
             Ok(space) => space,
             Err(err) => {
-                self.asids.free(asid);
-                return Err(AddressSpaceError::from(err));
+                self.asids.lock().free(asid);
+                return Err(err);
             }
         };
         let pt_pages = space.page_table_pages();
+        // Under the registry lock a free slot stays free: only this path fills one.
+        let mut registry = self.asids.lock();
+        let free = self.slots.iter().position(|slot| slot.lock().is_none()).or_else(|| {
+            self.slots.grow(crate::kheap::admits, || RankedLock::new(Class::Space, None)).ok()
+        });
+        let Some((index, slot)) = free.and_then(|at| Some((at, self.slots.get(at)?))) else {
+            registry.free(asid);
+            return Err(AddressSpaceError::OutOfFrames);
+        };
+        let handle = AsHandle::from_index(index);
+        let mut space = space;
+        space.raw = handle.to_raw();
+        self.harts.fresh(space.raw);
+        *slot.lock() = Some(space);
+        drop(registry);
         record_address_space_create(pt_pages);
-        for (index, slot) in self.spaces.iter_mut().enumerate() {
-            if slot.is_none() {
-                *slot = Some(space);
-                return Ok(AsHandle::from_index(index));
-            }
-        }
-        self.spaces.push(Some(space));
-        Ok(AsHandle::from_index(self.spaces.len() - 1))
+        Ok(handle)
     }
 
     /// Returns address-space lifecycle counters.
@@ -308,26 +362,20 @@ impl AddressSpaceManager {
         }
     }
 
-    /// Returns a shared reference to the address space identified by `handle`.
-    pub fn get(&self, handle: AsHandle) -> Result<&AddressSpace, AddressSpaceError> {
-        self.spaces
-            .get(handle.index())
-            .and_then(|slot| slot.as_ref())
-            .ok_or(AddressSpaceError::InvalidHandle)
-    }
-
-    /// Returns a mutable reference to the address space identified by `handle`.
-    pub fn get_mut(&mut self, handle: AsHandle) -> Result<&mut AddressSpace, AddressSpaceError> {
-        self.spaces
-            .get_mut(handle.index())
-            .and_then(|slot| slot.as_mut())
-            .ok_or(AddressSpaceError::InvalidHandle)
+    /// The address space `handle` names, held until the result is dropped.
+    pub fn get(&self, handle: AsHandle) -> Result<Space<'_>, AddressSpaceError> {
+        let held = self.slots.get(handle.index()).ok_or(AddressSpaceError::InvalidHandle)?.lock();
+        if held.is_none() {
+            return Err(AddressSpaceError::InvalidHandle);
+        }
+        Ok(Space(held))
     }
 
     /// Switches the currently running hardware context to `handle`.
+    #[track_caller]
     pub fn activate(&self, handle: AsHandle) -> Result<(), AddressSpaceError> {
         let space = self.get(handle)?;
-        enter_space(space.view(handle));
+        crate::hart_spaces::enter_space(space.view(handle));
         #[cfg(debug_assertions)]
         {
             // Best-effort verify the active page table in debug builds.
@@ -343,21 +391,28 @@ impl AddressSpaceManager {
 
     /// Sets additional leaf flags for a mapping at `va` in the address space referenced by `handle`.
     pub fn set_leaf_flags(
-        &mut self,
+        &self,
         handle: AsHandle,
         va: usize,
         set: PageFlags,
     ) -> Result<(), AddressSpaceError> {
-        let space = self.get_mut(handle)?;
+        let mut space = self.get(handle)?;
         space.page_table_mut().set_leaf_flags(va, set).map_err(AddressSpaceError::from)?;
         super::vm_ops::fence_asid(space.asid());
         Ok(())
     }
 
+    /// Names `handle` the kernel's own space (boot, once): where a hart with no task runs.
+    pub fn name_kernel(&self, handle: AsHandle) -> Result<(), AddressSpaceError> {
+        let view = self.get(handle)?.view(handle);
+        self.harts.name_kernel(view.raw, view.satp, view.cache);
+        Ok(())
+    }
+
     /// Records that `pid` references the provided address space — and gives its scheduling
     /// record the space as its dispatch switches to it (TASK-0363 P2 S3).
-    pub fn attach(&mut self, handle: AsHandle, pid: Pid) -> Result<(), AddressSpaceError> {
-        let space = self.get_mut(handle)?;
+    pub fn attach(&self, handle: AsHandle, pid: Pid) -> Result<(), AddressSpaceError> {
+        let mut space = self.get(handle)?;
         space.attach(pid);
         let view = space.view(handle);
         if let Some(record) = crate::sched::record::get(pid) {
@@ -367,8 +422,8 @@ impl AddressSpaceManager {
     }
 
     /// Drops the reference held by `pid` for `handle`.
-    pub fn detach(&mut self, handle: AsHandle, pid: Pid) -> Result<(), AddressSpaceError> {
-        let space = self.get_mut(handle)?;
+    pub fn detach(&self, handle: AsHandle, pid: Pid) -> Result<(), AddressSpaceError> {
+        let mut space = self.get(handle)?;
         space.detach(pid);
         if let Some(record) = crate::sched::record::get(pid) {
             record.clear_space(handle.to_raw());
@@ -377,31 +432,48 @@ impl AddressSpaceManager {
     }
 
     /// Destroys an address space once no task references remain and no hart runs on it.
-    pub fn destroy(&mut self, handle: AsHandle) -> Result<(), AddressSpaceError> {
-        let slot = self.spaces.get_mut(handle.index()).ok_or(AddressSpaceError::InvalidHandle)?;
-        let asid = match slot.as_ref() {
-            None => return Err(AddressSpaceError::InvalidHandle),
-            Some(space) if space.refcount() != 0 => return Err(AddressSpaceError::InUse),
-            Some(_) if self.harts.hart_on(handle.to_raw()).is_some() => {
-                return Err(AddressSpaceError::HeldByHart)
+    /// The space leaves its slot under the slot's lock; its page table is freed and its ASID
+    /// given back after, outside every lock.
+    pub fn destroy(&self, handle: AsHandle) -> Result<(), AddressSpaceError> {
+        let slot = self.slots.get(handle.index()).ok_or(AddressSpaceError::InvalidHandle)?;
+        let gone = {
+            let mut held = slot.lock();
+            match held.as_deref() {
+                None => return Err(AddressSpaceError::InvalidHandle),
+                Some(space) if space.refcount() != 0 => return Err(AddressSpaceError::InUse),
+                Some(_) if self.harts.hart_on(handle.to_raw()).is_some() => {
+                    return Err(AddressSpaceError::HeldByHart)
+                }
+                Some(_) => held.take(),
             }
-            Some(space) => space.asid(),
         };
-        *slot = None;
-        self.asids.free(asid);
-        record_address_space_destroy();
+        if let Some(space) = gone {
+            let asid = space.asid();
+            drop(space);
+            self.asids.lock().free(asid);
+            record_address_space_destroy();
+        }
         Ok(())
     }
 
     /// Maps a single page within the address space referenced by `handle`.
     pub fn map_page(
-        &mut self,
+        &self,
         handle: AsHandle,
         va: usize,
         pa: usize,
         flags: PageFlags,
     ) -> Result<(), AddressSpaceError> {
-        let space = self.get_mut(handle)?;
+        Self::map_in(&mut *self.get(handle)?, va, pa, flags)
+    }
+
+    /// [`Self::map_page`] on a space already held.
+    fn map_in(
+        space: &mut AddressSpace,
+        va: usize,
+        pa: usize,
+        flags: PageFlags,
+    ) -> Result<(), AddressSpaceError> {
         let res = space.page_table_mut().map(va, pa, flags).map_err(AddressSpaceError::from);
         // Ensure UART pages are marked GLOBAL to remain visible across ASIDs
         if res.is_ok()
@@ -430,14 +502,14 @@ impl AddressSpaceManager {
     /// region table describes the whole address space; the raw
     /// [`Self::map_page`] stays for kernel-internal identity maps only.
     pub fn map_page_tracked(
-        &mut self,
+        &self,
         handle: AsHandle,
         va: usize,
         pa: usize,
         flags: PageFlags,
     ) -> Result<(), AddressSpaceError> {
+        let mut space = self.get(handle)?;
         {
-            let space = self.get(handle)?;
             if space.va_space().admits_fixed(va, crate::va_space::PAGE_LEN).is_err() {
                 // Either inside the managed window or colliding with a
                 // tracked region — both are the caller choosing an address
@@ -451,18 +523,16 @@ impl AddressSpaceManager {
                 return Err(AddressSpaceError::Mapping(MapError::Overlap));
             }
         }
-        self.map_page(handle, va, pa, flags)?;
-        let space = self.get_mut(handle)?;
-        space.va_space_mut().record_fixed(va, crate::va_space::PAGE_LEN, pa, flags.bits());
+        Self::map_in(&mut space, va, pa, flags)?;
+        space.va.record_fixed(va, crate::va_space::PAGE_LEN, pa, flags.bits());
         Ok(())
     }
 
     /// Unmap one page-table leaf (4 KiB or 2 MiB) at `va`, returning the
     /// unmapped size. Region bookkeeping and TLB maintenance are the
     /// CALLER's (the vm_unmap syscall shell) — this is the table edit only.
-    pub fn unmap_leaf(&mut self, handle: AsHandle, va: usize) -> Result<usize, AddressSpaceError> {
-        let space = self.get_mut(handle)?;
-        space.page_table_mut().unmap_leaf(va).map_err(AddressSpaceError::from)
+    pub fn unmap_leaf(&self, handle: AsHandle, va: usize) -> Result<usize, AddressSpaceError> {
+        self.get(handle)?.page_table_mut().unmap_leaf(va).map_err(AddressSpaceError::from)
     }
 }
 
@@ -522,7 +592,7 @@ pub(super) fn align_up(addr: usize) -> usize {
 }
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-pub(super) fn fence_i() {
+pub(crate) fn fence_i() {
     unsafe {
         core::arch::asm!("fence.i", options(nostack));
     }
@@ -531,48 +601,3 @@ pub(super) fn fence_i() {
 #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
 #[allow(dead_code)]
 pub(super) fn fence_i() {}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn allocate_unique_asids() {
-        let mut manager = AddressSpaceManager::new();
-        let mut seen = alloc::collections::BTreeSet::new();
-        for _ in 0..(MAX_ASIDS - 1) {
-            let handle = manager.create().expect("allocate");
-            let asid = manager.get(handle).unwrap().asid();
-            assert!(seen.insert(asid));
-        }
-        assert_eq!(manager.create().unwrap_err(), AddressSpaceError::AsidExhausted);
-    }
-
-    #[test]
-    fn destroy_reclaims_address_space_and_updates_stats() {
-        let mut manager = AddressSpaceManager::new();
-        let before = manager.stats();
-        let handle = manager.create().expect("create address space");
-        let created = manager.stats();
-        assert_eq!(created.live, before.live + 1);
-        assert!(created.created >= before.created + 1);
-        assert!(created.per_space_pt_pages_peak >= manager.get(handle).unwrap().page_table_pages());
-
-        manager.destroy(handle).expect("destroy address space");
-        let after = manager.stats();
-        assert_eq!(after.live, before.live);
-        assert!(after.destroyed >= before.destroyed + 1);
-        assert_eq!(manager.get(handle), Err(AddressSpaceError::InvalidHandle));
-    }
-
-    #[test]
-    fn destroy_rejects_address_space_with_owner() {
-        let mut manager = AddressSpaceManager::new();
-        let handle = manager.create().expect("create address space");
-        let pid = Pid::from_raw(42);
-        manager.attach(handle, pid).expect("attach owner");
-        assert_eq!(manager.destroy(handle), Err(AddressSpaceError::InUse));
-        manager.detach(handle, pid).expect("detach owner");
-        manager.destroy(handle).expect("destroy after detach");
-    }
-}

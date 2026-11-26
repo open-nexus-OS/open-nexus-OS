@@ -21,7 +21,17 @@ fn space() -> VaSpace {
 }
 
 fn vmo(va: usize, len: usize, pa: usize) -> VaRegion {
-    VaRegion { va, len, pa, flags: 0xF, kind: RegionKind::Vmo, vmo: 0, offset: 0, lazy: false }
+    VaRegion {
+        va,
+        len,
+        pa,
+        flags: 0xF,
+        kind: RegionKind::Vmo,
+        vmo: 0,
+        offset: 0,
+        lazy: false,
+        going: false,
+    }
 }
 
 /// TASK-0333 6b-1 (ADR-0077): a fault resolves the region that contains its address.
@@ -80,7 +90,6 @@ fn vmo_ids_names_each_mapped_object_once_and_no_object_less_region() {
     let mut ids = Vec::new();
     s.vmo_ids(&mut ids);
     assert_eq!(ids, vec![7, 9]);
-    assert!(s.any_backed_by_vmo(7) && !s.any_backed_by_vmo(0));
 }
 
 /// ① Determinism: a fixed op sequence yields EXACT addresses, byte for byte.
@@ -260,6 +269,50 @@ fn unmap_discriminates_not_found_and_len_mismatch() {
     assert_eq!(s.remove_exact(BASE, 2 * PAGE), Err(VaError::LenMismatch));
     assert!(s.remove_exact(BASE, 4 * PAGE).is_ok());
     assert_eq!(s.remove_exact(BASE, 4 * PAGE), Err(VaError::NotFound), "double unmap");
+}
+
+/// TASK-0330 P3: an unmap's first step leaves the region recorded and stops its filling — a
+/// fault of another thread before the forget finds nothing lazy there.
+#[test]
+fn a_region_being_unmapped_stays_recorded_and_is_filled_no_more() {
+    let mut s = space();
+    let lazy = VaRegion { vmo: 7, lazy: true, pa: 0, ..vmo(BASE, 4 * PAGE, 0) };
+    s.insert(lazy).unwrap();
+    assert_eq!(s.find(BASE + PAGE).map(|r| r.lazy), Some(true));
+
+    assert_eq!(s.begin_unmap(BASE, 4 * PAGE), Ok(lazy), "answers the region as it was");
+    let closing = s.find(BASE + PAGE).expect("its va is not free yet");
+    assert_eq!((closing.going, closing.vmo, closing.len), (true, 7, 4 * PAGE));
+    let mut ids = Vec::new();
+    s.vmo_ids(&mut ids);
+    assert_eq!(ids, vec![7], "the object is still named until the forget");
+    assert!(!s.any_backed_by(0, PAGE), "a lazy region going away still has no physical base");
+    assert_eq!(s.remove_exact(BASE, 4 * PAGE).map(|r| r.vmo), Ok(7));
+    assert_eq!(s.find(BASE + PAGE), None);
+}
+
+/// Two threads unmap one region: the second is refused at its first step, so its forget never
+/// runs — it would take whatever a third thread mapped at this va after the first one's.
+#[test]
+fn test_reject_a_second_unmap_of_a_region_going_away() {
+    let mut s = space();
+    s.insert(vmo(BASE, 4 * PAGE, 0x8000_0000)).unwrap();
+    assert!(s.begin_unmap(BASE, 4 * PAGE).is_ok());
+    assert_eq!(s.begin_unmap(BASE, 4 * PAGE), Err(VaError::NotFound));
+    assert!(s.remove_exact(BASE, 4 * PAGE).is_ok(), "the first one's forget");
+    // The va is free again, and what is mapped there now is a region of its own.
+    s.insert(vmo(BASE, 4 * PAGE, 0x9000_0000)).unwrap();
+    assert_eq!(s.begin_unmap(BASE, 4 * PAGE).map(|r| r.pa), Ok(0x9000_0000));
+}
+
+#[test]
+fn test_reject_begin_unmap_of_what_is_not_one_unmappable_region() {
+    let mut s = space();
+    s.insert(VaRegion { vmo: 7, lazy: true, pa: 0, ..vmo(BASE, 4 * PAGE, 0) }).unwrap();
+    assert_eq!(s.begin_unmap(BASE + 16 * PAGE, PAGE), Err(VaError::NotFound));
+    assert_eq!(s.begin_unmap(BASE, 2 * PAGE), Err(VaError::LenMismatch));
+    assert_eq!(s.begin_unmap(BASE + 1, PAGE), Err(VaError::BadInput));
+    assert_eq!(s.find(BASE).map(|r| r.going), Some(false), "a refusal changes nothing");
 }
 
 /// ⑧ The invariant's negative test: a caller-chosen (fixed) VA inside the

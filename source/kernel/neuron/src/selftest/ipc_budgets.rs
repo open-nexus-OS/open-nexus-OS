@@ -17,7 +17,7 @@ pub(super) fn run_ipc_global_bytes_budget_selftest() {
     // Validate global router queued-bytes budget using an isolated local router instance.
     // Global budget=512, but endpoint budget (depth=2) would allow 1024 bytes. The second send
     // must fail with NoSpace due to the global cap.
-    let mut local = crate::ipc::Router::new_with_global_bytes_budget(0, 512);
+    let local = crate::ipc::Router::new_with_global_bytes_budget(0, 512);
     let ep = local.create_endpoint(2, None).unwrap();
 
     let hdr = MessageHeader::new(0, ep, 0, 0, 512);
@@ -47,7 +47,7 @@ pub(super) fn run_ipc_global_bytes_budget_selftest() {
 
 pub(super) fn run_ipc_owner_bytes_budget_selftest() {
     // Owner budget=512 bytes; global budget is large enough not to interfere.
-    let mut local = crate::ipc::Router::new_with_bytes_budgets(0, 4096, 512);
+    let local = crate::ipc::Router::new_with_bytes_budgets(0, 4096, 512);
     let owner: u32 = 7;
     let ep1 = local.create_endpoint(2, Some(owner)).unwrap();
     let ep2 = local.create_endpoint(2, Some(owner)).unwrap();

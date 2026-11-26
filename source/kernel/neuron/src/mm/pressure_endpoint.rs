@@ -31,6 +31,8 @@ use core::sync::atomic::{AtomicU32, AtomicU8, Ordering};
 use crate::ipc::{self, EndpointId};
 use crate::pressure::{self, Level, Tracker, Watermarks};
 use crate::sched::Scheduler;
+use crate::sync::lock_rank::Class;
+use crate::sync::ranked::RankedLock;
 use crate::task;
 
 /// The rule over the booted pool; `None` until the pool exists.
@@ -42,6 +44,11 @@ static PENDING: AtomicU8 = AtomicU8::new(0);
 /// The bound endpoint (0 = none) and the pid that bound it, plus one (0 = none).
 static BINDING: AtomicU32 = AtomicU32::new(0);
 static BINDER: AtomicU32 = AtomicU32::new(0);
+
+/// A bind, a clear and an endpoint's death change the two words one at a time (TASK-0330 P4:
+/// a death runs off the kernel lock, beside a bind under it) — so none of them looks and
+/// writes between another's look and writes. Readers take the words as they are.
+static WRITERS: RankedLock<()> = RankedLock::new(Class::Leaf, ());
 
 /// Why a bind was refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -84,20 +91,24 @@ pub fn state() -> Option<(Level, Watermarks)> {
 /// Binds `endpoint` as the sink for `pid`; the level of the moment is delivered next. Refused
 /// while another process holds the sink.
 pub fn bind(endpoint: EndpointId, pid: task::Pid) -> Result<(), BindError> {
-    let holder = BINDER.load(Ordering::Acquire);
-    if holder != 0 && holder != pid.as_raw() + 1 {
-        return Err(BindError::Held);
-    }
-    BINDING.store(endpoint, Ordering::Release);
-    BINDER.store(pid.as_raw() + 1, Ordering::Release);
     let level = state().map_or(Level::Normal, |(level, _)| level);
-    PENDING.store(level as u8 + 1, Ordering::Release);
+    {
+        let _writers = WRITERS.lock();
+        let holder = BINDER.load(Ordering::Acquire);
+        if holder != 0 && holder != pid.as_raw() + 1 {
+            return Err(BindError::Held);
+        }
+        BINDING.store(endpoint, Ordering::Release);
+        BINDER.store(pid.as_raw() + 1, Ordering::Release);
+        PENDING.store(level as u8 + 1, Ordering::Release);
+    }
     kick();
     Ok(())
 }
 
 /// Clears the sink `pid` holds (a stranger's clear is refused).
 pub fn unbind(pid: task::Pid) -> Result<(), BindError> {
+    let _writers = WRITERS.lock();
     let holder = BINDER.load(Ordering::Acquire);
     if holder != 0 && holder != pid.as_raw() + 1 {
         return Err(BindError::Held);
@@ -108,8 +119,10 @@ pub fn unbind(pid: task::Pid) -> Result<(), BindError> {
     Ok(())
 }
 
-/// The endpoint died (whichever path killed it): the sink is free again.
+/// The endpoint died (whichever path killed it): the sink is free again — unless its holder
+/// bound another endpoint meanwhile.
 pub fn forget_endpoint(endpoint: EndpointId) {
+    let _writers = WRITERS.lock();
     if BINDING.load(Ordering::Acquire) == endpoint {
         BINDING.store(0, Ordering::Release);
         BINDER.store(0, Ordering::Release);
@@ -143,7 +156,7 @@ pub fn selftest_inject(level: Level) {
 /// One frame (its first byte the op) into the sink `endpoint`, its waiter woken. `false`: the
 /// sink is full (or gone) — the caller keeps what it could not send.
 pub(super) fn send_frame(
-    router: &mut ipc::Router,
+    router: &ipc::Router,
     tasks: &mut task::TaskTable,
     scheduler: &mut Scheduler,
     endpoint: EndpointId,
@@ -165,7 +178,7 @@ pub(super) fn send_frame(
 /// Delivers the pending level and the swap stage's notices (ADR-0088) to the sink and wakes its
 /// waiter. Caller contract: exclusive borrows (a syscall, a user trap, the idle loop under the
 /// kernel lock), no pool lock held.
-pub fn dispatch(router: &mut ipc::Router, tasks: &mut task::TaskTable, scheduler: &mut Scheduler) {
+pub fn dispatch(router: &ipc::Router, tasks: &mut task::TaskTable, scheduler: &mut Scheduler) {
     if PENDING.load(Ordering::Acquire) != 0 {
         deliver_level(router, tasks, scheduler);
     }
@@ -174,7 +187,7 @@ pub fn dispatch(router: &mut ipc::Router, tasks: &mut task::TaskTable, scheduler
 }
 
 /// The pending level, delivered.
-fn deliver_level(router: &mut ipc::Router, tasks: &mut task::TaskTable, scheduler: &mut Scheduler) {
+fn deliver_level(router: &ipc::Router, tasks: &mut task::TaskTable, scheduler: &mut Scheduler) {
     let raw = PENDING.swap(0, Ordering::AcqRel);
     let Some(level) = raw.checked_sub(1).and_then(Level::from_raw) else { return };
     // RFC-0100 §4: at `warn` and above the objects their owners unlocked go first — here, where

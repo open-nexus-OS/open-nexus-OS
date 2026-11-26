@@ -165,6 +165,30 @@ fn exhaustion_is_an_error_and_a_counter() {
 }
 
 #[test]
+fn a_refusal_that_reached_nobody_is_taken_back() {
+    // What the kernel's pool does when the harts' magazines held the last frames: the first
+    // ask is refused and counted, the frames come back, the count is retracted and the ask
+    // repeated — served, the counter says nothing happened; refused again, it says one.
+    let bank = Range { base: 0x8000_0000, size: 2 * FRAME_SIZE };
+    let mut fa = FrameAllocator::init(&[bank], &[], &[]).unwrap();
+    let (a, b) = (fa.alloc(0).unwrap(), fa.alloc(0).unwrap());
+    assert!(fa.alloc(0).is_err());
+    fa.free(a).unwrap();
+    fa.retract_exhaustion();
+    assert_eq!(fa.alloc(0), Ok(a));
+    assert_eq!(fa.stats().exhausted, 0);
+    assert!(fa.alloc(0).is_err());
+    fa.retract_exhaustion();
+    assert!(fa.alloc(0).is_err());
+    assert_eq!(fa.stats().exhausted, 1);
+    fa.free(b).unwrap();
+    // Never below zero.
+    fa.retract_exhaustion();
+    fa.retract_exhaustion();
+    assert_eq!(fa.stats().exhausted, 0);
+}
+
+#[test]
 fn a_fallback_to_smaller_blocks_is_served_not_exhausted() {
     // Two frames free, no order-1 block left: the order-1 ask is answered with
     // an order-0 block and neither the counter nor the caller sees exhaustion.

@@ -24,23 +24,22 @@ pub(super) fn sys_vmo_share_ro(ctx: &mut Context<'_>, args: &Args) -> SysResult<
     // Only a real (writable) VMO can be downgraded; require MAP authority. The alias is made
     // from the capability held, at the same header — `read_only_alias` refuses any other kind
     // and any right the holder lacks (RFC-0102).
-    let caps = ctx.tasks.current_caps_mut();
+    let mut caps = ctx.tasks.current_caps_mut();
     let ro = caps.held(slot)?.read_only_alias(Rights::MAP)?;
     let new_slot = caps.allocate(ro)?;
     Ok(new_slot)
 }
 
-/// Seal the live object `id` (ADR-0080): refused while any address space maps it writably, for
-/// a lazy or fixed object, and for one a device was told the runs of. The syscall's core.
-pub(super) fn seal_vmo(ctx: &mut Context<'_>, id: u32) -> SysResult<()> {
-    if crate::mm::vm_ops::any_space_maps_vmo_writable(ctx.address_spaces, id) {
-        return Err(Error::Capability(CapError::PermissionDenied));
-    }
+/// Seal the live object `id` (ADR-0080): refused while any address space maps it writably (the
+/// object's own count, read where the seal is set), for a lazy or fixed object, and for one a
+/// device was told the runs of. The syscall's core.
+pub(super) fn seal_vmo(id: u32) -> SysResult<()> {
+    use crate::mm::vmo::SealError;
     crate::mm::vmo::seal(id).map_err(|err| match err {
-        crate::mm::vmo::SealError::NoSuchObject => Error::Capability(CapError::PermissionDenied),
-        crate::mm::vmo::SealError::Kind | crate::mm::vmo::SealError::DeviceNamed => {
-            AddressSpaceError::InvalidArgs.into()
+        SealError::NoSuchObject | SealError::MappedWritable => {
+            Error::Capability(CapError::PermissionDenied)
         }
+        SealError::Kind | SealError::DeviceNamed => AddressSpaceError::InvalidArgs.into(),
     })
 }
 
@@ -48,11 +47,12 @@ pub(super) fn seal_vmo(ctx: &mut Context<'_>, id: u32) -> SysResult<()> {
 /// MAP seals it — one way; the object then refuses `vmo_write`, a writable `vm_map` and
 /// `vmo_runs`, and is what `exec_vmo` makes a process from.
 pub(super) fn sys_vmo_seal(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
-    let cap = ctx.tasks.current_caps_mut().derive(args.get(0), Rights::MAP)?;
-    let CapabilityKind::Vmo { id, .. } = cap.kind else {
+    let pinned =
+        super::pinned::pin(&ctx.tasks.current_caps_mut(), args.get(0), Rights::MAP, "seal")?;
+    let Some((id, _, false)) = pinned.object() else {
         return Err(Error::Capability(CapError::PermissionDenied));
     };
-    seal_vmo(ctx, id)?;
+    seal_vmo(id)?;
     Ok(0)
 }
 
@@ -62,8 +62,9 @@ pub(super) fn sys_vmo_seal(ctx: &mut Context<'_>, args: &Args) -> SysResult<usiz
 /// whether a purge took the content since the unlock (1) or not (0).
 pub(super) fn sys_vmo_purgeable(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     use crate::mm::vmo::purge::{self, PurgeError};
-    let cap = ctx.tasks.current_caps_mut().derive(args.get(0), Rights::MAP)?;
-    let CapabilityKind::Vmo { id, .. } = cap.kind else {
+    let pinned =
+        super::pinned::pin(&ctx.tasks.current_caps_mut(), args.get(0), Rights::MAP, "purge")?;
+    let Some((id, _, false)) = pinned.object() else {
         return Err(Error::Capability(CapError::PermissionDenied));
     };
     let purge_error = |err: PurgeError| match err {
@@ -72,10 +73,7 @@ pub(super) fn sys_vmo_purgeable(ctx: &mut Context<'_>, args: &Args) -> SysResult
     };
     match args.get(1) {
         0 => purge::lock(id).map(usize::from).map_err(purge_error),
-        1 => {
-            let mapped = crate::mm::vm_ops::any_space_maps_vmo(ctx.address_spaces, id);
-            purge::unlock(id, mapped).map(|()| 0).map_err(purge_error)
-        }
+        1 => purge::unlock(id).map(|()| 0).map_err(purge_error),
         _ => Err(AddressSpaceError::InvalidArgs.into()),
     }
 }

@@ -13,13 +13,21 @@
 //!             PerCpu slots are only reachable for the executing CPU.
 //! ADR: docs/rfcs/RFC-0021-kernel-smp-v1-percpu-runqueues-ipi-contract.md
 //!
-//! Lock hierarchy (normative, TASK-0277): KernelShared (BKL) -> per-CPU run
-//! queue locks (ascending CPU index) -> leaf atomics. Never acquire the BKL
-//! while holding a run-queue lock.
+//! Lock hierarchy (normative, RFC-0102): the kernel lock (until TASK-0330 P4) -> the ranked
+//! classes in ascending rank (`lock_rank::Class`; `ranked::RankedLock` asks the rule on every
+//! take) -> leaf atomics. Never acquire the kernel lock while holding a ranked lock.
 
+pub mod block_table;
+pub mod class_stats;
 pub mod hart_table;
+pub mod loan_word;
+pub mod lock_rank;
+pub mod noted_bound;
 pub mod percpu;
+pub mod ranked;
+pub mod slot_table;
 pub mod spin_irq;
+pub mod wait_word;
 
 #[cfg(all(target_os = "none", debug_assertions))]
 pub mod dbg_mutex;

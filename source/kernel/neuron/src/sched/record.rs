@@ -20,13 +20,22 @@
 use core::cell::UnsafeCell;
 use core::ptr::null_mut;
 use core::sync::atomic::{
-    AtomicBool, AtomicI64, AtomicPtr, AtomicU32, AtomicU64, AtomicUsize, Ordering,
+    AtomicBool, AtomicI64, AtomicPtr, AtomicU32, AtomicU64, AtomicU8, AtomicUsize, Ordering,
 };
 
+use crate::cap::CapTable;
 use crate::run_queue::Owner;
+use crate::sched::QosClass;
+use crate::sync::loan_word::Loan;
+use crate::sync::lock_rank::Class;
+use crate::sync::ranked::{RankedGuard, RankedLock};
+use crate::sync::wait_word::Wait;
+use crate::task::completion::CallState;
+use crate::task::{BlockReason, Pending};
 use crate::trap::fp::Held;
 use crate::trap::TrapFrame;
-use crate::types::Pid;
+use crate::types::{CpuId, Pid};
+use nexus_sched::CpuSet;
 
 /// Records a block holds.
 const BLOCK: usize = 64;
@@ -56,8 +65,74 @@ pub struct Record {
     /// class (`run_queue::weight_of`). Mirrors the task table's, so a wake without the kernel
     /// lock reads it.
     shares: AtomicU32,
-    /// The reservation it runs with (a raw `nexus_sched::ReservationId`; 0: none).
+    /// The reservation it holds (a raw `nexus_sched::ReservationId`; 0: none).
     reservation: AtomicU64,
+    /// A time right on loan: the one it runs with while it serves a call, the task it lent its
+    /// own to (`sched::loan`).
+    loan: Loan,
+    /// Its home CPU — where a wake starts looking for a hart — and the CPUs it may run on (B,
+    /// TASK-0042, RFC-0118; bit N = logical CPU N). Words, not the thread lock's content: a
+    /// thief reads them under a victim's queue lock, which ranks above the thread lock.
+    home: AtomicU32,
+    affinity: AtomicU64,
+    /// The identity the kernel stamps on every message the task sends (its service name's
+    /// hash, set once at its spawn; 0: none) — read by a send without the task table.
+    service_id: AtomicU64,
+    /// An order another hart left while the task ran elsewhere (ADR-0082: a kill, a freeze;
+    /// 0: none) — a word, so the task's own trap entry asks without a lock.
+    pending: AtomicU8,
+    /// The thread lock (RFC-0102 rank 6) and what a block and a wake decide in one hold of it.
+    thread: RankedLock<Thread>,
+    /// The task's capability table behind the process lock (rank 2, keyed by pid: a parent's
+    /// before its child's): an IPC path finds what a slot names without the task table.
+    caps: RankedLock<CapTable>,
+}
+
+/// What a block and a wake read and change together (TASK-0330 P2, ADR-0102): whether the
+/// thread waits and for what, and where a wake puts it. At the record's fixed address, so a
+/// waker needs neither the task table nor the kernel lock.
+pub struct Thread {
+    /// Where it is between running and waiting (`sync::wait_word`).
+    pub wait: Wait,
+    /// What it waits for, from its `prepare` until its wait ends.
+    pub reason: Option<BlockReason>,
+    /// TASK-0363 P8: the CPU it last blocked on — whose timer its deadline is armed on.
+    pub blocked_on: CpuId,
+    /// Its class on a run queue.
+    pub qos: QosClass,
+    /// ADR-0082: frozen by its parent — a wake only ends its wait, the thaw enqueues it.
+    pub frozen: bool,
+    /// The call it committed and waits to be answered (TASK-0054C P4a): the peer that answers
+    /// finishes it in this record's frame, under this lock, while the thread is blocked.
+    pub call: Option<CallState>,
+    /// A selftest's bookkeeping task: while it has no space and no pc, a wake ends its wait
+    /// and enqueues nothing.
+    pub dummy: bool,
+}
+
+impl Thread {
+    const fn new() -> Self {
+        Self {
+            wait: Wait::Running,
+            reason: None,
+            blocked_on: CpuId::BOOT,
+            qos: QosClass::Normal,
+            frozen: false,
+            call: None,
+            dummy: false,
+        }
+    }
+
+    /// Whether it left its hart to wait.
+    pub fn is_blocked(&self) -> bool {
+        self.wait == Wait::Blocked
+    }
+
+    /// Ends the wait it is in, at whichever step (a wake, a kill, an answer it found itself).
+    pub fn end_wait(&mut self) {
+        self.wait = Wait::Running;
+        self.reason = None;
+    }
 }
 
 // SAFETY: the frame and the floating-point states are reached only through their accessors,
@@ -87,7 +162,79 @@ impl Record {
             lag: AtomicI64::new(0),
             shares: AtomicU32::new(100),
             reservation: AtomicU64::new(0),
+            loan: Loan::new(),
+            home: AtomicU32::new(0),
+            affinity: AtomicU64::new(0),
+            service_id: AtomicU64::new(0),
+            pending: AtomicU8::new(0),
+            thread: RankedLock::new(Class::Thread, Thread::new()),
+            caps: RankedLock::new(Class::Process, CapTable::empty()),
         }
+    }
+
+    /// The task's capability table, under its process lock. Held for one look or one change:
+    /// never across a block, and never while a second table's is taken out of pid order.
+    pub fn caps(&self) -> RankedGuard<'_, CapTable> {
+        self.caps.lock()
+    }
+
+    /// The identity its messages carry.
+    pub fn service_id(&self) -> u64 {
+        self.service_id.load(Ordering::Acquire)
+    }
+
+    /// Its messages carry `id` from here on.
+    pub fn set_service_id(&self, id: u64) {
+        self.service_id.store(id, Ordering::Release);
+    }
+
+    /// The order left for the task, if any.
+    pub fn pending(&self) -> Option<Pending> {
+        Pending::from_raw(self.pending.load(Ordering::Acquire))
+    }
+
+    /// Leaves an order for the task, or withdraws it.
+    pub fn set_pending(&self, order: Option<Pending>) {
+        self.pending.store(order.map_or(0, Pending::raw), Ordering::Release);
+    }
+
+    /// Takes the order left for the task (its trap entry's question).
+    pub fn take_pending(&self) -> Option<Pending> {
+        Pending::from_raw(self.pending.swap(0, Ordering::AcqRel))
+    }
+
+    /// Its home CPU.
+    pub fn home(&self) -> CpuId {
+        CpuId::from_raw(self.home.load(Ordering::Acquire) as u16)
+    }
+
+    /// It is homed on `cpu` now (a wake's placement, a steal, a pin).
+    pub fn set_home(&self, cpu: CpuId) {
+        self.home.store(cpu.as_index() as u32, Ordering::Release);
+    }
+
+    /// The CPUs it may run on.
+    pub fn affinity(&self) -> CpuSet {
+        CpuSet::from_bits(self.affinity.load(Ordering::Acquire))
+    }
+
+    /// It may run on `set` (admitted by the caller).
+    pub fn set_affinity(&self, set: CpuSet) {
+        self.affinity.store(set.bits(), Ordering::Release);
+    }
+
+    /// The thread's wait state and wake inputs, under its lock.
+    pub fn thread(&self) -> RankedGuard<'_, Thread> {
+        self.thread.lock()
+    }
+
+    /// A new task's thread state (its spawn, before anything can wake it). `blocked`: a
+    /// bookkeeping task that runs only once something wakes it.
+    pub fn start(&self, qos: QosClass, home: CpuId, affinity: CpuSet, blocked: bool) {
+        let wait = if blocked { Wait::Blocked } else { Wait::Running };
+        self.set_home(home);
+        self.set_affinity(affinity);
+        *self.thread() = Thread { wait, qos, ..Thread::new() };
     }
 
     /// The task ran `ns` more on a hart (`sched::meter`).
@@ -120,14 +267,19 @@ impl Record {
         self.shares.load(Ordering::Relaxed) as u16
     }
 
-    /// The reservation it runs with (raw), 0 for none.
+    /// The reservation it holds (raw), 0 for none.
     pub fn reservation(&self) -> u64 {
         self.reservation.load(Ordering::Acquire)
     }
 
-    /// It runs with reservation `raw` now (0: none).
+    /// It holds reservation `raw` now (0: none).
     pub fn set_reservation(&self, raw: u64) {
         self.reservation.store(raw, Ordering::Release);
+    }
+
+    /// Its part in a loan of a time right.
+    pub fn loan(&self) -> &Loan {
+        &self.loan
     }
 
     /// The task now owns space `view` (the manager's `attach`, under the kernel lock).
@@ -189,6 +341,13 @@ impl Record {
     /// The scheduler hands the record on (under the queue lock of the hart concerned).
     pub fn set_owner(&self, owner: Owner) {
         self.owner.store(owner.encode(), Ordering::Release);
+    }
+
+    /// Whether no queue and no hart holds the record (a blocked, a new, a parked thread's). Read
+    /// under the thread's lock by a holder of the kernel lock it stays true: only a wake or a
+    /// thaw (the thread's lock) and a spawn (the kernel lock) queue a free record.
+    pub fn is_free(&self) -> bool {
+        self.owner.load(Ordering::Acquire) == Owner::Free.encode()
     }
 
     /// Hands the record from `from` to `to` if `from` still holds it.
@@ -266,6 +425,7 @@ pub fn get(pid: Pid) -> Option<&'static Record> {
 /// The bootstrap task's record (pid 0, the static block — nothing to allocate, nothing to fail).
 pub fn bootstrap(frame: TrapFrame) -> &'static Record {
     let record = &FIRST[0];
+    record.caps.set_key(0);
     record.set_owner(Owner::Free);
     *record.frame_mut() = frame;
     record
@@ -300,6 +460,7 @@ pub fn claim(pid: Pid, frame: TrapFrame) -> Result<&'static Record, NoRecord> {
         }
     }
     let record = get(pid).ok_or(NoRecord)?;
+    record.caps.set_key(pid.as_index());
     record.set_owner(Owner::Free);
     *record.frame_mut() = frame;
     Ok(record)

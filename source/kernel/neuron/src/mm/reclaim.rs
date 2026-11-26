@@ -9,7 +9,12 @@
 //! the ones its address space mapped, once the space is gone), the explicit `cap_close` of a
 //! VMO capability, and the unmap of a region over it (TASK-0333 6b-3: an object whose last
 //! capability closed while it was mapped dies at its last unmap) — `sys_vmo_destroy` keeps
-//! RFC-0085's sole-owner rule as the owner's fast path.
+//! RFC-0085's sole-owner rule as the owner's fast path. Since TASK-0330 P4 a fourth: the end
+//! of a syscall that held an object for its length (`judge`, from `syscall::api::pinned`). The
+//! judge takes no lock but the object table's and runs beside creators and other judges: an
+//! object is born with its first capability (`vmo::Born`), so one that nobody holds and
+//! nobody maps is garbage whichever object its id names by then, and `vmo::destroy` reads
+//! both counts again in the hold that takes it.
 //! OWNERS: @kernel-team
 //! STATUS: Functional
 //! API_STABILITY: Internal
@@ -20,7 +25,7 @@
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-use super::{vm_ops, vmo, AddressSpaceManager};
+use super::vmo;
 
 /// Objects freed by this path since boot, and their bytes (`KSELFTEST: vm reclaim (`).
 static RECLAIMED_VMOS: AtomicUsize = AtomicUsize::new(0);
@@ -33,26 +38,28 @@ use crate::vmo_lifetime::should_reclaim;
 const NAMED_RECLAIMS: usize = 24;
 
 /// Free every object in `ids` the rule allows; each id judged once; `by` names the caller
-/// (`reap`, `close`) on the console. An object between a create's phases is left alone. Returns
-/// what was freed: objects and bytes (a `Fixed` object frees nothing and counts its length as 0).
-pub fn orphans(spaces: &AddressSpaceManager, ids: &[u32], by: &'static str) -> (usize, usize) {
+/// (`reap`, `close`) on the console. Returns what was freed: objects and bytes (a `Fixed`
+/// object frees nothing and counts its length as 0).
+///
+/// Runs under no lock of the caller's and beside other judges and creators: an id here may
+/// already name the next object — but an object is born held (`vmo::Born`), and `destroy`
+/// reads the counts in the hold that takes the object, so what goes is an object nobody holds
+/// and nobody maps, whichever one the id names by then.
+pub fn orphans(ids: &[u32], by: &'static str) -> (usize, usize) {
     let (mut freed, mut bytes) = (0usize, 0usize);
     let mut seen: Vec<u32> = Vec::new();
     for &id in ids {
-        if id == 0 || seen.contains(&id) || vmo::is_creating(id) {
+        if id == 0 || seen.contains(&id) {
             continue;
         }
         seen.push(id);
-        // The capabilities held to it, in a table or in a message, are the object's own count
-        // (RFC-0102). While one is held it lives; who maps it is asked — a walk over the
-        // address spaces until they count too (TASK-0330 P3) — only for the last one.
-        let held = vmo::held(id);
-        if held > 0 || !should_reclaim(held, vm_ops::any_space_maps_vmo(spaces, id)) {
+        // The capabilities held to it, in a table or in a message, and the address spaces
+        // that map it are the object's own counts (RFC-0102): no table and no space is asked.
+        // `destroy` reads both again in the hold that takes the object.
+        if !should_reclaim(vmo::held(id), vmo::mapping::spaces(id) > 0) {
             continue;
         }
-        let Some(len) = vmo::with(id, |o| o.len()) else { continue };
-        let len = if vmo::is_fixed(id) { 0 } else { len };
-        if vmo::destroy(id).is_ok() {
+        if let Ok(len) = vmo::destroy(id) {
             if RECLAIMED_VMOS.load(Ordering::Relaxed) + freed < NAMED_RECLAIMS {
                 // The record after the free, from the kernel's own lines (a service's lines fold
                 // in the interactive session): the pool's free frames, the live objects.
@@ -75,6 +82,14 @@ pub fn orphans(spaces: &AddressSpaceManager, ids: &[u32], by: &'static str) -> (
     RECLAIMED_VMOS.fetch_add(freed, Ordering::Relaxed);
     RECLAIMED_BYTES.fetch_add(bytes, Ordering::Relaxed);
     (freed, bytes)
+}
+
+/// A path let go of memory object `id` — a capability it held, a region that mapped it:
+/// with no capability held to it any more, its life is judged now (RFC-0100 §1).
+pub fn judge(id: u32, by: &'static str) {
+    if id != 0 && vmo::held(id) == 0 {
+        orphans(&[id], by);
+    }
 }
 
 /// Objects and bytes freed by this path since boot.

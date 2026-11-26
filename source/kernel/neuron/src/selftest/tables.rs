@@ -170,6 +170,7 @@ fn tables_grow(_ctx: &mut Context<'_>) {
             vmo: 1,
             offset: 0,
             lazy: false,
+            going: false,
         };
         if space.insert(region).is_err() {
             return fail("regions", i);
@@ -183,7 +184,7 @@ fn tables_grow(_ctx: &mut Context<'_>) {
             return fail("caps", i);
         }
     }
-    let mut local = Router::new(0);
+    let local = Router::new(0);
     for i in 0..385 {
         if local.create_endpoint(1, None).is_err() {
             return fail("endpoints", i);

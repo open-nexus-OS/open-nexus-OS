@@ -127,7 +127,7 @@ fn export_all(
 }
 
 /// The one frame waiting on the pager's sink, if any.
-fn heard(router: &mut crate::ipc::Router, ep: u32) -> Option<Vec<u8>> {
+fn heard(router: &crate::ipc::Router, ep: u32) -> Option<Vec<u8>> {
     router.recv(ep).ok().map(|msg| msg.payload.as_slice().to_vec())
 }
 
@@ -152,7 +152,9 @@ pub(in crate::selftest) fn run_swap_selftest(ctx: &mut Context<'_>) {
     }
     let reach = crate::dma_reach::DmaReach::ALL;
     let lazy = |pages: usize| vmo::create(pages * PAGE_SIZE, vmo::VmoKind::Lazy, &reach);
-    let (Ok(own), Ok(key), Ok(buf)) = (lazy(PAGES), lazy(1), lazy(BUF_PAGES)) else {
+    let (Ok((own, own_first)), Ok((key, key_first)), Ok((buf, buf_first))) =
+        (lazy(PAGES), lazy(1), lazy(BUF_PAGES))
+    else {
         return fail("create");
     };
     let spaces = &mut *ctx.address_spaces;
@@ -164,6 +166,8 @@ pub(in crate::selftest) fn run_swap_selftest(ctx: &mut Context<'_>) {
     let mut ready = record(spaces, app_as, OWN_VA, PAGES * PAGE_SIZE, own)
         && record(spaces, rng_as, KEY_VA, PAGE_SIZE, key)
         && record(spaces, pager_as, BUF_VA, BUF_PAGES * PAGE_SIZE, buf);
+    // Named by their regions from here: the capabilities they were born with go.
+    drop((own_first, key_first, buf_first));
     for (pid, handle) in [(app, app_as), (rng, rng_as), (pager, pager_as)] {
         ready &= ctx.address_spaces.attach(handle, pid).is_ok();
         if let Some(task) = ctx.tasks.task_mut(pid) {
@@ -171,12 +175,12 @@ pub(in crate::selftest) fn run_swap_selftest(ctx: &mut Context<'_>) {
         }
     }
     // The app's text and the key, written through committed pages.
-    ready &= ctx.address_spaces.get_mut(app_as).is_ok_and(|space| {
-        (0..TEXT).all(|i| populate::fill(space, OWN_VA + i * PAGE_SIZE, Access::Write).is_ok())
+    ready &= ctx.address_spaces.get(app_as).is_ok_and(|mut space| {
+        (0..TEXT).all(|i| populate::fill(&mut space, OWN_VA + i * PAGE_SIZE, Access::Write).is_ok())
     }) && ctx
         .address_spaces
-        .get_mut(rng_as)
-        .is_ok_and(|space| populate::fill(space, KEY_VA, Access::Write).is_ok());
+        .get(rng_as)
+        .is_ok_and(|mut space| populate::fill(&mut space, KEY_VA, Access::Write).is_ok());
     for i in 0..TEXT {
         match page_bytes(own, i) {
             Some(bytes) => bytes.iter_mut().enumerate().for_each(|(at, b)| *b = pattern(i, at)),
@@ -191,19 +195,17 @@ pub(in crate::selftest) fn run_swap_selftest(ctx: &mut Context<'_>) {
     let sink = ctx.router.create_endpoint(4, Some(pager.as_raw())).ok();
     let cap = sink.and_then(|ep| ctx.router.mint(ep, Rights::RECV | Rights::SEND).ok());
     ready &= cap.is_some_and(|cap| {
-        ctx.tasks.caps_of_mut(pager).is_some_and(|caps| caps.set(SINK_SLOT, cap).is_ok())
+        ctx.tasks.caps_of_mut(pager).is_some_and(|mut caps| caps.set(SINK_SLOT, cap).is_ok())
     });
     let sink = sink.unwrap_or(0);
     // The app's text squeezed into records (the squeeze's own proof is `task squeeze ok`).
     let (base_squeezed, _, base_frames) = vmo::squeeze::stats();
     let mut batch = crate::mm::squeeze::Batch::default();
-    if let Ok(space) = ctx.address_spaces.get_mut(app_as) {
-        let mut from = 0;
-        for _ in 0..8 {
-            from = crate::mm::squeeze::run(space, from, &[own], &mut batch);
-            if from == 0 {
-                break;
-            }
+    let mut from = 0;
+    for _ in 0..8 {
+        from = crate::mm::squeeze::run(ctx.address_spaces, app_as, from, &[own], &mut batch);
+        if from == 0 {
+            break;
         }
     }
     ready &= batch.squeezed == TEXT as u64;
@@ -276,8 +278,8 @@ pub(in crate::selftest) fn run_swap_selftest(ctx: &mut Context<'_>) {
         && after_frames == base_frames;
 
     // The verdicts: the fault's fill and a syscall over a swapped page name its token and slot.
-    let fault_says = sys.address_spaces.get_mut(app_as).is_ok_and(|space| {
-        populate::fill(space, OWN_VA, Access::Read)
+    let fault_says = sys.address_spaces.get(app_as).is_ok_and(|mut space| {
+        populate::fill(&mut space, OWN_VA, Access::Read)
             == Err(FillError::PageIn { token: token(0), slot: SLOT })
     });
     sys.tasks.set_current(app);

@@ -92,16 +92,17 @@ fn check_transfer_target(
 }
 
 /// REPLACE_DEAD's check on the target slot: empty, or a capability to a dead endpoint — which
-/// is taken out (its id returned, to be judged after the transfer). Anything else is `EPERM`.
+/// is taken out (dropped with its header kept, to be judged after the transfer). Anything else
+/// is `EPERM`.
 fn take_dead_endpoint(
     tasks: &mut task::TaskTable,
     router: &ipc::Router,
     child: task::Pid,
     slot: usize,
-) -> Result<Option<ipc::EndpointId>, Error> {
+) -> Result<Option<(ipc::EndpointId, crate::cap::Dropped)>, Error> {
     use crate::cap_rules::{replace_dead_verdict, ReplaceVerdict, SlotHolds};
     let cap_err = |e| Error::Transfer(task::TransferError::Capability(e));
-    let caps =
+    let mut caps =
         tasks.caps_of_mut(child).ok_or(Error::Transfer(task::TransferError::InvalidChild))?;
     let held = caps.peek(slot).map_err(cap_err)?;
     let holds = match held {
@@ -117,8 +118,8 @@ fn take_dead_endpoint(
             ReplaceVerdict::ReplaceDead,
             Some(Capability { kind: CapabilityKind::Endpoint(id), .. }),
         ) => {
-            caps.take(slot).map_err(cap_err)?;
-            Ok(Some(id))
+            let dropped = caps.take_held(slot).map_err(cap_err)?.dropped();
+            Ok(Some((id, dropped)))
         }
         _ => Err(cap_err(CapError::PermissionDenied)),
     }
@@ -130,6 +131,16 @@ pub(super) fn sys_ipc_endpoint_create(ctx: &mut Context<'_>, args: &Args) -> Sys
     Err(Error::Capability(CapError::PermissionDenied))
 }
 
+/// The caller holds the endpoint factory with `MANAGE` in `slot`. One look at its table: the
+/// table's lock (rank 2) is gone before the router takes its registry's (rank 1).
+fn factory_authority(ctx: &mut Context<'_>, slot: usize) -> SysResult<()> {
+    let cap = ctx.tasks.current_caps_mut().get(slot)?;
+    if cap.kind != CapabilityKind::EndpointFactory || !cap.rights.contains(Rights::MANAGE) {
+        return Err(Error::Capability(CapError::PermissionDenied));
+    }
+    Ok(())
+}
+
 pub(super) fn sys_ipc_endpoint_create_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let factory_slot = args.get(0);
     let depth = args.get(1);
@@ -137,12 +148,7 @@ pub(super) fn sys_ipc_endpoint_create_v2(ctx: &mut Context<'_>, args: &Args) -> 
         return Err(AddressSpaceError::InvalidArgs.into());
     }
     let current = ctx.tasks.current_pid();
-    let cap_table =
-        ctx.tasks.caps_of(current).ok_or(Error::Capability(CapError::PermissionDenied))?;
-    let cap = cap_table.get(factory_slot)?;
-    if cap.kind != CapabilityKind::EndpointFactory || !cap.rights.contains(Rights::MANAGE) {
-        return Err(Error::Capability(CapError::PermissionDenied));
-    }
+    factory_authority(ctx, factory_slot)?;
     let id = super::ipc_reclaim::create_endpoint(ctx, depth, Some(current.as_raw()))?;
     let ep_cap = ctx.router.mint(id, Rights::SEND | Rights::RECV | Rights::MANAGE)?;
     let slot = ctx.tasks.current_caps_mut().allocate(ep_cap)?;
@@ -159,12 +165,7 @@ pub(super) fn sys_ipc_endpoint_create_for(ctx: &mut Context<'_>, args: &Args) ->
 
     // Validate factory authority in the current task.
     let current = ctx.tasks.current_pid();
-    let cap_table =
-        ctx.tasks.caps_of(current).ok_or(Error::Capability(CapError::PermissionDenied))?;
-    let cap = cap_table.get(factory_slot)?;
-    if cap.kind != CapabilityKind::EndpointFactory || !cap.rights.contains(Rights::MANAGE) {
-        return Err(Error::Capability(CapError::PermissionDenied));
-    }
+    factory_authority(ctx, factory_slot)?;
 
     // Validate the target owner exists.
     if ctx.tasks.task(owner_pid).is_none() {
@@ -196,84 +197,90 @@ pub(super) fn sys_ipc_endpoint_create_for(ctx: &mut Context<'_>, args: &Args) ->
     let slot = ctx.tasks.current_caps_mut().allocate(ep_cap)?;
     Ok(slot)
 }
-pub(super) fn sys_cap_close(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
-    let slot = args.get(0);
-    // Local drop only: remove the capability slot from the caller.
-    //
-    // Global endpoint close is handled by `sys_ipc_endpoint_close` (requires `Rights::MANAGE`).
-    let cap = ctx.tasks.current_caps_mut().take(slot)?;
-    // Release the backing kernel object for caps that own one (no dangling table entries).
-    match cap.kind {
+/// `SYSCALL_CAP_CLOSE` (20): drops the capability in `slot` and judges what that left of its
+/// object — one body on either path, under no kernel lock (TASK-0330 P4). The capability is
+/// taken out in one hold of the caller's table: a thread of the same process closing or filling
+/// the slot beside this one cannot change what the judgement is about. Each object is then
+/// judged behind its own locks. Local drop only: closing an endpoint for every holder is
+/// `sys_ipc_endpoint_close` (`Rights::MANAGE`).
+pub(super) fn cap_close(ipc: &ipc_ctx::Ipc<'_>, args: &Args) -> ipc_ctx::IpcResult {
+    let held = ipc.caps().take_held(args.get(0))?;
+    match held.cap().kind {
         CapabilityKind::Endpoint(id) => {
-            // A dropped endpoint capability — one reading, three verdicts (RFC-0079 last-sender
-            // EOF for the receivers, the sender-side `PeerClosed`, and RFC-0100 §1: an endpoint
-            // dies with its last capability). The cap is already dropped above, so the
-            // endpoint's counts reflect it.
-            let _ = super::eof_scan::judge_dropped(
-                ctx.tasks,
-                ctx.router,
-                ctx.scheduler,
-                ctx.waitsets,
-                ctx.hart_timers,
-                id,
-                "close",
-            );
+            // Counted off, its header kept for the judgement (the id stays the endpoint's):
+            // one reading, three verdicts — RFC-0079 last-sender EOF for the receivers, the
+            // senders' `PeerClosed`, RFC-0100 §1: an endpoint dies with its last capability.
+            let _pin = held.dropped();
+            let _ =
+                super::eof_scan::judge_dropped(ipc.router, ipc.waitsets, ipc.timers, id, "close");
             // An endpoint that died of it took what its queue carried (RFC-0112).
-            super::eof_scan::release_in_flight(
-                ctx.tasks,
-                ctx.router,
-                ctx.scheduler,
-                (ctx.waitsets, ctx.hart_timers),
-                ctx.address_spaces,
-                "close",
-            );
-        }
-        CapabilityKind::Vmo { id, .. } | CapabilityKind::VmoRo { id, .. } => {
-            // RFC-0100 §1 (TASK-0333 6a): a VMO dies with its last capability — when no other
-            // one is held to the object and no address space maps it, its frames return now.
-            crate::mm::reclaim::orphans(ctx.address_spaces, &[id], "close");
+            super::eof_scan::release_in_flight(ipc.router, ipc.waitsets, ipc.timers, "close");
         }
         CapabilityKind::Timer(id) => {
-            let _ = ctx.hart_timers.free(crate::timer::TimerId(id));
+            drop(held);
+            let _ = ipc.timers.free(crate::timer::TimerId(id));
         }
         CapabilityKind::Waitset(id) => {
-            let _ = ctx.waitsets.free(crate::waitset::WaitsetId(id));
+            drop(held);
+            let _ = ipc.waitsets.free(crate::waitset::WaitsetId(id));
         }
         CapabilityKind::Fence(id) => {
-            // Fence caps are transferable (workpool workers hold the parent's
-            // fences): only the creator's close frees the kernel object; a
-            // non-owner close drops just the slot so the owner's fence — and
-            // every other holder's cap — stays valid.
+            drop(held);
+            // Fence caps are transferable (workpool workers hold the parent's fences): only the
+            // creator's close frees the kernel object; a non-owner close drops just the slot.
+            // A fence's id is never another fence's (`sync::slot_table`): the look and the free
+            // need no common hold.
             let fence_id = crate::fence::FenceId(id);
-            if ctx.fences.owned_by(fence_id, ctx.tasks.current_pid().as_raw()) {
-                let _ = ctx.fences.free(fence_id);
+            if ipc.fences.owned_by(fence_id, ipc.me.as_raw()) {
+                let _ = ipc.fences.free(fence_id);
             }
         }
-        _ => {}
+        CapabilityKind::Vmo { id, .. } | CapabilityKind::VmoRo { id, .. } => {
+            // Counted off first, then judged: RFC-0100 §1 — a VMO dies with its last
+            // capability, when no address space maps it.
+            drop(held);
+            crate::mm::reclaim::orphans(&[id], "close");
+        }
+        _ => drop(held),
     }
-    Ok(0)
+    Ok(ipc_ctx::Outcome::Done(0))
+}
+
+pub(super) fn sys_cap_close(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let out = cap_close(&ctx.ipc()?, args);
+    ipc_ctx::locked(ctx, out)
+}
+
+/// A second capability to what `slot` holds, in a slot of the same table — one hold of the
+/// process's lock, on either path.
+fn clone_in(mut caps: task::Caps, slot: usize) -> Result<usize, CapError> {
+    let cap = caps.get(slot)?;
+    // Security floor: EndpointFactory must not be duplicable.
+    if cap.kind == CapabilityKind::EndpointFactory {
+        return Err(CapError::PermissionDenied);
+    }
+    // A second capability of the same kind with the same rights, counted at its object.
+    let clone = caps.dup(slot, cap.rights)?;
+    caps.allocate(clone)
+}
+
+/// `SYSCALL_CAP_CLONE` (24) before the kernel lock (TASK-0330 P4).
+pub(super) fn cap_clone(ipc: &ipc_ctx::Ipc<'_>, args: &Args) -> ipc_ctx::IpcResult {
+    Ok(ipc_ctx::Outcome::Done(clone_in(ipc.caps(), args.get(0))?))
 }
 
 pub(super) fn sys_cap_clone(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
-    let slot = args.get(0);
-    let cap = ctx.tasks.current_caps_mut().get(slot)?;
-    // Security floor: EndpointFactory must not be duplicable.
-    if cap.kind == CapabilityKind::EndpointFactory {
-        return Err(Error::Capability(CapError::PermissionDenied));
-    }
-    // A second capability of the same kind with the same rights, counted at its object.
-    let clone = ctx.tasks.current_caps_mut().dup(slot, cap.rights)?;
-    let new_slot = ctx.tasks.current_caps_mut().allocate(clone)?;
-    Ok(new_slot)
+    Ok(clone_in(ctx.tasks.current_caps_mut(), args.get(0))?)
 }
 
 pub(super) fn sys_ipc_endpoint_close(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let slot = args.get(0);
-    let cap = ctx.tasks.current_caps_mut().take(slot)?;
-    let CapabilityKind::Endpoint(id) = cap.kind else {
+    // Dropped with its header kept: the id is the endpoint's from the drop to the forget.
+    let dropped = ctx.tasks.current_caps_mut().take_held(slot)?.dropped();
+    let CapabilityKind::Endpoint(id) = dropped.cap.kind else {
         return Err(Error::Capability(CapError::InvalidSlot));
     };
-    if !cap.rights.contains(Rights::MANAGE) {
+    if !dropped.cap.rights.contains(Rights::MANAGE) {
         return Err(Error::Capability(CapError::PermissionDenied));
     }
     #[cfg(feature = "ipc_trace_ring")]
@@ -281,19 +288,13 @@ pub(super) fn sys_ipc_endpoint_close(ctx: &mut Context<'_>, args: &Args) -> SysR
         crate::ipc::trace::record_ep_close(ctx.tasks.current_pid().as_raw(), id);
     }
     let waiters = ctx.router.close_endpoint(id)?;
-    super::ipc_reclaim::forget_dead(ctx.tasks, ctx.waitsets, ctx.hart_timers, id);
+    super::ipc_reclaim::forget_dead(ctx.waitsets, ctx.hart_timers, id);
     for pid in waiters {
         observe_wake_outcome(ctx.tasks.wake(task::Pid::from_raw(pid), ctx.scheduler));
     }
     // What its queue carried is dropped like a close of each (RFC-0112).
-    super::eof_scan::release_in_flight(
-        ctx.tasks,
-        ctx.router,
-        ctx.scheduler,
-        (ctx.waitsets, ctx.hart_timers),
-        ctx.address_spaces,
-        "close",
-    );
+    super::eof_scan::release_in_flight(ctx.router, ctx.waitsets, ctx.hart_timers, "close");
+    drop(dropped);
     Ok(0)
 }
 
@@ -455,12 +456,10 @@ pub(super) fn sys_cap_transfer_to(ctx: &mut Context<'_>, args: &Args) -> SysResu
         rights,
         typed.child_slot.0,
     )?;
-    if let Some(id) = replaced {
+    if let Some((id, _pin)) = replaced {
         // The one drop path, though a dead endpoint's counts change nothing.
         let _ = super::eof_scan::judge_dropped(
-            ctx.tasks,
             ctx.router,
-            ctx.scheduler,
             ctx.waitsets,
             ctx.hart_timers,
             id,

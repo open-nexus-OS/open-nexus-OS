@@ -280,6 +280,32 @@ runner = "scripts/qemu-test.sh"
 extends = "headless"
 env = { NEXUS_SELFTEST_PROFILE = "ota-fallback", NEXUS_RESET_ON_MARKER = "init: health withheld (fault fixture)", NEXUS_RESET_ON_MARKER_COUNT = "2" }
 
+# TASK-0330 P7: a kernel that faults says where, and the words survive. TWO boots in one
+# uart on two harts: the kernel is built with the proof fixture (`selftest_kernel_fault`,
+# armed on a trace's first boot only), whose forced page fault takes the ordinary path —
+# `KPGF hart=` before `PANIC:`; the watcher resets the machine at the panic's last line
+# (QEMU keeps the RAM, like the board's warm reset) and the next boot's loader rescues the
+# dead boot's console ring into the trace. The topology is `[profile.smp]`'s (two harts,
+# MTTCG): the hart that dies is not the one that booted, and the SMP markers the first boot
+# prints before the fault are that profile's. REQUIRE_SMP = "0": the SMP ladder is the smp
+# lane's to judge — this lane's sequence is the fault's, and a boot cut at eight seconds
+# owes no SMP proof.
+[profile.kfault]
+runner = "scripts/qemu-test.sh"
+extends = "smp"
+env = { REQUIRE_SMP = "0", NEURON_BOOT_FEATURES = "selftest_kernel_fault", NEXUS_RESET_ON_MARKER = "PANIC: end", NEXUS_RESET_ON_MARKER_COUNT = "1" }
+
+# TASK-0330 P2 (RFC-0102): the lock-order stress lane — eight harts under MTTCG, the board's
+# number, with the rank check built into the kernel (`lock_rank_check`: a lock taken against
+# the order, or still held where an IPC syscall or the kernel lock ends, panics). The IPC
+# syscalls run off the kernel lock, so here they race on eight harts for a whole ladder; a
+# wrong order is a panic line, not a hang. Its verdicts are `[profile.smp]`'s result proofs —
+# the timing lines are the board's to judge, as on every multi-hart QEMU lane.
+[profile.smp8]
+runner = "scripts/qemu-test.sh"
+extends = "smp"
+env = { SMP = "8", NEURON_BOOT_FEATURES = "lock_rank_check" }
+
 [profile.ota-tamper]
 runner = "scripts/qemu-test.sh"
 extends = "headless"

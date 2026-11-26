@@ -97,34 +97,24 @@ impl Payload {
     /// A short `Vec` is NOT folded into the inline tier: it is already
     /// allocated, and copying it down would add a copy and a free to save
     /// nothing. Callers that can avoid the `Vec` use [`Payload::from_slice`] or
-    /// [`Payload::copy_in_from_user`] instead.
+    /// [`Payload::filled`] instead.
     #[inline]
     pub fn from_vec(v: Vec<u8>) -> Self {
         Self::Heap(v)
     }
 
-    /// Copies `len` bytes from a caller-validated user pointer into whichever
-    /// tier fits — the send path's entry point, and the reason the inline tier
-    /// saves an allocation rather than moving one around.
-    ///
-    /// # Safety
-    /// `src` must point to at least `len` readable bytes in the CURRENT address
-    /// space (the syscall layer proves this with `ensure_user_slice` before
-    /// calling), and `len` must not exceed [`IPC_PAYLOAD_MAX`].
-    pub unsafe fn copy_in_from_user(src: *const u8, len: usize) -> Self {
+    /// A payload of `len` bytes that `fill` writes, in whichever tier fits — the send path's
+    /// entry point, and the reason the inline tier saves an allocation rather than moving one
+    /// around. `fill` is the copy from the sender's memory (`mm::user_copy`); `None` when it
+    /// refuses (a page of the sender's is not ready). `len` must not exceed
+    /// [`IPC_PAYLOAD_MAX`].
+    pub fn filled(len: usize, fill: impl FnOnce(&mut [u8]) -> bool) -> Option<Self> {
         if len <= IPC_SHORT_MAX {
             let mut bytes = [0u8; IPC_SHORT_MAX];
-            if len != 0 {
-                // SAFETY: caller guarantees `len` readable bytes at `src`; the
-                // destination is a local array of IPC_SHORT_MAX >= len bytes.
-                unsafe { core::ptr::copy_nonoverlapping(src, bytes.as_mut_ptr(), len) };
-            }
-            Self::Inline { len: len as u8, bytes }
+            (len == 0 || fill(&mut bytes[..len])).then_some(Self::Inline { len: len as u8, bytes })
         } else {
             let mut v = alloc::vec![0u8; len];
-            // SAFETY: as above; `v` was just sized to exactly `len` bytes.
-            unsafe { core::ptr::copy_nonoverlapping(src, v.as_mut_ptr(), len) };
-            Self::Heap(v)
+            fill(&mut v).then_some(Self::Heap(v))
         }
     }
 
@@ -254,9 +244,12 @@ mod tests {
             let inline_or_heap = Payload::from_slice(&src);
             assert_eq!(inline_or_heap.as_slice(), &src[..]);
             // The copy-in path must agree byte for byte with `from_slice`.
-            // SAFETY: `src` is a live slice of exactly `len` bytes.
-            let copied = unsafe { Payload::copy_in_from_user(src.as_ptr(), len) };
-            assert_eq!(copied, inline_or_heap);
+            let copied = Payload::filled(len, |buf| {
+                buf.copy_from_slice(&src);
+                true
+            });
+            assert_eq!(copied, Some(inline_or_heap));
+            assert_eq!(Payload::filled(len, |_| false).is_none(), len != 0);
         }
     }
 
@@ -294,20 +287,24 @@ mod tests {
     #[test]
     fn a_short_payload_costs_zero_allocations_and_a_long_one_costs_exactly_one() {
         // The tier's entire claim, counted rather than read (TASK-0054C P3b).
-        // `copy_in_from_user` is the send path's entry point, so this is the
+        // `filled` is the send path's entry point, so this is the
         // hot path itself, not a proxy for it.
-        let short = [7u8; IPC_SHORT_MAX];
+        let copy = |src: &'static [u8]| {
+            move |buf: &mut [u8]| -> bool {
+                buf.copy_from_slice(src);
+                true
+            }
+        };
+        static SHORT: [u8; IPC_SHORT_MAX] = [7u8; IPC_SHORT_MAX];
+        static LONG: [u8; IPC_SHORT_MAX + 1] = [7u8; IPC_SHORT_MAX + 1];
         let before = crate::test_alloc::thread_allocs();
-        // SAFETY: `short` is a live local of exactly IPC_SHORT_MAX bytes.
-        let p = unsafe { Payload::copy_in_from_user(short.as_ptr(), short.len()) };
+        let p = Payload::filled(SHORT.len(), copy(&SHORT)).expect("filled");
         let spent = crate::test_alloc::thread_allocs() - before;
         assert!(!p.is_heap());
         assert_eq!(spent, 0, "a payload of IPC_SHORT_MAX bytes must not allocate");
 
-        let long = [7u8; IPC_SHORT_MAX + 1];
         let before = crate::test_alloc::thread_allocs();
-        // SAFETY: `long` is a live local of exactly IPC_SHORT_MAX + 1 bytes.
-        let q = unsafe { Payload::copy_in_from_user(long.as_ptr(), long.len()) };
+        let q = Payload::filled(LONG.len(), copy(&LONG)).expect("filled");
         let spent = crate::test_alloc::thread_allocs() - before;
         assert!(q.is_heap());
         assert_eq!(spent, 1, "one byte over the tier must cost exactly ONE allocation");

@@ -5,7 +5,7 @@ role: guide
 subsystem: kernel
 sources: [source/kernel/neuron/src, source/kernel/neuron-boot/src]
 contracts: [RFC-0005, RFC-0021, RFC-0085, RFC-0098, RFC-0100, RFC-0119, ADR-0049, ADR-0073, ADR-0077, ADR-0080, ADR-0082, ADR-0091]
-verified: 2026-11-18
+verified: 2026-11-26
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -48,11 +48,14 @@ Full chain: [boot.md](../boot-init/boot.md).
    (IPI), S_TIMER (tick, preemption), S_EXT (PLIC), page fault, or `ecall` → `handle_ecall`.
 3. `handle_ecall` reads the number from `a7`, arguments from `a0..a5`; a pending order from
    another hart (kill, freeze; ADR-0082) runs first.
-4. Three lock classes (ADR-0049):
-   - lock-free — only `nsec` (`lockfree_syscall`) runs before any lock;
-   - phased — `vmo_create`, `exec_vmo`, `vm_unmap`, `vmo_clean` run their expensive middle with the
-     big kernel lock dropped (`source/kernel/neuron/src/core/trap/phased.rs`);
-   - everything else runs under the BKL (`KernelGuard`).
+4. Four ways through (ADR-0049, ADR-0102):
+   - lock-free — only `nsec` (`lockfree_syscall`);
+   - on its objects' own locks, before the kernel lock
+     (`source/kernel/neuron/src/core/trap/ipc_entry.rs`): every syscall `ipc_ctx::body` lists,
+     IPC first; a body that needs the kernel lock re-executes under it;
+   - phased (`source/kernel/neuron/src/core/trap/phased.rs`) — the expensive middle with the
+     kernel lock dropped;
+   - everything else under the kernel lock (`KernelGuard`).
 5. `SyscallTable::dispatch` (`source/kernel/neuron/src/syscall/mod.rs`) calls the handler in
    `source/kernel/neuron/src/syscall/api/`; the window is 128 numbers.
 6. The result goes back in `a0`: a value, or `-errno` (`source/kernel/neuron/src/core/trap/errno.rs`).
@@ -82,7 +85,7 @@ retired numbers stay retired.
 | 16 | `debug_putc` | Debug UART putc for userspace (best-effort, no permissions required). |
 | 18 | `ipc_recv_v1` | IPC v1 (payload copy-out): see RFC-0005. |
 | 19 | `ipc_endpoint_create` | Create a new kernel IPC endpoint and return a capability slot for it (privileged; RFC-0005). |
-| 20 | `cap_close` | Drops a capability slot; if the capability has `Rights::MANAGE` and is an endpoint, closes it. |
+| 20 | `cap_close` | Drops a capability slot and judges its object (RFC-0100 §1); no kernel lock. |
 | 21 | `ipc_endpoint_close` | Closes a kernel IPC endpoint referenced by a capability slot with `Rights::MANAGE`. |
 | 22 | `ipc_endpoint_create_v2` | Creates a new IPC endpoint using an explicit endpoint-factory capability (Phase-2 hardening). |
 | 23 | `ipc_endpoint_create_for` | Creates a new IPC endpoint on behalf of `owner_pid` (init-lite bootstrap helper). |
@@ -147,9 +150,8 @@ retired numbers stay retired.
   earliest deadline first (RFC-0120); everything else is fair by weight. The classes `Idle`,
   `Normal`, `Interactive`, `PerfBurst` are weights, not priorities; a full queue rejects.
 - **A wake goes ahead** at the trap exit when the order says so (`Scheduler::switch_if_ready`).
-  init hands the display chain its time rights, binds them and raises the chain to
-  `Interactive` (one table, `service_topology::CHAIN`); execd hands each app a part of the
-  apps' right. Everything else runs `Normal` and may only lower itself.
+  init hands the display chain its time rights (`service_topology::CHAIN`), execd each app a
+  part of the apps' right; everything else runs `Normal` and may only lower itself.
 - **Placement.** init places services by role at resume (ADR-0049): the soft-realtime chain
   on CPU 0, the rest on the other online CPUs ([topology.md](topology.md)).
 - **No lock across a context switch.** The next frame is staged hart-locally, the guard drops,
@@ -161,11 +163,12 @@ retired numbers stay retired.
   pool (`source/kernel/neuron/src/mm/frame_pool.rs`), reached through one direct map
   (`source/kernel/neuron/src/mm/phys.rs`); no fixed physical window exists (`just fixed-windows`).
 - **VMOs.** A VMO is a list of pool blocks; capabilities name the object, never the frames. Kinds:
-  anonymous, contiguous (only for a device holder), lazy. An object dies with its last capability
-  and mapping (RFC-0100); `vmo_seal` makes it read-only for life; `vmo_share_readonly` mints a
-  read-only alias. Userspace view: [vmo.md](../storage/vmo.md).
-- **Commit on touch** (ADR-0077). A lazy VMO takes no frame at create; a page takes one zeroed
-  frame at its first touch.
+  anonymous, contiguous (only for a device holder), lazy — a page takes its zeroed frame at
+  its first touch (ADR-0077). An object dies with its last capability and mapping (RFC-0100);
+  `vmo_seal` makes it read-only for life; `vmo_share_readonly` mints a read-only alias.
+  Userspace view: [vmo.md](../storage/vmo.md).
+- **Locks** (ADR-0103). A page fault, a mapping and an unmap hold the caller's space, no
+  kernel lock: [memory-locks.md](memory-locks.md).
 - **Kernel-chosen addresses** (RFC-0085). `vm_map` and `mmio_map_auto` place a mapping inside the
   managed window — the whole user half (`source/kernel/neuron/src/mm/mod.rs`).
   Placement is host-tested in `source/kernel/neuron/src/va_space.rs`.
@@ -200,13 +203,13 @@ retired numbers stay retired.
 - Held capabilities (`cap/held.rs`, RFC-0102): kind and rights fixed; objects count holders.
 - Identity is the kernel's: `ipc_recv_v2` reports the sender's service id; a payload string never
   is.
-- Device capabilities are minted by init from the device tree; MMIO maps are USER|RW, never EXEC.
+- MMIO maps are USER|RW, never EXEC.
 - Holders: [capabilities.md](../security/capabilities.md).
 
 ## Platform from the device tree (RFC-0098)
 
-Nothing in the kernel names an address, interrupt line or frequency of its own. `hal/platform.rs`
-fills console, PLIC, timebase and timer source (Sstc or SBI) once from the tree. init gets the tree
+Nothing in the kernel names an address, interrupt line or frequency. `hal/platform.rs` fills
+console, PLIC, timebase and timer source (Sstc or SBI) once from the tree. init gets the tree
 read-only in a fixed slot and mints device capabilities from it. `scripts/check-no-platform-literals.sh`
 (in `just check`) fails on a QEMU-virt literal outside the tree's goldens.
 

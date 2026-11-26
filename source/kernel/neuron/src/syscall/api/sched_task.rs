@@ -353,6 +353,18 @@ pub(super) fn sys_spawn_last_error(ctx: &mut Context<'_>, _args: &Args) -> SysRe
     Ok(reason.as_u8() as usize)
 }
 
+/// `SYSCALL_YIELD` (0) before the kernel lock (TASK-0330 P4): counted, and the hart given up
+/// at the trap's exit (`Outcome::Yielded`) under its queue lock alone. A deadline that is due
+/// asks for the lock — the walk that wakes its waiter is `sys_yield`'s, so a task that polls
+/// by `yield` still delivers the deadlines of the tasks waiting beside it.
+pub(super) fn yield_now(ipc: &ipc_ctx::Ipc<'_>, _args: &Args) -> ipc_ctx::IpcResult {
+    if ipc.timer.now() >= crate::trap::own_deadlines::blocked_gate() {
+        return Ok(ipc_ctx::Outcome::Locked);
+    }
+    crate::yield_stats::record(ipc.me.as_raw(), ipc.rec.service_id());
+    Ok(ipc_ctx::Outcome::Yielded)
+}
+
 pub(super) fn sys_yield(ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
     crate::liveness::bump();
     // TASK-0363 P0: who yields is counted per task (`KINIT: yield top`).

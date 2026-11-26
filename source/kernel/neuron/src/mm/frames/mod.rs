@@ -28,6 +28,8 @@ extern crate alloc;
 use alloc::vec::Vec;
 
 mod bank;
+/// A hart's magazine of single frames in front of the pool (TASK-0330 P3).
+pub mod magazine;
 #[cfg(test)]
 mod tests;
 
@@ -322,6 +324,13 @@ impl FrameAllocator {
             }
         }
         Ok(tile(block, 0, keep).collect())
+    }
+
+    /// Takes one counted exhaustion back: the caller found frames the pool had handed to the
+    /// harts' magazines, returned them and asks again — the refusal reached nobody. A retry
+    /// that is refused too counts as the one exhaustion it is.
+    pub fn retract_exhaustion(&mut self) {
+        self.exhausted = self.exhausted.saturating_sub(1);
     }
 
     /// Frames free across every bank.

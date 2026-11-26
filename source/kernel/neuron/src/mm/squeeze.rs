@@ -8,9 +8,9 @@
 //! `vmo::squeeze::squeeze_page`. A batch examines at most [`BATCH_PAGES`] committed pages and
 //! scans at most [`SCAN_PAGES`] page words, so the kernel lock is never held for a whole process
 //! (16 pages ≈ 0.8 ms on the board's core, 6f-0's measurement). The PTE of every page that gave
-//! its frame up is cleared, ONE shootdown runs with the kernel lock held (the memory paths' form;
-//! idle harts flush at their next dispatch), and only then do the frames go back to the pool —
-//! no hart can reach a frame the pool handed on.
+//! its frame up is cleared with the space held, ONE shootdown runs with the space released (no
+//! lock across a wait for another hart, RFC-0102; idle harts flush at their next dispatch), and
+//! only then do the frames go back to the pool — no hart can reach a frame the pool handed on.
 //! OWNERS: @kernel-mm-team
 //! STATUS: Functional (TASK-0333 6f-1)
 //! API_STABILITY: Internal (the record is `nexus_abi::SqueezeBatch` v1)
@@ -22,7 +22,7 @@
 
 use alloc::vec::Vec;
 
-use super::address_space::AddressSpace;
+use super::address_space::{AddressSpace, AddressSpaceManager};
 use super::frame_pool;
 use super::page_table::PAGE_SIZE;
 use super::vmo::squeeze::{squeeze_page, PageOutcome};
@@ -72,9 +72,39 @@ impl Batch {
     }
 }
 
-/// One batch from `from_va` over the lazy regions of `space` whose object `allowed` names.
-/// Answers the address the next batch starts at, `0` when the walk reached the end.
-pub fn run(space: &mut AddressSpace, from_va: usize, allowed: &[u32], batch: &mut Batch) -> usize {
+/// One batch from `from_va` over the lazy regions of the space `handle` whose object `allowed`
+/// names. Answers the address the next batch starts at, `0` when the walk reached the end (or
+/// the space is gone). The space is held for the walk; the shootdown that follows waits for
+/// the other harts with nothing held (RFC-0102), and the frames go back after it.
+pub fn run(
+    spaces: &AddressSpaceManager,
+    handle: super::AsHandle,
+    from_va: usize,
+    allowed: &[u32],
+    batch: &mut Batch,
+) -> usize {
+    let (next, raw, freed, spare) = {
+        let Ok(mut space) = spaces.get(handle) else { return 0 };
+        let (next, freed, spare) = walk(&mut space, from_va, allowed, batch);
+        (next, space.raw(), freed, spare)
+    };
+    if !freed.is_empty() {
+        let _ = crate::smp::tlb::shootdown_of(raw);
+    }
+    for pa in freed.into_iter().chain(spare) {
+        frame_pool::free(Block { base: pa, order: 0 });
+    }
+    next
+}
+
+/// The walk of [`run`] with the space held: the pages' frames whose PTEs it cleared, and the
+/// spare frames it did not use.
+fn walk(
+    space: &mut AddressSpace,
+    from_va: usize,
+    allowed: &[u32],
+    batch: &mut Batch,
+) -> (usize, Vec<u64>, Vec<u64>) {
     let regions: Vec<VaRegion> = space
         .va_space()
         .regions()
@@ -134,11 +164,5 @@ pub fn run(space: &mut AddressSpace, from_va: usize, allowed: &[u32], batch: &mu
             va += PAGE_SIZE;
         }
     }
-    if !freed.is_empty() {
-        crate::smp::tlb::shootdown_all();
-    }
-    for pa in freed.into_iter().chain(spare.drain()) {
-        frame_pool::free(Block { base: pa, order: 0 });
-    }
-    next
+    (next, freed, spare.drain().collect())
 }

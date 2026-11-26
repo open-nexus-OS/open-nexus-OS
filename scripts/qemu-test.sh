@@ -29,6 +29,12 @@ if [[ -z "${RUN_TIMEOUT:-}" && "${PROFILE:-}" == "ota-fallback" ]]; then
   RUN_TIMEOUT=600s
   export QEMU_READY_GRACE_SECS="${QEMU_READY_GRACE_SECS:-570}"
 fi
+# TASK-0330 P7 kfault: TWO boots in one uart — the first dies of the forced kernel page
+# fault, the watcher resets it at the panic's last line, the second shows the rescue.
+if [[ -z "${RUN_TIMEOUT:-}" && "${PROFILE:-}" == "kfault" ]]; then
+  RUN_TIMEOUT=300s
+  export QEMU_READY_GRACE_SECS="${QEMU_READY_GRACE_SECS:-270}"
+fi
 # Re-measured 2026-08-20: the reliability-spine proofs grew the ladder's END
 # phase (3-cycle restart storm with real backoffs, evidence journal proofs,
 # bootctld bring-up) past the old 90s wall-clock cap — the outer timeout cut
@@ -832,6 +838,8 @@ expected_sequence=(
   "neuron vers."
   "KSELFTEST: vmo zero ok"
   "KSELFTEST: as map ok"
+  # ADR-0102 (TASK-0330 P2): user memory copied by the kernel's own walk, its refusals.
+  "KSELFTEST: user copy ok"
   "KSELFTEST: vm map ok"
   "KSELFTEST: vm unmap ok"
   "KSELFTEST: vm map reject ok"
@@ -862,6 +870,9 @@ expected_sequence=(
   # with a request the dead server never read is released at its death (the caller's EOF).
   "KSELFTEST: cap transfer rules ok ("
   "KSELFTEST: in-flight caps released ok"
+  # TASK-0330 P4: an endpoint dies off the kernel lock; a bind through a capability that
+  # outlived it leaves no id its slot's next tenant would receive.
+  "KSELFTEST: stale endpoint binds refused ok ("
   # TASK-0333 6b-3 (RFC-0100 §1): an object whose last capability closed while mapped dies at
   # its last unmap — the lifetime rule's third caller.
   "KSELFTEST: vm unmap reclaim ok ("
@@ -876,6 +887,10 @@ expected_sequence=(
   # RFC-0100 §4 (TASK-0333 6e-3): a lazy object its owner unlocked loses its pages when `warn` is
   # delivered and says so at the lock; a device-bound, an eager and a mapped object are refused.
   "KSELFTEST: vmo purge ok ("
+  # TASK-0330 P4: `vmo_write`/`vmo_read` run without the kernel lock — a copy in flight is counted
+  # at the object and refuses a seal, an unlock and a destroy; a sealed object refuses a write,
+  # an unlocked one any copy.
+  "KSELFTEST: vmo copy ok (reject=seal,unlock,destroy,sealed,unlocked)"
   # RFC-0100 §5 (TASK-0333 6f-0): the page compressor measured on this hart — a sample of the
   # image's pages round-trips; the ratio and the cost per page are in the marker.
   "KSELFTEST: mem compress ok ("
@@ -1317,7 +1332,8 @@ expected_sequence=(
 # Profile-aware truncation: remove display markers that require GTK/QMP.
 # headless and display-gpu profiles skip visual output.
 case "${PROFILE:-full}" in
-  smp)
+  # `smp8` (TASK-0330 P2): the same ladder on eight harts with the kernel's lock rank check.
+  smp|smp8)
     expected_sequence=(
       "neuron vers."
       "KSELFTEST: spawn reasons ok"
@@ -1488,6 +1504,29 @@ case "${PROFILE:-full}" in
     )
     OTA_PHASE_GUARDS=0
     ;;
+  kfault)
+    # TASK-0330 P7: a kernel that faults says where, and the words survive the reset.
+    #   boot 1  the fixture (kernel feature `selftest_kernel_fault`, armed on a trace's first
+    #           boot only) raises a real kernel page fault in a user task's timer interrupt:
+    #           the fault line names the hart BEFORE the panic text, which ends whole;
+    #   reset   the QMP watcher power-cycles at `PANIC: end` (RAM is kept, as on a warm reset);
+    #   boot 2  the loader finds the dead boot's console ring in RAM and keeps what the block
+    #           owner never wrote; the fixture stays idle, so the kernel runs on.
+    # The order is each line's FIRST occurrence: boot 1 reaches `init: ready` (the services
+    # print on both harts) before the fault comes, eight seconds after the arm.
+    expected_sequence=(
+      "KSELFTEST: kernel fault fixture armed (seq=1"
+      "neuron vers."
+      "init: start"
+      "init: ready"
+      "KPGF hart=0x"
+      "PANIC hart=0x"
+      "PANIC: end"
+      "nxboot: rescue ok (seq=1"
+      "KSELFTEST: kernel fault fixture idle (seq=2)"
+    )
+    OTA_PHASE_GUARDS=0
+    ;;
   # `visible` (TASK-0324 P0) proves the display from the HOST side (pixel proof +
   # gpud build provenance) on top of this ladder; the `full` display ladder
   # (input-startup incl. touchd) has had no lane since 2026-07 and its touchd
@@ -1505,6 +1544,7 @@ case "${PROFILE:-full}" in
       "neuron vers."
       "KSELFTEST: vmo zero ok"
       "KSELFTEST: as map ok"
+      "KSELFTEST: user copy ok"
       "KSELFTEST: vm map ok"
       "KSELFTEST: vm unmap ok"
       "KSELFTEST: vm map reject ok"
@@ -1522,10 +1562,12 @@ case "${PROFILE:-full}" in
       "KSELFTEST: child exit notify ok ("
       "KSELFTEST: cap transfer rules ok ("
       "KSELFTEST: in-flight caps released ok"
+      "KSELFTEST: stale endpoint binds refused ok ("
       "KSELFTEST: vm unmap reclaim ok ("
       "KSELFTEST: process ctl ok ("
       "KSELFTEST: mem pressure notify ok ("
       "KSELFTEST: vmo purge ok ("
+      "KSELFTEST: vmo copy ok (reject=seal,unlock,destroy,sealed,unlocked)"
       "KSELFTEST: mem compress ok ("
       "KSELFTEST: task squeeze ok ("
       "KSELFTEST: swap ok ("
@@ -1818,12 +1860,15 @@ if [[ "$REQUIRE_SMP" == "1" ]]; then
     "KSELFTEST: test_reject_time_right_bind_other_task ok"
     "KSELFTEST: test_reject_time_right_after_revoke ok"
     "KSELFTEST: test_reject_an_app_claims_more_than_app_host_holds ok"
+    "KSELFTEST: test_reject_time_right_loan ok"
+    "KSELFTEST: time right loan ok"
     "KSELFTEST: sched spread ok"
     "KSELFTEST: work stealing ok"
     "KSELFTEST: test_reject_steal_above_bound ok"
     "KSELFTEST: test_reject_steal_higher_qos ok"
     "KSELFTEST: tlb shootdown counterfactual ok"
     "KSELFTEST: tlb shootdown ok"
+    "KSELFTEST: tlb shootdown targeted ok ("
     "KSELFTEST: sched affinity clamp ok"
     "KSELFTEST: plic ctx cpu0 ok"
     "KSELFTEST: plic ctx cpu1 ok"
@@ -2046,7 +2091,7 @@ if grep -aFq "AS: trampoline enter" "$UART_LOG" && ! grep -aFq "AS: post-satp OK
 fi
 
 # #region agent log (exec KPGF diagnostics hypotheses B-F)
-kpgf_raw=$(grep -aF "KPGF sepc=" "$UART_LOG" | head -n1 || true)
+kpgf_raw=$(grep -aF "KPGF hart=" "$UART_LOG" | head -n1 || true)
 kpgf_seen=false
 kpgf_sepc=""
 kpgf_stval=""
@@ -2063,7 +2108,7 @@ if [[ -n "$kpgf_raw" ]]; then
   kpgf_a2=$(printf "%s" "$kpgf_raw" | sed -n 's/.* a2=\(0x[0-9a-fA-F]\+\).*/\1/p')
   kpgf_pid=$(printf "%s" "$kpgf_raw" | sed -n 's/.* pid=\(0x[0-9a-fA-F]\+\).*/\1/p')
 fi
-line_kpgf=$(grep -aFn "KPGF sepc=" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+line_kpgf=$(grep -aFn "KPGF hart=" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
 line_timed_ready=$(grep -aFn "timed: ready" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
 line_timed_ok=$(grep -aFn "SELFTEST: timed coalesce ok" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
 line_execd_ready=$(grep -aFn "execd: ready" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
@@ -3394,7 +3439,14 @@ fi
 if [[ "$REQUIRE_SMP" == "1" ]]; then
   # P2 gate: the BKL budget must PASS (declarative budgets in
   # core/trap/budgets.rs) — a returning >10ms convoy fails the boot here.
-  if [[ "$(count_lines "KSELFTEST: bkl budget ok")" -lt 1 ]]; then
+  # A lane whose own list names the line's FAIL (config/fail-marker-allow-<profile>.txt, with
+  # its reason there) owes the line, not its verdict.
+  if grep -qxF "KSELFTEST: bkl budget FAIL" "$ROOT/config/fail-marker-allow-${PROFILE:-full}.txt" 2>/dev/null; then
+    if [[ "$(count_lines "KSELFTEST: bkl budget ")" -lt 1 ]]; then
+      echo "[error] BKL budget line missing: KSELFTEST: bkl budget" >&2
+      exit 1
+    fi
+  elif [[ "$(count_lines "KSELFTEST: bkl budget ok")" -lt 1 ]]; then
     echo "[error] BKL budget gate failed: KSELFTEST: bkl budget ok" >&2
     exit 1
   fi
@@ -3711,8 +3763,14 @@ if [[ "${FAIL_MARKER_GATE:-1}" == "1" ]]; then
   if [[ -n "$fail_lines" && "${SMP:-1}" -gt 1 && -f "$mttcg_allow_file" ]]; then
     fail_lines=$(printf '%s\n' "$fail_lines" | grep -vFf <(grep -v '^#' "$mttcg_allow_file" | sed '/^[[:space:]]*$/d') || true)
   fi
+  # A lane may carry a list of its own (config/fail-marker-allow-<profile>.txt): each entry
+  # with why that lane cannot judge the line and the phase that removes it.
+  lane_allow_file="$ROOT/config/fail-marker-allow-${PROFILE:-full}.txt"
+  if [[ -n "$fail_lines" && -f "$lane_allow_file" ]]; then
+    fail_lines=$(printf '%s\n' "$fail_lines" | grep -vFf <(grep -v '^#' "$lane_allow_file" | sed '/^[[:space:]]*$/d') || true)
+  fi
   if [[ -n "$fail_lines" ]]; then
-    echo "[error] FAIL markers present in the UART (not allow-listed in config/fail-marker-allow.txt, nor — on a multi-hart lane — in config/fail-marker-allow-mttcg.txt):" >&2
+    echo "[error] FAIL markers present in the UART (not allow-listed in config/fail-marker-allow.txt, nor — on a multi-hart lane — in config/fail-marker-allow-mttcg.txt, nor in the lane's own list):" >&2
     printf '%s\n' "$fail_lines" | sort | uniq -c >&2
     exit 1
   fi

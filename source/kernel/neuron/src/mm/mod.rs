@@ -20,6 +20,7 @@ pub mod address_space;
 mod asid;
 pub mod page_table;
 pub mod reclaim;
+pub mod space_regions;
 pub mod vm_ops;
 
 pub use address_space::{AddressSpaceError, AddressSpaceManager, AsHandle};
@@ -54,4 +55,5 @@ pub mod squeeze;
 pub mod swap;
 mod tests;
 pub mod usage;
+pub mod user_copy;
 pub mod vmo;

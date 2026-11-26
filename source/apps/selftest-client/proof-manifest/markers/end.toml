@@ -47,6 +47,13 @@ phase = "end"
 [marker."KSELFTEST: vmo purge ok ("]
 phase = "end"
 
+# TASK-0330 P4 (ADR-0103): `vmo_write` and `vmo_read` run without the kernel lock. What the
+# lock kept apart the object's own count keeps apart: a copy in flight refuses a seal, an
+# unlock for purging and a destroy (each goes through once it is over); a sealed object
+# refuses a write and is still read, an unlocked one refuses both.
+[marker."KSELFTEST: vmo copy ok (reject=seal,unlock,destroy,sealed,unlocked)"]
+phase = "end"
+
 # TASK-0333 6f-0 (RFC-0100 §5): the page compressor of the backing stages measured on the hart
 # it will run on — a stride sample of the kernel image's pages round-trips through the LZ4-block
 # codec; the marker carries the ratio, the pages that came out smaller than a page and the cost

@@ -30,34 +30,63 @@ const NAMED_RECLAIMS: usize = 24;
 
 /// Everything that remembered a now-dead `id` forgets it. Called for every endpoint death,
 /// whichever path killed it (the reclaim, the owner's exit, a MANAGE close).
+///
+/// Each of them behind its own lock, taken alone (TASK-0330 P4): no kernel lock, no task
+/// table. The caller holds the dead endpoint's header until this returns — its id goes to no
+/// new endpoint while a waitset, a timer or a line still names it (`ipc::lifetime`). A parent
+/// that bound it for its children's deaths holds the header itself and is not asked.
 pub(super) fn forget_dead(
-    tasks: &mut task::TaskTable,
-    waitsets: &mut crate::waitset::WaitsetTable,
-    hart_timers: &mut crate::timer::HartTimers,
+    waitsets: &crate::waitset::WaitsetTable,
+    hart_timers: &crate::timer::HartTimers,
     id: ipc::EndpointId,
 ) {
     let _ = waitsets.forget_endpoint(id);
     let _ = hart_timers.forget_endpoint(id);
     let _ = crate::irq::forget_endpoint(id);
-    tasks.forget_exit_notify(id);
     crate::mm::pressure_endpoint::forget_endpoint(id);
 }
 
+/// A locked path stored the id of `pin`'s endpoint — a waitset member, a timer's notify
+/// endpoint, an interrupt line, the pressure sink — while a closer off the kernel lock may kill
+/// it (TASK-0330 P4). Read after the store, with the pin still held: a closer marks the
+/// endpoint dead before it forgets it (`destroy`), both under locks this store and this read
+/// take too, so either this reads it dead and forgets it here — the new store included — or
+/// the closer's forget comes after the store and finds it. The pin keeps the id the endpoint's
+/// meanwhile (`ipc::lifetime`). Returns whether it lives.
+pub(super) fn stored(
+    router: &ipc::Router,
+    waitsets: &crate::waitset::WaitsetTable,
+    hart_timers: &crate::timer::HartTimers,
+    pin: &crate::cap::PinnedEndpoint,
+) -> bool {
+    let alive = router.endpoint_alive(pin.id());
+    if !alive {
+        forget_dead(waitsets, hart_timers, pin.id());
+    }
+    alive
+}
+
 /// Destroys `id` — nothing holds a capability to it — and forgets it everywhere; `by`
-/// names the caller (`exit`, `close`) on the console. Returns whether it died (a blocked peer
-/// of an unnamed endpoint cannot exist, so its drained waiters need no wake).
+/// names the caller (`exit`, `close`) on the console. Returns whether it died. The caller
+/// holds the endpoint's header (`cap::Dropped`, a pin) — see `forget_dead`.
 pub(super) fn destroy(
-    tasks: &mut task::TaskTable,
-    router: &mut ipc::Router,
-    waitsets: &mut crate::waitset::WaitsetTable,
-    hart_timers: &mut crate::timer::HartTimers,
+    router: &ipc::Router,
+    waitsets: &crate::waitset::WaitsetTable,
+    hart_timers: &crate::timer::HartTimers,
     id: ipc::EndpointId,
     by: &'static str,
 ) -> bool {
-    if router.close_endpoint(id).is_err() {
+    // Two closers that each dropped a last capability: one of them closes it, the other's
+    // close finds it dead.
+    let Ok(waiters) = router.close_endpoint(id) else {
         return false;
+    };
+    forget_dead(waitsets, hart_timers, id);
+    // A thread parked on it while a thread of its process closed the last capability under
+    // it: it runs its syscall again and finds the slot empty.
+    for pid in waiters {
+        super::ipc_ctx::wake(pid);
     }
-    forget_dead(tasks, waitsets, hart_timers, id);
     let n = RECLAIMED.fetch_add(1, Ordering::Relaxed);
     if n < NAMED_RECLAIMS {
         log_info!(

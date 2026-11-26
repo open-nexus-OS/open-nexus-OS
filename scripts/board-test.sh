@@ -115,6 +115,8 @@ ladder_headless=(
   # endpoint's queue carried released at its death — on four harts too.
   "KSELFTEST: cap transfer rules ok ("
   "KSELFTEST: in-flight caps released ok"
+  # TASK-0330 P4: a bind through a capability that outlived its endpoint is refused.
+  "KSELFTEST: stale endpoint binds refused ok ("
   # TASK-0333 6b-3 (RFC-0100 §1): an object whose last capability closed while mapped dies at its
   # last unmap.
   "KSELFTEST: vm unmap reclaim ok ("
@@ -124,6 +126,9 @@ ladder_headless=(
   # clear — and the booted pool's watermarks in order (two banks on the board).
   "KSELFTEST: mem pressure notify ok ("
   "KSELFTEST: vmo purge ok ("
+  # TASK-0330 P4: the copies into and out of an object run without the kernel lock; the
+  # object's own count refuses a seal, an unlock and a destroy under a copy in flight.
+  "KSELFTEST: vmo copy ok (reject=seal,unlock,destroy,sealed,unlocked)"
   # TASK-0333 6f-0 (RFC-0100 §5): the page compressor's ratio and cost per page on the board's
   # core — the numbers the pool and the swap stage are cut by.
   "KSELFTEST: mem compress ok ("

@@ -13,6 +13,10 @@
 
 use super::*;
 
+// TASK-0330 P2 (ADR-0102): the lock-free user copy against a table and frames of its own.
+#[path = "user_copy.rs"]
+mod user_copy;
+
 // RFC-0085: kernel-owned VA allocation. The bootstrap task has no
 // address space of its own, so this exercises the mm executor
 // (`vm_ops`) the vm_map/vm_unmap syscalls are thin shells over,
@@ -28,6 +32,7 @@ pub(super) fn run_vm_alloc_selftests(
     use crate::mm::PageFlags;
     use crate::syscall::SYSCALL_VMO_DESTROY;
     use crate::va_space::{RegionKind, SUPERPAGE};
+    user_copy::run();
     const VM_VMO_SLOT: usize = 5;
     // Two superpages + one page: at least one whole 2 MiB interior
     // span for every pa phase, plus 4K head/tail coverage.
@@ -52,16 +57,18 @@ pub(super) fn run_vm_alloc_selftests(
     // vm map ok: va inside the window, translation matches the
     // backing pa, and the eligible interior really is a 2 MiB leaf
     // (promotion PROVEN, not assumed).
-    let space = sys_ctx.address_spaces.get_mut(handle).expect("as space");
-    let va =
-        vm_ops::map_range(space, vm_base, vm_len, flags, RegionKind::Vmo, vm_id).expect("vm map");
+    // Each hold of the space ends before the next syscall: a destroy asks every space.
+    let mut space = sys_ctx.address_spaces.get(handle).expect("as space");
+    let va = vm_ops::map_range(&mut space, vm_base, vm_len, flags, RegionKind::Vmo, vm_id)
+        .expect("vm map");
     let window_end = crate::mm::USER_VM_WINDOW_BASE + crate::mm::USER_VM_WINDOW_LEN;
     let in_window = va >= crate::mm::USER_VM_WINDOW_BASE && va + vm_len <= window_end;
     let translates = space.page_table().translate(va) == Some(vm_base)
         && space.page_table().translate(va + vm_len - PAGE_SIZE)
             == Some(vm_base + vm_len - PAGE_SIZE);
     let interior = (va + SUPERPAGE - 1) & !(SUPERPAGE - 1);
-    let promoted = vm_ops::leaf_span_at(space, interior) == Some(SUPERPAGE);
+    let promoted = vm_ops::leaf_span_at(&space, interior) == Some(SUPERPAGE);
+    drop(space);
     if in_window && translates && promoted {
         log_info!(target: "selftest", "KSELFTEST: vm map ok");
     } else {
@@ -88,13 +95,15 @@ pub(super) fn run_vm_alloc_selftests(
     // proof at executor level); the tables an unmap empties go back, and a
     // superpage over a span a table still holds maps as pages (TASK-0215
     // 5c-3 P2: left linked, that table refused every later large map there).
-    let space = sys_ctx.address_spaces.get_mut(handle).expect("as space");
-    vm_ops::unmap_range(space, va, vm_len).expect("vm unmap");
+    vm_ops::unmap_range(sys_ctx.address_spaces, handle, va, vm_len).expect("vm unmap");
+    let mut space = sys_ctx.address_spaces.get(handle).expect("as space");
     let gone = space.page_table().translate(va).is_none()
         && space.page_table().translate(interior).is_none();
-    let va2 = vm_ops::map_range(space, vm_base, vm_len, flags, RegionKind::Vmo, vm_id)
+    let va2 = vm_ops::map_range(&mut space, vm_base, vm_len, flags, RegionKind::Vmo, vm_id)
         .expect("vm re-map");
-    let (reclaimed, fallback) = vm_ops::table_reclaim_probe(space, vm_base, flags);
+    drop(space);
+    let (reclaimed, fallback) =
+        vm_ops::table_reclaim_probe(sys_ctx.address_spaces, handle, vm_base, flags);
     if gone && va2 == va && reclaimed && fallback {
         log_info!(target: "selftest", "KSELFTEST: vm unmap ok");
     } else {
@@ -121,11 +130,13 @@ pub(super) fn run_vm_alloc_selftests(
         ),
         Err(crate::mm::AddressSpaceError::Mapping(crate::mm::MapError::Overlap))
     );
-    let space = sys_ctx.address_spaces.get_mut(handle).expect("as space");
+    let spaces = &*sys_ctx.address_spaces;
     let unknown_refused = matches!(
-        vm_ops::unmap_range(space, crate::mm::USER_VM_WINDOW_BASE + 0x200_0000, PAGE_SIZE),
+        vm_ops::unmap_range(spaces, handle, crate::mm::USER_VM_WINDOW_BASE + 0x200_0000, PAGE_SIZE),
         Err(vm_ops::VmOpError::Va(crate::va_space::VaError::NotFound))
     );
+    // Cleanup, first half: release the re-map.
+    vm_ops::unmap_range(spaces, handle, va2, vm_len).expect("vm cleanup unmap");
     if fixed_refused && unknown_refused && destroy_busy {
         log_info!(target: "selftest", "KSELFTEST: vm map reject ok");
     } else {
@@ -138,9 +149,8 @@ pub(super) fn run_vm_alloc_selftests(
         );
     }
 
-    // Cleanup: release the re-map and the VMO (now destroyable —
-    // also proves the EBUSY guard clears with the last region).
-    vm_ops::unmap_range(space, va2, vm_len).expect("vm cleanup unmap");
+    // Cleanup, second half: the VMO (now destroyable — also proves the EBUSY guard clears with
+    // the last region).
     table
         .dispatch(SYSCALL_VMO_DESTROY, sys_ctx, &Args::new([VM_VMO_SLOT, 0, 0, 0, 0, 0]))
         .expect("vmo_destroy after unmap");

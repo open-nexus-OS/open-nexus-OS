@@ -145,12 +145,12 @@ pub(crate) fn preempt_current_user_task(
 pub(crate) fn run_pending_for_current(
     frame: &mut TrapFrame,
     tasks: &mut task::TaskTable,
-    router: &mut ipc::Router,
+    router: &ipc::Router,
     scheduler: &mut Scheduler,
     spaces: &mut AddressSpaceManager,
-    hart_timers: &mut crate::timer::HartTimers,
-    waitsets: &mut crate::waitset::WaitsetTable,
-    fences: &mut crate::fence::FenceTable,
+    hart_timers: &crate::timer::HartTimers,
+    waitsets: &crate::waitset::WaitsetTable,
+    fences: &crate::fence::FenceTable,
 ) -> bool {
     let cur = tasks.current_pid();
     if cur == crate::types::Pid::KERNEL {
@@ -194,12 +194,12 @@ pub(crate) fn run_pending_for_current(
 pub(super) fn switch_to_next(
     frame: &mut TrapFrame,
     tasks: &mut task::TaskTable,
-    router: &mut ipc::Router,
+    router: &ipc::Router,
     scheduler: &mut Scheduler,
     spaces: &mut AddressSpaceManager,
-    hart_timers: &mut crate::timer::HartTimers,
-    waitsets: &mut crate::waitset::WaitsetTable,
-    fences: &mut crate::fence::FenceTable,
+    hart_timers: &crate::timer::HartTimers,
+    waitsets: &crate::waitset::WaitsetTable,
+    fences: &crate::fence::FenceTable,
 ) {
     for _ in 0..8 {
         let Some(next) = scheduler.schedule_next() else { break };

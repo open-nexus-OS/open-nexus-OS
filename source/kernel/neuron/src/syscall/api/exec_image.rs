@@ -93,14 +93,18 @@ pub(super) fn map_lazy_fixed(
     flags: PageFlags,
 ) -> SysResult<()> {
     let reach = crate::dma_reach::DmaReach::ALL;
-    let vmo = crate::mm::vmo::create(len, crate::mm::vmo::VmoKind::Lazy, &reach)
+    // Held by this call until the region names it; then by the region alone.
+    let (vmo, first) = crate::mm::vmo::create(len, crate::mm::vmo::VmoKind::Lazy, &reach)
         .map_err(|_| Error::Capability(CapError::PermissionDenied))?;
-    let space = address_spaces.get_mut(as_handle)?;
-    if let Err(err) = space.va_space_mut().record_lazy(va, len, flags.bits(), vmo) {
-        let _ = crate::mm::vmo::destroy(vmo);
-        return Err(Error::Va(err));
+    let recorded = address_spaces.get(as_handle).map_err(Error::from).and_then(|mut space| {
+        crate::mm::space_regions::record_lazy(&mut space, va, len, flags.bits(), vmo)
+            .map_err(|err| crate::mm::vm_ops::VmOpError::from(err).into())
+    });
+    drop(first);
+    if recorded.is_err() {
+        crate::mm::reclaim::orphans(&[vmo], "image");
     }
-    Ok(())
+    recorded
 }
 
 /// One zeroed page for the bootstrap meta/info records, recorded on `image`.

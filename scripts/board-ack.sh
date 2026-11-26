@@ -50,5 +50,9 @@ if [ ! -f "$log" ]; then
   echo "[board] no current board log ($log) — start 'just board-serial' first" >&2
   exit 1
 fi
+# A trace pulled after a reset can end mid-line: the mark starts a line of its own.
+if [ -s "$log" ] && [ "$(tail -c 1 "$log" | od -An -c | tr -d ' ')" != '\n' ]; then
+  printf '\n' >>"$log"
+fi
 printf 'board-visual: %s\n' "$name" >>"$log"
 echo "[board] acknowledged: board-visual: $name  → $log"

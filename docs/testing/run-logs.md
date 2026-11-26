@@ -5,7 +5,7 @@ role: reference
 subsystem: devx
 sources: [scripts/qemu-test.sh, scripts/qemu-launcher.sh, scripts/build.sh, scripts/hypothesis-log.sh, tools/os2vm.sh, tools/uart-filter.py]
 contracts: [RFC-0107, ADR-0063]
-verified: 2026-11-20
+verified: 2026-11-24
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -100,6 +100,12 @@ hypotheses (`DNS`, `N*`, `B`–`F`). Rerun a slice with `RUN_PHASE=<phase>`.
 **Lane killed or cut short:** `R` records (`memory.peak`, `hit_max`, signal) and
 `qemu-test: lane terminated externally (signal N)` in the output.
 
+**A lock taken against the order (`smp8--*`, `NEURON_BOOT_FEATURES=lock_rank_check`):** grep
+`PANIC` — `KPANIC: lock <class> 0x… taken under <class> 0x…` names the two locks,
+`ranked lock held past an IPC syscall` the body, `frame owner` a frame saved twice;
+`KINIT: lock class <class> (takes= waited= max_hold_us= max_wait_us=)`; the memory lines:
+[../kernel/memory-locks.md](../kernel/memory-locks.md#proof-and-numbers).
+
 **Input lane stuck:** `H4` records from the injector name the scenario step and the missing
 marker.
 
@@ -144,6 +150,9 @@ are normal: each process prints only the frames it judged slow.
 | `!init-lite entry` without `!init-lite ready` | init stopped during service spawn; look for `fatal err=` |
 | `init: up <svc>` without `<svc>: ready` | the service started but never served; a hard failure |
 | `nxboot: PANIC` | the boot chain died (reset loop) |
+| `KPGF hart=0x<n> sepc= stval= scause= ra= sp= a7= a0= a1= a2= sstatus= satp= pid=`, then `PANIC: <file>:<line hex>: <text>`, `PANIC hart=0x<n> ra=`, `PANIC: end` | a kernel page fault (`KEXC`: another exception, `KILL`: illegal instruction): `sepc` where, `stval` the address, `a7` the syscall, `satp` the space. One hart speaks; `PANIC: end` closes. No fault line: a `panic!`. Board: reset without a power cut, the next boot keeps the words (`nxboot: rescue ok (seq=<dead boot>`, `trace-all.log`). Proof: `just ci-os-kfault` |
+| `KSELFTEST: kernel fault fixture armed (seq=1 in_ms=)` | the fixture (`selftest_kernel_fault`) faults on a trace's first boot; an ordinary OS build before `just board-image` |
+| `KINIT: ipc call rt by hart (fastest_us=[..] mean_us=[..] n=[..])` | `ipc_call` round trips by calling hart: TASK-0330 P2's 64 us budget per hart |
 | `KINIT: bkl long wait <us> cpuN for=<id> deferred=<n> passed_over=<n>` | a hart waited above 10 ms for the kernel lock: what it wanted it for (`diag/lock_share` id: a syscall number, 80 timer, 81 IPI, 82 external, 83 fault, 84 idle), how many turns it stood back for CPU 0, how often the lock changed hands meanwhile — `passed_over=0` means ONE long holder |
 | `KINIT: bkl long hold <us> cpuN by=<id>` | that holder: any hold above 10 ms, also a fault, the timer or the scheduling loop (the ecall budget sees syscalls only) |
 | `KINIT: bkl stall <ms>ms holder=cpuN by=<id> idle=0x<mask> act=[…]` | a hold named while it lasts: a hart that waited 50 ms for the kernel lock prints the holder and the first eight CPUs' activity tags, once per 50 ms. A tag is hex, low byte the class, above it the detail: `1` in a trap (syscall number or cause), `2`/`3` a create's zero or copy, `4` idle, `6` spinning for a lock (detail: its address without the top byte), `7` waiting for shootdown acks (epoch), `8` waiting for the kernel lock (what for), `9` the idle loop under the lock (1 taken, 2 picked, 3 dispatch, 4 deadline walk, 5 events, 6 witness, 7 a stashed line, 8 its own deadline), `a` arming the timer, `b` an unmap (1 clear, 2 forget, 3 reclaim). Read the holder's tag first: what it waits for, or the stage it stands in; then the tag of the hart it waits on |

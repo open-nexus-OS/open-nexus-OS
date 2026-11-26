@@ -4,14 +4,16 @@
 //! CONTEXT: the descriptor-based IPC recv-v2 syscall — like recv-v1 but also
 //! returns the sender's kernel-derived service identity, via a versioned
 //! descriptor that dodges the a0-a5 register limit. Split out of `ipc_msg.rs`
-//! (RFC-0079, module-size ratchet). Shares the typed decoders + helpers of the
-//! parent via `use super::*`.
+//! (RFC-0079, module-size ratchet). One body over `ipc_ctx::Ipc` (TASK-0330 P2,
+//! ADR-0102): the trap's entry runs it before the kernel lock, the table's entry
+//! under it after committing the pages the descriptor names.
 //! OWNERS: @kernel-team
 //! STATUS: Functional
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: QEMU marker gates (recv-v2 sender-id probes)
 //! ADR: docs/adr/0016-kernel-libs-architecture.md
 
+use super::ipc_ctx::{deliver, locked, take, Ipc, IpcResult, Out, Outcome, Taken};
 use super::*;
 
 // IPC recv v2: descriptor-based syscall to return additional sender identity metadata without
@@ -21,163 +23,88 @@ use super::*;
 pub(super) const IPC_RECV_V2_MAGIC: u32 = 0x4E58_4932; // 'N''X''I''2'
 pub(super) const IPC_RECV_V2_VERSION: u32 = 1;
 
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub(super) struct IpcRecvV2Desc {
-    magic: u32,
-    version: u32,
-    slot: u32,
-    _pad0: u32,
-    header_out_ptr: u64,
-    payload_out_ptr: u64,
-    payload_out_max: u64,
-    sender_service_id_out_ptr: u64,
-    sys_flags: u32,
-    _pad1: u32,
+/// The descriptor's size in the caller's memory: magic, version, slot, pad (4 × u32), the four
+/// out words (4 × u64), flags and pad (2 × u32), the deadline (u64).
+const DESC_BYTES: usize = 64;
+
+/// What a receive descriptor names, decoded and bounded.
+struct Desc {
+    slot: usize,
+    out: Out,
+    nonblock: bool,
     deadline_ns: u64,
 }
 
+impl Desc {
+    fn decode(raw: &[u8; DESC_BYTES]) -> Result<Self, Error> {
+        let magic = read_u32_le(raw, 0)?;
+        let version = read_u32_le(raw, 4)?;
+        if magic != IPC_RECV_V2_MAGIC || version != IPC_RECV_V2_VERSION {
+            return Err(AddressSpaceError::InvalidArgs.into());
+        }
+        let payload_max = read_u64_le(raw, 32)? as usize;
+        let sys_flags = read_u32_le(raw, 48)? as usize;
+        // EINVAL, not E2BIG: an out-buffer larger than any possible message is a caller bug,
+        // not an oversize message (TASK-0054C P3b — E2BIG is the SEND-side answer).
+        if payload_max > crate::ipc::IPC_PAYLOAD_MAX
+            || (sys_flags & !(IPC_SYS_NONBLOCK | IPC_SYS_TRUNCATE)) != 0
+        {
+            return Err(AddressSpaceError::InvalidArgs.into());
+        }
+        Ok(Self {
+            slot: read_u32_le(raw, 8)? as usize,
+            out: Out {
+                header_ptr: read_u64_le(raw, 16)? as usize,
+                payload_ptr: read_u64_le(raw, 24)? as usize,
+                payload_max,
+                sender_ptr: Some(read_u64_le(raw, 40)? as usize),
+                truncate: (sys_flags & IPC_SYS_TRUNCATE) != 0,
+            },
+            nonblock: (sys_flags & IPC_SYS_NONBLOCK) != 0,
+            deadline_ns: read_u64_le(raw, 56)?,
+        })
+    }
+}
+
+/// Commits every page a receive through the descriptor at `desc_ptr` touches (ADR-0077): the
+/// descriptor itself and each out-buffer it names — a lazy page before the receive can park.
+pub(super) fn fill_recv_v2(ctx: &mut Context<'_>, desc_ptr: usize) -> Result<(), Error> {
+    ensure_user_range(ctx, desc_ptr, DESC_BYTES, UserAccess::Read)?;
+    let mut raw = [0u8; DESC_BYTES];
+    if !ctx.ipc()?.read(desc_ptr, &mut raw) {
+        return Err(AddressSpaceError::BadUserMemory.into());
+    }
+    let out = Desc::decode(&raw)?.out;
+    ensure_user_range(ctx, out.header_ptr, 16, UserAccess::Write)?;
+    if out.payload_max != 0 {
+        ensure_user_range(ctx, out.payload_ptr, out.payload_max, UserAccess::Write)?;
+    }
+    ensure_user_range(ctx, out.sender_ptr.unwrap_or(0), 8, UserAccess::Write)
+}
+
+/// The table's entry: the caller's pages committed, then the body.
 pub(super) fn sys_ipc_recv_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
-    let desc_ptr = args.get(0);
-    // Defensive: the descriptor itself must be readable user memory (ADR-0077).
-    ensure_user_range(ctx, desc_ptr, core::mem::size_of::<IpcRecvV2Desc>(), UserAccess::Read)?;
-    let mut raw = [0u8; core::mem::size_of::<IpcRecvV2Desc>()];
-    unsafe {
-        core::ptr::copy_nonoverlapping(desc_ptr as *const u8, raw.as_mut_ptr(), raw.len());
-    }
+    fill_recv_v2(ctx, args.get(0))?;
+    let out = recv_v2(&ctx.ipc()?, args.get(0));
+    locked(ctx, out)
+}
 
-    let magic = read_u32_le(&raw, 0)?;
-    let version = read_u32_le(&raw, 4)?;
-    if magic != IPC_RECV_V2_MAGIC || version != IPC_RECV_V2_VERSION {
-        return Err(AddressSpaceError::InvalidArgs.into());
+/// `ipc_recv_v2(desc_ptr)`.
+pub(super) fn recv_v2(ipc: &Ipc<'_>, desc_ptr: usize) -> IpcResult {
+    let mut raw = [0u8; DESC_BYTES];
+    if !ipc.read(desc_ptr, &mut raw) {
+        return Ok(Outcome::Locked);
     }
-    let slot = read_u32_le(&raw, 8)? as u32;
-    let header_out_ptr = read_u64_le(&raw, 16)? as usize;
-    let payload_out_ptr = read_u64_le(&raw, 24)? as usize;
-    let payload_out_max = read_u64_le(&raw, 32)? as usize;
-    let sender_service_id_out_ptr = read_u64_le(&raw, 40)? as usize;
-    let sys_flags = read_u32_le(&raw, 48)? as usize;
-    let deadline_ns = read_u64_le(&raw, 56)?;
-
-    // Validate pointers up-front (RFC-0004 style provenance): every out-buffer writable user
-    // memory, a lazy page committed before the recv can park (ADR-0077).
-    ensure_user_range(ctx, header_out_ptr, 16, UserAccess::Write)?;
-    // EINVAL, not E2BIG: an out-buffer larger than any possible message is a caller bug, not an
-    // oversize message (TASK-0054C P3b — E2BIG is the SEND-side answer).
-    if payload_out_max > crate::ipc::IPC_PAYLOAD_MAX {
-        return Err(AddressSpaceError::InvalidArgs.into());
-    }
-    if payload_out_max != 0 {
-        ensure_user_range(ctx, payload_out_ptr, payload_out_max, UserAccess::Write)?;
-    }
-    ensure_user_range(ctx, sender_service_id_out_ptr, 8, UserAccess::Write)?;
-
-    if (sys_flags & !(IPC_SYS_NONBLOCK | IPC_SYS_TRUNCATE)) != 0 {
-        return Err(AddressSpaceError::InvalidArgs.into());
-    }
-
-    // Derive endpoint.
-    let endpoint =
-        ctx.tasks.current_caps_mut().derive_endpoint_ref(slot as usize, Rights::RECV)?.endpoint();
+    let desc = Desc::decode(&raw)?;
+    let source = ipc.caps().pin_endpoint(desc.slot, Rights::RECV)?;
+    let endpoint = source.id();
     // The waitset EOF latch is consumed when the receiver OBSERVES an empty queue, never by
-    // dequeuing a frame (TASK-0054C P2-b; see `sys_ipc_recv_v1`).
-
-    let truncate = (sys_flags & IPC_SYS_TRUNCATE) != 0;
-    let nonblock = (sys_flags & IPC_SYS_NONBLOCK) != 0;
-    if !nonblock && deadline_ns != 0 {
-        crate::trap::arm_wakeup(ctx.timer, deadline_ns);
+    // dequeuing a frame (TASK-0054C P2-b; see the v1 receive).
+    if !desc.nonblock && desc.deadline_ns != 0 {
+        crate::trap::arm_wakeup(ipc.timer, desc.deadline_ns);
     }
-
-    let mut msg = loop {
-        match ctx.router.recv(endpoint) {
-            Ok(msg) => {
-                wake_after_recv(ctx, endpoint);
-                break msg;
-            }
-            Err(ipc::IpcError::QueueEmpty) if !nonblock => {
-                ctx.router.clear_eof_pending(endpoint);
-                if deadline_ns != 0 && ctx.timer.now() >= deadline_ns {
-                    return Err(Error::Ipc(ipc::IpcError::TimedOut));
-                }
-                let cur = ctx.tasks.current_pid();
-                ctx.router.register_recv_waiter(endpoint, cur.as_raw())?;
-                // Avoid missed-wakeup: re-check after registering.
-                match ctx.router.recv(endpoint) {
-                    Ok(msg) => {
-                        let _ = ctx.router.remove_recv_waiter(endpoint, cur.as_raw());
-                        wake_after_recv(ctx, endpoint);
-                        break msg;
-                    }
-                    Err(ipc::IpcError::QueueEmpty) => {}
-                    Err(e) => {
-                        let _ = ctx.router.remove_recv_waiter(endpoint, cur.as_raw());
-                        return Err(e.into());
-                    }
-                }
-                ctx.tasks
-                    .block_current(BlockReason::IpcRecv { endpoint, deadline_ns }, ctx.scheduler);
-                wake_expired_blocked(ctx);
-                if let Some(next) = ctx.scheduler.schedule_next() {
-                    ctx.tasks.set_current(next);
-                    return Err(Error::Reschedule);
-                }
-                // Nothing runnable on this hart: park it (legacy self-wake pre-runtime).
-                return Err(park_hart_or_self_wake(ctx, cur, |ctx| {
-                    let _ = ctx.router.remove_recv_waiter(endpoint, cur.as_raw());
-                }));
-            }
-            Err(e) => {
-                if matches!(e, ipc::IpcError::QueueEmpty) {
-                    ctx.router.clear_eof_pending(endpoint);
-                }
-                return Err(e.into());
-            }
-        }
-    };
-
-    // CAP_MOVE allocation (same semantics as v1).
-    if let Some(held) = msg.moved_cap.take() {
-        match ctx.tasks.current_caps_mut().try_allocate(held) {
-            Ok(slot) => {
-                msg.header.src = slot as u32;
-            }
-            Err((_, held)) => {
-                msg.moved_cap = Some(held);
-                let _ = ctx.router.requeue_front(endpoint, msg);
-                return Err(Error::Ipc(ipc::IpcError::NoSpace));
-            }
-        }
+    match take(ipc, endpoint, desc.nonblock, desc.deadline_ns, None)? {
+        Taken::Message(msg) => deliver(ipc, endpoint, msg, &desc.out),
+        Taken::Ended(outcome) => Ok(outcome),
     }
-
-    // Copy-out header.
-    let hdr = msg.header.to_le_bytes();
-    unsafe {
-        core::ptr::copy_nonoverlapping(hdr.as_ptr(), header_out_ptr as *mut u8, hdr.len());
-    }
-
-    // Copy-out sender service id (kernel-derived).
-    let sid = msg.sender_service_id.to_le_bytes();
-    unsafe {
-        core::ptr::copy_nonoverlapping(
-            sid.as_ptr(),
-            sender_service_id_out_ptr as *mut u8,
-            sid.len(),
-        );
-    }
-
-    let total = msg.payload.len();
-    if total == 0 || payload_out_max == 0 {
-        ctx.last_message = Some(msg);
-        return Ok(0);
-    }
-    if total > payload_out_max && !truncate {
-        return Err(AddressSpaceError::InvalidArgs.into());
-    }
-    let n = core::cmp::min(total, payload_out_max);
-    unsafe {
-        core::ptr::copy_nonoverlapping(msg.payload.as_ptr(), payload_out_ptr as *mut u8, n);
-    }
-    crate::ipc_stats::record_payload_copy(n);
-    ctx.last_message = Some(msg);
-    Ok(n)
 }

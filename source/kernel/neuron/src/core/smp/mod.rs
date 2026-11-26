@@ -31,6 +31,8 @@ mod lock_ping;
 mod masks;
 mod runtime;
 pub mod tlb;
+/// Where each hart last entered a space and last stopped running a task (evidence).
+pub(crate) mod trail;
 
 pub use masks::{cpu_idle, cpu_is_online, mark_cpu_idle};
 
@@ -69,6 +71,9 @@ pub struct HartLocal {
     /// sret path reads only this hart-local copy — no lock is ever held
     /// across a context switch.
     pub(crate) resume_frame: crate::trap::TrapFrame,
+    /// RFC-0102: the ranked locks this hart holds — what the rank check asks before a take.
+    #[cfg(any(debug_assertions, feature = "lock_rank_check"))]
+    pub(crate) ranks: crate::sync::lock_rank::Held,
 }
 
 const HART_LOCAL_MAGIC: usize = 0x6e78_6861_7274_6c6f; // "nxhartlo"
@@ -81,6 +86,8 @@ impl HartLocal {
         cpu_index: 0,
         magic: 0,
         resume_frame: crate::trap::TrapFrame::EMPTY,
+        #[cfg(any(debug_assertions, feature = "lock_rank_check"))]
+        ranks: crate::sync::lock_rank::Held::EMPTY,
     };
 }
 
@@ -135,7 +142,8 @@ pub fn size_for_machine() {
         .and_then(|()| crate::trap::fp::size(harts))
         .and_then(|()| crate::trap::size_hart_deadlines(harts))
         .and_then(|()| crate::trap::own_deadlines::size(harts))
-        .and_then(|()| crate::sched::size(harts));
+        .and_then(|()| crate::sched::size(harts))
+        .and_then(|()| crate::mm::frame_pool::size(harts));
     if let Err(error) = sized {
         log_error!(target: "smp", "KPANIC: smp slab harts={} ({:?})", harts, error);
         panic!("smp slab: per-hart state not sized");
@@ -192,6 +200,14 @@ fn resolve_cpu_id(tp_hint: Option<CpuId>, stack_cpu: Option<CpuId>) -> CpuId {
 
 fn hart_local_ptr(cpu: CpuId) -> *mut HartLocal {
     HART_LOCALS[cpu.as_index()].0.get()
+}
+
+/// The executing hart's held ranks (RFC-0102). The caller has its interrupts off and is the
+/// only one to touch them: a hart reads and writes its own block only.
+#[cfg(all(target_os = "none", any(debug_assertions, feature = "lock_rank_check")))]
+pub(crate) fn lock_ranks() -> *mut crate::sync::lock_rank::Held {
+    // SAFETY: the block is a static; the field's address is taken without a reference to it.
+    unsafe { core::ptr::addr_of_mut!((*hart_local_ptr(cpu_current_id())).ranks) }
 }
 
 /// Fills a hart's local block. Must happen strictly before that hart's trap

@@ -11,6 +11,7 @@
 //! TEST_COVERAGE: neuron host tests + QEMU marker gates (just test-os / ci-os-smp)
 //! ADR: docs/adr/0016-kernel-libs-architecture.md
 
+use super::ipc_ctx::{locked, Ipc, IpcResult, Outcome, Slept, Waits};
 use super::*;
 
 #[inline]
@@ -22,19 +23,17 @@ pub(super) fn map_timer_error(err: crate::timer::TimerError) -> Error {
     }
 }
 
-#[inline]
-pub(super) fn timer_id_from_cap(
-    ctx: &mut Context<'_>,
-    slot: usize,
-) -> Result<crate::timer::TimerId, Error> {
-    let cap = ctx.tasks.current_caps_mut().get(slot)?;
+/// The timer the caller's capability in `slot` names: `MANAGE`, and a timer the caller owns.
+/// The table is held for the one read; the timer's own check comes after it.
+fn timer_id_from_cap(ipc: &Ipc<'_>, slot: usize) -> Result<crate::timer::TimerId, Error> {
+    let cap = ipc.caps().get(slot)?;
     if !cap.rights.contains(Rights::MANAGE) {
         return Err(Error::Capability(CapError::PermissionDenied));
     }
     match cap.kind {
         CapabilityKind::Timer(id) => {
             let timer_id = crate::timer::TimerId(id);
-            if !ctx.hart_timers.owned_by(timer_id, ctx.tasks.current_pid().as_raw()) {
+            if !ipc.timers.owned_by(timer_id, ipc.me.as_raw()) {
                 return Err(Error::Capability(CapError::PermissionDenied));
             }
             Ok(timer_id)
@@ -43,21 +42,36 @@ pub(super) fn timer_id_from_cap(
     }
 }
 
+/// The endpoint `slot` names with any rights, pinned for a store of its id
+/// (`ipc_reclaim::stored`); a slot that names something else is `InvalidSlot`.
+fn pin_bound_endpoint(
+    ctx: &mut Context<'_>,
+    slot: usize,
+) -> Result<crate::cap::PinnedEndpoint, Error> {
+    ctx.tasks.current_caps_mut().pin_endpoint(slot, Rights::empty()).map_err(|err| match err {
+        // With no right asked for, a refusal is the kind's.
+        CapError::PermissionDenied => Error::Capability(CapError::InvalidSlot),
+        err => Error::Capability(err),
+    })
+}
+
 pub(super) fn sys_timer_create(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let notify_slot = args.get(0);
     let interval_ns = args.get(1) as u64;
-    let notify_cap = ctx.tasks.current_caps_mut().get(notify_slot)?;
-    let notify_ep = match notify_cap.kind {
-        CapabilityKind::Endpoint(id) => id,
-        _ => return Err(Error::Capability(CapError::InvalidSlot)),
-    };
+    let notify = pin_bound_endpoint(ctx, notify_slot)?;
     let timer_id = ctx
         .hart_timers
-        .alloc(ctx.tasks.current_pid().as_raw(), notify_ep, interval_ns)
+        .alloc(ctx.tasks.current_pid().as_raw(), notify.id(), interval_ns)
         .map_err(map_timer_error)?;
+    // A timer of a dead endpoint would fire into the slot's next tenant: its death freed it.
+    if !super::ipc_reclaim::stored(ctx.router, ctx.waitsets, ctx.hart_timers, &notify) {
+        return Err(Error::Ipc(ipc::IpcError::NoSuchEndpoint));
+    }
     let timer_cap = Capability { kind: CapabilityKind::Timer(timer_id.0), rights: Rights::MANAGE };
-    let caps = ctx.tasks.current_caps_mut();
-    match Held::plain(timer_cap).and_then(|held| caps.allocate(held)) {
+    // The table is held for the one change: the refusal's cleanup runs without its lock.
+    let installed =
+        Held::plain(timer_cap).and_then(|held| ctx.tasks.current_caps_mut().allocate(held));
+    match installed {
         Ok(slot) => Ok(slot),
         Err(err) => {
             let _ = ctx.hart_timers.free(timer_id);
@@ -67,21 +81,32 @@ pub(super) fn sys_timer_create(ctx: &mut Context<'_>, args: &Args) -> SysResult<
 }
 
 pub(super) fn sys_timer_set(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
-    let slot = args.get(0);
+    let out = timer_set(&ctx.ipc()?, args);
+    locked(ctx, out)
+}
+
+/// The timer set's body (TASK-0330 P4: the caller's table, then the timer table — each its
+/// own lock). Args: (timer_slot, deadline_ns).
+pub(super) fn timer_set(ipc: &Ipc<'_>, args: &Args) -> IpcResult {
     let deadline_ns = args.get(1) as u64;
-    let timer_id = timer_id_from_cap(ctx, slot)?;
+    let timer_id = timer_id_from_cap(ipc, args.get(0))?;
     // TASK-0363 P8: the timer is this hart's — it arms the wakeup, its own floor carries it.
     let cpu = crate::smp::cpu_current_id().as_index() as u32;
-    ctx.hart_timers.arm(timer_id, deadline_ns, cpu).map_err(map_timer_error)?;
-    crate::trap::arm_wakeup(ctx.timer, deadline_ns);
-    Ok(0)
+    ipc.timers.arm(timer_id, deadline_ns, cpu).map_err(map_timer_error)?;
+    crate::trap::arm_wakeup(ipc.timer, deadline_ns);
+    Ok(Outcome::Done(0))
 }
 
 pub(super) fn sys_timer_cancel(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
-    let slot = args.get(0);
-    let timer_id = timer_id_from_cap(ctx, slot)?;
-    ctx.hart_timers.disarm(timer_id).map_err(map_timer_error)?;
-    Ok(0)
+    let out = timer_cancel(&ctx.ipc()?, args);
+    locked(ctx, out)
+}
+
+/// The timer cancel's body. Args: (timer_slot).
+pub(super) fn timer_cancel(ipc: &Ipc<'_>, args: &Args) -> IpcResult {
+    let timer_id = timer_id_from_cap(ipc, args.get(0))?;
+    ipc.timers.disarm(timer_id).map_err(map_timer_error)?;
+    Ok(Outcome::Done(0))
 }
 
 /// Binds an external interrupt (PLIC source) to an endpoint the caller owns, so
@@ -103,15 +128,16 @@ pub(super) fn sys_irq_bind(ctx: &mut Context<'_>, args: &Args) -> SysResult<usiz
     if crate::hal::platform::console_irq() == Some(irq) {
         return Err(Error::Capability(CapError::PermissionDenied));
     }
-    let endpoint = match ctx.tasks.current_caps_mut().get(endpoint_slot)?.kind {
-        CapabilityKind::Endpoint(id) => id,
-        _ => return Err(Error::Capability(CapError::InvalidSlot)),
-    };
+    let endpoint = pin_bound_endpoint(ctx, endpoint_slot)?;
     let owner = ctx.tasks.current_pid();
     let home = ctx.tasks.current_task().home_cpu();
-    crate::irq::bind(irq, endpoint, owner, home)
-        .map(|_| 0)
-        .ok_or(Error::AddressSpace(AddressSpaceError::InvalidArgs))
+    let refused = || Error::AddressSpace(AddressSpaceError::InvalidArgs);
+    crate::irq::bind(irq, endpoint.id(), owner, home).ok_or_else(refused)?;
+    // A dead endpoint's line is released by its death, as if the bind had been refused.
+    if !super::ipc_reclaim::stored(ctx.router, ctx.waitsets, ctx.hart_timers, &endpoint) {
+        return Err(refused());
+    }
+    Ok(0)
 }
 
 /// `SYSCALL_CHILD_EXIT_BIND` (62, TASK-0333 6a): binds an endpoint the caller holds a SEND
@@ -122,14 +148,12 @@ pub(super) fn sys_irq_bind(ctx: &mut Context<'_>, args: &Args) -> SysResult<usiz
 /// (endpoint_slot); slot `usize::MAX` clears the binding. Only the caller's own binding.
 pub(super) fn sys_child_exit_bind(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let endpoint_slot = args.get(0);
+    // The binding holds the endpoint the capability named (`cap::PinnedEndpoint`), judged and
+    // held in one look at the slot: no death of it has to find the binding.
     let endpoint = if endpoint_slot == usize::MAX {
         None
     } else {
-        let cap = ctx.tasks.current_caps_mut().get(endpoint_slot)?;
-        match cap.kind {
-            CapabilityKind::Endpoint(id) if cap.rights.contains(Rights::SEND) => Some(id),
-            _ => return Err(Error::Capability(CapError::PermissionDenied)),
-        }
+        Some(ctx.tasks.current_caps_mut().pin_endpoint(endpoint_slot, Rights::SEND)?)
     };
     ctx.tasks.current_task_mut().set_exit_notify(endpoint);
     Ok(0)
@@ -147,12 +171,13 @@ pub(super) fn sys_mem_pressure_bind(ctx: &mut Context<'_>, args: &Args) -> SysRe
     if endpoint_slot == usize::MAX {
         return crate::mm::pressure_endpoint::unbind(pid).map(|()| 0).map_err(|_| denied());
     }
-    let cap = ctx.tasks.current_caps_mut().get(endpoint_slot)?;
-    let endpoint = match cap.kind {
-        CapabilityKind::Endpoint(id) if cap.rights.contains(Rights::SEND) => id,
-        _ => return Err(denied()),
-    };
-    crate::mm::pressure_endpoint::bind(endpoint, pid).map(|()| 0).map_err(|_| denied())
+    let endpoint = ctx.tasks.current_caps_mut().pin_endpoint(endpoint_slot, Rights::SEND)?;
+    crate::mm::pressure_endpoint::bind(endpoint.id(), pid).map_err(|_| denied())?;
+    // A dead endpoint would hold the sink with nobody to free it: its death cleared it.
+    if !super::ipc_reclaim::stored(ctx.router, ctx.waitsets, ctx.hart_timers, &endpoint) {
+        return Err(denied());
+    }
+    Ok(0)
 }
 
 /// Acknowledges a delivered IRQ so the PLIC re-arms it. The driver calls this
@@ -181,14 +206,14 @@ pub(super) fn map_waitset_error(err: crate::waitset::WaitsetError) -> Error {
 /// Resolves a waitset cap slot to its kernel-local id, enforcing ownership (RFC-0033).
 #[inline]
 pub(super) fn waitset_id_from_cap(
-    ctx: &mut Context<'_>,
+    ipc: &Ipc<'_>,
     slot: usize,
 ) -> Result<crate::waitset::WaitsetId, Error> {
-    let cap = ctx.tasks.current_caps_mut().get(slot)?;
+    let cap = ipc.caps().get(slot)?;
     match cap.kind {
         CapabilityKind::Waitset(id) => {
             let ws_id = crate::waitset::WaitsetId(id);
-            if !ctx.waitsets.owned_by(ws_id, ctx.tasks.current_pid().as_raw()) {
+            if !ipc.waitsets.owned_by(ws_id, ipc.me.as_raw()) {
                 return Err(Error::Capability(CapError::PermissionDenied));
             }
             Ok(ws_id)
@@ -208,8 +233,9 @@ pub(super) fn sys_waitset_create(ctx: &mut Context<'_>, _args: &Args) -> SysResu
     // the table so it can never take a low slot that init's deterministic
     // post-spawn wiring is about to install into (the policyd waitset
     // collision → capability-denied → init abort).
-    let caps = ctx.tasks.current_caps_mut();
-    match Held::plain(cap).and_then(|held| caps.allocate_high(held)) {
+    let installed =
+        Held::plain(cap).and_then(|held| ctx.tasks.current_caps_mut().allocate_high(held));
+    match installed {
         Ok(slot) => Ok(slot),
         Err(err) => {
             let _ = ctx.waitsets.free(ws_id);
@@ -227,14 +253,23 @@ pub(super) fn sys_waitset_create(ctx: &mut Context<'_>, _args: &Args) -> SysResu
 pub(super) fn sys_waitset_add(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let ws_slot = args.get(0);
     let ep_slot = args.get(1);
-    let ws_id = waitset_id_from_cap(ctx, ws_slot)?;
-    let caps = ctx.tasks.current_caps_mut();
-    if let Ok(endpoint) = caps.derive_endpoint_ref(ep_slot, Rights::RECV).map(|r| r.endpoint()) {
-        ctx.waitsets.add_member(ws_id, endpoint).map_err(map_waitset_error)?;
-        return Ok(0);
-    }
-    let endpoint = caps.derive_endpoint_ref(ep_slot, Rights::SEND)?.endpoint();
-    ctx.waitsets.arm_writable(ws_id, endpoint).map_err(map_waitset_error)?;
+    let ws_id = waitset_id_from_cap(&ctx.ipc()?, ws_slot)?;
+    // Each look at the table is its own hold: the waitset is changed without the table's lock.
+    // The endpoint is pinned for the store; a member of one that died meanwhile is dropped by
+    // its death (it would never be ready — and must not name the slot's next tenant).
+    let receiver = ctx.tasks.current_caps_mut().pin_endpoint(ep_slot, Rights::RECV);
+    let endpoint = match receiver {
+        Ok(endpoint) => {
+            ctx.waitsets.add_member(ws_id, endpoint.id()).map_err(map_waitset_error)?;
+            endpoint
+        }
+        Err(_) => {
+            let endpoint = ctx.tasks.current_caps_mut().pin_endpoint(ep_slot, Rights::SEND)?;
+            ctx.waitsets.arm_writable(ws_id, endpoint.id()).map_err(map_waitset_error)?;
+            endpoint
+        }
+    };
+    let _ = super::ipc_reclaim::stored(ctx.router, ctx.waitsets, ctx.hart_timers, &endpoint);
     Ok(0)
 }
 
@@ -251,7 +286,7 @@ fn member_ready(router: &ipc::Router, m: u32) -> bool {
 
 /// Registers `pid` on every member: a receiver's as a recv-waiter (a send wakes it), an armed
 /// sender's as a writable waiter (every receive that frees room wakes it).
-fn register_members(router: &mut ipc::Router, members: &[u32], pid: u32) {
+fn register_members(router: &ipc::Router, members: &[u32], pid: u32) {
     for &m in members {
         let ep = crate::waitset::member_endpoint(m);
         if !crate::waitset::member_writable(m) {
@@ -264,7 +299,7 @@ fn register_members(router: &mut ipc::Router, members: &[u32], pid: u32) {
 
 /// Clears `pid`'s registrations on every member (idempotent) — before a scan, after a ready
 /// report, on a deadline (`api::wake_expired_blocked`).
-pub(super) fn deregister_members(router: &mut ipc::Router, members: &[u32], pid: u32) {
+pub(super) fn deregister_members(router: &ipc::Router, members: &[u32], pid: u32) {
     for &m in members {
         let ep = crate::waitset::member_endpoint(m);
         if crate::waitset::member_writable(m) {
@@ -278,26 +313,27 @@ pub(super) fn deregister_members(router: &mut ipc::Router, members: &[u32], pid:
 /// A receive took a message from `endpoint` and freed room: the first parked sender wakes to
 /// retry its send (FIFO, one per receive), and every waitset waiting for room wakes to report
 /// its armed member (TASK-0339) — from a list apart, so it never takes the parked sender's wake.
-pub(crate) fn wake_after_recv(ctx: &mut Context<'_>, endpoint: ipc::EndpointId) {
-    if let Ok(Some(waiter)) = ctx.router.pop_send_waiter(endpoint) {
-        observe_wake_outcome(ctx.tasks.wake(task::Pid::from_raw(waiter), ctx.scheduler));
+pub(crate) fn wake_after_recv(router: &ipc::Router, endpoint: ipc::EndpointId) {
+    if let Ok(Some(waiter)) = router.pop_send_waiter(endpoint) {
+        super::ipc_ctx::wake(waiter);
     }
-    while let Some(waiter) = ctx.router.pop_writable_waiter(endpoint) {
-        observe_wake_outcome(ctx.tasks.wake(task::Pid::from_raw(waiter), ctx.scheduler));
+    while let Some(waiter) = router.pop_writable_waiter(endpoint) {
+        super::ipc_ctx::wake(waiter);
     }
 }
 
 /// The wait reports member `index`: a sender's arm is spent there (told once).
-fn report(
-    ctx: &mut Context<'_>,
-    ws_id: crate::waitset::WaitsetId,
-    m: &[u32],
-    index: usize,
-) -> usize {
+fn report(ipc: &Ipc<'_>, ws_id: crate::waitset::WaitsetId, m: &[u32], index: usize) -> IpcResult {
     if m.get(index).is_some_and(|&w| crate::waitset::member_writable(w)) {
-        ctx.waitsets.disarm(ws_id, index);
+        ipc.waitsets.disarm(ws_id, index);
     }
-    index
+    Ok(Outcome::Done(index))
+}
+
+/// The table's entry of the waitset wait (no user memory: the body as it is).
+pub(super) fn sys_waitset_wait(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let out = waitset_wait(&ctx.ipc()?, args);
+    locked(ctx, out)
 }
 
 /// `SYSCALL_WAITSET_WAIT` (40): block until any member is ready — a receiver's member has a
@@ -310,60 +346,59 @@ fn report(
 /// member; the first send to the former (`router.send → pop_recv_waiter`) or receive from the
 /// latter (`wake_after_recv`, which wakes the writable waiters beside the first parked sender)
 /// wakes it. A blocking send or receive is otherwise untouched.
-pub(super) fn sys_waitset_wait(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+pub(super) fn waitset_wait(ipc: &Ipc<'_>, args: &Args) -> IpcResult {
     let ws_slot = args.get(0);
     let deadline_ns = args.get(1) as u64;
-    let ws_id = waitset_id_from_cap(ctx, ws_slot)?;
+    let ws_id = waitset_id_from_cap(ipc, ws_slot)?;
 
     if deadline_ns != 0 {
-        crate::trap::arm_wakeup(ctx.timer, deadline_ns);
+        crate::trap::arm_wakeup(ipc.timer, deadline_ns);
     }
 
     // Snapshot the (bounded, ≤16) members into a stack buffer: no heap on the wait/block
-    // path, and it detaches the member list from `ctx` so the router can be borrowed freely.
+    // path, and the list is read under the waitset's lock once.
     let mut buf = [0u32; crate::waitset::MAX_WAITSET_MEMBERS];
-    let n = match ctx.waitsets.members(ws_id) {
-        Some(m) => {
-            buf[..m.len()].copy_from_slice(m);
-            m.len()
-        }
-        None => return Err(Error::Capability(CapError::InvalidSlot)),
+    let Some(n) = ipc.waitsets.members(ws_id, &mut buf) else {
+        return Err(Error::Capability(CapError::InvalidSlot));
     };
     let members = &buf[..n];
-    let cur = ctx.tasks.current_pid();
+    let me = ipc.me.as_raw();
+    let ready = || crate::waitset::first_ready(members, |m| member_ready(ipc.router, m));
 
-    // Clear any registrations left from a prior blocking round: when a peer woke us via
-    // one member, the *other* members still list us as a waiter. Idempotent on first entry.
-    // Guarantees we hold no member registrations whenever we return ready/timed-out.
-    deregister_members(ctx.router, members, cur.as_raw());
+    loop {
+        // Clear any registrations left from a prior blocking round: when a peer woke us via
+        // one member, the *other* members still list us as a waiter. Idempotent on first
+        // entry. Guarantees we hold no member registrations whenever we return ready or
+        // timed-out.
+        deregister_members(ipc.router, members, me);
 
-    // Level-ready scan: the first ready member wins.
-    if let Some(index) = crate::waitset::first_ready(members, |m| member_ready(ctx.router, m)) {
-        return Ok(report(ctx, ws_id, members, index));
-    }
-    if deadline_ns != 0 && ctx.timer.now() >= deadline_ns {
-        return Err(Error::Ipc(ipc::IpcError::TimedOut));
-    }
+        // Level-ready scan: the first ready member wins.
+        if let Some(index) = ready() {
+            return report(ipc, ws_id, members, index);
+        }
+        if deadline_ns != 0 && ipc.timer.now() >= deadline_ns {
+            return Err(Error::Ipc(ipc::IpcError::TimedOut));
+        }
 
-    // Register on every member, then re-scan once (a peer may have sent or received between
-    // the scan above and registration — the missed-wakeup guard, as in sys_ipc_recv_v1).
-    register_members(ctx.router, members, cur.as_raw());
-    if let Some(index) = crate::waitset::first_ready(members, |m| member_ready(ctx.router, m)) {
-        deregister_members(ctx.router, members, cur.as_raw());
-        return Ok(report(ctx, ws_id, members, index));
+        // Prepare, register on every member, then scan once more: a peer may have sent or
+        // received between the scan above and the registration — and one that does so from
+        // here on finds the thread preparing or blocked (ADR-0102).
+        ipc.prepare(BlockReason::Waitset { ws_id: ws_id.0, deadline_ns });
+        register_members(ipc.router, members, me);
+        if let Some(index) = ready() {
+            ipc.abort();
+            deregister_members(ipc.router, members, me);
+            return report(ipc, ws_id, members, index);
+        }
+        match ipc.sleep() {
+            Slept::Blocked => return Ok(Outcome::Blocked(Waits::Waitset(ws_id))),
+            Slept::Order => {
+                deregister_members(ipc.router, members, me);
+                return Ok(Outcome::Locked);
+            }
+            Slept::Woken => {}
+        }
     }
-
-    ctx.tasks.block_current(BlockReason::Waitset { ws_id: ws_id.0, deadline_ns }, ctx.scheduler);
-    wake_expired_blocked(ctx);
-    if let Some(next) = ctx.scheduler.schedule_next() {
-        ctx.tasks.set_current(next);
-        return Err(Error::Reschedule);
-    }
-    // Nothing else runnable on this hart: park it (legacy self-wake pre-runtime, where
-    // the idle loop re-drives us — mirrors the single-endpoint recv path).
-    Err(park_hart_or_self_wake(ctx, cur, |ctx| {
-        deregister_members(ctx.router, members, cur.as_raw());
-    }))
 }
 
 #[inline]
@@ -383,18 +418,18 @@ pub(super) fn map_fence_error(err: crate::fence::FenceError) -> Error {
 /// The table's `owner_pid` stays lifecycle-only (free/teardown).
 #[inline]
 pub(super) fn fence_id_from_cap(
-    ctx: &mut Context<'_>,
+    ipc: &Ipc<'_>,
     slot: usize,
     any_of: Rights,
 ) -> Result<crate::fence::FenceId, Error> {
-    let cap = ctx.tasks.current_caps_mut().get(slot)?;
+    let cap = ipc.caps().get(slot)?;
     if !cap.rights.intersects(any_of) {
         return Err(Error::Capability(CapError::PermissionDenied));
     }
     match cap.kind {
         CapabilityKind::Fence(id) => {
             let fence_id = crate::fence::FenceId(id);
-            if !ctx.fences.exists(fence_id) {
+            if !ipc.fences.exists(fence_id) {
                 return Err(Error::Capability(CapError::InvalidSlot));
             }
             Ok(fence_id)
@@ -414,8 +449,8 @@ pub(super) fn sys_fence_create(ctx: &mut Context<'_>, _args: &Args) -> SysResult
         kind: CapabilityKind::Fence(fence_id.0),
         rights: Rights::MANAGE | Rights::WAIT,
     };
-    let caps = ctx.tasks.current_caps_mut();
-    match Held::plain(cap).and_then(|held| caps.allocate(held)) {
+    let installed = Held::plain(cap).and_then(|held| ctx.tasks.current_caps_mut().allocate(held));
+    match installed {
         Ok(slot) => Ok(slot),
         Err(err) => {
             let _ = ctx.fences.free(fence_id);
@@ -429,18 +464,24 @@ pub(super) fn sys_fence_create(ctx: &mut Context<'_>, _args: &Args) -> SysResult
 /// every child of init holding the boot-stage fence — must not release a stage). Args:
 /// (fence_slot, value).
 pub(super) fn sys_fence_signal(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let out = fence_signal(&ctx.ipc()?, args);
+    locked(ctx, out)
+}
+
+/// The fence signal's body (TASK-0330 P2: the fence's lock, the waiters' records).
+pub(super) fn fence_signal(ipc: &Ipc<'_>, args: &Args) -> IpcResult {
     let slot = args.get(0);
     let value = args.get(1) as u64;
-    let fence_id = fence_id_from_cap(ctx, slot, Rights::MANAGE)?;
-    ctx.fences.signal(fence_id, value).map_err(map_fence_error)?;
+    let fence_id = fence_id_from_cap(ipc, slot, Rights::MANAGE)?;
+    ipc.fences.signal(fence_id, value).map_err(map_fence_error)?;
     // Wake satisfied waiters. Bounded stack buffer (no heap); any overflow is released by
     // the next signal. The woken tasks re-check `value >= target` on re-entry.
     let mut woken = [0u32; crate::fence::MAX_FENCE_WAITERS];
-    let n = ctx.fences.take_satisfied(fence_id, &mut woken);
+    let n = ipc.fences.take_satisfied(fence_id, &mut woken);
     for &pid in &woken[..n] {
-        observe_wake_outcome(ctx.tasks.wake(task::Pid::from_raw(pid), ctx.scheduler));
+        ipc.wake(pid);
     }
-    Ok(0)
+    Ok(Outcome::Done(0))
 }
 
 /// `SYSCALL_FENCE_WAIT` (43): block until the fence value reaches `target`. `deadline_ns == 0`
@@ -448,45 +489,54 @@ pub(super) fn sys_fence_signal(ctx: &mut Context<'_>, args: &Args) -> SysResult<
 /// deadline_ns). Additive: reuses `BlockReason::Fence` + `tasks.wake` (driven by
 /// `fence_signal`); the single-endpoint recv path is untouched.
 pub(super) fn sys_fence_wait(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let out = fence_wait(&ctx.ipc()?, args);
+    locked(ctx, out)
+}
+
+/// The fence wait's body (TASK-0330 P2: prepare → register → look again → sleep).
+pub(super) fn fence_wait(ipc: &Ipc<'_>, args: &Args) -> IpcResult {
     let slot = args.get(0);
     let target = args.get(1) as u64;
     let deadline_ns = args.get(2) as u64;
-    let fence_id = fence_id_from_cap(ctx, slot, Rights::WAIT | Rights::MANAGE)?;
+    let fence_id = fence_id_from_cap(ipc, slot, Rights::WAIT | Rights::MANAGE)?;
 
     if deadline_ns != 0 {
-        crate::trap::arm_wakeup(ctx.timer, deadline_ns);
+        crate::trap::arm_wakeup(ipc.timer, deadline_ns);
     }
-    let cur = ctx.tasks.current_pid();
+    let me = ipc.me.as_raw();
+    let satisfied = || ipc.fences.is_satisfied(fence_id, target) == Some(true);
 
-    // Clear any registration left from a prior blocking round (idempotent), so we hold no
-    // waiter entry whenever we return satisfied/timed-out.
-    ctx.fences.remove_waiter(fence_id, cur.as_raw());
+    loop {
+        // Clear any registration left from a prior blocking round (idempotent), so we hold
+        // no waiter entry whenever we return satisfied/timed-out.
+        ipc.fences.remove_waiter(fence_id, me);
 
-    if ctx.fences.is_satisfied(fence_id, target) == Some(true) {
-        return Ok(0);
-    }
-    if deadline_ns != 0 && ctx.timer.now() >= deadline_ns {
-        return Err(Error::Ipc(ipc::IpcError::TimedOut));
-    }
+        if satisfied() {
+            return Ok(Outcome::Done(0));
+        }
+        if deadline_ns != 0 && ipc.timer.now() >= deadline_ns {
+            return Err(Error::Ipc(ipc::IpcError::TimedOut));
+        }
 
-    // Register + recheck once (a signal may land between the check above and registration).
-    ctx.fences.register_waiter(fence_id, cur.as_raw(), target).map_err(map_fence_error)?;
-    if ctx.fences.is_satisfied(fence_id, target) == Some(true) {
-        ctx.fences.remove_waiter(fence_id, cur.as_raw());
-        return Ok(0);
+        // Prepare, register, look again (a signal may land between the check above and the
+        // registration; one that lands from here on finds the thread preparing or blocked).
+        ipc.prepare(BlockReason::Fence { fence_id: fence_id.0, target, deadline_ns });
+        if let Err(err) = ipc.fences.register_waiter(fence_id, me, target) {
+            ipc.abort();
+            return Err(map_fence_error(err));
+        }
+        if satisfied() {
+            ipc.abort();
+            ipc.fences.remove_waiter(fence_id, me);
+            return Ok(Outcome::Done(0));
+        }
+        match ipc.sleep() {
+            Slept::Blocked => return Ok(Outcome::Blocked(Waits::Fence(fence_id))),
+            Slept::Order => {
+                ipc.fences.remove_waiter(fence_id, me);
+                return Ok(Outcome::Locked);
+            }
+            Slept::Woken => {}
+        }
     }
-
-    ctx.tasks.block_current(
-        BlockReason::Fence { fence_id: fence_id.0, target, deadline_ns },
-        ctx.scheduler,
-    );
-    wake_expired_blocked(ctx);
-    if let Some(next) = ctx.scheduler.schedule_next() {
-        ctx.tasks.set_current(next);
-        return Err(Error::Reschedule);
-    }
-    // Nothing else runnable on this hart: park it (legacy self-wake pre-runtime).
-    Err(park_hart_or_self_wake(ctx, cur, |ctx| {
-        ctx.fences.remove_waiter(fence_id, cur.as_raw());
-    }))
 }

@@ -124,7 +124,9 @@ pub(super) fn phased_syscall(
         let value = match cleared {
             Ok(()) => {
                 drop(kernel);
-                crate::smp::tlb::shootdown_all();
+                // TASK-0330 P3: only the harts that may hold the caller's space are reached.
+                let space = crate::sched::record::get(pid).and_then(|rec| rec.space());
+                let _ = crate::smp::tlb::shootdown_of(space.map_or(0, |view| view.raw));
                 kernel = reacquire_kernel(nr);
                 let (scheduler, tasks, router, spaces, timer, hart_timers, waitsets, fences) =
                     kernel.parts();
@@ -180,9 +182,9 @@ pub(super) fn phased_syscall(
             (pid, api::vmo_clean_plan(&mut ctx, &args))
         };
         let value = match planned {
-            Ok(Some(job)) => {
+            Ok(Some(clean)) => {
                 drop(kernel);
-                crate::mm::vmo::clean::run(&job);
+                clean.run();
                 kernel = reacquire_kernel(nr);
                 0
             }
@@ -232,12 +234,12 @@ pub(super) fn phased_syscall(
             write_result(&mut kernel, errno);
             kernel
         }
-        Ok((id, slot_raw)) => {
+        Ok((born, slot_raw)) => {
             // Phase B: zero with the BKL dropped — other harts' syscalls
-            // (the UI hotpath) proceed while we memset. The object is owned
-            // by this syscall until phase C installs the cap.
+            // (the UI hotpath) proceed while we memset. The object is held
+            // by this syscall (its first capability) until phase C installs it.
             drop(kernel);
-            crate::mm::vmo::zero(id);
+            crate::mm::vmo::zero(born.0);
             // Phase C: re-acquire, install the cap, write the result.
             let mut kernel = reacquire_kernel(nr);
             let ret = {
@@ -253,7 +255,7 @@ pub(super) fn phased_syscall(
                     waitsets,
                     fences,
                 );
-                match api::vmo_create_finish(&mut ctx, id, slot_raw) {
+                match api::vmo_create_finish(&mut ctx, born, slot_raw) {
                     Ok(slot) => slot,
                     Err(err) => encode_error(err),
                 }

@@ -26,7 +26,6 @@
 //!     kernel mappings; a hart idling with a stale `satp` keeps running
 //!     kernel text, which is not part of any returned range.
 
-use crate::cap::Rights;
 use crate::image_allocs::ImageAllocs;
 use crate::sched::Scheduler;
 use crate::task::{Pid, TaskTable};
@@ -61,9 +60,9 @@ pub fn release_image(allocs: &ImageAllocs) -> usize {
 /// The kernel tables a death touches besides the task table and the router: the objects a
 /// task owns by pid (freed like a `cap_close` of each), handed to the funnel by every caller.
 pub struct ExitTables<'a> {
-    pub hart_timers: &'a mut crate::timer::HartTimers,
-    pub waitsets: &'a mut crate::waitset::WaitsetTable,
-    pub fences: &'a mut crate::fence::FenceTable,
+    pub hart_timers: &'a crate::timer::HartTimers,
+    pub waitsets: &'a crate::waitset::WaitsetTable,
+    pub fences: &'a crate::fence::FenceTable,
     /// ADR-0082: a thread of a dead process is released by its own exit (nobody waits for it).
     pub address_spaces: &'a mut crate::mm::AddressSpaceManager,
 }
@@ -72,9 +71,9 @@ impl ExitTables<'_> {
     /// The same tables for a nested funnel (a leader's exit killing its threads).
     pub fn reborrow(&mut self) -> ExitTables<'_> {
         ExitTables {
-            hart_timers: &mut *self.hart_timers,
-            waitsets: &mut *self.waitsets,
-            fences: &mut *self.fences,
+            hart_timers: self.hart_timers,
+            waitsets: self.waitsets,
+            fences: self.fences,
             address_spaces: &mut *self.address_spaces,
         }
     }
@@ -96,7 +95,7 @@ pub const OP_CHILD_EXITED: u8 = 0x31;
 /// server that died stayed blocked forever, which is why every client carried a timeout.
 pub fn exit_current_and_release(
     tasks: &mut TaskTable,
-    router: &mut crate::ipc::Router,
+    router: &crate::ipc::Router,
     scheduler: &mut Scheduler,
     tables: ExitTables<'_>,
     status: i32,
@@ -112,7 +111,7 @@ pub fn exit_current_and_release(
 /// whose leader is gone is released here, since nobody will ever wait for it.
 pub fn exit_task_and_release(
     tasks: &mut TaskTable,
-    router: &mut crate::ipc::Router,
+    router: &crate::ipc::Router,
     scheduler: &mut Scheduler,
     mut tables: ExitTables<'_>,
     exiting: Pid,
@@ -125,18 +124,22 @@ pub fn exit_task_and_release(
     // Every endpoint the table held a capability to, judged after the drop with one reading of
     // its header each (RFC-0102): the
     // receivers' EOF, the senders' `PeerClosed`, the reclaim.
+    // Pinned: the ids stay the endpoints' while a closer off the kernel lock drops beside it.
     let mut named = alloc::vec::Vec::new();
     if let Some(caps) = tasks.caps_of(exiting) {
-        caps.endpoint_ids_with(Rights::empty(), &mut named);
+        caps.endpoint_pins(&mut named);
     }
     // RFC-0005 lifecycle: the endpoints this task OWNED close with it, their waiters woken
     // (every exit path, not only the voluntary one — a fault kill left them alive before).
+    // Their headers are held from before the close to after the forget (`ipc_reclaim`).
     let mut owned = alloc::vec::Vec::new();
     router.owned_alive_ids(exiting.as_raw(), &mut owned);
+    let headers: alloc::vec::Vec<_> = owned.iter().map(|&id| router.held_counts(id)).collect();
     let mut woken = router.close_endpoints_for_owner(exiting.as_raw());
     for id in &owned {
-        super::ipc_reclaim::forget_dead(tasks, tables.waitsets, tables.hart_timers, *id);
+        super::ipc_reclaim::forget_dead(tables.waitsets, tables.hart_timers, *id);
     }
+    drop(headers);
     router.remove_waiter_from_all(exiting.as_raw());
     // The objects it owned by pid: a `cap_close` of each would free them; its death does.
     let timers = tables.hart_timers.free_owned_by(exiting.as_raw());
@@ -145,26 +148,18 @@ pub fn exit_task_and_release(
     woken.extend(fence_waiters);
     let allocs = tasks.exit_task(exiting, status, reason);
     let mut endpoints = 0usize;
-    for endpoint in named {
+    for pin in &named {
         endpoints += usize::from(super::eof_scan::judge_dropped(
-            tasks,
             router,
-            scheduler,
             tables.waitsets,
             tables.hart_timers,
-            endpoint,
+            pin.id(),
             "exit",
         ));
     }
+    drop(named);
     // What its endpoints still carried when they closed (RFC-0112): each a `cap_close`.
-    super::eof_scan::release_in_flight(
-        tasks,
-        router,
-        scheduler,
-        (tables.waitsets, tables.hart_timers),
-        tables.address_spaces,
-        "exit",
-    );
+    super::eof_scan::release_in_flight(router, tables.waitsets, tables.hart_timers, "exit");
     for pid in woken {
         observe_wake_outcome(tasks.wake(Pid::from_raw(pid), scheduler));
     }
@@ -209,7 +204,7 @@ pub fn exit_task_and_release(
 /// still reaps every zombie — the frame is a wake, the zombie table is the truth.
 fn notify_parent(
     tasks: &mut TaskTable,
-    router: &mut crate::ipc::Router,
+    router: &crate::ipc::Router,
     scheduler: &mut Scheduler,
     child: Pid,
     status: i32,
@@ -242,7 +237,7 @@ fn notify_parent(
 /// (`ExitReason::Fault`, cause = scause low byte or a synthetic ≥0xF0 code).
 pub fn exit_current_faulted(
     tasks: &mut TaskTable,
-    router: &mut crate::ipc::Router,
+    router: &crate::ipc::Router,
     scheduler: &mut Scheduler,
     tables: ExitTables<'_>,
     cause: u8,
@@ -276,7 +271,7 @@ pub fn exit_current_killed_in(ctx: &mut super::Context<'_>) {
 /// e.g. a SATP activation failure that makes the task unresumable).
 pub fn exit_current_killed(
     tasks: &mut TaskTable,
-    router: &mut crate::ipc::Router,
+    router: &crate::ipc::Router,
     scheduler: &mut Scheduler,
     tables: ExitTables<'_>,
 ) {

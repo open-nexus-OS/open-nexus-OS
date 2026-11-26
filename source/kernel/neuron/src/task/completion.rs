@@ -46,10 +46,18 @@ use crate::ipc_payload::REPLY_REGS;
 /// `BlockReason::IpcCall` and is completed in its frame by the peer; an
 /// `ipc_reply_recv` waiter blocks in `BlockReason::IpcRecv` and finishes its
 /// own receive when it re-executes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct CallState {
-    /// The endpoint this task now waits on.
-    pub wait_ep: crate::ipc::EndpointId,
+    /// The reply endpoint an `ipc_call` waits on (`None`: an `ipc_reply_recv`, whose receive
+    /// names its own). Held, not just named: the reply capability travelled with the request,
+    /// so the caller may wait with no capability to the endpoint — and its id must not go to
+    /// a new endpoint under it (TASK-0330 P2, `cap::PinnedEndpoint`).
+    pub reply: Option<crate::cap::PinnedEndpoint>,
+    /// When the call began and the hart it was made on (TASK-0330 P2): its completion records
+    /// the round trip for that hart (`ipc_stats::record_call_round_trip`). 0 for a reply's
+    /// commit.
+    pub started_ns: u64,
+    pub hart: u16,
 }
 
 /// Finishes a committed `ipc_call` in the caller's saved frame: advance past
@@ -69,22 +77,5 @@ pub fn complete_in_frame(
         for (i, value) in regs.iter().enumerate() {
             frame.x[11 + i] = *value;
         }
-    }
-}
-
-impl super::Task {
-    /// The committed `ipc_call` this task is waiting on, if any.
-    pub fn call_state(&self) -> Option<CallState> {
-        self.call_state
-    }
-
-    /// Records the commit point: from here the syscall is never re-executed.
-    pub fn set_call_state(&mut self, state: CallState) {
-        self.call_state = Some(state);
-    }
-
-    /// Consumes the commit record — the call is finished (answered, or dead).
-    pub fn take_call_state(&mut self) -> Option<CallState> {
-        self.call_state.take()
     }
 }

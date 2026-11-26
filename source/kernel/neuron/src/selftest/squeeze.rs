@@ -73,7 +73,9 @@ pub(super) fn record(
     id: u32,
 ) -> bool {
     let rw = (PageFlags::VALID | PageFlags::USER | PageFlags::READ | PageFlags::WRITE).bits();
-    spaces.get_mut(handle).is_ok_and(|s| s.va_space_mut().record_lazy(va, len, rw, id).is_ok())
+    spaces.get(handle).is_ok_and(|mut space| {
+        crate::mm::space_regions::record_lazy(&mut space, va, len, rw, id).is_ok()
+    })
 }
 
 fn order(
@@ -112,7 +114,7 @@ pub(in crate::selftest) fn run_squeeze_selftest(ctx: &mut Context<'_>) {
     let stranger = ctx.tasks.selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
     let reach = crate::dma_reach::DmaReach::ALL;
     let lazy = |len| vmo::create(len, vmo::VmoKind::Lazy, &reach);
-    let (Ok(own), Ok(shared), Ok(device), Ok(out)) =
+    let (Ok((own, f0)), Ok((shared, f1)), Ok((device, f2)), Ok((out, f3))) =
         (lazy(PAGES * PAGE_SIZE), lazy(PAGE_SIZE), lazy(PAGE_SIZE), lazy(PAGE_SIZE))
     else {
         return fail("create");
@@ -130,14 +132,17 @@ pub(in crate::selftest) fn run_squeeze_selftest(ctx: &mut Context<'_>) {
         && record(spaces, parent_as, OUT_VA, PAGE_SIZE, out)
         && spaces.attach(child_as, child).is_ok()
         && spaces.attach(parent_as, parent).is_ok();
+    // Named by their regions from here: the capabilities they were born with go.
+    drop((f0, f1, f2, f3));
     for (pid, handle) in [(child, child_as), (parent, parent_as)] {
         if let Some(task) = ctx.tasks.task_mut(pid) {
             task.address_space = Some(handle);
         }
     }
-    vmo::mark_device_named(device);
+    let _ = vmo::name_for_device(device);
     // The child's pages committed and mapped by the fault's own fill, then written.
-    let filled = ctx.address_spaces.get_mut(child_as).is_ok_and(|space| {
+    let filled = ctx.address_spaces.get(child_as).is_ok_and(|mut space| {
+        let space = &mut *space;
         (0..=NOISE).all(|i| populate::fill(space, OWN_VA + i * PAGE_SIZE, Access::Write).is_ok())
             && populate::fill(space, SHARED_VA, Access::Write).is_ok()
             && populate::fill(space, DEVICE_VA, Access::Write).is_ok()
@@ -215,12 +220,13 @@ pub(in crate::selftest) fn run_squeeze_selftest(ctx: &mut Context<'_>) {
     let unmapped = sys
         .address_spaces
         .get(child_as)
-        .is_ok_and(|space| (0..NOISE).all(|i| !mapped(space, i)) && mapped(space, NOISE));
+        .is_ok_and(|space| (0..NOISE).all(|i| !mapped(&space, i)) && mapped(&space, NOISE));
 
     // Every page back through the fault's fill: byte-exact, the store empty again.
     let inflated_before = vmo::squeeze::inflated();
-    let back = sys.address_spaces.get_mut(child_as).is_ok_and(|space| {
-        (0..=NOISE).all(|i| populate::fill(space, OWN_VA + i * PAGE_SIZE, Access::Read).is_ok())
+    let back = sys.address_spaces.get(child_as).is_ok_and(|mut space| {
+        (0..=NOISE)
+            .all(|i| populate::fill(&mut space, OWN_VA + i * PAGE_SIZE, Access::Read).is_ok())
     });
     let exact = (0..=NOISE).all(|i| {
         page_bytes(own, i)

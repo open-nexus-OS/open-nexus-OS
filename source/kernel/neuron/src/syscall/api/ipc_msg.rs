@@ -2,18 +2,19 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: IPC message-transfer syscalls split out of the former single-file
-//! api.rs: legacy sys_send/sys_recv, sys_ipc_send_v1 (incl. the CAP_MOVE
-//! take/rollback path), sys_ipc_recv_v1 and the descriptor-based
-//! sys_ipc_recv_v2 (sender identity metadata), plus their typed decoders.
+//! api.rs: legacy sys_send/sys_recv, the v1 send (incl. the CAP_MOVE
+//! take/rollback path) and the v1 receive, plus their typed decoders. Each v1
+//! syscall is one body over `ipc_ctx::Ipc` (TASK-0330 P2, ADR-0102) — run by the
+//! trap's entry before the kernel lock, and by the table's entry under it,
+//! which commits the caller's pages first.
 //! OWNERS: @kernel-team
 //! STATUS: Functional
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: neuron host tests + QEMU marker gates (just test-os / ci-os-smp)
 //! ADR: docs/adr/0016-kernel-libs-architecture.md
 
-use super::eof_scan::empty_queue_verdict;
+use super::ipc_ctx::{deliver, locked, take, Ipc, IpcResult, Out, Outcome, Slept, Taken, Waits};
 use super::*;
-use crate::ipc_eof::EmptyQueue;
 
 // Typed decoders for the Decode→Check→Execute syscall discipline
 
@@ -88,14 +89,21 @@ impl IpcSendV1ArgsTyped {
         })
     }
 
+    /// E2BIG, not EINVAL: "your message is too big" is not "you passed a bad pointer", and
+    /// userspace could not tell them apart before (TASK-0054C P3b, ADR-0054).
+    #[inline]
+    fn bound(&self) -> Result<(), Error> {
+        if self.payload_len > crate::ipc::IPC_PAYLOAD_MAX {
+            return Err(Error::Ipc(ipc::IpcError::TooBig));
+        }
+        Ok(())
+    }
+
+    /// Commits the pages the send reads (the locked entry, ADR-0077).
     #[inline]
     fn check(&self, ctx: &mut Context<'_>) -> Result<(), Error> {
         ensure_user_range(ctx, self.header_ptr, 16, UserAccess::Read)?;
-        if self.payload_len > crate::ipc::IPC_PAYLOAD_MAX {
-            // E2BIG, not EINVAL: "your message is too big" is not "you passed a bad pointer",
-            // and userspace could not tell them apart before (TASK-0054C P3b, ADR-0054).
-            return Err(Error::Ipc(ipc::IpcError::TooBig));
-        }
+        self.bound()?;
         if self.payload_len != 0 {
             ensure_user_range(ctx, self.payload_ptr, self.payload_len, UserAccess::Read)?;
         }
@@ -126,6 +134,7 @@ impl IpcRecvV1ArgsTyped {
         })
     }
 
+    /// Commits the pages the receive writes (the locked entry, ADR-0077).
     #[inline]
     fn check(&self, ctx: &mut Context<'_>) -> Result<(), Error> {
         ensure_user_range(ctx, self.header_out_ptr, 16, UserAccess::Write)?;
@@ -167,25 +176,41 @@ pub(super) fn sys_recv(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     Ok(len)
 }
 
-pub(super) fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
-    let typed = IpcSendV1ArgsTyped::decode(args)?;
-    typed.check(ctx)?;
+/// Commits the pages a v1 send with `args` reads (ADR-0077).
+pub(super) fn fill_send_v1(ctx: &mut Context<'_>, args: &Args) -> Result<(), Error> {
+    IpcSendV1ArgsTyped::decode(args)?.check(ctx)
+}
 
+/// The table's entry of the v1 send: the caller's pages committed, then the body.
+pub(super) fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    fill_send_v1(ctx, args)?;
+    let out = send_v1(&ctx.ipc()?, args);
+    locked(ctx, out)
+}
+
+/// `ipc_send_v1(slot, hdr_ptr, payload_ptr, payload_len, sys_flags, deadline_ns)`.
+pub(super) fn send_v1(ipc: &Ipc<'_>, args: &Args) -> IpcResult {
+    send(ipc, args, false)
+}
+
+/// The send. `lends`: it is a call's request — the receiver it wakes runs with the caller's
+/// time right until the caller runs again (`sched::loan`).
+pub(super) fn send(ipc: &Ipc<'_>, args: &Args, lends: bool) -> IpcResult {
+    let typed = IpcSendV1ArgsTyped::decode(args)?;
+    typed.bound()?;
     if (typed.sys_flags & !(IPC_SYS_NONBLOCK)) != 0 {
         return Err(AddressSpaceError::InvalidArgs.into());
     }
     let nonblock = (typed.sys_flags & IPC_SYS_NONBLOCK) != 0;
+    let me = ipc.me.as_raw();
 
-    let endpoint =
-        ctx.tasks.current_caps_mut().derive_endpoint_ref(typed.slot.0, Rights::SEND)?.endpoint();
+    // Held for the body's length: the id stays this endpoint's (`cap::PinnedEndpoint`).
+    let target = ipc.caps().pin_endpoint(typed.slot.0, Rights::SEND)?;
+    let endpoint = target.id();
 
     let mut hdr_bytes = [0u8; 16];
-    unsafe {
-        core::ptr::copy_nonoverlapping(
-            typed.header_ptr as *const u8,
-            hdr_bytes.as_mut_ptr(),
-            hdr_bytes.len(),
-        );
+    if !ipc.read(typed.header_ptr, &mut hdr_bytes) {
+        return Ok(Outcome::Locked);
     }
     let user_hdr = MessageHeader::from_le_bytes(hdr_bytes);
 
@@ -202,10 +227,12 @@ pub(super) fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
     }
 
     // The payload lands in whichever tier fits it: up to IPC_SHORT_MAX it rides inside the
-    // message and the kernel heap is never touched (TASK-0054C P3b). `check()` above proved the
-    // slice and the bound, which is exactly this call's safety contract.
-    let payload = unsafe {
-        ipc::Payload::copy_in_from_user(typed.payload_ptr as *const u8, typed.payload_len)
+    // message and the kernel heap is never touched (TASK-0054C P3b). Copied before anything of
+    // the sender's changes: a page not ready ends the body here.
+    let Some(payload) =
+        ipc::Payload::filled(typed.payload_len, |buf| ipc.read(typed.payload_ptr, buf))
+    else {
+        return Ok(Outcome::Locked);
     };
     if payload.is_heap() {
         crate::ipc_stats::record_payload_alloc(typed.payload_len);
@@ -220,65 +247,64 @@ pub(super) fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
 
     // Sender attribution: kernel sets `dst` to the sender PID so receivers can attribute messages.
     // `src` is reserved for CAP_MOVE return value on receive.
-    let header = MessageHeader::new(
-        0,
-        ctx.tasks.current_pid().as_raw(),
-        user_hdr.ty,
-        user_hdr.flags,
-        typed.payload_len as u32,
-    );
+    let header = MessageHeader::new(0, me, user_hdr.ty, user_hdr.flags, typed.payload_len as u32);
 
     if !nonblock && typed.deadline_ns != 0 {
-        crate::trap::arm_wakeup(ctx.timer, typed.deadline_ns);
+        crate::trap::arm_wakeup(ipc.timer, typed.deadline_ns);
     }
+    // The capability a refused attempt hands back returns to its slot.
+    let give_back = |msg: &mut ipc::Message| {
+        if let (Some(slot), Some(held)) = (cap_move_slot, msg.moved_cap.take()) {
+            let _ = ipc.caps().set(slot, held);
+        }
+    };
+    let mut payload = Some(payload);
     loop {
         // If CAP_MOVE is set, the capability leaves the slot for this attempt — judged where
         // it sits, taken only once it may travel. The capability itself moves (RFC-0102): its
         // kind and rights are what the sender held, and its object counts it the whole way.
         // If the attempt fails (QueueFull, NoSuchEndpoint, etc.) the message hands it back and
         // it returns to its slot before returning/rescheduling.
+        // Judged and taken under ONE hold of the table's lock: a thread of the same process on
+        // another hart cannot put a different capability into the slot between the two.
         let moved_cap = if let Some(slot) = cap_move_slot {
-            let cap = ctx.tasks.current_caps_mut().get(slot)?;
+            let mut caps = ipc.caps();
+            let cap = caps.get(slot)?;
             // Security floor: never allow moving MANAGE authority in-band.
             if cap.rights.contains(Rights::MANAGE) || cap.kind == CapabilityKind::EndpointFactory {
                 return Err(Error::Capability(CapError::PermissionDenied));
             }
             // Hardening: do not allow CAP_MOVE of dead/non-existent endpoints.
             if let CapabilityKind::Endpoint(id) = cap.kind {
-                if !ctx.router.endpoint_alive(id) {
+                if !ipc.router.endpoint_alive(id) {
                     return Err(Error::Ipc(ipc::IpcError::NoSuchEndpoint));
                 }
                 #[cfg(feature = "ipc_trace_ring")]
-                {
-                    crate::ipc::trace::record_capmove_send(
-                        ctx.tasks.current_pid().as_raw(),
-                        typed.slot.0 as u16,
-                        slot as u16,
-                        endpoint,
-                        id,
-                    );
-                }
+                crate::ipc::trace::record_capmove_send(
+                    me,
+                    typed.slot.0 as u16,
+                    slot as u16,
+                    endpoint,
+                    id,
+                );
             }
-            Some(ctx.tasks.current_caps_mut().take_held(slot)?)
+            Some(caps.take_held(slot)?)
         } else {
             None
         };
-        // The payload MOVES in (TASK-0054C P3a). It was cloned here "in case the attempt
-        // fails", but this loop has no `continue` and a failed send hands the whole `Message`
-        // back via `Err((IpcError, Message))` — the clone was half of the 2.000 allocations.
-        let mut msg = ipc::Message::new(header, payload, moved_cap);
-        msg.sender_service_id = ctx.tasks.current_service_id();
+        // The payload MOVES in (TASK-0054C P3a): a failed send hands the whole `Message` back
+        // via `Err((IpcError, Message))`, and a round that looks again takes it from there.
+        let mut msg = ipc::Message::new(header, payload.take().unwrap_or_default(), moved_cap);
+        msg.sender_service_id = ipc.rec.service_id();
         #[cfg(feature = "ipc_trace_ring")]
-        {
-            crate::ipc::trace::record_send(
-                ctx.tasks.current_pid().as_raw(),
-                typed.slot.0 as u16,
-                endpoint,
-                msg.header.flags,
-                msg.payload.len() as u16,
-                None,
-            );
-        }
+        crate::ipc::trace::record_send(
+            me,
+            typed.slot.0 as u16,
+            endpoint,
+            msg.header.flags,
+            msg.payload.len() as u16,
+            None,
+        );
         #[cfg(feature = "debug_uart")]
         {
             let p = msg.payload.as_slice();
@@ -288,19 +314,27 @@ pub(super) fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
                 let _ = writeln!(u, "IPC-SEND samgr reg ep=0x{:x}", endpoint);
             }
         }
-        match ctx.router.send_returning_message(endpoint, msg) {
+        match ipc.router.send_returning_message(endpoint, msg) {
             Ok(()) => {
                 crate::ipc_stats::record_send(crate::smp::cpu_current_id().as_index());
                 // Wake one receiver blocked on this endpoint (if any).
-                if let Ok(Some(waiter)) = ctx.router.pop_recv_waiter(endpoint) {
+                if let Ok(Some(waiter)) = ipc.router.pop_recv_waiter(endpoint) {
                     let pid = task::Pid::from_raw(waiter);
                     // A committed `ipc_call` waiter is finished HERE when the reply fits the
                     // return registers (TASK-0054C P4a); anything longer stays queued.
-                    super::ipc_call::complete_call_waiter_if_any(ctx, pid, endpoint);
+                    super::ipc_call::complete_call_waiter_if_any(
+                        ipc.router,
+                        pid,
+                        endpoint,
+                        ipc.timer.now(),
+                    );
                     let here = crate::smp::cpu_current_id();
-                    let cross = ctx.tasks.task(pid).is_some_and(|t| t.home_cpu() != here);
+                    let cross = crate::sched::record::get(pid).is_some_and(|r| r.home() != here);
                     crate::ipc_stats::record_recv_wake(cross);
-                    observe_wake_outcome(ctx.tasks.wake(pid, ctx.scheduler));
+                    if lends {
+                        crate::sched::loan::lend(ipc.me, pid);
+                    }
+                    ipc.wake(waiter);
                 }
                 // Low-noise triage: dump trace ring once on the first "large CAP_MOVE" send.
                 // This helps diagnose OTA stage hangs without relying on NoSuchEndpoint spam.
@@ -308,46 +342,44 @@ pub(super) fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
                 if cap_move && typed.payload_len > 1024 {
                     crate::ipc::trace::maybe_dump_capmove_big("capmove-big");
                 }
-                return Ok(typed.payload_len);
+                return Ok(Outcome::Done(typed.payload_len));
             }
             Err((ipc::IpcError::QueueFull, mut msg)) if !nonblock => {
                 // Roll back moved cap before blocking/rescheduling.
-                if let Some(slot) = cap_move_slot {
-                    if let Some(held) = msg.moved_cap.take() {
-                        let _ = ctx.tasks.current_caps_mut().set(slot, held);
-                    }
-                }
-                if typed.deadline_ns != 0 && ctx.timer.now() >= typed.deadline_ns {
+                give_back(&mut msg);
+                if typed.deadline_ns != 0 && ipc.timer.now() >= typed.deadline_ns {
                     return Err(Error::Ipc(ipc::IpcError::TimedOut));
                 }
-                let cur = ctx.tasks.current_pid();
+                ipc.prepare(BlockReason::IpcSend { endpoint, deadline_ns: typed.deadline_ns });
                 // IMPORTANT: if the endpoint is gone, do not block (would deadlock forever).
-                ctx.router.register_send_waiter(endpoint, cur.as_raw())?;
-                ctx.tasks.block_current(
-                    BlockReason::IpcSend { endpoint, deadline_ns: typed.deadline_ns },
-                    ctx.scheduler,
-                );
-                wake_expired_blocked(ctx);
-                if let Some(next) = ctx.scheduler.schedule_next() {
-                    ctx.tasks.set_current(next);
-                    return Err(Error::Reschedule);
+                if let Err(e) = ipc.router.register_send_waiter(endpoint, me) {
+                    ipc.abort();
+                    return Err(e.into());
                 }
-                // Nothing runnable on this hart: park it (legacy self-wake pre-runtime).
-                return Err(park_hart_or_self_wake(ctx, cur, |ctx| {
-                    let _ = ctx.router.remove_send_waiter(endpoint, cur.as_raw());
-                }));
+                // Room may have come between the refusal and the registration: look again
+                // before the commit (a receive wakes a parked sender only once it is listed).
+                if !ipc.router.writable(endpoint) {
+                    match ipc.sleep() {
+                        Slept::Blocked => return Ok(Outcome::Blocked(Waits::Send(endpoint))),
+                        Slept::Order => {
+                            let _ = ipc.router.remove_send_waiter(endpoint, me);
+                            return Ok(Outcome::Locked);
+                        }
+                        Slept::Woken => {}
+                    }
+                } else {
+                    ipc.abort();
+                }
+                let _ = ipc.router.remove_send_waiter(endpoint, me);
+                payload = Some(core::mem::take(&mut msg.payload));
             }
             Err((e, mut msg)) => {
                 // Roll back the moved cap on any error so the caller does not lose it.
-                if let Some(slot) = cap_move_slot {
-                    if let Some(held) = msg.moved_cap.take() {
-                        let _ = ctx.tasks.current_caps_mut().set(slot, held);
-                    }
-                }
+                give_back(&mut msg);
                 #[cfg(feature = "ipc_trace_ring")]
                 {
                     crate::ipc::trace::record_send(
-                        ctx.tasks.current_pid().as_raw(),
+                        me,
                         typed.slot.0 as u16,
                         endpoint,
                         msg.header.flags,
@@ -365,9 +397,7 @@ pub(super) fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
                     let _ = writeln!(
                         u,
                         "IPC-SEND nosuch ep=0x{:x} flags=0x{:x} capmove={}",
-                        endpoint,
-                        msg.header.flags,
-                        msg.moved_cap.is_some()
+                        endpoint, msg.header.flags, cap_move
                     );
                 }
                 return Err(e.into());
@@ -376,190 +406,48 @@ pub(super) fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
     }
 }
 
+/// The table's entry of the v1 receive: the caller's pages committed, then the body.
 pub(super) fn sys_ipc_recv_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
-    let typed = IpcRecvV1ArgsTyped::decode(args)?;
-    typed.check(ctx)?;
+    IpcRecvV1ArgsTyped::decode(args)?.check(ctx)?;
+    let out = recv_v1(&ctx.ipc()?, args);
+    locked(ctx, out)
+}
 
+/// `ipc_recv_v1(slot, hdr_out, payload_out, payload_out_max, sys_flags, deadline_ns)`.
+pub(super) fn recv_v1(ipc: &Ipc<'_>, args: &Args) -> IpcResult {
+    let typed = IpcRecvV1ArgsTyped::decode(args)?;
     if (typed.sys_flags & !(IPC_SYS_NONBLOCK | IPC_SYS_TRUNCATE | IPC_SYS_EOF)) != 0 {
         return Err(AddressSpaceError::InvalidArgs.into());
     }
-
-    let endpoint =
-        ctx.tasks.current_caps_mut().derive_endpoint_ref(typed.slot.0, Rights::RECV)?.endpoint();
-    // The waitset EOF latch (P7-d) is consumed below when the receiver OBSERVES an empty queue,
-    // never by dequeuing a frame (TASK-0054C P2-b): a peer that wrote and died leaves its frames
-    // AND the latch — clearing on the frame's receive left a waitset blind to the death.
-    let truncate = (typed.sys_flags & IPC_SYS_TRUNCATE) != 0;
+    let source = ipc.caps().pin_endpoint(typed.slot.0, Rights::RECV)?;
+    let endpoint = source.id();
+    // The waitset EOF latch (P7-d) is consumed when the receiver OBSERVES an empty queue, never
+    // by dequeuing a frame (TASK-0054C P2-b): a peer that wrote and died leaves its frames AND
+    // the latch — clearing on the frame's receive left a waitset blind to the death.
     let nonblock = (typed.sys_flags & IPC_SYS_NONBLOCK) != 0;
     let eof_opt = (typed.sys_flags & IPC_SYS_EOF) != 0;
     if !nonblock && typed.deadline_ns != 0 {
-        crate::trap::arm_wakeup(ctx.timer, typed.deadline_ns);
+        crate::trap::arm_wakeup(ipc.timer, typed.deadline_ns);
     }
-    let mut msg = loop {
-        match ctx.router.recv(endpoint) {
-            Ok(msg) => {
-                // Receiving frees queue capacity: wake one parked sender and the waitsets
-                // waiting for room (TASK-0339).
-                wake_after_recv(ctx, endpoint);
-                break msg;
-            }
-            Err(ipc::IpcError::QueueEmpty) if !nonblock => {
-                ctx.router.clear_eof_pending(endpoint);
-                if typed.deadline_ns != 0 && ctx.timer.now() >= typed.deadline_ns {
-                    return Err(Error::Ipc(ipc::IpcError::TimedOut));
-                }
-                let cur = ctx.tasks.current_pid();
-                // IMPORTANT: if the endpoint is gone, do not block (would deadlock forever).
-                ctx.router.register_recv_waiter(endpoint, cur.as_raw())?;
-                // Avoid missed-wakeup: a sender can enqueue between our empty check and waiter
-                // registration. Re-check once after registering; if a message is present, consume
-                // it without blocking.
-                match ctx.router.recv(endpoint) {
-                    Ok(msg) => {
-                        let _ = ctx.router.remove_recv_waiter(endpoint, cur.as_raw());
-                        wake_after_recv(ctx, endpoint);
-                        break msg;
-                    }
-                    Err(ipc::IpcError::QueueEmpty) => {
-                        // Proceed to block below — or EOF if opted-in and the
-                        // last sender is gone.
-                    }
-                    Err(e) => {
-                        let _ = ctx.router.remove_recv_waiter(endpoint, cur.as_raw());
-                        return Err(e.into());
-                    }
-                }
-                // RFC-0079 last-sender EOF (opt-in): the one host-tested verdict.
-                if empty_queue_verdict(ctx.router, endpoint, false, eof_opt)
-                    == EmptyQueue::PeerClosed
-                {
-                    let _ = ctx.router.remove_recv_waiter(endpoint, cur.as_raw());
-                    return Err(Error::Ipc(ipc::IpcError::PeerClosed));
-                }
-                ctx.tasks.block_current(
-                    BlockReason::IpcRecv { endpoint, deadline_ns: typed.deadline_ns },
-                    ctx.scheduler,
-                );
-                wake_expired_blocked(ctx);
-                if let Some(next) = ctx.scheduler.schedule_next() {
-                    ctx.tasks.set_current(next);
-                    return Err(Error::Reschedule);
-                }
-                // Nothing runnable on this hart: park it (legacy self-wake pre-runtime).
-                return Err(park_hart_or_self_wake(ctx, cur, |ctx| {
-                    let _ = ctx.router.remove_recv_waiter(endpoint, cur.as_raw());
-                }));
-            }
-            Err(e) => {
-                if matches!(e, ipc::IpcError::QueueEmpty) {
-                    // TASK-0333 6a: the verdict does not depend on the wait mode — a waitset
-                    // receiver (non-blocking after its wake) learns of its last peer's death
-                    // here, instead of consuming the latch and parking forever.
-                    let verdict = empty_queue_verdict(ctx.router, endpoint, true, eof_opt);
-                    ctx.router.clear_eof_pending(endpoint);
-                    if verdict == EmptyQueue::PeerClosed {
-                        return Err(Error::Ipc(ipc::IpcError::PeerClosed));
-                    }
-                }
-                return Err(e.into());
-            }
-        }
+    let msg = match take(ipc, endpoint, nonblock, typed.deadline_ns, Some(eof_opt))? {
+        Taken::Message(msg) => msg,
+        Taken::Ended(outcome) => return Ok(outcome),
     };
     #[cfg(feature = "ipc_trace_ring")]
-    {
-        crate::ipc::trace::record_recv(
-            ctx.tasks.current_pid().as_raw(),
-            typed.slot.0 as u16,
-            endpoint,
-            msg.header.flags,
-            msg.payload.len() as u16,
-            None,
-        );
-    }
-
-    // If the message carries a moved capability, allocate it into the receiver now and write the
-    // allocated slot into the returned header's `src` field.
-    // The capability arrives as the sender held it — its kind and rights are fixed (RFC-0102),
-    // nothing on the way rewrites which object it names.
-    if let Some(held) = msg.moved_cap.take() {
-        #[cfg(feature = "ipc_trace_ring")]
-        let moved_ep_for_trace: u32 = match held.cap().kind {
-            CapabilityKind::Endpoint(id) => id,
-            _ => 0,
-        };
-        #[cfg(feature = "debug_uart")]
-        {
-            use core::fmt::Write as _;
-            let mut u = crate::uart::raw_writer();
-            let mut cap_info = 0usize;
-            if let CapabilityKind::Endpoint(id) = held.cap().kind {
-                cap_info = id as usize;
-            }
-            let _ = writeln!(u, "IPC-CAPMOVE recv ep=0x{:x} cap_ep=0x{:x}", endpoint, cap_info);
-        }
-        match ctx.tasks.current_caps_mut().try_allocate(held) {
-            Ok(slot) => {
-                #[cfg(feature = "ipc_trace_ring")]
-                {
-                    crate::ipc::trace::record_capmove_alloc(
-                        ctx.tasks.current_pid().as_raw(),
-                        endpoint,
-                        slot as u32,
-                        moved_ep_for_trace,
-                    );
-                }
-                #[cfg(feature = "debug_uart")]
-                {
-                    use core::fmt::Write as _;
-                    let mut u = crate::uart::raw_writer();
-                    let _ = writeln!(u, "IPC-CAPMOVE recv slot=0x{:x}", slot);
-                }
-                msg.header.src = slot as u32;
-                // Low-noise triage: dump trace ring once on the first "large CAP_MOVE" receive
-                // after the capability has been allocated (so we can correlate with the sender dump).
-                #[cfg(feature = "ipc_trace_ring")]
-                if msg.header.len > 1024 {
-                    crate::ipc::trace::maybe_dump_capmove_big_recv("capmove-big-recv");
-                }
-            }
-            Err((_, held)) => {
-                #[cfg(feature = "debug_uart")]
-                {
-                    use core::fmt::Write as _;
-                    let mut u = crate::uart::raw_writer();
-                    let _ = writeln!(u, "IPC-CAPMOVE recv nospace");
-                }
-                // Roll back: receiver cannot accept a moved cap right now (e.g. no free cap slots).
-                // Re-queue the message and surface a stable syscall error (ENOSPC).
-                msg.moved_cap = Some(held);
-                let _ = ctx.router.requeue_front(endpoint, msg);
-                return Err(Error::Ipc(ipc::IpcError::NoSpace));
-            }
-        }
-    }
-
-    // Copy-out header (always).
-    let hdr = msg.header.to_le_bytes();
-    unsafe {
-        core::ptr::copy_nonoverlapping(hdr.as_ptr(), typed.header_out_ptr as *mut u8, hdr.len());
-    }
-
-    let total = msg.payload.len();
-    if total == 0 || typed.payload_out_max == 0 {
-        ctx.last_message = Some(msg);
-        return Ok(0);
-    }
-
-    if total > typed.payload_out_max && !truncate {
-        return Err(AddressSpaceError::InvalidArgs.into());
-    }
-
-    let n = core::cmp::min(total, typed.payload_out_max);
-    unsafe {
-        core::ptr::copy_nonoverlapping(msg.payload.as_ptr(), typed.payload_out_ptr as *mut u8, n);
-    }
-    crate::ipc_stats::record_payload_copy(n);
-
-    ctx.last_message = Some(msg);
-    Ok(n)
+    crate::ipc::trace::record_recv(
+        ipc.me.as_raw(),
+        typed.slot.0 as u16,
+        endpoint,
+        msg.header.flags,
+        msg.payload.len() as u16,
+        None,
+    );
+    let out = Out {
+        header_ptr: typed.header_out_ptr,
+        payload_ptr: typed.payload_out_ptr,
+        payload_max: typed.payload_out_max,
+        sender_ptr: None,
+        truncate: (typed.sys_flags & IPC_SYS_TRUNCATE) != 0,
+    };
+    deliver(ipc, endpoint, msg, &out)
 }

@@ -33,10 +33,11 @@ pub const FAULT: usize = SYSCALLS + 3;
 pub const IDLE: usize = SYSCALLS + 4;
 /// Every other taker (a phased syscall's re-take, a pending order, a cache right).
 pub const OTHER: usize = SYSCALLS + 5;
-/// A secondary hart's scheduling loop with nothing of its own: the steal and a stashed line.
-pub const IDLE_STEAL: usize = SYSCALLS + 6;
-/// The boot hart's scheduling loop with nothing of its own: the steal and the deliveries
-/// (expired timers, interrupts, memory pressure, the deadline walk).
+/// A secondary hart's scheduling loop with nothing of its own and something due: a stashed
+/// line, a deadline or a timer cap reached (its steal takes no kernel lock, TASK-0330 P4).
+pub const IDLE_DUE: usize = SYSCALLS + 6;
+/// The boot hart's scheduling loop with nothing of its own: the deliveries (expired timers,
+/// interrupts, memory pressure, the deadline walk).
 pub const IDLE_DELIVER: usize = SYSCALLS + 7;
 const HOLDERS: usize = SYSCALLS + 8;
 
@@ -77,7 +78,7 @@ pub const fn group_of(id: usize) -> Group {
         IPI => Group::Ipi,
         EXTERNAL => Group::External,
         FAULT => Group::Fault,
-        IDLE | IDLE_STEAL | IDLE_DELIVER => Group::Idle,
+        IDLE | IDLE_DUE | IDLE_DELIVER => Group::Idle,
         _ => Group::Misc,
     }
 }
@@ -126,7 +127,7 @@ pub fn reset(now: u64) {
     DELIVER_TICKS.iter().for_each(|ticks| ticks.store(0, Ordering::Relaxed));
 }
 
-/// Holder `id`'s microseconds and takes in this window (`IDLE`, `IDLE_STEAL`, …).
+/// Holder `id`'s microseconds and takes in this window (`IDLE`, `IDLE_DUE`, …).
 pub fn holder(id: usize, ticks_per_us: u64) -> (u64, usize) {
     let slot = if id < HOLDERS { id } else { OTHER };
     (
@@ -186,7 +187,7 @@ mod tests {
         assert_eq!(group_of(44), Group::Misc, "console write");
         assert_eq!(group_of(FAULT), Group::Fault);
         assert_eq!(group_of(IDLE), Group::Idle);
-        assert_eq!(group_of(IDLE_STEAL), Group::Idle, "the idle loop's parts stay one group");
+        assert_eq!(group_of(IDLE_DUE), Group::Idle, "the idle loop's parts stay one group");
         assert_eq!(group_of(IDLE_DELIVER), Group::Idle);
         assert_eq!(group_of(OTHER), Group::Misc);
         assert_eq!(group_of(usize::MAX), Group::Misc);
@@ -216,7 +217,7 @@ mod tests {
 
         // The idle loop's parts: per holder, one group; the delivery's parts by their own clock.
         record(IDLE_DELIVER, 1_500, 30);
-        record(IDLE_STEAL, 1_600, 5);
+        record(IDLE_DUE, 1_600, 5);
         assert_eq!(holder(IDLE_DELIVER, 1), (30, 1));
         assert_eq!(by_group(1).0[Group::Idle as usize], 35);
         record_deliver(DeliverPart::DeadlineWalk, 1_500, 20);

@@ -134,6 +134,7 @@ help:
     @echo "  just ci-os-many-windows  # twelve windows from the launcher in one frame, then the compositor's restart: all twelve back"
     @echo "  just ci-os-many-apps     # forty launches from the launcher: the apps' number is bounded by memory, not a table (ADR-0093)"
     @echo "  just ci-os-smp           # SMP=2 real-parallelism lane (MTTCG, bounded retry; CI coverage)"
+    @echo "  just ci-os-smp8          # eight harts with the lock rank check: the IPC paths off the kernel lock race (RFC-0102)"
     @echo "  just test-mmio           # run QEMU until MMIO phase is complete"
     @echo "  just ci-os-dhcp           # QEMU smoke with DHCP requested (deterministic fallback allowed)"
     @echo "  just ci-os-dhcp-strict    # QEMU smoke with strict DHCP gate (requires net: dhcp bound)"
@@ -460,6 +461,20 @@ ci-os-ota-backstops:
     just test-os ota-tamper
     just test-os ota-downgrade
     just test-os ota-fallback
+
+# TASK-0330 P7: a kernel that faults says where, and the words survive the reset — two boots
+# in one uart on two harts. The kernel is built with the proof fixture (the profile passes
+# `selftest_kernel_fault`); the next OS build without it rebuilds the ordinary kernel and
+# repacks the boot payload — run one before `just board-image` (a kernel with the fixture
+# says so at boot: `KSELFTEST: kernel fault fixture armed`).
+ci-os-kfault:
+    just test-os kfault
+
+# TASK-0330 P2 (RFC-0102): the lock-order stress lane — eight harts, the kernel built with the
+# rank check (the profile passes `lock_rank_check`). The next OS build without it rebuilds the
+# ordinary kernel — run one before `just board-image`.
+ci-os-smp8:
+    RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-600s} just test-os smp8
 
 # SMP=2 REAL-PARALLELISM lane (MTTCG, icount impossible — it forces
 # single-threaded round-robin vCPUs and would kill the cpu1/per-hart/IPI

@@ -5,7 +5,7 @@ role: reference
 subsystem: kernel
 sources: [source/kernel/neuron/src/sched, source/kernel/neuron/src/task/wake.rs, source/kernel/neuron/src/core/trap/baseline.rs, source/libs/nexus-sched/src/time_right.rs]
 contracts: [RFC-0120, RFC-0021, ADR-0052, ADR-0096, ADR-0101]
-verified: 2026-11-18
+verified: 2026-11-25
 ---
 
 <!-- Copyright 2026 Open Nexus OS Contributors -->
@@ -93,7 +93,7 @@ admitted against the hart's capacity (80 %; the fair class keeps the rest).
   and only made coarser. A right fills at most `total / grain` of the kernel's slots — an app
   cannot fill the table with crumbs.
 
-Markers: `KSELFTEST: sched time right ok (budgets= of_us= ran_us= periods= missed= stalled=)` —
+Markers: `KSELFTEST: sched time right ok (budgets= of_us= ran_us= periods= missed= stalled= outside_us=)` —
 a holder of a fifth of the boot hart every 2 ms, against a hog of eight times its weight, runs a
 hundred budgets in full, misses no period (but those a measured stall of the host covered), and
 the books balance after unbind and revoke. `KSELFTEST: test_reject_time_right_claim_by_stranger
@@ -119,9 +119,10 @@ there; else on a free hart its affinity allows, home's cluster first — that ha
 home. A hart chosen a moment ago is not free until it looks (its wake hint), so a burst of wakes
 spreads. Marker: `KSELFTEST: sched spread ok`.
 
-A steal (`run_queue::steal`) takes at most one task per look, never above the thief's class nor
-against affinity; a task the thief may not run is parked at the front of its home hart's queue
-(ADR-0052). Markers: `KSELFTEST: work stealing ok`, `steal park ok`,
+A steal (`run_queue::steal`, `Scheduler::steal_here`) takes at most one task per look, never
+above the thief's class nor against affinity; a task the thief may not run is parked at the
+front of its home hart's queue (ADR-0052). It takes no kernel lock (ADR-0100): the thief holds
+its own queues, tries its victim's, and the task arrives as its running task in that hold. Markers: `KSELFTEST: work stealing ok`, `steal park ok`,
 `test_reject_steal_above_bound ok`, `test_reject_steal_higher_qos ok`.
 
 ## The meter
@@ -145,7 +146,20 @@ of it charged to tasks; the rest is the idle loop awake (its walks, steals and d
 waits above 1 ms attributed (`late_idle`, `late_lower`, `late_peer`; `sched/ready_stats.rs`).
 `class=reserved` is the lane of the dispatches from a reservation's budget; `le200us` of `n` is
 what a time right's holder is judged by (99 of 100).
-`KINIT: time rights (window_ms= reserved_max_pm= at= overruns= misses=)` — the most any hart has
-reserved, and the window's overruns and misses.
+`KINIT: time rights (window_ms= reserved_max_pm= at= overruns= misses= lent=)` — the most any
+hart has reserved, the window's overruns and misses, and the calls that lent their caller's
+right to the server they woke.
+
+**A call lends the caller's time right** (`sched/loan.rs`, ADR-0102). A caller that runs with a
+reservation lends it to the thread its `ipc_call` wakes, if that thread holds none and may run
+on the reservation's hart: the word is written before the wake, so the server is placed there,
+arrives with the reservation's deadline and what is left of its budget, and is charged to it.
+Nothing is admitted — one reservation, one thread running with it. The loan ends when the
+lender is woken (the reply) or its call returns, when the borrower waits for anything but the
+answer to a call of its own, when either exits, or when the lender's reservation changes; a
+server that calls on lends what it runs with, and taking back follows the chain. A server that
+was not waiting when the request arrived borrows nothing. Markers:
+`KSELFTEST: time right loan ok (budgets= of_us= ran_us= after_return= lent=)`,
+`KSELFTEST: test_reject_time_right_loan ok`.
 `KINIT: yield top` — the three tasks that yield most (`sched/yield_stats.rs`). Both print at the
 boot-end fence and in the observer's 10 s windows (`core/trap/baseline.rs`).

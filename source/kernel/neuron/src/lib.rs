@@ -379,7 +379,7 @@ mod cpu_main;
 mod determinism;
 #[cfg(target_os = "none")]
 mod hal;
-#[cfg(target_os = "none")]
+#[cfg(any(target_os = "none", test))] // on the host for the router's own tests
 mod ipc;
 #[cfg(target_os = "none")]
 #[path = "core/irq.rs"]
@@ -418,16 +418,16 @@ mod waitset;
 // TASK-0362 P1 (RFC-0119): a thread's floating-point registers — the pure rules, host-tested.
 #[path = "core/trap/fp_rule.rs"]
 pub mod fp_rule;
-// RFC-0033: timeline fence table — host-testable for the same reason as `waitset` (pure
-// `alloc` + raw u64 value / u32 ids). See `docs/testing/README.md`.
+// RFC-0033: the timeline fence table — host-tested like `waitset`.
 mod fence;
-// RFC-0075 8e: per-task process-image arena bookkeeping (pure usize ranges, host-unit-tested):
-// `exec` records the blocks, task teardown returns them to the frame pool.
+// RFC-0075 8e: a process image's blocks (pure ranges, host-tested): recorded by `exec`, freed at teardown.
 mod image_allocs;
-// TASK-0286 M1 P1 (RFC-0098 C4): the page-frame allocator — pure index logic over a boxed
-// bitmap, host-tested; `#[path]`: `mod mm` is riscv/none-only; `pub` like `va_space`.
+// TASK-0286 M1 P1 (RFC-0098 C4): the page-frame allocator's pure index logic, host-tested.
 #[path = "mm/frames/mod.rs"]
 pub mod frames;
+// TASK-0330 P2 (ADR-0102): the lock-free walk a user copy translates with — pure, host-tested.
+#[path = "mm/user_walk.rs"]
+mod user_walk;
 // Which space each hart's `satp` names (a space a hart runs on is never freed) — a pure table,
 // NOT target-gated so the host tests run it; the switch in the same file is riscv-only.
 #[path = "mm/hart_spaces.rs"]
@@ -484,8 +484,7 @@ pub mod irq_route;
 // TASK-0330 S0: the kernel lock's wait/hold accounting, host-tested; fed by `trap::budgets`.
 #[path = "core/trap/lock_stats.rs"]
 mod lock_stats;
-// TASK-0330 P0: where the kernel lock's time goes (per holder, in sum) and how long a runnable
-// task waits for a hart (per class) — host-tested; fed by `KernelGuard` and the dispatch.
+// TASK-0330 P0: where the kernel lock's time goes, per holder — host-tested; fed by `KernelGuard`.
 #[path = "core/trap/lock_share.rs"]
 mod lock_share;
 #[path = "sched/ready_stats.rs"]
@@ -499,11 +498,12 @@ pub mod placement;
 // TASK-0363 P0: who yields, per task — host-tested; fed by the yield syscall.
 #[path = "sched/yield_stats.rs"]
 mod yield_stats;
-// TASK-0333 6c-1a (ADR-0079): the pure cache-maintenance rule, host-tested (`trap::cache_right`).
+// The pure rules of `trap::cache_right` (ADR-0079) and `trap::fatal` (TASK-0330 P7), host-tested.
 #[path = "core/trap/cbo_rule.rs"]
 mod cbo_rule;
-// TASK-0330 S2b: the serial line's cursor in the console ring — NOT target-gated, so its order
-// and lap rule run on host. Owned by `hal::console_queue` on the target.
+#[path = "core/trap/fatal_rule.rs"]
+mod fatal_rule;
+// TASK-0330 S2b: the serial line's cursor in the console ring — host-tested (`hal::console_queue`).
 mod console_tx;
 // TASK-0054C P3b (RFC-0096): the payload tiers and the two ABI bounds — host-tested like `ipc_stats`.
 #[path = "ipc/payload.rs"]

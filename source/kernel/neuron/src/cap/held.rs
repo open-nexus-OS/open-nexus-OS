@@ -22,6 +22,8 @@
 //!   - A counted kind (endpoint, memory object) comes into being only at its header (`mint`)
 //!     or from a `Held` of the same object; `plain` refuses it — never from a number.
 //!   - A header's counts equal the `Held` that exist.
+//!   - A memory object's count of mappers equals the `Mapped` that exist (one per address
+//!     space that maps it, `space_maps.rs`); a `Mapped` comes into being only at the header.
 //!
 //! RFC: docs/rfcs/RFC-0102-smp-lock-decomposition-lock-classes-ranks-and-budgets.md
 
@@ -53,6 +55,10 @@ pub struct HeldCounts {
     /// Send capabilities sitting in the owner's own table — the base it clones a reply
     /// capability from.
     owner_send: AtomicU32,
+    /// Address spaces that map the memory object, and those that hold a writable region of
+    /// it (TASK-0330 P3): what the reclaim, the seal and the squeeze asked every space.
+    mapped: AtomicU32,
+    mapped_writable: AtomicU32,
 }
 
 impl HeldCounts {
@@ -71,6 +77,8 @@ impl HeldCounts {
             send: AtomicU32::new(0),
             recv: AtomicU32::new(0),
             owner_send: AtomicU32::new(0),
+            mapped: AtomicU32::new(0),
+            mapped_writable: AtomicU32::new(0),
         }))
     }
 
@@ -105,6 +113,31 @@ impl HeldCounts {
             )),
             Counted::Endpoint(_) => None,
         }
+    }
+
+    /// One more address space maps the memory object, holding a writable region of it or not
+    /// — the object's own door, like `mint`: only the memory-object table takes it, in the
+    /// hold that judged the object's state. `None` for an endpoint: nothing maps one.
+    pub fn map(self: &Arc<Self>, writable: bool) -> Option<Mapped> {
+        match self.object {
+            Counted::Vmo { .. } => {
+                self.mapped.fetch_add(1, Ordering::AcqRel);
+                let mut mapped = Mapped { counts: self.clone(), writable: false };
+                mapped.set_writable(writable);
+                Some(mapped)
+            }
+            Counted::Endpoint(_) => None,
+        }
+    }
+
+    /// Address spaces that map the memory object.
+    pub fn mapped(&self) -> usize {
+        self.mapped.load(Ordering::Acquire) as usize
+    }
+
+    /// Those that hold a writable region of it.
+    pub fn mapped_writable(&self) -> usize {
+        self.mapped_writable.load(Ordering::Acquire) as usize
     }
 
     /// Capabilities held to the object, in a table or in a message.
@@ -150,6 +183,49 @@ impl fmt::Debug for HeldCounts {
             .field("foreign_senders", &self.foreign_senders())
             .field("receivers", &self.receivers())
             .finish()
+    }
+}
+
+/// One address space's mapping of a memory object — or one copy in flight through its pages
+/// (`vmo_write`, `vmo_read`) — counted at the object's header. It comes into being at the
+/// header (`HeldCounts::map`), is neither copied nor cloned, and its drop counts it off — so
+/// the object's count equals those that reach its frames, with no path keeping it by hand.
+pub struct Mapped {
+    counts: Arc<HeldCounts>,
+    writable: bool,
+}
+
+impl Mapped {
+    /// Whether the space holds a writable region of the object.
+    pub fn is_writable(&self) -> bool {
+        self.writable
+    }
+
+    /// The space gained its first writable region of the object (`on`), or lost its last.
+    /// Gaining one is the object table's to allow (`mm::vmo::mapping`); losing one is not.
+    pub fn set_writable(&mut self, on: bool) {
+        if on == self.writable {
+            return;
+        }
+        if on {
+            self.counts.mapped_writable.fetch_add(1, Ordering::AcqRel);
+        } else {
+            self.counts.mapped_writable.fetch_sub(1, Ordering::AcqRel);
+        }
+        self.writable = on;
+    }
+}
+
+impl Drop for Mapped {
+    fn drop(&mut self) {
+        self.set_writable(false);
+        self.counts.mapped.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+impl fmt::Debug for Mapped {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Mapped").field("writable", &self.writable).finish()
     }
 }
 
@@ -241,6 +317,24 @@ impl Held {
             }
             self.in_owner_table = false;
         }
+    }
+}
+
+/// A capability that was dropped — counted off — with its object's header still held. An
+/// endpoint's id goes to no new endpoint while anybody holds its header (`ipc::lifetime`), so
+/// whoever judges what the drop left of the object judges that object, with no kernel lock
+/// between the drop and the judgement (TASK-0330 P4).
+pub struct Dropped {
+    /// What was dropped: kind and rights.
+    pub cap: Capability,
+    _header: Option<Arc<HeldCounts>>,
+}
+
+impl Held {
+    /// Drops this capability and keeps its object's header for the judgement after it.
+    #[must_use = "the header is what keeps the id the object's during the judgement"]
+    pub fn dropped(self) -> Dropped {
+        Dropped { cap: self.cap, _header: self.counts.clone() }
     }
 }
 

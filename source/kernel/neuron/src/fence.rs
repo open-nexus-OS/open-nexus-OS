@@ -23,8 +23,13 @@
 //! (`BlockReason::Fence` + `tasks.wake`); that integration is proven at boot by the QEMU
 //! selftest. The waiter list is the only state the fence owns directly — it is **bounded**.
 //!
+//! LOCKING (TASK-0330 P2, ADR-0102): each fence sits behind its own lock (`sync::slot_table`,
+//! class `ipc`); the table's methods take `&self`. The pids a signal satisfies are copied out
+//! and woken without the fence's lock.
+//!
 //! INVARIANTS:
 //! - Monotonic: `value` never decreases; `signal(v)` with `v <= value` is a no-op.
+//! - An id whose fence was freed names nothing, also once its slot holds another fence.
 //! - Bounded: at most `MAX_FENCES` live fences and `MAX_FENCE_WAITERS` waiters per fence;
 //!   over-limit → `ResourceExhausted`, deterministic, no partial state.
 //! - One waiter per pid: re-registering a pid replaces its target (no duplicate wakes).
@@ -36,9 +41,11 @@
 #![cfg_attr(not(target_os = "none"), allow(dead_code))]
 
 extern crate alloc;
-use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use core::fmt;
+
+use crate::sync::lock_rank::Class;
+use crate::sync::slot_table::SlotTable;
 
 /// Maximum number of concurrent fences (matches the timer/waitset table bound).
 pub(crate) const MAX_FENCES: usize = 64;
@@ -77,38 +84,23 @@ struct FenceEntry {
     waiters: Vec<FenceWaiter>,
 }
 
-/// Per-hart fence table.
+/// The fences: each behind its own lock (class `ipc`), found by its id without a table lock
+/// (TASK-0330 P2, ADR-0102). An id whose fence was freed names nothing.
 pub struct FenceTable {
-    /// fence_id -> entry.
-    table: BTreeMap<u32, FenceEntry>,
-    /// Next available fence id.
-    next_id: u32,
+    slots: SlotTable<FenceEntry>,
 }
 
 impl FenceTable {
-    pub const fn new() -> Self {
-        Self { table: BTreeMap::new(), next_id: 1 }
+    pub fn new() -> Self {
+        Self { slots: SlotTable::new(Class::Ipc, MAX_FENCES) }
     }
 
     /// Allocate a new fence (value starts at 0) owned by `owner_pid`. Returns its id.
-    pub fn alloc(&mut self, owner_pid: u32) -> Result<FenceId, FenceError> {
-        if self.table.len() >= MAX_FENCES {
-            return Err(FenceError::ResourceExhausted);
-        }
-        // Wrap-around collision handling: probe until we find a free id (mirror HartTimers).
-        let mut id = self.next_id;
-        loop {
-            self.next_id = self.next_id.wrapping_add(1);
-            if self.next_id == 0 {
-                self.next_id = 1;
-            }
-            if !self.table.contains_key(&id) {
-                break;
-            }
-            id = self.next_id;
-        }
-        self.table.insert(id, FenceEntry { owner_pid, value: 0, waiters: Vec::new() });
-        Ok(FenceId(id))
+    pub fn alloc(&self, owner_pid: u32) -> Result<FenceId, FenceError> {
+        self.slots
+            .insert(FenceEntry { owner_pid, value: 0, waiters: Vec::new() })
+            .map(FenceId)
+            .ok_or(FenceError::ResourceExhausted)
     }
 
     #[cfg(test)]
@@ -116,19 +108,19 @@ impl FenceTable {
     /// fence-value read syscall is out of scope for RFC-0033 Phase 2 — un-gate when a
     /// DriverKit consumer needs it).
     pub fn value(&self, id: FenceId) -> Option<u64> {
-        self.table.get(&id.0).map(|e| e.value)
+        self.slots.with(id.0, |e| e.value)
     }
 
     /// Check whether a fence exists (authority for signal/wait is cap
     /// possession; see `fence_id_from_cap`).
     pub fn exists(&self, id: FenceId) -> bool {
-        self.table.contains_key(&id.0)
+        self.slots.with(id.0, |_| ()).is_some()
     }
 
     /// Check whether a fence exists and is owned by `pid` (lifecycle only:
     /// free/teardown — NOT signal/wait authority, which travels with the cap).
     pub fn owned_by(&self, id: FenceId, pid: u32) -> bool {
-        self.table.get(&id.0).is_some_and(|e| e.owner_pid == pid)
+        self.slots.with(id.0, |e| e.owner_pid == pid).unwrap_or(false)
     }
 
     /// Advance the fence monotonically to at least `v`. Returns the resulting value.
@@ -136,108 +128,97 @@ impl FenceTable {
     /// `v <= value` is a no-op (the value never decreases). Waking satisfied waiters is the
     /// caller's job via [`take_satisfied`](Self::take_satisfied) (the kernel needs the pid
     /// list to call `tasks.wake`; keeping the two steps separate keeps both host-testable).
-    pub fn signal(&mut self, id: FenceId, v: u64) -> Result<u64, FenceError> {
-        let entry = self.table.get_mut(&id.0).ok_or(FenceError::InvalidHandle)?;
-        if v > entry.value {
-            entry.value = v;
-        }
-        Ok(entry.value)
+    pub fn signal(&self, id: FenceId, v: u64) -> Result<u64, FenceError> {
+        let advance = |entry: &mut FenceEntry| {
+            if v > entry.value {
+                entry.value = v;
+            }
+            entry.value
+        };
+        self.slots.with(id.0, advance).ok_or(FenceError::InvalidHandle)
     }
 
     /// Is `value >= target` for this fence?
     pub fn is_satisfied(&self, id: FenceId, target: u64) -> Option<bool> {
-        self.table.get(&id.0).map(|e| e.value >= target)
+        self.slots.with(id.0, |e| e.value >= target)
     }
 
     /// Register `pid` as a waiter for `target`. Bounded + one-per-pid (re-registering a pid
     /// updates its target rather than adding a duplicate).
-    pub fn register_waiter(
-        &mut self,
-        id: FenceId,
-        pid: u32,
-        target: u64,
-    ) -> Result<(), FenceError> {
-        let entry = self.table.get_mut(&id.0).ok_or(FenceError::InvalidHandle)?;
-        if let Some(w) = entry.waiters.iter_mut().find(|w| w.pid == pid) {
-            w.target = target;
-            return Ok(());
-        }
-        if entry.waiters.len() >= MAX_FENCE_WAITERS {
-            return Err(FenceError::ResourceExhausted);
-        }
-        entry.waiters.push(FenceWaiter { pid, target });
-        Ok(())
+    pub fn register_waiter(&self, id: FenceId, pid: u32, target: u64) -> Result<(), FenceError> {
+        let register = |entry: &mut FenceEntry| {
+            if let Some(w) = entry.waiters.iter_mut().find(|w| w.pid == pid) {
+                w.target = target;
+                return Ok(());
+            }
+            if entry.waiters.len() >= MAX_FENCE_WAITERS {
+                return Err(FenceError::ResourceExhausted);
+            }
+            entry.waiters.push(FenceWaiter { pid, target });
+            Ok(())
+        };
+        self.slots.with(id.0, register).ok_or(FenceError::InvalidHandle)?
     }
 
     /// Remove `pid` from a fence's waiter set, if present (cleanup on wake/timeout/close).
-    pub fn remove_waiter(&mut self, id: FenceId, pid: u32) {
-        if let Some(entry) = self.table.get_mut(&id.0) {
-            entry.waiters.retain(|w| w.pid != pid);
-        }
+    pub fn remove_waiter(&self, id: FenceId, pid: u32) {
+        let _ = self.slots.with(id.0, |entry| entry.waiters.retain(|w| w.pid != pid));
     }
 
     /// Collect and remove every waiter the current value now satisfies (`target <= value`),
     /// writing their pids into `out`. Returns the count (bounded by `out.len()`).
-    pub fn take_satisfied(&mut self, id: FenceId, out: &mut [u32]) -> usize {
-        let Some(entry) = self.table.get_mut(&id.0) else {
-            return 0;
-        };
-        let value = entry.value;
-        let mut n = 0;
-        // Drain satisfied waiters; keep the rest. `out` caps how many we report this pass —
-        // any overflow stays registered and is picked up on the next signal.
-        let mut i = 0;
-        while i < entry.waiters.len() {
-            if entry.waiters[i].target <= value && n < out.len() {
-                out[n] = entry.waiters[i].pid;
-                n += 1;
-                entry.waiters.remove(i);
-            } else {
-                i += 1;
+    pub fn take_satisfied(&self, id: FenceId, out: &mut [u32]) -> usize {
+        let take = |entry: &mut FenceEntry| {
+            let value = entry.value;
+            let mut n = 0;
+            // Drain satisfied waiters; keep the rest. `out` caps how many we report this
+            // pass — any overflow stays registered and is picked up on the next signal.
+            let mut i = 0;
+            while i < entry.waiters.len() {
+                if entry.waiters[i].target <= value && n < out.len() {
+                    out[n] = entry.waiters[i].pid;
+                    n += 1;
+                    entry.waiters.remove(i);
+                } else {
+                    i += 1;
+                }
             }
-        }
-        n
+            n
+        };
+        self.slots.with(id.0, take).unwrap_or(0)
     }
 
     /// Remove a fence entirely (called on cap close). No dangling waiters.
-    pub fn free(&mut self, id: FenceId) -> Result<(), FenceError> {
-        self.table.remove(&id.0).ok_or(FenceError::InvalidHandle)?;
-        Ok(())
+    pub fn free(&self, id: FenceId) -> Result<(), FenceError> {
+        self.slots.remove(id.0).map(|_| ()).ok_or(FenceError::InvalidHandle)
     }
 
     /// Frees every fence `pid` owns — its exit (TASK-0333 6a); the waiters of each are
     /// returned so the caller wakes them (they re-run their wait and find no fence).
-    pub fn free_owned_by(&mut self, pid: u32) -> Vec<u32> {
+    pub fn free_owned_by(&self, pid: u32) -> Vec<u32> {
         let mut waiters = Vec::new();
-        self.table.retain(|_, e| {
-            if e.owner_pid == pid {
-                waiters.extend(e.waiters.iter().map(|w| w.pid));
-                false
-            } else {
-                true
-            }
-        });
+        self.slots.remove_if(
+            |entry| entry.owner_pid == pid,
+            |entry| waiters.extend(entry.waiters.iter().map(|w| w.pid)),
+        );
         waiters
     }
 
     /// Number of live fences (the record).
     pub fn len(&self) -> usize {
-        self.table.len()
+        self.slots.len()
     }
 
     #[cfg(test)]
     /// Number of waiters registered on a fence (test helper).
     pub fn waiter_count(&self, id: FenceId) -> usize {
-        self.table.get(&id.0).map_or(0, |e| e.waiters.len())
+        self.slots.with(id.0, |e| e.waiters.len()).unwrap_or(0)
     }
 }
 
 impl fmt::Debug for FenceTable {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("FenceTable")
-            .field("table_len", &self.table.len())
-            .field("next_id", &self.next_id)
-            .finish()
+        f.debug_struct("FenceTable").field("len", &self.len()).finish()
     }
 }
 
@@ -251,7 +232,7 @@ mod tests {
 
     #[test]
     fn alloc_starts_at_zero_and_tracks_owner() {
-        let mut t = new_table();
+        let t = new_table();
         let a = t.alloc(7).unwrap();
         let b = t.alloc(7).unwrap();
         assert_ne!(a, b);
@@ -263,7 +244,7 @@ mod tests {
 
     #[test]
     fn signal_is_monotonic() {
-        let mut t = new_table();
+        let t = new_table();
         let f = t.alloc(1).unwrap();
         assert_eq!(t.signal(f, 10).unwrap(), 10);
         // A lower signal does not lower the value.
@@ -276,7 +257,7 @@ mod tests {
 
     #[test]
     fn is_satisfied_tracks_value() {
-        let mut t = new_table();
+        let t = new_table();
         let f = t.alloc(1).unwrap();
         assert_eq!(t.is_satisfied(f, 0), Some(true)); // value 0 >= target 0
         assert_eq!(t.is_satisfied(f, 1), Some(false));
@@ -288,7 +269,7 @@ mod tests {
 
     #[test]
     fn register_waiter_is_bounded_and_one_per_pid() {
-        let mut t = new_table();
+        let t = new_table();
         let f = t.alloc(1).unwrap();
         for pid in 0..MAX_FENCE_WAITERS as u32 {
             t.register_waiter(f, pid, 100).unwrap();
@@ -303,7 +284,7 @@ mod tests {
 
     #[test]
     fn take_satisfied_selects_only_reached_targets() {
-        let mut t = new_table();
+        let t = new_table();
         let f = t.alloc(1).unwrap();
         t.register_waiter(f, 10, 5).unwrap();
         t.register_waiter(f, 11, 20).unwrap();
@@ -328,7 +309,7 @@ mod tests {
 
     #[test]
     fn remove_waiter_cleans_up() {
-        let mut t = new_table();
+        let t = new_table();
         let f = t.alloc(1).unwrap();
         t.register_waiter(f, 5, 10).unwrap();
         t.remove_waiter(f, 5);
@@ -339,7 +320,7 @@ mod tests {
 
     #[test]
     fn table_is_bounded() {
-        let mut t = new_table();
+        let t = new_table();
         for _ in 0..MAX_FENCES {
             t.alloc(1).unwrap();
         }
@@ -347,9 +328,25 @@ mod tests {
         assert_eq!(t.alloc(1), Err(FenceError::ResourceExhausted));
     }
 
+    /// TASK-0330 P2: a freed fence's id names nothing once another fence has its slot — a
+    /// capability that outlived its fence neither signals nor waits on the new tenant.
+    #[test]
+    fn test_reject_a_freed_fence_id_after_its_slot_is_reused() {
+        let t = new_table();
+        let old = t.alloc(1).unwrap();
+        t.free(old).unwrap();
+        for _ in 0..MAX_FENCES {
+            t.alloc(2).unwrap();
+        }
+        assert!(!t.exists(old));
+        assert_eq!(t.signal(old, 9), Err(FenceError::InvalidHandle));
+        assert_eq!(t.register_waiter(old, 3, 1), Err(FenceError::InvalidHandle));
+        assert_eq!(t.is_satisfied(old, 0), None);
+    }
+
     #[test]
     fn free_removes_entry_and_reports_double_free() {
-        let mut t = new_table();
+        let t = new_table();
         let f = t.alloc(1).unwrap();
         t.free(f).unwrap();
         assert_eq!(t.value(f), None);

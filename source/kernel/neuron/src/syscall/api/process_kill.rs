@@ -5,9 +5,10 @@
 //! parent's `task_kill` of a child, and a process leader's exit taking its threads. A task no
 //! hart runs is taken out of its block and its run queue and sent through the one exit funnel
 //! here; a task running on another hart gets `Pending::Kill` and a resched IPI, and that hart
-//! runs the funnel at its next trap entry (`trap::pending`). The BKL serializes the decision:
-//! while this hart holds it, the target is either in user mode (the IPI lands), waiting for
-//! the BKL at a trap entry (the pending mark is seen first thing), or fully saved.
+//! runs the funnel at its next trap entry (`trap::pending`). The decision is `TaskTable::park`:
+//! the target is parked (no wake starts it again), or in user mode (the IPI lands), or in a
+//! syscall — at a trap entry the pending mark is seen first thing, and one going to sleep off
+//! the kernel lock reads it before it sleeps or is woken by it (TASK-0330 P2).
 //! OWNERS: @kernel-team
 //! STATUS: Functional
 //! API_STABILITY: Internal
@@ -15,7 +16,6 @@
 //!   (`SELFTEST: task kill ok`); `tests_process.rs` (the refusals)
 
 use super::*;
-use crate::sched::Withdrawn;
 use crate::task::{ExitReason, Pending, Pid, TaskTable};
 
 /// Where a kill order went.
@@ -32,7 +32,7 @@ pub enum KillOutcome {
 /// Kills `target`, which must not be the current task.
 pub(crate) fn kill_task(
     tasks: &mut TaskTable,
-    router: &mut crate::ipc::Router,
+    router: &crate::ipc::Router,
     scheduler: &mut Scheduler,
     tables: ExitTables<'_>,
     target: Pid,
@@ -43,14 +43,12 @@ pub(crate) fn kill_task(
     if task.state() == crate::task::TaskState::Zombie || target == tasks.current_pid() {
         return KillOutcome::Gone;
     }
-    // Off its queue, or left to the hart that runs it — one decision under that hart's queue
-    // lock (TASK-0363 P2 S3: a dispatch without the kernel lock never starts a task reaped here).
-    if let Withdrawn::Running(cpu) = scheduler.withdraw(target) {
-        if cpu != crate::smp::cpu_current_id() {
-            tasks.mark_pending(target, Pending::Kill);
-            let _ = crate::smp::request_resched(cpu);
-            return KillOutcome::Deferred;
-        }
+    // Parked — off its queue, and no wake starts it again — or left to the hart that runs it
+    // (`TaskTable::park`: a dispatch without the kernel lock never starts a task reaped here).
+    if let Some(cpu) = TaskTable::park(target, scheduler) {
+        tasks.mark_pending(target, Pending::Kill, scheduler);
+        let _ = crate::smp::request_resched(cpu);
+        return KillOutcome::Deferred;
     }
     // Not running anywhere: out of its block and its queue, then the funnel.
     tasks.detach_blocked(target, tables.fences);
@@ -63,7 +61,7 @@ pub(crate) fn kill_task(
 /// ones here, running ones by their hart).
 pub(crate) fn kill_members(
     tasks: &mut TaskTable,
-    router: &mut crate::ipc::Router,
+    router: &crate::ipc::Router,
     scheduler: &mut Scheduler,
     mut tables: ExitTables<'_>,
     leader: Pid,

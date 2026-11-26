@@ -40,8 +40,7 @@ pub(crate) fn now_ns() -> u64 {
 /// Whether a blocked task's deadline or a timer cap is reached at `now` (both gates are lower
 /// bounds: one too low costs a locked look, never a lost expiry).
 pub(crate) fn timed_due(now: u64) -> bool {
-    now >= crate::trap::budgets::NEXT_DEADLINE_NS.load(Ordering::Relaxed)
-        || now >= crate::timer::next_cap_ns()
+    now >= crate::trap::own_deadlines::blocked_gate() || now >= crate::timer::next_cap_ns()
 }
 
 /// Whether this hart's idle path needs the kernel lock now — read without it (TASK-0363 P6): a
@@ -55,6 +54,18 @@ pub(crate) fn lock_due(cpu: CpuId) -> bool {
             && (crate::mm::pressure_endpoint::pending()
                 || now.saturating_sub(LAST_DELIVERY_NS.load(Ordering::Relaxed)) >= HEARTBEAT_NS
                 || crate::liveness::is_stalled(crate::trap::default_tick_cycles() * 3)))
+}
+
+/// Whether all that is due on this hart is timer caps — delivered under no kernel lock
+/// (TASK-0330 P4: the timer table, the endpoints and the run queues are behind their own
+/// locks). A blocked task's deadline is the walk's, a stashed line the lock's holder's, and
+/// the boot hart's delivery carries its heartbeat and its watchdog: those take the lock.
+pub(crate) fn caps_due_alone(cpu: CpuId) -> bool {
+    let now = now_ns();
+    !cpu.is_boot()
+        && now >= crate::timer::next_cap_ns()
+        && now < crate::trap::own_deadlines::blocked_gate()
+        && !crate::irq::has_stash(cpu)
 }
 
 /// A walk of the idle path woke `woke` tasks while a deadline read as due: none is a dry look

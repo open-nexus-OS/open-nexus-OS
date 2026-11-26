@@ -12,15 +12,28 @@
 //! TEST_COVERAGE: QEMU selftests + boot markers
 //!
 //! INVARIANTS:
-//! - Drift-free periodic rearm: `next_deadline += interval_ns`, never `now + interval`
+//! - Drift-free periodic rearm: `next_deadline += interval_ns * (1 + missed)`, never
+//!   `now + interval` — a timer delivered late skips to its next slot ahead of `now`
 //! - Coalescing: at most one pending event per timer; `missed` counter for skipped ticks
 //! - Bounded state: fixed-size table (MAX_TIMERS = 64), O(log n) queue operations
 //! - Cap lifecycle: closing a timer cap removes it from all queues
+//! - The table is behind its own lock (class `ipc`, RFC-0102; TASK-0330 P4): a hart delivers
+//!   what fired under no kernel lock. The gates (`NEXT_CAP_NS`, each hart's floor) are lowered
+//!   and set exact inside that lock.
+//! - A delivery is one hold of that lock, from the pop to the last event sent
+//!   ([`HartTimers::deliver`]): one timer's events reach its endpoint in the order they fired,
+//!   whichever harts deliver, and an endpoint's death ([`HartTimers::forget_endpoint`]) comes
+//!   after every fire popped for it — its id is given out again. So the table is the first of
+//!   the IPC objects in their order (key 0; an endpoint is keyed by its address): a path that
+//!   holds an endpoint, a waitset or a fence takes no timer.
 
 extern crate alloc;
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use core::fmt;
+
+use crate::sync::lock_rank::Class;
+use crate::sync::ranked::RankedLock;
 
 /// Maximum number of concurrent timers per hart.
 pub(crate) const MAX_TIMERS: usize = 64;
@@ -72,8 +85,101 @@ pub struct TimerState {
     pub arm_cpu: u32,
 }
 
-/// Per-hart timer management.
+/// The timers, behind their lock: every operation is one hold of it.
 pub struct HartTimers {
+    inner: RankedLock<Timers>,
+}
+
+impl HartTimers {
+    pub fn new() -> Self {
+        let inner = RankedLock::new(Class::Ipc, Timers::new());
+        // The first of the IPC objects: a delivery sends while it holds the table.
+        inner.set_key(0);
+        Self { inner }
+    }
+
+    /// Allocate a new timer slot. Returns the timer ID.
+    pub fn alloc(
+        &self,
+        owner_pid: u32,
+        notify_ep: u32,
+        interval_ns: u64,
+    ) -> Result<TimerId, TimerError> {
+        self.inner.lock().alloc(owner_pid, notify_ep, interval_ns)
+    }
+
+    /// Arm a timer with an absolute deadline, on CPU `cpu` (whose timer wakes for it).
+    pub fn arm(&self, timer_id: TimerId, deadline_ns: u64, cpu: u32) -> Result<(), TimerError> {
+        self.inner.lock().arm(timer_id, deadline_ns, cpu)
+    }
+
+    /// Disarm a timer. An event already sent stays queued on its endpoint.
+    pub fn disarm(&self, timer_id: TimerId) -> Result<(), TimerError> {
+        self.inner.lock().disarm(timer_id)
+    }
+
+    /// Remove a timer entirely (called on cap close).
+    pub fn free(&self, timer_id: TimerId) -> Result<(), TimerError> {
+        self.inner.lock().free(timer_id)
+    }
+
+    /// Pops every timer whose deadline <= now and hands each to `send`, in one hold of the
+    /// table: `send` takes the timer's endpoint and what a wake takes (a thread, a run queue),
+    /// never a waitset, a fence or a timer. Returns how many fired.
+    pub fn deliver(&self, now: u64, mut send: impl FnMut(TimerId, &TimerState)) -> usize {
+        let mut timers = self.inner.lock();
+        let fired = timers.pop_expired(now);
+        for (id, state) in &fired {
+            send(*id, state);
+        }
+        fired.len()
+    }
+
+    #[cfg(test)]
+    /// The timers [`Self::deliver`] would hand out at `now` (test-only helper).
+    pub fn pop_expired(&self, now: u64) -> Vec<(TimerId, TimerState)> {
+        let mut fired = Vec::new();
+        self.deliver(now, |id, state| fired.push((id, state.clone())));
+        fired
+    }
+
+    /// Check whether a timer exists and is owned by the given PID.
+    pub fn owned_by(&self, timer_id: TimerId, pid: u32) -> bool {
+        self.inner.lock().owned_by(timer_id, pid)
+    }
+
+    /// Frees every timer `pid` owns — its exit (TASK-0333 6a: a task's objects die with it,
+    /// as a `cap_close` of each would free them). Returns how many.
+    pub fn free_owned_by(&self, pid: u32) -> usize {
+        self.inner.lock().free_owned_by(pid)
+    }
+
+    /// Frees every timer that notifies `endpoint` — the endpoint died, so a fire would write
+    /// into whatever its slot holds next. A delivery is one hold of the table, so every fire
+    /// popped for the endpoint was sent before this returns. Returns how many timers.
+    pub fn forget_endpoint(&self, endpoint: u32) -> usize {
+        self.inner.lock().forget_endpoint(endpoint)
+    }
+
+    /// Live timers (the record).
+    pub fn len(&self) -> usize {
+        self.inner.lock().len()
+    }
+
+    #[cfg(test)]
+    /// Get the timer state (test-only helper).
+    pub fn get(&self, timer_id: TimerId) -> Option<TimerState> {
+        self.inner.lock().get(timer_id).cloned()
+    }
+
+    #[cfg(test)]
+    pub fn earliest_deadline(&self) -> Option<u64> {
+        self.inner.lock().earliest_deadline()
+    }
+}
+
+/// The timer table and its deadline queue.
+struct Timers {
     /// Timer table: timer_id -> TimerState.
     table: BTreeMap<u32, TimerState>,
     /// Deadline queue: deadline_ns -> Vec<TimerId>.
@@ -83,8 +189,8 @@ pub struct HartTimers {
     next_id: u32,
 }
 
-impl HartTimers {
-    pub const fn new() -> Self {
+impl Timers {
+    const fn new() -> Self {
         Self { table: BTreeMap::new(), queue: BTreeMap::new(), next_id: 1 }
     }
 
@@ -198,10 +304,19 @@ impl HartTimers {
                 for timer_id in entries {
                     if let Some(t) = self.table.get_mut(&timer_id.0) {
                         if t.armed && t.deadline_ns <= now {
+                            // The frame says how many periods it stands for (`missed`): a
+                            // periodic timer delivered late skips them, ahead of `now` on its own
+                            // phase (`deadline_rule::periodic_rearm`, host-tested).
+                            let (next, behind) = crate::deadline_rule::periodic_rearm(
+                                t.deadline_ns,
+                                t.interval_ns,
+                                now,
+                            );
+                            t.missed = u32::try_from(behind).unwrap_or(u32::MAX);
                             expired.push((timer_id, t.clone()));
                             if t.interval_ns > 0 {
-                                // Periodic: drift-free rearm
-                                t.deadline_ns += t.interval_ns;
+                                // Periodic: drift-free rearm.
+                                t.deadline_ns = next;
                                 t.seq = t.seq.wrapping_add(1).wrapping_add(t.missed);
                                 // Re-insert into queue
                                 self.queue.entry(t.deadline_ns).or_default().push(timer_id);
@@ -265,10 +380,11 @@ impl HartTimers {
 
 impl fmt::Debug for HartTimers {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let timers = self.inner.lock();
         f.debug_struct("HartTimers")
-            .field("table_len", &self.table.len())
-            .field("queue_len", &self.queue.len())
-            .field("next_id", &self.next_id)
+            .field("table_len", &timers.table.len())
+            .field("queue_len", &timers.queue.len())
+            .field("next_id", &timers.next_id)
             .finish()
     }
 }
@@ -283,7 +399,7 @@ mod tests {
 
     #[test]
     fn alloc_increments_id() {
-        let mut ht = new_timers();
+        let ht = new_timers();
         let id1 = ht.alloc(1, 10, 0).unwrap();
         let id2 = ht.alloc(1, 10, 0).unwrap();
         assert_ne!(id1, id2);
@@ -291,7 +407,7 @@ mod tests {
 
     #[test]
     fn arm_and_pop_expired() {
-        let mut ht = new_timers();
+        let ht = new_timers();
         let id = ht.alloc(1, 10, 0).unwrap();
         ht.arm(id, 100, 0).unwrap();
         // Not yet expired
@@ -306,7 +422,7 @@ mod tests {
 
     #[test]
     fn periodic_rearm_is_drift_free() {
-        let mut ht = new_timers();
+        let ht = new_timers();
         let interval = 1_000_000;
         let id = ht.alloc(1, 10, interval).unwrap();
         ht.arm(id, 100_000, 0).unwrap();
@@ -328,7 +444,7 @@ mod tests {
 
     #[test]
     fn disarm_removes_from_queue() {
-        let mut ht = new_timers();
+        let ht = new_timers();
         let id = ht.alloc(1, 10, 0).unwrap();
         ht.arm(id, 100, 0).unwrap();
         ht.disarm(id).unwrap();
@@ -338,7 +454,7 @@ mod tests {
 
     #[test]
     fn free_removes_timer() {
-        let mut ht = new_timers();
+        let ht = new_timers();
         let id = ht.alloc(1, 10, 0).unwrap();
         ht.free(id).unwrap();
         assert!(ht.get(id).is_none());
@@ -346,7 +462,7 @@ mod tests {
 
     #[test]
     fn already_armed_rejected() {
-        let mut ht = new_timers();
+        let ht = new_timers();
         let id = ht.alloc(1, 10, 0).unwrap();
         ht.arm(id, 100, 0).unwrap();
         assert_eq!(ht.arm(id, 200, 0), Err(TimerError::AlreadyArmed));
@@ -354,7 +470,7 @@ mod tests {
 
     #[test]
     fn earliest_deadline_returns_min() {
-        let mut ht = new_timers();
+        let ht = new_timers();
         let a = ht.alloc(1, 10, 0).unwrap();
         let b = ht.alloc(1, 10, 0).unwrap();
         ht.arm(a, 500, 0).unwrap();

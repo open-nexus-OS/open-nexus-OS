@@ -30,6 +30,13 @@ debug_stack_guards = []
 debug_pt_verify = []
 as_map_bisect_text_only = []
 selftest_no_satp = []
+# TASK-0330 P7: the proof lane's forced kernel page fault (first boot of a trace only). Never
+# in a shipped kernel: `just ci-os-kfault` and the board's forced-panic cycle pass it.
+selftest_kernel_fault = []
+# TASK-0330 P2 (RFC-0102): the lock-rank check in a release kernel — every ranked take is asked
+# against what the hart holds, a wrong order panics with both names. The stress lane passes it;
+# a shipped kernel has no check and no cost.
+lock_rank_check = []
 
 [lib]
 crate-type = ["rlib", "staticlib"]

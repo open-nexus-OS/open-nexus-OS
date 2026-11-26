@@ -65,6 +65,10 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     // thread has an empty cap table by construction (compute-only contract).
     probes::soaks::thread_spawn_proof();
 
+    // TASK-0330 P3: fresh pages touched by one thread, then by one per CPU — how the kernel's
+    // fault path scales (a bench line, judged on the board).
+    probes::fault_scale::run();
+
     // RFC-0119: a thread's floating-point and vector registers are its own — for each unit
     // the kernel's answer names, two threads of this process hold their patterns across
     // 10 000 hand-overs, hops over the CPUs and preemption (the kernel's side:

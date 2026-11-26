@@ -81,10 +81,11 @@ fn header(segs: &[Seg], out: &mut [u8]) {
 }
 
 /// A fresh anonymous image of `PAGES` pages: page 0 the header for `segs`, page 1 all 0x11,
-/// page 2 all 0x22, page 3 the bytes 1..=16 then zeros. Not sealed.
-fn make_image(segs: &[Seg]) -> Option<u32> {
+/// page 2 all 0x22, page 3 the bytes 1..=16 then zeros. Not sealed. With its first capability,
+/// which the caller holds for as long as nothing else names the object.
+fn make_image(segs: &[Seg]) -> Option<vmo::Born> {
     let reach = crate::dma_reach::DmaReach::ALL;
-    let id = vmo::create(PAGES * PAGE_SIZE, vmo::VmoKind::Anon, &reach).ok()?;
+    let (id, first) = vmo::create(PAGES * PAGE_SIZE, vmo::VmoKind::Anon, &reach).ok()?;
     vmo::zero(id);
     for page in 0..PAGES {
         let pa = vmo::translate(id, page * PAGE_SIZE)?;
@@ -104,7 +105,7 @@ fn make_image(segs: &[Seg]) -> Option<u32> {
             }
         }
     }
-    Some(id)
+    Some((id, first))
 }
 
 /// Load `id` into a fresh space and run its copy plan.
@@ -137,7 +138,7 @@ fn tear_down(ctx: &mut Context<'_>, handle: AsHandle, loaded: &api::LoadedImage)
     }
     let _ = ctx.address_spaces.destroy(handle);
     let _ = api::release_image(&loaded.image);
-    reclaim::orphans(ctx.address_spaces, &ids, "selftest");
+    reclaim::orphans(&ids, "selftest");
 }
 
 pub(super) fn run_exec_image_selftests(ctx: &mut Context<'_>) {
@@ -148,18 +149,20 @@ pub(super) fn run_exec_image_selftests(ctx: &mut Context<'_>) {
 
 /// Two spaces from one sealed image: the same frames for text and rodata, their own for data.
 fn run_shared(ctx: &mut Context<'_>) {
-    let Some(id) = make_image(&GOOD) else {
+    let Some((id, first)) = make_image(&GOOD) else {
         log_error!(target: "selftest", "KSELFTEST: exec image shared FAIL (image)");
         return;
     };
     if vmo::seal(id).is_err() {
         log_error!(target: "selftest", "KSELFTEST: exec image shared FAIL (seal)");
+        drop(first);
         let _ = vmo::destroy(id);
         return;
     }
-    let (Some((h1, l1)), Some((h2, l2))) =
-        (load_into(ctx.address_spaces, id), load_into(ctx.address_spaces, id))
-    else {
+    let loaded = (load_into(ctx.address_spaces, id), load_into(ctx.address_spaces, id));
+    // From here the two spaces' regions are all that names the image.
+    drop(first);
+    let (Some((h1, l1)), Some((h2, l2))) = loaded else {
         log_error!(target: "selftest", "KSELFTEST: exec image shared FAIL (load)");
         return;
     };
@@ -184,11 +187,11 @@ fn run_shared(ctx: &mut Context<'_>) {
     });
     let counted = (l1.shared_pages, l1.copied_pages, l2.shared_pages, l2.copied_pages)
         == (2, 1, 2, 1)
-        && vm_ops::spaces_mapping_vmo(spaces, id) == 2;
+        && vmo::mapping::spaces(id) == 2;
     // The image outlives its first mapper and goes with its last: no capability names it here,
     // so the second space's tear-down reclaims it as an orphan.
     tear_down(ctx, h1, &l1);
-    let kept = vm_ops::spaces_mapping_vmo(ctx.address_spaces, id) == 1 && vmo::is_sealed(id);
+    let kept = vmo::mapping::spaces(id) == 1 && vmo::is_sealed(id);
     tear_down(ctx, h2, &l2);
     let reclaimed = matches!(vmo::destroy(id), Err(vmo::VmoError::NoSuchObject));
     if same_ro && same_rx && own_rw && copied && counted && kept && reclaimed {
@@ -219,47 +222,56 @@ fn run_rejects(ctx: &mut Context<'_>) {
 
     // 1. Off the grid, 2. a shared file page: refused by the loader of a sealed image.
     for (step, segs) in [(0usize, &unaligned), (1, &shared_page)] {
-        let Some(id) = make_image(segs) else { break };
+        let Some((id, first)) = make_image(segs) else { break };
         let sealed = vmo::seal(id).is_ok();
         steps[step] = sealed && load_into(ctx.address_spaces, id).is_none();
         if step == 0 {
             // Kept for step 6: a sealed image the loader refuses.
-            steps[5] = exec_refuses_unsealed_then_reaches_the_loader(ctx, id);
+            steps[5] = exec_refuses_unsealed_then_reaches_the_loader(ctx, &first);
         }
+        drop(first);
         let _ = vmo::destroy(id);
     }
 
     // 3. A lazy object has no seal.
     let reach = crate::dma_reach::DmaReach::ALL;
-    if let Ok(lazy) = vmo::create(PAGE_SIZE, vmo::VmoKind::Lazy, &reach) {
+    if let Ok((lazy, first)) = vmo::create(PAGE_SIZE, vmo::VmoKind::Lazy, &reach) {
         steps[2] = vmo::seal(lazy) == Err(vmo::SealError::Kind);
+        drop(first);
         let _ = vmo::destroy(lazy);
     }
     // 4. An object a device was told the runs of has no seal.
-    if let Ok(named) = vmo::create(PAGE_SIZE, vmo::VmoKind::Anon, &reach) {
-        vmo::mark_device_named(named);
-        steps[3] = vmo::seal(named) == Err(vmo::SealError::DeviceNamed);
+    if let Ok((named, first)) = vmo::create(PAGE_SIZE, vmo::VmoKind::Anon, &reach) {
+        steps[3] =
+            vmo::name_for_device(named) && vmo::seal(named) == Err(vmo::SealError::DeviceNamed);
+        drop(first);
         let _ = vmo::destroy(named);
     }
     // 5. A writably mapped object has no seal until the mapping is gone.
-    if let (Ok(id), Ok(handle)) =
+    if let (Ok((id, first)), Ok(handle)) =
         (vmo::create(PAGE_SIZE, vmo::VmoKind::Anon, &reach), ctx.address_spaces.create())
     {
         let flags = PageFlags::VALID | PageFlags::USER | PageFlags::READ | PageFlags::WRITE;
         let runs = vmo::runs(id).unwrap_or_default();
-        let mapped =
-            ctx.address_spaces.get_mut(handle).ok().and_then(|space| {
-                vm_ops::map_runs(space, &runs, flags, RegionKind::Vmo, id, 0).ok()
-            });
-        let refused = vm_ops::any_space_maps_vmo_writable(ctx.address_spaces, id);
-        let unmapped = mapped.is_some_and(|va| {
-            ctx.address_spaces
-                .get_mut(handle)
-                .is_ok_and(|space| vm_ops::unmap_range(space, va, PAGE_SIZE).is_ok())
+        let mapped = ctx.address_spaces.get(handle).ok().and_then(|mut space| {
+            vm_ops::map_runs(&mut space, &runs, flags, RegionKind::Vmo, id, 0).ok()
         });
-        let allowed = !vm_ops::any_space_maps_vmo_writable(ctx.address_spaces, id);
-        steps[4] = mapped.is_some() && refused && unmapped && allowed && vmo::seal(id).is_ok();
+        // The seal itself refuses, from the object's own count of writable mappers.
+        let refused = vmo::seal(id) == Err(vmo::SealError::MappedWritable) && !vmo::is_sealed(id);
+        let unmapped = mapped.is_some_and(|va| {
+            vm_ops::unmap_range(ctx.address_spaces, handle, va, PAGE_SIZE).is_ok()
+        });
+        let allowed = vmo::mapping::writers(id) == 0;
+        // Sealed, it refuses a writer: the mapping's own door (`vmo::mapping`), not a look
+        // before it.
+        let sealed = vmo::seal(id).is_ok();
+        let no_writer = ctx.address_spaces.get(handle).is_ok_and(|mut space| {
+            vm_ops::map_runs(&mut space, &runs, flags, RegionKind::Vmo, id, 0)
+                == Err(vm_ops::VmOpError::Object(vmo::mapping::MapRefusal::Sealed))
+        });
+        steps[4] = mapped.is_some() && refused && unmapped && allowed && sealed && no_writer;
         let _ = ctx.address_spaces.destroy(handle);
+        drop(first);
         let _ = vmo::destroy(id);
     }
 
@@ -285,20 +297,22 @@ fn run_rejects(ctx: &mut Context<'_>) {
 /// Through the syscall table, as a task: `exec_vmo` of the object in a slot is refused while it
 /// is unsealed (PermissionDenied, before any space exists) and, once sealed, reaches the loader
 /// — which refuses THIS image for its grid (InvalidArgs): the gates in their order.
-fn exec_refuses_unsealed_then_reaches_the_loader(ctx: &mut Context<'_>, id: u32) -> bool {
+fn exec_refuses_unsealed_then_reaches_the_loader(
+    ctx: &mut Context<'_>,
+    sealed: &crate::cap::Held,
+) -> bool {
     const VMO_SLOT: usize = 5;
     ctx.tasks.set_current(Pid::KERNEL);
     let owner = ctx.tasks.selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
     let Ok(ep) = ctx.router.create_endpoint(1, Some(owner.as_raw())) else { return false };
-    // Minted at the objects, like every capability to one (RFC-0102).
-    let (Ok(gate), Some(image)) = (ctx.router.mint(ep, Rights::SEND), vmo::mint(id, Rights::MAP))
-    else {
+    // Minted at the endpoint, and a second capability of the image's first (RFC-0102).
+    let (Ok(gate), Ok(image)) = (ctx.router.mint(ep, Rights::SEND), sealed.dup(Rights::MAP)) else {
         return false;
     };
     let given = ctx
         .tasks
         .caps_of_mut(owner)
-        .is_some_and(|caps| caps.set(0, gate).is_ok() && caps.set(VMO_SLOT, image).is_ok());
+        .is_some_and(|mut caps| caps.set(0, gate).is_ok() && caps.set(VMO_SLOT, image).is_ok());
     if !given {
         return false;
     }
@@ -320,9 +334,10 @@ fn exec_refuses_unsealed_then_reaches_the_loader(ctx: &mut Context<'_>, id: u32)
     // The image arrives sealed (step 1 sealed it): unseal is not a thing — so test the order
     // with a second, unsealed object first.
     let reach = crate::dma_reach::DmaReach::ALL;
-    let unsealed = vmo::create(PAGE_SIZE, vmo::VmoKind::Anon, &reach).ok();
-    let before_seal = unsealed.and_then(|raw| vmo::mint(raw, Rights::MAP)).is_some_and(|cap| {
-        sys_ctx.tasks.caps_of_mut(owner).is_some_and(|caps| caps.set(VMO_SLOT + 1, cap).is_ok())
+    let born = vmo::create(PAGE_SIZE, vmo::VmoKind::Anon, &reach).ok();
+    let unsealed = born.as_ref().map(|(raw, _)| *raw);
+    let before_seal = born.is_some_and(|(_, cap)| {
+        sys_ctx.tasks.caps_of_mut(owner).is_some_and(|mut caps| caps.set(VMO_SLOT + 1, cap).is_ok())
             && table.dispatch(
                 SYSCALL_EXEC_VMO,
                 &mut sys_ctx,
@@ -333,7 +348,7 @@ fn exec_refuses_unsealed_then_reaches_the_loader(ctx: &mut Context<'_>, id: u32)
         == Err(SysError::AddressSpace(crate::mm::AddressSpaceError::InvalidArgs));
     sys_ctx.tasks.set_current(Pid::KERNEL);
     // The capabilities go before their objects: an object is not destroyed under one.
-    if let Some(caps) = sys_ctx.tasks.caps_of_mut(owner) {
+    if let Some(mut caps) = sys_ctx.tasks.caps_of_mut(owner) {
         let _ = caps.take(VMO_SLOT);
         let _ = caps.take(VMO_SLOT + 1);
     }

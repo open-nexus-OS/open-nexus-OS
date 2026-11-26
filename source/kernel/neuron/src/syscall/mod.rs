@@ -152,7 +152,7 @@ pub const SYSCALL_MM_STATS: usize = 61;
 pub const SYSCALL_IPC_RECV_V1: usize = 18;
 /// Create a new kernel IPC endpoint and return a capability slot for it (privileged; RFC-0005).
 pub const SYSCALL_IPC_ENDPOINT_CREATE: usize = 19;
-/// Drops a capability slot; if the capability has `Rights::MANAGE` and is an endpoint, closes it.
+/// Drops a capability slot and judges its object (RFC-0100 §1); no kernel lock.
 pub const SYSCALL_CAP_CLOSE: usize = 20;
 /// Closes a kernel IPC endpoint referenced by a capability slot with `Rights::MANAGE`.
 pub const SYSCALL_IPC_ENDPOINT_CLOSE: usize = 21;
@@ -323,6 +323,14 @@ impl From<mm::vm_ops::VmOpError> for Error {
             mm::vm_ops::VmOpError::Va(err) => Self::Va(err),
             mm::vm_ops::VmOpError::Map(err) => {
                 Self::AddressSpace(mm::AddressSpaceError::Mapping(err))
+            }
+            // The object refused its mapper (gone, sealed against a writer, unlocked): the
+            // errno a capability check gives. The heap's refusal is the region table's.
+            mm::vm_ops::VmOpError::Object(mm::vmo::mapping::MapRefusal::Heap) => {
+                Self::Va(crate::va_space::VaError::TableFull)
+            }
+            mm::vm_ops::VmOpError::Object(_) => {
+                Self::Capability(crate::cap::CapError::PermissionDenied)
             }
         }
     }

@@ -85,11 +85,24 @@ pub(crate) struct CopyPlan {
     pub len: usize,
     /// Executable pages were entered: issue `fence.i` after the run.
     pub fence_i: bool,
+    /// The image's capability, held while the plan lives: the copy reads the image's frames
+    /// with the kernel lock dropped.
+    image: Option<super::pinned::Pinned>,
 }
 
 impl CopyPlan {
     pub(crate) const fn new() -> Self {
-        Self { ops: [CopyOp { src: 0, dst: 0, len: 0 }; MAX_COPY_OPS], len: 0, fence_i: false }
+        Self {
+            ops: [CopyOp { src: 0, dst: 0, len: 0 }; MAX_COPY_OPS],
+            len: 0,
+            fence_i: false,
+            image: None,
+        }
+    }
+
+    /// The plan copies out of the object `pinned` holds: held until the plan is dropped.
+    pub(super) fn hold(&mut self, pinned: super::pinned::Pinned) {
+        self.image = Some(pinned);
     }
 
     pub(super) fn push(&mut self, op: CopyOp) -> Result<(), Error> {
@@ -228,9 +241,10 @@ pub(crate) fn load_image(
                     return Err(invalid());
                 }
                 let runs = vmo_runs_in(vmo, p_offset, file_pages)?;
-                let space = spaces.get_mut(as_handle)?;
-                crate::mm::vm_ops::map_runs_at(space, p_vaddr, &runs, flags, vmo, p_offset)
+                let mut space = spaces.get(as_handle)?;
+                crate::mm::vm_ops::map_runs_at(&mut space, p_vaddr, &runs, flags, vmo, p_offset)
                     .map_err(Error::from)?;
+                drop(space);
                 loaded.shared_pages += file_pages / PAGE_SIZE;
                 if flags.contains(PageFlags::EXECUTE) {
                     plan.fence_i = true;
@@ -335,11 +349,12 @@ pub(crate) fn exec_vmo_phase_a(
             .derive(0, Rights::SEND)
             .map_err(|_| Error::Capability(CapError::PermissionDenied))?;
     }
-    let cap = ctx.tasks.current_caps_mut().derive(typed.vmo_slot, Rights::MAP)?;
-    let vmo = match cap.kind {
-        CapabilityKind::Vmo { id, .. } | CapabilityKind::VmoRo { id, .. } => id,
-        _ => return Err(Error::Capability(CapError::PermissionDenied)),
+    let pinned =
+        super::pinned::pin(&ctx.tasks.current_caps_mut(), typed.vmo_slot, Rights::MAP, "exec")?;
+    let Some((vmo, ..)) = pinned.object() else {
+        return Err(Error::Capability(CapError::PermissionDenied));
     };
+    plan.hold(pinned);
     if !crate::mm::vmo::is_sealed(vmo) {
         // ADR-0080: only a sealed object — one no writer can reach — becomes a process.
         log_error!(target: "exec", "EXEC-REFUSED reason=unsealed vmo={}", vmo);
@@ -486,7 +501,7 @@ pub(crate) fn spawn_sealed(
             vmo,
             shared_pages,
             copied_pages,
-            crate::mm::vm_ops::spaces_mapping_vmo(ctx.address_spaces, vmo)
+            crate::mm::vmo::mapping::spaces(vmo)
         );
         // Success: the frames are the task's (teardown returns them). `take` leaves the outer
         // record empty, so the error path below cannot double-free.

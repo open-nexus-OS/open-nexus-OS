@@ -104,6 +104,38 @@ pub fn sends_by_hart() -> [u64; HART_SLOTS] {
     core::array::from_fn(|i| SENDS_BY_HART[i].load(Ordering::Relaxed))
 }
 
+/// Completed `ipc_call` round trips by the hart the call was made on (TASK-0330 P2: the IPC
+/// call budget on every hart, from the calls the system makes — no probe pinned anywhere):
+/// from the call's start to its answer, in the caller's frame or its own collect. The server's
+/// work is part of it, so a hart's fastest is its cheapest exchange — the path's cost when
+/// one of its calls asked for nothing.
+static CALL_FASTEST_NS: [AtomicU64; HART_SLOTS] = [const { AtomicU64::new(u64::MAX) }; HART_SLOTS];
+static CALL_SUM_NS: [AtomicU64; HART_SLOTS] = [const { AtomicU64::new(0) }; HART_SLOTS];
+static CALL_COUNT: [AtomicU64; HART_SLOTS] = [const { AtomicU64::new(0) }; HART_SLOTS];
+
+/// One call's round trip of `ns`, made on `hart`.
+#[inline]
+pub fn record_call_round_trip(hart: usize, ns: u64) {
+    let i = hart.min(HART_SLOTS - 1);
+    CALL_FASTEST_NS[i].fetch_min(ns, Ordering::Relaxed);
+    CALL_SUM_NS[i].fetch_add(ns, Ordering::Relaxed);
+    CALL_COUNT[i].fetch_add(1, Ordering::Relaxed);
+}
+
+/// The window's call round trips by hart: the fastest and the mean in microseconds, and how
+/// many (a hart without calls reads 0, 0, 0).
+pub fn call_round_trips_us() -> ([u64; HART_SLOTS], [u64; HART_SLOTS], [u64; HART_SLOTS]) {
+    let n: [u64; HART_SLOTS] = core::array::from_fn(|i| CALL_COUNT[i].load(Ordering::Relaxed));
+    let fastest = core::array::from_fn(|i| match n[i] {
+        0 => 0,
+        _ => CALL_FASTEST_NS[i].load(Ordering::Relaxed) / 1_000,
+    });
+    let mean = core::array::from_fn(|i| {
+        CALL_SUM_NS[i].load(Ordering::Relaxed).checked_div(n[i]).unwrap_or(0) / 1_000
+    });
+    (fastest, mean, n)
+}
+
 /// One payload allocation of `bytes` (a zero-length payload allocates nothing
 /// and is not counted).
 #[inline]
@@ -170,8 +202,11 @@ pub fn reset() {
     {
         c.store(0, Ordering::Relaxed);
     }
-    for b in PAYLOAD_HIST.iter().chain(&SENDS_BY_HART) {
+    for b in PAYLOAD_HIST.iter().chain(&SENDS_BY_HART).chain(&CALL_SUM_NS).chain(&CALL_COUNT) {
         b.store(0, Ordering::Relaxed);
+    }
+    for f in &CALL_FASTEST_NS {
+        f.store(u64::MAX, Ordering::Relaxed);
     }
     CALLS_IN_REGS.store(0, Ordering::Relaxed);
 }
@@ -201,5 +236,18 @@ mod tests {
         reset();
         assert_eq!(report(), IpcStats::default());
         assert_eq!(sends_by_hart(), [0; HART_SLOTS]);
+
+        // A call's round trip lands on the hart it was made on: the fastest, the mean and the
+        // count; a hart without calls reads zero, one past the report's width shares the last
+        // slot. (In this test: the counters are global, and the test harness runs in parallel.)
+        record_call_round_trip(1, 61_000);
+        record_call_round_trip(1, 69_000);
+        record_call_round_trip(99, 40_000);
+        let (fastest, mean, n) = call_round_trips_us();
+        assert_eq!((fastest[1], mean[1], n[1]), (61, 65, 2));
+        assert_eq!((fastest[0], mean[0], n[0]), (0, 0, 0));
+        assert_eq!((fastest[HART_SLOTS - 1], n[HART_SLOTS - 1]), (40, 1));
+        reset();
+        assert_eq!(call_round_trips_us(), ([0; HART_SLOTS], [0; HART_SLOTS], [0; HART_SLOTS]));
     }
 }

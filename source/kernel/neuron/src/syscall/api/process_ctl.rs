@@ -65,8 +65,7 @@ pub(super) fn sys_task_squeeze(ctx: &mut Context<'_>, args: &Args) -> SysResult<
     let handle = ctx.tasks.task(pid).and_then(|t| t.address_space()).ok_or(Error::InvalidTarget)?;
     let allowed = squeezable(ctx, handle)?;
     let mut batch = Batch::default();
-    let space = ctx.address_spaces.get_mut(handle)?;
-    let next = crate::mm::squeeze::run(space, from_va, &allowed, &mut batch);
+    let next = crate::mm::squeeze::run(ctx.address_spaces, handle, from_va, &allowed, &mut batch);
     // Through the caller's page table: the boot proof drives this from the kernel's own space.
     super::user_copy::write_user(ctx, out_ptr, &batch.encode())?;
     Ok(next)
@@ -79,7 +78,8 @@ pub(super) fn squeezable(
     ctx: &Context<'_>,
     handle: crate::mm::AsHandle,
 ) -> SysResult<alloc::vec::Vec<u32>> {
-    let regions = ctx.address_spaces.get(handle)?.va_space().regions();
+    // A copy: the walk below asks every space (this one too) and the capability tables.
+    let regions = ctx.address_spaces.get(handle)?.va_space().regions().to_vec();
     let mut allowed = alloc::vec::Vec::new();
     for region in regions.iter().filter(|r| r.lazy) {
         let id = region.vmo;
@@ -87,7 +87,7 @@ pub(super) fn squeezable(
             continue;
         }
         let here = regions.iter().filter(|r| r.vmo == id).count();
-        let elsewhere = crate::mm::vm_ops::spaces_mapping_vmo(ctx.address_spaces, id) > 1;
+        let elsewhere = crate::mm::vmo::mapping::spaces(id) > 1;
         let named = ctx.tasks.vmo_named_outside(handle, id);
         let facts = crate::mm::vmo::squeeze::facts(id, here, elsewhere, named);
         if facts.is_some_and(|f| crate::vmo_lifetime::squeeze_allowed(&f).is_ok()) {

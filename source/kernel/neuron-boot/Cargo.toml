@@ -12,6 +12,8 @@ trap_ring = ["neuron/trap_ring"]
 trap_symbols = ["neuron/trap_symbols"]
 debug_uart = ["neuron/debug_uart"]
 ipc_trace_ring = ["neuron/ipc_trace_ring"]
+selftest_kernel_fault = ["neuron/selftest_kernel_fault"]
+lock_rank_check = ["neuron/lock_rank_check"]
 
 [[bin]]
 name = "neuron-boot"
